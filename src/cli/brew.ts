@@ -105,7 +105,7 @@ interface Running {
 }
 
 /** The attempts of `batch` that run now. */
-const runningAttempts = (batch: Batch): Running[] =>
+export const runningAttempts = (batch: Batch): Running[] =>
   [...batch.steps.values()].flatMap(({ id, attempts }) =>
     [...attempts.values()]
       .filter((attempt) => attempt.phase === 'started' && attempt.abandoned !== true)
@@ -116,7 +116,7 @@ const runningAttempts = (batch: Batch): Running[] =>
   );
 
 /** `ms` as whole seconds, and minutes from one: `30s`, `1m 0s`. */
-const elapsed = (ms: number): string => {
+export const elapsed = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };

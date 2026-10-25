@@ -83,6 +83,29 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
 /**
+ * A batch's cells in `foedrum status`: its id, order, lane, and what it does, with the owner of an
+ * `interactive` driver that holds it (ADR 0123) and what its attempts took.
+ */
+export const statusRow = (
+  state: State,
+  batch: Batch,
+  interactive: ReadonlyMap<string, string> = new Map(),
+): string[] => {
+  const { lane, detail } = describeLane(batch);
+  const owner = interactive.get(batch.id);
+  const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
+  // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
+  // with its code page.
+  const total = totalParts(batch).join(' / ');
+  return [
+    batch.id,
+    orderName(state, batch),
+    lane,
+    [detail, ...by, total].filter((part) => part !== '').join('; '),
+  ];
+};
+
+/**
  * What `foedrum status` prints: one line per batch, in the order they were ordered, with the
  * owner of an `interactive` driver that holds it (ADR 0123), then the `kept` lines of the
  * task-tree branches the cleanup keeps (ADR 0092).
@@ -94,20 +117,7 @@ export const formatStatus = (
 ): string => {
   const batches = [...state.batches.values()];
   if (batches.length === 0) return 'No batches.\n';
-  const rows = batches.map((batch) => {
-    const { lane, detail } = describeLane(batch);
-    const owner = interactive.get(batch.id);
-    const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
-    // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
-    // with its code page.
-    const total = totalParts(batch).join(' / ');
-    return [
-      batch.id,
-      orderName(state, batch),
-      lane,
-      [detail, ...by, total].filter((part) => part !== '').join('; '),
-    ];
-  });
+  const rows = batches.map((batch) => statusRow(state, batch, interactive));
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
   const after = kept.length === 0 ? [] : ['', ...kept];
   return `${[count, '', ...columns(rows), ...after].join('\n')}\n`;

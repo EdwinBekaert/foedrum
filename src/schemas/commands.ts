@@ -11,7 +11,11 @@ import { z } from './zod.ts';
 export const DoctorCommand = z.strictObject({ command: z.literal('doctor') });
 export type DoctorCommand = z.infer<typeof DoctorCommand>;
 
-export const StatusCommand = z.strictObject({ command: z.literal('status') });
+export const StatusCommand = z.strictObject({
+  command: z.literal('status'),
+  /** `--watch`: draw a board of the live batches until Ctrl+C (ADR 0188). */
+  watch: z.literal(true).optional(),
+});
 export type StatusCommand = z.infer<typeof StatusCommand>;
 
 export const StuckCommand = z.strictObject({ command: z.literal('stuck') });

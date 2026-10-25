@@ -33,10 +33,38 @@ export interface BoardTerminal {
 
 /** The board terminal over `stream` when the rule of ADR 0174 holds in `env`, else none. */
 export const boardTerminal = (
-  _stream: TerminalStream,
-  _env: Readonly<Record<string, string | undefined>>,
+  stream: TerminalStream,
+  env: Readonly<Record<string, string | undefined>>,
 ): BoardTerminal | undefined => {
-  throw new Error('not implemented');
+  if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
+  // The lines of the board on screen now: the cursor rests at the end of the last one.
+  let shown = 0;
+  return {
+    columns: () => stream.columns,
+    rows: () => stream.rows,
+    onResize: (handler) => {
+      stream.on('resize', handler);
+      return () => {
+        stream.off('resize', handler);
+      };
+    },
+    // Back up to the first line, then each line over the old one and clear what is left to its
+    // right, and everything below the last: never a blank frame between two boards (ADR 0179).
+    redraw: (lines) => {
+      if (shown > 1) stream.moveCursor(0, 1 - shown);
+      stream.cursorTo(0);
+      lines.forEach((line, i) => {
+        if (i > 0) stream.write('\n');
+        stream.write(line);
+        stream.clearLine(1);
+      });
+      stream.clearScreenDown();
+      shown = lines.length;
+    },
+    finish: () => {
+      stream.write('\n');
+    },
+  };
 };
 
 /** The live terminal, and the way every lasting line reaches it. */

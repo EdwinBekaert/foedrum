@@ -97,7 +97,7 @@ const define = <S extends z.ZodType>({
 });
 
 /** The Brewery's event store: `.foedrum/index.db` in its root. */
-const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
+export const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
 
 const done = (stdout: string): CliResult => ({ exitCode: 0, stdout, stderr: '' });
 
@@ -272,9 +272,12 @@ export const commands: readonly RegisteredCommand[] = [
     summary: 'List the batches and their lanes',
     changesState: false,
     positionals: [],
+    flags: ['watch'],
     schema: StatusCommand,
-    handler: async (_input, context) =>
-      readBrewery(
+    handler: async (input, context) => {
+      // A board on the terminal, run by it as brew's live line is (ADR 0188).
+      if (input.watch === true) return context.watch();
+      return readBrewery(
         'status',
         context,
         async (_events, state, store) => {
@@ -293,7 +296,8 @@ export const commands: readonly RegisteredCommand[] = [
         },
         // A fresh Brewery: serve and brew make the store when they first start.
         done('No batches yet.\n'),
-      ),
+      );
+    },
   }),
   define({
     name: 'stuck',
