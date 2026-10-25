@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { BreweryFiles } from '../engine/recipe-files.ts';
 import type { DenylistState } from '../platform/denylist.ts';
 import { withoutGitHubTokens } from '../platform/env.ts';
+import { awakeMechanism } from '../platform/keep-awake.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import {
   type CommandRun,
@@ -134,6 +135,12 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     node: shell.node,
     tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
     github: { host, login, credentials },
+    // Found on PATH, never run: starting it would hold the machine awake (ADR 0195).
+    keepAwake: awakeMechanism({
+      platform: shell.platform,
+      resolve,
+      env: shell.env ?? process.env,
+    }),
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(restrictsUserns === undefined ? {} : { restrictsUserns }),
     ...(config === undefined ? {} : { config }),

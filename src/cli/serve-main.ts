@@ -9,6 +9,7 @@ import { homedir, release } from 'node:os';
 import { join } from 'node:path';
 import { readBreweryFiles, readHouseYeast } from '../engine/brewery-files.ts';
 import { resolveExecutable } from '../platform/executables.ts';
+import { awakeMechanism } from '../platform/keep-awake.ts';
 import { execProcess } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { diagnose, githubHostOfConfig } from './doctor.ts';
@@ -16,7 +17,7 @@ import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
 import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
 import { type ServeSetup, serveSetup } from './serve-config.ts';
-import { listenWhileServing, serveShell } from './serve-shell.ts';
+import { listenWhileServing, type ServeShellOptions, serveShell } from './serve-shell.ts';
 
 const readIfThere = (path: string): string | undefined =>
   existsSync(path) ? readFileSync(path, 'utf8') : undefined;
@@ -68,6 +69,18 @@ export const readServeSetup = async (
 };
 
 /**
+ * This machine's way to stay awake while an attempt runs, found through `resolve`, and this
+ * process for the helper to watch (ADR 0195).
+ */
+export const thisMachineAwake = (
+  options?: StartOptions,
+): NonNullable<ServeShellOptions['keepAwake']> => {
+  const { resolve = resolveExecutable } = options ?? {};
+  const mechanism = awakeMechanism({ platform: process.platform, resolve, env: process.env });
+  return { mechanism, pid: process.pid };
+};
+
+/**
  * Runs the Cellar in the Brewery checkout `cwd` until Ctrl+C. Its starting facts, gh's login among
  * them, come through `exec` and `resolve`, default the real runner and PATH; a test gives fakes.
  */
@@ -87,6 +100,7 @@ export const serveFromCheckout = async (
       git: runGit,
       out: (line) => process.stdout.write(`${line}\n`),
       listen: listening.listen,
+      keepAwake: thisMachineAwake(options),
     });
     return { exitCode: await runServe(setup, shell), stdout: '', stderr: '' };
   } finally {

@@ -26,5 +26,11 @@ export const LocalConfig = z.strictObject({
     .record(Repo, AbsolutePath)
     .default({})
     .describe("The user's clone of each target repository, by owner/name"),
+  keepAwake: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether brew and serve keep this machine awake while an attempt runs; before foedrum.jsonc's, default true (ADR 0195)",
+    ),
 });
 export type LocalConfig = z.infer<typeof LocalConfig>;

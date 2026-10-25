@@ -2,6 +2,8 @@
 // platform's built-in way, held by a helper process that watches Foedrum's process id, so a killed
 // Foedrum lets the hold go. Only the idle timer is held off; the display may still turn off.
 
+import { win32 } from 'node:path';
+import { environmentVariable } from './executables.ts';
 import type { ExecProcess } from './processes.ts';
 
 /** How this machine can be kept awake, or why it cannot. */
@@ -18,12 +20,38 @@ export interface AwakeMechanismInputs {
   platform: NodeJS.Platform;
   /** The file a command name runs, or `undefined` when it is not on PATH. */
   resolve: (name: string) => string | undefined;
-  env: Readonly<Record<string, string | undefined>>;
+  env: NodeJS.ProcessEnv;
 }
 
 /** The mechanism this machine has: a program found by its full path, or none with why. */
-export const awakeMechanism = (_inputs: AwakeMechanismInputs): AwakeMechanism => {
-  throw new Error('not implemented');
+export const awakeMechanism = ({
+  platform,
+  resolve,
+  env,
+}: AwakeMechanismInputs): AwakeMechanism => {
+  switch (platform) {
+    case 'win32': {
+      // By its full path, as the Job Object helper is (ADR 0039): never through PATH.
+      const root = environmentVariable(env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows';
+      const program = win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      return { kind: 'SetThreadExecutionState', program };
+    }
+    case 'darwin': {
+      const program = resolve('caffeinate');
+      return program === undefined
+        ? { kind: 'none', why: 'no caffeinate on PATH' }
+        : { kind: 'caffeinate', program };
+    }
+    case 'linux': {
+      const program = resolve('systemd-inhibit');
+      if (program === undefined) return { kind: 'none', why: 'no systemd-inhibit on PATH' };
+      const tail = resolve('tail');
+      if (tail === undefined) return { kind: 'none', why: 'no tail on PATH' };
+      return { kind: 'systemd-inhibit', program, tail };
+    }
+    default:
+      return { kind: 'none', why: `Foedrum knows no way on ${platform}` };
+  }
 };
 
 /** The helper's program and arguments, started with no shell. */
@@ -32,12 +60,65 @@ export interface AwakeCommand {
   args: string[];
 }
 
+// The Windows helper: SetThreadExecutionState through a P/Invoke method emitted in memory, as the
+// Job Object helper calls kernel32 (Add-Type would compile C# into the temp folder), with no
+// cmdlet, so no module loads (#177). The request lasts as long as this thread, which then waits
+// on Foedrum's process; when that process is gone, or the helper is killed, the request ends.
+const windowsHelper = (pid: number): string =>
+  [
+    "$PSModuleAutoLoadingPreference = 'None'",
+    "$ErrorActionPreference = 'Stop'",
+    "$module = [AppDomain]::CurrentDomain.DefineDynamicAssembly([Reflection.AssemblyName]::new('FoedrumKeepAwake'), 'Run').DefineDynamicModule('FoedrumKeepAwake')",
+    "$type = $module.DefineType('Kernel32', 'Public,Class')",
+    '$dllImport = [Runtime.InteropServices.DllImportAttribute]',
+    "$import = [Reflection.Emit.CustomAttributeBuilder]::new($dllImport.GetConstructor([string]), [object[]]@('kernel32.dll'))",
+    "$type.DefineMethod('SetThreadExecutionState', 'Public,Static,PinvokeImpl', [uint32], [Type[]]@([uint32])).SetCustomAttribute($import)",
+    '$k = $type.CreateType()',
+    // In decimal: Windows PowerShell reads the hex literal as a negative Int32.
+    '# ES_CONTINUOUS | ES_SYSTEM_REQUIRED = 0x80000001; never ES_DISPLAY_REQUIRED',
+    'if ($k::SetThreadExecutionState([uint32]2147483649) -eq 0) { exit 1 }',
+    `[Diagnostics.Process]::GetProcessById(${pid}).WaitForExit()`,
+  ].join('\n');
+
 /** The helper that holds the machine awake until the process `pid` ends; none without a mechanism. */
-export const awakeCommand = (
-  _mechanism: AwakeMechanism,
-  _pid: number,
-): AwakeCommand | undefined => {
-  throw new Error('not implemented');
+export const awakeCommand = (mechanism: AwakeMechanism, pid: number): AwakeCommand | undefined => {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error(`not a process id: ${pid}`);
+  switch (mechanism.kind) {
+    case 'SetThreadExecutionState':
+      return {
+        file: mechanism.program,
+        // An encoded command, which no execution policy blocks and no quoting can break.
+        args: [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          Buffer.from(windowsHelper(pid), 'utf16le').toString('base64'),
+        ],
+      };
+    case 'caffeinate':
+      return { file: mechanism.program, args: ['-i', '-w', String(pid)] };
+    case 'systemd-inhibit':
+      return {
+        file: mechanism.program,
+        args: [
+          '--what=idle:sleep',
+          '--who=foedrum',
+          '--why=foedrum brewing',
+          '--mode=block',
+          mechanism.tail,
+          `--pid=${pid}`,
+          '-f',
+          '/dev/null',
+        ],
+      };
+    case 'none':
+      return undefined;
+    default: {
+      const unknown: never = mechanism;
+      throw new Error(`unknown keep-awake mechanism ${JSON.stringify(unknown)}`);
+    }
+  }
 };
 
 /** What `brew` and `serve` tell the hold: attempts that start and end, and their own end. */
@@ -56,7 +137,43 @@ export interface KeepAwakeOptions {
   cwd: string;
 }
 
+// The helpers print nothing; anything past this is not theirs to say, and stops them.
+const HELPER_OUTPUT_BYTES = 64 * 1024;
+
 /** Holds the machine awake from the first running attempt until none runs, or until `release`. */
-export const keepAwake = (_options: KeepAwakeOptions): AwakeHold => {
-  throw new Error('not implemented');
+export const keepAwake = ({ command, exec, cwd }: KeepAwakeOptions): AwakeHold => {
+  let running = 0;
+  let released = false;
+  // The helper that holds the machine now, stopped through its signal with its whole tree.
+  let helper: AbortController | undefined;
+  const stop = (): void => {
+    helper?.abort();
+    helper = undefined;
+  };
+  return {
+    attemptStarted: () => {
+      running++;
+      if (command === undefined || released || helper !== undefined) return;
+      const started = new AbortController();
+      helper = started;
+      // A helper that ended on its own is started again by the next attempt.
+      const ended = (): void => {
+        if (helper === started) helper = undefined;
+      };
+      // No deadline: it holds until no attempt runs, the command ends, or Foedrum's process does.
+      void exec(command.file, command.args, {
+        cwd,
+        signal: started.signal,
+        maxOutputBytes: HELPER_OUTPUT_BYTES,
+      }).then(ended, ended);
+    },
+    attemptEnded: () => {
+      running = Math.max(0, running - 1);
+      if (running === 0) stop();
+    },
+    release: () => {
+      released = true;
+      stop();
+    },
+  };
 };

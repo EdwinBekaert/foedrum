@@ -117,8 +117,8 @@ export interface ServeSetup {
   unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */
   brewerEnv: { base: Env; forced: Env };
-  /** Whether the machine is kept awake while an attempt runs (ADR 0195); absent, it is. */
-  keepAwake?: boolean;
+  /** Whether the machine is kept awake while an attempt runs (ADR 0195). */
+  keepAwake: boolean;
 }
 
 export type ServeSetupResult =
@@ -385,6 +385,8 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         base: brewerBaseEnv(env, platform),
         forced: brewerForcedEnv(),
       },
+      // This machine's word before the Brewery's (ADR 0195).
+      keepAwake: local?.keepAwake ?? config.keepAwake ?? true,
     },
   };
 };

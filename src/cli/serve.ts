@@ -266,5 +266,6 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     await polling;
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
     closeOpened(opened);
+    shell.awake?.release();
   }
 };
