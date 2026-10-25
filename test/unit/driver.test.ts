@@ -1869,6 +1869,15 @@ describe('openDriver', () => {
         );
       });
 
+      it('does not tell the runner a session can be resumed when its worktree manager cannot recreate one', async () => {
+        const { runner } = handRunner();
+        const { recreate: _, ...manager } = fakeWorktrees();
+        order('b1');
+        const { driver, given } = await openFresh(manager, runner);
+        await driver.drive();
+        assert.deepStrictEqual(given, [defaultLimits]);
+      });
+
       // A fresh attempt would meet the same budget.
       it('fails the retry not retryably, with why, when the session cannot be resumed', async () => {
         const { runner, end, started: ran } = handRunner();
