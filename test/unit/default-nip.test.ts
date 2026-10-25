@@ -66,7 +66,8 @@ describe('the default Nip', () => {
       implement: [behave.blocked('findings', 'The test expects the wrong slug'), done],
       fine: [done, done],
       green: [done],
-      taste: [done],
+      correctness: [done],
+      acceptance: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -78,7 +79,8 @@ describe('the default Nip', () => {
       'implement',
       'fine',
       'green',
-      'taste',
+      'correctness',
+      'acceptance',
       'open-pull-request',
     ]);
   });
@@ -91,7 +93,8 @@ describe('the default Nip', () => {
       implement: [done, done],
       fine: [done, done],
       green: [behave.fail(false), done],
-      taste: [done],
+      correctness: [done],
+      acceptance: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -103,7 +106,8 @@ describe('the default Nip', () => {
       'implement',
       'fine',
       'green',
-      'taste',
+      'correctness',
+      'acceptance',
       'open-pull-request',
     ]);
   });
@@ -125,7 +129,8 @@ describe('the default Nip', () => {
         implement: [done, done],
         fine: [done, done],
         green: [behave.read([failing]), done],
-        taste: [done],
+        correctness: [done],
+        acceptance: [done],
         'open-pull-request': [done],
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));
@@ -192,7 +197,8 @@ describe('the default Nip', () => {
       implement: [done],
       fine: [done, done],
       green: [done],
-      taste: [done],
+      correctness: [done],
+      acceptance: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -203,7 +209,8 @@ describe('the default Nip', () => {
       'implement',
       'fine',
       'green',
-      'taste',
+      'correctness',
+      'acceptance',
       'open-pull-request',
     ]);
   });
@@ -253,16 +260,21 @@ describe('the default Nip', () => {
       'implement',
       'fine',
       'green',
-      'taste',
+      'correctness',
+      'acceptance',
       'open-pull-request',
     ]);
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
-    // After green, the Taster reviews through the correctness lens; its findings are advisory.
-    const taste = loaded.brewers.find('nip', 'taste');
-    assert.equal(taste?.brewer.name, 'taster');
-    assert.deepEqual([...(taste?.lenses?.keys() ?? [])], ['diff/correctness']);
-    assert.equal(taste?.blocking, false);
+    // After green, two Tasters review side by side, through the correctness and acceptance
+    // lenses; their findings are advisory (ADR 0168, ADR 0197).
+    assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), ['correctness', 'acceptance']);
+    for (const lens of ['correctness', 'acceptance']) {
+      const taste = loaded.brewers.find('nip', lens);
+      assert.equal(taste?.brewer.name, 'taster', lens);
+      assert.deepEqual([...(taste?.lenses?.keys() ?? [])], [`diff/${lens}`]);
+      assert.equal(taste?.blocking, false, lens);
+    }
     assert.deepEqual(loaded.checks.redProof('nip'), { id: 'red', of: 'gauge' });
     for (const path of [
       'defaults/recipes/nip.jsonc',
@@ -270,6 +282,8 @@ describe('the default Nip', () => {
       'defaults/brewers/cellarman.md',
       'defaults/brewers/finer.md',
       'defaults/brewers/taster.md',
+      'defaults/lenses/diff/correctness.md',
+      'defaults/lenses/diff/acceptance.md',
     ]) {
       assert.ok(loaded.defaults.includes(path), `${path} is not in ${loaded.defaults.join(', ')}`);
     }
@@ -296,9 +310,16 @@ describe('the default Nip', () => {
         // line, not what each step does.
         runner: fakeBrewerRunner(
           Object.fromEntries(
-            ['gauge', 'red', 'implement', 'fine', 'green', 'taste', 'open-pull-request'].map(
-              (id) => [id, [done]],
-            ),
+            [
+              'gauge',
+              'red',
+              'implement',
+              'fine',
+              'green',
+              'correctness',
+              'acceptance',
+              'open-pull-request',
+            ].map((id) => [id, [done]]),
           ),
         ),
         recipes: valid(loadRecipes(noFiles)).recipes,
@@ -324,7 +345,8 @@ describe('the default Nip', () => {
         'implement',
         'fine',
         'green',
-        'taste',
+        'correctness',
+        'acceptance',
         'open-pull-request',
       ]);
     } finally {
@@ -367,7 +389,8 @@ describe('the default Cellarman', () => {
         implement: [behave.writes(blocked), done],
         fine: [done],
         green: [done],
-        taste: [done],
+        correctness: [done],
+        acceptance: [done],
         'open-pull-request': [done],
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));

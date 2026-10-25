@@ -19,7 +19,15 @@ import { behave, fakeBrewerRunner, outDoc } from './fake-brewer-runner.ts';
 export const NIP_ORDER = {
   number: 1,
   title: 'Greet a visitor who gives no name',
-  body: 'greet("") should say "Hello, stranger!" instead of "Hello, !".',
+  body: [
+    'greet("") should say "Hello, stranger!" instead of "Hello, !".',
+    '',
+    '## What to build',
+    '',
+    '- [ ] `greet("")` returns "Hello, stranger!"',
+    '- [ ] a test pins it down',
+    '',
+  ].join('\n'),
   labels: ['recipe:nip'],
 };
 
@@ -58,8 +66,9 @@ export interface Scripted {
  * What each attempt of a step commits, by step id and then in the order the runner starts that
  * step's attempts in a batch (ADR 0139): the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not,
- * the Finer after each with nothing to simplify, and the Taster's advisory finding through the
- * correctness lens.
+ * the Finer after each with nothing to simplify, and Nip's two Tasters side by side (ADR 0197): an
+ * advisory finding through the correctness lens, and an approval through the acceptance lens,
+ * which finds both items of the order's checklist built.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   gauge: [
@@ -95,7 +104,7 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
     summary: 'Nothing to simplify in greet.mjs.',
     fining: { unchanged: 'greet is one expression, and the change reuses nothing it repeats' },
   })),
-  taste: [
+  correctness: [
     {
       files: {},
       message: '',
@@ -112,6 +121,14 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
           },
         ],
       },
+    },
+  ],
+  acceptance: [
+    {
+      files: {},
+      message: '',
+      summary: 'Both items of What to build are built: greet.mjs:2 and greet.test.mjs:10.',
+      tasting: { verdict: 'approve', findings: [] },
     },
   ],
 };
