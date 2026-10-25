@@ -359,6 +359,9 @@ describe('unlinked (ADR 0167)', () => {
   it('pairs no span on a line with a < or around a | (ADR 0184)', () => {
     assert.equal(unlinked('<b title="`">@ann`</b>'), '<b title="`">ann`</b>');
     assert.equal(unlinked('| `a | @ann` |'), '| `a | ann` |');
+    // GitHub pairs `a|b` outside a table, so what follows it on the line is read as text.
+    assert.equal(unlinked('`a|b` @x `c` `@y`'), '`a|b` x `c` `y`');
+    assert.equal(unlinked('`@x` `a|b`\n`@y`'), '`@x` `a|b`\n`@y`');
   });
 
   it('keeps a closing keyword and a character reference inside a span (ADR 0184)', () => {
