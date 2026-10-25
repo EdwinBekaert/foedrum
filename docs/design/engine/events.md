@@ -37,6 +37,7 @@ This table says what each one records.
 | `batch.cancelled` | A cancel, with `by` and `via` |
 | `batch.taken_over` | A person handed the batch from driver `from` to `to`; no effect before `until`; `resumes` names the step whose session `to` continues, whose run `from` stops ([ADR 0127](../../adr/0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md), [ADR 0124](../../adr/0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md)) |
 | `pull_request.ended` | A pull request merged or closed, recorded once, by the intake |
+| `pull_request.base_checked` | How an open pull request merges with its base's tip that moved: the tip and the conflicting files ([open pull requests](../intake/open-pull-requests.md)) |
 | `effect.applied` | The idempotency ledger for external side effects ([the event store](event-store.md)) |
 
 `Surface` is `plugin`, `terminal`, `comment` or `dashboard`.
