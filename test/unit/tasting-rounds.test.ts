@@ -484,6 +484,6 @@ describe('a later tasting round (#500, ADR 0190)', () => {
         ? { code: null, stdout: '', stderr: '', killed: 'timed-out' }
         : answers(cwd, args, options);
     const late = await planRound(ROUND_TWO, 2, { git: killed });
-    assert.match(late.prompt, /could not be read: git merge-base exited with code null\./);
+    assert.match(late.prompt, /could not be read: git merge-base was killed \(timed-out\)\./);
   });
 });
