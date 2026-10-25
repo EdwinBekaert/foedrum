@@ -180,11 +180,11 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     fallback: string | undefined,
     parse: (answer: string) => Parsed<T> | Promise<Parsed<T>>,
   ): Promise<T> => {
-    const shown = `${question}${fallback === undefined || fallback === '' ? '' : ` [${fallback}]`}: `;
+    const shown = `${question}${fallback ? ` [${fallback}]` : ''}: `;
     for (;;) {
       const answer = await ports.ask(shown);
       if (answer === undefined) throw new NoAnswer(question);
-      const parsed = await parse(answer.trim() === '' ? (fallback ?? '') : answer.trim());
+      const parsed = await parse(answer.trim() || (fallback ?? ''));
       if ('value' in parsed) return parsed.value;
       say(`  ${parsed.refused}`);
     }
