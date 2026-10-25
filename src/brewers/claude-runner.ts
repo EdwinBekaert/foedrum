@@ -43,6 +43,7 @@ import type { GravityReading } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
+import type { AttemptSystemPrompt } from './attempt-plan.ts';
 import {
   type AttemptPermissions,
   attemptSettings,
@@ -64,6 +65,11 @@ export interface ClaudeAttemptPlan {
   permissions: AttemptPermissions;
   /** Where the runner writes the attempt's settings file. */
   settingsFile: string;
+  /**
+   * The engine's fixed rules, which the runner writes to their file and passes with
+   * `--append-system-prompt-file` (ADR 0183); every plan `planAttempt` makes has them.
+   */
+  systemPrompt?: AttemptSystemPrompt;
   /**
    * For a brewer that produces commits: the clone its worktree was added to and the attempt's
    * branch, where its commits are counted, never what its worktree says (ADR 0074).
@@ -96,6 +102,8 @@ export interface ClaudeRunnerDeps {
   setup?: ExecProcess;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
+    /** Writes the attempt's system prompt file (ADR 0183). */
+    writeSystemPrompt: (file: string, text: string) => void;
     /** Reads the out doc only inside `root`, the worktree. */
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
     /**
@@ -180,6 +188,11 @@ export function readOutDocFile(
   } catch (error) {
     return { kind: 'unread', reason: messageOf(error) };
   }
+}
+
+/** Writes an attempt's system prompt file (ADR 0183). */
+export function writeSystemPromptFile(_file: string, _text: string): void {
+  throw new Error('not implemented');
 }
 
 /**
@@ -516,6 +529,7 @@ export function claudeBrewerRunner(
     stream: streamProcess,
     files: {
       writeSettings: writeAttemptSettings,
+      writeSystemPrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
     },

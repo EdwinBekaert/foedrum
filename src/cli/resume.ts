@@ -54,6 +54,8 @@ export interface ResumeShell {
   sessionFound: (id: string) => boolean;
   /** Writes an attempt's settings file, making its folder. */
   writeSettings: (file: string, settings: AttemptSettings) => void;
+  /** Writes an attempt's system prompt file beside its settings file (ADR 0183). */
+  writeSystemPrompt: (file: string, text: string) => void;
   /**
    * Whether this runs inside a Claude Code session (`CLAUDE_CODE_CHILD_SESSION=1`), which cannot
    * hand its terminal over, and whether stdin is a terminal.

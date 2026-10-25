@@ -24,6 +24,7 @@ import {
   clearOutDocFile,
   readOutDocFile,
   waitFor,
+  writeSystemPromptFile,
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt, type BrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptLimits, AttemptStart, CommitsSeen } from '../../src/engine/brewer-runner.ts';
@@ -120,6 +121,8 @@ const setup = (
   const calls: Call[] = [];
   const waits: number[] = [];
   const written: { file: string; settings: AttemptSettings }[] = [];
+  /** Each system prompt file written, with how many starts of claude came before it. */
+  const prompted: { file: string; text: string; starts: number }[] = [];
   const read: { file: string; maxBytes: number; root: string }[] = [];
   /** Each out doc cleared, with how many starts of claude came before it. */
   const cleared: { file: string; root: string; starts: number }[] = [];
@@ -146,6 +149,9 @@ const setup = (
     files: {
       writeSettings: (file, settings) => {
         written.push({ file, settings });
+      },
+      writeSystemPrompt: (file, text) => {
+        prompted.push({ file, text, starts: calls.length });
       },
       readOutDoc: (file, maxBytes, root = '') => {
         read.push({ file, maxBytes, root });
@@ -174,7 +180,16 @@ const setup = (
       return more.commits ?? { kind: 'counted', count: 1 };
     },
   };
-  return { calls, written, read, cleared, waits, counts, runner: claudeBrewerRunnerWith(deps) };
+  return {
+    calls,
+    written,
+    prompted,
+    read,
+    cleared,
+    waits,
+    counts,
+    runner: claudeBrewerRunnerWith(deps),
+  };
 };
 
 const exited = (code: number, stderr = ''): StreamResult => ({ exitCode: code, stderr });
@@ -1156,5 +1171,65 @@ describe('waitFor', () => {
       late,
     ]);
     assert.equal(first, 'now');
+  });
+});
+
+// ADR 0183: the engine's fixed rules reach claude as an appended system prompt file.
+describe('claudeBrewerRunner: the system prompt file (ADR 0183)', () => {
+  const settingsFile = '/work/attempt/settings.json';
+  const systemPrompt = {
+    file: '/work/attempt/settings.system.md',
+    text: '# Rules of this session\n',
+  };
+  const withRules = (kind: 'new' | 'resume'): ClaudeAttemptPlan => {
+    const planned = plan();
+    return {
+      ...planned,
+      call: { ...planned.call, session: { kind, id: session(1) } },
+      systemPrompt,
+    };
+  };
+
+  it('writes the file before claude starts and passes it with --append-system-prompt-file', async () => {
+    const { calls, prompted, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => withRules('new') },
+    );
+    await runner.start(attempt).ended;
+    assert.deepEqual(prompted, [{ ...systemPrompt, starts: 0 }]);
+    assert.deepEqual(
+      calls[0]?.args,
+      claudeArgs({
+        ...withRules('new').call,
+        settingsFile,
+        appendSystemPromptFile: systemPrompt.file,
+      }),
+    );
+  });
+
+  it('passes it to a session it resumes too, for the requests after a compaction', async () => {
+    const { calls, prompted, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => withRules('resume') },
+    );
+    await runner.start(attempt).ended;
+    assert.deepEqual(prompted, [{ ...systemPrompt, starts: 0 }]);
+    assert.deepEqual(calls[0]?.args.slice(-2), ['--append-system-prompt-file', systemPrompt.file]);
+    assert.ok(calls[0]?.args.includes('--resume'));
+  });
+});
+
+describe('writeSystemPromptFile (ADR 0183)', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('system-prompt');
+  });
+  afterEach(() => dir.remove());
+
+  it('writes the text as it is', () => {
+    const file = join(dir.path, '1.system.md');
+    const text = '# Rules of this session\n\n- Do not push.\n';
+    writeSystemPromptFile(file, text);
+    assert.equal(readFileSync(file, 'utf8'), text);
   });
 });

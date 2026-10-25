@@ -40,6 +40,8 @@ export interface ResumeCall {
   settingsFile: string;
   tools: readonly string[];
   sessionId: string;
+  /** The attempt's system prompt file (ADR 0183). */
+  appendSystemPromptFile?: string | undefined;
 }
 
 /** The arguments of an interactive `claude` that resumes an attempt's session. */

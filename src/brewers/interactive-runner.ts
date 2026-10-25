@@ -29,6 +29,7 @@ import {
   type OutDocRead,
   readOutDocFile,
   setUpFor,
+  writeSystemPromptFile,
 } from './claude-runner.ts';
 
 export interface InteractiveRunnerDeps {
@@ -55,6 +56,8 @@ export interface InteractiveRunnerDeps {
   platform: NodeJS.Platform;
   files: {
     writeSettings: (file: string, settings: AttemptSettings) => void;
+    /** Writes the attempt's system prompt file (ADR 0183). */
+    writeSystemPrompt: (file: string, text: string) => void;
     /** Reads the out doc only inside `root`, the worktree. */
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
     /** Removes the out doc a run before left, only inside `root` (ADR 0118). */
@@ -245,6 +248,7 @@ export function interactiveBrewerRunner(
     headless: headlessRunner(options.claude, options.setup),
     files: {
       writeSettings: writeAttemptSettings,
+      writeSystemPrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
     },

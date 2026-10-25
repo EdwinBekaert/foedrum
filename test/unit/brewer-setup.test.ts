@@ -323,6 +323,7 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
       ...(withExec ? { setup: exec } : {}),
       files: {
         writeSettings: () => {},
+        writeSystemPrompt: () => {},
         readOutDoc: () => ({ kind: 'text', text: outDoc({ status: 'done', summary: 'Planned' }) }),
         clearOutDoc: () => {},
       },

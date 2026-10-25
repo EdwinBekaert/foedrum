@@ -457,6 +457,26 @@ export function settingsFileOf(workRoot: string, ref: AttemptRef): string {
   return join(workRoot, 'attempt-settings', batchId, stepId, `${attempt}.json`);
 }
 
+/** The attempt's system prompt file, beside its settings file: `<attempt>.system.md` (ADR 0183). */
+export function systemPromptFileOf(_settingsFile: string): string {
+  throw new Error('not implemented');
+}
+
+/** An attempt's appended system prompt: its file and the engine's fixed rules (ADR 0183). */
+export interface AttemptSystemPrompt {
+  file: string;
+  text: string;
+}
+
+/** The engine's fixed rules for an attempt of `brewer` with the rules `allow` (ADR 0183). */
+export function attemptSystemPrompt(
+  _brewer: BrewerFrontmatter,
+  _allow: readonly string[],
+  _settingsFile: string,
+): AttemptSystemPrompt {
+  throw new Error('not implemented');
+}
+
 /** What an attempt of `brewer` may do: the permissions its settings file is written from. */
 export function attemptPermissions(
   brewer: BrewerFrontmatter,
