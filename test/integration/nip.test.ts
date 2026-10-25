@@ -319,6 +319,13 @@ describe('the Nip recipe end to end', () => {
     assert.doesNotMatch(promptOf(1), FAILED_READING);
     assert.match(promptOf(2), ROUTE);
     assert.match(promptOf(2), FAILED_READING);
+
+    // The acceptance Taster is given the order's checklist, which only the issue holds, and its
+    // lens (ADR 0197).
+    const acceptance =
+      prompts.get(attemptKey.encode({ batchId: BATCH, stepId: 'acceptance', attempt: 1 })) ?? '';
+    assert.match(acceptance, /- \[ \] a test pins it down/);
+    assert.match(acceptance, /# Lens: acceptance/);
   });
 });
 
