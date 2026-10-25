@@ -38,6 +38,7 @@ import {
   type Resumed,
   routeInput,
   routeOf,
+  scanRetryOf,
   settingsFileOf,
 } from './attempt-plan.ts';
 import type { ConfigDirs } from './attempt-settings.ts';
@@ -353,6 +354,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
       inputs.push(routeInput(route, read));
     }
+    // Its commits are gone: it writes what the scan named another way (ADR 0187).
+    const scanned = scanRetryOf(batch, ref);
+    if (scanned !== undefined) inputs.push(scanned);
     return rules === undefined ? { inputs } : { inputs, houseYeast: rules.record };
   };
 

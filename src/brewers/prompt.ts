@@ -72,7 +72,7 @@ function describeSource(source: InputSource): string {
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }
     case 'scan':
-      throw new Error('not implemented');
+      return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
     default: {
       const never: never = source;
       throw new Error(`Unknown input source ${JSON.stringify(never)}`);

@@ -380,10 +380,9 @@ export function scannedEnding(ending: Ending, scanned: CommitsScanned, since: st
         );
       const more = findings.length - named.length;
       const places = [...named, ...(more > 0 ? [`and ${more} more`] : [])].join('; ');
-      return failed(
-        true,
-        `the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): ${places}`,
-      );
+      // The mark tells its retry's plan why it runs.
+      const reason = `the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): ${places}`;
+      return { kind: 'failed', retryable: true, reason, secrets: true };
     }
     case 'unscanned': {
       const summary = `the commits since ${since.slice(0, 7)} were not scanned for secrets: ${scanned.reason}`;
