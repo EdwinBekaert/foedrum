@@ -119,8 +119,35 @@ describe('awakeCommand', () => {
     assert.doesNotMatch(script, /Add-Type/);
   });
 
+  it('passes ES_CONTINUOUS | ES_SYSTEM_REQUIRED to the call itself, and ends the helper when it is refused', () => {
+    const program = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const command = awakeCommand({ kind: 'SetThreadExecutionState', program }, 4242);
+    const script = Buffer.from(command?.args.at(-1) ?? '', 'base64').toString('utf16le');
+    // 0x80000001 in decimal: ES_DISPLAY_REQUIRED (0x2) would make it 2147483651.
+    assert.match(
+      script,
+      /^if \(\$k::SetThreadExecutionState\(\[uint32\]2147483649\) -eq 0\) \{ exit 1 \}$/m,
+    );
+  });
+
   it('starts nothing without a mechanism', () => {
     assert.equal(awakeCommand({ kind: 'none', why: 'no caffeinate on PATH' }, 4242), undefined);
+  });
+
+  it('refuses a process id that is not one', () => {
+    const caffeinate = { kind: 'caffeinate', program: '/usr/bin/caffeinate' } as const;
+    for (const pid of [0, -1, 1.5, Number.NaN]) {
+      assert.throws(() => awakeCommand(caffeinate, pid), /not a process id/);
+    }
+  });
+});
+
+describe('awakeMechanism without SystemRoot', () => {
+  it('takes Windows PowerShell from C:\\Windows when the environment names no SystemRoot', () => {
+    assert.deepStrictEqual(awakeMechanism({ platform: 'win32', resolve: onPath({}), env: {} }), {
+      kind: 'SetThreadExecutionState',
+      program: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    });
   });
 });
 
@@ -182,6 +209,21 @@ describe('keepAwake', () => {
     hold.attemptEnded();
     hold.attemptStarted();
     assert.deepStrictEqual([started.length, live()], [2, 1]);
+  });
+
+  it('keeps the helper it started again when the one it stopped reports its end late', async () => {
+    const { exec, started, live } = fakeExec();
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann' });
+    hold.attemptStarted();
+    hold.attemptEnded();
+    hold.attemptStarted();
+    // The first helper's end arrives now, after the second one started.
+    await new Promise((settle) => setImmediate(settle));
+    hold.attemptStarted();
+    assert.equal(started.length, 2);
+    hold.attemptEnded();
+    hold.attemptEnded();
+    assert.equal(live(), 0);
   });
 
   it('starts the helper again at the next attempt when it ended on its own', async () => {
