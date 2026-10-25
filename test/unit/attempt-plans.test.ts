@@ -300,6 +300,29 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it('tells a fresh retry after the secret scan why, last, with its inputs (ADR 0187)', async () => {
+    const second = { ...ref, attempt: 2 };
+    const reason =
+      "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 0123456789ab, GitHub token in test/keys.test.ts";
+    const events: Event[] = [
+      ...ordered,
+      started,
+      {
+        type: 'step.finished',
+        ...ref,
+        outcome: { kind: 'failed', retryable: true, reason, secrets: true },
+      },
+      { type: 'step.scheduled', ...second, deadlineAt: '2026-10-17T13:00:00.000Z', retry: true },
+      { ...started, attempt: 2 },
+    ];
+    const { plans } = setup(events);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    assert.match(
+      prompt,
+      /name="guide">[\s\S]*source="why step brew runs again: the secret scan of brew#1">\nThe secret scan failed the attempt before this one, brew#1: the attempt's commits hold what looks like a secret[^\n]*GitHub token in test\/keys\.test\.ts\n\nThis attempt starts where that one started, without its commits\.[^\n]*\n<\/untrusted-input-[0-9a-f]+>$/,
+    );
+  });
+
   describe('a resumed attempt (ADR 0117)', () => {
     const deadlineAt = '2026-10-17T13:00:00.000Z';
     const second = { ...ref, attempt: 2 };

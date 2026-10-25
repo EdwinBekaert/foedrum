@@ -385,6 +385,10 @@
                 "overran": {
                   "type": "string",
                   "const": "turns"
+                },
+                "secrets": {
+                  "type": "boolean",
+                  "const": true
                 }
               },
               "required": [

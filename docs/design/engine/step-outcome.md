@@ -5,7 +5,7 @@ Every step ends in one outcome, defined in [`src/schemas/step-outcome.ts`](../..
 | Kind | Carries |
 |---|---|
 | `succeeded` | the step's output |
-| `failed` | whether it is retryable, the reason, and `overran: "turns"` when a brewer's run went past its turn budget and its retry resumes the session ([ADR 0175](../../adr/0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)) |
+| `failed` | whether it is retryable, the reason, and `overran: "turns"` when a brewer's run went past its turn budget and its retry resumes the session ([ADR 0175](../../adr/0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)), and `secrets: true` when the secret scan found what the push would refuse in a `done` attempt's commits, so its retry is told why ([ADR 0187](../../adr/0187-a-committing-brewer-s-attempt-is-scanned-for-secrets-when-it-ends-done.md)) |
 | `needs_input` | the questions |
 | `cancelled` | nothing |
 

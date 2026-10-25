@@ -340,6 +340,7 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
         whileCounting?.();
         return { kind: 'counted', count: 1 };
       },
+      scan: async () => ({ kind: 'scanned', findings: [] }),
     });
     return { runner, order, setups };
   };

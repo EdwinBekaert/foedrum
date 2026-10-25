@@ -343,6 +343,29 @@ export function routeOf(
 
 const leftOutReason = '[left out: a reason that looks like a secret]';
 
+/**
+ * What a retry is told when the secret scan failed the attempt before it (ADR 0187): its reason,
+ * and to write that text another way; none for any other attempt.
+ */
+export function scanRetryOf(batch: Batch, ref: AttemptRef): PromptInput | undefined {
+  const step = batch.steps.get(ref.stepId);
+  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
+  const before = step.attempts.get(ref.attempt - 1);
+  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  const { reason, secrets } = before.outcome;
+  if (secrets !== true) return undefined;
+  // Engine text naming commit, kind and place only, but a path can still look like a secret.
+  const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
+  const name = `${ref.stepId}#${before.attempt}`;
+  return {
+    source: { kind: 'scan', step: ref.stepId, attempt: before.attempt },
+    text: [
+      `The secret scan failed the attempt before this one, ${name}: ${said}`,
+      "This attempt starts where that one started, without its commits. Write what the scan named so that it does not look like a secret: build a key-shaped value, such as a test fixture, at run time (['ghp', 'x'].join('_')), never as a literal.",
+    ].join('\n\n'),
+  };
+}
+
 /** A reading that did not pass, as the route input shows it: the check, how it ended, its tail. */
 function failedReading(reading: GravityReading): string[] {
   if (reading.result === 'skipped' || passed(reading)) return [];

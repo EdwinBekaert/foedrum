@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { devNull } from 'node:os';
 import { describe, it } from 'node:test';
-import { countCommits } from '../../src/workspace/attempt-commits-git.ts';
+import { countCommits, scanAttemptCommits } from '../../src/workspace/attempt-commits-git.ts';
 import { attemptBranch } from '../../src/workspace/attempt-worktrees.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
 
@@ -128,6 +128,112 @@ describe('countCommits', () => {
         reason: `${JSON.stringify(other)} is no attempt branch`,
       });
     }
+    assert.deepEqual(calls, []);
+  });
+});
+
+describe('scanAttemptCommits (ADR 0187)', () => {
+  // Built at run time, so no scanner takes this file for one that holds a token.
+  const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+  const OLD = 'a'.repeat(40);
+  const NEW = 'd'.repeat(40);
+  const TIP = 'e'.repeat(40);
+  /** The history of the attempt's branch, oldest first: what each commit adds to which file. */
+  const history = [
+    { sha: OLD, file: 'old.txt', added: token },
+    { sha: START, file: 'start.txt', added: 'start' },
+    { sha: NEW, file: 'keys.test.ts', added: 'const key = "plain";' },
+    { sha: TIP, file: 'tip.txt', added: 'tip' },
+  ];
+  type Commit = (typeof history)[number];
+  const header = ({ sha }: Commit) =>
+    `commit ${sha}\nauthor B <b@example.com> 1792484716 +0200\ncommitter B <b@example.com> 1792484716 +0200\n\n    Add\n`;
+  const patch = ({ sha, file, added }: Commit) =>
+    `\0${sha}\n\ndiff --git a/${file} b/${file}\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1 @@\n+${added}\n`;
+
+  /**
+   * A git over `commits`: the tip of the attempt's branch is the last one, and a log of
+   * `<tip> ^<since>` shows the commits after `since`, newest first, as git would.
+   */
+  const historyGit = (commits: readonly Commit[]) => {
+    const calls: { cwd: string; args: readonly string[]; options: GitOptions | undefined }[] = [];
+    const git: Git = async (cwd, args, options) => {
+      calls.push({ cwd, args, options });
+      const tip = commits.at(-1)?.sha ?? '';
+      if (args[0] === 'rev-parse') return ok(`${tip}\n`);
+      const since = args.find((arg) => arg.startsWith('^'))?.slice(1);
+      const from = commits.findIndex(({ sha }) => sha === since);
+      const shown = commits.slice(from + 1).reverse();
+      if (args[0] === 'rev-list') return ok('');
+      if (args[0] !== 'log') return exited(2, 'unexpected call');
+      if (args.includes('--patch')) return ok(shown.map(patch).join(''));
+      if (args.includes('--format=raw')) return ok(shown.map(header).join('\n'));
+      return ok(shown.map(({ sha }) => `\0${sha}\nAdd\n`).join(''));
+    };
+    return { git, calls };
+  };
+
+  it("scans the commits after the start to the tip of the attempt's branch, in the clone, as the push does", async () => {
+    const committed = [...history.slice(0, 2), { ...history[2], added: `const key = '${token}';` }];
+    const { git, calls } = historyGit(committed as Commit[]);
+    const signal = new AbortController().signal;
+    assert.deepEqual(await scanAttemptCommits(git)(clone, branch, START, signal), {
+      kind: 'scanned',
+      findings: [{ commit: NEW, place: 'keys.test.ts', kind: 'GitHub token' }],
+    });
+    assert.deepEqual(calls[0]?.args, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      '--end-of-options',
+      `refs/heads/${branch}^{commit}`,
+    ]);
+    const scans = calls.filter(({ args }) => args[0] === 'log');
+    assert.equal(scans.length, 3);
+    for (const { cwd, args, options } of scans) {
+      assert.equal(cwd, clone);
+      assert.deepEqual(args.slice(-3), ['--end-of-options', NEW, `^${START}`]);
+      // The push's environment: objects as committed, no transport (ADR 0079).
+      assert.equal(options?.env?.GIT_NO_REPLACE_OBJECTS, '1');
+      assert.equal(options?.config?.['protocol.allow'], 'never');
+      assert.equal(options?.signal, signal);
+    }
+  });
+
+  it("finds nothing in clean commits, and nothing in a commit before the attempt's start, which is not the attempt's", async () => {
+    const { git } = historyGit(history);
+    assert.deepEqual(await scanAttemptCommits(git)(clone, branch, START), {
+      kind: 'scanned',
+      findings: [],
+    });
+    // The same history scanned from before the old commit finds it: the start is what keeps it out.
+    assert.deepEqual(await scanAttemptCommits(git)(clone, branch, 'f'.repeat(40)), {
+      kind: 'scanned',
+      findings: [{ commit: OLD, place: 'old.txt', kind: 'GitHub token' }],
+    });
+  });
+
+  it('says why when git fails, never throwing, and runs no git for a start or branch it would read as an option', async () => {
+    const failing: Git = async (_cwd, args) =>
+      args[0] === 'rev-parse' ? ok(`${TIP}\n`) : exited(128, 'fatal: bad object\n');
+    assert.deepEqual(await scanAttemptCommits(failing)(clone, branch, START), {
+      kind: 'unscanned',
+      reason: 'git log failed: fatal: bad object',
+    });
+    const unresolved: Git = async () => exited(1);
+    assert.deepEqual(await scanAttemptCommits(unresolved)(clone, branch, START), {
+      kind: 'unscanned',
+      reason: `The revision refs/heads/${branch} is no commit in ${clone}`,
+    });
+    const { git, calls } = recordingGit({});
+    assert.deepEqual(await scanAttemptCommits(git)(clone, branch, '--output=x'), {
+      kind: 'unscanned',
+      reason: '--output=x is no full commit sha',
+    });
+    assert.deepEqual(await scanAttemptCommits(git)(clone, '--all', START), {
+      kind: 'unscanned',
+      reason: '"--all" is no attempt branch',
+    });
     assert.deepEqual(calls, []);
   });
 });

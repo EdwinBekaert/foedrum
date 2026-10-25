@@ -5,8 +5,11 @@ import {
   type AttemptLimits,
   type CommitsSeen,
   noteDenial,
+  scannedEnding,
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
+import type { Ending } from '../../src/engine/decide.ts';
+import { findSecrets } from '../../src/formats/secrets.ts';
 import { OutDocFrontmatter, outDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
 import { documentedSpendLimits, documentedUsageLimits } from '../fixtures/claude-usage-limits.ts';
@@ -470,5 +473,94 @@ describe('settleAttempt: a brewer that produces commits (ADR 0074)', () => {
 
   it('counts no commit for a brewer that does not produce them', () => {
     assert.deepStrictEqual(settleAttempt(facts({ commits: counted(0) }), limits), succeeded);
+  });
+});
+
+describe('scannedEnding: the secret scan of a done attempt with commits (ADR 0187)', () => {
+  const success: Ending = { kind: 'succeeded', output: succeeded.output };
+  const start = 'c0ffee0'.padEnd(40, '1');
+  const commit = (n: number) => String(n).repeat(40);
+  const finding = (n: number, place = `test/keys${n}.test.ts`, kind = 'GitHub token') => ({
+    commit: commit(n),
+    place,
+    kind,
+  });
+  const scanned = (...findings: ReturnType<typeof finding>[]) =>
+    ({ kind: 'scanned', findings }) as const;
+
+  it('keeps the success when the scan found nothing', () => {
+    assert.deepStrictEqual(scannedEnding(success, scanned(), start), success);
+  });
+
+  it('fails retryably on a finding, naming its commit by 12 characters, its kind and its place, and marks it for the retry', () => {
+    assert.deepStrictEqual(scannedEnding(success, scanned(finding(1)), start), {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 111111111111, GitHub token in test/keys1.test.ts",
+      secrets: true,
+    });
+  });
+
+  it('names the first three findings and counts the rest', () => {
+    const ending = scannedEnding(
+      success,
+      scanned(
+        finding(1),
+        finding(2, 'message', 'AWS access key id'),
+        finding(3),
+        finding(4),
+        finding(5),
+      ),
+      start,
+    );
+    assert.equal(
+      ending.kind === 'failed' ? ending.reason : '',
+      "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 111111111111, GitHub token in test/keys1.test.ts; commit 222222222222, AWS access key id in message; commit 333333333333, GitHub token in test/keys3.test.ts; and 2 more",
+    );
+  });
+
+  it('counts a single finding past the three it names, and names three without a count', () => {
+    const reasonOf = (count: number) => {
+      const findings = Array.from({ length: count }, (_, n) => finding(n + 1));
+      const ending = scannedEnding(success, scanned(...findings), start);
+      return ending.kind === 'failed' ? ending.reason : '';
+    };
+    assert.match(reasonOf(4), /GitHub token in test\/keys3\.test\.ts; and 1 more$/);
+    assert.match(reasonOf(3), /GitHub token in test\/keys3\.test\.ts$/);
+  });
+
+  it('gives a reason that does not itself look like a secret, so the status comment and the retry show it (ADR 0088)', () => {
+    const kinds = [
+      'GitHub token',
+      'credential assignment',
+      'long hexadecimal string',
+      'binary file',
+    ];
+    const ending = scannedEnding(
+      success,
+      scanned(...kinds.map((kind, n) => finding(n + 1, `src/f${n}.ts`, kind))),
+      start,
+    );
+    assert.equal(ending.kind, 'failed');
+    assert.deepStrictEqual(
+      findSecrets(ending.kind === 'failed' ? ending.reason : '', () => false),
+      [],
+    );
+  });
+
+  it('blocks on the environment when git could not scan the commits', () => {
+    const unscanned = { kind: 'unscanned', reason: 'git log failed: fatal: bad object' } as const;
+    assert.deepStrictEqual(scannedEnding(success, unscanned, start), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the commits since c0ffee0 were not scanned for secrets: git log failed: fatal: bad object',
+    });
+  });
+
+  it('leaves an ending that is no success as it is', () => {
+    const failed = { kind: 'failed', retryable: true, reason: 'the brewer failed: x' } as const;
+    assert.deepStrictEqual(scannedEnding(failed, scanned(finding(1)), start), failed);
   });
 });
