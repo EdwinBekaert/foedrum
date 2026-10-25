@@ -312,9 +312,11 @@ describe('foedrum init (ADR 0199)', () => {
     assert.deepStrictEqual(again.written, []);
     assert.deepStrictEqual(again.read, []);
     assert.deepStrictEqual(clone.files, before);
-    for (const file of ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json']) {
+    for (const file of ['foedrum.jsonc', '.gitignore', '.claude/settings.json']) {
       assert.ok(again.lines.includes(`${file} is up to date`), again.lines.join('\n'));
     }
+    // init writes no key of models.jsonc, so it keeps the one there, whatever it holds.
+    assert.ok(again.lines.includes('models.jsonc is kept as it is'), again.lines.join('\n'));
     assert.ok(again.lines.includes('Written: none'), again.lines.join('\n'));
   });
 
@@ -333,13 +335,16 @@ describe('foedrum init (ADR 0199)', () => {
     assert.equal(clone.files.get('foedrum.jsonc'), before);
   });
 
-  it('refuses a foedrum.jsonc that would not pass its schema, before writing anything', async () => {
+  it('refuses a foedrum.jsonc that does not pass its schema, before any question', async () => {
     const clone: Clone = { files: new Map([['foedrum.jsonc', '{ "colour": "amber" }']]) };
-    await assert.rejects(
-      init(['', ''], clone),
-      /^Error: foedrum.jsonc would not pass its schema: /,
+    const { result, questions, written } = await init([], clone);
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: the foedrum\.jsonc here does not pass its schema: /,
     );
-    assert.deepStrictEqual([...clone.files.keys()], ['foedrum.jsonc']);
+    assert.deepStrictEqual(questions, []);
+    assert.deepStrictEqual(written, []);
   });
 
   it('lets a new repository take the alias of one it no longer lists', async () => {
