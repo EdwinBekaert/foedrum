@@ -304,10 +304,10 @@ ${diff}`;
 }
 
 /**
- * The round of a lens step before attempt `ref` that was blocked by findings (ADR 0190): the
- * commit its worktree started at, which it reviewed, or `unfound` when nothing records one. None
- * for a first round: a retry, or an attempt after an answer, belongs to the round of the attempt
- * it follows, so it reviews what that round reviews.
+ * The round of a lens step before attempt `ref`, when it reviewed (ADR 0190, ADR 0196): the
+ * commit its worktree started at, or `unfound` when nothing records one. None for a first round:
+ * a retry, or an attempt after an answer, belongs to the round of the attempt it follows, so it
+ * reviews what that round reviews.
  */
 export function roundBefore(batch: Batch, ref: AttemptRef): RoundBefore | undefined {
   const step = batch.steps.get(ref.stepId);
@@ -319,7 +319,7 @@ export function roundBefore(batch: Batch, ref: AttemptRef): RoundBefore | undefi
     first = before(first.attempt);
   }
   const earlier = first === undefined ? undefined : before(first.attempt);
-  if (earlier?.phase !== 'finished' || !blockedByFindings(earlier.outcome)) return undefined;
+  if (earlier?.phase !== 'finished' || !reviewed(earlier.outcome)) return undefined;
   const ran = ranIn(step, earlier);
   return ran === undefined
     ? { kind: 'unfound', attempt: earlier.attempt }
@@ -331,11 +331,31 @@ export type RoundBefore =
   | { kind: 'reviewed'; attempt: number; repo: string; commit: string }
   | { kind: 'unfound'; attempt: number };
 
-/** An outcome blocked by findings, as decide records a blocked out doc's (`finish`). */
-const blockedByFindings = (outcome: StepOutcome): boolean =>
-  outcome.kind === 'failed' &&
-  !outcome.retryable &&
-  outcome.reason.startsWith('blocked (findings): ');
+/**
+ * An outcome of a review (ADR 0196): a success with a Taster's verdict, or blocked by findings, as
+ * decide records a blocked out doc's (`finish`).
+ */
+const reviewed = (outcome: StepOutcome): boolean => {
+  switch (outcome.kind) {
+    case 'succeeded': {
+      const { output } = outcome;
+      const verdict =
+        typeof output === 'object' && output !== null && !Array.isArray(output)
+          ? output.verdict
+          : undefined;
+      return verdict === 'approve' || verdict === 'changes';
+    }
+    case 'failed':
+      return !outcome.retryable && outcome.reason.startsWith('blocked (findings): ');
+    case 'needs_input':
+    case 'cancelled':
+      return false;
+    default: {
+      const unhandled: never = outcome;
+      throw new Error(`Unhandled outcome ${JSON.stringify(unhandled)}`);
+    }
+  }
+};
 
 /**
  * What a later round of a lens step that reviews a diff is told (ADR 0190): with the change since
@@ -352,7 +372,7 @@ function laterRoundText(round: LaterRound): string {
       return [
         '## A later round',
         '',
-        `An earlier round of this step, ${round.step}, reviewed the change up to commit ${round.commit} and sent it back with findings. {roundChange} holds the change since that commit.`,
+        `An earlier round of this step, ${round.step}, reviewed the change up to commit ${round.commit}. {roundChange} holds the change since that commit.`,
         '',
         '- Review only the change since the round before.',
         '- Name a defect a fix brought in as such: say in its `why` that the fix brought it in.',
@@ -362,7 +382,7 @@ function laterRoundText(round: LaterRound): string {
       return [
         '## A later round',
         '',
-        `An earlier round of this step, ${round.step}, sent the change back with findings, but the change since the round before could not be read: ${round.why}. Review the whole change in {change}.`,
+        `An earlier round of this step, ${round.step}, reviewed the change, but the change since the round before could not be read: ${round.why}. Review the whole change in {change}.`,
       ].join('\n');
     default: {
       const unhandled: never = round;
