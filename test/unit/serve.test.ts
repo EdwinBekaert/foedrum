@@ -327,6 +327,18 @@ describe('runServe', () => {
     assert.match(status[0]?.body ?? '', /<!-- foedrum:\["12-1","status\.\d+"\] -->$/);
   });
 
+  it('holds the machine awake only while an attempt runs, and lets the hold go when it stops (ADR 0195)', async () => {
+    const held: string[] = [];
+    const awake = {
+      attemptStarted: () => held.push('started'),
+      attemptEnded: () => held.push('ended'),
+      release: () => held.push('released'),
+    };
+    assert.equal(await runServe(setup, shell({ awake })), 0);
+    // The brew step's attempt; the openPullRequest action is no attempt.
+    assert.deepStrictEqual(held, ['started', 'ended', 'released']);
+  });
+
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
     const text = '---\n{"status":"done","summary":"Brewed"}\n---\nNotes.\n';
     const runner = (): BrewerRunner => ({

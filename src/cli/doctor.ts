@@ -11,6 +11,7 @@ import {
   loadRecipes,
   replacedDefaults,
 } from '../engine/recipe-files.ts';
+import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig, githubHostOf } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
@@ -51,6 +52,8 @@ export interface DoctorFacts {
   denylist?: DenylistFact | undefined;
   /** On Linux, whether AppArmor restricts unprivileged user namespaces, which bwrap needs (ADR 0076). */
   restrictsUserns?: boolean | undefined;
+  /** How this machine is kept awake while an attempt runs, or why it cannot be (ADR 0195). */
+  keepAwake?: AwakeMechanism | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */

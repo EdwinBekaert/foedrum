@@ -117,6 +117,8 @@ export interface ServeSetup {
   unsandboxedChecks: boolean;
   /** The brewers' base environment and the runner's forced variables (ADR 0028). */
   brewerEnv: { base: Env; forced: Env };
+  /** Whether the machine is kept awake while an attempt runs (ADR 0195); absent, it is. */
+  keepAwake?: boolean;
 }
 
 export type ServeSetupResult =
