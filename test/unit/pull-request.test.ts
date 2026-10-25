@@ -190,6 +190,69 @@ describe("stepReports: a Taster's findings (ADR 0161)", () => {
   });
 });
 
+describe('stepReports and the body: the pre-existing findings to file (#501, ADR 0191)', () => {
+  const fixed = { file: 'src/wait.ts', line: 13, disposition: 'fixed' } as const;
+  const dismissed = { file: 'src/a.ts', disposition: 'dismissed', why: 'Not a defect' } as const;
+  const loop = { disposition: 'pre-existing', why: 'The retry loop\nhas no jitter' } as const;
+  const lint = {
+    file: 'src/lint.ts',
+    line: 4,
+    disposition: 'pre-existing',
+    why: 'Unused import',
+  } as const;
+
+  it('gives the pre-existing dispositions of every succeeded attempt of a step, in order, once each', () => {
+    const state = fold([
+      ordered,
+      chosen,
+      ...ran('implement', 1, outDoc('First')),
+      ...ran('implement', 2, { ...outDoc('Round 1'), dispositions: [fixed, loop, dismissed] }),
+      ...ran('implement', 3),
+      ...ran('implement', 4, { ...outDoc('Round 2'), dispositions: [lint, loop] }),
+    ]);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    assert.deepEqual(stepReports(batch), [
+      { stepId: 'implement', summary: 'Round 2', assumptions: [], toFile: [loop, lint] },
+    ]);
+  });
+
+  it('lists them as to file, with place and why, under the summary in what each step reported', () => {
+    const reports = [
+      { stepId: 'implement', summary: 'Round 2', assumptions: [], toFile: [loop, lint] },
+    ];
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Wait for it', closes, reports });
+    assert.ok(
+      body.includes(
+        [
+          'implement: Round 2',
+          '  to file: the change as a whole: The retry loop has no jitter',
+          '  to file: src/lint.ts:4: Unused import',
+          '```',
+        ].join('\n'),
+      ),
+      body,
+    );
+  });
+
+  it('leaves out a place or a why that looks like a secret, as the other reports', () => {
+    const leaking = { ...lint, why: `Token ${token}` };
+    const reports = [
+      { stepId: 'implement', summary: 'Round 2', assumptions: [], toFile: [leaking] },
+    ];
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Wait for it', closes, reports });
+    assert.ok(!body.includes(token), body);
+    assert.ok(
+      body.includes(
+        '  to file: src/lint.ts:4: [left out: a text of step implement that looks like a secret]',
+      ),
+      body,
+    );
+  });
+});
+
 describe("stepReports: a Finer's changes (ADR 0166)", () => {
   it("gives a Finer's changes, or why there was nothing to simplify, with its summary", () => {
     const change = { file: 'src/slug.ts', line: 4, why: 'Removed a duplicate' };

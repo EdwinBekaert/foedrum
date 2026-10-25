@@ -7,9 +7,38 @@ import { z } from './zod.ts';
 export const BlockerKind = z.enum(['findings', 'environment', 'divergence']);
 export type BlockerKind = z.infer<typeof BlockerKind>;
 
+/** The most dispositions an out doc lists, and the longest file and `why` of one (ADR 0191). */
+export const MOST_DISPOSITIONS = 100;
+export const MAX_DISPOSITION_FILE = 1_000;
+export const MAX_DISPOSITION_WHY = 2_000;
+
+const place = {
+  file: NonEmpty.max(MAX_DISPOSITION_FILE)
+    .regex(/^[^\r\n]*$/, 'Must be one line')
+    .exactOptional(),
+  line: z.int().positive().exactOptional(),
+};
+const said = NonEmpty.max(MAX_DISPOSITION_WHY);
+
+/**
+ * What the brewer a findings route brought back did with one finding of its route input
+ * (ADR 0191), at the finding's place as the Taster wrote it, or the change as a whole without a
+ * file: fixed, or with a `why`, dismissed as not a defect or left as there before the change
+ * (ADR 0094).
+ */
+export const Disposition = z.discriminatedUnion('disposition', [
+  z.strictObject({ ...place, disposition: z.literal('fixed'), why: said.exactOptional() }),
+  z.strictObject({ ...place, disposition: z.literal('dismissed'), why: said }),
+  z.strictObject({ ...place, disposition: z.literal('pre-existing'), why: said }),
+]);
+export type Disposition = z.infer<typeof Disposition>;
+
 const shared = {
   summary: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line'),
   assumptions: z.array(NonEmpty).default([]),
+  // Optional, so an out doc without them reads as before; an older Foedrum cannot read one with
+  // them (ADR 0191).
+  dispositions: z.array(Disposition).max(MOST_DISPOSITIONS).exactOptional(),
 };
 
 // `questions` only with needs_input and `blockerKind` only with blocked: strict objects reject them elsewhere.
@@ -108,6 +137,25 @@ export const tastingOf = (output: unknown): TastingReport | undefined => {
     return undefined;
   }
   return { verdict: read.data.verdict, findings: read.data.findings };
+};
+
+/** Where a finding or a disposition is: its file and line, or the change as a whole (ADR 0191). */
+export const placeOf = ({
+  file,
+  line,
+}: {
+  file?: string | undefined;
+  line?: number | undefined;
+}) =>
+  file === undefined ? 'the change as a whole' : `${file}${line === undefined ? '' : `:${line}`}`;
+
+/** Any out doc's dispositions, read leniently: none when it lists none, or none it can read. */
+const Disposed = z.object({ dispositions: z.array(Disposition) });
+
+/** The dispositions of any out doc's output that lists them (ADR 0191); none for one without. */
+export const dispositionsOf = (output: unknown): Disposition[] => {
+  const read = Disposed.safeParse(output);
+  return read.success ? read.data.dispositions : [];
 };
 
 /**

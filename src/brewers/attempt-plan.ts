@@ -16,6 +16,8 @@ import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
+  type Disposition,
+  dispositionsOf,
   FINING,
   FiningOutDoc,
   GAUGE,
@@ -23,8 +25,11 @@ import {
   OutDocFrontmatter,
   PULL_REQUEST,
   PullRequestOutDoc,
+  placeOf,
   TASTING,
+  type TastingFinding,
   TastingOutDoc,
+  tastingOf,
 } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
@@ -86,6 +91,8 @@ export interface PlanFacts {
   outDocFrom?: string;
   /** For a later round of a lens step that reviews a diff, what it is told (ADR 0190). */
   laterRound?: LaterRound;
+  /** Whether its inputs hold the earlier rounds' findings, which the fixed text explains (ADR 0191). */
+  earlierFindings?: true;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
 }
@@ -395,6 +402,129 @@ function laterRoundText(round: LaterRound): string {
     }
   }
 }
+
+/**
+ * One earlier round of a lens step (ADR 0191): its attempt, its findings or why they could not be
+ * read, and the dispositions the brewer its findings route brought back wrote.
+ */
+export type EarlierRound = { step: string; dispositions: readonly Disposition[] } & (
+  | { findings: readonly TastingFinding[] }
+  | { unread: string }
+);
+
+/** An earlier round as `earlierRoundsOf` finds it: its findings, or where to read them. */
+export type PlannedRound =
+  | EarlierRound
+  | { step: string; dispositions: readonly Disposition[]; outDoc: { path: string; root: string } };
+
+/**
+ * The earlier rounds of the lens step of attempt `ref` (ADR 0191), in the order they started: each
+ * attempt of it that reviewed (`reviewed`), with the findings of a success from its event, or the
+ * out doc `outDoc` in the worktree of one blocked by findings, as the route input reads it
+ * (ADR 0128). Each gets the dispositions of the attempt its findings route brought back, or of a
+ * retry or an answered attempt that continued that one; a route of another step is never its own.
+ */
+export function earlierRoundsOf(
+  batch: Batch,
+  ref: AttemptRef,
+  outDoc: string | undefined,
+): PlannedRound[] {
+  const rounds: PlannedRound[] = [];
+  // The round each other step's latest attempt answers, while a retry or an answer continues it.
+  const answering = new Map<string, PlannedRound>();
+  for (const { stepId, attempt } of batch.path ?? []) {
+    if (stepId === ref.stepId && attempt === ref.attempt) break;
+    const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+    if (ran === undefined) continue;
+    if (stepId === ref.stepId) {
+      if (ran.phase !== 'finished' || !reviewed(ran.outcome)) continue;
+      const step = `${stepId}#${attempt}`;
+      if (ran.outcome.kind === 'succeeded') {
+        const findings = tastingOf(ran.outcome.output)?.findings ?? [];
+        rounds.push({ step, dispositions: [], findings });
+        continue;
+      }
+      // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
+      const root = ran.worktree?.path ?? ran.session?.worktree;
+      rounds.push(
+        root === undefined || outDoc === undefined
+          ? { step, dispositions: [], unread: 'no worktree of it is recorded' }
+          : { step, dispositions: [], outDoc: { path: join(root, outDoc), root } },
+      );
+      continue;
+    }
+    const { route } = ran;
+    const latest = rounds.at(-1);
+    if (route?.from === ref.stepId && route.why === 'findings' && latest !== undefined) {
+      answering.set(stepId, latest);
+    } else if (ran.retry !== true && ran.answered !== true) {
+      answering.delete(stepId);
+    }
+    const answered = answering.get(stepId);
+    if (answered !== undefined && ran.phase === 'finished' && ran.outcome.kind === 'succeeded') {
+      answered.dispositions = dispositionsOf(ran.outcome.output);
+    }
+  }
+  return rounds;
+}
+
+/** The most of the earlier findings input a prompt holds, in UTF-8 bytes (ADR 0191). */
+export const MAX_EARLIER_FINDINGS_BYTES = 64 * 1024;
+
+/** Model text on one line. */
+const flatLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+/** One round's findings, each with the first disposition at its place not already taken. */
+function roundLines(findings: readonly TastingFinding[], dispositions: readonly Disposition[]) {
+  if (findings.length === 0) return ['No findings.'];
+  const left = [...dispositions];
+  return findings.flatMap((finding) => {
+    const at = left.findIndex(({ file, line }) => file === finding.file && line === finding.line);
+    const [disposed] = at < 0 ? [] : left.splice(at, 1);
+    const before = finding.introduced ? '' : ', there before the change';
+    const said =
+      disposed === undefined
+        ? 'open'
+        : `${disposed.disposition}${disposed.why === undefined ? '' : `: ${flatLine(disposed.why)}`}`;
+    return [
+      `- ${finding.severity} in ${placeOf(finding)}${before}: ${flatLine(finding.why)}`,
+      `  ${said}`,
+    ];
+  });
+}
+
+/**
+ * The input of a later round of `stepId` (ADR 0191): the earlier rounds' findings in the order the
+ * rounds ran, each with the disposition at its place, or open, held to its limit.
+ */
+export function earlierFindingsInput(stepId: string, rounds: readonly EarlierRound[]): PromptInput {
+  const text = rounds
+    .map((round) =>
+      [
+        `Round ${round.step}:`,
+        ...('unread' in round
+          ? [`Its findings could not be read: ${flatLine(round.unread)}.`]
+          : roundLines(round.findings, round.dispositions)),
+      ].join('\n'),
+    )
+    .join('\n\n');
+  return {
+    name: 'earlierFindings',
+    source: { kind: 'findings', step: stepId },
+    text: bounded(text, MAX_EARLIER_FINDINGS_BYTES, 'earlier findings input'),
+  };
+}
+
+/** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191). */
+const EARLIER_FINDINGS_TEXT = [
+  "## The earlier rounds' findings",
+  '',
+  '{earlierFindings} holds the findings of the earlier rounds of this step, in the order they ran, each with what the step the batch went back to did with it: fixed, dismissed as not a defect, pre-existing (there before the change), or open.',
+  '',
+  '- Never raise a fixed, dismissed or pre-existing finding again as it was.',
+  '- When a fix did not fix a finding, or you hold a dismissal wrong, raise it once as a new finding that names the old one and says why.',
+  '- Judge an open finding again, as you judge the rest of the change.',
+].join('\n');
 
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
 export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
@@ -708,7 +838,10 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer));
   // The engine's text for a later round, for every lens alike, never one lens's file (ADR 0190).
-  const round = facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)];
+  const round = [
+    ...(facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)]),
+    ...(facts.earlierFindings === true ? [EARLIER_FINDINGS_TEXT] : []),
+  ];
   const instructions =
     resumes === undefined
       ? [facts.instructions.trimEnd(), ...round, contract].join('\n\n')

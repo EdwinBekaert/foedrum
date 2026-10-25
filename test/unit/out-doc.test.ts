@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { OutDocFrontmatter, outDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
+import {
+  dispositionsOf,
+  MAX_DISPOSITION_FILE,
+  MAX_DISPOSITION_WHY,
+  MOST_DISPOSITIONS,
+  OutDocFrontmatter,
+  outDocFrontmatter,
+  PullRequestOutDoc,
+  readOutDoc,
+} from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
 
 const question = {
@@ -166,4 +175,81 @@ describe('readOutDoc', () => {
       assert.match(result.valid ? '' : result.reason, reason);
     });
   }
+});
+
+describe('dispositions (ADR 0191)', () => {
+  const done = { status: 'done', summary: 'Fixed what round 1 found' } as const;
+  const fixed = { file: 'src/a.ts', line: 12, disposition: 'fixed' } as const;
+  const dismissed = { file: 'src/b.ts', disposition: 'dismissed', why: 'The cap is the spec' };
+  const preExisting = { disposition: 'pre-existing', why: 'The retry loop was there before' };
+
+  it('accepts each disposition with every status, in the contract and a brewer schema', () => {
+    const dispositions = [fixed, dismissed, preExisting];
+    for (const status of ['done', 'failed'] as const) {
+      const doc = { status, summary: 'x', dispositions };
+      assert.deepEqual(OutDocFrontmatter.parse(doc), { ...doc, assumptions: [] }, status);
+    }
+    const blocked = { status: 'blocked', summary: 'x', blockerKind: 'findings', dispositions };
+    assert.deepEqual(PullRequestOutDoc.parse(blocked), {
+      ...blocked,
+      assumptions: [],
+      beforeAfter: [],
+    });
+  });
+
+  it('takes a why on a fixed finding too, and leaves an out doc without them as it was', () => {
+    const said = { ...fixed, why: 'Capped at five' };
+    const doc = { ...done, dispositions: [said] };
+    assert.deepEqual(OutDocFrontmatter.parse(doc), { ...doc, assumptions: [] });
+    assert.deepEqual(OutDocFrontmatter.parse(done), { ...done, assumptions: [] });
+  });
+
+  const invalid: [string, unknown][] = [
+    ['a dismissal without a why', { file: 'a.ts', disposition: 'dismissed' }],
+    ['a pre-existing finding without a why', { disposition: 'pre-existing' }],
+    ['an empty why', { disposition: 'dismissed', why: ' ' }],
+    ['an unknown disposition', { file: 'a.ts', disposition: 'ignored', why: 'x' }],
+    ['a line that is not a positive whole number', { ...fixed, line: 0 }],
+    ['a file of two lines', { ...fixed, file: 'a.ts\nb.ts' }],
+    ['an unknown key', { ...fixed, severity: 'major' }],
+  ];
+  for (const [name, disposition] of invalid) {
+    it(`rejects ${name}`, () => {
+      const doc = { ...done, dispositions: [disposition] };
+      assert.equal(OutDocFrontmatter.safeParse(doc).success, false);
+    });
+  }
+
+  it(`takes ${MOST_DISPOSITIONS} dispositions, and no more`, () => {
+    const many = (count: number) => ({ ...done, dispositions: Array(count).fill(fixed) });
+    assert.equal(OutDocFrontmatter.safeParse(many(MOST_DISPOSITIONS)).success, true);
+    assert.equal(OutDocFrontmatter.safeParse(many(MOST_DISPOSITIONS + 1)).success, false);
+  });
+
+  it(`takes a why of ${MAX_DISPOSITION_WHY} characters and a file of ${MAX_DISPOSITION_FILE}, and no more`, () => {
+    const sized = (file: number, why: number) => ({
+      ...done,
+      dispositions: [{ file: 'f'.repeat(file), disposition: 'dismissed', why: 'w'.repeat(why) }],
+    });
+    const parses = (doc: unknown) => OutDocFrontmatter.safeParse(doc).success;
+    assert.equal(parses(sized(MAX_DISPOSITION_FILE, MAX_DISPOSITION_WHY)), true);
+    assert.equal(parses(sized(MAX_DISPOSITION_FILE + 1, MAX_DISPOSITION_WHY)), false);
+    assert.equal(parses(sized(MAX_DISPOSITION_FILE, MAX_DISPOSITION_WHY + 1)), false);
+  });
+
+  it('refuses a brewer-specific field that replaces them', () => {
+    assert.throws(() => outDocFrontmatter({ dispositions: z.string().optional() }), {
+      message: /dispositions/,
+    });
+  });
+
+  it("reads them from any out doc's output, and none from one without them", () => {
+    assert.deepEqual(dispositionsOf({ ...done, dispositions: [fixed, dismissed] }), [
+      fixed,
+      dismissed,
+    ]);
+    assert.deepEqual(dispositionsOf({ ...done, verdict: 'approve' }), []);
+    assert.deepEqual(dispositionsOf({ ...done, dispositions: [{ disposition: 'maybe' }] }), []);
+    assert.deepEqual(dispositionsOf(null), []);
+  });
 });

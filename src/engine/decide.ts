@@ -819,8 +819,8 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
  * What a findings route that used its `rounds` leaves open (ADR 0192): the first findings of its
  * last round, on one line and cut to what the status comment reads of them, and a count of the
  * rest. A text the schema took has a character that is not blank, so it is never blank once cut.
- * Every finding is open until the step the route goes back to can settle one by a disposition
- * (ADR 0191, #501).
+ * Every finding of the last round is open: no brewer has disposed of it yet, and a Taster never
+ * raises a disposed finding again as it was, only a contest of it, which stays open (ADR 0191).
  */
 const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsOut => {
   const cut = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
