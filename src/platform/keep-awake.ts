@@ -1,7 +1,7 @@
 // Keeping the machine awake while `brew` or `serve` has an attempt running (#476, ADR 0195): each
 // platform's built-in way, held by a helper process that watches Foedrum's process id, so a killed
-// Foedrum lets the hold go. The idle timer is held off, and the display may still turn off; on
-// Linux the lock on sleep also holds off a suspend the user asks for.
+// Foedrum lets the hold go. Only the idle timer is held off: the display may still turn off, and
+// a suspend the user asks for or a closed lid still sleeps.
 
 import { win32 } from 'node:path';
 import { environmentVariable } from './executables.ts';
@@ -13,7 +13,7 @@ export type AwakeMechanism =
   | { kind: 'SetThreadExecutionState'; program: string }
   /** `caffeinate -i -w <pid>` on macOS. */
   | { kind: 'caffeinate'; program: string }
-  /** `systemd-inhibit` holds logind's idle and sleep lock while `tail` waits on Foedrum's process. */
+  /** `systemd-inhibit` holds logind's idle lock while `tail` waits on Foedrum's process. */
   | { kind: 'systemd-inhibit'; program: string; tail: string }
   | { kind: 'none'; why: string };
 
@@ -108,7 +108,7 @@ export const awakeCommand = (mechanism: AwakeMechanism, pid: number): AwakeComma
       return {
         file: mechanism.program,
         args: [
-          '--what=idle:sleep',
+          '--what=idle',
           '--who=foedrum',
           '--why=foedrum brewing',
           '--mode=block',
