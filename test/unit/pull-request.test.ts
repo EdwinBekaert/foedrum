@@ -688,6 +688,21 @@ describe('quotedDiagrams (ADR 0180)', () => {
     const slanted = block('flowchart LR', '  H[/"h"/] --> I[\\"i"\\]');
     assert.equal(quotedDiagrams(slanted), slanted);
     assert.equal(quotedDiagrams(block('flowchart LR', '  A["x] --> B')), left);
+    assert.equal(quotedDiagrams(block('flowchart LR', '  H[/"h"] --> B')), left);
+  });
+
+  it('leaves out a diagram whose line holds more than a form it reads (review of #494)', () => {
+    for (const line of [
+      '  A --> B; C{f(x}',
+      '  A --> B; click B call x()',
+      '  direction XY',
+      '  style A fill:"x"',
+    ]) {
+      assert.equal(quotedDiagrams(block('flowchart TD', line)), left, line);
+    }
+    assert.equal(quotedDiagrams(block('graph TD; A --> B{f(x}')), left);
+    assert.equal(quotedDiagrams(block('sequenceDiagram x', '  A->>B: y')), left);
+    assert.equal(quotedDiagrams(block('sequenceDiagram', '  activate U extra')), left);
   });
 });
 
