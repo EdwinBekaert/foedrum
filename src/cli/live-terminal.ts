@@ -3,16 +3,78 @@
 
 import type { LiveTerminal } from './serve.ts';
 
-/** The part of `tty.WriteStream` the live line uses. */
+/** The part of `tty.WriteStream` the live line and the board use. */
 export interface TerminalStream {
   isTTY?: boolean | undefined;
   columns?: number | undefined;
+  rows?: number | undefined;
   on(event: 'resize', handler: () => void): unknown;
   off(event: 'resize', handler: () => void): unknown;
   cursorTo(x: number): boolean;
+  moveCursor(dx: number, dy: number): boolean;
   clearLine(direction: -1 | 0 | 1): boolean;
+  clearScreenDown(): boolean;
   write(text: string): boolean;
 }
+
+/** The terminal `foedrum status --watch` keeps a board of lines on (ADR 0188). */
+export interface BoardTerminal {
+  /** The terminal's width in characters, when it is known. */
+  columns: () => number | undefined;
+  /** The terminal's height in lines, when it is known. */
+  rows: () => number | undefined;
+  /** Calls `handler` when the terminal is resized; the returned function stops it. */
+  onResize: (handler: () => void) => () => void;
+  /** Draws `lines` as the board: as new lines the first time, then in place over the last board. */
+  redraw: (lines: readonly string[]) => void;
+  /** Ends the board: leaves the last one on screen and moves to a new line. */
+  finish: () => void;
+}
+
+/** The board terminal over `stream` when the rule of ADR 0174 holds in `env`, else none. */
+export const boardTerminal = (
+  stream: TerminalStream,
+  env: Readonly<Record<string, string | undefined>>,
+): BoardTerminal | undefined => {
+  if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
+  // The lines of the board on screen now: the cursor rests at the end of the last one.
+  let shown: readonly string[] = [];
+  return {
+    columns: () => stream.columns,
+    rows: () => stream.rows,
+    onResize: (handler) => {
+      stream.on('resize', handler);
+      return () => {
+        stream.off('resize', handler);
+      };
+    },
+    // Back up to the first line, then each line over the old one and clear what is left to its
+    // right, and everything below the last: never a blank frame between two boards (ADR 0179).
+    // A terminal that got narrower has rewrapped the old lines, so the way up counts the screen
+    // rows each takes at the width now (ADR 0189).
+    redraw: (lines) => {
+      const width = stream.columns;
+      const up = shown.reduce(
+        (sum, line) =>
+          sum +
+          (width === undefined || width < 1 ? 1 : Math.max(1, Math.ceil(line.length / width))),
+        0,
+      );
+      if (up > 1) stream.moveCursor(0, 1 - up);
+      stream.cursorTo(0);
+      lines.forEach((line, i) => {
+        if (i > 0) stream.write('\n');
+        stream.write(line);
+        stream.clearLine(1);
+      });
+      stream.clearScreenDown();
+      shown = lines;
+    },
+    finish: () => {
+      stream.write('\n');
+    },
+  };
+};
 
 /** The live terminal, and the way every lasting line reaches it. */
 export interface StdoutTerminal extends LiveTerminal {

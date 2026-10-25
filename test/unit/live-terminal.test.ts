@@ -1,10 +1,11 @@
 // The terminal `foedrum brew` keeps a live line on (ADR 0174): when it is given, and what it does to
 // the stream, which is Node's `tty.WriteStream` (cursorTo, clearLine, write; no escape written by hand).
-// A fake stream records the calls: no terminal is touched.
+// A fake stream records the calls: no terminal is touched. The board `foedrum status --watch` draws
+// (ADR 0188) is on the same stream, with moveCursor and clearScreenDown besides.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { liveTerminal, type TerminalStream } from '../../src/cli/live-terminal.ts';
+import { boardTerminal, liveTerminal, type TerminalStream } from '../../src/cli/live-terminal.ts';
 
 /** A stream that records each call, in order, and the resize handlers it holds. */
 const fakeStream = (more: Partial<TerminalStream> = {}) => {
@@ -13,6 +14,7 @@ const fakeStream = (more: Partial<TerminalStream> = {}) => {
   const stream: TerminalStream = {
     isTTY: true,
     columns: 100,
+    rows: 30,
     on: (_event, handler) => {
       handlers.add(handler);
     },
@@ -23,8 +25,16 @@ const fakeStream = (more: Partial<TerminalStream> = {}) => {
       calls.push(`cursorTo(${x})`);
       return true;
     },
+    moveCursor: (dx, dy) => {
+      calls.push(`moveCursor(${dx}, ${dy})`);
+      return true;
+    },
     clearLine: (direction) => {
       calls.push(`clearLine(${direction})`);
+      return true;
+    },
+    clearScreenDown: () => {
+      calls.push('clearScreenDown()');
       return true;
     },
     write: (text) => {
@@ -58,10 +68,12 @@ const fakeScreen = () => {
       cursor = x;
       return show();
     },
+    moveCursor: () => assert.fail('a live line never moves the cursor up'),
     clearLine: (direction) => {
       line = direction === 1 ? line.slice(0, cursor) : direction === 0 ? '' : line.slice(cursor);
       return show();
     },
+    clearScreenDown: () => assert.fail('a live line never clears the screen'),
     write: (text) => {
       line = line.slice(0, cursor).padEnd(cursor) + text + line.slice(cursor + text.length);
       cursor += text.length;
@@ -174,6 +186,235 @@ describe('liveTerminal: what it does to the stream', () => {
     const { terminal, handlers } = terminalOf();
     let resized = 0;
     const stop = terminal.onResize(() => {
+      resized += 1;
+    });
+    assert.equal(handlers.size, 1);
+    for (const handler of handlers) handler();
+    assert.equal(resized, 1);
+    stop();
+    assert.equal(handlers.size, 0);
+  });
+});
+
+/**
+ * A stream over a screen of lines, as a console keeps them: the cursor has a column and a line,
+ * `write` overwrites from it and a line feed goes to the start of the next line, `clearLine(1)`
+ * clears to the right of the cursor, `clearScreenDown` clears the rest of its line and every line
+ * below. It keeps the screen as it shows after each call.
+ */
+const fakeBoardScreen = () => {
+  const screen: string[] = [''];
+  let column = 0;
+  let line = 0;
+  const shown: string[][] = [];
+  const show = (): boolean => {
+    shown.push([...screen]);
+    return true;
+  };
+  const write = (text: string): void => {
+    const row = screen[line] ?? '';
+    screen[line] = row.slice(0, column).padEnd(column) + text + row.slice(column + text.length);
+    column += text.length;
+  };
+  const stream: TerminalStream = {
+    isTTY: true,
+    columns: 100,
+    rows: 30,
+    on: () => {},
+    off: () => {},
+    cursorTo: (x) => {
+      column = x;
+      return show();
+    },
+    moveCursor: (dx, dy) => {
+      column = Math.max(0, column + dx);
+      line = Math.max(0, line + dy);
+      screen[line] ??= '';
+      return show();
+    },
+    clearLine: (direction) => {
+      const row = screen[line] ?? '';
+      screen[line] =
+        direction === 1 ? row.slice(0, column) : direction === 0 ? '' : row.slice(column);
+      return show();
+    },
+    clearScreenDown: () => {
+      screen[line] = (screen[line] ?? '').slice(0, column);
+      screen.length = line + 1;
+      return show();
+    },
+    write: (text) => {
+      text.split('\n').forEach((part, i) => {
+        if (i > 0) {
+          line += 1;
+          column = 0;
+          screen[line] ??= '';
+        }
+        write(part);
+      });
+      return show();
+    },
+  };
+  return { stream, shown, lines: () => [...screen] };
+};
+
+describe('boardTerminal: when status --watch draws a board', () => {
+  it('gives the board terminal on a TTY with TERM and CI unset, as on Windows', () => {
+    assert.notEqual(boardTerminal(fakeStream().stream, {}), undefined);
+  });
+
+  it('gives the board terminal on a TTY whose TERM is not dumb and whose CI is not set', () => {
+    assert.notEqual(boardTerminal(fakeStream().stream, { TERM: 'xterm-256color' }), undefined);
+  });
+
+  it('gives no board terminal when standard output is not a TTY: a pipe, a log, a plugin session', () => {
+    assert.equal(boardTerminal(fakeStream({ isTTY: false }).stream, { TERM: 'xterm' }), undefined);
+    assert.equal(
+      boardTerminal(fakeStream({ isTTY: undefined }).stream, { TERM: 'xterm' }),
+      undefined,
+    );
+  });
+
+  it('gives no board terminal when TERM is dumb', () => {
+    assert.equal(boardTerminal(fakeStream().stream, { TERM: 'dumb' }), undefined);
+  });
+
+  it('gives no board terminal when CI is set', () => {
+    assert.equal(boardTerminal(fakeStream().stream, { TERM: 'xterm', CI: 'true' }), undefined);
+  });
+});
+
+describe('boardTerminal: what it does to the stream (ADR 0188)', () => {
+  const boardOf = (more: Partial<TerminalStream> = {}) => {
+    const fake = fakeStream(more);
+    const board = boardTerminal(fake.stream, { TERM: 'xterm' });
+    assert.ok(board, 'a board terminal is given');
+    return { ...fake, board };
+  };
+
+  it('reads the width and the height of the stream each time, none while one is unknown', () => {
+    const fake = fakeStream({ columns: 120, rows: 40 });
+    const board = boardTerminal(fake.stream, {});
+    assert.equal(board?.columns(), 120);
+    assert.equal(board?.rows(), 40);
+    fake.stream.columns = 60;
+    fake.stream.rows = 12;
+    assert.equal(board?.columns(), 60);
+    assert.equal(board?.rows(), 12);
+    fake.stream.columns = undefined;
+    fake.stream.rows = undefined;
+    assert.equal(board?.columns(), undefined);
+    assert.equal(board?.rows(), undefined);
+  });
+
+  it('writes the first board as lines: each line then clearLine(1), a line feed between lines, never moving the cursor up', () => {
+    const { board, calls } = boardOf();
+    board.redraw(['2 live batches', 'row one', 'row two']);
+    // The cursor is at the start of a line already, so a move to column 0 is no matter here.
+    assert.deepEqual(
+      calls.filter((call) => call !== 'cursorTo(0)'),
+      [
+        'write("2 live batches")',
+        'clearLine(1)',
+        'write("\\n")',
+        'write("row one")',
+        'clearLine(1)',
+        'write("\\n")',
+        'write("row two")',
+        'clearLine(1)',
+        'clearScreenDown()',
+      ],
+    );
+  });
+
+  it('redraws by going back up to the first line, then each line over the old one and clearLine(1), line feeds between, clearScreenDown last, with nothing cleared before the text', () => {
+    const { board, calls } = boardOf();
+    board.redraw(['2 live batches', 'row one', 'row two']);
+    calls.length = 0;
+    board.redraw(['2 live batches', 'row one!', 'row two!']);
+    assert.deepEqual(calls, [
+      'moveCursor(0, -2)',
+      'cursorTo(0)',
+      'write("2 live batches")',
+      'clearLine(1)',
+      'write("\\n")',
+      'write("row one!")',
+      'clearLine(1)',
+      'write("\\n")',
+      'write("row two!")',
+      'clearLine(1)',
+      'clearScreenDown()',
+    ]);
+  });
+
+  it('goes back up by the lines of the board before, whatever the new board has', () => {
+    const { board, calls } = boardOf();
+    board.redraw(['a', 'b', 'c', 'd']);
+    calls.length = 0;
+    board.redraw(['e']);
+    assert.equal(calls[0], 'moveCursor(0, -3)');
+  });
+
+  it('goes back up by the screen rows the board before takes at the width now, as a terminal rewraps its lines when it gets narrower', () => {
+    const { board, calls, stream } = boardOf({ columns: 100 });
+    board.redraw(['2 live batches', 'x'.repeat(50), '', 'y'.repeat(40)]);
+    stream.columns = 20;
+    calls.length = 0;
+    board.redraw(['2 live batches']);
+    // 14 characters take one row of 20, 50 take three, an empty line one, 40 take two.
+    assert.equal(calls[0], 'moveCursor(0, -6)');
+  });
+
+  it('goes back up by the lines of the board before when the width is unknown or none', () => {
+    for (const columns of [undefined, 0]) {
+      const { board, calls, stream } = boardOf({ columns: 100 });
+      board.redraw(['2 live batches', 'x'.repeat(50), 'y'.repeat(40)]);
+      stream.columns = columns;
+      calls.length = 0;
+      board.redraw(['2 live batches']);
+      assert.equal(calls[0], 'moveCursor(0, -2)', `columns ${columns}`);
+    }
+  });
+
+  it('leaves nothing of a longer board behind a shorter one, and never shows a blank screen between two boards', () => {
+    const screen = fakeBoardScreen();
+    const board = boardTerminal(screen.stream, {});
+    assert.ok(board, 'a board terminal is given');
+    board.redraw(['4 live batches', 'first row of the old board', 'second row', 'third row']);
+    screen.shown.length = 0;
+    board.redraw(['1 live batch', 'the only row']);
+    assert.deepEqual(screen.lines(), ['1 live batch', 'the only row']);
+    assert.ok(
+      screen.shown.every((frame) => frame.some((row) => row !== '')),
+      `a blank frame: ${JSON.stringify(screen.shown)}`,
+    );
+    assert.ok(
+      screen.shown.every((frame) => frame[0] !== ''),
+      `the first line was blank: ${JSON.stringify(screen.shown)}`,
+    );
+  });
+
+  it('draws a longer board over a shorter one', () => {
+    const screen = fakeBoardScreen();
+    const board = boardTerminal(screen.stream, {});
+    assert.ok(board, 'a board terminal is given');
+    board.redraw(['1 live batch', 'row']);
+    board.redraw(['3 live batches', 'row one', 'row two', 'row three']);
+    assert.deepEqual(screen.lines(), ['3 live batches', 'row one', 'row two', 'row three']);
+  });
+
+  it('finishes by leaving the board on screen and writing a line feed, clearing nothing', () => {
+    const { board, calls } = boardOf();
+    board.redraw(['1 live batch', 'row']);
+    calls.length = 0;
+    board.finish();
+    assert.deepEqual(calls, ['write("\\n")']);
+  });
+
+  it('calls the board handler when the stream is resized, until the returned function stops it', () => {
+    const { board, handlers } = boardOf();
+    let resized = 0;
+    const stop = board.onResize(() => {
       resized += 1;
     });
     assert.equal(handlers.size, 1);

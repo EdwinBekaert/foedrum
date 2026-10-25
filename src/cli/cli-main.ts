@@ -3,16 +3,21 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { breweryRecipes, loadBrewery } from '../engine/brewery-files.ts';
+import { emptyState, fold } from '../engine/fold.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient } from '../github/client.ts';
 import { userName } from '../platform/env.ts';
+import { stopOnSignals } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { brewerSource } from './brewer-report.ts';
+import { storePath } from './commands.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { readKeptBranches } from './kept-branches-git.ts';
+import { boardTerminal, type TerminalStream } from './live-terminal.ts';
 import { type CliResult, runCli } from './run.ts';
 import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.ts';
 
@@ -21,24 +26,28 @@ import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.
  * serve's facts, gh's login among them, come through `exec` and `resolve`, default the real runner
  * and PATH, so a test gives fakes or a canned answer for gh's login. A failure the command layer
  * throws, such as a store that cannot be read, is one line, as for every other failure.
+ * `status --watch` draws on `board`, default standard output and the process's environment.
  */
 export const cliFromCheckout = async (
   argv: string[],
   cwd: string,
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>>,
+  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>> & {
+    board?: { stream: TerminalStream; env: Readonly<Record<string, string | undefined>> };
+  },
 ): Promise<CliResult> => {
   const readText = (...path: string[]): string | undefined => {
     const file = join(cwd, ...path);
     return existsSync(file) ? readFileSync(file, 'utf8') : undefined;
   };
+  // Never creates or changes a store (ADR 0030): a read in the wrong folder says so instead of
+  // making an empty one, and an older Cellar's store is not migrated under it.
+  const openStore = (path: string) =>
+    existsSync(path) ? openSqliteEventStore(path, { readOnly: true }) : undefined;
   try {
     return await runCli(argv, {
       cwd,
       gatherDoctorFacts: () => doctorFromCheckout(cwd, options),
-      // Never creates or changes a store (ADR 0030): a read in the wrong folder says so instead of
-      // making an empty one, and an older Cellar's store is not migrated under it.
-      openStore: (path) =>
-        existsSync(path) ? openSqliteEventStore(path, { readOnly: true }) : undefined,
+      openStore,
       // A command that changes state never creates a store either; it opens the Brewery's.
       openWritableStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
       // Files that do not load refuse the command with doctor's line (ADR 0053).
@@ -71,6 +80,33 @@ export const cliFromCheckout = async (
       // Loaded only for brew, as for serve.
       brew: async (input, issued) =>
         (await import('./brew-main.ts')).brewFromCheckout(cwd, input, issued, options),
+      // Loaded only for status --watch: the board and the signals that stop it.
+      watch: async () => {
+        const board = options?.board ?? { stream: process.stdout, env: process.env };
+        const { watchStatus } = await import('./status-watch.ts');
+        const { listenWhileServing } = await import('./serve-shell.ts');
+        const listening = listenWhileServing(process);
+        try {
+          return await watchStatus({
+            terminal: boardTerminal(board.stream, board.env),
+            // The store as status reads it, afresh at each board; none yet is no batch.
+            state: () => {
+              const store = openStore(storePath(cwd));
+              if (store === undefined) return emptyState;
+              try {
+                return fold(store.eventsAfter(0).map(({ event }) => event));
+              } finally {
+                store.close();
+              }
+            },
+            signal: stopOnSignals(listening.listen),
+            clock: () => new Date(),
+            wait: (ms, signal) => sleep(ms, undefined, { signal }).catch(() => {}),
+          });
+        } finally {
+          listening.stop();
+        }
+      },
       // Loaded only for resume: it brings serve's setup and the worktrees.
       resume: async (input, issued) =>
         (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, issued, options),

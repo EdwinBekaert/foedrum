@@ -101,6 +101,7 @@ export const doctorHere = async (
     claims: notForDoctor('claims'),
     serve: notForDoctor('serve'),
     brew: notForDoctor('brew'),
+    watch: notForDoctor('watch'),
     resume: notForDoctor('resume'),
     env: {},
   });
