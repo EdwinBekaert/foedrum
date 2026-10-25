@@ -146,6 +146,7 @@ const planRound = async (
   { git = answers }: { git?: Git } = {},
 ) => {
   const calls: (readonly string[])[] = [];
+  const dirs: string[] = [];
   const plans = createAttemptPlans({
     state: () => fold(events),
     brewers: (() => {
@@ -163,6 +164,7 @@ const planRound = async (
     orderText: async () => 'Wait for a bottle to be merged.',
     git: (cwd, args, options) => {
       calls.push(args);
+      dirs.push(cwd);
       return git(cwd, args, options);
     },
     files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
@@ -170,7 +172,7 @@ const planRound = async (
   });
   const ref = at('tasting', attempt);
   const { prompt } = await plans.plan({ ref, limits: plans.limits(ref) });
-  return { prompt, calls };
+  return { prompt, calls, dirs };
 };
 
 /** The text of the input `name` in `prompt`. */
@@ -197,7 +199,19 @@ describe('a later tasting round (#500, ADR 0190)', () => {
   });
 
   it('gives round 2 after a findings route the change since the commit round 1 reviewed, beside the whole change', async () => {
-    const { prompt, calls } = await planRound(ROUND_TWO, 2);
+    const { prompt, calls, dirs } = await planRound(ROUND_TWO, 2);
+    // Every read, the merge-base checks too, in the clone, never in a worktree (ADR 0137).
+    assert.ok(dirs.includes(join('/clones', 'acme/api')));
+    assert.deepEqual(
+      dirs.filter((dir) => dir !== join('/clones', 'acme/api')),
+      [],
+    );
+    assert.ok(calls.some((args) => args[0] === 'merge-base'));
+    assert.ok(
+      prompt.includes(
+        `An earlier round of this step, tasting#1, reviewed the change up to commit ${ROUND1} and sent it back with findings.`,
+      ),
+    );
     const whole = inputText(prompt, 'change');
     assert.ok(whole.includes(LOG) && whole.includes(DIFF), whole);
     assert.ok(
@@ -231,6 +245,32 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.match(prompt, /a fix brought in/);
     assert.match(prompt, /leave alone what the earlier round already reviewed/i);
     assert.ok(prompt.indexOf('round before') < prompt.indexOf('When you finish, write taste.md'));
+  });
+
+  it('gives round 3 the change since round 2, the latest round before it, never since round 1', async () => {
+    const later = 'b'.repeat(40);
+    // Round 2, at HEAD, was blocked by findings too, and round 3 starts at `later`.
+    const third: Event[] = [
+      ...ROUND_TWO,
+      blockedByFindings(2),
+      {
+        type: 'step.scheduled',
+        ...at('implement', 3),
+        deadlineAt: DEADLINE,
+        route: { from: 'tasting', why: 'findings' },
+      },
+      started('implement', 3, HEAD),
+      succeeded('implement', 3),
+      { type: 'step.scheduled', ...at('tasting', 3), deadlineAt: DEADLINE },
+      started('tasting', 3, later),
+    ];
+    const { prompt, calls } = await planRound(third, 3, {
+      git: gitOn([BASE, ROUND1, HEAD, later]),
+    });
+    assert.ok(prompt.includes(`source="the change since commit ${HEAD}" name="roundChange">`));
+    assert.ok(prompt.includes(`An earlier round of this step, tasting#2, reviewed`));
+    assert.ok(calls.some((args) => args[0] === 'log' && args.includes(`${HEAD}..${later}`)));
+    assert.ok(calls.every((args) => !args.includes(`${ROUND1}..${later}`)));
   });
 
   it('gives a retry of round 2 what round 2 reviews: the change since round 1', async () => {
@@ -293,6 +333,7 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.doesNotMatch(prompt, LATER_ROUND);
     assert.match(prompt, /the change since the round before could not be read/i);
     assert.match(prompt, /could not be read: no commit it reviewed is recorded\./);
+    assert.match(prompt, /An earlier round of this step, tasting#1, sent the change back/);
     assert.match(prompt, /review the whole change/i);
     assert.ok(
       calls.every((args) => !args.includes(ROUND1) && !args.includes(`${ROUND1}..${HEAD}`)),
