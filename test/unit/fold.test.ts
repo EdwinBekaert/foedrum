@@ -70,6 +70,12 @@ describe('fold', () => {
     );
   });
 
+  it('keeps when a batch was ordered, and nothing for an order that did not record it (ADR 0179)', () => {
+    const at = '2026-10-25T09:00:00.000Z';
+    assert.equal(batch(fold([{ ...ordered, at }]))?.orderedAt, at);
+    assert.equal('orderedAt' in (batch(fold([ordered])) ?? {}), false);
+  });
+
   it('puts a batch Stuck on routing back in Ordered when a retry gives it a routing deadline', () => {
     const state = fold([
       ordered,

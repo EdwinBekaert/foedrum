@@ -306,6 +306,8 @@ export const Event = z.discriminatedUnion('type', [
       parentBatchId: BatchId.optional(),
       // An Ordered batch waits to be routed, never silently: this is its deadline (ADR 0032).
       routeBy: Timestamp,
+      // When the engine ordered it (ADR 0179); absent on the orders from before it recorded this.
+      at: Timestamp.optional(),
       // Who ordered it by hand, and from where (`foedrum order`, ADR 0105); absent for the intake's
       // orders and sub-orders.
       by: NonEmpty.optional(),

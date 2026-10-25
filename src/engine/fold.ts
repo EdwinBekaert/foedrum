@@ -138,6 +138,8 @@ export interface Batch {
   /** The target repository of a claimed issue (ADR 0043); absent for a Brewery issue. */
   repo?: string;
   parentBatchId?: string;
+  /** When it was ordered (ADR 0179); absent for an order that did not record it. */
+  orderedAt?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string } & (
     | { source: 'label' | 'router' }
