@@ -836,7 +836,7 @@ const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsO
 const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
 
 /** Whether `outcome` is a blocked out doc's on findings: a blocking Taster's `changes` (ADR 0161). */
-const onFindings = (outcome: StepOutcome): boolean =>
+export const onFindings = (outcome: StepOutcome): boolean =>
   outcome.kind === 'failed' &&
   !outcome.retryable &&
   outcome.reason.startsWith(blockedBy('findings'));
