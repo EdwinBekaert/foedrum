@@ -114,13 +114,29 @@ const FIX_LOG = 'beefcafe Give the poll a deadline';
 const DIFF = 'diff --git a/src/wait.ts b/src/wait.ts\n+  while (!(await isMerged())) {}';
 const FIX_DIFF = 'diff --git a/src/wait.ts b/src/wait.ts\n+  if (Date.now() > deadline) break;';
 
-/** git as the clone answers it: the whole change from BASE, the fix from ROUND1. */
-const answers: Git = async (_cwd, args) => {
-  if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' };
+/**
+ * git as the clone answers it: the whole change from BASE, the fix from ROUND1, and
+ * `merge-base --is-ancestor <a> <b>` true only when `a` comes no later than `b` on `line`, the
+ * batch's line of commits, oldest first.
+ */
+const gitOn =
+  (line: readonly string[]): Git =>
+  async (_cwd, args) => {
+    if (args[0] === 'merge-base') {
+      const [a = '', b = ''] = args.slice(-2);
+      const onLine = line.includes(a) && line.includes(b) && line.indexOf(a) <= line.indexOf(b);
+      return { code: onLine ? 0 : 1, stdout: '', stderr: '' };
+    }
+    return changeOf(args);
+  };
+
+const changeOf = (args: readonly string[]) => {
   const fix = args.includes(`${ROUND1}..${HEAD}`) || args.includes(ROUND1);
   if (args[0] === 'log') return { code: 0, stdout: `${fix ? FIX_LOG : LOG}\n`, stderr: '' };
   return { code: 0, stdout: `${fix ? FIX_DIFF : DIFF}\n`, stderr: '' };
 };
+
+const answers = gitOn([BASE, ROUND1, HEAD]);
 
 /** The plan of attempt `attempt` of the tasting step after `events`, and the git calls it made. */
 const planRound = async (
@@ -275,6 +291,7 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.doesNotMatch(prompt, /name="roundChange"/);
     assert.doesNotMatch(prompt, LATER_ROUND);
     assert.match(prompt, /the change since the round before could not be read/i);
+    assert.match(prompt, /could not be read: no commit it reviewed is recorded\./);
     assert.match(prompt, /review the whole change/i);
     assert.ok(
       calls.every((args) => !args.includes(ROUND1) && !args.includes(`${ROUND1}..${HEAD}`)),
@@ -282,11 +299,16 @@ describe('a later tasting round (#500, ADR 0190)', () => {
   });
 
   it('gives no second input when the commit round 1 reviewed is not on the line to HEAD, as after a rewind', async () => {
-    const rewound: Git = async (cwd, args, options) =>
-      args[0] === 'merge-base' ? { code: 1, stdout: '', stderr: '' } : answers(cwd, args, options);
+    // The rewound line holds HEAD, but not the commit round 1 reviewed.
+    const rewound = gitOn([BASE, HEAD]);
     const { prompt, calls } = await planRound(ROUND_TWO, 2, { git: rewound });
     assert.doesNotMatch(prompt, /name="roundChange"/);
-    assert.match(prompt, /the change since the round before could not be read/i);
+    assert.match(
+      prompt,
+      new RegExp(
+        `could not be read: the commit it reviewed, ${ROUND1}, is not on the line to HEAD\\.`,
+      ),
+    );
     assert.ok(
       calls.every((args) => args[0] === 'merge-base' || !args.includes(`${ROUND1}..${HEAD}`)),
     );
@@ -304,13 +326,98 @@ describe('a later tasting round (#500, ADR 0190)', () => {
       },
       ...ROUND_TWO.slice(-2),
     ];
-    const outside: Git = async (cwd, args, options) =>
-      args[0] === 'merge-base' && args.includes(merged) && args.includes(ROUND1)
-        ? { code: 1, stdout: '', stderr: '' }
-        : answers(cwd, args, options);
-    const { prompt } = await planRound(events, 2, { git: outside });
+    const { prompt } = await planRound(events, 2, { git: gitOn([BASE, ROUND1, merged, HEAD]) });
     assert.ok(prompt.includes(`source="the change since commit ${merged}" name="change">`));
     assert.doesNotMatch(prompt, /name="roundChange"/);
-    assert.match(prompt, /the change since the round before could not be read/i);
+    assert.match(
+      prompt,
+      new RegExp(`could not be read: the base was merged in since, at ${merged}\\.`),
+    );
+  });
+
+  it('gives round 2 the change since round 1 when the base was merged in before round 1 (ADR 0164)', async () => {
+    const merged = 'e'.repeat(40);
+    // The merge came before round 1, which held it.
+    const events: Event[] = [
+      ...ROUND_ONE.slice(0, -2),
+      {
+        type: 'effect.applied',
+        key: '["12-1","implement",1,"merge_base"]',
+        result: { base: merged, merged: ROUND1 },
+      },
+      ...ROUND_TWO.slice(ROUND_ONE.length - 2),
+    ];
+    const { prompt } = await planRound(events, 2, { git: gitOn([BASE, merged, ROUND1, HEAD]) });
+    assert.ok(prompt.includes(`source="the change since commit ${merged}" name="change">`));
+    assert.ok(prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`));
+    assert.match(prompt, LATER_ROUND);
+  });
+
+  for (const [why, outcome] of [
+    [
+      'approved',
+      {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Approved', assumptions: [] },
+      },
+    ],
+    ['failed for another reason', { kind: 'failed', retryable: false, reason: 'claude crashed' }],
+    [
+      'was blocked on its environment',
+      { kind: 'failed', retryable: false, reason: 'blocked (environment): no network' },
+    ],
+  ] as const) {
+    it(`gives a round after one that ${why} no change since it, as when a sibling's route sent the batch back`, async () => {
+      const events = ROUND_TWO.map((event) =>
+        event.type === 'step.finished' && event.stepId === 'tasting' && event.attempt === 1
+          ? { ...event, outcome }
+          : event,
+      );
+      const { prompt } = await planRound(events, 2);
+      assert.doesNotMatch(prompt, /name="roundChange"/);
+      assert.doesNotMatch(prompt, /round before/);
+    });
+  }
+
+  it('gives an attempt after a human answered round 2 what round 2 reviews: the change since round 1', async () => {
+    const answered: Event[] = [
+      ...ROUND_TWO,
+      {
+        type: 'step.finished',
+        ...at('tasting', 2),
+        outcome: {
+          kind: 'needs_input',
+          questions: [{ q: 'Which deadline?', options: ['1m', '5m'], whyBlocking: 'It decides' }],
+        },
+      },
+      { type: 'step.scheduled', ...at('tasting', 3), deadlineAt: DEADLINE, answered: true },
+      {
+        type: 'step.started',
+        ...at('tasting', 3),
+        session: {
+          id: 'b4b8a9a4-3f4e-4c2a-9a63-6f4f0c3c5d10',
+          worktree: join('/work', 'tasting-3'),
+        },
+        worktree: worktree('tasting-3', HEAD),
+      },
+    ];
+    const { prompt } = await planRound(answered, 3);
+    assert.ok(prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`));
+  });
+
+  it('reads a round before in the same repository named in another case, and none from another repository', async () => {
+    const inRepo = (repo: string) =>
+      ROUND_TWO.map((event) =>
+        event.type === 'step.started' && event.stepId === 'tasting' && event.attempt === 1
+          ? { ...event, worktree: { ...worktree('tasting-1', ROUND1), repo } }
+          : event,
+      );
+    const same = await planRound(inRepo('Acme/API'), 2);
+    assert.ok(
+      same.prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`),
+    );
+    const other = await planRound(inRepo('acme/web'), 2);
+    assert.doesNotMatch(other.prompt, /name="roundChange"/);
+    assert.match(other.prompt, /could not be read: it reviewed acme\/web, not acme\/api\./);
   });
 });
