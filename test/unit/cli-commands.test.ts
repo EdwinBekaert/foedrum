@@ -111,6 +111,7 @@ describe('foedrum: commands that change state', () => {
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),
     resume: async () => assert.fail('no session to resume'),
+    init: async () => assert.fail('no init here'),
     env: {},
     ...overrides,
   });
@@ -579,6 +580,7 @@ describe('foedrum stuck', () => {
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
       resume: async () => assert.fail('no session to resume'),
+      init: async () => assert.fail('no init here'),
       env: {},
     });
   const append = (...events: Event[]) =>
@@ -808,6 +810,7 @@ describe('foedrum brewers', () => {
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
       resume: async () => assert.fail('no session to resume'),
+      init: async () => assert.fail('no init here'),
       env: {},
       ...overrides,
     });
@@ -953,6 +956,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),
     resume: async () => assert.fail('no session to resume'),
+    init: async () => assert.fail('no init here'),
     env: {},
     ...overrides,
   });

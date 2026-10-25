@@ -110,6 +110,8 @@ export const cliFromCheckout = async (
       // Loaded only for resume: it brings serve's setup and the worktrees.
       resume: async (input, issued) =>
         (await import('./resume-main.ts')).resumeFromCheckout(cwd, input, issued, options),
+      // Loaded only for init: the terminal's questions and the Brewery's files.
+      init: async () => (await import('./init-main.ts')).initFromCheckout(cwd, options),
       env: process.env,
     });
   } catch (error) {
