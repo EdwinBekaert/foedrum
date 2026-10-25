@@ -10,6 +10,7 @@ import {
   openedPullRequest,
   opensAsDraft,
   pullRequestText,
+  quotedDiagrams,
   stepReports,
   unlinked,
 } from '../../src/engine/pull-request.ts';
@@ -455,6 +456,133 @@ describe('unlinked (ADR 0167)', () => {
   });
 });
 
+describe('quotedDiagrams (ADR 0180)', () => {
+  const left = '[left out: a diagram Foedrum could not check]';
+  const block = (...lines: string[]) => ['```mermaid', ...lines, '```'].join('\n');
+
+  it("quotes #479's diamond label, which holds a parenthesis", () => {
+    assert.equal(
+      quotedDiagrams(
+        block(
+          'flowchart TD',
+          '  A[added line] --> B{name( at a place not after a letter, digit, _ or .}',
+          '  B -- no --> Z[next place]',
+        ),
+      ),
+      block(
+        'flowchart TD',
+        '  A["added line"] --> B{"name( at a place not after a letter, digit, _ or ."}',
+        '  B -->|"no"| Z["next place"]',
+      ),
+    );
+  });
+
+  it('quotes an edge label with a parenthesis, between pipes or between the dashes', () => {
+    assert.equal(
+      quotedDiagrams(block('graph LR', '  A -->|calls f(x)| B', '  B == runs g(y) ==> C')),
+      block('graph LR', '  A -->|"calls f(x)"| B', '  B ==>|"runs g(y)"| C'),
+    );
+    assert.equal(
+      quotedDiagrams(block('graph LR', '  A -. may (or not) .-> B')),
+      block('graph LR', '  A -.->|"may (or not)"| B'),
+    );
+  });
+
+  it('writes a " inside a label as #quot;', () => {
+    assert.equal(
+      quotedDiagrams(block('flowchart LR', '  A[say "hi"] -->|a "b"| B')),
+      block('flowchart LR', '  A["say #quot;hi#quot;"] -->|"a #quot;b#quot;"| B'),
+    );
+  });
+
+  it('leaves a quoted label as it is', () => {
+    const quoted = block(
+      'flowchart TD',
+      '  A["x(y)"] -->|"z;#"| B{"w"}',
+      '  B --- C(["s"]) & D[("db")]',
+      '  subgraph one ["The one"]',
+      '    E',
+      '  end',
+    );
+    assert.equal(quotedDiagrams(quoted), quoted);
+  });
+
+  it('quotes the label of every node shape', () => {
+    assert.equal(
+      quotedDiagrams(
+        block(
+          'flowchart LR',
+          '  A(a) --> B((b)) --> C([c]) --> D[[d]] --> E[(e)]',
+          '  F{{f}} --> G>g] --> H[/h/] --> I[\\i\\] --> J(((j)))',
+          '  K[/api/users]:::cls --> L;',
+        ),
+      ),
+      block(
+        'flowchart LR',
+        '  A("a") --> B(("b")) --> C(["c"]) --> D[["d"]] --> E[("e")]',
+        '  F{{"f"}} --> G>"g"] --> H[/"h"/] --> I[\\"i"\\] --> J((("j")))',
+        '  K["/api/users"]:::cls --> L;',
+      ),
+    );
+  });
+
+  it('writes a ; and a # in a sequence message as #59; and #35;', () => {
+    assert.equal(
+      quotedDiagrams(
+        block(
+          'sequenceDiagram',
+          '  participant D as driver; #1',
+          '  D->>+S: push; then #12',
+          '  Note over D,S: a; b',
+          '  loop every #3',
+          '    S-->>-D: done',
+          '  end',
+        ),
+      ),
+      block(
+        'sequenceDiagram',
+        '  participant D as driver#59; #35;1',
+        '  D->>+S: push#59; then #35;12',
+        '  Note over D,S: a#59; b',
+        '  loop every #35;3',
+        '    S-->>-D: done',
+        '  end',
+      ),
+    );
+  });
+
+  it('leaves out a diagram of another kind, with one line in its place', () => {
+    assert.equal(
+      quotedDiagrams(`Before.\n\n${block('classDiagram', '  A <|-- B')}\n\nAfter.`),
+      `Before.\n\n${left}\n\nAfter.`,
+    );
+  });
+
+  it('leaves out a diagram with a line it cannot read', () => {
+    for (const line of ['  A[x --> B', '  click A call()', '  A["x" y] --> B', '  A --> B{c)']) {
+      assert.equal(quotedDiagrams(block('flowchart TD', line)), left, line);
+    }
+    assert.equal(quotedDiagrams(block('sequenceDiagram', '  A ~> B: x')), left);
+  });
+
+  it('leaves the text outside a Mermaid block as it is', () => {
+    const text = [
+      'A[x] --> B(y); see `C{z}`.',
+      '',
+      '```ts',
+      'const a = f(x) --> [y];',
+      '```',
+      '',
+      '~~~~mermaid',
+      'graph TD',
+      '  A[a] --> B',
+      '~~~~',
+      'Then A[x].',
+    ].join('\n');
+    assert.equal(quotedDiagrams(text), text.replace('  A[a] --> B', '  A["a"] --> B'));
+  });
+});
+
 describe('opensAsDraft (ADR 0167)', () => {
   const report = (stepId: string, verdict?: 'approve' | 'changes') => ({
     stepId,
@@ -690,6 +818,24 @@ describe('pullRequestText', () => {
         '',
         'Closes acme/brewery#12',
       ].join('\n'),
+    );
+  });
+
+  it('quotes the labels of a Mermaid block in how it works, or leaves the diagram out (ADR 0180)', () => {
+    const body = (howItWorks: string) => {
+      const sections = { howItWorks, seeIt: 'See.', beforeAfter: [] };
+      const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+      return pullRequestText({ title: 'T', closes, reports }).body;
+    };
+    assert.ok(
+      body('Pic:\n\n```mermaid\ngraph TD\n  A --> B{f( x}\n').startsWith(
+        '## How it works\n\nPic:\n\n```mermaid\ngraph TD\n  A --> B{"f( x"}\n```\n\n**See it:**',
+      ),
+    );
+    assert.ok(
+      body('Pic:\n\n```mermaid\npie\n  "a" : 1\n```').startsWith(
+        '## How it works\n\nPic:\n\n[left out: a diagram Foedrum could not check]\n\n**See it:**',
+      ),
     );
   });
 

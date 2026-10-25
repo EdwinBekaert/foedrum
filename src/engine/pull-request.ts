@@ -397,6 +397,14 @@ const closedBlocks = (text: string): string | undefined => {
   return [...lines, ...(open === undefined ? [] : [open])].join(NEWLINE);
 };
 
+/**
+ * `text`, whose fences are paired, with every label of each Mermaid block quoted, or the block left
+ * out when Foedrum cannot read it (ADR 0180).
+ */
+export const quotedDiagrams = (_text: string): string => {
+  throw new Error('not implemented');
+};
+
 /** The longest how it works and See it, once made safe: `unlinked` and the escapes make them grow. */
 const MAX_SHOWN_HOW = 12_000;
 const MAX_SHOWN_SEE = 1_200;
