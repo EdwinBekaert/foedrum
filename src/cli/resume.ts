@@ -4,7 +4,13 @@
 // tests give fakes.
 
 import { join } from 'node:path';
-import { attemptPermissions, modelOf, settingsFileOf, toolsOf } from '../brewers/attempt-plan.ts';
+import {
+  attemptPermissions,
+  attemptSystemPrompt,
+  modelOf,
+  settingsFileOf,
+  toolsOf,
+} from '../brewers/attempt-plan.ts';
 import { attemptSettings } from '../brewers/attempt-settings.ts';
 import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
@@ -383,12 +389,15 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
       );
       const settingsFile = settingsFileOf(setup.workRoot, ref);
       shell.writeSettings(settingsFile, attemptSettings(permissions));
+      const systemPrompt = attemptSystemPrompt(found.brewer, permissions.allow, settingsFile);
+      shell.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
       const args = resumeArgs({
         model: modelOf(setup.models, found.brewer),
         effort: found.brewer.effort,
         settingsFile,
         tools: toolsOf(permissions.allow),
         sessionId: session,
+        appendSystemPromptFile: systemPrompt.file,
       });
       // The attempt's environment (ADR 0109's forced variables included) with the terminal's own.
       const env = buildBrewerEnv({

@@ -46,7 +46,7 @@ export interface ResumeCall {
 
 /** The arguments of an interactive `claude` that resumes an attempt's session. */
 export function resumeArgs(call: ResumeCall): string[] {
-  const { model, effort, settingsFile, tools, sessionId } = call;
+  const { model, effort, settingsFile, tools, sessionId, appendSystemPromptFile } = call;
   checkCall(model, tools, sessionId);
   // No print-mode flag and no permission mode: the engineer answers what the settings do not allow.
   return [
@@ -57,6 +57,7 @@ export function resumeArgs(call: ResumeCall): string[] {
     '--effort',
     effort,
     ...guards(settingsFile, tools),
+    ...systemPromptArgs(appendSystemPromptFile),
   ];
 }
 
@@ -66,6 +67,10 @@ const checkCall = (model: string, tools: readonly string[], sessionId: string): 
   if (tools.length === 0 || !tools.every((tool) => toolName.test(tool))) refuse('tools', tools);
   if (!isSessionId(sessionId)) refuse('session id', sessionId);
 };
+
+// The engine's fixed rules, appended to claude's own system prompt (ADR 0183).
+const systemPromptArgs = (file: string | undefined): string[] =>
+  file === undefined ? [] : ['--append-system-prompt-file', file];
 
 // The guards of an attempt's session, however it runs.
 const guards = (settingsFile: string, tools: readonly string[]): string[] => [
@@ -104,8 +109,6 @@ export function claudeArgs(call: ClaudeCall): string[] {
     ...(maxTurns === undefined ? [] : ['--max-turns', String(maxTurns)]),
     ...guards(settingsFile, tools),
     ...(session.kind === 'new' ? ['--session-id', session.id] : ['--resume', session.id]),
-    ...(call.appendSystemPromptFile === undefined
-      ? []
-      : ['--append-system-prompt-file', call.appendSystemPromptFile]),
+    ...systemPromptArgs(call.appendSystemPromptFile),
   ];
 }

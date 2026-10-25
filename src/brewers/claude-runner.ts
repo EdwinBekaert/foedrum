@@ -13,6 +13,7 @@ import {
   realpathSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { passed, settleReadings } from '../checks/gravity.ts';
@@ -191,8 +192,8 @@ export function readOutDocFile(
 }
 
 /** Writes an attempt's system prompt file (ADR 0183). */
-export function writeSystemPromptFile(_file: string, _text: string): void {
-  throw new Error('not implemented');
+export function writeSystemPromptFile(file: string, text: string): void {
+  writeFileSync(file, text);
 }
 
 /**
@@ -393,12 +394,19 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         plan = prepared;
         given = plan.houseYeast;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
+        const { systemPrompt } = plan;
+        if (systemPrompt !== undefined)
+          deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
         // A resumed run is read by the out doc it writes, never the one the run before left,
         // such as its needs_input (ADR 0118).
         if (plan.call.session.kind === 'resume') {
           deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
         }
-        args = claudeArgs({ ...plan.call, settingsFile: plan.settingsFile });
+        args = claudeArgs({
+          ...plan.call,
+          settingsFile: plan.settingsFile,
+          appendSystemPromptFile: systemPrompt?.file,
+        });
       } catch (error) {
         return unstartable(error);
       }

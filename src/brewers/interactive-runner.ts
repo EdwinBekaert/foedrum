@@ -120,6 +120,9 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           return await running.ended;
         }
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
+        const { systemPrompt } = plan;
+        if (systemPrompt !== undefined)
+          deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
         // Read by the out doc this session writes, never one the run before left (ADR 0118).
         deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
         const { model, effort, tools, session } = plan.call;
@@ -129,6 +132,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           settingsFile: plan.settingsFile,
           tools,
           sessionId: session.id,
+          appendSystemPromptFile: systemPrompt?.file,
         });
       } catch (error) {
         return unstartable(error);
