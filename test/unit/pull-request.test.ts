@@ -848,7 +848,10 @@ describe('pullRequestText', () => {
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.match(body, /^## How it works\n\nAdds `@Test void adds\(\)` for ann\.\n/);
-    assert.ok(body.includes('\n| `@Test` | Test void parse() { | `@Test void parse() {` |\n'), body);
+    assert.ok(
+      body.includes('\n| `@Test` | Test void parse() { | `@Test void parse() {` |\n'),
+      body,
+    );
     // A pipe splits the cell before a span, a doubled backslash escapes none, a cut opens one.
     assert.ok(body.includes(`\n| \`a\\|x\` | \`a\\\\\`y\` | \`${'z'.repeat(196)} w |\n`), body);
     assert.match(body, /\n\*\*See it:\*\* `@Test` runs, ask bob\n/);
