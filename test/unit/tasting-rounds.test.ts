@@ -209,7 +209,7 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.ok(calls.some((args) => args[0] === 'merge-base'));
     assert.ok(
       prompt.includes(
-        `An earlier round of this step, tasting#1, reviewed the change up to commit ${ROUND1} and sent it back with findings.`,
+        `An earlier round of this step, tasting#1, reviewed the change up to commit ${ROUND1}.`,
       ),
     );
     const whole = inputText(prompt, 'change');
@@ -333,7 +333,8 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.doesNotMatch(prompt, LATER_ROUND);
     assert.match(prompt, /the change since the round before could not be read/i);
     assert.match(prompt, /could not be read: no commit it reviewed is recorded\./);
-    assert.match(prompt, /An earlier round of this step, tasting#1, sent the change back/);
+    assert.match(prompt, /An earlier round of this step, tasting#1, reviewed the change, but/);
+    assert.doesNotMatch(prompt, /sent (it|the change) back/);
     assert.match(prompt, /review the whole change/i);
     assert.ok(
       calls.every((args) => !args.includes(ROUND1) && !args.includes(`${ROUND1}..${HEAD}`)),
