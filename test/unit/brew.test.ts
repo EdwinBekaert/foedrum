@@ -1107,6 +1107,58 @@ describe('runBrew', () => {
     assert.equal(held.at(-1), 'released');
   });
 
+  it('lets the hold go when closing its store fails (ADR 0195)', async () => {
+    const held: string[] = [];
+    const awake = {
+      attemptStarted: () => held.push('started'),
+      attemptEnded: () => held.push('ended'),
+      release: () => held.push('released'),
+    };
+    const failing = {
+      ...store,
+      close: () => {
+        throw new Error('the store did not close');
+      },
+    };
+    await assert.rejects(
+      runBrew(setup, shell(behave.succeed(), { awake, openStore: () => failing }), request),
+      /the store did not close/,
+    );
+    assert.equal(held.at(-1), 'released');
+  });
+
+  it("holds the machine awake through a check step's attempt too (ADR 0195)", async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue(
+      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      t0,
+    );
+    const held: string[] = [];
+    const awake = {
+      attemptStarted: () => held.push('started'),
+      attemptEnded: () => held.push('ended'),
+      release: () => held.push('released'),
+    };
+    // The porter recipe's green step runs the repository's test check.
+    const exec = async () => {
+      held.push('check runs');
+      return { exitCode: 0, stdout: '', stderr: '', output: '' };
+    };
+    assert.equal(
+      await runBrew(setup, shell(behave.succeed(), { awake, exec }), request),
+      0,
+      lines.join('\n'),
+    );
+    assert.deepStrictEqual(held, [
+      'started',
+      'ended',
+      'started',
+      'check runs',
+      'ended',
+      'released',
+    ]);
+  });
+
   it('drives its batch alone, leaving a lease its owner holds of another batch to lapse (ADR 0123)', async () => {
     // A batch this owner left Stuck in an earlier brew, its lease still live.
     const expiresAt = new Date(t0.getTime() + 60_000);
