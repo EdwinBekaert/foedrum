@@ -27,6 +27,9 @@ export const StepOutcome = z.discriminatedUnion('kind', [
     reason: NonEmpty,
     // The run went past its turn budget, and its retry resumes its session (ADR 0175).
     overran: z.literal('turns').optional(),
+    // The run's commits hold what the push's secret scan would refuse: its retry is told why
+    // (ADR 0187).
+    secrets: z.literal(true).optional(),
   }),
   z.strictObject({ kind: z.literal('needs_input'), questions: z.array(Question).min(1) }),
   z.strictObject({ kind: z.literal('cancelled') }),

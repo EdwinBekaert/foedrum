@@ -114,6 +114,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         },
       },
       commits: async () => ({ kind: 'counted', count: 1 }),
+      scan: async () => ({ kind: 'scanned', findings: [] }),
       now: () => t0,
       say: (line) => calls.push(`say ${line}`),
       ...overrides,
@@ -187,6 +188,28 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     const none = runner('resume', { commits: async () => ({ kind: 'counted', count: 0 }) });
     const { ending } = await none.start(attempt).ended;
     assert.equal(ending.kind, 'blocked');
+  });
+
+  it('scans the commits of a done session for secrets on the attempt branch, as any run (ADR 0187)', async () => {
+    const scans: string[][] = [];
+    const finding = { commit: 'f'.repeat(40), place: 'test/keys.test.ts', kind: 'GitHub token' };
+    const found = runner('resume', {
+      scan: async (clone, branch, since) => {
+        scans.push([clone, branch, since]);
+        return { kind: 'scanned', findings: [finding] };
+      },
+    });
+    const { ending } = await found.start(attempt).ended;
+    assert.deepEqual(scans, [
+      [resolve('clone'), 'foedrum/12-1/brew/1', attempt.limits.commitsSince],
+    ]);
+    assert.deepEqual(ending, {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit ffffffffffff, GitHub token in test/keys.test.ts",
+      secrets: true,
+    });
   });
 
   it("is a failure that names claude's exit code when the session ends with one", async () => {

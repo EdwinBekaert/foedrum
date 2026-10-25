@@ -17,7 +17,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { stepRunner } from '../../src/engine/step-runner.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { countCommits } from '../../src/workspace/attempt-commits-git.ts';
+import { countCommits, scanAttemptCommits } from '../../src/workspace/attempt-commits-git.ts';
 import {
   type AttemptRef,
   attemptBranch,
@@ -292,6 +292,43 @@ describe('attempt worktrees with real git', () => {
       git(fresh.path, ['commit', '-q', '--amend', '-m', 'Rewritten']);
       assert.deepEqual(await count(clone, attemptBranch(amended), fresh.commit), {
         kind: 'rewritten',
+      });
+      await worktrees.clean(claims({ '12-1': 'ended' }));
+    }
+  });
+
+  it("scans an attempt's commits after its start on its branch, in the user's clone and in a managed one (ADR 0187)", async () => {
+    const managed = await ensureManagedClone({
+      git: runGit,
+      workRoot,
+      repo: 'acme/app',
+      url: origin,
+      reference: user,
+    });
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const scan = scanAttemptCommits(runGit);
+    for (const clone of [user, managed]) {
+      const worktrees = open(clone);
+      const brewed = attempt('12-1');
+      const made = await worktrees.create(brewed, 'origin/main');
+      brew(made.path);
+      assert.deepEqual(await scan(clone, attemptBranch(brewed), made.commit), {
+        kind: 'scanned',
+        findings: [],
+      });
+      writeFileSync(join(made.path, 'keys.test.ts'), `const key = '${token}';\n`);
+      git(made.path, ['add', 'keys.test.ts']);
+      git(made.path, ['commit', '-q', '-m', 'Add a fixture']);
+      const tip = git(made.path, ['rev-parse', 'HEAD']).trim();
+      assert.deepEqual(await scan(clone, attemptBranch(brewed), made.commit), {
+        kind: 'scanned',
+        findings: [{ commit: tip, place: 'keys.test.ts', kind: 'GitHub token' }],
+      });
+      // From the tip, the commit with the token is before the start: not this attempt's.
+      assert.deepEqual(await scan(clone, attemptBranch(brewed), tip), {
+        kind: 'scanned',
+        findings: [],
       });
       await worktrees.clean(claims({ '12-1': 'ended' }));
     }

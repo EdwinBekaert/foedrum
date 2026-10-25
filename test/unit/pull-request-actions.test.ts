@@ -516,6 +516,52 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
     assert.deepEqual(pushes, []);
   });
 
+  it('still scans from the base, not from the start of the attempt whose own scan passed, and refuses what it finds (ADR 0187)', async () => {
+    const { actions, pushes, scans } = actionsWith({ found });
+    // implement#1's commits held a secret, and implement#2, its retry, passed its own scan.
+    const [chosen, scheduled, started, finished] = brewed as [Event, Event, Event, Event];
+    const retry = { batchId: '12-1', stepId: 'implement', attempt: 2 };
+    const state = fold([
+      ordered({ issue: 12 }),
+      chosen,
+      scheduled,
+      started,
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'implement',
+        attempt: 1,
+        outcome: {
+          kind: 'failed',
+          retryable: true,
+          reason: `the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit ${tip.slice(0, 12)}, GitHub token in message`,
+          secrets: true,
+        },
+      },
+      { type: 'step.scheduled', ...retry, deadlineAt: '2026-10-15T13:00:00.000Z', retry: true },
+      {
+        type: 'step.started',
+        ...retry,
+        worktree: {
+          repo: 'acme/api',
+          path: '/work/acme.api/12-1/implement/2',
+          branch: 'foedrum/12-1/implement/2',
+          commit: other,
+        },
+      },
+      { ...(finished as Event & { type: 'step.finished' }), attempt: 2 },
+      ...opening,
+    ]);
+    keysOf(state, actions);
+    const result = await actions.target.apply(push);
+    // The task tree is implement#2's, which started at `other`: its own scan read only what came
+    // after it; the push reads every commit from the base.
+    assert.deepEqual(scans, [`${base}..${tip}`]);
+    assert.equal((result as { from?: string }).from, 'refs/heads/foedrum/12-1/implement/2');
+    assert.deepEqual((result as { refused?: ScanFinding[] }).refused, found);
+    assert.deepEqual(pushes, []);
+  });
+
   it('scans nothing when there is nothing to push', async () => {
     const { actions, scans } = actionsWith({ main: tip, found });
     keysOf(brewing(), actions);

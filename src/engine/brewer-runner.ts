@@ -5,6 +5,7 @@
 import type { GravityReading, Receipt, Usage } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
+import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
@@ -93,6 +94,15 @@ export type CommitsSeen =
   | { kind: 'rewritten' }
   /** git could not answer. */
   | { kind: 'uncounted'; reason: string };
+
+/**
+ * What the push's secret scan found in an attempt's commits after its start (ADR 0187): no
+ * finding when they may go on.
+ */
+export type CommitsScanned =
+  | { kind: 'scanned'; findings: readonly ScanFinding[] }
+  /** git could not answer. */
+  | { kind: 'unscanned'; reason: string };
 
 /**
  * A usage window of claude's subscription that ran out, as claude named it (ADR 0091): which
@@ -337,6 +347,50 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
     default: {
       const unhandled: never = frontmatter;
       throw new Error(`Unhandled out-doc status ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
+
+/** The findings a failed scan names; it counts the rest, as the refused push does (ADR 0079). */
+const NAMED_FINDINGS = 3;
+
+/**
+ * A commit as a failed scan names it: no state knows a failed attempt's commits, so a full hash
+ * would read as a key, and the status comment would leave the whole reason out (ADR 0088).
+ */
+const SHORT_COMMIT = 12;
+
+/**
+ * A succeeded attempt of a brewer that produces commits, once the commits after `since` were
+ * scanned for secrets (ADR 0187): a finding fails it retryably, naming each commit, place and
+ * kind, never the matched text (ADR 0088).
+ */
+export function scannedEnding(ending: Ending, scanned: CommitsScanned, since: string): Ending {
+  if (ending.kind !== 'succeeded') return ending;
+  switch (scanned.kind) {
+    case 'scanned': {
+      const { findings } = scanned;
+      if (findings.length === 0) return ending;
+      // The place comes last, so a file named `token` never reads as an assignment (ADR 0088).
+      const named = findings
+        .slice(0, NAMED_FINDINGS)
+        .map(
+          ({ commit, place, kind }) =>
+            `commit ${commit.slice(0, SHORT_COMMIT)}, ${kind} in ${place}`,
+        );
+      const more = findings.length - named.length;
+      const places = [...named, ...(more > 0 ? [`and ${more} more`] : [])].join('; ');
+      // The mark tells its retry's plan why it runs.
+      const reason = `the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): ${places}`;
+      return { kind: 'failed', retryable: true, reason, secrets: true };
+    }
+    case 'unscanned': {
+      const summary = `the commits since ${since.slice(0, 7)} were not scanned for secrets: ${scanned.reason}`;
+      return { kind: 'blocked', blockerKind: 'environment', summary };
+    }
+    default: {
+      const unhandled: never = scanned;
+      throw new Error(`Unhandled scan ${JSON.stringify(unhandled)}`);
     }
   }
 }

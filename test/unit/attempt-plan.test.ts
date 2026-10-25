@@ -14,6 +14,7 @@ import {
   modelOf,
   outDocContract,
   planAttempt,
+  scanRetryOf,
   settingsFileOf,
   systemPromptFileOf,
   toolsOf,
@@ -27,6 +28,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import type { ModelsConfig } from '../../src/schemas/models.ts';
 import { OutDocFrontmatter, readOutDoc } from '../../src/schemas/out-doc.ts';
 import { BrewerAllowedTool } from '../../src/schemas/primitives.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 
 const brewer = (fields: Record<string, unknown> = {}): BrewerFrontmatter =>
@@ -1264,6 +1266,54 @@ describe('planAttempt', () => {
     assert.throws(
       () => planAttempt({ ...facts(), inputs }),
       /the input "malt" \(out doc of step malt\) holds the prompt's nonce, a likely injection/,
+    );
+  });
+});
+
+describe('scanRetryOf: why a retry after the secret scan runs (ADR 0187)', () => {
+  const deadlineAt = '2026-10-22T13:00:00.000Z';
+  const first = { batchId: 'b1', stepId: 'gauge', attempt: 1 };
+  const second = { ...first, attempt: 2 };
+  const reason =
+    "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 0123456789ab, GitHub token in test/keys.test.ts";
+  const batchOf = (outcome: StepOutcome, retry = true) => {
+    const events: Event[] = [
+      { type: 'batch.ordered', batchId: 'b1', order: { issue: 1 }, routeBy: deadlineAt },
+      { type: 'step.scheduled', ...first, deadlineAt },
+      { type: 'step.started', ...first },
+      { type: 'step.finished', ...first, outcome },
+      { type: 'step.scheduled', ...second, deadlineAt, ...(retry ? { retry: true } : {}) },
+    ];
+    const batch = fold(events).batches.get('b1');
+    assert.ok(batch !== undefined);
+    return batch;
+  };
+  const advice =
+    "This attempt starts where that one started, without its commits. Write what the scan named so that it does not look like a secret: build a key-shaped value, such as a test fixture, at run time (['ghp', 'x'].join('_')), never as a literal.";
+
+  it("tells the retry the scan's reason, and to write that text another way", () => {
+    const batch = batchOf({ kind: 'failed', retryable: true, reason, secrets: true });
+    assert.deepEqual(scanRetryOf(batch, second), {
+      source: { kind: 'scan', step: 'gauge', attempt: 1 },
+      text: `The secret scan failed the attempt before this one, gauge#1: ${reason}\n\n${advice}`,
+    });
+  });
+
+  it('tells nothing to the first attempt, to a retry after any other failure, or to an attempt no failure scheduled', () => {
+    const scanned = batchOf({ kind: 'failed', retryable: true, reason, secrets: true });
+    assert.equal(scanRetryOf(scanned, first), undefined);
+    const crashed = batchOf({ kind: 'failed', retryable: true, reason: 'claude crashed' });
+    assert.equal(scanRetryOf(crashed, second), undefined);
+    const routed = batchOf({ kind: 'failed', retryable: true, reason, secrets: true }, false);
+    assert.equal(scanRetryOf(routed, second), undefined);
+  });
+
+  it('leaves out a reason that looks like a secret, as a route does', () => {
+    const odd = `${reason.slice(0, reason.lastIndexOf(' in '))} in token=abc.txt`;
+    const batch = batchOf({ kind: 'failed', retryable: true, reason: odd, secrets: true });
+    assert.equal(
+      scanRetryOf(batch, second)?.text,
+      `The secret scan failed the attempt before this one, gauge#1: [left out: a reason that looks like a secret]\n\n${advice}`,
     );
   });
 });

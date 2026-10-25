@@ -38,6 +38,7 @@ import {
   type Resumed,
   routeInput,
   routeOf,
+  scanRetryOf,
   settingsFileOf,
 } from './attempt-plan.ts';
 import type { ConfigDirs } from './attempt-settings.ts';
@@ -309,7 +310,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * The inputs of a fresh attempt `ref` of `found`, in `worktree`: its brewer's, then for a Taster
    * that reviews a diff where the change starts (ADR 0161), then for a brewer that asks for house
    * yeast the rules that match its change (ADR 0169), then the answers to its step's questions,
-   * then what sent it back when a route scheduled it (ADR 0128). With the rules it was given.
+   * then what sent it back when a route scheduled it (ADR 0128), and last, for a retry after the
+   * secret scan failed the attempt before it, why (ADR 0187). With the rules it was given.
    */
   const inputsFor = async (
     batch: Batch,
@@ -353,6 +355,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
       inputs.push(routeInput(route, read));
     }
+    // Its commits are gone: it writes what the scan named another way (ADR 0187).
+    const scanned = scanRetryOf(batch, ref);
+    if (scanned !== undefined) inputs.push(scanned);
     return rules === undefined ? { inputs } : { inputs, houseYeast: rules.record };
   };
 

@@ -24,12 +24,16 @@ import type { Env } from '../engine/brewer-env.ts';
 import {
   type AttemptEnd,
   type AttemptFacts,
+  type AttemptLimits,
   type AttemptStart,
   type BrewerRunner,
+  type CommitsScanned,
   type CommitsSeen,
   type ProcessExit,
+  scannedEnding,
   settleAttempt,
 } from '../engine/brewer-runner.ts';
+import type { Ending } from '../engine/decide.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { pathInside } from '../platform/paths.ts';
 import {
@@ -43,7 +47,12 @@ import {
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
-import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
+import {
+  type CountCommits,
+  countCommits,
+  type ScanCommits,
+  scanAttemptCommits,
+} from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
@@ -131,6 +140,11 @@ export interface ClaudeRunnerDeps {
   wait: (ms: number, signal: AbortSignal) => Promise<void>;
   /** The commits on the attempt's branch in its clone after the limits' `commitsSince` (ADR 0074). */
   commits: CountCommits;
+  /**
+   * Scans a done attempt's commits after the limits' `commitsSince` for secrets, as the push does
+   * (ADR 0187).
+   */
+  scan: ScanCommits;
 }
 
 /**
@@ -143,6 +157,30 @@ const MAX_OUT_DOC_BYTES = 1024 * 1024;
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/**
+ * The ending settleAttempt gives the facts, for a `done` with commits once the push's scan read
+ * them on the attempt's branch in the clone (ADR 0187); any other ending with no git run.
+ */
+export async function scannedIfDone(
+  scan: ScanCommits,
+  facts: AttemptFacts,
+  limits: AttemptLimits,
+  plan: Pick<ClaudeAttemptPlan, 'commits'>,
+  signal: AbortSignal,
+): Promise<Ending> {
+  const ending = settleAttempt(facts, limits);
+  const since = limits.commitsSince;
+  const made = facts.commits?.kind === 'counted' && facts.commits.count > 0;
+  if (ending.kind !== 'succeeded' || since === undefined || !made || plan.commits === undefined) {
+    return ending;
+  }
+  const { clone, branch } = plan.commits;
+  const scanned = await scan(clone, branch, since, signal).catch(
+    (error: unknown): CommitsScanned => ({ kind: 'unscanned', reason: messageOf(error) }),
+  );
+  return scannedEnding(ending, scanned, since);
+}
 
 // stderr is the CLI's, but it may quote what the brewer wrote: a reason quotes one line of it,
 // cut as the stream's are.
@@ -551,7 +589,10 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         sessionStarted: seen.session !== undefined,
         ...(commits === undefined ? {} : { commits }),
       };
-      const ending = settleAttempt(facts, limits);
+      // Its retry can write another way what the push would refuse (ADR 0187).
+      const ending = await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal);
+      // A stop while scanning kills git: the attempt was stopped, git did not fail.
+      if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
       // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).
       if (ending.kind === 'failed' && ending.overran === 'turns' && facts.outDoc !== undefined) {
         try {
@@ -596,5 +637,6 @@ export function claudeBrewerRunner(
     now: () => new Date(),
     wait: waitFor,
     commits: countCommits(runGit),
+    scan: scanAttemptCommits(runGit),
   });
 }
