@@ -19,9 +19,10 @@ So a scan when the step's attempt ends lets its retry write the fixture another 
   It names each commit, place and kind, never the matched text or `findSecrets`' excerpt of it ([ADR 0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md)).
   A commit is named by its first 12 characters: the failed attempt's commits are not ones the folded state knows (`knownCommits`), so a full hash would read as a key and the status comment would leave the whole reason out.
   The reason itself passes `findSecrets`, so the status comment and the receipt show it like any other failed attempt's.
-- **The attempt's retry is told why.** A fresh retry starts at the unchanged task tree, so the commit is gone; without the reason it would write the same literal again.
-  The plan of a retry whose attempt before failed by the scan gives it one input with that reason, and the advice to write such text so it does not look like a secret, for example built at run time; a reason that looks like a secret is left out as a route's is (`leftOutReason`).
-  The failed outcome carries `scanned: true`, so the plan knows it from the event log.
+- **The attempt's retry is told why.** A fresh retry starts at the unchanged task tree, so the commit is gone; but no retry is told why the attempt before it failed, so without the reason it would write the same literal again.
+  The failed outcome carries `secrets: true`, so the plan knows it from the event log.
+  The plan of a fresh retry whose attempt before carries it gives it one input, last, with that reason and the advice to build a key-shaped value at run time, never as a literal (`scanRetryOf`, `src/brewers/attempt-plan.ts`, source `why step <step> runs again: the secret scan of <step>#<n>`); a reason that looks like a secret is left out as a route's is (`leftOutReason`).
+  A resumed retry is told only to go on, as before.
 - **A git failure while scanning blocks the attempt on its environment**, as git's failure while counting does (ADR 0074): `the commits since <start> were not scanned for secrets: <reason>`.
   A stop while it scans ends the attempt cancelled.
 - **The push's scan stays as it is**, the last line: commits that no attempt's scan read still reach it (a merge of the base before the last check, ADR 0164; a rewind's commits, ADR 0025; a step whose brewer does not produce commits but commits anyway, ADR 0066), and it is the one point every pushed commit passes.
@@ -30,7 +31,8 @@ So a scan when the step's attempt ends lets its retry write the fixture another 
 - A brewer that commits a key-shaped literal costs its step one attempt, not the batch: the retry writes it another way, and the batch goes on.
 - A binary file, or more than 4 MiB of changes, fails the attempt too, as it would stop the push; the step uses its attempts and goes Stuck with the reason, which a person reads earlier than at the push.
 - A brewer that resumes its session on a retry (`retryMode: resume`, [ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)) continues on the same branch, so its retry must rewrite the commit to pass, which its git rules may not allow; no default brewer resumes on a retry.
-- Each committing attempt that ends `done` costs three `git log` calls and a `rev-parse` in the clone, and a `cat-file` call when a hexadecimal word turns up.
+- Each committing attempt that ends `done` with commits costs the push's git calls in the clone (three `git log` calls and a `rev-list` of its merges, a `diff` per merge, and a `cat-file` call when a hexadecimal word turns up) and a `rev-parse` of its branch.
+- A retry's prompt grows by one input only after the scan failed the attempt before it.
 - The push may now refuse less often, but its refusal, and its summary, do not change.
 
 ## Alternatives considered
