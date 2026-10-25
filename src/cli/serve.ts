@@ -201,6 +201,7 @@ const baseChecks = async (
             base,
             tip: (name, signal) => push.baseTip(name, signal),
             mergeTree: mergeTree(repository),
+            branchTip: () => Promise.reject(new Error('not implemented')),
           },
         ];
   });

@@ -429,6 +429,7 @@ describe('createIntake', () => {
             calls.push('merge-tree');
             return { kind: 'clean' };
           },
+          branchTip: async () => 'a'.repeat(40),
         },
       ];
       const { tracker, pullRequests } = fakeTracker(

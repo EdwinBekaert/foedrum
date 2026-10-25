@@ -1786,6 +1786,10 @@
             "type": "string",
             "pattern": "\\S"
           }
+        },
+        "branchMoved": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         }
       },
       "required": [

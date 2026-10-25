@@ -44,8 +44,10 @@ const succeeded: Ending = {
 
 /** A repository whose base's tip is `tips.at` and whose merge-tree answers by tip. */
 const fakeRepository = (answers: Record<string, MergeTreeResult | Error>) => {
-  const state = { at: tip1 as string | Error };
+  // The base's tip, and the bottle branch's tip on the remote: the pushed head until a person pushes.
+  const state = { at: tip1 as string | Error, branch: head as string | undefined };
   const calls: string[] = [];
+  const branchCalls: string[] = [];
   const repository: BaseCheckRepository = {
     repo: web,
     base: 'main',
@@ -61,8 +63,12 @@ const fakeRepository = (answers: Record<string, MergeTreeResult | Error>) => {
       if (answer instanceof Error) throw answer;
       return answer;
     },
+    branchTip: async (branch) => {
+      branchCalls.push(branch);
+      return state.branch;
+    },
   };
-  return { repository, calls, state };
+  return { repository, calls, state, branchCalls };
 };
 
 const conflicts = (...files: string[]): MergeTreeResult => ({ kind: 'conflicts', files });
@@ -265,7 +271,62 @@ describe('checkBases', () => {
     assert.equal(refused.kind, 'refused');
   });
 
+  it('checks no more once someone else pushed to the bottle branch: no merge-tree, no comment, and the status comment says so', async () => {
+    onTap();
+    const { repository, calls, state, branchCalls } = fakeRepository({
+      [tip1]: conflicts('src/a.ts'),
+      [tip2]: conflicts('src/b.ts'),
+    });
+    await pass(repository);
+    state.branch = 'f'.repeat(40);
+    state.at = tip2;
+    await pass(repository);
+    state.at = tip3;
+    await pass(repository);
+    assert.deepStrictEqual(
+      calls.filter((call) => call.startsWith('merge-tree')),
+      ['merge-tree a c'],
+    );
+    assert.deepStrictEqual(branchCalls, ['foedrum/x/acme.web', 'foedrum/x/acme.web']);
+    assert.deepStrictEqual(batch().baseChecks?.at(-1), {
+      pullRequest,
+      branch: 'main',
+      tip: tip2,
+      branchMoved: 'f'.repeat(40),
+    });
+    assert.equal(batch().baseChecks?.length, 2);
+    assert.deepStrictEqual(
+      conflictPosts(batch()).map(({ n }) => n),
+      [1],
+    );
+    assert.deepStrictEqual(baseCheckLines(batch()), [
+      `- <${pullRequest}> is not checked against \`main\` since someone else pushed to its branch`,
+    ]);
+  });
+
+  it("reads the bottle branch's tip only when the base's tip moved", async () => {
+    onTap();
+    const { repository, branchCalls } = fakeRepository({ [tip1]: clean });
+    await pass(repository);
+    await pass(repository);
+    assert.deepStrictEqual(branchCalls, ['foedrum/x/acme.web']);
+  });
+
   describe('the status comment', () => {
+    it('shows no base check of a pull request that ended', async () => {
+      onTap();
+      const { repository } = fakeRepository({ [tip1]: conflicts('src/a.ts') });
+      await pass(repository);
+      accept({
+        kind: 'record',
+        event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'merged' },
+      });
+      assert.deepStrictEqual(baseCheckLines(batch()), []);
+      const text = renderStatus(batch());
+      assert.ok(text.includes(`- <${pullRequest}>`), text);
+      assert.doesNotMatch(text, /conflicts with/);
+    });
+
     it('shows the latest check: the tip and files of a conflict, then that it merges cleanly again', async () => {
       onTap();
       const { repository, state } = fakeRepository({
@@ -307,6 +368,8 @@ describe('checkBases', () => {
       assert.match(comment.body, /`main` moved to `c{40}`/);
       assert.match(comment.body, /src\/a\.ts/);
       assert.match(comment.body, /stays On tap/);
+      // Foedrum checks the commit it pushed: merging the base by hand does not clear the report.
+      assert.doesNotMatch(comment.body, /into this branch and resolve/);
       assert.deepStrictEqual(await effects.target.find(encoded), { result: 1 });
     });
 

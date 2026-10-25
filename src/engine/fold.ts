@@ -179,6 +179,8 @@ export interface BaseCheck {
   tip: string;
   /** The files it conflicts in; absent when it merges cleanly. */
   conflicts?: readonly string[];
+  /** The bottle branch's tip, when someone else pushed to it: not checked, then or after. */
+  branchMoved?: string;
 }
 
 /** One attempt on a batch's path: its step and its number. */

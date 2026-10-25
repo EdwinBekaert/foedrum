@@ -26,6 +26,11 @@ export interface BaseCheckRepository {
   tip(base: string, signal?: AbortSignal): Promise<string>;
   /** How `head` and `tip`, both full shas the clone has, merge. */
   mergeTree(head: string, tip: string, signal?: AbortSignal): Promise<MergeTreeResult>;
+  /**
+   * The commit the remote's bottle branch `branch` points at now (`BranchPush.remoteTip`), or
+   * `undefined` when it has no such branch.
+   */
+  branchTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
 }
 
 export interface BaseCheckOptions {

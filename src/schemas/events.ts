@@ -483,6 +483,8 @@ export const Event = z.discriminatedUnion('type', [
     branch: NonEmpty,
     tip: CommitSha,
     conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
+    // The bottle branch's tip when someone else pushed to it: no merge-tree ran, and none will.
+    branchMoved: CommitSha.optional(),
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),
