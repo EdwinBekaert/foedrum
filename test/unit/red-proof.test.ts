@@ -802,6 +802,10 @@ describe('judgeRed: a name before a parenthesis declares a test only where no ca
     declaresIt('  List<int> parse() {');
   });
 
+  it('declares a test after a template parameter list', () => {
+    declaresIt('  template<typename T> void parse() {');
+  });
+
   it('declares a test after a nullable return type', () => {
     declaresIt('  Task? Parse() {', 'parser > Parse');
   });
