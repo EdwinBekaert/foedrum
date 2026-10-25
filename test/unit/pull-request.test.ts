@@ -853,8 +853,8 @@ describe('pullRequestText', () => {
       return pullRequestText({ title: 'T', closes, reports }).body;
     };
     assert.ok(
-      fenced('Pic:\n\n````mermaid\nflowchart LR\n```\n  A --> B').startsWith(
-        '## How it works\n\nPic:\n\n````mermaid\nflowchart LR\n```\n  A --> B\n````\n\n**See it:** See.\n\n## How this',
+      fenced('Pic:\n\n````text\nflowchart LR\n```\n  A --> B').startsWith(
+        '## How it works\n\nPic:\n\n````text\nflowchart LR\n```\n  A --> B\n````\n\n**See it:** See.\n\n## How this',
       ),
     );
     assert.ok(fenced('~~~\ncode').startsWith('## How it works\n\n~~~\ncode\n~~~\n\n**See it:**'));
@@ -868,8 +868,8 @@ describe('pullRequestText', () => {
     };
     const section = (body: string) => body.slice(0, body.indexOf('\n\n**See it:**'));
     assert.equal(
-      section(fenced('```mermaid\nA\n~~~\n<!--')),
-      '## How it works\n\n```mermaid\nA\n~~~\n<!--\n```',
+      section(fenced('```text\nA\n~~~\n<!--')),
+      '## How it works\n\n```text\nA\n~~~\n<!--\n```',
     );
     assert.equal(
       section(fenced('```\na\n``` foo\nb')),
@@ -923,7 +923,7 @@ describe('pullRequestText', () => {
   it('keeps how it works from starting an HTML block, outside a fence (review of #450)', () => {
     const sections = {
       howItWorks:
-        'A <b>bold</b> word.\n\n<!-- hidden\n   <details>\n\n```mermaid\nA["x<br/>y"]\n<b>\n```',
+        'A <b>bold</b> word.\n\n<!-- hidden\n   <details>\n\n```text\nA["x<br/>y"]\n<b>\n```',
       seeIt: 'See.',
       beforeAfter: [],
     };
@@ -931,7 +931,7 @@ describe('pullRequestText', () => {
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.ok(
       body.startsWith(
-        '## How it works\n\nA <b>bold</b> word.\n\n&lt;!-- hidden\n   &lt;details>\n\n```mermaid\nA["x<br/>y"]\n<b>\n```\n\n**See it:**',
+        '## How it works\n\nA <b>bold</b> word.\n\n&lt;!-- hidden\n   &lt;details>\n\n```text\nA["x<br/>y"]\n<b>\n```\n\n**See it:**',
       ),
       body,
     );
