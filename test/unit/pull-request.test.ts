@@ -235,6 +235,22 @@ describe('stepReports and the body: the pre-existing findings to file (#501, ADR
       body,
     );
   });
+
+  it('leaves out a place or a why that looks like a secret, as the other reports', () => {
+    const leaking = { ...lint, why: `Token ${token}` };
+    const reports = [
+      { stepId: 'implement', summary: 'Round 2', assumptions: [], toFile: [leaking] },
+    ];
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Wait for it', closes, reports });
+    assert.ok(!body.includes(token), body);
+    assert.ok(
+      body.includes(
+        '  to file: src/lint.ts:4: [left out: a text of step implement that looks like a secret]',
+      ),
+      body,
+    );
+  });
 });
 
 describe("stepReports: a Finer's changes (ADR 0166)", () => {

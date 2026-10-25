@@ -262,7 +262,12 @@ const OUT_DOCS: Record<string, string | OutDocRead> = {
 };
 
 /** The prompt of attempt `attempt` of the tasting step after `events`, and the files it read. */
-const planRound = async (events: readonly Event[], attempt: number, docs = OUT_DOCS) => {
+const planRound = async (
+  events: readonly Event[],
+  attempt: number,
+  docs = OUT_DOCS,
+  stepId = 'tasting',
+) => {
   const reads: string[] = [];
   const plans = createAttemptPlans({
     state: () => fold(events),
@@ -295,7 +300,7 @@ const planRound = async (events: readonly Event[], attempt: number, docs = OUT_D
     },
     random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
   });
-  const ref = at('tasting', attempt);
+  const ref = at(stepId, attempt);
   const { prompt } = await plans.plan({ ref, limits: plans.limits(ref) });
   return { prompt, reads };
 };
@@ -447,6 +452,51 @@ describe('which attempts give a round its findings and dispositions (review of #
       inputText((await planRound(events, 2)).prompt, 'earlierFindings'),
       ROUND_ONE_DISPOSED,
     );
+  });
+
+  for (const route of [
+    // Another lens's findings, as a sibling of a parallel group sends the batch back (ADR 0168).
+    { from: 'other-lens', why: 'findings' },
+    // This step's route, but not for findings.
+    { from: 'tasting', why: 'failed' },
+  ]) {
+    it(`never takes the dispositions of an attempt a route from ${route.from} for ${route.why} brought back`, async () => {
+      const events: Event[] = [
+        ...ROUND_ONE,
+        blockedByFindings(1),
+        scheduled('implement', 2, { route }),
+        started('implement', 2),
+        succeeded('implement', 2, { dispositions: [fixed, dismissed] }),
+        scheduled('tasting', 2),
+        started('tasting', 2),
+      ];
+      const text = inputText((await planRound(events, 2)).prompt, 'earlierFindings');
+      assert.ok(text.includes('The poll has no deadline\n  open'), text);
+      assert.ok(text.includes('Five tries is too few\n  open'), text);
+    });
+  }
+
+  it('gives a step whose brewer is not a Taster no earlier findings, though an earlier attempt of it was blocked by findings', async () => {
+    const events: Event[] = [
+      ...ROUND_ONE.slice(0, -3),
+      // No Gauger ran, so the Cellarman has no tests input.
+      { type: 'step.skipped', batchId: '12-1', stepId: 'gauge', when: 'false' },
+      {
+        type: 'step.finished',
+        ...at('implement', 1),
+        outcome: {
+          kind: 'failed',
+          retryable: false,
+          reason: 'blocked (findings): a test of the Gauger is wrong',
+        },
+      },
+      scheduled('implement', 2),
+      started('implement', 2),
+    ];
+    const { prompt, reads } = await planRound(events, 2, OUT_DOCS, 'implement');
+    assert.doesNotMatch(prompt, /name="earlierFindings"/);
+    assert.doesNotMatch(prompt, NEVER_AGAIN);
+    assert.deepEqual(reads, []);
   });
 
   it('takes the dispositions of an answered attempt that continued the routed one', async () => {
