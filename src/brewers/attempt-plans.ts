@@ -245,11 +245,21 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     return changeInput(since, log, diff, regression);
   };
 
-  /** Whether commit `ancestor` is on the line to `head` in the clone of `repo`. */
-  const onLine = async (repo: string, ancestor: string, head: string): Promise<boolean> => {
+  /**
+   * Why commit `ancestor` is not on the line to `head` in the clone of `repo`: `off` when git says
+   * it is not, or that git failed; undefined when it is.
+   */
+  const offLine = async (
+    repo: string,
+    ancestor: string,
+    head: string,
+    off: string,
+  ): Promise<string | undefined> => {
     if (options.git === undefined) throw new Error('the change since the round before: no git');
     const args = ['merge-base', '--is-ancestor', ancestor, head];
-    return (await inClone(options.git)(options.clone(repo), args)).code === 0;
+    const { code } = await inClone(options.git)(options.clone(repo), args);
+    // Exit 1 alone says it is not an ancestor; any other end is git's failure (#506).
+    return code === 0 ? undefined : code === 1 ? off : `git merge-base exited with code ${code}`;
   };
 
   /**
@@ -273,12 +283,18 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     if (repo.toLowerCase() !== worktree.repo.toLowerCase()) {
       return unread(`it reviewed ${repo}, not ${worktree.repo}`);
     }
-    if (!(await onLine(repo, commit, worktree.commit))) {
-      return unread(`the commit it reviewed, ${commit}, is not on the line to HEAD`);
-    }
-    if (merged !== undefined && !(await onLine(repo, merged, commit))) {
-      return unread(`the base was merged in since, at ${merged}`);
-    }
+    const rewound = await offLine(
+      repo,
+      commit,
+      worktree.commit,
+      `the commit it reviewed, ${commit}, is not on the line to HEAD`,
+    );
+    if (rewound !== undefined) return unread(rewound);
+    const mergedSince =
+      merged === undefined
+        ? undefined
+        : await offLine(repo, merged, commit, `the base was merged in since, at ${merged}`);
+    if (mergedSince !== undefined) return unread(mergedSince);
     // The change input's text without regression tests, under a name of its own.
     const change = await changeFor(repo, commit, worktree.commit, []);
     return {
