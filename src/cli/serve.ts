@@ -4,6 +4,7 @@
 // `ServeShell`; serve-main.ts gives it the real one.
 
 import type { ClaudeAttemptPlan } from '../brewers/claude-runner.ts';
+import type { BaseCheckRepository } from '../engine/base-check.ts';
 import type { WorktreeMerge } from '../engine/base-merge.ts';
 import type { AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -69,6 +70,11 @@ export interface ServeShell {
    * repository's worktrees are added to.
    */
   merge: (repository: ServeRepository) => WorktreeMerge;
+  /**
+   * The merge-tree of an open pull request's head and its base's tip (ADR 0198), in the clone the
+   * repository's worktrees are added to; absent, no open pull request is checked.
+   */
+  mergeTree?: (repository: ServeRepository) => BaseCheckRepository['mergeTree'];
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,

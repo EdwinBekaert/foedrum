@@ -454,6 +454,38 @@ describe('runServe', () => {
     );
   });
 
+  for (const [version, says] of [
+    ['2.37.1', true],
+    ['2.38.0', false],
+  ] as const) {
+    it(`reads git's version once at its start, and ${says ? 'says' : 'does not say'} on git ${version} that no open pull request is checked (ADR 0198)`, async () => {
+      const said =
+        'foedrum serve: git is older than 2.38, which merge-tree --write-tree needs: open pull requests are not checked against a base that moved (ADR 0198)';
+      const asked: string[] = [];
+      const code = await runServe(
+        setup,
+        shell({
+          mergeTree: () => async () => assert.fail('no pull request is open'),
+          git: async (_cwd, args) => {
+            asked.push(args.join(' '));
+            if (args[0] === '--version') {
+              return {
+                code: 0,
+                stdout: `git version ${version}
+`,
+                stderr: '',
+              };
+            }
+            throw new Error('no red proof or guarded step runs here');
+          },
+        }),
+      );
+      assert.equal(code, 0);
+      assert.deepStrictEqual(asked, ['--version']);
+      assert.equal(lines.includes(said), says);
+    });
+  }
+
   it('refuses a second Cellar, opening nothing', async () => {
     const running = new DriverRunningError('cellar', 'drivers/cellar.lock', undefined);
     const code = await runServe(
