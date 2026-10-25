@@ -1244,6 +1244,17 @@ describe('restoreOutDocFile (ADR 0175)', () => {
     assert.equal(existsSync(join(dir.path, 'notes')), false);
   });
 
+  // Review of #496: only a missing copy is skipped; one that cannot be read stops the attempt.
+  it('throws, writing nothing, when the copy cannot be read', () => {
+    const copy = join(dir.path, '1.out.md');
+    mkdirSync(copy);
+    assert.throws(
+      () => restoreOutDocFile(join(dir.path, 'plan.md'), dir.path, copy),
+      /EISDIR|EPERM|EACCES/,
+    );
+    assert.equal(existsSync(join(dir.path, 'plan.md')), false);
+  });
+
   it('does nothing when there is no copy', () => {
     restoreOutDocFile(join(dir.path, 'plan.md'), dir.path, join(dir.path, 'none.out.md'));
     assert.equal(existsSync(join(dir.path, 'plan.md')), false);
