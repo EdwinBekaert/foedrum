@@ -366,7 +366,21 @@ describe('unlinked (ADR 0167)', () => {
     assert.equal(unlinked('| `a | @ann` |'), '| `a | ann` |');
     // GitHub pairs `a|b` outside a table, so what follows it on the line is read as text.
     assert.equal(unlinked('`a|b` @x `c` `@y`'), '`a|b` x `c` `y`');
-    assert.equal(unlinked('`@x` `a|b`\n`@y`'), '`@x` `a|b`\n`@y`');
+    assert.equal(unlinked('`@x` `a|b`\n`@y`'), '`@x` `a|b`\n`y`');
+  });
+
+  it('pairs no span after a line that leaves its reading open, until a blank line (review of #490)', () => {
+    // GitHub pairs a span across the lines of a paragraph: `a b` here, then text, then `x`.
+    assert.equal(unlinked('`a\nb` @ann `x`'), '`a\nb` ann `x`');
+    assert.equal(unlinked('`a\r\nb` Fixes #3 `c`'), '`a\r\nb` #3 `c`');
+    assert.equal(unlinked('<a title="\n`">@ann `y`'), '<a title="\n`">ann `y`');
+    assert.equal(unlinked('x < y `a\nb` @ann `c`'), 'x < y `a\nb` ann `c`');
+    assert.equal(unlinked('p `a|b` `q\nr` @ann `s`'), 'p `a|b` `q\nr` ann `s`');
+    // A run left open goes on pairing on its own line, as GitHub does.
+    assert.equal(unlinked('``x `@a` @b\n`@c`'), '``x `@a` b\n`c`');
+    // No paragraph runs over a blank line.
+    assert.equal(unlinked('`a\n\n`@x`'), '`a\n\n`@x`');
+    assert.equal(unlinked('`a\n \t\r\n`@x`'), '`a\n \t\r\n`@x`');
   });
 
   it('keeps a closing keyword and a character reference inside a span (ADR 0184)', () => {
@@ -860,6 +874,23 @@ describe('pullRequestText', () => {
     // A pipe splits the cell before a span, a doubled backslash escapes none, a cut opens one.
     assert.ok(body.includes(`\n| \`a\\|x\` | \`a\\\\\`y\` | \`${'z'.repeat(196)} w |\n`), body);
     assert.match(body, /\n\*\*See it:\*\* `@Test` runs, ask bob\n/);
+  });
+
+  it('pairs See it on the one line it is shown on (review of #490)', () => {
+    const sections = { seeIt: '`a\n`@ann`', beforeAfter: [] };
+    const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.match(body, /\n\*\*See it:\*\* `a `ann`\n/);
+  });
+
+  it('keeps a cell within 200 characters once made safe (review of #490)', () => {
+    const beforeAfter = [{ case: '&#64;'.repeat(40), before: 'b', after: 'a' }];
+    const reports = [
+      { stepId: 'implement', summary: 'S', assumptions: [], sections: { beforeAfter } },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const cell = /\n\| ((?:&amp;#64;)+) \| b \| a \|\n/.exec(body)?.[1] ?? '';
+    assert.ok(cell.length > 0 && cell.length <= 200, body);
   });
 
   it('leaves out a section or a cell that looks like a secret, naming the step', () => {
