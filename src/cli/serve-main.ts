@@ -76,7 +76,12 @@ export const thisMachineAwake = (
   options?: StartOptions,
 ): NonNullable<ServeShellOptions['keepAwake']> => {
   const { resolve = resolveExecutable } = options ?? {};
-  const mechanism = awakeMechanism({ platform: process.platform, resolve, env: process.env });
+  const mechanism = awakeMechanism({
+    platform: process.platform,
+    resolve,
+    env: process.env,
+    exists: existsSync,
+  });
   return { mechanism, pid: process.pid };
 };
 

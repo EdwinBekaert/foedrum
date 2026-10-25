@@ -2,6 +2,7 @@
 // version through the process runner, and asks gh for its login and git for its credential
 // helpers (ADR 0073). doctor.ts decides what the answers mean.
 
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BreweryFiles } from '../engine/recipe-files.ts';
 import type { DenylistState } from '../platform/denylist.ts';
@@ -142,6 +143,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
       platform: shell.platform,
       resolve,
       env: shell.env ?? process.env,
+      exists: shell.exists ?? existsSync,
     }),
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(restrictsUserns === undefined ? {} : { restrictsUserns }),

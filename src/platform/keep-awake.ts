@@ -5,7 +5,7 @@
 
 import { win32 } from 'node:path';
 import { environmentVariable } from './executables.ts';
-import type { ExecProcess, Timers } from './processes.ts';
+import { type ExecProcess, realTimers, type Timers } from './processes.ts';
 
 /** How this machine can be kept awake, or why it cannot. */
 export type AwakeMechanism =
@@ -23,7 +23,7 @@ export interface AwakeMechanismInputs {
   resolve: (name: string) => string | undefined;
   env: NodeJS.ProcessEnv;
   /** Whether a path exists: on Linux, /run/systemd/system says systemd runs (sd_booted). */
-  exists?: (path: string) => boolean;
+  exists: (path: string) => boolean;
 }
 
 /** The mechanism this machine has: a program found by its full path, or none with why. */
@@ -31,6 +31,7 @@ export const awakeMechanism = ({
   platform,
   resolve,
   env,
+  exists,
 }: AwakeMechanismInputs): AwakeMechanism => {
   switch (platform) {
     case 'win32': {
@@ -50,6 +51,8 @@ export const awakeMechanism = ({
       if (program === undefined) return { kind: 'none', why: 'no systemd-inhibit on PATH' };
       const tail = resolve('tail');
       if (tail === undefined) return { kind: 'none', why: 'no tail on PATH' };
+      // As sd_booted tells: without a running systemd, logind takes no lock.
+      if (!exists('/run/systemd/system')) return { kind: 'none', why: 'systemd is not running' };
       return { kind: 'systemd-inhibit', program, tail };
     }
     default:
@@ -145,19 +148,42 @@ export interface KeepAwakeOptions {
 // The helpers print nothing; anything past this is not theirs to say, and stops them.
 const HELPER_OUTPUT_BYTES = 64 * 1024;
 
-/** Holds the machine awake from the first running attempt until none runs, or until `release`. */
-export const keepAwake = ({ command, exec, cwd }: KeepAwakeOptions): AwakeHold => {
+/**
+ * How long the hold outlasts the last attempt: the next step of a batch starts on a later tick, and
+ * a machine idle past its timer could sleep in between (ADR 0195).
+ */
+export const HOLD_GRACE_MS = 60_000;
+
+/**
+ * Holds the machine awake from the first running attempt until a minute after none runs, or until
+ * `release`.
+ */
+export const keepAwake = ({
+  command,
+  exec,
+  cwd,
+  timers = realTimers,
+}: KeepAwakeOptions): AwakeHold => {
   let running = 0;
   let released = false;
   // The helper that holds the machine now, stopped through its signal with its whole tree.
   let helper: AbortController | undefined;
+  // The minute after the last attempt, while it runs.
+  let grace: unknown;
+  const callOff = (): void => {
+    if (grace === undefined) return;
+    timers.clear(grace);
+    grace = undefined;
+  };
   const stop = (): void => {
+    callOff();
     helper?.abort();
     helper = undefined;
   };
   return {
     attemptStarted: () => {
       running++;
+      callOff();
       if (command === undefined || released || helper !== undefined) return;
       const started = new AbortController();
       helper = started;
@@ -174,7 +200,9 @@ export const keepAwake = ({ command, exec, cwd }: KeepAwakeOptions): AwakeHold =
     },
     attemptEnded: () => {
       running = Math.max(0, running - 1);
-      if (running === 0) stop();
+      if (running === 0 && helper !== undefined && grace === undefined) {
+        grace = timers.set(stop, HOLD_GRACE_MS);
+      }
     },
     release: () => {
       released = true;
