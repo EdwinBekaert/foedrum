@@ -536,8 +536,19 @@ function apply(state: State, event: Event): State {
         return { ...batch, pullRequestEnds: { ...batch.pullRequestEnds, [pullRequest]: end } };
       });
     }
-    case 'pull_request.base_checked':
-      throw new Error('not implemented');
+    case 'pull_request.base_checked': {
+      const { batchId, pullRequest, branch, tip, conflicts } = event;
+      const check: BaseCheck = {
+        pullRequest,
+        branch,
+        tip,
+        ...(conflicts === undefined ? {} : { conflicts }),
+      };
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        baseChecks: [...(batch.baseChecks ?? []), check],
+      }));
+    }
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

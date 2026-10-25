@@ -6,7 +6,6 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   type BaseCheckRepository,
-  baseCheckLines,
   baseConflictEffects,
   checkBases,
   conflictPosts,
@@ -20,7 +19,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { renderStatus } from '../../src/engine/status-comment.ts';
+import { baseCheckLines, renderStatus } from '../../src/engine/status-comment.ts';
 import type { PushResult } from '../../src/schemas/store.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';

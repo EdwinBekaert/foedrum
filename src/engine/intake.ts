@@ -1,6 +1,7 @@
 // The intake (ADR 0008, ADR 0043, ADR 0068). One pass, in this order:
-// - records the end of each pull request of a claimed batch on tap that merged or closed
-//   (`pull_request.ended`), the fact the release waits for;
+// - records the end of each pull request of a batch on tap that merged or closed
+//   (`pull_request.ended`), the fact a claimed batch's release waits for (ADR 0198);
+// - checks each open pull request whose base's tip moved against that tip (ADR 0198);
 // - orders the Brewery's own issues that carry a `recipe:<name>` label as `<issue>-1`, then claims
 //   the candidates of each repository with an intake filter and orders what it won as
 //   `<alias>-<issue>`, oldest first and only up to the Brewery's free capacity, each Ordered until
@@ -11,7 +12,7 @@
 // Everything it reads from the tracker is untrusted input; it decides nothing by asking a model.
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { BaseCheckRepository } from './base-check.ts';
+import { type BaseCheckRepository, checkBases } from './base-check.ts';
 import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from './claim-orders.ts';
@@ -153,7 +154,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
     options;
   const most = defaultLeaseMs / 2;
-  const { deadlineMs = most } = options;
+  const { deadlineMs = most, bases = [] } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
     throw new RangeError(
       `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
@@ -173,10 +174,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
     return decision.kind === 'accepted';
   };
 
-  /** Records the end of each pull request of a claimed batch on tap that merged or closed. */
+  /**
+   * Records the end of each pull request of a batch on tap that merged or closed: a Brewery
+   * issue's too, so its base is checked no more (ADR 0198).
+   */
   const recordEnds = async (signal: AbortSignal): Promise<void> => {
     for (const batch of log.state().batches.values()) {
-      if (batch.repo === undefined || batch.lane.kind !== 'on_tap') continue;
+      if (batch.lane.kind !== 'on_tap') continue;
       for (const pullRequest of batch.lane.pullRequests) {
         if (batch.pullRequestEnds?.[pullRequest] !== undefined) continue;
         let state: PullRequestState;
@@ -312,6 +316,11 @@ export const createIntake = (options: IntakeOptions): Intake => {
 
   const work = async (signal: AbortSignal): Promise<void> => {
     await recordEnds(signal);
+    if (bases.length > 0 && !signal.aborted) {
+      const failed = (what: string, error: unknown): void =>
+        report({ kind: 'failed', what, error });
+      await checkBases({ log, repositories: bases, clock, failed }, signal);
+    }
     let free = freeCapacity(log.state(), capacity);
     // The Brewery's issues read in this pass, for routing: target issues never route (ADR 0156).
     let listed: readonly TargetIssue[] = [];

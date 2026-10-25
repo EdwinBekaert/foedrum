@@ -79,7 +79,7 @@ const shownAsItself = (char: string): string =>
  * escaping, between characters, so no escape is cut in half and the line never grows past
  * `longest`.
  */
-const plain = (text: string): string => {
+export const plain = (text: string): string => {
   const shown = [...text.replace(/\s+/g, ' ').trim()].map(shownAsItself);
   const whole = shown.join('');
   if (whole.length <= longest) return whole;
@@ -164,6 +164,36 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
     STEP_BACK,
   ];
 };
+
+/** A commit as the comments show it: its first eight digits. */
+export const shortSha = (sha: string): string => sha.slice(0, 8);
+
+/**
+ * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
+ * tip and the files of a conflict, or that it merges cleanly again after an earlier conflict;
+ * `undefined` when every check was clean or none ran.
+ */
+const baseCheckLine = (batch: Batch, url: string): string | undefined => {
+  const checks = (batch.baseChecks ?? []).filter((check) => check.pullRequest === url);
+  const latest = checks.at(-1);
+  if (latest === undefined) return undefined;
+  // The branch comes from the Brewery's config; a file's name from whoever committed it.
+  const branch = code(latest.branch);
+  const tip = code(shortSha(latest.tip));
+  if (latest.conflicts !== undefined) {
+    const files = latest.conflicts.map(plain).join(', ');
+    return `- ${link(url)} conflicts with ${branch} at ${tip} in ${files}`;
+  }
+  return checks.some((check) => check.conflicts !== undefined)
+    ? `- ${link(url)} merges cleanly with ${branch} again at ${tip}`
+    : undefined;
+};
+
+/** The lines of the pull requests of a batch on tap that its base checks have something to say of. */
+export const baseCheckLines = (batch: Batch): string[] =>
+  batch.lane.kind === 'on_tap'
+    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url) ?? [])
+    : [];
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
 const laneText = (lane: Lane, told: Told): string[] => {
@@ -467,7 +497,10 @@ export const renderStatus = (
     sections.push(
       pullRequests.length === 0
         ? ['No pull request.']
-        : ['**Pull requests**', ...pullRequests.map((url) => `- ${link(url)}`)],
+        : [
+            '**Pull requests**',
+            ...pullRequests.map((url) => baseCheckLine(batch, url) ?? `- ${link(url)}`),
+          ],
     );
   }
   const text = sections.map((lines) => lines.join('\n')).join('\n\n');

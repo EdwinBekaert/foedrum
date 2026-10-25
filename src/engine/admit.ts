@@ -228,10 +228,18 @@ function endable(
 
 /** A batch records how an open pull request it opened merges with its base (ADR 0198). */
 function checkable(
-  _state: State,
-  _event: Extract<Event, { type: 'pull_request.base_checked' }>,
+  state: State,
+  event: Extract<Event, { type: 'pull_request.base_checked' }>,
 ): string | undefined {
-  throw new Error('not implemented');
+  const batch = state.batches.get(event.batchId);
+  if (batch === undefined) return undefined;
+  const { lane } = batch;
+  if (lane.kind !== 'on_tap' || !lane.pullRequests.includes(event.pullRequest)) {
+    return `batch ${event.batchId} has no open pull request ${event.pullRequest}`;
+  }
+  return batch.pullRequestEnds?.[event.pullRequest] === undefined
+    ? undefined
+    : `pull request ${event.pullRequest} of batch ${event.batchId} has ended`;
 }
 
 /** A sub-order keeps its repository once it has batches: they, and their branches, live there. */
