@@ -129,19 +129,32 @@ const MENTION = /(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/gu;
 // Every character reference GitHub would decode, named or numeric: `&commat;` is an `@`.
 const REFERENCE = /&(?!amp;)(?=[#\p{L}])/gu;
 
-/** A line as CommonMark ends one: at `\n` or `\r`. */
-const LINE = /[^\n\r]+/g;
+/** A line break as CommonMark reads one, kept by `split`: `\r\n`, `\r` or `\n`. */
+const BREAK = /(\r\n|\r|\n)/;
+/** A blank line, which ends every paragraph, and so every span and HTML tag in one. */
+const BLANK = /^[ \t]*$/;
 
 /**
  * Where `text`'s code spans start and end, paired as CommonMark pairs them but within one line
  * (ADR 0184): a run of backticks no backslash escapes, and the next run as long. Where GitHub could
- * read a span as text, the rest of the line has none: after a span that holds a `|`, which a
- * table splits first, and on a line with a `<`, where an HTML tag or an autolink comes first.
+ * read a span as text, there is none: after a span that holds a `|`, which a table splits first,
+ * on a line with a `<`, where an HTML tag or an autolink comes first, and on the lines after a run
+ * left open, a `<` or a `|` until a blank line, since a span or a tag can go on over them.
  */
 const codeSpans = (text: string): [start: number, end: number][] => {
   const spans: [number, number][] = [];
-  for (const { 0: line, index } of text.matchAll(LINE)) {
-    if (line.includes('<')) continue;
+  let index = 0;
+  let open = false;
+  for (const [part, line] of text.split(BREAK).entries()) {
+    const start = index;
+    index += line.length;
+    if (part % 2 === 1) continue;
+    if (BLANK.test(line)) open = false;
+    if (open) continue;
+    if (line.includes('<')) {
+      open = true;
+      continue;
+    }
     for (let at = 0; at < line.length; ) {
       // A backslash escapes the character after it, a backtick too, outside a span.
       if (line[at] === '\\') {
@@ -158,13 +171,18 @@ const codeSpans = (text: string): [start: number, end: number][] => {
       const closer = new RegExp(`(?<!\`)${run}(?!\`)`, 'g');
       closer.lastIndex = at + run.length;
       const close = closer.exec(line);
+      // A run with no partner on its line may have one on the next: the line goes on pairing.
       if (close === null) {
+        open = true;
         at += run.length;
         continue;
       }
       const end = close.index + run.length;
-      if (line.slice(at, end).includes('|')) break;
-      spans.push([index + at, index + end]);
+      if (line.slice(at, end).includes('|')) {
+        open = true;
+        break;
+      }
+      spans.push([start + at, start + end]);
       at = end;
     }
   }
@@ -391,15 +409,19 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
     closedBlocks(text) ??
     `[left out: a text of step ${stepId} with a fence Foedrum cannot check outside its top level]`;
   // Made one line, escaped and cut before `unlinked`, which then pairs the spans GitHub reads, so
-  // no cut leaves a kept `@` in a span it opened (ADR 0184).
-  const cell = (text: string) =>
-    unlinked(
-      withoutSecrets(text, stepId, isCommit)
-        .replace(/\s+/g, ' ')
-        .replaceAll('\\', '\\\\')
-        .replaceAll('|', '\\|')
-        .slice(0, MAX_CELL),
-    );
+  // no cut leaves a kept `@` in a span it opened (ADR 0184). `unlinked` can make it longer
+  // (`&amp;`), so it is cut shorter until it fits: 20 rows of grown cells would pass GitHub's limit.
+  const cell = (text: string) => {
+    const flat = withoutSecrets(text, stepId, isCommit)
+      .replace(/\s+/g, ' ')
+      .replaceAll('\\', '\\\\')
+      .replaceAll('|', '\\|');
+    for (let max = MAX_CELL; ; ) {
+      const safe = unlinked(flat.slice(0, max));
+      if (safe.length <= MAX_CELL) return safe;
+      max -= safe.length - MAX_CELL;
+    }
+  };
   const table = sections.beforeAfter.map(
     (row) => `| ${cell(row.case)} | ${cell(row.before)} | ${cell(row.after)} |`,
   );
@@ -410,7 +432,10 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
     ...(table.length === 0 ? [] : [['| | Before | After |', '|---|---|---|', ...table].join('\n')]),
     ...(seeIt === undefined
       ? []
-      : [`**See it:** ${within(shown(seeIt).replace(/\s+/g, ' '), MAX_SHOWN_SEE)}`]),
+      : // Made one line before `unlinked`, which then pairs the spans of the line GitHub reads.
+        [
+          `**See it:** ${within(unlinked(withoutSecrets(seeIt, stepId, isCommit).replace(/\s+/g, ' ')), MAX_SHOWN_SEE)}`,
+        ]),
   ].join('\n\n');
 };
 
