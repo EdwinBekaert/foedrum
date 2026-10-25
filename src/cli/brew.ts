@@ -469,7 +469,10 @@ export const runBrew = async (
     stopResize?.();
     clearLive();
     // Closing the driver stops its runs and lets the lock go; a Stuck batch keeps its lease.
-    closeOpened(opened);
-    shell.awake?.release();
+    try {
+      closeOpened(opened);
+    } finally {
+      shell.awake?.release();
+    }
   }
 };

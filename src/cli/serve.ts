@@ -265,7 +265,10 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     // The pass underway writes to the store until it settles.
     await polling;
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
-    closeOpened(opened);
-    shell.awake?.release();
+    try {
+      closeOpened(opened);
+    } finally {
+      shell.awake?.release();
+    }
   }
 };

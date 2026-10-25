@@ -10,7 +10,7 @@ import { createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import type { BrewerRunner } from '../engine/brewer-runner.ts';
+import type { BrewerRunner, RunningAttempt } from '../engine/brewer-runner.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import {
@@ -49,9 +49,16 @@ export const messageOf = (error: unknown): string =>
 /** The runner that tells `awake` of each attempt it starts and when that attempt ends (ADR 0195). */
 const heldAwake = (runner: BrewerRunner, awake: AwakeHold): BrewerRunner => ({
   start: (attempt) => {
-    const run = runner.start(attempt);
+    // Before the runner starts it: a check step's process starts inside `start`.
     awake.attemptStarted();
     const ended = () => awake.attemptEnded();
+    let run: RunningAttempt;
+    try {
+      run = runner.start(attempt);
+    } catch (error) {
+      ended();
+      throw error;
+    }
     run.ended.then(ended, ended);
     return run;
   },
