@@ -4,6 +4,7 @@ import {
   type Command,
   type Context,
   decide,
+  type Ending,
   type RecordedEvent,
   stuckOptions,
 } from '../../src/engine/decide.ts';
@@ -528,8 +529,12 @@ describe('decide finish', () => {
       ]);
     });
 
-    it('with findings and no route makes the batch Stuck', () => {
-      accepts(brewing(), finish(blocked('findings')), [
+    it('with findings and no route makes the batch Stuck, as it did before ADR 0192', () => {
+      const withFindings = {
+        ...blocked('findings'),
+        findings: [{ severity: 'major', why: 'no deadline', introduced: true }],
+      } as const;
+      accepts(brewing(), finish(withFindings), [
         finished(recorded('findings')),
         stuckOn({
           kind: 'blocked',
@@ -1719,7 +1724,7 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
 
 describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
   // Loaded in each test, so a recipe that does not load fails the test, not the suite.
-  const withRoute = (when?: string): Context => {
+  const withRoute = (when?: string, maxRounds = 1): Context => {
     const loaded = loadRecipes({
       recipes: [
         {
@@ -1731,7 +1736,7 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
               {
                 id: 'implement',
                 brewer: 'malt',
-                onBlocked: { findings: { goto: 'gauge', maxRounds: 1 } },
+                onBlocked: { findings: { goto: 'gauge', maxRounds } },
               },
             ],
             { testFirst: false },
@@ -1756,17 +1761,26 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     started(stepId, attempt),
     { type: 'step.finished', batchId: 'b1', stepId, attempt, outcome: succeeded },
   ];
+  const finding = (n: number) =>
+    ({
+      file: 'src/poll.ts',
+      line: n,
+      severity: 'major',
+      why: `no deadline ${n}`,
+      introduced: true,
+    }) as const;
   const blocked = {
     kind: 'blocked',
     blockerKind: 'findings',
     summary: 'the test is wrong',
+    findings: [finding(1), { severity: 'minor', why: 'a long name', introduced: false }],
   } as const;
-  const finish = (attempt: number): Command => ({
+  const finish = (attempt: number, ending: Ending = blocked): Command => ({
     kind: 'finish',
     batchId: 'b1',
     stepId: 'implement',
     attempt,
-    ending: blocked,
+    ending,
   });
   const recorded = (attempt: number): Event => ({
     type: 'step.finished',
@@ -1778,7 +1792,7 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
   const findings = { from: 'implement', why: 'findings' } as const;
   const inHalfAnHour = '2026-10-15T12:30:00.000Z';
 
-  it('goes back along the route, recording it on the schedule, then is Stuck on the findings', () => {
+  it('goes back along the route, recording it on the schedule, then is Stuck with the open findings (ADR 0192)', () => {
     const firstRound = [
       ordered,
       routed,
@@ -1808,8 +1822,117 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
           stepId: 'implement',
           blockerKind: 'findings',
           summary: 'the test is wrong',
+          roundsOut: { rounds: 1, open: blocked.findings.map((each) => ({ ...each })), more: 0 },
         }),
       ],
+    });
+  });
+
+  /** The batch in the last round its route allows: the next blocked finish makes it Stuck. */
+  const lastRound = (): Event[] => [
+    ordered,
+    routed,
+    ...done('gauge'),
+    scheduled('implement'),
+    started('implement'),
+    recorded(1),
+    { ...scheduled('gauge', 2), route: findings },
+    started('gauge', 2),
+    { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt: 2, outcome: succeeded },
+    scheduled('implement', 2),
+    started('implement', 2),
+  ];
+  /** The Stuck reason's roundsOut when the last round ends blocked with `ending`. */
+  const roundsOutOf = (ending: Ending) => {
+    const decision = decide(fold(lastRound()), finish(2, ending), withRoute());
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(
+      stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked',
+      JSON.stringify(stuck),
+    );
+    return stuck.reason.roundsOut;
+  };
+
+  it('records the rounds and no open finding for a blocked brewer that wrote none, as a Cellarman does (review of #508)', () => {
+    const { findings: _, ...none } = blocked;
+    assert.deepStrictEqual(roundsOutOf(none), { rounds: 1, open: [], more: 0 });
+  });
+
+  it('records the rounds the route used, not a fixed one (review of #508)', () => {
+    const round = (attempt: number): Event[] => [
+      recorded(attempt - 1),
+      { ...scheduled('gauge', attempt), route: findings },
+      started('gauge', attempt),
+      { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt, outcome: succeeded },
+      scheduled('implement', attempt),
+      started('implement', attempt),
+    ];
+    const twoRounds = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+      ...round(2),
+      ...round(3),
+    ];
+    const decision = decide(fold(twoRounds), finish(3), withRoute(undefined, 2));
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(
+      stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked',
+      JSON.stringify(decision),
+    );
+    assert.equal(stuck.reason.roundsOut?.rounds, 2);
+  });
+
+  it('keeps a finding whose file or why starts with whitespace, on one line as the status comment reads it (review of #508)', () => {
+    const padded = {
+      ...finding(1),
+      file: `${' '.repeat(1_000)}src/poll.ts`,
+      why: `${'\n'.repeat(1_000)}no  deadline\n\tat all`,
+    };
+    assert.deepStrictEqual(roundsOutOf({ ...blocked, findings: [padded] }), {
+      rounds: 1,
+      open: [{ ...padded, file: 'src/poll.ts', why: 'no deadline at all' }],
+      more: 0,
+    });
+  });
+
+  it('keeps ten open findings of the last round, cut as the status comment reads them, and counts the rest (ADR 0192)', () => {
+    const lastRound = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+      recorded(1),
+      { ...scheduled('gauge', 2), route: findings },
+      started('gauge', 2),
+      { type: 'step.finished', batchId: 'b1', stepId: 'gauge', attempt: 2, outcome: succeeded },
+      scheduled('implement', 2),
+      started('implement', 2),
+    ] satisfies Event[];
+    const long = { ...finding(12), file: `src/${'a'.repeat(2_000)}.ts`, why: 'x'.repeat(2_000) };
+    const many = [long, ...Array.from({ length: 11 }, (_, n) => finding(n + 1))];
+    const decision = decide(
+      fold(lastRound),
+      finish(2, { ...blocked, findings: many }),
+      withRoute(),
+    );
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const stuck = decision.kind === 'accepted' ? decision.events.at(-1) : undefined;
+    assert.ok(
+      stuck?.type === 'batch.stuck' && stuck.reason.kind === 'blocked',
+      JSON.stringify(stuck),
+    );
+    assert.deepStrictEqual(stuck.reason.roundsOut, {
+      rounds: 1,
+      open: [
+        { ...long, file: long.file.slice(0, 1_000), why: long.why.slice(0, 1_000) },
+        ...many.slice(1, 10),
+      ],
+      more: 2,
     });
   });
 

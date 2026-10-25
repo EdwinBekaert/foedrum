@@ -265,11 +265,12 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
     });
   });
 
-  it('blocks a blocking step by findings when the verdict is changes', () => {
+  it('blocks a blocking step by findings when the verdict is changes, with its findings (ADR 0192)', () => {
     assert.deepEqual(ended('changes', true), {
       kind: 'blocked',
       blockerKind: 'findings',
       summary: 'the Taster asks for changes: Tasted',
+      findings: [finding],
     });
     assert.equal(ended('approve', true).kind, 'succeeded');
   });
@@ -373,6 +374,7 @@ describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
       kind: 'blocked',
       blockerKind: 'findings',
       summary: 'the Taster asks for changes: Tasted',
+      findings: [finding],
     });
   });
 });

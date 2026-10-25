@@ -2,7 +2,7 @@
 
 import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
-import { BlockerKind } from './out-doc.ts';
+import { BlockerKind, TastingFinding } from './out-doc.ts';
 import { CheckName } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText } from './store.ts';
@@ -191,6 +191,29 @@ export type GravityReading = z.infer<typeof GravityReading>;
 export const Answer = z.strictObject({ q: NonEmpty, answer: NonEmpty });
 export type Answer = z.infer<typeof Answer>;
 
+/** The most open findings a Stuck reason keeps of a findings route that ran out (ADR 0192). */
+export const MOST_OPEN_FINDINGS = 10;
+/** The most of a kept finding's file or `why`: what the status comment reads of it (ADR 0088). */
+export const MAX_OPEN_FINDING_TEXT = 1_000;
+
+/** An open finding of the last round, its texts cut to `MAX_OPEN_FINDING_TEXT` (ADR 0192). */
+export const OpenFinding = TastingFinding.extend({
+  file: TastingFinding.shape.file.unwrap().max(MAX_OPEN_FINDING_TEXT).optional(),
+  why: NonEmpty.max(MAX_OPEN_FINDING_TEXT),
+});
+export type OpenFinding = z.infer<typeof OpenFinding>;
+
+/**
+ * A findings route that used its rounds (ADR 0192): how many it used, the first open findings of
+ * its last round, and how many more there were.
+ */
+export const RoundsOut = z.strictObject({
+  rounds: Count,
+  open: z.array(OpenFinding).max(MOST_OPEN_FINDINGS),
+  more: Count,
+});
+export type RoundsOut = z.infer<typeof RoundsOut>;
+
 export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('needs_input'),
@@ -202,6 +225,8 @@ export const StuckReason = z.discriminatedUnion('kind', [
     stepId: StepId,
     blockerKind: BlockerKind,
     summary: NonEmpty,
+    // Only when a findings route ran out of rounds; an older Foedrum cannot read it (ADR 0192).
+    roundsOut: RoundsOut.optional(),
   }),
   z.strictObject({
     kind: z.literal('attempts_exhausted'),
