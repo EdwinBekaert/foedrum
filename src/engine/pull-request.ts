@@ -411,10 +411,17 @@ const closedBlocks = (text: string): string | undefined => {
 /** The line in place of a Mermaid block Foedrum cannot read (ADR 0180). */
 const DIAGRAM_LEFT_OUT = '[left out: a diagram Foedrum could not check]';
 
-/** A label in quotes, which Mermaid accepts whatever it holds once its `"` is `#quot;`. */
-const quoted = (text: string): string => `"${text.replaceAll('"', '#quot;')}"`;
-/** An edge's or a title's label in quotes, unless it is quoted already. */
-const label = (text: string): string => (/^"[^"]*"$/.test(text) ? text : quoted(text));
+/**
+ * A label in quotes, which Mermaid accepts whatever it holds once its `"` is `#quot;`, and its `#`
+ * is `#35;`: Mermaid reads `#479;` as an entity in a quoted label too.
+ */
+const quoted = (text: string): string =>
+  `"${text.replaceAll('#', '#35;').replaceAll('"', '#quot;')}"`;
+/** An edge's or a title's label, trimmed, in quotes unless it is quoted already. */
+const label = (text: string): string => {
+  const trimmed = text.trim();
+  return /^"[^"]*"$/.test(trimmed) ? trimmed : quoted(trimmed);
+};
 
 /** A flowchart's node id, which may hold a `-` between its words but never before a link. */
 const NODE_ID = String.raw`[\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*`;
@@ -433,7 +440,8 @@ const TEXT_LINK = /([<ox]?)(--|==|-\.)[ \t]/y;
 const TEXT_LINK_ENDS: Record<string, RegExp> = {
   '--': /-{2,}[>ox]|-{3,}/g,
   '==': /={2,}[>ox]|={3,}/g,
-  '-.': /\.+-[>ox]?/g,
+  // Only from the first dot of a run, so a run with no dash after it is read once.
+  '-.': /(?<!\.)\.+-[>ox]?/g,
 };
 /** A node's shapes, the longer openers first, each with its closer. */
 const SHAPES: readonly [open: string, close: string][] = [
@@ -537,7 +545,7 @@ const statement = (line: string): string | undefined => {
     ends.lastIndex = at + opened[0].length;
     const end = ends.exec(line);
     if (end === null) return false;
-    const text = label(line.slice(at + opened[0].length, end.index).trim());
+    const text = label(line.slice(at + opened[0].length, end.index));
     // Written with its text between pipes, as `-->|"x"|`: the dotted link keeps its first dash.
     take(`${tail}${kind === '-.' ? '-' : ''}${end[0]}|${text}|`, end.index + end[0].length);
     return true;
