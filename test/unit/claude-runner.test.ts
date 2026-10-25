@@ -568,18 +568,19 @@ describe('claudeBrewerRunner', () => {
         assert.ok(scans[0]?.signal instanceof AbortSignal);
       });
 
-      it('fails the attempt retryably on a finding, naming its commit, kind and place', async () => {
+      it('fails the attempt retryably on a finding, naming its commit, kind and place, with the mark its retry reads', async () => {
         const { runner } = setup(clean, {
           plan: counting,
           scanned: { kind: 'scanned', findings: [finding] },
         });
         const { ending } = await runner.start(committing).ended;
-        assert.equal(ending.kind, 'failed');
-        assert.ok(ending.kind === 'failed' && ending.retryable);
-        assert.equal(
-          ending.kind === 'failed' ? ending.reason : '',
-          "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 0123456789ab, GitHub token in test/keys.test.ts",
-        );
+        assert.deepEqual(ending, {
+          kind: 'failed',
+          retryable: true,
+          reason:
+            "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 0123456789ab, GitHub token in test/keys.test.ts",
+          secrets: true,
+        });
       });
 
       it('scans nothing when the attempt does not succeed, or made no commit', async () => {

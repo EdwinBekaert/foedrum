@@ -203,12 +203,13 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     assert.deepEqual(scans, [
       [resolve('clone'), 'foedrum/12-1/brew/1', attempt.limits.commitsSince],
     ]);
-    assert.equal(ending.kind, 'failed');
-    assert.ok(ending.kind === 'failed' && ending.retryable);
-    assert.match(
-      ending.kind === 'failed' ? ending.reason : '',
-      /GitHub token in test\/keys\.test\.ts$/,
-    );
+    assert.deepEqual(ending, {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit ffffffffffff, GitHub token in test/keys.test.ts",
+      secrets: true,
+    });
   });
 
   it("is a failure that names claude's exit code when the session ends with one", async () => {
