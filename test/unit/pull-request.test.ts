@@ -897,7 +897,7 @@ describe('pullRequestText', () => {
       { stepId: 'implement', summary: 'S', assumptions: [], sections: { beforeAfter } },
     ];
     const { body } = pullRequestText({ title: 'T', closes, reports });
-    const cell = /\n\| ((?:&amp;#64;)+) \| b \| a \|\n/.exec(body)?.[1] ?? '';
+    const cell = /\n\| (&amp;#64;\S*) \| b \| a \|\n/.exec(body)?.[1] ?? '';
     assert.ok(cell.length > 0 && cell.length <= 200, body);
   });
 
