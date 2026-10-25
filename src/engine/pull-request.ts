@@ -129,16 +129,73 @@ const MENTION = /(^|[^A-Za-z0-9])@(?=[A-Za-z0-9])/gu;
 // Every character reference GitHub would decode, named or numeric: `&commat;` is an `@`.
 const REFERENCE = /&(?!amp;)(?=[#\p{L}])/gu;
 
+/** A line as CommonMark ends one: at `\n` or `\r`. */
+const LINE = /[^\n\r]+/g;
+
+/**
+ * Where `text`'s code spans start and end, paired as CommonMark pairs them but within one line
+ * (ADR 0184): a run of backticks no backslash escapes, and the next run as long. Where GitHub could
+ * read a span as text, the rest of the line has none: after a span that holds a `|`, which a
+ * table splits first, and on a line with a `<`, where an HTML tag or an autolink comes first.
+ */
+const codeSpans = (text: string): [start: number, end: number][] => {
+  const spans: [number, number][] = [];
+  for (const { 0: line, index } of text.matchAll(LINE)) {
+    if (line.includes('<')) continue;
+    for (let at = 0; at < line.length; ) {
+      // A backslash escapes the character after it, a backtick too, outside a span.
+      if (line[at] === '\\') {
+        at += 2;
+        continue;
+      }
+      if (line[at] !== '`') {
+        at += 1;
+        continue;
+      }
+      const opener = /`+/y;
+      opener.lastIndex = at;
+      const run = opener.exec(line)?.[0] ?? '`';
+      const closer = new RegExp(`(?<!\`)${run}(?!\`)`, 'g');
+      closer.lastIndex = at + run.length;
+      const close = closer.exec(line);
+      if (close === null) {
+        at += run.length;
+        continue;
+      }
+      const end = close.index + run.length;
+      if (line.slice(at, end).includes('|')) break;
+      spans.push([index + at, index + end]);
+      at = end;
+    }
+  }
+  return spans;
+};
+
+/** `text` with `edit` applied to what lies outside its code spans. */
+const outsideSpans = (text: string, edit: (part: string) => string): string => {
+  let out = '';
+  let from = 0;
+  for (const [start, end] of codeSpans(text)) {
+    out += edit(text.slice(from, start)) + text.slice(start, end);
+    from = end;
+  }
+  return out + edit(text.slice(from));
+};
+
 /**
  * Model text without what GitHub would act on outside a fence (ADR 0167): the `@` of a mention,
- * a closing keyword before an issue reference, and the `&` of a character reference.
+ * a closing keyword before an issue reference, and the `&` of a character reference, except inside
+ * a code span, where GitHub acts on none of them (ADR 0184).
  */
 export const unlinked = (text: string): string => {
-  // A removal can make what it removes again: `closes closes #3`, `@@ann`, `&@ann`.
+  // A removal can make what it removes again: `closes closes #3`, `@@ann`, `&@ann`. The spans are
+  // paired again each time, in case a removal changes how a line pairs.
   let out = text;
   for (let before = ''; before !== out; ) {
     before = out;
-    out = out.replace(REFERENCE, '&amp;').replace(MENTION, '$1').replace(KEYWORD, '');
+    out = outsideSpans(out, (part) =>
+      part.replace(REFERENCE, '&amp;').replace(MENTION, '$1').replace(KEYWORD, ''),
+    );
   }
   return out;
 };
@@ -269,7 +326,8 @@ const brewTable = (attempts: readonly AttemptRow[], isCommit: IsCommit): string 
               .replace(/`{4,}/g, '```')
               .slice(0, MAX_CELL),
           )}`;
-    return `| ${stepId} #${attempt} | ${result}${why} |`;
+    // A code span, as the status comment writes it: GitHub links a bare `#1` to issue 1 (ADR 0184).
+    return `| \`${stepId} #${attempt}\` | ${result}${why} |`;
   });
   const more = attempts.length - rows.length;
   return [
@@ -332,12 +390,16 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
   const checked = (text: string) =>
     closedBlocks(text) ??
     `[left out: a text of step ${stepId} with a fence Foedrum cannot check outside its top level]`;
+  // Made one line, escaped and cut before `unlinked`, which then pairs the spans GitHub reads, so
+  // no cut leaves a kept `@` in a span it opened (ADR 0184).
   const cell = (text: string) =>
-    shown(text)
-      .replace(/\s+/g, ' ')
-      .replaceAll('\\', '\\\\')
-      .replaceAll('|', '\\|')
-      .slice(0, MAX_CELL);
+    unlinked(
+      withoutSecrets(text, stepId, isCommit)
+        .replace(/\s+/g, ' ')
+        .replaceAll('\\', '\\\\')
+        .replaceAll('|', '\\|')
+        .slice(0, MAX_CELL),
+    );
   const table = sections.beforeAfter.map(
     (row) => `| ${cell(row.case)} | ${cell(row.before)} | ${cell(row.after)} |`,
   );
@@ -372,7 +434,8 @@ const draftLine = (reports: readonly StepReport[], written: boolean): string => 
  * The pull request's title and body, in one layout for every repository (ADR 0167): how it works,
  * before and after and See it from the sections a `pullRequest` brewer wrote, how it was brewed,
  * the reports folded, and `Closes`. The sections are model text outside a fence, so mentions,
- * closing keywords and numeric character references are taken out of them (`unlinked`). The
+ * closing keywords and numeric character references are taken out of them, outside a code span
+ * (`unlinked`, ADR 0184). The
  * reports are quoted in a fenced block, where GitHub links no issue, mentions nobody and reads no
  * closing keyword. A text that looks like a secret is left out (ADR 0088).
  */
