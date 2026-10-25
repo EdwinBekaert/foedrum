@@ -369,6 +369,15 @@ describe('unlinked (ADR 0167)', () => {
     assert.equal(unlinked('`@x` `a|b`\n`@y`'), '`@x` `a|b`\n`y`');
   });
 
+  it('pairs no span on or after a line with a ] or a $, until a blank line (review of #490)', () => {
+    // A link's destination or title, and maybe GitHub's math, takes a backtick before a span can.
+    assert.equal(unlinked('[x](`y) @ann `'), '[x](`y) ann `');
+    assert.equal(unlinked('[x](u "`") @ann `'), '[x](u "`") ann `');
+    assert.equal(unlinked('[x](`y) `\n`@ann` z'), '[x](`y) `\n`ann` z');
+    assert.equal(unlinked('$x`$ @ann `'), '$x`$ ann `');
+    assert.equal(unlinked('[x](y)\n\n`@a`'), '[x](y)\n\n`@a`');
+  });
+
   it('pairs no span after a line that leaves its reading open, until a blank line (review of #490)', () => {
     // GitHub pairs a span across the lines of a paragraph: `a b` here, then text, then `x`.
     assert.equal(unlinked('`a\nb` @ann `x`'), '`a\nb` ann `x`');
