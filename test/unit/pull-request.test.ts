@@ -16,6 +16,7 @@ import {
 } from '../../src/engine/pull-request.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
+import { cpuTimeMs, descheduled } from '../helpers/load.ts';
 
 type Output = Extract<StepOutcome, { kind: 'succeeded' }>['output'];
 
@@ -580,6 +581,35 @@ describe('quotedDiagrams (ADR 0180)', () => {
       'Then A[x].',
     ].join('\n');
     assert.equal(quotedDiagrams(text), text.replace('  A[a] --> B', '  A["a"] --> B'));
+  });
+
+  it('writes a # in a label it quotes as #35;, so Mermaid reads no entity in it (review of #494)', () => {
+    assert.equal(
+      quotedDiagrams(block('flowchart LR', '  A[fix #479; then "go"] -->|see #1;| B')),
+      block('flowchart LR', '  A["fix #35;479; then #quot;go#quot;"] -->|"see #35;1;"| B'),
+    );
+  });
+
+  it('reads a quoted label with spaces around it as quoted (review of #494)', () => {
+    assert.equal(
+      quotedDiagrams(
+        block('flowchart LR', '  A -->| "yes" | B', '  subgraph one [ "The one" ]', '  end'),
+      ),
+      block('flowchart LR', '  A -->|"yes"| B', '  subgraph one ["The one"]', '  end'),
+    );
+  });
+
+  // The block is model output: a long run must not hold the engine (review of #494).
+  it('reads a long run of dots after a dotted link in linear time (review of #494)', () => {
+    const text = block('graph TD', `  A -. ${'.'.repeat(40_000)}`);
+    // In CPU time, which a loaded machine leaves alone (ADR 0070).
+    const t0 = cpuTimeMs();
+    // A loaded machine takes the CPU away for a while (#147).
+    descheduled(250);
+    const out = quotedDiagrams(text);
+    const used = cpuTimeMs() - t0;
+    assert.ok(used < 200, `used ${Math.round(used)} ms of CPU time`);
+    assert.equal(out, left);
   });
 
   it('keeps a %% comment, but leaves out a diagram with a %%{ directive (review of #494)', () => {
