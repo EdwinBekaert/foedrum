@@ -420,4 +420,21 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.doesNotMatch(other.prompt, /name="roundChange"/);
     assert.match(other.prompt, /could not be read: it reviewed acme\/web, not acme\/api\./);
   });
+
+  it('says git could not tell, never that the commit is off the line, when merge-base fails', async () => {
+    const failing: Git = async (cwd, args, options) =>
+      args[0] === 'merge-base'
+        ? { code: 128, stdout: '', stderr: `fatal: Not a valid commit name ${ROUND1}` }
+        : answers(cwd, args, options);
+    const { prompt } = await planRound(ROUND_TWO, 2, { git: failing });
+    assert.doesNotMatch(prompt, /name="roundChange"/);
+    assert.doesNotMatch(prompt, /is not on the line to HEAD/);
+    assert.match(prompt, /could not be read: git merge-base exited with code 128\./);
+    const killed: Git = async (cwd, args, options) =>
+      args[0] === 'merge-base'
+        ? { code: null, stdout: '', stderr: '', killed: 'timed-out' }
+        : answers(cwd, args, options);
+    const late = await planRound(ROUND_TWO, 2, { git: killed });
+    assert.match(late.prompt, /could not be read: git merge-base exited with code null\./);
+  });
 });
