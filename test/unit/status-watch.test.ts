@@ -294,7 +294,7 @@ describe('foedrum status --watch: the board of the live batches (ADR 0188)', () 
     assert.equal(frames[1]?.[0], '2 live batches');
   });
 
-  it('shows every code point outside U+0020 to U+007E as a \\uXXXX escape, so a line break or a control character in a row cannot act on the terminal', async () => {
+  it('shows each code point outside U+0020 to U+007E of a row as an escape with four hex digits, so a line break or a control character cannot act on the terminal', async () => {
     const events = [ordered(14), blocked(14, 'caf\u00e9\nforged\u2028line \u001b[2K\u0007')];
     const { frames } = await watched({ states: [stateOf(events)] });
     const [frame = []] = frames;
