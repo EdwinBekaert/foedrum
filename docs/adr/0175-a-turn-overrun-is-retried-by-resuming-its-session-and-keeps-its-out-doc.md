@@ -47,7 +47,7 @@ Its worktree had been recreated from the attempt's branch, so the uncommitted `g
 - An overrun after claude's init report on a driver that can resume no longer goes Stuck at once: a person's `foedrum retry` is needed only when the attempts are used.
 - The mark is a new field of a failed outcome on `step.finished`; an event recorded before it still reads.
   An older Foedrum cannot read a `step.finished` that carries it: the outcome's schema is strict.
-- `foedrum resume` of a finished attempt ([ADR 0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)) is unchanged; a takeover of a running batch ([ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)) whose retry follows an overrun gets the same prompt and keeps the out doc too, since it plans through the same attempt plans.
+- `foedrum resume` of a finished attempt ([ADR 0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)) and a takeover of a running batch ([ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)) are unchanged: an engineer's session continues a run that has not ended on its budget, and removes the out doc before it as [ADR 0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) says.
 
 ## Alternatives considered
 - **Make every overrun retryable and let `retryMode` decide.** Every default brewer would retry fresh into the same budget.
