@@ -31,6 +31,10 @@
         "reason": {
           "type": "string",
           "pattern": "\\S"
+        },
+        "overran": {
+          "type": "string",
+          "const": "turns"
         }
       },
       "required": [

@@ -76,6 +76,11 @@ export interface PlanFacts {
    * inputs, with only the answers as an input (ADR 0117, ADR 0118).
    */
   resumes?: Resumed;
+  /**
+   * After a turn overrun: the copy of the out doc the run before left, which the runner puts back
+   * in a worktree that lost it (ADR 0175).
+   */
+  outDocFrom?: string;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
 }
@@ -453,6 +458,14 @@ export function systemPromptFileOf(settingsFile: string): string {
   return join(dirname(settingsFile), `${basename(settingsFile, '.json')}.system.md`);
 }
 
+/**
+ * Where the runner keeps a copy of the out doc of an attempt that ran out of turns, beside its
+ * settings file: `<attempt>.out.md` (ADR 0175).
+ */
+export function outDocCopyOf(_settingsFile: string): string {
+  throw new Error('not implemented');
+}
+
 /** An attempt's appended system prompt: its file and the engine's fixed rules (ADR 0183). */
 export interface AttemptSystemPrompt {
   file: string;
@@ -537,8 +550,11 @@ export function attemptPermissions(
   };
 }
 
-/** Why an attempt resumes the session before it: a retry (ADR 0117), or an answer (ADR 0118). */
-export type Resumed = 'retry' | 'answered';
+/**
+ * Why an attempt resumes the session before it: a retry (ADR 0117), an answer (ADR 0118), or a
+ * retry after the run before ran out of turns (ADR 0175).
+ */
+export type Resumed = 'retry' | 'answered' | 'turns';
 
 /**
  * What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117), with the
@@ -550,6 +566,8 @@ export function goOn(doc: string, why: Resumed): string {
       return `The run before this one ended before the step was done. Go on with the step where it stopped, then write ${doc} as your instructions say.`;
     case 'answered':
       return `A human answered the questions the run before this one asked. Go on with the step where it stopped, with the answers below, then write ${doc} as your instructions say.`;
+    case 'turns':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = why;
       throw new Error(`Unhandled resume ${JSON.stringify(unhandled)}`);

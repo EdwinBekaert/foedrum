@@ -25,6 +25,11 @@ export interface AttemptLimits {
   commitsSince?: string;
   /** For a Taster's blocking step: a `done` with the verdict `changes` is blocked by findings (ADR 0161). */
   blocking?: boolean;
+  /**
+   * The driver can resume the attempt's session: a claude step with a worktree manager that
+   * recreates worktrees. A run past `maxTurns` after claude's init then fails retryably (ADR 0175).
+   */
+  resumable?: boolean;
 }
 
 export interface AttemptStart {
@@ -147,6 +152,8 @@ export interface AttemptFacts {
   deniedTools: readonly string[];
   /** Turns the brewer took. */
   turns: number;
+  /** Whether claude's init report came, so the session it set up can be resumed (ADR 0175). */
+  sessionStarted?: boolean;
   /** The commits since the limits' `commitsSince`, when they name one. */
   commits?: CommitsSeen;
 }

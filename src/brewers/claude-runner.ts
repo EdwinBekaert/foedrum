@@ -83,6 +83,11 @@ export interface ClaudeAttemptPlan {
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
+  /**
+   * For a resumed run after a turn overrun: the copy of the out doc the run before left. The
+   * runner keeps the out doc in the worktree, or puts this copy back there (ADR 0175).
+   */
+  outDocFrom?: string;
 }
 
 /** An out doc as the runner found it. */
@@ -112,6 +117,13 @@ export interface ClaudeRunnerDeps {
      * resumes its session there (ADR 0118); throws when it cannot.
      */
     clearOutDoc: (file: string, root: string) => void;
+    /**
+     * Puts the copy of the out doc a run that ran out of turns left back in `root`, the worktree,
+     * when it has none (ADR 0175); throws when it cannot.
+     */
+    restoreOutDoc: (file: string, root: string, copy: string) => void;
+    /** Keeps the copy of the out doc of an attempt that ran out of turns (ADR 0175). */
+    copyOutDoc: (file: string, text: string) => void;
   };
   now: () => Date;
   /** Resolves after `ms`, or at once when `signal` aborts. */
@@ -211,6 +223,14 @@ export function clearOutDocFile(file: string, root: string): void {
     throw new Error(`the out doc ${file} is outside the worktree`);
   }
   unlinkSync(file);
+}
+
+/**
+ * Writes `copy`, the out doc a run that ran out of turns left, to `file` in `root`, the worktree,
+ * when the worktree has none: it was recreated (ADR 0175). Nothing when there is no copy.
+ */
+export function restoreOutDocFile(_file: string, _root: string, _copy: string): void {
+  throw new Error('not implemented');
 }
 
 /** How the process ended, from what the stream process answered. */
@@ -540,6 +560,8 @@ export function claudeBrewerRunner(
       writeSystemPrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
+      restoreOutDoc: restoreOutDocFile,
+      copyOutDoc: writeSystemPromptFile,
     },
     now: () => new Date(),
     wait: waitFor,

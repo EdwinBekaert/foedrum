@@ -50,6 +50,14 @@ export function ranIn(
 }
 
 /**
+ * Whether the attempt of `batch` before `ref` ran out of its turns, by the mark on its outcome:
+ * then `ref` resumes its session whatever the brewer's `retryMode` (ADR 0175).
+ */
+export function afterOverrun(_batch: Batch, _ref: AttemptRef): boolean {
+  throw new Error('not implemented');
+}
+
+/**
  * How attempt `ref` of `batch` starts when its brewer resumes; undefined when it has no session to
  * resume: it is no retry and answers no questions, or the attempt before it ran no session. A
  * route comes after its step succeeded, and that session's branch holds the task tree, which a

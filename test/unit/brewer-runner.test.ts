@@ -323,6 +323,36 @@ describe('settleAttempt', () => {
     assert.deepStrictEqual(settleAttempt(overrun, { ...limits, resumable: true }), notRetryable);
   });
 
+  // ADR 0175: a retry that continues the session starts with the work done.
+  it('fails a turn overrun retryably, marked, when claude started its session and the driver can resume it', () => {
+    const overrun = facts({
+      exit: { kind: 'stopped' },
+      outDoc: undefined,
+      turns: 101,
+      sessionStarted: true,
+    });
+    assert.deepStrictEqual(settleAttempt(overrun, { ...limits, resumable: true }), {
+      kind: 'failed',
+      retryable: true,
+      reason: 'budget exceeded: 101 turns, maxTurns is 100',
+      overran: 'turns',
+    });
+    // A driver that cannot recreate the worktree would start the retry fresh.
+    assert.deepStrictEqual(settleAttempt(overrun, limits), {
+      kind: 'failed',
+      retryable: false,
+      reason: 'budget exceeded: 101 turns, maxTurns is 100',
+    });
+  });
+
+  it('puts the denials before a turn overrun that could resume', () => {
+    const ending = settleAttempt(
+      facts({ exit: { kind: 'stopped' }, denials: 5, turns: 101, sessionStarted: true }),
+      { ...limits, resumable: true },
+    );
+    assert.equal(ending.kind, 'blocked');
+  });
+
   it('names every denied tool once, in the order first denied', () => {
     const denied = { denials: 6, deniedTools: ['Bash(npm test)', 'WebFetch', 'Edit'] };
     const ending = settleAttempt(facts({ exit: { kind: 'stopped' }, ...denied }), limits);

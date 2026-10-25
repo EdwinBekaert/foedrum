@@ -961,6 +961,20 @@ describe('planAttempt', () => {
     assert.equal(plan.settingsFile, join('/root', 'attempt-settings', '12-1', 'brew', '1.json'));
   });
 
+  // ADR 0175: the session holds the task and the work done; the run gets the whole budget again.
+  it('resumes a run after a turn overrun with its own prompt, the full maxTurns and the copy of its out doc', () => {
+    const outDocFrom = join('/root', 'attempt-settings', '12-1', 'brew', '1.out.md');
+    const plan = planAttempt({ ...facts(), inputs: [], resumes: 'turns', outDocFrom });
+    assert.equal(
+      plan.prompt,
+      'The run before this one ran out of turns. Finish what is left of the step, write brew.md as your instructions say, and end.',
+    );
+    assert.equal(plan.call.maxTurns, 40);
+    assert.equal(plan.call.session.kind, 'resume');
+    assert.equal(plan.outDocFrom, outDocFrom);
+    assert.equal(planAttempt({ ...facts(), resumes: 'retry' }).outDocFrom, undefined);
+  });
+
   // ADR 0160: the settings hide the logins where the driver's environment moved them.
   it('hands the attempt settings where the environment moves the logins', () => {
     const configDirs = { XDG_CONFIG_HOME: '/data/config' };

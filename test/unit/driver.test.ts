@@ -1824,6 +1824,79 @@ describe('openDriver', () => {
       assert.equal(fresh.worktree?.path, folder('plan', 2));
     });
 
+    describe('after a turn overrun (ADR 0175)', () => {
+      const overran: Ending = {
+        kind: 'failed',
+        retryable: true,
+        reason: 'budget exceeded: 81 turns, maxTurns is 80',
+        overran: 'turns',
+      };
+      /** The driver of a brewer that starts fresh, and the limits each attempt started with. */
+      const openFresh = async (manager: Omit<FakeWorktrees, 'recreate'>, runner: BrewerRunner) => {
+        const given: AttemptLimits[] = [];
+        const driver = await open({
+          runner: {
+            ...runner,
+            start: (attempt) => (given.push(attempt.limits), runner.start(attempt)),
+          },
+          recipes: thrice,
+          worktrees: [{ repo: 'acme/app', base: 'origin/main', manager }],
+          sessionId: ids(),
+          resumes: () => false,
+        });
+        return { driver, given };
+      };
+
+      it('resumes the session whatever the brewer says, and tells the runner the session can be resumed', async () => {
+        const { runner, end, started: ran } = handRunner();
+        const manager = fakeWorktrees();
+        order('b1');
+        const { driver, given } = await openFresh(manager, runner);
+        await driver.drive();
+        end(plan('b1'), overran, inSession(first));
+        await driver.drive();
+        const resumed = started().at(-1);
+        assert.equal(resumed?.attempt, 2);
+        assert.deepStrictEqual(resumed.session, {
+          id: first,
+          resumes: first,
+          worktree: folder('plan', 1),
+        });
+        assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
+        assert.deepStrictEqual(
+          given.map((limits) => limits.resumable),
+          [true, true],
+        );
+      });
+
+      // A fresh attempt would meet the same budget.
+      it('fails the retry not retryably, with why, when the session cannot be resumed', async () => {
+        const { runner, end, started: ran } = handRunner();
+        const manager = fakeWorktrees({ refuseRecreate: () => 'The commit is no commit in clone' });
+        order('b1');
+        const { driver } = await openFresh(manager, runner);
+        await driver.drive();
+        end(plan('b1'), overran, inSession(first));
+        await driver.drive();
+        assert.deepStrictEqual(ran, [plan('b1')], 'no run of the retry');
+        const finished = store
+          .eventsAfter(0)
+          .flatMap(({ event }) => (event.type === 'step.finished' ? [event] : []));
+        assert.deepStrictEqual(finished.at(-1), {
+          type: 'step.finished',
+          ...plan('b1', 2),
+          outcome: {
+            kind: 'failed',
+            retryable: false,
+            reason:
+              'the turn budget ran out, and its session cannot be resumed: the worktree of plan#1 could not be recreated: The commit is no commit in clone',
+          },
+        });
+        const lane = fold(store.eventsAfter(0).map(({ event }) => event)).batches.get('b1')?.lane;
+        assert.equal(lane?.kind, 'stuck');
+      });
+    });
+
     it('starts fresh, saying why, when the worktree of the session cannot be recreated', async () => {
       const { runner, end, started: ran } = handRunner();
       const manager = fakeWorktrees({ refuseRecreate: () => 'The commit is no commit in clone' });
