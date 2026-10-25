@@ -7,6 +7,7 @@ import { checkName, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
+import { onFindings } from '../engine/decide.ts';
 import type { Batch } from '../engine/fold.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
@@ -336,8 +337,8 @@ type RoundBefore =
   | { kind: 'unfound'; attempt: number };
 
 /**
- * An outcome of a review (ADR 0196): a success with a Taster's verdict, or blocked by findings, as
- * decide records a blocked out doc's (`finish`).
+ * An outcome of a review (ADR 0196): a success with a Taster's verdict, or blocked by findings
+ * (`onFindings`).
  */
 const reviewed = (outcome: StepOutcome): boolean => {
   switch (outcome.kind) {
@@ -350,7 +351,7 @@ const reviewed = (outcome: StepOutcome): boolean => {
       return verdict === 'approve' || verdict === 'changes';
     }
     case 'failed':
-      return !outcome.retryable && outcome.reason.startsWith('blocked (findings): ');
+      return onFindings(outcome);
     case 'needs_input':
     case 'cancelled':
       return false;
