@@ -510,6 +510,28 @@ describe('planCatchUp', () => {
     stops(() => planCatchUp(branch, [stored(1, ordered('b9'))]), /event 1/);
   });
 
+  // Review of #489: a pushed receipt of an older Foedrum holds its cost, which both sides drop
+  // as they read it (ADR 0181).
+  it('catches up from a branch whose old receipt holds a cost the local event lacks', () => {
+    const model = {
+      model: 'claude-haiku-5-5',
+      inputTokens: 2,
+      outputTokens: 4,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    const receipt = { complete: true, turns: 1, edits: 0, toolErrors: 0, denied: [] };
+    const recorded = {
+      ...finished('b1'),
+      receipt: { ...receipt, costUsd: 0.82, models: [{ ...model, costUsd: 0.82 }] },
+    };
+    const text = `${line(1, ordered('b1'))}${JSON.stringify({ id: 2, event: recorded })}\n${line(3, started('b1', 'review'))}`;
+    const pushed = mergeLogs([{ path: 'batches/b1/events.jsonl', text }]);
+    const read = { ...finished('b1'), receipt: { ...receipt, models: [model] } };
+    const local = [stored(1, ordered('b1')), stored(2, read)];
+    assert.deepEqual(planCatchUp(pushed, local), [{ id: 3, event: started('b1', 'review') }]);
+  });
+
   it('stops when the branch has an event among the local ones that the store lacks', () => {
     stops(
       () => planCatchUp(branch, [stored(1, ordered('b1')), stored(4, started('b1'))]),
