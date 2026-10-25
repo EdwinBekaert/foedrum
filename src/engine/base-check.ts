@@ -89,11 +89,13 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     tips.set(repository, tip);
     return tip;
   };
-  for (const batch of log.state().batches.values()) {
+  for (const batchId of [...log.state().batches.keys()]) {
     if (signal.aborted) return;
+    // Each batch as the log has it now: other writers append beside the pass (ADR 0044).
     const state = log.state();
-    const open = openOf(state, batch);
-    if (open === undefined) continue;
+    const batch = state.batches.get(batchId);
+    const open = batch === undefined ? undefined : openOf(state, batch);
+    if (batch === undefined || open === undefined) continue;
     let repository: BaseCheckRepository;
     try {
       repository = repositoryOf(state, batch.id, repositories);
