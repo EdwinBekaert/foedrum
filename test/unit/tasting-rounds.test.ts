@@ -1,7 +1,8 @@
-// A later tasting round reviews the change since the round before (#500, ADR 0190): a lens step's
-// attempt after an earlier round of it sent the batch back by findings gets the change from the
-// commit that round reviewed to HEAD beside the whole change, and the engine's fixed text says to
-// review only that. The first round and a retry of any round are unchanged.
+// A later tasting round reviews the change since the round before (#500, ADR 0190, ADR 0196): a
+// lens step's attempt after an earlier attempt of it that reviewed (a verdict, or blocked by
+// findings, whatever sent the batch back) gets the change from the commit that round reviewed to
+// HEAD beside the whole change, and the engine's fixed text says to review only that. The first
+// round is unchanged, and a retry or an answered attempt reviews what its round reviews.
 
 import assert from 'node:assert/strict';
 import { join } from 'node:path';

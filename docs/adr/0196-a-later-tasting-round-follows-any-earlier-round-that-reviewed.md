@@ -12,7 +12,7 @@ The review of #500 found it.
 - **An earlier round is any earlier attempt of the same lens step in the batch that reviewed**: one that succeeded with a verdict (`approve` or `changes`), or ended blocked by findings, whatever sent the batch back.
 - **The latest such attempt before the round counts**, and a retry or an attempt after an answer still belongs to the round it continues, as in ADR 0190.
 - **A failed, cancelled or lost earlier attempt reviewed nothing** and does not count: the round reviews the whole change.
-- **The guards of ADR 0190 stay**: no second input when the commit that round reviewed is not recorded, is in another repository, is not on the line to HEAD, when a merge of the base came after it, or when git cannot tell; the prompt then says why.
+- **ADR 0190's guard stays and is widened**, since a guessed range is never given: no second input when the commit that round reviewed is not recorded (ADR 0190), is in another repository, is not on the line to HEAD (as after a rewind), when a merge of the base came after it, which would bring what the base added ([ADR 0164](0164-a-batch-merges-its-base-before-its-last-check.md)), or when git cannot tell; the prompt then says why.
 - **The fixed text names the round** without saying it sent the change back, since an approving round did not.
 
 ## Consequences
