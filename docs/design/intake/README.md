@@ -8,5 +8,6 @@ How orders reach a Brewery, how they are broken down and routed, and what Foedru
 | [Polling](polling.md) | Conditional requests, rate limits |
 | [Work breakdown](work-breakdown.md) | Orders, sub-orders, bottles, dependency kinds, release signals |
 | [Target-repository issues](target-issues.md) | The work queue, claims, marks and release |
+| [Open pull requests](open-pull-requests.md) | Their ends, and the check against a base that moved |
 | [Triage](triage.md) | Issues from triage sources |
 | [Routing](routing.md) | How an order gets its recipe |

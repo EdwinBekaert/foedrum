@@ -349,6 +349,24 @@ const gitProblems = (run: ToolRun | undefined): Problem[] => {
     : [];
 };
 
+// `git merge-tree --write-tree`, which the base check of open pull requests needs, came in 2.38
+// (ADR 0198): an older git that Foedrum still runs on only skips that check. A git already too old
+// says so in its own problem.
+const MERGE_TREE_GIT = [2, 38, 0] as const;
+const baseCheckProblems = (run: ToolRun | undefined): Problem[] => {
+  const version = versionOf(run);
+  if (version === undefined || isBefore(version, MIN_GIT) || !isBefore(version, MERGE_TREE_GIT)) {
+    return [];
+  }
+  return [
+    {
+      required: false,
+      what: `git ${version} has no merge-tree --write-tree, so foedrum serve does not check open pull requests against a base that moved (ADR 0198)`,
+      fix: 'install git 2.38.0 or later, https://git-scm.com/downloads',
+    },
+  ];
+};
+
 // git, gh and claude: Foedrum cannot run brewers without them.
 const requiredProblems = (name: 'git' | 'gh' | 'claude', run: ToolRun | undefined, fix: string) => {
   if (run === undefined) return [{ required: true, what: `${name} not found`, fix }];
@@ -641,6 +659,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
         ]
       : []),
     ...gitProblems(tools.git),
+    ...baseCheckProblems(tools.git),
     ...githubProblems(facts),
     ...requiredProblems(
       'claude',

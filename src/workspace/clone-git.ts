@@ -81,6 +81,11 @@ export interface OwnGitDir {
    * directory's promisor remote.
    */
   fetch(refspec: string, timeoutMs: number): Promise<void>;
+  /**
+   * git in the directory, its result whatever its exit code: in a partial clone, an object the
+   * clone lacks comes from the URL Foedrum names, as the fetch's do (ADR 0198).
+   */
+  read(args: readonly string[], options?: GitOptions): Promise<GitResult>;
 }
 
 /**
@@ -110,32 +115,59 @@ export const withOwnGitDir = async <T>(
   const { url, root, id = randomUUID } = own;
   const gitDir = join(root, `${id()}.git`);
   const prefix = [`--git-dir=${gitDir}`];
+  // git's options in the directory: the clone's objects, and its own configuration over the call's.
+  const inDir = (options: GitOptions): GitOptions => ({
+    ...aborts,
+    ...options,
+    env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
+    config: { ...options.config, ...OWN_CONFIG },
+  });
   const run = (args: readonly string[], options: GitOptions = {}): Promise<string> =>
-    gitOutput(git, root, [...prefix, ...args], {
-      ...aborts,
-      ...options,
-      env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
-      config: { ...options.config, ...OWN_CONFIG },
-    });
+    gitOutput(git, root, [...prefix, ...args], inDir(options));
+  // Whether the clone is partial, asked once per directory, which is then set up as one.
+  let partialSetUp: Promise<boolean> | undefined;
+  const partialClone = (): Promise<boolean> => {
+    partialSetUp ??= (async () => {
+      // A partial clone as the clone's configuration says: a promisor remote, or the extension
+      // older gits write. One that says so falsely fetches no files, and one that hides it fails
+      // to fetch.
+      const promisor = await inClone(git)(
+        clone,
+        ['config', '--get-regexp', String.raw`^(extensions\.partialclone|remote\..*\.promisor)$`],
+        aborts,
+      );
+      const partial =
+        promisor.code === 0 &&
+        promisor.stdout
+          .split(/\r?\n/)
+          .some(
+            (line) =>
+              /^extensions\.partialclone \S/i.test(line) || / (?:true|yes|on|1)$/i.test(line),
+          );
+      if (partial) {
+        await run(['config', 'core.repositoryformatversion', '1']);
+        await run(['config', 'extensions.partialClone', PROMISOR]);
+      }
+      return partial;
+    })();
+    return partialSetUp;
+  };
+  // The promisor remote of a partial clone's directory, for the call only.
+  const promisorConfig = (partial: boolean): Record<string, string> =>
+    partial
+      ? {
+          [`remote.${PROMISOR}.url`]: url,
+          [`remote.${PROMISOR}.promisor`]: 'true',
+          [`remote.${PROMISOR}.partialclonefilter`]: FILTER,
+        }
+      : {};
+  const read = async (args: readonly string[], options: GitOptions = {}): Promise<GitResult> => {
+    const partial = await partialClone();
+    const config = { ...options.config, ...promisorConfig(partial) };
+    return git(root, [...prefix, ...args], inDir({ ...options, config }));
+  };
   const fetch = async (refspec: string, timeoutMs: number): Promise<void> => {
-    // A partial clone as the clone's configuration says: a promisor remote, or the extension older
-    // gits write. One that says so falsely fetches no files, and one that hides it fails to fetch.
-    const promisor = await inClone(git)(
-      clone,
-      ['config', '--get-regexp', String.raw`^(extensions\.partialclone|remote\..*\.promisor)$`],
-      aborts,
-    );
-    const partial =
-      promisor.code === 0 &&
-      promisor.stdout
-        .split(/\r?\n/)
-        .some(
-          (line) => /^extensions\.partialclone \S/i.test(line) || / (?:true|yes|on|1)$/i.test(line),
-        );
-    if (partial) {
-      await run(['config', 'core.repositoryformatversion', '1']);
-      await run(['config', 'extensions.partialClone', PROMISOR]);
-    }
+    const partial = await partialClone();
     await run(
       [
         'fetch',
@@ -150,16 +182,7 @@ export const withOwnGitDir = async <T>(
         partial ? PROMISOR : url,
         refspec,
       ],
-      {
-        timeoutMs,
-        config: partial
-          ? {
-              [`remote.${PROMISOR}.url`]: url,
-              [`remote.${PROMISOR}.promisor`]: 'true',
-              [`remote.${PROMISOR}.partialclonefilter`]: FILTER,
-            }
-          : {},
-      },
+      { timeoutMs, config: promisorConfig(partial) },
     );
   };
   try {
@@ -171,7 +194,7 @@ export const withOwnGitDir = async <T>(
       [...prefix, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
       aborts,
     );
-    return await use({ url, run, fetch });
+    return await use({ url, run, fetch, read });
   } finally {
     await removeTree(gitDir);
   }

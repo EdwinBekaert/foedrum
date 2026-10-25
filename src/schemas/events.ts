@@ -5,7 +5,7 @@ import { PathSafeId } from './ids.ts';
 import { BlockerKind, TastingFinding } from './out-doc.ts';
 import { CheckName } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
-import { CommitSha, EffectKeyText } from './store.ts';
+import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
 import { z } from './zod.ts';
 
 const Id = NonEmpty;
@@ -473,6 +473,18 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     pullRequest: PullRequestUrl,
     state: z.enum(['merged', 'closed']),
+  }),
+  // How an open pull request of the batch merges with its base's tip, as the intake's merge-tree
+  // saw it once the tip moved (ADR 0198): the files it conflicts in, none when clean.
+  z.strictObject({
+    type: z.literal('pull_request.base_checked'),
+    batchId: BatchId,
+    pullRequest: PullRequestUrl,
+    branch: NonEmpty,
+    tip: CommitSha,
+    conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
+    // The bottle branch's tip when someone else pushed to it: no merge-tree ran, and none will.
+    branchMoved: CommitSha.optional(),
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),

@@ -50,6 +50,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.cancelled':
     case 'batch.taken_over':
     case 'pull_request.ended':
+    case 'pull_request.base_checked':
       return event.batchId;
     default: {
       const unhandled: never = event;

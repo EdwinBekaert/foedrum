@@ -315,6 +315,7 @@ export const openSqliteEventStore = (
       case 'batch.rewound':
       case 'batch.taken_over':
       case 'pull_request.ended':
+      case 'pull_request.base_checked':
         return;
       default: {
         const unhandled: never = event;

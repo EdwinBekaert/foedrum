@@ -10,6 +10,7 @@ import { createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
+import { baseConflictEffects } from '../engine/base-check.ts';
 import type { BrewerRunner, RunningAttempt } from '../engine/brewer-runner.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -81,6 +82,8 @@ export interface Wired {
   /** The claim refs on GitHub (ADR 0043). */
   claims: ClaimHost;
   claimant: Claimant;
+  /** Each repository's base and pushes, as the openPullRequest action has them (ADR 0071). */
+  pushes: readonly PullRequestRepository[];
 }
 
 export interface WiringOptions {
@@ -156,10 +159,12 @@ export const wireDriver = async (
   const claimed = [
     ...createCommandLog({ store, recipes: setup.recipes }).state().batches.values(),
   ].some((batch) => batch.repo !== undefined);
+  // A conflict with a base that moved, posted on its pull request (ADR 0198).
+  const conflicts = baseConflictEffects({ marks });
   const effects =
     setup.intake.repositories.length > 0 || claimed
-      ? combineEffects(status, labels, claimEffects({ claimant, marks, claims }))
-      : combineEffects(status, labels);
+      ? combineEffects(status, labels, conflicts, claimEffects({ claimant, marks, claims }))
+      : combineEffects(status, labels, conflicts);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
@@ -298,7 +303,7 @@ export const wireDriver = async (
     report,
   });
   opened.driver = driver;
-  return { store, driver, reads, claims, claimant };
+  return { store, driver, reads, claims, claimant, pushes };
 };
 
 /** Closes what `opened` holds: the driver, which stops its runs and lets the lock go, or the lock. */

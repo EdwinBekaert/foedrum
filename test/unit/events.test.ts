@@ -139,6 +139,14 @@ const valid: Record<Event['type'], Event> = {
     pullRequest,
     state: 'merged',
   },
+  'pull_request.base_checked': {
+    type: 'pull_request.base_checked',
+    batchId: 'app-7',
+    pullRequest,
+    branch: 'main',
+    tip: 'c'.repeat(40),
+    conflicts: ['src/app.ts'],
+  },
   'effect.applied': {
     type: 'effect.applied',
     key: '["b1","brew",1,"pull_request"]',

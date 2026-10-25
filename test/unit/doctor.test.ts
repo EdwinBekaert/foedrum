@@ -116,6 +116,22 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
     }
   });
 
+  it('says that a git older than 2.38 checks no open pull request against a moved base, without failing (ADR 0198)', () => {
+    const diagnosis = diagnose(linux({ git: ran('/usr/bin/git', 'git version 2.37.9\n') }));
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, [
+      {
+        required: false,
+        what: 'git 2.37.9 has no merge-tree --write-tree, so foedrum serve does not check open pull requests against a base that moved (ADR 0198)',
+        fix: 'install git 2.38.0 or later, https://git-scm.com/downloads',
+      },
+    ]);
+    for (const version of ['2.38.0', '2.47.1.windows.1']) {
+      const facts = linux({ git: ran('/usr/bin/git', `git version ${version}\n`) });
+      assert.deepEqual(diagnose(facts).problems, [], version);
+    }
+  });
+
   it('is not ok when gh does not answer its version', () => {
     assert.deepEqual(required(linux({ gh: ran('/usr/bin/gh', 'boom\n', 1) })), [
       'gh at /usr/bin/gh did not report a version',

@@ -120,6 +120,8 @@ function rule(state: State, event: Event): string | undefined {
       return lanes(state, event, nonTerminal);
     case 'pull_request.ended':
       return endable(state, event);
+    case 'pull_request.base_checked':
+      return checkable(state, event);
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
@@ -222,6 +224,22 @@ function endable(
   return ours
     ? undefined
     : `batch ${event.batchId} neither opened nor waits for ${event.pullRequest}`;
+}
+
+/** A batch records how an open pull request it opened merges with its base (ADR 0198). */
+function checkable(
+  state: State,
+  event: Extract<Event, { type: 'pull_request.base_checked' }>,
+): string | undefined {
+  const batch = state.batches.get(event.batchId);
+  if (batch === undefined) return undefined;
+  const { lane } = batch;
+  if (lane.kind !== 'on_tap' || !lane.pullRequests.includes(event.pullRequest)) {
+    return `batch ${event.batchId} has no open pull request ${event.pullRequest}`;
+  }
+  return batch.pullRequestEnds?.[event.pullRequest] === undefined
+    ? undefined
+    : `pull request ${event.pullRequest} of batch ${event.batchId} has ended`;
 }
 
 /** A sub-order keeps its repository once it has batches: they, and their branches, live there. */
