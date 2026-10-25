@@ -338,6 +338,8 @@ describe('createAttemptPlans: plan', () => {
         /^The run before this one ended before the step was done\. Go on with the step where it stopped, then write brew\.md as your instructions say\./,
       );
       assert.doesNotMatch(plan.prompt, /untrusted-input/);
+      // Its out doc goes before the run, so the run is read by what it writes (ADR 0118).
+      assert.equal(plan.outDocFrom, undefined);
     });
 
     // ADR 0175: whatever the brewer's retryMode, the driver resumed it; the plan says why.
@@ -483,6 +485,7 @@ describe('createAttemptPlans: plan', () => {
         /source="answers to the questions of step brew" name="answers">\nQ: Which flag\?\nA: --json\n<\//,
       );
       assert.doesNotMatch(plan.prompt, /Which file\?/);
+      assert.equal(plan.outDocFrom, undefined, 'the needs_input it left goes (ADR 0118)');
     });
 
     it('gives a fresh retry after a resume that found no session every round of answers (ADR 0118)', async () => {

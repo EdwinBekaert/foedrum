@@ -114,6 +114,8 @@ const setup = (
     systemPromptFails?: string;
     /** Why keeping a copy of the out doc fails, if it does. */
     copyFails?: string;
+    /** Why putting the copy of the out doc back fails, if it does. */
+    restoreFails?: string;
   } = {},
 ) => {
   const counts: {
@@ -177,6 +179,7 @@ const setup = (
       },
       restoreOutDoc: (file, root, copy) => {
         restored.push({ file, root, copy, starts: calls.length });
+        if (more.restoreFails !== undefined) throw new Error(more.restoreFails);
       },
       copyOutDoc: (file, text) => {
         copied.push({ file, text });
@@ -295,6 +298,23 @@ describe('claudeBrewerRunner', () => {
     assert.deepEqual(restored, [
       { file: resolve('/work/tree', 'plan.md'), root: '/work/tree', copy: outDocFrom, starts: 0 },
     ]);
+  });
+
+  it('does not start claude when the copy of the out doc cannot be put back (review of #496)', async () => {
+    const resuming = plan();
+    const resume: ClaudeAttemptPlan = {
+      ...resuming,
+      call: { ...resuming.call, session: { kind: 'resume', id: session(1) } },
+      outDocFrom: join('/work', 'attempt', '1.out.md'),
+    };
+    const { calls, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => resume, restoreFails: 'the out doc plan.md is outside the worktree' },
+    );
+    const { ending } = await runner.start(attempt).ended;
+    assert.deepEqual(calls, []);
+    assert.equal(ending.kind, 'failed');
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /outside the worktree/);
   });
 
   // ADR 0175: a recreated worktree would have lost it.

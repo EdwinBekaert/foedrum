@@ -1878,6 +1878,27 @@ describe('openDriver', () => {
         assert.deepStrictEqual(given, [defaultLimits]);
       });
 
+      // Review of #496: resumeOf's why, when the attempt before finished with no init report.
+      it("fails the retry with resumeOf's why when claude started no session to resume", async () => {
+        const { runner, end, started: ran } = handRunner();
+        order('b1');
+        const { driver } = await openFresh(fakeWorktrees(), runner);
+        await driver.drive();
+        end(plan('b1'), overran);
+        await driver.drive();
+        assert.deepStrictEqual(ran, [plan('b1')], 'no run of the retry');
+        const finished = store
+          .eventsAfter(0)
+          .flatMap(({ event }) => (event.type === 'step.finished' ? [event] : []));
+        const last = finished.at(-1);
+        assert.deepStrictEqual(last?.type === 'step.finished' && last.outcome, {
+          kind: 'failed',
+          retryable: false,
+          reason:
+            'the turn budget ran out, and its session cannot be resumed: plan#1 has no session claude started',
+        });
+      });
+
       // A fresh attempt would meet the same budget.
       it('fails the retry not retryably, with why, when the session cannot be resumed', async () => {
         const { runner, end, started: ran } = handRunner();
