@@ -107,6 +107,8 @@ interface Planned {
   /** `undefined` for a new file; the lines that say what changes, none when it is up to date. */
   changes: string[] | undefined;
   question?: string;
+  /** A file init keeps as it is, without comparing it. */
+  kept?: true;
 }
 
 /** A JSON object file: written new, or what it changes in the object there. */
@@ -217,9 +219,20 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
 
   // The files written or changed, said before doctor's report.
   const written: string[] = [];
+  // A foedrum.jsonc that reads but does not pass is the user's to fix, before any question.
+  const config = readObject(files.read('foedrum.jsonc'));
+  if (config.kind === 'read') {
+    const checked = readJsonc(files.read('foedrum.jsonc') ?? '', BreweryConfig);
+    if (!checked.valid) {
+      const reason = checked.reason
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .join(' ');
+      return refuse(`the foedrum.jsonc here does not pass its schema: ${reason}`);
+    }
+  }
   try {
     const login = await ports.login();
-    const config = readObject(files.read('foedrum.jsonc'));
     const base: Json = config.kind === 'read' ? config.value : {};
     const named = Repo.safeParse(base.brewery);
     const brewery = await ask(
@@ -352,11 +365,10 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     passes(settings.path, settings.text, BreweryClaudeSettings);
     const plans: Planned[] = [
       { ...configFile, question: 'Change foedrum.jsonc (its comments are not kept)? [y/N]: ' },
-      {
-        path: 'models.jsonc',
-        text: MODELS,
-        changes: files.exists('models.jsonc') ? [] : undefined,
-      },
+      // init writes no key of models.jsonc, so one that is there is kept whatever it holds.
+      files.exists('models.jsonc')
+        ? { path: 'models.jsonc', text: MODELS, changes: [], kept: true }
+        : { path: 'models.jsonc', text: MODELS, changes: undefined },
       planIgnore(files.read('.gitignore')),
       settings,
     ];
@@ -368,7 +380,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
         continue;
       }
       if (plan.changes.length === 0) {
-        say(`${plan.path} is up to date`);
+        say(plan.kept === true ? `${plan.path} is kept as it is` : `${plan.path} is up to date`);
         continue;
       }
       say(`${plan.path} would change:`);
