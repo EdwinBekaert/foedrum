@@ -1236,6 +1236,14 @@ describe('restoreOutDocFile (ADR 0175)', () => {
     assert.equal(readFileSync(join(worktree, 'plan.md'), 'utf8'), 'written since');
   });
 
+  // Review of #496: an untracked folder is not in a worktree recreated from its branch.
+  it('does nothing when the out doc folder is not in the worktree, so the session resumes without it', () => {
+    const copy = join(dir.path, '1.out.md');
+    writeFileSync(copy, 'the gauge so far');
+    restoreOutDocFile(join(dir.path, 'notes', 'plan.md'), dir.path, copy);
+    assert.equal(existsSync(join(dir.path, 'notes')), false);
+  });
+
   it('does nothing when there is no copy', () => {
     restoreOutDocFile(join(dir.path, 'plan.md'), dir.path, join(dir.path, 'none.out.md'));
     assert.equal(existsSync(join(dir.path, 'plan.md')), false);
