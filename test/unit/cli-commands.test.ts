@@ -638,6 +638,66 @@ describe('foedrum stuck', () => {
     });
   });
 
+  it('says one round, that it recorded no finding, and keeps a commit the batch knows (review of #508)', async () => {
+    const commit = 'c0ffee'.repeat(6).concat('c0ff');
+    const step = { batchId: '12-1', stepId: 'correctness', attempt: 1 };
+    append(
+      ordered(12),
+      { type: 'step.scheduled', ...step, deadlineAt: iso(60) },
+      {
+        type: 'step.started',
+        ...step,
+        worktree: { repo: 'acme/api', path: 'w', branch: 'b', commit },
+      },
+      {
+        type: 'batch.stuck',
+        batchId: '12-1',
+        reason: {
+          kind: 'blocked',
+          stepId: 'correctness',
+          blockerKind: 'findings',
+          summary: `the Taster asks for changes: ${commit} has no deadline`,
+          roundsOut: {
+            rounds: 1,
+            open: [{ severity: 'major', why: `${commit} has no deadline`, introduced: true }],
+            more: 0,
+          },
+        },
+        options: ['retry', 'cancel'],
+        remindAt: iso(2880),
+      },
+      ordered(13),
+      {
+        type: 'batch.stuck',
+        batchId: '13-1',
+        reason: {
+          kind: 'blocked',
+          stepId: 'implement',
+          blockerKind: 'findings',
+          summary: 'the test is wrong',
+          roundsOut: { rounds: 1, open: [], more: 0 },
+        },
+        options: ['retry', 'cancel'],
+        remindAt: iso(2880),
+      },
+    );
+    const { stdout } = await run(['stuck']);
+    const lines = stdout.split('\n');
+    const at12 = lines.findIndex((line) => line.startsWith('12-1'));
+    assert.deepStrictEqual(lines.slice(at12 + 1, at12 + 5), [
+      '  options: retry, cancel',
+      '  still open after 1 round:',
+      `    major: ${commit} has no deadline`,
+      '  Another round is unlikely to help: plan the order again, or split it.',
+    ]);
+    const at13 = lines.findIndex((line) => line.startsWith('13-1'));
+    assert.deepStrictEqual(lines.slice(at13 + 1, at13 + 4), [
+      '  options: retry, cancel',
+      '  still open after 1 round: no finding was recorded',
+      '  Another round is unlikely to help: plan the order again, or split it.',
+    ]);
+  });
+
   it('lists the open findings of a findings route that ran out of rounds, and recommends stepping back (ADR 0192)', async () => {
     // Built at run time, so no scanner takes this file for one that holds a token.
     const token = ['ghp', 'A1b2'.repeat(9)].join('_');
