@@ -166,7 +166,7 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 };
 
 /** A commit as the comments show it: its first eight digits. */
-export const shortSha = (sha: string): string => sha.slice(0, 8);
+const shortSha = (sha: string): string => sha.slice(0, 8);
 
 /**
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the

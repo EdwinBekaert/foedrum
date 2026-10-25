@@ -115,13 +115,15 @@ export const withOwnGitDir = async <T>(
   const { url, root, id = randomUUID } = own;
   const gitDir = join(root, `${id()}.git`);
   const prefix = [`--git-dir=${gitDir}`];
+  // git's options in the directory: the clone's objects, and its own configuration over the call's.
+  const inDir = (options: GitOptions): GitOptions => ({
+    ...aborts,
+    ...options,
+    env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
+    config: { ...options.config, ...OWN_CONFIG },
+  });
   const run = (args: readonly string[], options: GitOptions = {}): Promise<string> =>
-    gitOutput(git, root, [...prefix, ...args], {
-      ...aborts,
-      ...options,
-      env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
-      config: { ...options.config, ...OWN_CONFIG },
-    });
+    gitOutput(git, root, [...prefix, ...args], inDir(options));
   // Whether the clone is partial, asked once per directory, which is then set up as one.
   let partialSetUp: Promise<boolean> | undefined;
   const partialClone = (): Promise<boolean> => {
@@ -161,12 +163,8 @@ export const withOwnGitDir = async <T>(
       : {};
   const read = async (args: readonly string[], options: GitOptions = {}): Promise<GitResult> => {
     const partial = await partialClone();
-    return git(root, [...prefix, ...args], {
-      ...aborts,
-      ...options,
-      env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
-      config: { ...options.config, ...promisorConfig(partial), ...OWN_CONFIG },
-    });
+    const config = { ...options.config, ...promisorConfig(partial) };
+    return git(root, [...prefix, ...args], inDir({ ...options, config }));
   };
   const fetch = async (refspec: string, timeoutMs: number): Promise<void> => {
     const partial = await partialClone();
