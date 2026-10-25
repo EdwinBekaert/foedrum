@@ -6,7 +6,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 
 ```jsonc
 {
-  "$schema": "./.foedrum/schemas/foedrum.json",                  // written by `foedrum init`
+  "$schema": "./.foedrum/schemas/foedrum.json",                  // for editors; `foedrum init` writes none yet
   "permissionCeiling": ["Bash(npm *)", "Bash(dotnet *)"],       // the most a repository may add
   "repositories": {
     "acme/billing": {
