@@ -43,6 +43,26 @@ export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) 
 export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
 export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 
+/** The most dispositions an out doc lists, and the longest file and `why` of one (ADR 0191). */
+export const MOST_DISPOSITIONS = 100;
+export const MAX_DISPOSITION_FILE = 1_000;
+export const MAX_DISPOSITION_WHY = 2_000;
+
+/**
+ * What the brewer a findings route brought back did with one finding of its route input
+ * (ADR 0191): at the finding's place as the Taster wrote it, or the change as a whole without a
+ * file.
+ */
+export type Disposition = { file?: string; line?: number } & (
+  | { disposition: 'fixed'; why?: string }
+  | { disposition: 'dismissed' | 'pre-existing'; why: string }
+);
+
+/** The dispositions of any out doc's output that lists them; none for one without. */
+export const dispositionsOf = (_output: unknown): Disposition[] => {
+  throw new Error('not implemented');
+};
+
 /** Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the reason. */
 export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> {
   return readDoc(text, schema);

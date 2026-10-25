@@ -4,6 +4,7 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import {
+  type Disposition,
   type FiningChange,
   FiningOutDoc,
   type FiningReport,
@@ -85,6 +86,8 @@ export interface StepReport {
   fining?: FiningReport;
   /** The new tests and the regression tests a Gauger named (ADR 0170). */
   gauge?: GaugeReport;
+  /** The findings its attempts marked pre-existing, for a person to file (ADR 0191). */
+  toFile?: readonly Disposition[];
 }
 
 /** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */

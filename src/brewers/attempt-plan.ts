@@ -16,6 +16,7 @@ import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
+  type Disposition,
   FINING,
   FiningOutDoc,
   GAUGE,
@@ -24,6 +25,7 @@ import {
   PULL_REQUEST,
   PullRequestOutDoc,
   TASTING,
+  type TastingFinding,
   TastingOutDoc,
 } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
@@ -394,6 +396,26 @@ function laterRoundText(round: LaterRound): string {
       throw new Error(`Unhandled round ${JSON.stringify(unhandled)}`);
     }
   }
+}
+
+/**
+ * One earlier round of a lens step (ADR 0191): its attempt, its findings or why they could not be
+ * read, and the dispositions the brewer its findings route brought back wrote.
+ */
+export type EarlierRound = { step: string; dispositions: readonly Disposition[] } & (
+  | { findings: readonly TastingFinding[] }
+  | { unread: string }
+);
+
+/**
+ * The input of a later round of `stepId` (ADR 0191): the earlier rounds' findings in the order the
+ * rounds ran, each with the disposition at its place, or open.
+ */
+export function earlierFindingsInput(
+  _stepId: string,
+  _rounds: readonly EarlierRound[],
+): PromptInput {
+  throw new Error('not implemented');
 }
 
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
