@@ -6,7 +6,7 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
 
 ```jsonc
 {
-  "$schema": "../.foedrum/schemas/recipe.json",          // written by `foedrum init`
+  "$schema": "../.foedrum/schemas/recipe.json",          // for editors; `foedrum init` writes none yet
   "name": "half-pint",
   "description": "Small feature in one repository",
   "match": { "labels": ["feature"] },

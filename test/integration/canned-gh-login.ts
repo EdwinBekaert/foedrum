@@ -103,5 +103,6 @@ export const doctorHere = async (
     brew: notForDoctor('brew'),
     watch: notForDoctor('watch'),
     resume: notForDoctor('resume'),
+    init: notForDoctor('init'),
     env: {},
   });

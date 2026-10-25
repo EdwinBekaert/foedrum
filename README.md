@@ -8,13 +8,23 @@ Foedrum is a GitHub-native orchestrator for Claude agents. You file an issue in 
 
 > 🚧 **Status: early development.** Milestone M1 (First pour) takes an issue in a Brewery to a pull request end to end: the Nip recipe, the `claude` CLI runner, `foedrum serve` and `foedrum brew`, and the Claude Code plugin. It is not on npm yet. See it in [M1's "See it"](docs/milestones/m1.md#see-it), and what comes next in [ROADMAP.md](ROADMAP.md).
 
+## Set up a Brewery
+
+Create an empty repository for the Brewery on GitHub (private, say `<you>/foedrum-brewery`), clone it, and in the clone run (with `foedrum` on your PATH, as below):
+
+```sh
+foedrum init
+```
+
+It asks the Brewery's name and its target repositories, reads each target's default branch and, for a Node repository, its checks from `package.json` through gh's own login, and writes `foedrum.jsonc`, `models.jsonc`, `.gitignore` and `.claude/settings.json`, each checked against its schema. It asks before it changes a file that is already there, then runs `foedrum doctor`. Commit and push the files, and create the label `foedrum:brew` in each target repository: the Cellar claims its issues with that label, and brews each once its Brewery issue has a `recipe:<name>` label ([ADR 0156](docs/adr/0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)).
+
 ## Install the plugin
 
-In a terminal:
+In a terminal, in the Brewery's clone, once per machine:
 
 ```sh
 claude plugin marketplace add EdwinBekaert/foedrum
-claude plugin install foedrum@foedrum
+claude plugin install foedrum@foedrum --scope project
 ```
 
 or, from a checkout of this repository, start the session in the Brewery's root with `claude --plugin-dir <checkout>/plugin`. Then, in that session:

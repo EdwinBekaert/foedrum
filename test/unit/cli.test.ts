@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { join, sep } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
+import { commands } from '../../src/cli/commands.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -66,6 +67,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   brew: async () => assert.fail('no brew here'),
   watch: async () => assert.fail('no watch here'),
   resume: async () => assert.fail('no session to resume'),
+  init: async () => assert.fail('no init here'),
   env: {},
   ...overrides,
 });
@@ -246,6 +248,24 @@ describe('foedrum: the command line', () => {
     };
     assert.deepEqual(await run(['serve'], { serve }), result);
     assert.equal(served, 1);
+  });
+
+  it('runs foedrum init through its context, with no argument, terminal-only for now (ADR 0199)', async () => {
+    const result = { exitCode: 1, stdout: '', stderr: '' };
+    let ran = 0;
+    const init = async () => {
+      ran++;
+      return result;
+    };
+    assert.deepEqual(await run(['init'], { init }), result);
+    assert.equal(ran, 1);
+    assertUsageError(
+      await run(['init', 'now'], { init }),
+      'foedrum init: unexpected argument "now"',
+    );
+    const command = commands.find(({ name }) => name === 'init');
+    assert.equal(command?.changesState, false);
+    assert.match(command?.terminalOnly ?? '', /\/foedrum:init/);
   });
 
   it('runs foedrum resume through its context, with or without its step (ADR 0126)', async () => {

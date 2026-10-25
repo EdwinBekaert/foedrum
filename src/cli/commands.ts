@@ -1,8 +1,9 @@
 // The command registry (ADR 0019): one schema and one handler per command. Surfaces turn their
 // input into a command's input and run it; run.ts is the terminal's. doctor, status, stuck,
-// brewers and replay only read, so they append nothing (ADR 0030). The others turn their input into one of
-// the engine's human commands and append its events through the command log, recorded with who
-// issued it and from where (ADR 0025).
+// brewers and replay only read, and init writes only the Brewery's files, so they append nothing
+// (ADR 0030, ADR 0199). The others turn their input into one of the engine's human commands and
+// append its events through the command log, recorded with who issued it and from where
+// (ADR 0025).
 
 import { join } from 'node:path';
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
@@ -22,6 +23,7 @@ import {
   CancelCommand,
   CELLAR_OWNER,
   DoctorCommand,
+  InitCommand,
   OrderCommand,
   RecipeCommand,
   ReplayCommand,
@@ -266,6 +268,17 @@ export const commands: readonly RegisteredCommand[] = [
       const diagnosis = diagnose(await gatherDoctorFacts());
       return { ...done(formatDiagnosis(diagnosis)), exitCode: diagnosis.ok ? 0 : 1 };
     },
+  }),
+  define({
+    name: 'init',
+    summary: "Write a Brewery's files in its clone from a few questions, then run doctor",
+    changesState: false,
+    positionals: [],
+    terminalOnly:
+      'Asks its questions on the terminal until /foedrum:init asks them in a session (#512)',
+    schema: InitCommand,
+    // Questions and lines on the terminal, run by it as brew is (ADR 0199).
+    handler: async (_input, context) => context.init(),
   }),
   define({
     name: 'status',

@@ -83,6 +83,11 @@ export interface CliContext {
    * claude has the terminal.
    */
   resume: (input: ResumeCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  /**
+   * Asks for and writes a Brewery's files in its clone, then runs doctor (ADR 0199); its questions
+   * and lines go straight to the terminal.
+   */
+  init: () => Promise<CliResult>;
 }
 
 export interface CliResult {
