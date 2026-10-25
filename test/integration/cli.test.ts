@@ -307,6 +307,21 @@ describe('foedrum status --watch through cliFromCheckout (ADR 0188)', () => {
     assert.equal(process.listenerCount('SIGBREAK'), listeners);
   });
 
+  it('says there are no live batches in a Brewery without a store, and creates none', async () => {
+    const { stream, writes } = ttyStream(true, (text) => {
+      if (text === 'No live batches.') process.emit('SIGBREAK', 'SIGBREAK');
+    });
+    const result = await cliFromCheckout(['status', '--watch'], brewery.path, {
+      exec: cannedGhLogin(),
+      resolve: resolveWithMadeUpGh,
+      denylist: noDenylist,
+      board: { stream, env: { TERM: 'xterm' } },
+    });
+    assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+    assert.equal(writes[0], 'No live batches.');
+    assert.equal(existsSync(store), false);
+  });
+
   it('refuses off a terminal in one line with exit code 1, and creates no store', async () => {
     const { stream, writes } = ttyStream(false);
     const result = await cliFromCheckout(['status', '--watch'], brewery.path, {

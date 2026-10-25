@@ -365,6 +365,17 @@ describe('boardTerminal: what it does to the stream (ADR 0188)', () => {
     assert.equal(calls[0], 'moveCursor(0, -6)');
   });
 
+  it('goes back up by the lines of the board before when the width is unknown or none', () => {
+    for (const columns of [undefined, 0]) {
+      const { board, calls, stream } = boardOf({ columns: 100 });
+      board.redraw(['2 live batches', 'x'.repeat(50), 'y'.repeat(40)]);
+      stream.columns = columns;
+      calls.length = 0;
+      board.redraw(['2 live batches']);
+      assert.equal(calls[0], 'moveCursor(0, -2)', `columns ${columns}`);
+    }
+  });
+
   it('leaves nothing of a longer board behind a shorter one, and never shows a blank screen between two boards', () => {
     const screen = fakeBoardScreen();
     const board = boardTerminal(screen.stream, {});
