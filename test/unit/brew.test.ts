@@ -1080,12 +1080,12 @@ describe('runBrew', () => {
   it('holds the machine awake from the start of its attempt to its end, and lets the hold go when it stops (ADR 0195)', async () => {
     const held: string[] = [];
     const awake = {
-      attemptStarted: () => held.push(`started after ${started.join(', ')}`),
+      attemptStarted: () => held.push(`started with ${started.length} brewer attempts begun`),
       attemptEnded: () => held.push('ended'),
       release: () => held.push('released'),
     };
     assert.equal(await runBrew(setup, shell(behave.succeed(), { awake }), request), 0);
-    assert.deepStrictEqual(held, ['started after brew#1', 'ended', 'released']);
+    assert.deepStrictEqual(held, ['started with 0 brewer attempts begun', 'ended', 'released']);
   });
 
   it('lets the hold go when it is stopped while its attempt runs (ADR 0195)', async () => {
