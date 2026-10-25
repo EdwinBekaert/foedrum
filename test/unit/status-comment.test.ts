@@ -234,6 +234,23 @@ describe('renderStatus', () => {
     assert.match(text, /`retry`.*`cancel`/);
   });
 
+  // An event written before ADR 0192, or by a step with no findings route, has no roundsOut.
+  it('shows a findings blocker without rounds as it always did, with no open findings or step-back', () => {
+    const reason: StuckReason = {
+      kind: 'blocked',
+      stepId: 'taste',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: no deadline',
+    };
+    const lines = renderStatus(batch({ lane: stuck(reason) }), steps).split('\n');
+    const at_ = lines.findIndex((line) => line.startsWith('🔔'));
+    assert.deepStrictEqual(lines.slice(at_, at_ + 3), [
+      '🔔 **Stuck**: `taste` is blocked (findings): the Taster asks for changes: no deadline',
+      'Get it moving with `retry`, `cancel`.',
+      '',
+    ]);
+  });
+
   // #238, ADR 0091: the reset is claude's text, shown as plain text like any summary (ADR 0072).
   it('says which usage limit a batch is Stuck on and when it resets, as plain text', () => {
     const summary = 'claude hit its session limit, which resets 3:45pm: retry the step after that';

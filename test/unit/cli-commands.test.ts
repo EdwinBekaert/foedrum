@@ -637,6 +637,33 @@ describe('foedrum stuck', () => {
       stderr: '',
     });
   });
+
+  // An event written before ADR 0192, or by a step with no findings route, has no roundsOut.
+  it('lists a findings blocker without rounds as it always did, with no step-back', async () => {
+    append(ordered(11), {
+      type: 'batch.stuck',
+      batchId: '11-1',
+      reason: {
+        kind: 'blocked',
+        stepId: 'correctness',
+        blockerKind: 'findings',
+        summary: 'the Taster asks for changes: no deadline',
+      },
+      options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+      remindAt: iso(2880),
+    });
+    assert.deepStrictEqual(await run(['stuck']), {
+      exitCode: 0,
+      stdout: [
+        '1 Stuck batch',
+        '',
+        `11-1  #11  blocked at correctness (findings): the Taster asks for changes: no deadline; reminder ${iso(2880)}`,
+        '  options: retry, skip, recipe, rewind, cancel',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+  });
 });
 
 describe('foedrum brewers', () => {
