@@ -816,11 +816,13 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
 
 /**
  * What a findings route that used its `rounds` leaves open (ADR 0192): the first findings of its
- * last round, cut to what the status comment reads of them, and a count of the rest. Every finding
- * is open until the step the route goes back to can settle one by a disposition (ADR 0191, #501).
+ * last round, on one line and cut to what the status comment reads of them, and a count of the
+ * rest. A text the schema took has a character that is not blank, so it is never blank once cut.
+ * Every finding is open until the step the route goes back to can settle one by a disposition
+ * (ADR 0191, #501).
  */
 const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsOut => {
-  const cut = (text: string) => text.slice(0, MAX_OPEN_FINDING_TEXT);
+  const cut = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
   const open = findings.slice(0, MOST_OPEN_FINDINGS).map(({ file, why, ...finding }) => ({
     ...finding,
     ...(file === undefined ? {} : { file: cut(file) }),
