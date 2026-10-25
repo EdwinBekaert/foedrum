@@ -583,6 +583,8 @@ describe('runBrew', () => {
         times.every((time) => /^\d+s$/.test(time)),
         times.join(' '),
       );
+      // And it moves: a time pinned at 0s would also be no minutes.
+      assert.ok(times.includes('3s'), times.join(' '));
     });
 
     it("shows a batch's time as 0s while the clock reads before its order (ADR 0179)", async () => {
