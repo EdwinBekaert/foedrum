@@ -520,6 +520,16 @@ describe('scannedEnding: the secret scan of a done attempt with commits (ADR 018
     );
   });
 
+  it('counts a single finding past the three it names, and names three without a count', () => {
+    const reasonOf = (count: number) => {
+      const findings = Array.from({ length: count }, (_, n) => finding(n + 1));
+      const ending = scannedEnding(success, scanned(...findings), start);
+      return ending.kind === 'failed' ? ending.reason : '';
+    };
+    assert.match(reasonOf(4), /GitHub token in test\/keys3\.test\.ts; and 1 more$/);
+    assert.match(reasonOf(3), /GitHub token in test\/keys3\.test\.ts$/);
+  });
+
   it('gives a reason that does not itself look like a secret, so the status comment and the retry show it (ADR 0088)', () => {
     const kinds = [
       'GitHub token',
