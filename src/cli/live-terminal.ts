@@ -33,9 +33,12 @@ export const liveTerminal = (
     stream.clearLine(0);
     shown = undefined;
   };
+  // Over the old line in place, then clear what is left to its right: never a blank frame
+  // between two lines (ADR 0179).
   const rewrite = (text: string): void => {
-    clear();
+    stream.cursorTo(0);
     stream.write(text);
+    stream.clearLine(1);
     shown = text;
   };
   return {
