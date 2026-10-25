@@ -21,7 +21,12 @@ const onPath =
 describe('awakeMechanism', () => {
   it("is SetThreadExecutionState through Windows PowerShell in SystemRoot's System32 on Windows", () => {
     assert.deepStrictEqual(
-      awakeMechanism({ platform: 'win32', resolve: onPath({}), env: { SystemRoot: 'D:\\Win' } }),
+      awakeMechanism({
+        platform: 'win32',
+        resolve: onPath({}),
+        env: { SystemRoot: 'D:\\Win' },
+        exists: () => false,
+      }),
       {
         kind: 'SetThreadExecutionState',
         program: 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
@@ -35,6 +40,7 @@ describe('awakeMechanism', () => {
         platform: 'darwin',
         resolve: onPath({ caffeinate: '/usr/bin/caffeinate' }),
         env: {},
+        exists: () => false,
       }),
       { kind: 'caffeinate', program: '/usr/bin/caffeinate' },
     );
@@ -46,6 +52,7 @@ describe('awakeMechanism', () => {
         platform: 'linux',
         resolve: onPath({ 'systemd-inhibit': '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' }),
         env: {},
+        exists: (path) => path === '/run/systemd/system',
       }),
       { kind: 'systemd-inhibit', program: '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' },
     );
@@ -53,7 +60,7 @@ describe('awakeMechanism', () => {
 
   it('is none, saying why, where the program is missing or the platform has no way', () => {
     const none = (platform: NodeJS.Platform, found: Record<string, string>) =>
-      awakeMechanism({ platform, resolve: onPath(found), env: {} });
+      awakeMechanism({ platform, resolve: onPath(found), env: {}, exists: () => true });
     assert.deepStrictEqual(none('linux', { tail: '/usr/bin/tail' }), {
       kind: 'none',
       why: 'no systemd-inhibit on PATH',
@@ -145,10 +152,13 @@ describe('awakeCommand', () => {
 
 describe('awakeMechanism without SystemRoot', () => {
   it('takes Windows PowerShell from C:\\Windows when the environment names no SystemRoot', () => {
-    assert.deepStrictEqual(awakeMechanism({ platform: 'win32', resolve: onPath({}), env: {} }), {
-      kind: 'SetThreadExecutionState',
-      program: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-    });
+    assert.deepStrictEqual(
+      awakeMechanism({ platform: 'win32', resolve: onPath({}), env: {}, exists: () => false }),
+      {
+        kind: 'SetThreadExecutionState',
+        program: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      },
+    );
   });
 });
 
@@ -188,7 +198,8 @@ describe('keepAwake', () => {
 
   it('starts the helper when the first attempt starts, with no deadline, and stops it when none runs', () => {
     const { exec, started, live } = fakeExec();
-    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann' });
+    const timers = cuedTimers();
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann', timers });
     hold.attemptStarted();
     assert.equal(started.length, 1);
     assert.equal(started[0]?.file, '/usr/bin/caffeinate');
@@ -200,23 +211,28 @@ describe('keepAwake', () => {
     hold.attemptEnded();
     assert.deepStrictEqual([started.length, live()], [1, 1]);
     hold.attemptEnded();
+    timers.fire();
     assert.equal(live(), 0);
   });
 
   it('starts the helper again when an attempt starts after none ran', () => {
     const { exec, started, live } = fakeExec();
-    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann' });
+    const timers = cuedTimers();
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann', timers });
     hold.attemptStarted();
     hold.attemptEnded();
+    timers.fire();
     hold.attemptStarted();
     assert.deepStrictEqual([started.length, live()], [2, 1]);
   });
 
   it('keeps the helper it started again when the one it stopped reports its end late', async () => {
     const { exec, started, live } = fakeExec();
-    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann' });
+    const timers = cuedTimers();
+    const hold = keepAwake({ command: helper, exec, cwd: '/home/ann', timers });
     hold.attemptStarted();
     hold.attemptEnded();
+    timers.fire();
     hold.attemptStarted();
     // The first helper's end arrives now, after the second one started.
     await new Promise((settle) => setImmediate(settle));
@@ -224,6 +240,7 @@ describe('keepAwake', () => {
     assert.equal(started.length, 2);
     hold.attemptEnded();
     hold.attemptEnded();
+    timers.fire();
     assert.equal(live(), 0);
   });
 

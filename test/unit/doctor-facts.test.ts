@@ -396,7 +396,10 @@ describe('gatherDoctorFacts: keeping the machine awake (ADR 0195)', () => {
       onPath: { 'systemd-inhibit': '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' },
       answers: {},
     });
-    const facts = await gatherDoctorFacts(shell);
+    const facts = await gatherDoctorFacts({
+      ...shell,
+      exists: (path) => path === '/run/systemd/system',
+    });
     assert.deepStrictEqual(facts.keepAwake, {
       kind: 'systemd-inhibit',
       program: '/usr/bin/systemd-inhibit',
