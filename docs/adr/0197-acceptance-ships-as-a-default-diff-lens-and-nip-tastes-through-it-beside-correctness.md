@@ -1,6 +1,6 @@
 # 0197. Acceptance ships as a default diff lens, and Nip tastes through it beside correctness
 
-Date: 2026-10-25 · Status: Accepted · Amends [0022](0022-five-default-lenses.md) (the list of default lenses, now seven with [0173](0173-necessity-ships-as-a-default-diff-lens.md)), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (Nip's taste step) and [0185](0185-npm-run-demo-tastes-through-a-parallel-group-of-three-lenses.md) (Nip in `defaults/` keeps one Taster)
+Date: 2026-10-25 · Status: Accepted · Amends [0022](0022-five-default-lenses.md) and [0173](0173-necessity-ships-as-a-default-diff-lens.md) (the list of default lenses, now seven, and /brew-review's count of them), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (Nip's taste step) and [0185](0185-npm-run-demo-tastes-through-a-parallel-group-of-three-lenses.md) (Nip in `defaults/` keeps one Taster)
 
 ## Context
 Every default lens asks whether the change is done right: correctness, security, cross-platform, design conformance, test design and necessity ([ADR 0022](0022-five-default-lenses.md), [ADR 0173](0173-necessity-ships-as-a-default-diff-lens.md)).
