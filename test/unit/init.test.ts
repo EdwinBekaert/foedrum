@@ -11,6 +11,7 @@ import type { RepositoryFacts } from '../../src/github/repository-facts.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { BreweryClaudeSettings } from '../../src/schemas/brewery-settings.ts';
 import { ModelsConfig } from '../../src/schemas/models.ts';
+import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { readJsonc } from '../../src/schemas/read.ts';
 
 const node = (scripts: Record<string, string>): string => JSON.stringify({ name: 'web', scripts });
@@ -132,9 +133,19 @@ describe('foedrum init (ADR 0199)', () => {
       format: null,
       test: 'npm test',
     });
-    const rules = ['Bash(npm run build)', 'Bash(npm run lint)', 'Bash(npm test)'];
+    // The shapes the default Cellarman runs: lint with --write on a path, one test file (ADR 0163).
+    const rules = [
+      'Bash(npm run build)',
+      'Bash(npm run lint)',
+      'Bash(npm run lint -- --write *)',
+      'Bash(npm run test)',
+      'Bash(node --test *)',
+    ];
     assert.deepStrictEqual(web.tools, rules);
     assert.deepStrictEqual(config.permissionCeiling, rules);
+    for (const rule of rules) {
+      assert.ok(withinCeiling(rule, ['Bash(npm run *)', 'Bash(node --test *)']), rule);
+    }
   });
 
   it('asks for each check of a repository without a package.json, empty for none', async () => {
@@ -218,6 +229,7 @@ describe('foedrum init (ADR 0199)', () => {
     for (const file of ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json']) {
       assert.ok(again.lines.includes(`${file} is up to date`), again.lines.join('\n'));
     }
+    assert.ok(again.lines.includes('Written: none'), again.lines.join('\n'));
   });
 
   it('lists what another answer would change on a second run, and writes nothing unasked', async () => {
@@ -265,6 +277,11 @@ describe('foedrum init (ADR 0199)', () => {
     assert.equal(result.exitCode, 1);
     const shown = lines.join('\n');
     assert.ok(shown.includes(report.trimEnd()), shown);
+    // What was written comes before doctor's report, so a failing doctor never reads as nothing.
+    const written = lines.indexOf(
+      'Written: foedrum.jsonc, models.jsonc, .gitignore, .claude/settings.json',
+    );
+    assert.ok(written >= 0 && written < lines.indexOf(report.trimEnd()), shown);
     const at = lines.indexOf('claude plugin marketplace add EdwinBekaert/foedrum');
     assert.ok(at > 0, shown);
     assert.equal(lines[at + 1], 'claude plugin install foedrum@foedrum --scope project');
