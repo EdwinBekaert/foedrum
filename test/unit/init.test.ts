@@ -10,6 +10,8 @@ import type { CliResult } from '../../src/cli/run.ts';
 import type { RepositoryFacts } from '../../src/github/repository-facts.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { BreweryClaudeSettings } from '../../src/schemas/brewery-settings.ts';
+import { Repo } from '../../src/schemas/events.ts';
+import { RepositoryAlias } from '../../src/schemas/ids.ts';
 import { ModelsConfig } from '../../src/schemas/models.ts';
 import { withinCeiling } from '../../src/schemas/primitives.ts';
 import { readJsonc } from '../../src/schemas/read.ts';
@@ -258,7 +260,14 @@ describe('foedrum init (ADR 0199)', () => {
     );
     assert.equal(questions[0], questions[1]);
     assert.equal(questions[3], questions[4]);
-    assert.equal(lines.filter((line) => line.startsWith('  ')).length, 2, lines.join('\n'));
+    const messageOf = (result: { error?: { issues: { message: string }[] } }) =>
+      `  ${result.error?.issues[0]?.message}`;
+    for (const message of [
+      messageOf(Repo.safeParse('not a repo')),
+      messageOf(RepositoryAlias.safeParse('Web!')),
+    ]) {
+      assert.ok(lines.includes(message), `${message} in ${lines.join('\n')}`);
+    }
     assert.equal(parsed(clone, 'foedrum.jsonc', BreweryConfig).brewery, 'acme/brewery');
   });
 
