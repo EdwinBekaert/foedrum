@@ -366,6 +366,20 @@ describe('planFlush', () => {
     ]);
   });
 
+  // Review of #489: a crashed flush of an older Foedrum left a receipt with its cost, which the
+  // store now reads without it (ADR 0181).
+  it('replaces a line a crashed flush left that differs from its pending event only in what the schema drops', () => {
+    const receipt = { complete: true, turns: 1, edits: 0, toolErrors: 0, denied: [] };
+    const recorded = { ...finished('b1'), receipt: { ...receipt, costUsd: 0.82 } };
+    const read = { ...finished('b1'), receipt };
+    const current = new Map([
+      [b1, `${line(1, ordered('b1'))}${JSON.stringify({ id: 2, event: recorded })}\n`],
+    ]);
+    assert.deepEqual(planFlush(current, [stored(2, read)], 1), [
+      { path: b1, text: line(1, ordered('b1')) + line(2, read) },
+    ]);
+  });
+
   it('stops when a line after the marker differs from the pending event with its id', () => {
     const current = new Map([[b1, line(1, ordered('b1')) + line(2, scheduled('b1', 'tests'))]]);
     stops(() => planFlush(current, [stored(2, scheduled('b1'))], 1), /event 2/);
