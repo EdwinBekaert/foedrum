@@ -340,14 +340,22 @@ describe('two drivers on one store', () => {
       afterMove: (run, move, survived) => {
         checks.afterMove?.(run, move, survived);
         if (run.moves.length < schedule.moves.length) return;
+        const first = attemptKey.encode(ref('correctness', 1));
         if (run.moves.length === schedule.moves.length) {
-          const first = attemptKey.encode(ref('correctness', 1));
+          // Move 7 is a tick every driver lived through, and the lease of correctness#1 excuses
+          // the wait of correctness#3.
+          assert.ok(move.kind === 'tick' && survived, 'move 7 is a tick the drivers lived through');
+          assert.ok(run.engine.leasedAtTick().some((lease) => lease.attemptKey === first));
+          nothingLeftWaiting(run);
           // Without the lease, of the batch's holder, or of an attempt not over: not excused.
           stillWaiting(run, []);
           stillWaiting(run, [{ attemptKey: first, owner: 'cellar' }]);
           stillWaiting(run, [
             { attemptKey: attemptKey.encode(ref('correctness', 3)), owner: 'session' },
           ]);
+        } else if (move.kind === 'tick') {
+          // The excuse lasts one tick: the next one began without that lease.
+          assert.ok(!run.engine.leasedAtTick().some((lease) => lease.attemptKey === first));
         }
         const attempt = run.engine
           .state()
