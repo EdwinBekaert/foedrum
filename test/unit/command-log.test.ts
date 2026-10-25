@@ -65,6 +65,7 @@ describe('createCommandLog', () => {
       batchId: 'b2',
       order: { issue: 2 },
       routeBy: iso(5),
+      at: t0.toISOString(),
     });
   });
 

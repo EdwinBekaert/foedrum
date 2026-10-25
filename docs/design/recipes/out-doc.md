@@ -31,29 +31,21 @@ You could not finish:
 ---
 
 Prefer deciding and recording an assumption over asking. Ask only when a wrong
-guess would likely waste this run. Never ask questions any other way. Do not push.
+guess would likely waste this run. Never ask questions any other way.
 ```
 
-For a brewer with `git.commit: true`, the last line ends before `Do not push.`, and two lines follow it ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)):
+For a brewer with `git.commit: true`, two lines follow it ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)):
 
 ```markdown
 Commit your changes with git add and git commit before you write {outDoc}, and leave
-{outDoc} out of every commit. Do not push.
+{outDoc} out of every commit.
 ```
 
-For a brewer whose attempt allows shell commands, one line and a blank line come before `Prefer deciding …`, naming the commands of the plan's own `Bash` rules (its own, then those `git.commit` grants, then the repository's, once each, without the trailing star; not PowerShell rules, since the runner's sessions have no PowerShell tool), so a brewer whose command is denied does not read it as the whole shell denied (#222, [ADR 0085](../../adr/0085-the-out-doc-contract-names-the-attempts-shell-commands.md)).
-For a committing brewer with no other shell rules:
-
-```markdown
-Your shell runs only: git status, git add, git commit. A denial stops that command only.
-```
-
-A plan with no Bash rules, or with one that allows any program (`Bash(*)`, a command that starts with a star), gets no such line.
+The attempt's shell commands and the rule not to push are not in the contract: they are the engine's fixed rules, in the attempt's system prompt file ([how a brewer runs](how-a-brewer-runs.md), [ADR 0183](../../adr/0183-the-engine-s-fixed-rules-for-a-brewer-go-in-an-appended-system-prompt.md)).
 
 One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195).
 The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, else Stuck (the table below), bounded by `maxRounds`.
-The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters, and to 1,400 with the lines about committing and the commands they allow.
-The list of commands grows with the brewer's and the repository's rules, so those limits hold the fixed text (ADR 0085).
+The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters, and to 1,400 with the lines about committing.
 Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 
 ## How the engine routes an out doc

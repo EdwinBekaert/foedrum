@@ -36,6 +36,41 @@ const fakeStream = (more: Partial<TerminalStream> = {}) => {
   return { stream, calls, handlers };
 };
 
+/**
+ * A stream over one screen line, as a console keeps it: `cursorTo` moves the cursor, `write`
+ * overwrites from it, `clearLine(1)` clears to its right and `clearLine(0)` the whole line. It
+ * keeps the line as it shows after each call.
+ */
+const fakeScreen = () => {
+  let line = '';
+  let cursor = 0;
+  const shown: string[] = [];
+  const show = (): boolean => {
+    shown.push(line);
+    return true;
+  };
+  const stream: TerminalStream = {
+    isTTY: true,
+    columns: 100,
+    on: () => {},
+    off: () => {},
+    cursorTo: (x) => {
+      cursor = x;
+      return show();
+    },
+    clearLine: (direction) => {
+      line = direction === 1 ? line.slice(0, cursor) : direction === 0 ? '' : line.slice(cursor);
+      return show();
+    },
+    write: (text) => {
+      line = line.slice(0, cursor).padEnd(cursor) + text + line.slice(cursor + text.length);
+      cursor += text.length;
+      return show();
+    },
+  };
+  return { stream, shown, line: () => line };
+};
+
 describe('liveTerminal: when brew keeps a live line', () => {
   it('is given on a TTY with TERM and CI unset, as on Windows', () => {
     assert.notEqual(liveTerminal(fakeStream().stream, {}), undefined);
@@ -84,10 +119,24 @@ describe('liveTerminal: what it does to the stream', () => {
     assert.equal(terminal?.columns(), undefined);
   });
 
-  it('rewrites by going to the line start, clearing the line, then writing the text without a line feed', () => {
+  it('rewrites by going to the line start, writing the text without a line feed, then clearing to its right (ADR 0179)', () => {
     const { terminal, calls } = terminalOf();
     terminal.rewrite('| brew #1 / 5s');
-    assert.deepEqual(calls, ['cursorTo(0)', 'clearLine(0)', 'write("| brew #1 / 5s")']);
+    assert.deepEqual(calls, ['cursorTo(0)', 'write("| brew #1 / 5s")', 'clearLine(1)']);
+  });
+
+  it('leaves nothing of a longer line behind a shorter one, and never shows a blank line between two (ADR 0179)', () => {
+    const screen = fakeScreen();
+    const terminal = liveTerminal(screen.stream, {});
+    assert.ok(terminal, 'a terminal is given');
+    terminal.rewrite('| 1m 0s / implement #1 / 1m 0s / turn 14 / Edit src/a.ts');
+    screen.shown.length = 0;
+    terminal.rewrite('/ 1m 1s / gauge #1 / 0s');
+    assert.equal(screen.line(), '/ 1m 1s / gauge #1 / 0s');
+    assert.ok(
+      screen.shown.every((line) => line !== ''),
+      `a blank frame: ${JSON.stringify(screen.shown)}`,
+    );
   });
 
   it('clears by going to the line start and clearing the line, writing nothing', () => {
@@ -106,8 +155,8 @@ describe('liveTerminal: what it does to the stream', () => {
       'clearLine(0)',
       'write("foedrum brew: removed a stale index.lock\\n")',
       'cursorTo(0)',
-      'clearLine(0)',
       'write("| brew #1 / 5s")',
+      'clearLine(1)',
     ]);
   });
 

@@ -206,6 +206,7 @@ function run(draft: Draft, command: Command): Event[] {
         order: { ...order },
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
         routeBy: draft.after(draft.context.routingMs),
+        at: draft.after(0),
       });
       break;
     }
@@ -324,6 +325,7 @@ function run(draft: Draft, command: Command): Event[] {
         batchId,
         order: { ...order },
         routeBy: draft.after(draft.context.routingMs),
+        at: draft.after(0),
         by,
         via,
       });

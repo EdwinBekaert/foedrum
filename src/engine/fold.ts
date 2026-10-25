@@ -138,6 +138,8 @@ export interface Batch {
   /** The target repository of a claimed issue (ADR 0043); absent for a Brewery issue. */
   repo?: string;
   parentBatchId?: string;
+  /** When it was ordered (ADR 0179); absent for an order that did not record it. */
+  orderedAt?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string } & (
     | { source: 'label' | 'router' }
@@ -270,7 +272,7 @@ class Rejection extends Error {}
 function apply(state: State, event: Event): State {
   switch (event.type) {
     case 'batch.ordered': {
-      const { batchId, order, parentBatchId, routeBy } = event;
+      const { batchId, order, parentBatchId, routeBy, at } = event;
       if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
       const { repo } = order;
@@ -284,6 +286,7 @@ function apply(state: State, event: Event): State {
         issue: order.issue,
         ...(repo === undefined ? {} : { repo }),
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
+        ...(at === undefined ? {} : { orderedAt: at }),
         lane: { kind: 'ordered', routeBy },
         steps: new Map(),
         rewinds: [],

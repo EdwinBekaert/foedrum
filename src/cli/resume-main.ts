@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { dirname, join } from 'node:path';
 import { writeAttemptSettings } from '../brewers/attempt-settings.ts';
+import { writeSystemPromptFile } from '../brewers/claude-runner.ts';
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import { readBreweryFiles } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
@@ -148,6 +149,7 @@ export const resumeFromCheckout = async (
       mkdirSync(dirname(file), { recursive: true });
       writeAttemptSettings(file, settings);
     },
+    writeSystemPrompt: writeSystemPromptFile,
     terminal: {
       claudeCode:
         environmentVariable(process.env, 'CLAUDE_CODE_CHILD_SESSION', process.platform) === '1',

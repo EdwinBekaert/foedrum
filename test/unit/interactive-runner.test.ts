@@ -102,6 +102,9 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         writeSettings: (file, settings) => {
           calls.push(`settings ${file} ${JSON.stringify(settings)}`);
         },
+        writeSystemPrompt: (file, text) => {
+          calls.push(`system prompt ${file} ${JSON.stringify(text)}`);
+        },
         readOutDoc: (file, _max, root) => {
           calls.push(`read ${file} in ${root}`);
           return written;
@@ -145,6 +148,31 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     assert.equal(text, (written as { text: string }).text);
   });
 
+  // ADR 0183: the takeover keeps the engine's rules, for the requests after a compaction too.
+  it("writes the attempt's system prompt file after its settings and passes it to the session", async () => {
+    const systemPrompt = { file: resolve('work', 'settings.system.md'), text: '- Do not push.\n' };
+    const resumed = { ...plan('resume'), systemPrompt };
+    await runner('resume', { plan: async () => resumed }).start(attempt).ended;
+    const settingsAt = calls.findIndex((call) => call.startsWith('settings '));
+    assert.equal(
+      calls[settingsAt + 1],
+      `system prompt ${systemPrompt.file} ${JSON.stringify(systemPrompt.text)}`,
+    );
+    assert.deepEqual(
+      foreground.map(({ args }) => args),
+      [
+        resumeArgs({
+          model: 'claude-haiku-5-5',
+          effort: 'low',
+          settingsFile: resumed.settingsFile,
+          tools: ['Read', 'Write'],
+          sessionId: id,
+          appendSystemPromptFile: systemPrompt.file,
+        }),
+      ],
+    );
+  });
+
   it('ends by the out doc the session wrote, as any run: none is a retryable failure', async () => {
     written = { kind: 'missing' };
     const { ending } = await runner('resume').start(attempt).ended;
@@ -175,10 +203,33 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       writeSettings: () => {
         throw new Error('EACCES');
       },
+      writeSystemPrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
     };
     const { ending } = await runner('resume', { files }).start(attempt).ended;
+    assert.deepEqual(ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the brewer could not start: EACCES',
+    });
+    assert.deepEqual(foreground, []);
+  });
+
+  // Review of #491: the session never opens without the engine's rules.
+  it('does not start claude when the system prompt file cannot be written', async () => {
+    const systemPrompt = { file: resolve('work', 'settings.system.md'), text: '- Do not push.\n' };
+    const files = {
+      writeSettings: () => {},
+      writeSystemPrompt: () => {
+        throw new Error('EACCES');
+      },
+      readOutDoc: () => written,
+      clearOutDoc: () => {},
+    };
+    const resumed = { ...plan('resume'), systemPrompt };
+    const { ending } = await runner('resume', { files, plan: async () => resumed }).start(attempt)
+      .ended;
     assert.deepEqual(ending, {
       kind: 'failed',
       retryable: false,

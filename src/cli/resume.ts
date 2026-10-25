@@ -4,7 +4,13 @@
 // tests give fakes.
 
 import { join } from 'node:path';
-import { attemptPermissions, modelOf, settingsFileOf, toolsOf } from '../brewers/attempt-plan.ts';
+import {
+  attemptPermissions,
+  attemptSystemPrompt,
+  modelOf,
+  settingsFileOf,
+  toolsOf,
+} from '../brewers/attempt-plan.ts';
 import { attemptSettings } from '../brewers/attempt-settings.ts';
 import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
@@ -54,6 +60,8 @@ export interface ResumeShell {
   sessionFound: (id: string) => boolean;
   /** Writes an attempt's settings file, making its folder. */
   writeSettings: (file: string, settings: AttemptSettings) => void;
+  /** Writes an attempt's system prompt file beside its settings file (ADR 0183). */
+  writeSystemPrompt: (file: string, text: string) => void;
   /**
    * Whether this runs inside a Claude Code session (`CLAUDE_CODE_CHILD_SESSION=1`), which cannot
    * hand its terminal over, and whether stdin is a terminal.
@@ -381,12 +389,15 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
       );
       const settingsFile = settingsFileOf(setup.workRoot, ref);
       shell.writeSettings(settingsFile, attemptSettings(permissions));
+      const systemPrompt = attemptSystemPrompt(found.brewer, permissions.allow, settingsFile);
+      shell.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
       const args = resumeArgs({
         model: modelOf(setup.models, found.brewer),
         effort: found.brewer.effort,
         settingsFile,
         tools: toolsOf(permissions.allow),
         sessionId: session,
+        appendSystemPromptFile: systemPrompt.file,
       });
       // The attempt's environment (ADR 0109's forced variables included) with the terminal's own.
       const env = buildBrewerEnv({

@@ -117,6 +117,7 @@ const runnerOf = (lines: readonly string[], withSetup: boolean, setupPasses = fa
     setup,
     files: {
       writeSettings: () => {},
+      writeSystemPrompt: () => {},
       readOutDoc: () => ({ kind: 'missing' }),
       clearOutDoc: () => {},
     },
