@@ -1,6 +1,6 @@
 # 0199. `foedrum init` writes a Brewery's files in its clone
 
-Date: 2026-10-25 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) (`init` is a registry command that appends nothing) and [0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md) (`init` is marked terminal-only until `/foedrum:init`)
+Date: 2026-10-25 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) (`init` is a registry command that appends nothing), [0023](0023-language-independent-recipes.md) (init detects only Node for now, and proposes no test report) and [0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md) (`init` is marked terminal-only until `/foedrum:init`)
 
 ## Context
 A Brewery was set up by hand: for #374 that took eight steps and several checks of the files against their schemas (#404). [ADR 0019](0019-interactive-sessions-and-one-command-layer.md) lists `init` among the commands, and M3's exit criterion is `npx foedrum init` on Windows, macOS and Linux. The maintainer settled the questions and their defaults on #404 (2026-10-25), and split the work in two: this record is `foedrum init` on the terminal writing a Brewery's files in an existing clone and running `foedrum doctor`; creating the repository on GitHub, the intake labels in the target repositories, the `foedrum` shim on the PATH, the commit and push of the files, and `/foedrum:init` are #512.
@@ -40,6 +40,8 @@ Every file is built whole, checked against its schema, and only then written; a 
 - A file that would change is never written without asking: init lists what would change (the keys, by path, or the line it would add) and asks once per file, default no. A no keeps the file as it is.
 - So a second run, with the same answers, lists nothing to change and writes nothing; with other answers it lists exactly what they change.
 - A `foedrum.jsonc` or `.claude/settings.json` that does not read as JSON(C) is named with its reason, and replacing it is asked as for any change.
+- A `foedrum.jsonc` that reads but does not pass `BreweryConfig` refuses the command with the schema's reason, before any question: it is the user's to fix.
+- A `models.jsonc` that is there is kept as it is, whatever it holds, since init writes no key of it.
 
 ### What a brewer may run
 The Node `tools` let a brewer run the repository's scripts and test files, which it can edit, so they run code it may have written. On native Windows, where the isolation level is permissions only (ADR 0010), that is the exposure check steps already have, now a default for every Brewery init writes; at the sandboxed level, the sandbox holds it, as for every brewer command.
