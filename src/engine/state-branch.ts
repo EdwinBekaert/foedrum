@@ -196,14 +196,21 @@ const outDocFile = (doc: KeptOutDoc): BranchFile => {
   return { path, text };
 };
 
+/** Whether a logged `event` is `ours` as the store reads it: the schema drops an old receipt's cost (ADR 0181). */
+const sameAsRead = (event: unknown, ours: Event): boolean => {
+  const read = Event.safeParse(event);
+  return read.success && isDeepStrictEqual(read.data, ours);
+};
+
 /**
  * The new text of every log file the pending events go to, then every out doc in `outDocs` at its
  * `outDocPath`, so each goes into the commit of the step.finished that records it (ADR 0103).
  * `current` holds the files to check, as they are in the worktree (missing when absent): at least
  * those the pending events go to. Lines after `pushedThrough` that a crashed flush left behind are
- * replaced; one that differs from the pending event with its id means another engine wrote it, and
- * throws `StateBranchStopError`. Without pending events only the out docs are planned: those kept
- * after their step.finished was pushed, such as an attempt's that Stuck abandoned.
+ * replaced; one that differs from the pending event with its id, also as the store reads it, means
+ * another engine wrote it, and throws `StateBranchStopError`. Without pending events only the out
+ * docs are planned: those kept after their step.finished was pushed, such as an attempt's that
+ * Stuck abandoned.
  */
 export const planFlush = (
   current: ReadonlyMap<string, string | undefined>,
@@ -213,7 +220,7 @@ export const planFlush = (
 ): BranchFile[] => {
   const byPath = new Map<string, StoredEvent[]>();
   // Each pending line by id, with the file it goes to.
-  const byId = new Map<number, { path: string; text: string }>();
+  const byId = new Map<number, { path: string; text: string; event: Event }>();
   let previous = pushedThrough;
   for (const stored of pending) {
     if (stored.id <= previous) {
@@ -222,7 +229,7 @@ export const planFlush = (
     previous = stored.id;
     const path = logPathOf(stored.event);
     byPath.set(path, [...(byPath.get(path) ?? []), stored]);
-    byId.set(stored.id, { path, text: formatLine(stored) });
+    byId.set(stored.id, { path, text: formatLine(stored), event: stored.event });
   }
   const kept = new Map<string, string>();
   for (const path of new Set([...current.keys(), ...byPath.keys()])) {
@@ -237,7 +244,7 @@ export const planFlush = (
       if (ours === undefined) {
         throw stop(`${path} has event ${line.id}, which this engine does not have`);
       }
-      if (ours.text !== formatted || ours.path !== path) {
+      if (ours.path !== path || (ours.text !== formatted && !sameAsRead(line.event, ours.event))) {
         throw stop(
           `${path} has an event ${line.id} that differs from this engine's event ${line.id}`,
         );

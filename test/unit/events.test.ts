@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { formatReplay } from '../../src/cli/replay.ts';
+import { fold } from '../../src/engine/fold.ts';
 import {
   Event,
   SessionRef,
@@ -613,6 +615,45 @@ describe("step.finished's claude (ADR 0116)", () => {
     });
   }
   it('rejects an unknown field', () => rejects(Event, finished({ ...claude, sessionId: 's1' })));
+});
+
+// An event recorded before ADR 0181 holds claude's cost: it still reads, without it.
+describe("step.finished's receipt from before ADR 0181", () => {
+  const tokens = { inputTokens: 2, outputTokens: 4, cacheReadTokens: 1670, cacheWriteTokens: 2452 };
+  const receipt = { complete: true, turns: 1, edits: 0, toolErrors: 0, denied: [] };
+  const model = { model: 'claude-haiku-5-5', ...tokens };
+  const old = {
+    ...valid['step.finished'],
+    receipt: { ...receipt, costUsd: 0.82, models: [{ ...model, costUsd: 0.82 }] },
+  };
+
+  it('accepts its cost and a model cost, and drops both', () => {
+    const parsed = Event.safeParse(old);
+    assert.ok(parsed.success, String(parsed.error));
+    assert.deepEqual(parsed.data, {
+      ...valid['step.finished'],
+      receipt: { ...receipt, models: [model] },
+    });
+  });
+
+  // Review of #489: what the runner records now, with no cost at all.
+  it('accepts a receipt and its models without a cost, as they are', () => {
+    accepts(Event, { ...valid['step.finished'], receipt: { ...receipt, models: [model] } });
+  });
+
+  it('replays without its cost', () => {
+    const ordered: Event = {
+      type: 'batch.ordered',
+      batchId: 'b1',
+      order: { issue: 7 },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    };
+    const batch = fold([ordered]).batches.get('b1');
+    assert.ok(batch);
+    const text = formatReplay(batch, [{ id: 1, event: Event.parse(old) }]);
+    assert.match(text, /"receipt":\{"complete":true,"turns":1,/);
+    assert.doesNotMatch(text, /cost/i);
+  });
 });
 
 describe('WorktreeRef', () => {
