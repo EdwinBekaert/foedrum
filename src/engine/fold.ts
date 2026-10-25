@@ -164,6 +164,21 @@ export interface Batch {
   pullRequestEnds?: Readonly<Record<string, 'merged' | 'closed'>>;
   /** Its attempts in the order they started, across its steps; absent while none has. */
   path?: readonly PathAttempt[];
+  /**
+   * How its open pull requests merged with their base, each check in the order it was recorded
+   * (ADR 0198); absent while none was.
+   */
+  baseChecks?: readonly BaseCheck[];
+}
+
+/** One merge-tree check of an open pull request against its base's tip (ADR 0198). */
+export interface BaseCheck {
+  pullRequest: string;
+  /** The base branch, as the remote names it. */
+  branch: string;
+  tip: string;
+  /** The files it conflicts in; absent when it merges cleanly. */
+  conflicts?: readonly string[];
 }
 
 /** One attempt on a batch's path: its step and its number. */
@@ -521,6 +536,8 @@ function apply(state: State, event: Event): State {
         return { ...batch, pullRequestEnds: { ...batch.pullRequestEnds, [pullRequest]: end } };
       });
     }
+    case 'pull_request.base_checked':
+      throw new Error('not implemented');
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

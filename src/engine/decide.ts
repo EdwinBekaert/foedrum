@@ -81,6 +81,7 @@ export type RecordedEvent = Extract<
       | 'bottle.opened'
       | 'release.observed'
       | 'pull_request.ended'
+      | 'pull_request.base_checked'
       | 'effect.applied';
   }
 >;

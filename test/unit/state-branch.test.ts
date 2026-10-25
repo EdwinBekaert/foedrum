@@ -151,6 +151,16 @@ describe('logPathOf', () => {
       },
       'batches/b1/events.jsonl',
     ],
+    'pull_request.base_checked': [
+      {
+        type: 'pull_request.base_checked',
+        batchId: 'b1',
+        pullRequest: 'https://github.com/acme/api/pull/7',
+        branch: 'main',
+        tip: 'c'.repeat(40),
+      },
+      'batches/b1/events.jsonl',
+    ],
     'batch.rewound': [
       {
         type: 'batch.rewound',

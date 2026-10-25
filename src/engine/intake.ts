@@ -11,6 +11,7 @@
 // Everything it reads from the tracker is untrusted input; it decides nothing by asking a model.
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
+import type { BaseCheckRepository } from './base-check.ts';
 import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from './claim-orders.ts';
@@ -92,6 +93,11 @@ export interface IntakeOptions {
    * bounds how long a stop waits for it (ADR 0044, ADR 0068, #130).
    */
   deadlineMs?: number;
+  /**
+   * The repositories whose open pull requests each pass checks against their base once its tip
+   * moves (ADR 0198); none by default, and none on a git without `merge-tree --write-tree`.
+   */
+  bases?: readonly BaseCheckRepository[];
 }
 
 export interface Intake {

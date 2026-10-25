@@ -4,8 +4,10 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { claimEffects } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import {
   createIntake,
@@ -16,6 +18,7 @@ import {
   type TargetTracker,
 } from '../../src/engine/intake.ts';
 import type { Claimant, PullRequestState, TargetIssue } from '../../src/engine/issue-claims.ts';
+import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
@@ -378,18 +381,70 @@ describe('createIntake', () => {
       assert.match(String(failed[0]?.error), /502 reading/);
     });
 
-    it('asks nothing about the pull requests of a Brewery issue', async () => {
+    it("records the end of a Brewery issue's pull request too, and nothing else changes for it (ADR 0198)", async () => {
       accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
       accept({ kind: 'route', batchId: '1-1', recipe: 'half', reason: 'label', source: 'label' });
       const ref = { batchId: '1-1', stepId: 'plan', attempt: 1 };
       accept({ kind: 'record', event: { type: 'step.started', ...ref } });
       accept({ kind: 'finish', ...ref, ending: succeeded });
-      const { tracker, asked } = fakeTracker({ [web]: [], [api]: [] });
+      const { tracker } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'merged' });
+      const before = log.state();
+      const marks = claimEffects({
+        claimant: alice,
+        marks: github.marks('alice'),
+        claims: github.host,
+      });
+      assert.deepStrictEqual(marks.due(before, '1-1'), []);
       await intake(tracker).poll();
-      assert.deepStrictEqual(
-        asked.filter((call) => call.startsWith('pull request')),
-        [],
+      const batch = log.state().batches.get('1-1');
+      assert.deepStrictEqual(batch?.pullRequestEnds, { [pullRequest]: 'merged' });
+      assert.equal(batch?.lane.kind, 'on_tap');
+      // No release, no claim mark: those read only a claimed batch's ends (ADR 0043).
+      assert.deepStrictEqual(marks.due(log.state(), '1-1'), []);
+      assert.equal(github.refs.size, 0);
+    });
+
+    it('checks the open pull requests against their bases after it records the ends (ADR 0198)', async () => {
+      onTap();
+      for (const [key, result] of [
+        [pushKey('web-7'), { branch: 'foedrum/x/acme.web', commit: 'a'.repeat(40), from: 'start' }],
+        [pullRequestKey('web-7'), pullRequest],
+      ] as const) {
+        accept({
+          kind: 'record',
+          event: { type: 'effect.applied', key: effectKey.encode(key), result },
+        });
+      }
+      const calls: string[] = [];
+      let tip = 'c'.repeat(40);
+      const bases: IntakeOptions['bases'] = [
+        {
+          repo: web,
+          base: 'main',
+          tip: async () => {
+            calls.push('tip');
+            return tip;
+          },
+          mergeTree: async () => {
+            calls.push('merge-tree');
+            return { kind: 'clean' };
+          },
+        },
+      ];
+      const { tracker, pullRequests } = fakeTracker(
+        { [web]: [], [api]: [] },
+        { [pullRequest]: 'open' },
       );
+      const polling = intake(tracker, { bases });
+      await polling.poll();
+      assert.deepStrictEqual(calls, ['tip', 'merge-tree']);
+      assert.equal(log.state().batches.get('web-7')?.baseChecks?.length, 1);
+      // Merged in the next pass, and the base moved: the end is recorded first, so no check runs.
+      pullRequests[pullRequest] = 'merged';
+      tip = 'd'.repeat(40);
+      await polling.poll();
+      assert.deepStrictEqual(ends(), { [pullRequest]: 'merged' });
+      assert.deepStrictEqual(calls, ['tip', 'merge-tree']);
     });
   });
 
