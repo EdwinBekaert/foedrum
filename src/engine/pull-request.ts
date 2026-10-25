@@ -133,13 +133,18 @@ const REFERENCE = /&(?!amp;)(?=[#\p{L}])/gu;
 const BREAK = /(\r\n|\r|\n)/;
 /** A blank line, which ends every paragraph, and so every span and HTML tag in one. */
 const BLANK = /^[ \t]*$/;
+/**
+ * What GitHub may read before a span, taking a backtick from it: an HTML tag or an autolink (`<`),
+ * a link's destination or title (`]`), and its math (`$`).
+ */
+const BEFORE_SPANS = /[<\]$]/;
 
 /**
  * Where `text`'s code spans start and end, paired as CommonMark pairs them but within one line
  * (ADR 0184): a run of backticks no backslash escapes, and the next run as long. Where GitHub could
  * read a span as text, there is none: after a span that holds a `|`, which a table splits first,
- * on a line with a `<`, where an HTML tag or an autolink comes first, and on the lines after a run
- * left open, a `<` or a `|` until a blank line, since a span or a tag can go on over them.
+ * on a line with what GitHub may read before a span, and on the lines after a run left open, such
+ * a line or a `|` until a blank line, since a span or a tag can go on over them.
  */
 const codeSpans = (text: string): [start: number, end: number][] => {
   const spans: [number, number][] = [];
@@ -151,7 +156,7 @@ const codeSpans = (text: string): [start: number, end: number][] => {
     if (part % 2 === 1) continue;
     if (BLANK.test(line)) open = false;
     if (open) continue;
-    if (line.includes('<')) {
+    if (BEFORE_SPANS.test(line)) {
       open = true;
       continue;
     }
