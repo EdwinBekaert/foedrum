@@ -356,7 +356,7 @@ describe('runBrew', () => {
         '',
         '| Attempt | Result |',
         '|---|---|',
-        '| brew #1 | succeeded |',
+        '| `brew #1` | succeeded |',
         '',
         '<details><summary>What each step reported</summary>',
         '',

@@ -228,7 +228,7 @@ describe('pullRequestActions: the pull request', () => {
       request?.body ?? '',
       /\nBrewed by Foedrum from acme\/brewery#12 with the recipe ale\.\n/,
     );
-    assert.match(request?.body ?? '', /\n\| implement #1 \| succeeded \|\n/);
+    assert.match(request?.body ?? '', /\n\| `implement #1` \| succeeded \|\n/);
   });
 
   it('opens it ready when every Taster approved and how it works is written (ADR 0167)', async () => {
