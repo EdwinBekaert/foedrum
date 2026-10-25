@@ -47,7 +47,7 @@ describe('initFromCheckout', () => {
       // Never the user's own list (ADR 0114).
       denylist: () => ({ kind: 'none', path: '/made-up/denylist.txt' }),
       terminal: {
-        input: Readable.from(['\n', 'acme/web\n', '\n']),
+        input: Readable.from(['\n', 'acme/web\n', '\n', '\n']),
         output: {
           write: (text: string) => {
             shown += text;

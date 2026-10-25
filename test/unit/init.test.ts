@@ -25,6 +25,14 @@ const GITHUB: Readonly<Record<string, RepositoryFacts>> = {
   },
   'acme/api': { base: 'main', packageJson: undefined, lockfile: false },
   'other/web': { base: 'main', packageJson: node({}), lockfile: false },
+  // A byte order mark, as Windows editors write one; npm reads the file.
+  'bom/web': {
+    base: 'main',
+    packageJson: `${String.fromCodePoint(0xfeff)}${node({ test: 'node --test' })}`,
+    lockfile: false,
+  },
+  // GitHub sends a file over 1 MB without its content.
+  'big/web': { base: 'main', packageJson: '', lockfile: true },
 };
 
 interface Clone {
@@ -93,7 +101,7 @@ describe('foedrum init (ADR 0199)', () => {
 
   it('writes the four files, each passing its schema, with the defaults for a Node target', async () => {
     const clone: Clone = { files: new Map() };
-    const { result, written, questions } = await init(['', 'acme/web', ''], clone);
+    const { result, written, questions } = await init(['', 'acme/web', '', ''], clone);
     assert.equal(result.exitCode, 0, result.stderr);
     assert.deepStrictEqual(written.toSorted(), [
       '.claude/settings.json',
@@ -121,9 +129,9 @@ describe('foedrum init (ADR 0199)', () => {
 
   it("reads a Node repository's checks from its package.json scripts, as tools within the ceiling", async () => {
     const clone: Clone = { files: new Map() };
-    const { questions } = await init(['', 'acme/web', ''], clone);
-    // Nothing asked about the checks.
-    assert.equal(questions.length, 3);
+    const { questions } = await init(['', 'acme/web', '', ''], clone);
+    // The checks it read are proposed, and confirmed with one answer (ADR 0023).
+    assert.deepStrictEqual(questions.slice(3), ['Use these for acme/web? [Y/n]: ']);
     const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
     const web = config.repositories['acme/web'] ?? assert.fail('no acme/web');
     assert.deepStrictEqual(web.checks, {
@@ -145,6 +153,73 @@ describe('foedrum init (ADR 0199)', () => {
     assert.deepStrictEqual(config.permissionCeiling, rules);
     for (const rule of rules) {
       assert.ok(withinCeiling(rule, ['Bash(npm run *)', 'Bash(node --test *)']), rule);
+    }
+  });
+
+  it('shows what it read of a Node repository before asking to use it', async () => {
+    const { lines } = await init(['', 'acme/web', '', ''], { files: new Map() });
+    const at = lines.indexOf('Read acme/web: base trunk, checks from package.json');
+    assert.deepStrictEqual(lines.slice(at + 1, at + 8), [
+      '  build: npm run build',
+      '  typecheck: none',
+      '  lint: npm run lint',
+      '  format: none',
+      '  test: npm test',
+      '  setup: npm ci',
+      '  tools: Bash(npm run build), Bash(npm run lint), Bash(npm run lint -- --write *), Bash(npm run test), Bash(node --test *)',
+    ]);
+  });
+
+  it('asks for each check, with no tools or setup, when the user does not use what it read', async () => {
+    const clone: Clone = { files: new Map() };
+    const { questions } = await init(
+      ['', 'acme/web', '', 'n', 'make', '', '', '', 'make test'],
+      clone,
+    );
+    assert.equal(questions[4], 'build check of acme/web (a command, empty for none): ');
+    const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
+    const web = config.repositories['acme/web'] ?? assert.fail('no acme/web');
+    assert.deepStrictEqual(web.checks, {
+      build: 'make',
+      typecheck: null,
+      lint: null,
+      format: null,
+      test: 'make test',
+    });
+    assert.equal(web.setup, undefined);
+    assert.deepStrictEqual(web.tools, []);
+    assert.deepStrictEqual(config.permissionCeiling, []);
+  });
+
+  it('reads a package.json that starts with a byte order mark', async () => {
+    const clone: Clone = { files: new Map() };
+    const { lines } = await init(['', 'bom/web', '', ''], clone);
+    assert.ok(
+      lines.includes('Read bom/web: base main, checks from package.json'),
+      lines.join('\n'),
+    );
+    const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
+    assert.equal(config.repositories['bom/web']?.checks.test, 'npm test');
+  });
+
+  it('says a package.json it could not read is there, and asks for the checks', async () => {
+    const clone: Clone = { files: new Map() };
+    const { lines, questions } = await init(['', 'big/web', '', '', '', '', '', ''], clone);
+    assert.ok(
+      lines.includes('Read big/web: base main, a package.json it could not read'),
+      lines.join('\n'),
+    );
+    assert.equal(questions[3], 'build check of big/web (a command, empty for none): ');
+  });
+
+  it('adds the line to a .gitignore with the line ending it has', async () => {
+    for (const [was, now] of [
+      ['node_modules/\r\n', 'node_modules/\r\n.foedrum/\r\n'],
+      ['node_modules/\r\ndist/', 'node_modules/\r\ndist/\r\n.foedrum/\r\n'],
+    ] as const) {
+      const clone: Clone = { files: new Map([['.gitignore', was]]) };
+      await init(['', '', 'y'], clone);
+      assert.equal(clone.files.get('.gitignore'), now, JSON.stringify(was));
     }
   });
 
@@ -178,7 +253,7 @@ describe('foedrum init (ADR 0199)', () => {
   it("asks again, with the schema's message, for an answer that does not pass", async () => {
     const clone: Clone = { files: new Map() };
     const { questions, lines } = await init(
-      ['not a repo', 'acme/brewery', 'acme/web', 'Web!', ''],
+      ['not a repo', 'acme/brewery', 'acme/web', 'Web!', '', ''],
       clone,
     );
     assert.equal(questions[0], questions[1]);
@@ -215,7 +290,7 @@ describe('foedrum init (ADR 0199)', () => {
 
   it('changes nothing on a second run with the same answers, and asks nothing about the files', async () => {
     const clone: Clone = { files: new Map() };
-    await init(['', 'acme/web', ''], clone);
+    await init(['', 'acme/web', '', ''], clone);
     const before = new Map(clone.files);
     const again = await init(['', ''], clone);
     // The defaults are the first run's: the Brewery and its targets.
@@ -234,7 +309,7 @@ describe('foedrum init (ADR 0199)', () => {
 
   it('lists what another answer would change on a second run, and writes nothing unasked', async () => {
     const clone: Clone = { files: new Map() };
-    await init(['', 'acme/web', ''], clone);
+    await init(['', 'acme/web', '', ''], clone);
     const before = clone.files.get('foedrum.jsonc');
     const again = await init(['', 'acme/web acme/api', '', '', '', '', '', '', 'n'], clone);
     assert.ok(again.lines.includes('foedrum.jsonc would change:'), again.lines.join('\n'));
@@ -258,8 +333,8 @@ describe('foedrum init (ADR 0199)', () => {
 
   it('lets a new repository take the alias of one it no longer lists', async () => {
     const clone: Clone = { files: new Map() };
-    await init(['', 'acme/web', ''], clone);
-    const again = await init(['', 'other/web', '', 'y'], clone);
+    await init(['', 'acme/web', '', ''], clone);
+    const again = await init(['', 'other/web', '', '', 'y'], clone);
     assert.ok(again.questions.includes('Alias of other/web [web]: '), again.questions.join('\n'));
     const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
     assert.deepStrictEqual(Object.keys(config.repositories), ['other/web']);
