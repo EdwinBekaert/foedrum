@@ -273,6 +273,27 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.ok(calls.every((args) => !args.includes(`${ROUND1}..${later}`)));
   });
 
+  it('passes over an earlier attempt that reviewed nothing to the latest round that did (ADR 0196)', async () => {
+    const between = 'b'.repeat(40);
+    // Attempt 2 started at `between` and failed without a retry; attempt 3 starts at HEAD.
+    const events: Event[] = [
+      ...ROUND_ONE,
+      blockedByFindings(1),
+      { type: 'step.scheduled', ...at('tasting', 2), deadlineAt: DEADLINE },
+      started('tasting', 2, between),
+      {
+        type: 'step.finished',
+        ...at('tasting', 2),
+        outcome: { kind: 'failed', retryable: false, reason: 'claude crashed' },
+      },
+      { type: 'step.scheduled', ...at('tasting', 3), deadlineAt: DEADLINE },
+      started('tasting', 3, HEAD),
+    ];
+    const { prompt } = await planRound(events, 3, { git: gitOn([BASE, ROUND1, between, HEAD]) });
+    assert.ok(prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`));
+    assert.ok(prompt.includes('An earlier round of this step, tasting#1, reviewed'));
+  });
+
   it('gives a retry of round 2 what round 2 reviews: the change since round 1', async () => {
     const retried: Event[] = [
       ...ROUND_TWO,
