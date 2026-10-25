@@ -387,7 +387,14 @@ describe('a later tasting round (#500, ADR 0190)', () => {
         ...at('tasting', 2),
         outcome: {
           kind: 'needs_input',
-          questions: [{ q: 'Which deadline?', options: ['1m', '5m'], whyBlocking: 'It decides' }],
+          questions: [
+            {
+              q: 'Which deadline?',
+              options: ['1m', '5m'],
+              recommended: '1m',
+              whyBlocking: 'It decides',
+            },
+          ],
         },
       },
       { type: 'step.scheduled', ...at('tasting', 3), deadlineAt: DEADLINE, answered: true },
