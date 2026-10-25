@@ -274,6 +274,33 @@ describe('a later tasting round (#500, ADR 0190)', () => {
     assert.ok(calls.every((args) => !args.includes(`${ROUND1}..${later}`)));
   });
 
+  it('gives a retry of a round 2 that was blocked by findings what round 2 reviews: the change since round 1', async () => {
+    const later = 'b'.repeat(40);
+    // Round 2 ran out of rounds and the batch went Stuck; a human's retry schedules attempt 3.
+    const events: Event[] = [
+      ...ROUND_TWO,
+      blockedByFindings(2),
+      { type: 'step.scheduled', ...at('tasting', 3), deadlineAt: DEADLINE, retry: true },
+      started('tasting', 3, later),
+    ];
+    const { prompt } = await planRound(events, 3, { git: gitOn([BASE, ROUND1, HEAD, later]) });
+    assert.ok(prompt.includes(`source="the change since commit ${ROUND1}" name="roundChange">`));
+    assert.ok(prompt.includes('An earlier round of this step, tasting#1, reviewed'));
+    assert.doesNotMatch(prompt, /tasting#2, reviewed/);
+  });
+
+  it('gives a round after an earlier attempt that never finished no change since it: it reviewed nothing (ADR 0196)', async () => {
+    // Attempt 1 started at ROUND1 and was lost; attempt 2 is scheduled afresh.
+    const events: Event[] = [
+      ...ROUND_ONE,
+      { type: 'step.scheduled', ...at('tasting', 2), deadlineAt: DEADLINE },
+      started('tasting', 2, HEAD),
+    ];
+    const { prompt } = await planRound(events, 2);
+    assert.doesNotMatch(prompt, /name="roundChange"/);
+    assert.doesNotMatch(prompt, /round before/);
+  });
+
   it('passes over an earlier attempt that reviewed nothing to the latest round that did (ADR 0196)', async () => {
     const between = 'b'.repeat(40);
     // Attempt 2 started at `between` and failed without a retry; attempt 3 starts at HEAD.
@@ -478,6 +505,24 @@ describe('a later tasting round (#500, ADR 0190)', () => {
       { kind: 'failed', retryable: false, reason: 'blocked (environment): no network' },
     ],
     ['was cancelled', { kind: 'cancelled' }],
+    [
+      'failed retryably with the reason of a findings block',
+      { kind: 'failed', retryable: true, reason: 'blocked (findings): not settled by decide' },
+    ],
+    [
+      'asked a question nobody answered',
+      {
+        kind: 'needs_input',
+        questions: [
+          {
+            q: 'Which deadline?',
+            options: ['1m', '5m'],
+            recommended: '1m',
+            whyBlocking: 'It decides',
+          },
+        ],
+      },
+    ],
   ] satisfies [string, StepOutcome][]) {
     it(`gives a round after an earlier attempt that ${why} no change since it: that attempt reviewed nothing (ADR 0196)`, async () => {
       const events = ROUND_TWO.map((event) =>
