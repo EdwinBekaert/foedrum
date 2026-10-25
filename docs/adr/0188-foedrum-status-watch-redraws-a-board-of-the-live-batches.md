@@ -1,6 +1,6 @@
 # 0188. `foedrum status --watch` redraws a board of the live batches
 
-Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-live-line-on-a-terminal.md) (its terminal rule and text rules also hold for a board of several lines), [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md) (a board redraws in place as the live line does) and [0019](0019-interactive-sessions-and-one-command-layer.md) (one command has a mode only the terminal offers)
+Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-live-line-on-a-terminal.md) (its terminal rule and text rules also hold for a board of several lines) and [0179](0179-the-live-line-redraws-in-place-and-leads-with-the-batch-s-time.md) (a board redraws in place as the live line does)
 
 ## Context
 `foedrum status` prints each batch's row once and exits (ADR 0092, ADR 0172). Following several batches means running it again and again. `foedrum brew` keeps a live line on a terminal for the one batch it drives (ADR 0174), and #442 decided (2026-10-24) that a view of many batches belongs to `status --watch`, not to `serve` (#463).
@@ -10,7 +10,7 @@ Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-
 ## Decision
 
 ### When
-`foedrum status --watch` runs only where `brew` draws its live line: standard output is a TTY, `TERM` is not `dumb`, and `CI` is not set (ADR 0174). Elsewhere it prints one line, `foedrum status --watch needs a terminal; foedrum status prints the batches once`, and exits with 1. `--watch` is the terminal's only: the command registry's `status` takes no option, and the plugin (whose output is no terminal) and GitHub comments never offer it (ADR 0019).
+`foedrum status --watch` runs only where `brew` draws its live line: standard output is a TTY, `TERM` is not `dumb`, and `CI` is not set (ADR 0174). Elsewhere it prints one line, `foedrum status --watch needs a terminal; foedrum status prints the batches once`, and exits with 1. `watch` is a flag of `status` in the command registry, run by a function the terminal gives the command layer, as `brew`'s driver is (`context.brew`, ADR 0123). The plugin and GitHub comments have no terminal, so the rule above refuses it there; neither offers it.
 
 ### What it reads
 About once a second, on the shell's `wait` and `clock`, it reads the store as `foedrum status` does, folded afresh: never a lease, never git, never the state branch, so the kept branches' lines (ADR 0092) are not on the board. It writes nothing. It ends on Ctrl+C or a stop, with exit code 0, and leaves the last board on screen followed by a line feed.
