@@ -417,9 +417,13 @@ const DIAGRAM_LEFT_OUT = '[left out: a diagram Foedrum could not check]';
  */
 const quoted = (text: string): string =>
   `"${text.replaceAll('#', '#35;').replaceAll('"', '#quot;')}"`;
-/** An edge's or a title's label, trimmed, in quotes unless it is quoted already. */
-const label = (text: string): string => {
+/**
+ * An edge's or a title's label, trimmed, in quotes unless it is quoted already, or `undefined` when
+ * it is empty: Mermaid reads no empty string, quoted or not.
+ */
+const label = (text: string): string | undefined => {
   const trimmed = text.trim();
+  if (trimmed === '' || trimmed === '""') return undefined;
   return /^"[^"]*"$/.test(trimmed) ? trimmed : quoted(trimmed);
 };
 
@@ -473,7 +477,7 @@ const shape = (line: string, at: number): { text: string; end: number } | 'none'
     const quote = line.indexOf('"', start + 1);
     const closer = slanted ? line.slice(quote + 1, quote + 3) : close;
     if (
-      quote < 0 ||
+      quote <= start + 1 ||
       (slanted && !/^[/\\]\]$/.test(closer)) ||
       !line.startsWith(closer, quote + 1)
     ) {
@@ -483,7 +487,7 @@ const shape = (line: string, at: number): { text: string; end: number } | 'none'
     return { text: line.slice(at, end), end };
   }
   const to = line.indexOf(close, from);
-  if (to < 0) return undefined;
+  if (to <= from) return undefined;
   const slant = line[to - 1] ?? '';
   if (slanted && to - 1 > from && (slant === '/' || slant === '\\')) {
     return { text: `[${line[from]}${quoted(line.slice(from + 1, to - 1))}${slant}]`, end: to + 1 };
@@ -535,7 +539,9 @@ const statement = (line: string): string | undefined => {
       if (line[at] !== '|') return true;
       const close = line.indexOf('|', at + 1);
       if (close < 0) return false;
-      take(`|${label(line.slice(at + 1, close))}|`, close + 1);
+      const text = label(line.slice(at + 1, close));
+      if (text === undefined) return false;
+      take(`|${text}|`, close + 1);
       return true;
     }
     const opened = sticky(TEXT_LINK);
@@ -546,6 +552,7 @@ const statement = (line: string): string | undefined => {
     const end = ends.exec(line);
     if (end === null) return false;
     const text = label(line.slice(at + opened[0].length, end.index));
+    if (text === undefined) return false;
     // Written with its text between pipes, as `-->|"x"|`: the dotted link keeps its first dash.
     take(`${tail}${kind === '-.' ? '-' : ''}${end[0]}|${text}|`, end.index + end[0].length);
     return true;
@@ -565,9 +572,13 @@ const statement = (line: string): string | undefined => {
 const flowchartLine = (line: string): string | undefined => {
   const trimmed = line.trim();
   if (DIRECTION.test(trimmed) || STYLING.test(trimmed) || SUBGRAPH.test(trimmed)) return line;
-  if (TITLED.test(trimmed))
-    return line.replace(/\[([^\]]*)\]/, (_, title: string) => `[${label(title)}]`);
-  return statement(line);
+  if (!TITLED.test(trimmed)) return statement(line);
+  const open = line.indexOf('[');
+  const close = line.indexOf(']', open);
+  const title = label(line.slice(open + 1, close));
+  return title === undefined
+    ? undefined
+    : `${line.slice(0, open)}[${title}]${line.slice(close + 1)}`;
 };
 
 const ACTOR = String.raw`[\p{L}\p{N}_]+`;
