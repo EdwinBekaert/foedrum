@@ -63,24 +63,54 @@ const lastTip = (state: State, batch: Batch, url: string): string | undefined =>
   return merged;
 };
 
-/** The open pull request of `batch` that its ledger opened, with the commit its push recorded. */
-const openOf = (state: State, batch: Batch): { url: string; head: string } | undefined => {
+/**
+ * The open pull request of `batch` that its ledger opened, with the commit and the bottle branch
+ * its push recorded; `undefined` also once someone else pushed to that branch (ADR 0198).
+ */
+const openOf = (
+  state: State,
+  batch: Batch,
+): { url: string; head: string; branch: string } | undefined => {
   const { lane } = batch;
   const url = openedPullRequest(state, batch.id);
   if (lane.kind !== 'on_tap' || url === undefined || !lane.pullRequests.includes(url)) {
     return undefined;
   }
   if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  const moved = batch.baseChecks?.some(
+    (check) => check.pullRequest === url && check.branchMoved !== undefined,
+  );
+  if (moved === true) return undefined;
   const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
   if (!pushed.success || pushed.data.empty === true || pushed.data.refused !== undefined) {
     return undefined;
   }
-  return { url, head: pushed.data.commit };
+  return { url, head: pushed.data.commit, branch: pushed.data.branch };
 };
 
 /** One pass: checks every open pull request whose base moved, and records each check. */
 export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal): Promise<void> => {
   const { log, repositories, clock, failed } = options;
+  const record = (
+    batchId: string,
+    pullRequest: string,
+    branch: string,
+    tip: string,
+    found: { conflicts?: string[]; branchMoved?: string },
+  ): void => {
+    const event = {
+      type: 'pull_request.base_checked',
+      batchId,
+      pullRequest,
+      branch,
+      tip,
+      ...found,
+    } as const;
+    const decision = log.issue({ kind: 'record', event }, clock());
+    if (decision.kind === 'refused') {
+      failed(`recording the check of ${pullRequest}`, new Error(decision.reason));
+    }
+  };
   // Each base's tip once per pass; `undefined` when it could not be read.
   const tips = new Map<BaseCheckRepository, string | undefined>();
   const tipOf = async (repository: BaseCheckRepository): Promise<string | undefined> => {
@@ -111,6 +141,21 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     const tip = await tipOf(repository);
     if (tip === undefined || signal.aborted) continue;
     if (lastTip(state, batch, open.url) === tip) continue;
+    // A bottle branch someone else pushed to holds what Foedrum never read: recorded once, and
+    // checked no more (ADR 0198).
+    let branchTip: string | undefined;
+    try {
+      branchTip = await repository.branchTip(open.branch, signal);
+    } catch (error) {
+      failed(`reading the tip of ${open.branch} in ${repository.repo}`, error);
+      continue;
+    }
+    // Gone: the pull request is closing, and its end is recorded next pass.
+    if (branchTip === undefined || signal.aborted) continue;
+    if (branchTip !== open.head) {
+      record(batch.id, open.url, repository.base, tip, { branchMoved: branchTip });
+      continue;
+    }
     let merged: MergeTreeResult;
     try {
       merged = await repository.mergeTree(open.head, tip, signal);
@@ -121,18 +166,13 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     // A pass given up at its deadline records nothing more.
     if (signal.aborted) return;
     const files = merged.kind === 'conflicts' ? merged.files.slice(0, MAX_CONFLICTS) : [];
-    const event = {
-      type: 'pull_request.base_checked',
-      batchId: batch.id,
-      pullRequest: open.url,
-      branch: repository.base,
+    record(
+      batch.id,
+      open.url,
+      repository.base,
       tip,
-      ...(files.length === 0 ? {} : { conflicts: files }),
-    } as const;
-    const decision = log.issue({ kind: 'record', event }, clock());
-    if (decision.kind === 'refused') {
-      failed(`recording the check of ${open.url}`, new Error(decision.reason));
-    }
+      files.length === 0 ? {} : { conflicts: files },
+    );
   }
 };
 
@@ -172,7 +212,7 @@ const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseChec
     `### Foedrum · batch \`${batchId}\``,
     `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
     conflicts.map((file) => `- ${plain(file)}`).join('\n'),
-    `The batch stays On tap: merge \`${branch}\` into this branch and resolve the conflicts (ADR 0198).`,
+    `The batch stays On tap. Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
 
 export interface BaseConflictEffectsOptions {

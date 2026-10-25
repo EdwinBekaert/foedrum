@@ -539,12 +539,13 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'pull_request.base_checked': {
-      const { batchId, pullRequest, branch, tip, conflicts } = event;
+      const { batchId, pullRequest, branch, tip, conflicts, branchMoved } = event;
       const check: BaseCheck = {
         pullRequest,
         branch,
         tip,
         ...(conflicts === undefined ? {} : { conflicts }),
+        ...(branchMoved === undefined ? {} : { branchMoved }),
       };
       return updateBatch(state, batchId, (batch) => ({
         ...batch,

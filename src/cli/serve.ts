@@ -185,10 +185,13 @@ const baseChecks = async (
 ): Promise<BaseCheckRepository[]> => {
   const { mergeTree } = shell;
   if (mergeTree === undefined) return [];
-  if (!(await mergeTreeSupported(shell.git, setup.workRoot, shell.signal))) {
-    say(
-      'git is older than 2.38, which merge-tree --write-tree needs: open pull requests are not checked against a base that moved (ADR 0198)',
-    );
+  const supported = await mergeTreeSupported(shell.git, setup.workRoot, shell.signal);
+  if (supported !== true) {
+    const why =
+      supported === undefined
+        ? "git's version could not be read"
+        : 'git is older than 2.38, which merge-tree --write-tree needs';
+    say(`${why}: open pull requests are not checked against a base that moved (ADR 0198)`);
     return [];
   }
   return pushes.flatMap(({ repo, base, push }) => {
@@ -201,7 +204,7 @@ const baseChecks = async (
             base,
             tip: (name, signal) => push.baseTip(name, signal),
             mergeTree: mergeTree(repository),
-            branchTip: () => Promise.reject(new Error('not implemented')),
+            branchTip: (branch, signal) => push.remoteTip(branch, signal),
           },
         ];
   });

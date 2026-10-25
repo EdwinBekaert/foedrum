@@ -176,9 +176,13 @@ const shortSha = (sha: string): string => sha.slice(0, 8);
 const baseCheckLine = (batch: Batch, url: string): string | undefined => {
   const checks = (batch.baseChecks ?? []).filter((check) => check.pullRequest === url);
   const latest = checks.at(-1);
-  if (latest === undefined) return undefined;
+  // An ended pull request is checked no more: its last check says nothing now.
+  if (latest === undefined || batch.pullRequestEnds?.[url] !== undefined) return undefined;
   // The branch comes from the Brewery's config; a file's name from whoever committed it.
   const branch = code(latest.branch);
+  if (latest.branchMoved !== undefined) {
+    return `- ${link(url)} is not checked against ${branch} since someone else pushed to its branch`;
+  }
   const tip = code(shortSha(latest.tip));
   if (latest.conflicts !== undefined) {
     const files = latest.conflicts.map(plain).join(', ');

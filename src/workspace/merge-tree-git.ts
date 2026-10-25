@@ -60,15 +60,18 @@ export const openMergeTree =
     return { kind: 'conflicts', files };
   };
 
-/** Whether the git `git` runs can merge-tree with `--write-tree`: 2.38 or later. */
+/**
+ * Whether the git `git` runs can merge-tree with `--write-tree`: 2.38 or later; `undefined` when
+ * it names no version (it failed, or was killed).
+ */
 export const mergeTreeSupported = async (
   git: Git,
   cwd: string,
   signal?: AbortSignal,
-): Promise<boolean> => {
+): Promise<boolean | undefined> => {
   const result = await git(cwd, ['--version'], signal === undefined ? {} : { signal });
   const version = result.code === 0 ? /git version (\d+)\.(\d+)/.exec(result.stdout) : null;
-  if (version === null) return false;
+  if (version === null) return undefined;
   const [major, minor] = [Number(version[1]), Number(version[2])];
   return major > LEAST[0] || (major === LEAST[0] && minor >= LEAST[1]);
 };
