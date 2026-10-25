@@ -16,20 +16,23 @@ A Brewery was set up by hand: for #374 that took eight steps and several checks 
 In this order, each with a default an empty answer takes, and each answer checked against its schema, asked again with the schema's message when it does not pass:
 1. **The Brewery's name** (`owner/name`): default the `brewery` of the `foedrum.jsonc` already there, else `<login>/foedrum-brewery`, the login gh uses ([ADR 0073](0073-github-only-through-gh-s-own-login.md)).
 2. **The target repositories**, `owner/name` separated by spaces: default those of the `foedrum.jsonc` already there, else none.
-3. **Per new target repository**, its alias (default its name in lower-case letters and digits, at most 20, starting with a letter) and, when its checks are not read from `package.json`, each of the five checks (empty for none).
+3. **Per new target repository**, its alias (default its name in lower-case letters and digits, at most 20, starting with a letter, unless a repository it keeps has that alias).
+4. **For a Node repository**, what it read is listed (the five checks, `setup` and `tools`) and confirmed with one question, `Use these for <repo>? [Y/n]`, default yes: setup proposes and the human confirms ([ADR 0023](0023-language-independent-recipes.md)). A no, and a repository whose checks it did not read, asks each of the five checks (empty for none), and writes no `setup` and no `tools`.
 
 Whether the repository is private or public is asked by #512, which creates it: in an existing clone, it already exists.
 
 ### What it reads
 - From GitHub, through gh's own login (ADR 0073): the login, and per new target repository its default branch, which becomes `base`, and whether it has a `package.json` and a `package-lock.json` on that branch.
-- **For Node** (a `package.json`): each check is `npm run <name>` when the scripts have one by that name (`build`, `typecheck`, `lint`, `format`), and `npm test` for a `test` script; a missing one is `null`. The repository's `setup` is `npm ci` with a 10-minute timeout when there is a lockfile.
+- **For Node** (a `package.json`, read past a byte order mark as npm does): each check is `npm run <name>` when the scripts have one by that name (`build`, `typecheck`, `lint`, `format`), and `npm test` for a `test` script; a missing one is `null`. The repository's `setup` is `npm ci` with a 10-minute timeout when there is a lockfile.
+- A `package.json` it cannot read (over GitHub's 1 MB, or not a JSON object) is named as such, and the checks are asked.
+- Only Node is detected for now; the other ecosystems ADR 0023 lists (.NET, Gradle, Maven, Cargo, Go, Python) are asked for, until a later change detects them.
 - A target repository already in the `foedrum.jsonc` keeps its entry as it is: nothing is read or asked for it.
 
 ### What it writes
 Every file is built whole, checked against its schema, and only then written; a file that would not pass is a bug, and refuses the command with the schema's message, before anything is written.
 - **`foedrum.jsonc`** (`BreweryConfig`): `brewery`, `users` with the login, `concurrency` 1, and per target repository its `alias`, `intake` with the label `foedrum:brew`, `source` `managed` (Foedrum's branches and worktrees never land in the user's own clone, ADR 0012), `base`, `checks` and `setup`; for Node, `tools` in the shapes the default Cellarman runs (ADR 0163, `docs/design/recipes/configuration.md`): `Bash(npm run <script>)` for each check script found, with `Bash(npm run lint -- --write *)` for lint and `Bash(node --test *)` for test, all within `Bash(npm run *)` and `Bash(node --test *)`, and the `permissionCeiling` the union of those rules ([ADR 0026](0026-how-a-permission-ceiling-covers-a-rule.md)). Keys the file already has and init does not ask about are kept.
 - **`models.jsonc`** (`ModelsConfig`): no aliases of its own, so every alias is Foedrum's default ([ADR 0153](0153-foedrum-s-defaults-map-their-own-model-aliases.md)), with a comment that says how to map one.
-- **`.gitignore`**: a line `.foedrum/`, the event store and the machine's own files (ADR 0063), added to the lines already there.
+- **`.gitignore`**: a line `.foedrum/`, the event store and the machine's own files (ADR 0063), added to the lines already there with the line ending the file has; a line `.foedrum`, `/.foedrum` or either with a trailing `/` already ignores it.
 - **`.claude/settings.json`** (`BreweryClaudeSettings`, the keys init writes): `"enabledPlugins": { "foedrum@foedrum": true }`, merged into the settings already there.
 
 ### Existing files
