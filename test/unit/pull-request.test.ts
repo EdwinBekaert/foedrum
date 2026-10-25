@@ -901,6 +901,18 @@ describe('pullRequestText', () => {
     assert.ok(cell.length > 0 && cell.length <= 200, body);
   });
 
+  it('cuts a cell that grows twice or more no shorter than it needs (review of #490)', () => {
+    const beforeAfter = [{ case: '&lt;&gt;'.repeat(25), before: '&a'.repeat(100), after: 'a' }];
+    const reports = [
+      { stepId: 'implement', summary: 'S', assumptions: [], sections: { beforeAfter } },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    const [, grown = '', tripled = ''] = /\n\| (\S+) \| (\S+) \| a \|\n/.exec(body) ?? [];
+    for (const cell of [grown, tripled]) {
+      assert.ok(cell.length > 150 && cell.length <= 200, body);
+    }
+  });
+
   it('leaves out a section or a cell that looks like a secret, naming the step', () => {
     const reports = [
       {
