@@ -82,12 +82,13 @@ export const cliFromCheckout = async (
         (await import('./brew-main.ts')).brewFromCheckout(cwd, input, issued, options),
       // Loaded only for status --watch: the board and the signals that stop it.
       watch: async () => {
+        const board = options?.board ?? { stream: process.stdout, env: process.env };
         const { watchStatus } = await import('./status-watch.ts');
         const { listenWhileServing } = await import('./serve-shell.ts');
         const listening = listenWhileServing(process);
         try {
           return await watchStatus({
-            terminal: boardTerminal(process.stdout, process.env),
+            terminal: boardTerminal(board.stream, board.env),
             // The store as status reads it, afresh at each board; none yet is no batch.
             state: () => {
               const store = openStore(storePath(cwd));

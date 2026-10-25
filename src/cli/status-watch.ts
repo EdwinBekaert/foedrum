@@ -33,8 +33,8 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
   if (terminal === undefined) return { exitCode: 1, stdout: '', stderr: `${refusal}\n` };
   // When this board first saw each running attempt run, as `brew` counts `seenAt`.
   let seenAt = new Map<string, number>();
-  const draw = (): void => {
-    const folded = state();
+  // The lines of the board of the store as `folded` holds it now, before they are fitted.
+  const board = (folded: State): string[] => {
     const at = clock().getTime();
     const batches = [...folded.batches.values()].filter(({ lane }) => laneStatus(lane) === 'live');
     const seen = new Map<string, number>();
@@ -72,11 +72,30 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
     if (withAttempts.length > room) {
       body = rows;
       if (rows.length > room) {
-        const kept = Math.max(0, room - 1);
-        body = [...rows.slice(0, kept), `and ${rows.length - kept} more batches`];
+        // On a terminal of two rows, only the first line fits.
+        const kept = room - 1;
+        body = room < 1 ? [] : [...rows.slice(0, kept), `and ${rows.length - kept} more batches`];
       }
     }
-    terminal.redraw([header, ...body].map((line) => fit(line, terminal.columns())));
+    return [header, ...body];
+  };
+  // The last board of a store that read, which stays on screen while a read fails.
+  let last: string[] = [];
+  const draw = (): void => {
+    let lines: string[];
+    try {
+      lines = board(state());
+      last = lines;
+    } catch (error) {
+      // A read that fails, such as a store busy while a driver writes, ends no watch: the last
+      // board stays, cut where it must be so that it and the line that says so fit in the height
+      // less one, and the next board reads again. From a resize it would otherwise be uncaught.
+      const message = error instanceof Error ? error.message : String(error);
+      const height = terminal.rows();
+      const kept = height === undefined ? last : last.slice(0, Math.max(0, height - 2));
+      lines = [...kept, `could not read the store: ${message}; trying again each second`];
+    }
+    terminal.redraw(lines.map((line) => fit(line, terminal.columns())));
   };
   const stopResize = terminal.onResize(draw);
   try {

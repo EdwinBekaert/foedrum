@@ -38,7 +38,7 @@ export const boardTerminal = (
 ): BoardTerminal | undefined => {
   if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
   // The lines of the board on screen now: the cursor rests at the end of the last one.
-  let shown = 0;
+  let shown: readonly string[] = [];
   return {
     columns: () => stream.columns,
     rows: () => stream.rows,
@@ -50,8 +50,17 @@ export const boardTerminal = (
     },
     // Back up to the first line, then each line over the old one and clear what is left to its
     // right, and everything below the last: never a blank frame between two boards (ADR 0179).
+    // A terminal that got narrower has rewrapped the old lines, so the way up counts the screen
+    // rows each takes at the width now.
     redraw: (lines) => {
-      if (shown > 1) stream.moveCursor(0, 1 - shown);
+      const width = stream.columns;
+      const up = shown.reduce(
+        (sum, line) =>
+          sum +
+          (width === undefined || width < 1 ? 1 : Math.max(1, Math.ceil(line.length / width))),
+        0,
+      );
+      if (up > 1) stream.moveCursor(0, 1 - up);
       stream.cursorTo(0);
       lines.forEach((line, i) => {
         if (i > 0) stream.write('\n');
@@ -59,7 +68,7 @@ export const boardTerminal = (
         stream.clearLine(1);
       });
       stream.clearScreenDown();
-      shown = lines.length;
+      shown = lines;
     },
     finish: () => {
       stream.write('\n');
