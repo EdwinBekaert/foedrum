@@ -331,7 +331,7 @@ export function roundBefore(batch: Batch, ref: AttemptRef): RoundBefore | undefi
 }
 
 /** The round before a later one, as `roundBefore` finds it. */
-export type RoundBefore =
+type RoundBefore =
   | { kind: 'reviewed'; attempt: number; repo: string; commit: string }
   | { kind: 'unfound'; attempt: number };
 
