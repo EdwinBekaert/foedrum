@@ -12,7 +12,7 @@ The status comment already writes an attempt as a code span ([ADR 0154](0154-lan
 
 ## Decision
 - **`unlinked` leaves what a code span holds as written, and removes as before everywhere else.** A span is paired as CommonMark pairs one, within one line: a run of backticks that no backslash escapes, its text, and the next run of exactly as many backticks on the same line. A run with no such partner is text, and so is what follows it, so a span left open is not a span and its `@` is removed: it fails closed.
-- Where Foedrum's reading could differ from GitHub's, a span is not a span, failing closed too: a line that holds a `<` has none, since an HTML tag or an autolink is read before a span, and a span that holds a `|` is none, since a table splits its cells first.
+- Where Foedrum's reading could differ from GitHub's, the rest of the line has no span, failing closed too: a line that holds a `<` has none, since an HTML tag or an autolink is read before a span, and what follows a span that holds a `|` on its line has none, that span included, since a table splits its cells first and a span paired from inside it could hold what GitHub reads as text.
 - The removals are applied again until nothing changes, with the spans paired again each time, so a removal that changes how the line pairs is read as the new line pairs.
 - A cell of the before/after table is made one line, its backslashes and pipes are escaped and it is cut to 200 characters before `unlinked`, so the spans are paired in the text GitHub reads, and a cut cannot leave a kept `@` in a span it opened.
 - **The brew table writes each attempt as a code span** (`` `gauge #1` ``), as the status comment does, so no attempt links an issue.
@@ -20,7 +20,7 @@ The status comment already writes an attempt as a code span ([ADR 0154](0154-lan
 ## Consequences
 - `` `@Test` `` and `` `@types/node` `` in a section show as written, and ping nobody; `@Test` outside one still shows `Test`.
 - A closing keyword and a character reference inside a span show as written.
-- Inline code over two lines, on a line with a `<`, or holding a `|` loses its `@` as before.
+- Inline code over two lines, on a line with a `<`, or holding a `|` or after one that does on its line loses its `@` as before.
 - A before/after cell can grow past 200 characters by the `amp;` its character references get.
 
 ## Alternatives considered
