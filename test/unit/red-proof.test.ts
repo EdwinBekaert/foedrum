@@ -774,6 +774,14 @@ describe('judgeRed: a name before a parenthesis declares a test only where no ca
     callIsNoDeclaration('    } else parse(input);');
   });
 
+  it('does not take a call after a less-than for a declaration', () => {
+    callIsNoDeclaration('    if (limit < parse(input)) {');
+  });
+
+  it('does not take a call after a closing brace for a declaration', () => {
+    callIsNoDeclaration('    } parse(input);');
+  });
+
   it('does not take a call when every place the name stands in the line is a call', () => {
     callIsNoDeclaration('    const both = [parse(a), parse(b)];');
   });
