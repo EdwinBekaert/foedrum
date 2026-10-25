@@ -24,6 +24,13 @@ export type CountCommits = (
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const ATTEMPT_BRANCH = /^foedrum\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*\/\d+$/;
 
+/** Why `since` or `branch` must not reach git, or nothing when both may. */
+const unsafe = (since: string, branch: string): string | undefined => {
+  if (!SHA.test(since)) return `${since} is no full commit sha`;
+  if (!ATTEMPT_BRANCH.test(branch)) return `${JSON.stringify(branch)} is no attempt branch`;
+  return undefined;
+};
+
 const firstLine = ({ code, stderr }: GitResult): string =>
   stderr
     .split(/\r?\n/)
@@ -36,10 +43,8 @@ export const countCommits =
   async (clone, branch, since, signal) => {
     // No hook or fsmonitor of the clone's runs in the engine's git (ADR 0137).
     const git = inClone(shared);
-    if (!SHA.test(since)) return { kind: 'uncounted', reason: `${since} is no full commit sha` };
-    if (!ATTEMPT_BRANCH.test(branch)) {
-      return { kind: 'uncounted', reason: `${JSON.stringify(branch)} is no attempt branch` };
-    }
+    const refused = unsafe(since, branch);
+    if (refused !== undefined) return { kind: 'uncounted', reason: refused };
     const tip = `refs/heads/${branch}`;
     const options = signal === undefined ? {} : { signal };
     const ancestor = await git(clone, ['merge-base', '--is-ancestor', since, tip], options);
@@ -73,10 +78,8 @@ export type ScanCommits = (
 export const scanAttemptCommits =
   (shared: Git): ScanCommits =>
   async (clone, branch, since, signal) => {
-    if (!SHA.test(since)) return { kind: 'unscanned', reason: `${since} is no full commit sha` };
-    if (!ATTEMPT_BRANCH.test(branch)) {
-      return { kind: 'unscanned', reason: `${JSON.stringify(branch)} is no attempt branch` };
-    }
+    const refused = unsafe(since, branch);
+    if (refused !== undefined) return { kind: 'unscanned', reason: refused };
     // The push's own scan, in the clone, with git reading the objects as committed (ADR 0079).
     const push = openBranchPush({ git: shared, clone });
     try {

@@ -159,17 +159,17 @@ const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
- * The ending of a `done` with commits once the push's scan read them on the attempt's branch in
- * the clone (ADR 0187); any other ending as settleAttempt gave it, with no git run.
+ * The ending settleAttempt gives the facts, for a `done` with commits once the push's scan read
+ * them on the attempt's branch in the clone (ADR 0187); any other ending with no git run.
  */
 export async function scannedIfDone(
   scan: ScanCommits,
-  ending: Ending,
   facts: AttemptFacts,
   limits: AttemptLimits,
   plan: Pick<ClaudeAttemptPlan, 'commits'>,
   signal: AbortSignal,
 ): Promise<Ending> {
+  const ending = settleAttempt(facts, limits);
   const since = limits.commitsSince;
   const made = facts.commits?.kind === 'counted' && facts.commits.count > 0;
   if (ending.kind !== 'succeeded' || since === undefined || !made || plan.commits === undefined) {
@@ -590,14 +590,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         ...(commits === undefined ? {} : { commits }),
       };
       // Its retry can write another way what the push would refuse (ADR 0187).
-      const ending = await scannedIfDone(
-        deps.scan,
-        settleAttempt(facts, limits),
-        facts,
-        limits,
-        plan,
-        stopping.signal,
-      );
+      const ending = await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal);
       // A stop while scanning kills git: the attempt was stopped, git did not fail.
       if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
       // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).

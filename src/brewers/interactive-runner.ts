@@ -215,7 +215,6 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       // Scanned for secrets on the attempt's branch, as for every run (ADR 0187).
       const ending = await scannedIfDone(
         deps.scan,
-        settleAttempt(facts, limits),
         facts,
         limits,
         plan,
