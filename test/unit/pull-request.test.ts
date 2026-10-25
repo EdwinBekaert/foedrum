@@ -691,6 +691,19 @@ describe('quotedDiagrams (ADR 0180)', () => {
     assert.equal(quotedDiagrams(block('flowchart LR', '  H[/"h"] --> B')), left);
   });
 
+  it('leaves out a diagram with an empty label, which no quotes make readable (review of #494)', () => {
+    for (const line of [
+      '  A[] --> B',
+      '  A[""] --> B',
+      '  A -->|| B',
+      '  A -->| "" | B',
+      '  A -- --> B',
+      '  subgraph one []',
+    ]) {
+      assert.equal(quotedDiagrams(block('flowchart TD', line)), left, line);
+    }
+  });
+
   it('leaves out a diagram whose line holds more than a form it reads (review of #494)', () => {
     for (const line of [
       '  A --> B; C{f(x}',
