@@ -651,6 +651,7 @@ describe("step.finished's receipt from before ADR 0181", () => {
     const batch = fold([ordered]).batches.get('b1');
     assert.ok(batch);
     const text = formatReplay(batch, [{ id: 1, event: Event.parse(old) }]);
+    assert.match(text, /"receipt":\{"complete":true,"turns":1,/);
     assert.doesNotMatch(text, /cost/i);
   });
 });
