@@ -310,6 +310,19 @@ describe('settleAttempt', () => {
     });
   });
 
+  // A fresh attempt would meet the same budget (ADR 0047, ADR 0175).
+  it('fails a turn overrun not retryably when its session cannot be resumed', () => {
+    const overrun = facts({ exit: { kind: 'stopped' }, outDoc: undefined, turns: 101 });
+    const notRetryable = {
+      kind: 'failed',
+      retryable: false,
+      reason: 'budget exceeded: 101 turns, maxTurns is 100',
+    };
+    assert.deepStrictEqual(settleAttempt(overrun, limits), notRetryable);
+    // No init report: claude started no session to resume.
+    assert.deepStrictEqual(settleAttempt(overrun, { ...limits, resumable: true }), notRetryable);
+  });
+
   it('names every denied tool once, in the order first denied', () => {
     const denied = { denials: 6, deniedTools: ['Bash(npm test)', 'WebFetch', 'Edit'] };
     const ending = settleAttempt(facts({ exit: { kind: 'stopped' }, ...denied }), limits);
