@@ -232,6 +232,8 @@ export function clearOutDocFile(file: string, root: string): void {
  */
 export function restoreOutDocFile(file: string, root: string, copy: string): void {
   if (lstatSync(file, { throwIfNoEntry: false }) !== undefined) return;
+  // A folder git does not track is not in a recreated worktree: the session resumes without it.
+  if (lstatSync(dirname(file), { throwIfNoEntry: false }) === undefined) return;
   let text: string;
   try {
     text = readFileSync(copy, 'utf8');
