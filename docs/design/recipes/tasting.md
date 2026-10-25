@@ -27,7 +27,6 @@ A `retry` or `answer` of a child also schedules every child of its group that ha
 The batch leaves a group only while no attempt of it runs.
 A group whose recipe file gained a child while the batch was in it makes the batch Stuck on a divergence, naming that child.
 A kill mid-group retries only the children that had not ended: the supervisor loses one attempt of a batch per tick and keeps the expired leases of the others for the ticks after.
-Each child's time counts toward the recipe's budget, summed, once a budget is built (#445).
 
 **Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 The engine checks each edit (an existing file under `src/` or `scripts/`, a line whose text is `original`, no new identifier or string), applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading.

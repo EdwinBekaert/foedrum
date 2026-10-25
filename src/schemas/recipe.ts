@@ -259,7 +259,13 @@ const RecipeFields = z.strictObject({
   name: PathSafeId,
   description: NonEmpty,
   match: z.strictObject({ labels: z.array(NonEmpty).min(1) }).optional(),
-  budget: z.strictObject({ minutes: z.int().positive() }).optional(),
+  // Gone (ADR 0194): refused by name, so a recipe that still has it says why.
+  budget: z
+    .never({
+      error:
+        'a recipe has no "budget" any more: remove it, each step\'s deadline, stall limit and attempts bound the batch (ADR 0194)',
+    })
+    .optional(),
   // No default here: ADR 0017 defaults it to true for recipes that write code, which depends on
   // the brewers the recipe uses, so the loader decides when it is absent.
   testFirst: z

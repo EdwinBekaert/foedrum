@@ -32,18 +32,7 @@
       "additionalProperties": false
     },
     "budget": {
-      "type": "object",
-      "properties": {
-        "minutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        }
-      },
-      "required": [
-        "minutes"
-      ],
-      "additionalProperties": false
+      "not": {}
     },
     "testFirst": {
       "description": "Gauger and red proof before Cellarman; default true for recipes that write code, and the router may switch it off (ADR 0017)",

@@ -10,7 +10,6 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
   "name": "half-pint",
   "description": "Small feature in one repository",
   "match": { "labels": ["feature"] },
-  "budget": { "minutes": 60 },
   "testFirst": true,                                         // the router may switch it off, with a reason
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },                // writes plan.md
@@ -71,7 +70,8 @@ A batch whose step left its recipe file goes Stuck on a divergence when that ste
 A step has exactly one of these kind fields.
 A `session` step needs a `deadline` and may name a `fallback` brewer.
 
-**Recipe fields:** `name`, `description`, `match` (`labels`), `budget` (`minutes`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+**Recipe fields:** `name`, `description`, `match` (`labels`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+A recipe has no time budget: the load refuses a `budget` field with a line that says it is gone, since each step's deadline, stall limit and attempts already bound a batch ([ADR 0194](../../adr/0194-a-recipe-has-no-time-budget.md)).
 
 **Step fields**
 
