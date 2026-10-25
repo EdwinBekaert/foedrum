@@ -85,7 +85,7 @@ describe('awakeCommand', () => {
     );
   });
 
-  it("holds logind's idle and sleep lock while tail waits on the process", () => {
+  it("holds logind's idle lock while tail waits on the process, never its sleep lock", () => {
     assert.deepStrictEqual(
       awakeCommand(
         { kind: 'systemd-inhibit', program: '/usr/bin/systemd-inhibit', tail: '/usr/bin/tail' },
@@ -94,7 +94,7 @@ describe('awakeCommand', () => {
       {
         file: '/usr/bin/systemd-inhibit',
         args: [
-          '--what=idle:sleep',
+          '--what=idle',
           '--who=foedrum',
           '--why=foedrum brewing',
           '--mode=block',
