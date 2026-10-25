@@ -259,15 +259,15 @@ const fakeBoardScreen = () => {
 };
 
 describe('boardTerminal: when status --watch draws a board', () => {
-  it('is given on a TTY with TERM and CI unset, as on Windows', () => {
+  it('gives the board terminal on a TTY with TERM and CI unset, as on Windows', () => {
     assert.notEqual(boardTerminal(fakeStream().stream, {}), undefined);
   });
 
-  it('is given on a TTY whose TERM is not dumb and whose CI is not set', () => {
+  it('gives the board terminal on a TTY whose TERM is not dumb and whose CI is not set', () => {
     assert.notEqual(boardTerminal(fakeStream().stream, { TERM: 'xterm-256color' }), undefined);
   });
 
-  it('is not given when standard output is not a TTY: a pipe, a log, a plugin session', () => {
+  it('gives no board terminal when standard output is not a TTY: a pipe, a log, a plugin session', () => {
     assert.equal(boardTerminal(fakeStream({ isTTY: false }).stream, { TERM: 'xterm' }), undefined);
     assert.equal(
       boardTerminal(fakeStream({ isTTY: undefined }).stream, { TERM: 'xterm' }),
@@ -275,11 +275,11 @@ describe('boardTerminal: when status --watch draws a board', () => {
     );
   });
 
-  it('is not given when TERM is dumb', () => {
+  it('gives no board terminal when TERM is dumb', () => {
     assert.equal(boardTerminal(fakeStream().stream, { TERM: 'dumb' }), undefined);
   });
 
-  it('is not given when CI is set', () => {
+  it('gives no board terminal when CI is set', () => {
     assert.equal(boardTerminal(fakeStream().stream, { TERM: 'xterm', CI: 'true' }), undefined);
   });
 });
@@ -390,7 +390,7 @@ describe('boardTerminal: what it does to the stream (ADR 0188)', () => {
     assert.deepEqual(calls, ['write("\\n")']);
   });
 
-  it('calls the handler when the stream is resized, until the returned function stops it', () => {
+  it('calls the board handler when the stream is resized, until the returned function stops it', () => {
     const { board, handlers } = boardOf();
     let resized = 0;
     const stop = board.onResize(() => {
