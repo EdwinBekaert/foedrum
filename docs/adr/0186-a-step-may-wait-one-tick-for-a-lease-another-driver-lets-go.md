@@ -1,6 +1,6 @@
 # 0186. A step may wait one tick for a lease another driver lets go
 
-Date: 2026-10-25 · Status: Accepted · Amends [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md) and [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) (what the chaos check `nothingLeftWaiting` lets wait)
+Date: 2026-10-25 · Status: Accepted · Amends [0051](0051-chaos-runs-on-the-real-driver-with-two-drivers-and-a-terminal.md), [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) and [0124](0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md) (what the chaos check `nothingLeftWaiting` lets wait)
 
 ## Context
 A scheduled attempt waits while its step has a live lease of an attempt the log shows finished or abandoned ([ADR 0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md)).
@@ -13,7 +13,7 @@ The two-driver chaos run found this on seed 1710582731 (#464): after that tick, 
 
 ## Decision
 - **The engine keeps the wait of one tick.** The attempt starts at the holder's next tick, and its deadline runs through the wait, as through any wait for a lease (`nothingOverdue` holds it to that deadline).
-- **`nothingLeftWaiting` gets a fourth exception**, next to ADR 0055's: a scheduled attempt whose step had, as the tick began, a lease of an attempt the log shows finished or abandoned, held by a driver other than the batch's holder.
+- **`nothingLeftWaiting` gets another exception**, next to those of ADR 0051, ADR 0055 and ADR 0124: a scheduled attempt whose step had, as the tick began, a lease of an attempt the log shows finished or abandoned, held by a driver other than the batch's holder.
   The chaos engine records the attempt leases that are live as each tick begins (`leasedAtTick`).
 - **The exception lasts one tick.** The check runs after each tick, and the next tick's record no longer has the lease, so an attempt still not started then fails it.
   A lease the batch's holder let go is never excused: that driver's own drive loop starts the attempt in the same pass.
