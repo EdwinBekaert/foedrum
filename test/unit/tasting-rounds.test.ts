@@ -11,6 +11,7 @@ import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-fil
 import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 
@@ -366,7 +367,7 @@ describe('a later tasting round (#500, ADR 0190)', () => {
       'was blocked on its environment',
       { kind: 'failed', retryable: false, reason: 'blocked (environment): no network' },
     ],
-  ] as const) {
+  ] satisfies [string, StepOutcome][]) {
     it(`gives a round after one that ${why} no change since it, as when a sibling's route sent the batch back`, async () => {
       const events = ROUND_TWO.map((event) =>
         event.type === 'step.finished' && event.stepId === 'tasting' && event.attempt === 1
