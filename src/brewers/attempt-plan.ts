@@ -409,7 +409,6 @@ function example(status: string, ownKey?: string): string[] {
  * Its shell commands and the push rule are in the system prompt (`attemptSystemPrompt`, ADR 0183).
  */
 export function outDocContract(file: string, commits = false): string {
-  const asking = 'guess would likely waste this run. Never ask questions any other way.';
   return [
     `When you finish, write ${file}. It must start with JSON frontmatter: copy the example`,
     'below for how the run ended and fill it in, with only its keys and any your instructions',
@@ -432,7 +431,7 @@ export function outDocContract(file: string, commits = false): string {
     ...example('failed'),
     '',
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',
-    asking,
+    'guess would likely waste this run. Never ask questions any other way.',
     ...(commits
       ? [
           `Commit your changes with git add and git commit before you write ${file}, and leave`,
