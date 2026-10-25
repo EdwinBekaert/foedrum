@@ -7,7 +7,7 @@ import { formatStatus } from '../../src/cli/status.ts';
 import { type Attempt, type Batch, emptyState, type Step } from '../../src/engine/fold.ts';
 import { receiptParts, receiptsOf, totalParts } from '../../src/engine/receipt.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
-import type { Receipt, Usage } from '../../src/schemas/events.ts';
+import { Receipt, type Usage } from '../../src/schemas/events.ts';
 
 const at = '2026-10-24T09:00:00.000Z';
 const tokens = (total: number): Usage => ({
@@ -16,17 +16,19 @@ const tokens = (total: number): Usage => ({
   cacheReadTokens: total - 140_000,
   cacheWriteTokens: 100_000,
 });
-const receipt = (more: Partial<Receipt> = {}): Receipt => ({
-  complete: true,
-  durationMs: 158_000,
-  apiDurationMs: 120_000,
-  turns: 31,
-  costUsd: 0.8215,
-  edits: 4,
-  toolErrors: 0,
-  denied: [],
-  ...more,
-});
+/** A receipt as the event store reads it, with the cost an event from before ADR 0181 holds. */
+const receipt = (more: Partial<Receipt> = {}): Receipt =>
+  Receipt.parse({
+    complete: true,
+    durationMs: 158_000,
+    apiDurationMs: 120_000,
+    turns: 31,
+    costUsd: 0.8215,
+    edits: 4,
+    toolErrors: 0,
+    denied: [],
+    ...more,
+  });
 const finished = (attempt: number, more: Partial<Extract<Attempt, { phase: 'finished' }>> = {}) =>
   ({
     phase: 'finished',
@@ -50,39 +52,37 @@ const batch = (fields: Partial<Batch> = {}): Batch => ({
 });
 
 describe('receiptParts', () => {
-  it('shows the duration, turns, tokens, cost as an estimate, and the denials with what was refused', () => {
+  it('shows the duration, turns, tokens and the denials with what was refused, never a cost', () => {
     const denied = [{ tool: 'Bash', count: 2, refused: ['git push'] }];
     assert.deepEqual(receiptParts(receipt({ denied }), tokens(1_340_000)), [
       '2m 38s',
       '31 turns',
       '1.34M tokens',
-      '$0.82 est.',
       '2 denied (Bash: git push)',
     ]);
   });
 
   it('leaves out what an incomplete receipt does not have, and says it is incomplete', () => {
     const seen = receipt({ complete: false, durationMs: 45_400, turns: 1 });
-    delete seen.costUsd;
     delete seen.apiDurationMs;
     assert.deepEqual(receiptParts(seen, undefined), ['45s', '1 turn', 'incomplete']);
   });
 
   it('writes small and large amounts readably', () => {
-    const small = receiptParts(receipt({ durationMs: 3_725_000, costUsd: 0.0005 }), {
+    const small = receiptParts(receipt({ durationMs: 3_725_000 }), {
       inputTokens: 2,
       outputTokens: 4,
       cacheReadTokens: 1670,
       cacheWriteTokens: 2452,
     });
-    assert.deepEqual(small.slice(0, 4), ['1h 2m', '31 turns', '4.13k tokens', '<$0.01 est.']);
-    const tiny = receiptParts(receipt({ durationMs: 0, costUsd: 0 }), {
+    assert.deepEqual(small, ['1h 2m', '31 turns', '4.13k tokens']);
+    const tiny = receiptParts(receipt({ durationMs: 0 }), {
       inputTokens: 1,
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     });
-    assert.deepEqual(tiny.slice(0, 4), ['0s', '31 turns', '1 token', '$0.00 est.']);
+    assert.deepEqual(tiny, ['0s', '31 turns', '1 token']);
   });
 
   // Review of #459: rounded to three digits, 999,600 is a million.
@@ -92,12 +92,10 @@ describe('receiptParts', () => {
     assert.equal(receiptParts(receipt(), tokens(999_400))[2], '999k tokens');
   });
 
-  // Review of #459 (Brett): the edges of a minute and of a cent.
-  it('writes a whole minute in minutes, and half a cent as a cent', () => {
+  // Review of #459 (Brett): the edge of a minute.
+  it('writes a whole minute in minutes', () => {
     assert.equal(receiptParts(receipt({ durationMs: 59_400 }), undefined)[0], '59s');
     assert.equal(receiptParts(receipt({ durationMs: 60_000 }), undefined)[0], '1m 0s');
-    assert.equal(receiptParts(receipt({ costUsd: 0.0049 }), undefined)[2], '<$0.01 est.');
-    assert.equal(receiptParts(receipt({ costUsd: 0.005 }), undefined)[2], '$0.01 est.');
   });
 
   it('names each denied family, and shows the refused prefixes through told', () => {
@@ -162,36 +160,32 @@ describe("a batch's receipts", () => {
     );
   });
 
-  // Review of #459: a resumed run reports its session's cost so far (ADR 0042).
-  describe('attempts that resume a session', () => {
-    const sessionOf = (id: string) => ({ session: { id, worktree: '/work/7-1' } });
-    const resumedBatch = (...attempts: Attempt[]) =>
-      batch({
-        steps: new Map([step('implement', ...attempts)]),
-        path: attempts.map(({ attempt }) => ({ stepId: 'implement', attempt })),
-      });
-
-    it("gives each attempt its own cost, and the total each session's once", () => {
-      const ran = resumedBatch(
-        finished(1, { ...sessionOf('s1'), receipt: receipt({ costUsd: 0.5 }) }),
-        finished(2, { ...sessionOf('s1'), receipt: receipt({ costUsd: 0.8, resumed: true }) }),
-        finished(3, { ...sessionOf('s2'), receipt: receipt({ costUsd: 0.25 }) }),
-      );
-      const text = renderStatus(ran, ['implement']);
-      assert.match(text, /^- `implement #2` · .* · \$0\.30 est\.$/m);
-      assert.match(text, /^- `implement #3` · .* · \$0\.25 est\.$/m);
-      assert.equal(
-        totalParts(ran).find((part) => part.startsWith('$')),
-        '$1.05 est.',
-      );
+  // A resumed run reports its session's cost so far (ADR 0042), which no line shows (ADR 0181);
+  // its tokens are its own run's usage (ADR 0172).
+  it("shows a resumed attempt's own tokens, and no cost for its session", () => {
+    const sessionOf = { session: { id: 's1', worktree: '/work/7-1' } };
+    const ran = batch({
+      steps: new Map([
+        step(
+          'implement',
+          finished(1, { ...sessionOf, receipt: receipt(), usage: tokens(200_000) }),
+          finished(2, {
+            ...sessionOf,
+            receipt: receipt({ resumed: true }),
+            usage: tokens(1_340_000),
+          }),
+        ),
+      ]),
+      path: [
+        { stepId: 'implement', attempt: 1 },
+        { stepId: 'implement', attempt: 2 },
+      ],
     });
-
-    it('says a resumed cost is for the session when no earlier receipt of it is in the batch', () => {
-      const ran = resumedBatch(
-        finished(2, { ...sessionOf('s1'), receipt: receipt({ costUsd: 0.8, resumed: true }) }),
-      );
-      assert.match(renderStatus(ran, ['implement']), /· \$0\.80 est\. for the session$/m);
-    });
+    assert.match(
+      renderStatus(ran, ['implement']),
+      /^- `implement #2` · 2m 38s · 31 turns · 1\.34M tokens$/m,
+    );
+    assert.deepEqual(totalParts(ran), ['2 attempts', '5m 16s', '62 turns', '1.54M tokens']);
   });
 
   it('sums them', () => {
@@ -200,7 +194,6 @@ describe("a batch's receipts", () => {
       '2m 58s',
       '36 turns',
       '1.54M tokens',
-      '$1.64 est.',
       '2 denied',
     ]);
   });
@@ -209,7 +202,6 @@ describe("a batch's receipts", () => {
   it('leaves out of the total what no receipt measured', () => {
     const seen = receipt({ complete: false, turns: 2 });
     delete seen.durationMs;
-    delete seen.costUsd;
     const unmeasured = batch({
       steps: new Map([step('plan', finished(1, { receipt: seen }))]),
       path: [{ stepId: 'plan', attempt: 1 }],
@@ -231,8 +223,8 @@ describe("a batch's receipts", () => {
     const from = lines.indexOf('**Receipts**');
     assert.ok(from > 0, text);
     assert.deepEqual(lines.slice(from + 1, from + 3), [
-      '- `plan #1` · 20s · 5 turns · 200k tokens · $0.82 est.',
-      '- `implement #1` · 2m 38s · 31 turns · 1.34M tokens · $0.82 est. · 2 denied (Bash: git push)',
+      '- `plan #1` · 20s · 5 turns · 200k tokens',
+      '- `implement #1` · 2m 38s · 31 turns · 1.34M tokens · 2 denied (Bash: git push)',
     ]);
   });
 
@@ -283,8 +275,14 @@ describe("a batch's receipts", () => {
       .find((line) => line.trimStart().startsWith('7-1'));
     assert.match(
       row ?? '',
-      /brewing\s+implement #3 started; 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ \$1\.64 est\. \/ 2 denied$/,
+      /brewing\s+implement #3 started; 2 attempts \/ 2m 58s \/ 36 turns \/ 1\.54M tokens \/ 2 denied$/,
     );
     assert.match(row ?? '', /^[\x20-\x7e]*$/);
+  });
+
+  it('shows no dollar amount in the status comment or foedrum status (ADR 0181)', () => {
+    const state = { ...emptyState, batches: new Map([[ran.id, ran]]) };
+    assert.doesNotMatch(renderStatus(ran, ['plan', 'implement']), /\$|est\./);
+    assert.doesNotMatch(formatStatus(state), /\$|est\./);
   });
 });

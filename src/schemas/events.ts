@@ -111,37 +111,49 @@ const RefusedPrefix = z
   .string()
   .regex(/^[A-Za-z0-9._-]{1,32}( [A-Za-z0-9._-]{1,32})?$/, 'Must be one or two plain words');
 
-/** What an attempt took, from its stream (ADR 0172); its tokens are on `usage`. */
-export const Receipt = z.strictObject({
-  /** Whether claude's `result` event was read. */
-  complete: z.boolean(),
-  durationMs: Count.optional(),
-  apiDurationMs: Count.optional(),
-  turns: Count,
-  /**
-   * The run resumed its session: its cost, API duration and tokens per model are then the
-   * session's so far, not the run's alone (ADR 0042).
-   */
-  resumed: z.literal(true).optional(),
-  /** claude's list price: an estimate, never what a subscription pays. */
-  costUsd: z.number().nonnegative().optional(),
-  models: z
-    .array(z.strictObject({ model: NonEmpty, ...Usage.shape, costUsd: z.number().nonnegative() }))
-    .min(1)
-    .optional(),
-  /** File tool calls that came back without an error. */
-  edits: Count,
-  /** Tool results that came back as an error, denied calls apart. */
-  toolErrors: Count,
-  /** Per tool family, in the order each was first denied. */
-  denied: z.array(
-    z.strictObject({
-      tool: NonEmpty,
-      count: z.int().positive(),
-      refused: z.array(RefusedPrefix).max(MOST_REFUSED),
-    }),
-  ),
-});
+/** claude's list price, which an event from before ADR 0181 holds: read, and dropped. */
+const RecordedCost = z
+  .number()
+  .nonnegative()
+  .optional()
+  .describe('Recorded before ADR 0181, and never read');
+
+/** What an attempt took, from its stream (ADR 0172), never its cost (ADR 0181); its tokens are on `usage`. */
+export const Receipt = z
+  .strictObject({
+    /** Whether claude's `result` event was read. */
+    complete: z.boolean(),
+    durationMs: Count.optional(),
+    apiDurationMs: Count.optional(),
+    turns: Count,
+    /**
+     * The run resumed its session: its API duration and tokens per model are then the session's
+     * so far, not the run's alone (ADR 0042).
+     */
+    resumed: z.literal(true).optional(),
+    costUsd: RecordedCost,
+    models: z
+      .array(
+        z
+          .strictObject({ model: NonEmpty, ...Usage.shape, costUsd: RecordedCost })
+          .transform(({ costUsd: _, ...used }) => used),
+      )
+      .min(1)
+      .optional(),
+    /** File tool calls that came back without an error. */
+    edits: Count,
+    /** Tool results that came back as an error, denied calls apart. */
+    toolErrors: Count,
+    /** Per tool family, in the order each was first denied. */
+    denied: z.array(
+      z.strictObject({
+        tool: NonEmpty,
+        count: z.int().positive(),
+        refused: z.array(RefusedPrefix).max(MOST_REFUSED),
+      }),
+    ),
+  })
+  .transform(({ costUsd: _, ...receipt }) => receipt);
 export type Receipt = z.infer<typeof Receipt>;
 
 /** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
