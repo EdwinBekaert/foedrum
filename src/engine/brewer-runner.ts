@@ -5,6 +5,7 @@
 import type { GravityReading, Receipt, Usage } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { type OutDocFrontmatter, readOutDoc } from '../schemas/out-doc.ts';
+import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
@@ -93,6 +94,15 @@ export type CommitsSeen =
   | { kind: 'rewritten' }
   /** git could not answer. */
   | { kind: 'uncounted'; reason: string };
+
+/**
+ * What the push's secret scan found in an attempt's commits after its start (ADR 0187): no
+ * finding when they may go on.
+ */
+export type CommitsScanned =
+  | { kind: 'scanned'; findings: readonly ScanFinding[] }
+  /** git could not answer. */
+  | { kind: 'unscanned'; reason: string };
 
 /**
  * A usage window of claude's subscription that ran out, as claude named it (ADR 0091): which
@@ -339,4 +349,13 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
       throw new Error(`Unhandled out-doc status ${JSON.stringify(unhandled)}`);
     }
   }
+}
+
+/**
+ * A succeeded attempt of a brewer that produces commits, once the commits after `since` were
+ * scanned for secrets (ADR 0187): a finding fails it retryably, naming each commit, place and
+ * kind, never the matched text (ADR 0088).
+ */
+export function scannedEnding(_ending: Ending, _scanned: CommitsScanned, _since: string): Ending {
+  throw new Error('not implemented');
 }

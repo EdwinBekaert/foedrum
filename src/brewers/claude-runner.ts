@@ -43,7 +43,12 @@ import {
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
-import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
+import {
+  type CountCommits,
+  countCommits,
+  type ScanCommits,
+  scanAttemptCommits,
+} from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
@@ -131,6 +136,11 @@ export interface ClaudeRunnerDeps {
   wait: (ms: number, signal: AbortSignal) => Promise<void>;
   /** The commits on the attempt's branch in its clone after the limits' `commitsSince` (ADR 0074). */
   commits: CountCommits;
+  /**
+   * Scans a done attempt's commits after the limits' `commitsSince` for secrets, as the push does
+   * (ADR 0187).
+   */
+  scan: ScanCommits;
 }
 
 /**
@@ -596,5 +606,6 @@ export function claudeBrewerRunner(
     now: () => new Date(),
     wait: waitFor,
     commits: countCommits(runGit),
+    scan: scanAttemptCommits(runGit),
   });
 }

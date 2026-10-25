@@ -126,6 +126,7 @@ const runnerOf = (lines: readonly string[], withSetup: boolean, setupPasses = fa
     now: () => new Date('2026-10-24T12:00:00.000Z'),
     wait: () => Promise.resolve(),
     commits: async () => ({ kind: 'counted', count: 0 }),
+    scan: async () => ({ kind: 'scanned', findings: [] }),
   });
   return { runner, setupRuns, claudeWrote };
 };

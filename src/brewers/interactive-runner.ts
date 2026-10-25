@@ -18,7 +18,12 @@ import {
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
-import { type CountCommits, countCommits } from '../workspace/attempt-commits-git.ts';
+import {
+  type CountCommits,
+  countCommits,
+  type ScanCommits,
+  scanAttemptCommits,
+} from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { attemptSettings, writeAttemptSettings } from './attempt-settings.ts';
 import { resumeArgs } from './claude-command.ts';
@@ -65,6 +70,11 @@ export interface InteractiveRunnerDeps {
   };
   /** The commits on the attempt's branch in its clone after the limits' `commitsSince`. */
   commits: CountCommits;
+  /**
+   * Scans a done attempt's commits after the limits' `commitsSince` for secrets, as the push does
+   * (ADR 0187).
+   */
+  scan: ScanCommits;
   now: () => Date;
   /** Writes a line to the terminal, before claude has it. */
   say: (line: string) => void;
@@ -257,6 +267,7 @@ export function interactiveBrewerRunner(
       clearOutDoc: clearOutDocFile,
     },
     commits: countCommits(runGit),
+    scan: scanAttemptCommits(runGit),
     now: () => new Date(),
   });
 }

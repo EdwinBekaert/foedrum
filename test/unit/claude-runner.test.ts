@@ -29,7 +29,12 @@ import {
   writeSystemPromptFile,
 } from '../../src/brewers/claude-runner.ts';
 import { assembleBrewerPrompt, type BrewerPrompt } from '../../src/brewers/prompt.ts';
-import type { AttemptLimits, AttemptStart, CommitsSeen } from '../../src/engine/brewer-runner.ts';
+import type {
+  AttemptLimits,
+  AttemptStart,
+  CommitsScanned,
+  CommitsSeen,
+} from '../../src/engine/brewer-runner.ts';
 import type { StreamOptions, StreamResult } from '../../src/platform/processes.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
@@ -106,6 +111,10 @@ const setup = (
     waitForever?: boolean;
     /** What git says of the commits after the start (ADR 0074); default one. */
     commits?: CommitsSeen;
+    /** What the secret scan finds in the commits after the start (ADR 0187); default nothing. */
+    scanned?: CommitsScanned;
+    /** Runs while the commits are scanned, before the scan answers. */
+    whileScanning?: () => void;
     /** Runs while the commits are counted, before the count answers. */
     whileCounting?: () => void;
     /** Why removing the out doc a run before left fails, if it does. */
@@ -118,6 +127,8 @@ const setup = (
     restoreFails?: string;
   } = {},
 ) => {
+  const scans: { clone: string; branch: string; since: string; signal: AbortSignal | undefined }[] =
+    [];
   const counts: {
     clone: string;
     branch: string;
@@ -200,6 +211,11 @@ const setup = (
       more.whileCounting?.();
       return more.commits ?? { kind: 'counted', count: 1 };
     },
+    scan: async (clone, branch, since, signal) => {
+      scans.push({ clone, branch, since, signal });
+      more.whileScanning?.();
+      return more.scanned ?? { kind: 'scanned', findings: [] };
+    },
   };
   return {
     calls,
@@ -211,6 +227,7 @@ const setup = (
     copied,
     waits,
     counts,
+    scans,
     runner: claudeBrewerRunnerWith(deps),
   };
 };
@@ -534,6 +551,88 @@ describe('claudeBrewerRunner', () => {
       const { counts, runner } = setup({ lines: fixture('success.jsonl'), result: exited(0) });
       await runner.start(attempt).ended;
       assert.deepEqual(counts, []);
+    });
+
+    describe('the secret scan of its commits (ADR 0187)', () => {
+      const tip = '0123456789abcdef0123456789abcdef01234567';
+      const finding = { commit: tip, place: 'test/keys.test.ts', kind: 'GitHub token' };
+
+      it("scans the commits after the start on the attempt's branch in the clone when it ends done, and succeeds on none", async () => {
+        const { scans, runner } = setup(clean, { plan: counting });
+        const end = await runner.start(committing).ended;
+        assert.equal(end.ending.kind, 'succeeded');
+        assert.deepEqual(
+          scans.map(({ clone, branch, since }) => [clone, branch, since]),
+          [['/work/clone.git', 'foedrum/21-1/plan/1', start]],
+        );
+        assert.ok(scans[0]?.signal instanceof AbortSignal);
+      });
+
+      it('fails the attempt retryably on a finding, naming its commit, kind and place', async () => {
+        const { runner } = setup(clean, {
+          plan: counting,
+          scanned: { kind: 'scanned', findings: [finding] },
+        });
+        const { ending } = await runner.start(committing).ended;
+        assert.equal(ending.kind, 'failed');
+        assert.ok(ending.kind === 'failed' && ending.retryable);
+        assert.equal(
+          ending.kind === 'failed' ? ending.reason : '',
+          "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit 0123456789ab, GitHub token in test/keys.test.ts",
+        );
+      });
+
+      it('scans nothing when the attempt does not succeed, or made no commit', async () => {
+        const failing = setup(clean, {
+          plan: counting,
+          outDoc: outDoc({ status: 'failed', summary: 'No luck' }),
+        });
+        assert.equal((await failing.runner.start(committing).ended).ending.kind, 'failed');
+        assert.deepEqual(failing.scans, []);
+        const none = setup(clean, { plan: counting, commits: { kind: 'counted', count: 0 } });
+        assert.equal((await none.runner.start(committing).ended).ending.kind, 'blocked');
+        assert.deepEqual(none.scans, []);
+        const uncommitted = setup(clean, { plan: counting });
+        await uncommitted.runner.start(attempt).ended;
+        assert.deepEqual(uncommitted.scans, []);
+      });
+
+      it('blocks on the environment when git could not scan them, also when the scan throws', async () => {
+        const { runner } = setup(clean, {
+          plan: counting,
+          scanned: { kind: 'unscanned', reason: 'git log failed: fatal: bad object' },
+        });
+        assert.deepEqual((await runner.start(committing).ended).ending, {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary:
+            'the commits since ccccccc were not scanned for secrets: git log failed: fatal: bad object',
+        });
+        const throwing = setup(clean, {
+          plan: counting,
+          whileScanning: () => {
+            throw new Error('boom');
+          },
+        });
+        assert.deepEqual((await throwing.runner.start(committing).ended).ending, {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: 'the commits since ccccccc were not scanned for secrets: boom',
+        });
+      });
+
+      it("cancels an attempt stopped while its commits are scanned, with the attempt's own stop signal", async () => {
+        let stop = (): void => {};
+        const { scans, runner } = setup(clean, {
+          plan: counting,
+          whileScanning: () => stop(),
+          scanned: { kind: 'unscanned', reason: 'git log failed: git did not finish in time' },
+        });
+        const run = runner.start(committing);
+        stop = run.stop;
+        assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
+        assert.equal(scans[0]?.signal?.aborted, true);
+      });
     });
   });
 

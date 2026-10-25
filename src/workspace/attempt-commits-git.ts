@@ -3,7 +3,7 @@
 // and how many commits lie after it. Git runs only through the injected `Git`, so unit tests pass
 // a fake one (ADR 0021).
 
-import type { CommitsSeen } from '../engine/brewer-runner.ts';
+import type { CommitsScanned, CommitsSeen } from '../engine/brewer-runner.ts';
 import { inClone } from './clone-git.ts';
 import type { Git, GitResult } from './git.ts';
 
@@ -56,4 +56,21 @@ export const countCommits =
       return { kind: 'uncounted', reason: `git rev-list gave no count: ${JSON.stringify(count)}` };
     }
     return { kind: 'counted', count: Number(count) };
+  };
+
+/**
+ * Scans the commits on `branch` in `clone` after `since` as the push does (ADR 0079, ADR 0187);
+ * never throws, git's failure is `unscanned`.
+ */
+export type ScanCommits = (
+  clone: string,
+  branch: string,
+  since: string,
+  signal?: AbortSignal,
+) => Promise<CommitsScanned>;
+
+export const scanAttemptCommits =
+  (_shared: Git): ScanCommits =>
+  async () => {
+    throw new Error('not implemented');
   };
