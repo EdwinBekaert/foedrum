@@ -43,7 +43,7 @@ export interface StatusComments {
 }
 
 /** How long a text a brewer or an issue wrote may be in the comment. */
-const longest = 200;
+export const longest = 200;
 /**
  * How much of such a text is read for secrets (ADR 0088): what can be shown, and room past it for
  * a match that starts there, so a token cut at `longest` is still found whole.

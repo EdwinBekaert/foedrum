@@ -5,13 +5,10 @@ import { orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
-import { roundsText, STEP_BACK } from '../engine/status-comment.ts';
+import { longest, roundsText, STEP_BACK } from '../engine/status-comment.ts';
 import type { StuckReason } from '../schemas/events.ts';
 import { columns } from './columns.ts';
 import { describeLane } from './status.ts';
-
-/** How long a finding's text may be on its line, as in the status comment. */
-const LONGEST = 200;
 
 /**
  * The open findings a findings route that ran out of rounds left, one line each with secrets left
@@ -23,7 +20,7 @@ const openLines = (state: State, batch: Batch, reason: StuckReason): string[] =>
   const isCommit = knownCommits(state, batch.id);
   const shown = (text: string): string => {
     const line = withoutSecrets(text, stepId, isCommit).replace(/\s+/g, ' ').trim();
-    return line.length <= LONGEST ? line : `${line.slice(0, LONGEST - 1)}…`;
+    return line.length <= longest ? line : `${line.slice(0, longest - 1)}…`;
   };
   const listed = roundsOut.open.map(
     (finding) => `    ${shown(findingText(finding))}: ${shown(finding.why)}`,
