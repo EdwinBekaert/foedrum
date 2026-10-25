@@ -120,7 +120,8 @@ describe('the demo Brewery', () => {
   };
 
   it('is one serve accepts, with the work root and the clone it is given', () => {
-    const { ready } = demo();
+    // Under Foedrum's defaults, as serve always reads it: the Brewery's recipe names their brewers.
+    const { ready } = demo(readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')).defaults);
     assert.equal(ready.kind, 'ready', JSON.stringify(ready));
     if (ready.kind !== 'ready') return;
     const { setup } = ready;
