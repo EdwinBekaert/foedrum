@@ -1,6 +1,6 @@
 # 0187. A committing brewer's attempt is scanned for secrets when it ends done
 
-Date: 2026-10-25 · Status: Accepted · Amends [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) (the scan also runs when a committing brewer's attempt ends `done`; the push's scan stays the last line) and [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (what a `done` with commits needs)
+Date: 2026-10-25 · Status: Accepted · Amends [0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md) (the scan also runs when a committing brewer's attempt ends `done`; the push's scan stays the last line), [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (what a `done` with commits needs), and [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) and [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (a retry after the secret scan gets one input of why, after the route's)
 
 ## Context
 The push scans every commit of a batch for what looks like a secret ([ADR 0079](0079-the-push-scans-the-batch-s-commits-for-secrets.md)), once, in the openPullRequest action, at the end of the recipe.
@@ -23,6 +23,9 @@ So a scan when the step's attempt ends lets its retry write the fixture another 
   The failed outcome carries `secrets: true`, so the plan knows it from the event log.
   The plan of a fresh retry whose attempt before carries it gives it one input, last, with that reason and the advice to build a key-shaped value at run time, never as a literal (`scanRetryOf`, `src/brewers/attempt-plan.ts`, source `why step <step> runs again: the secret scan of <step>#<n>`); a reason that looks like a secret is left out as a route's is (`leftOutReason`).
   A resumed retry is told only to go on, as before.
+  [ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) says an attempt no route scheduled gets nothing new; this retry is the one exception, for this one reason.
+- **A turn overrun wins over the scan.** The turn budget rule settles the attempt as failed before its out doc is read ([ADR 0175](0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)), so an overrun is never a `done` and is never scanned: one outcome carries `overran: "turns"` or `secrets: true`, never both.
+  Its retry resumes on the same branch; when that run ends `done`, its commits are scanned from the step's first start (ADR 0078), the overrun's commits with them.
 - **A git failure while scanning blocks the attempt on its environment**, as git's failure while counting does (ADR 0074): `the commits since <start> were not scanned for secrets: <reason>`.
   A stop while it scans ends the attempt cancelled.
 - **The push's scan stays as it is**, the last line: commits that no attempt's scan read still reach it (a merge of the base before the last check, ADR 0164; a rewind's commits, ADR 0025; a step whose brewer does not produce commits but commits anyway, ADR 0066), and it is the one point every pushed commit passes.
@@ -33,6 +36,7 @@ So a scan when the step's attempt ends lets its retry write the fixture another 
 - A brewer that resumes its session on a retry (`retryMode: resume`, [ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)) continues on the same branch, so its retry must rewrite the commit to pass, which its git rules may not allow; no default brewer resumes on a retry.
 - Each committing attempt that ends `done` with commits costs the push's git calls in the clone (three `git log` calls and a `rev-list` of its merges, a `diff` per merge, and a `cat-file` call when a hexadecimal word turns up) and a `rev-parse` of its branch.
 - A retry's prompt grows by one input only after the scan failed the attempt before it.
+- `step.finished` gains an optional field (`secrets` on a failed outcome, `schemas/event.json`); the outcome's schema is strict, so a Foedrum from before this decision cannot read an event log that holds one.
 - The push may now refuse less often, but its refusal, and its summary, do not change.
 
 ## Alternatives considered
