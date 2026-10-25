@@ -1,6 +1,6 @@
 # 0179. The live line redraws in place and leads with the batch's time
 
-Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-live-line-on-a-terminal.md) (the order of a redraw's calls, and the batch's time leading the line) and [0032](0032-routing-deadline-for-ordered-batches.md) (`batch.ordered` also records when it was ordered)
+Date: 2026-10-25 · Status: Accepted · Amends [0174](0174-foedrum-brew-keeps-a-live-line-on-a-terminal.md) (the order of a redraw's calls, and the batch's time leading the line), [0032](0032-routing-deadline-for-ordered-batches.md) (`batch.ordered` also records when it was ordered) and [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (`order_again`'s `batch.ordered` records `at` too, so the event has three optional fields)
 
 ## Context
 ADR 0174 redraws `foedrum brew`'s live line about once a second with `cursorTo(0)`, `clearLine(0)`, then the new text. Between the clear and the write the line is blank, and on a Windows console that blank frame shows: the line flickers (the fifth brew, batch 10-1, its first live run; #478).
