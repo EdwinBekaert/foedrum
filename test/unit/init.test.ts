@@ -23,6 +23,7 @@ const GITHUB: Readonly<Record<string, RepositoryFacts>> = {
     lockfile: true,
   },
   'acme/api': { base: 'main', packageJson: undefined, lockfile: false },
+  'other/web': { base: 'main', packageJson: node({}), lockfile: false },
 };
 
 interface Clone {
@@ -232,6 +233,24 @@ describe('foedrum init (ADR 0199)', () => {
     );
     assert.deepStrictEqual(again.written, []);
     assert.equal(clone.files.get('foedrum.jsonc'), before);
+  });
+
+  it('refuses a foedrum.jsonc that would not pass its schema, before writing anything', async () => {
+    const clone: Clone = { files: new Map([['foedrum.jsonc', '{ "colour": "amber" }']]) };
+    await assert.rejects(
+      init(['', ''], clone),
+      /^Error: foedrum.jsonc would not pass its schema: /,
+    );
+    assert.deepStrictEqual([...clone.files.keys()], ['foedrum.jsonc']);
+  });
+
+  it('lets a new repository take the alias of one it no longer lists', async () => {
+    const clone: Clone = { files: new Map() };
+    await init(['', 'acme/web', ''], clone);
+    const again = await init(['', 'other/web', '', 'y'], clone);
+    assert.ok(again.questions.includes('Alias of other/web [web]: '), again.questions.join('\n'));
+    const config = parsed(clone, 'foedrum.jsonc', BreweryConfig);
+    assert.deepStrictEqual(Object.keys(config.repositories), ['other/web']);
   });
 
   it("runs doctor at the end, shows its report, ends with its exit code and the plugin's commands", async () => {
