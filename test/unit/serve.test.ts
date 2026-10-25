@@ -327,6 +327,77 @@ describe('runServe', () => {
     assert.match(status[0]?.body ?? '', /<!-- foedrum:\["12-1","status\.\d+"\] -->$/);
   });
 
+  it('holds the machine awake only while an attempt runs, and lets the hold go when it stops (ADR 0195)', async () => {
+    const held: string[] = [];
+    const awake = {
+      attemptStarted: () => held.push('started'),
+      attemptEnded: () => held.push('ended'),
+      release: () => held.push('released'),
+    };
+    assert.equal(await runServe(setup, shell({ awake })), 0);
+    // The brew step's attempt; the openPullRequest action is no attempt.
+    assert.deepStrictEqual(held, ['started', 'ended', 'released']);
+  });
+
+  describe('the hold when an attempt fails to start or end (ADR 0195)', () => {
+    const recording = () => {
+      const held: string[] = [];
+      const awake = {
+        attemptStarted: () => held.push('started'),
+        attemptEnded: () => held.push('ended'),
+        release: () => held.push('released'),
+      };
+      return { held, awake };
+    };
+    /** Every start is matched by its end before the next, and the hold is let go last. */
+    const balanced = (held: readonly string[]) => {
+      assert.ok(held.length >= 3, held.join(', '));
+      assert.equal(held.at(-1), 'released');
+      const pairs = held.slice(0, -1);
+      assert.ok(
+        pairs.every((entry, index) => entry === (index % 2 === 0 ? 'started' : 'ended')),
+        held.join(', '),
+      );
+    };
+
+    it('ends the attempt the runner could not start', async () => {
+      const { held, awake } = recording();
+      const broken: BrewerRunner = {
+        start: () => {
+          throw new Error('the runner broke');
+        },
+        progress: () => undefined,
+      };
+      assert.equal(await runServe(setup, shell({ runner: () => broken, awake })), 0);
+      balanced(held);
+    });
+
+    it('ends the attempt whose end rejected', async () => {
+      const { held, awake } = recording();
+      const broken: BrewerRunner = {
+        start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
+        progress: () => undefined,
+      };
+      assert.equal(await runServe(setup, shell({ runner: () => broken, awake })), 0);
+      balanced(held);
+    });
+
+    it('lets the hold go when closing its store fails', async () => {
+      const { held, awake } = recording();
+      const failing = {
+        ...store,
+        close: () => {
+          throw new Error('the store did not close');
+        },
+      };
+      await assert.rejects(
+        runServe(setup, shell({ awake, openStore: () => failing })),
+        /the store did not close/,
+      );
+      assert.equal(held.at(-1), 'released');
+    });
+  });
+
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
     const text = '---\n{"status":"done","summary":"Brewed"}\n---\nNotes.\n';
     const runner = (): BrewerRunner => ({

@@ -10,6 +10,7 @@ import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import { type ServeRepository, type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { fakeGit, suiteFolders } from '../helpers/attempt-worktrees.ts';
 import { clone, local, serveInputs } from '../helpers/serve-brewery.ts';
@@ -341,5 +342,61 @@ describe('serveShell', () => {
     await shell.worktrees(managed);
     const cloned = calls.find(([, command]) => command === 'clone');
     assert.equal(cloned?.includes('--reference'), false);
+  });
+
+  describe('keeping the machine awake while an attempt runs (ADR 0195)', () => {
+    const caffeinate = { kind: 'caffeinate', program: '/usr/bin/caffeinate' } as const;
+    const recording = () => {
+      const started: string[] = [];
+      const exec: ExecProcess = (file, args) => {
+        started.push([file, ...args].join(' '));
+        return new Promise(() => {});
+      };
+      return { started, exec };
+    };
+
+    it("holds the machine awake through this machine's mechanism, watching Foedrum's process", () => {
+      const { started, exec } = recording();
+      const shell = serveShell(setup, {
+        root: 'brewery',
+        git: fakeGit().git,
+        out: () => {},
+        listen: () => {},
+        keepAwake: { mechanism: caffeinate, pid: 4242, exec },
+      });
+      (shell.awake ?? assert.fail('the shell has no hold')).attemptStarted();
+      assert.deepStrictEqual(started, ['/usr/bin/caffeinate -i -w 4242']);
+    });
+
+    it('starts nothing when the Brewery or this machine says keepAwake: false', () => {
+      const { started, exec } = recording();
+      const off = serveSetup(
+        serveInputs({
+          files: { ...serveInputs().files, local: local({ workRoot, keepAwake: false }) },
+        }),
+      );
+      const shell = serveShell(off.kind === 'ready' ? off.setup : assert.fail(), {
+        root: 'brewery',
+        git: fakeGit().git,
+        out: () => {},
+        listen: () => {},
+        keepAwake: { mechanism: caffeinate, pid: 4242, exec },
+      });
+      (shell.awake ?? assert.fail('the shell has no hold')).attemptStarted();
+      assert.deepStrictEqual(started, []);
+    });
+
+    it('starts nothing on a machine with no mechanism', () => {
+      const { started, exec } = recording();
+      const shell = serveShell(setup, {
+        root: 'brewery',
+        git: fakeGit().git,
+        out: () => {},
+        listen: () => {},
+        keepAwake: { mechanism: { kind: 'none', why: 'no caffeinate on PATH' }, pid: 4242, exec },
+      });
+      (shell.awake ?? assert.fail('the shell has no hold')).attemptStarted();
+      assert.deepStrictEqual(started, []);
+    });
   });
 });

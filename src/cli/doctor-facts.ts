@@ -2,10 +2,12 @@
 // version through the process runner, and asks gh for its login and git for its credential
 // helpers (ADR 0073). doctor.ts decides what the answers mean.
 
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BreweryFiles } from '../engine/recipe-files.ts';
 import type { DenylistState } from '../platform/denylist.ts';
 import { withoutGitHubTokens } from '../platform/env.ts';
+import { awakeMechanism } from '../platform/keep-awake.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import {
   type CommandRun,
@@ -57,6 +59,8 @@ export interface DoctorShell {
   env?: NodeJS.ProcessEnv;
   /** The GitHub host to ask gh about; default the one `foedrum.jsonc` in `cwd` names. */
   githubHost?: string;
+  /** Whether a path exists, for the keep-awake mechanism (ADR 0195); default `existsSync`. */
+  exists?: (path: string) => boolean;
   /** On Linux, whether AppArmor restricts unprivileged user namespaces; undefined when unknown. */
   restrictsUserns?: () => boolean | undefined;
 }
@@ -134,6 +138,13 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     node: shell.node,
     tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
     github: { host, login, credentials },
+    // Found on PATH, never run: starting it would hold the machine awake (ADR 0195).
+    keepAwake: awakeMechanism({
+      platform: shell.platform,
+      resolve,
+      env: shell.env ?? process.env,
+      exists: shell.exists ?? existsSync,
+    }),
     ...(jobObject === undefined ? {} : { jobObject }),
     ...(restrictsUserns === undefined ? {} : { restrictsUserns }),
     ...(config === undefined ? {} : { config }),

@@ -10,7 +10,7 @@ import { brewOwner } from './driver-owner.ts';
 import { liveTerminal } from './live-terminal.ts';
 import type { CliResult } from './run.ts';
 import type { ServeShell } from './serve.ts';
-import { readServeSetup, type StartOptions } from './serve-main.ts';
+import { readServeSetup, type StartOptions, thisMachineAwake } from './serve-main.ts';
 import { listenWhileServing, serveShell } from './serve-shell.ts';
 
 /**
@@ -44,6 +44,7 @@ export const brewFromCheckout = async (
         out: terminal?.print ?? ((line) => process.stdout.write(`${line}\n`)),
         listen: listening.listen,
         command: 'brew',
+        keepAwake: thisMachineAwake(options),
       }),
       // A live line only where standard output is a terminal that takes it (ADR 0174).
       ...(terminal === undefined ? {} : { terminal }),

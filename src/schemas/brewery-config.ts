@@ -162,6 +162,12 @@ export const BreweryConfig = z
       })
       .optional()
       .describe('The isolation the Brewery needs; for now only check steps refuse to run below it'),
+    keepAwake: z
+      .boolean()
+      .optional()
+      .describe(
+        'Whether brew and serve keep the machine from sleeping on its idle timer while an attempt runs; default true (ADR 0195)',
+      ),
     permissionCeiling: z
       .array(CeilingTool)
       .default([])

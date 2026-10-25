@@ -53,6 +53,10 @@
       ],
       "additionalProperties": false
     },
+    "keepAwake": {
+      "description": "Whether brew and serve keep the machine from sleeping on its idle timer while an attempt runs; default true (ADR 0195)",
+      "type": "boolean"
+    },
     "permissionCeiling": {
       "default": [],
       "description": "The most any repository may add to its brewers; a rule covers narrower ones",

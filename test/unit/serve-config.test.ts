@@ -625,3 +625,20 @@ describe("serveSetup: Foedrum's default models (ADR 0153)", () => {
     );
   });
 });
+
+describe('serveSetup: keeping the machine awake (ADR 0195)', () => {
+  const keepAwake = (brewery: Record<string, unknown>, machine: Record<string, unknown>) =>
+    ready(inputs({ files: { ...inputs().files, config: config(brewery), local: local(machine) } }))
+      .keepAwake;
+
+  it('keeps the machine awake by default', () => {
+    assert.equal(keepAwake({}, {}), true);
+  });
+
+  it('takes keepAwake from foedrum.jsonc, and from .foedrum/local.jsonc before it', () => {
+    assert.equal(keepAwake({ keepAwake: false }, {}), false);
+    assert.equal(keepAwake({}, { keepAwake: false }), false);
+    assert.equal(keepAwake({ keepAwake: false }, { keepAwake: true }), true);
+    assert.equal(keepAwake({ keepAwake: true }, { keepAwake: false }), false);
+  });
+});
