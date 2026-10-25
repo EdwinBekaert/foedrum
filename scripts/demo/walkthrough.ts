@@ -41,7 +41,7 @@ export const STEPS: readonly Step[] = [
     id: 'order',
     title: 'The order comes in',
     lookFor:
-      "an issue in the Brewery, labelled recipe:nip by a user it lists, is all serve needs to take it as a batch for Nip, the recipe in Foedrum's defaults.",
+      "an issue in the Brewery, labelled recipe:nip-parallel by a user it lists, is all serve needs to take it as a batch for the Brewery's own recipe: Nip's steps from Foedrum's defaults, with its taste step a parallel group of three lenses.",
   },
   {
     id: 'brewing',
@@ -59,13 +59,13 @@ export const STEPS: readonly Step[] = [
     id: 'checks',
     title: 'The red proof and the failed check',
     lookFor:
-      "red #1 must see the Gauger's test fail before implement #1 may start; green #1 fails the Cellarman's first fix, so implement #2 starts, told why, with the failed test's own line.",
+      "red #1 must see the Gauger's test fail before implement #1 may start; green #1 fails the Cellarman's first fix, so implement #2 starts, told why, with the failed test's own line; once green #2 passes, foedrum status shows the Tasters' correctness #1, security #1 and test-design #1 brewing at once.",
   },
   {
     id: 'pull-request',
     title: 'The pull request and the status comment',
     lookFor:
-      'one pull request and one status comment on the fake code host, though the Cellar lived twice.',
+      "one pull request and one status comment on the fake code host, though the Cellar lived twice; its path line has the three lens attempts side by side, and its Findings each one's findings under its own step.",
   },
   {
     id: 'on-tap',
