@@ -159,11 +159,14 @@ const nodeTools = (checks: Record<string, string | null>): string[] =>
     return [script];
   });
 
-/** A repository's `package.json` scripts, `undefined` when it has no package.json that reads. */
+/**
+ * A repository's `package.json` scripts; `undefined` when it has none that reads: not there, over
+ * GitHub's 1 MB (`''`) or not a JSON object. A byte order mark is read past, as npm does.
+ */
 const scriptsOf = (packageJson: string | undefined): Json | undefined => {
   if (packageJson === undefined) return undefined;
   try {
-    const value: unknown = JSON.parse(packageJson);
+    const value: unknown = JSON.parse(packageJson.replace(/^\uFEFF/, ''));
     if (!isRecord(value)) return undefined;
     return isRecord(value.scripts) ? value.scripts : {};
   } catch {
@@ -202,6 +205,14 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       if ('value' in parsed) return parsed.value;
       say(`  ${parsed.refused}`);
     }
+  };
+
+  // A yes or no, `byDefault` for an empty answer.
+  const confirm = async (question: string, byDefault: boolean): Promise<boolean> => {
+    const answer = await ports.ask(question);
+    if (answer === undefined) throw new NoAnswer(question.replace(/ \[.*$/, ''));
+    const given = answer.trim();
+    return given === '' ? byDefault : /^y(?:es)?$/i.test(given);
   };
 
   // The files written or changed, said before doctor's report.
@@ -261,10 +272,14 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       }
       // Read while the targets were asked.
       const read = facts.get(repo) as RepositoryFacts;
-      const scripts = scriptsOf(read.packageJson);
-      say(
-        `Read ${repo}: base ${read.base}, ${scripts === undefined ? 'no package.json' : 'checks from package.json'}`,
-      );
+      const readScripts = scriptsOf(read.packageJson);
+      const found =
+        read.packageJson === undefined
+          ? 'no package.json'
+          : readScripts === undefined
+            ? 'a package.json it could not read'
+            : 'checks from package.json';
+      say(`Read ${repo}: base ${read.base}, ${found}`);
       const suggested = suggestedAlias(repo);
       const alias = await ask(
         `Alias of ${repo}`,
@@ -280,6 +295,15 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
         },
       );
       aliases.add(alias);
+      // What it read of a Node repository, proposed for the user to confirm (ADR 0023).
+      let scripts = readScripts;
+      if (scripts !== undefined) {
+        const proposed = nodeChecks(scripts);
+        for (const check of CheckName.options) say(`  ${check}: ${proposed[check] ?? 'none'}`);
+        say(`  setup: ${read.lockfile ? 'npm ci' : 'none'}`);
+        say(`  tools: ${nodeTools(proposed).join(', ') || 'none'}`);
+        if (!(await confirm(`Use these for ${repo}? [Y/n]: `, true))) scripts = undefined;
+      }
       let checks: Record<string, string | null>;
       if (scripts === undefined) {
         checks = {};
@@ -349,9 +373,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       }
       say(`${plan.path} would change:`);
       for (const change of plan.changes) say(`  ${change}`);
-      const answer = await ports.ask(plan.question ?? `Change ${plan.path}? [y/N]: `);
-      if (answer === undefined) throw new NoAnswer(`Change ${plan.path}?`);
-      if (/^y(?:es)?$/i.test(answer.trim())) {
+      if (await confirm(plan.question ?? `Change ${plan.path}? [y/N]: `, false)) {
         files.write(plan.path, plan.text);
         written.push(plan.path);
         say(`Changed ${plan.path}`);
@@ -389,8 +411,10 @@ const planIgnore = (was: string | undefined): Planned => {
   if (lines.some((line) => ['.foedrum', '/.foedrum'].includes(line.replace(/\/$/, '')))) {
     return { path, text: was, changes: [] };
   }
-  const end = was === '' || was.endsWith('\n') ? '' : '\n';
-  return { path, text: `${was}${end}${IGNORED}\n`, changes: [`+ ${IGNORED}`] };
+  // The line ending the file has, so a CRLF file stays one.
+  const eol = was.includes('\r\n') ? '\r\n' : '\n';
+  const end = was === '' || was.endsWith('\n') ? '' : eol;
+  return { path, text: `${was}${end}${IGNORED}${eol}`, changes: [`+ ${IGNORED}`] };
 };
 
 /** `.claude/settings.json` with the plugin enabled, merged into the settings there. */
