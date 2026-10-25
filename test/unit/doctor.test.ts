@@ -1355,9 +1355,9 @@ describe('formatDiagnosis: keeping the machine awake (ADR 0195)', () => {
     assert.match(
       report({
         kind: 'SetThreadExecutionState',
-        program: 'C:WindowsSystem32WindowsPowerShell\v1.0powershell.exe',
+        program: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
       }),
-      /\nKeep awake: SetThreadExecutionState through C:\Windows\System32\WindowsPowerShell\v1\.0powershell\.exe while an attempt runs/,
+      /\nKeep awake: SetThreadExecutionState through C:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe while an attempt runs/,
     );
   });
 

@@ -130,6 +130,7 @@ describe('keepAwake', () => {
   const fakeExec = () => {
     const started: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
     const ends: ((result: ExecResult) => void)[] = [];
+    const endedAlone = new Set<number>();
     const exec: ExecProcess = (file, args, options) =>
       new Promise((done) => {
         started.push({ file, args, options });
@@ -138,8 +139,13 @@ describe('keepAwake', () => {
           done({ exitCode: null, stdout: '', stderr: '', output: '', killed: 'stopped' }),
         );
       });
-    const live = () => started.filter(({ options }) => options.signal?.aborted !== true).length;
+    // Neither stopped nor ended on its own.
+    const live = () =>
+      started.filter(
+        ({ options }, index) => options.signal?.aborted !== true && !endedAlone.has(index),
+      ).length;
     const end = async (index: number) => {
+      endedAlone.add(index);
       ends[index]?.({ exitCode: 1, stdout: '', stderr: '', output: '' });
       await new Promise((settle) => setImmediate(settle));
     };
