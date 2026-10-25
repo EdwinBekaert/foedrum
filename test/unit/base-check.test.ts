@@ -315,6 +315,40 @@ describe('checkBases', () => {
     ]);
   });
 
+  it('records nothing for a bottle branch the remote no longer has: the end comes next', async () => {
+    onTap();
+    const { repository, calls, state } = fakeRepository({ [tip1]: conflicts('src/a.ts') });
+    state.branch = undefined;
+    await pass(repository);
+    assert.deepStrictEqual(calls, ['tip main']);
+    assert.equal(batch().baseChecks, undefined);
+    assert.deepStrictEqual(failures, []);
+  });
+
+  it("reports a bottle branch's tip it cannot read, records nothing, and reads it again next pass", async () => {
+    onTap();
+    const { repository, calls, branchCalls } = fakeRepository({ [tip1]: clean });
+    const broken: BaseCheckRepository = {
+      ...repository,
+      branchTip: async (branch, signal) => {
+        await repository.branchTip(branch, signal);
+        throw new Error('fatal: could not read from remote repository');
+      },
+    };
+    await pass(broken);
+    await pass(broken);
+    assert.deepStrictEqual(calls, ['tip main', 'tip main']);
+    assert.equal(branchCalls.length, 2);
+    assert.equal(batch().baseChecks, undefined);
+    assert.deepStrictEqual(
+      failures.map(({ what, error }) => [what, (error as Error).message]),
+      Array(2).fill([
+        'reading the tip of foedrum/x/acme.web in acme/web',
+        'fatal: could not read from remote repository',
+      ]),
+    );
+  });
+
   it("reads the bottle branch's tip only when the base's tip moved", async () => {
     onTap();
     const { repository, branchCalls } = fakeRepository({ [tip1]: clean });
