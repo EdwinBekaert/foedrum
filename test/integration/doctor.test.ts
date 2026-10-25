@@ -92,7 +92,7 @@ const DENYLIST_LINE =
 // The stubs' PATH has no caffeinate or systemd-inhibit; Windows PowerShell is in System32 (ADR 0195).
 const KEEP_AWAKE_LINE =
   process.platform === 'win32'
-    ? `Keep awake: SetThreadExecutionState through ${win32.join(environmentVariable(process.env, 'SYSTEMROOT', 'win32') ?? 'C:Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')} while an attempt runs (keepAwake: false turns it off, ADR 0195)`
+    ? `Keep awake: SetThreadExecutionState through ${win32.join(environmentVariable(process.env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')} while an attempt runs (keepAwake: false turns it off, ADR 0195)`
     : `Keep awake: none (no ${process.platform === 'darwin' ? 'caffeinate' : 'systemd-inhibit'} on PATH); the machine may sleep while an attempt runs (ADR 0195)`;
 // What each tool prints for its version, in its own format, with the versions of the captures in
 // test/unit (doctor.test.ts, doctor-facts.test.ts and cli.test.ts's report); gh's come from
