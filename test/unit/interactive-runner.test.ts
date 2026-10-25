@@ -216,6 +216,28 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     assert.deepEqual(foreground, []);
   });
 
+  // Review of #491: the session never opens without the engine's rules.
+  it('does not start claude when the system prompt file cannot be written', async () => {
+    const systemPrompt = { file: resolve('work', 'settings.system.md'), text: '- Do not push.\n' };
+    const files = {
+      writeSettings: () => {},
+      writeSystemPrompt: () => {
+        throw new Error('EACCES');
+      },
+      readOutDoc: () => written,
+      clearOutDoc: () => {},
+    };
+    const resumed = { ...plan('resume'), systemPrompt };
+    const { ending } = await runner('resume', { files, plan: async () => resumed }).start(attempt)
+      .ended;
+    assert.deepEqual(ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the brewer could not start: EACCES',
+    });
+    assert.deepEqual(foreground, []);
+  });
+
   it('reports progress while the session is open, so its lease is renewed and it never stalls, and leaves it open on a stop', async () => {
     let close: (code: number) => void = () => {};
     const open = runner('resume', {

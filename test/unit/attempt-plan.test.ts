@@ -1168,6 +1168,23 @@ describe('planAttempt', () => {
     );
   });
 
+  // Review of #491: only the example's own command allows it, never one that starts it.
+  it('still names an example that a command starts only part of a word of', () => {
+    const tools = { allow: ['Bash(git sh*)', 'Bash(git lo*)'], deny: [] };
+    const plan = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.match(
+      rulesOf(plan),
+      /refused, read-only ones too, such as git log, git diff and git show\./,
+    );
+  });
+
+  it('gives a brewer with a shell and no Edit or Write no file-tools rule', () => {
+    const tools = { allow: ['Read', 'Bash(npm test)'], deny: [] };
+    const plan = planAttempt({ ...facts({ tools }), repoTools: [] });
+    assert.match(rulesOf(plan), /Your shell runs only these commands: npm test\./);
+    assert.doesNotMatch(rulesOf(plan), /through the shell|Write and change files/);
+  });
+
   it('tells a read-only brewer without a shell only not to push', () => {
     const tools = { allow: ['Read', 'Grep'], deny: [] };
     const plan = planAttempt({ ...facts({ tools, access: 'read' }), repoTools: [] });

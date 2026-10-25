@@ -108,6 +108,8 @@ const setup = (
     whileCounting?: () => void;
     /** Why removing the out doc a run before left fails, if it does. */
     clearFails?: string;
+    /** Why writing the system prompt file fails, if it does. */
+    systemPromptFails?: string;
   } = {},
 ) => {
   const counts: {
@@ -152,6 +154,7 @@ const setup = (
       },
       writeSystemPrompt: (file, text) => {
         prompted.push({ file, text, starts: calls.length });
+        if (more.systemPromptFails !== undefined) throw new Error(more.systemPromptFails);
       },
       readOutDoc: (file, maxBytes, root = '') => {
         read.push({ file, maxBytes, root });
@@ -1216,6 +1219,18 @@ describe('claudeBrewerRunner: the system prompt file (ADR 0183)', () => {
     assert.deepEqual(prompted, [{ ...systemPrompt, starts: 0 }]);
     assert.deepEqual(calls[0]?.args.slice(-2), ['--append-system-prompt-file', systemPrompt.file]);
     assert.ok(calls[0]?.args.includes('--resume'));
+  });
+
+  // Review of #491: claude never starts without its rules.
+  it('does not start claude when the file cannot be written', async () => {
+    const { calls, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: async () => withRules('new'), systemPromptFails: 'EACCES: permission denied' },
+    );
+    const { ending } = await runner.start(attempt).ended;
+    assert.deepEqual(calls, []);
+    assert.equal(ending.kind, 'failed');
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /EACCES/);
   });
 });
 
