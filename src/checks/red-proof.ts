@@ -110,7 +110,7 @@ function declares(name: string, lines: readonly string[]): boolean {
 
 /** What ends a line's text before a called name: a pair, a character or a word that opens an expression. */
 const EXPRESSION_END =
-  /(?:=>|->|::|&&|\|\||[=(,[{!:+\-/%|^~;]|(?:^|\s)\?|(?<![\p{L}\p{N}_])(?:return|await|yield|throw|raise|new|typeof|in|of|case|else|do|then|if|elif|while|unless|until|when|match|with|defer|go|not|and|or|assert))$/u;
+  /(?:=>|->|::|&&|\|\||[=(,[{}<!:+\-/%|^~;]|(?:^|\s)\?|(?<![\p{L}\p{N}_])(?:return|await|yield|throw|raise|new|typeof|in|of|case|else|do|then|if|elif|while|unless|until|when|match|with|defer|go|not|and|or|assert))$/u;
 
 /** The longest word of EXPRESSION_END, plus the character before it and the one before `?`. */
 const TAIL = 8;
