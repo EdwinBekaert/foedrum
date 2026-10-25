@@ -516,6 +516,16 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
     assert.deepEqual(pushes, []);
   });
 
+  it('still scans from the base, not from the start of the attempt whose own scan passed, and refuses what it finds (ADR 0187)', async () => {
+    const { actions, pushes, scans } = actionsWith({ found });
+    keysOf(brewing(), actions);
+    const result = await actions.target.apply(push);
+    // The task tree's attempt started at `other`: its own scan read only what came after it.
+    assert.deepEqual(scans, [`${base}..${tip}`]);
+    assert.deepEqual((result as { refused?: ScanFinding[] }).refused, found);
+    assert.deepEqual(pushes, []);
+  });
+
   it('scans nothing when there is nothing to push', async () => {
     const { actions, scans } = actionsWith({ main: tip, found });
     keysOf(brewing(), actions);
