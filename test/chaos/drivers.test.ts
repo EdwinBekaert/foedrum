@@ -330,10 +330,25 @@ describe('two drivers on one store', () => {
     };
     // The phase of correctness#3 after each move from the last one played on.
     const phases: (string | undefined)[] = [];
+    // What the check says in move 7 when the tick began with these leases instead.
+    const stillWaiting = (run: ChaosRun, leases: { attemptKey: string; owner: string }[]) =>
+      assert.throws(
+        () => nothingLeftWaiting({ ...run, engine: { ...run.engine, leasedAtTick: () => leases } }),
+        /batch 2-1 has correctness#3 scheduled and not started/,
+      );
     const watching: ChaosChecks = {
       afterMove: (run, move, survived) => {
         checks.afterMove?.(run, move, survived);
         if (run.moves.length < schedule.moves.length) return;
+        if (run.moves.length === schedule.moves.length) {
+          const first = attemptKey.encode(ref('correctness', 1));
+          // Without the lease, of the batch's holder, or of an attempt not over: not excused.
+          stillWaiting(run, []);
+          stillWaiting(run, [{ attemptKey: first, owner: 'cellar' }]);
+          stillWaiting(run, [
+            { attemptKey: attemptKey.encode(ref('correctness', 3)), owner: 'session' },
+          ]);
+        }
         const attempt = run.engine
           .state()
           .batches.get('2-1')
@@ -345,7 +360,10 @@ describe('two drivers on one store', () => {
     };
     const failure = await trialChaos(dir.path, { schedule }, watching, { drivers });
     if (failure !== undefined) throw failure.error;
-    assert.equal(phases[0], 'scheduled', 'correctness#3 waits in move 7');
-    assert.notEqual(phases[1], 'scheduled', 'correctness#3 starts in the move after');
+    assert.deepStrictEqual(
+      phases.slice(0, 2),
+      ['scheduled', 'finished'],
+      'correctness#3 waits in move 7 and runs in the move after',
+    );
   });
 });
