@@ -881,6 +881,14 @@ describe('pullRequestText', () => {
     const reports = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
     const { body } = pullRequestText({ title: 'T', closes, reports });
     assert.match(body, /\n\*\*See it:\*\* `a `ann`\n/);
+    // Paired before it is made one line, the blank line would end the open span.
+    const apart = { seeIt: '`a\n\n`@ann`', beforeAfter: [] };
+    const shown = pullRequestText({
+      title: 'T',
+      closes,
+      reports: [{ stepId: 'implement', summary: 'S', assumptions: [], sections: apart }],
+    });
+    assert.match(shown.body, /\n\*\*See it:\*\* `a `ann`\n/);
   });
 
   it('keeps a cell within 200 characters once made safe (review of #490)', () => {
