@@ -30,12 +30,15 @@ import {
   changeStart,
   type InputRead,
   inputsOf,
+  type LaterRound,
   MAX_CHANGE_INPUT_BYTES,
   outDocCopyOf,
   type PlannedInput,
   planAttempt,
   type RegressionTests,
   type Resumed,
+  roundBefore,
+  roundChangeInput,
   routeInput,
   routeOf,
   scanRetryOf,
@@ -220,6 +223,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     head: string,
     regression: readonly RegressionTests[],
   ): Promise<PromptInput> => {
+    const { log, diff } = await commitsAndDiff(repo, since, head);
+    return changeInput(since, log, diff, regression);
+  };
+
+  /** The commits from `since` to `head` and their diff, as a change input reads them. */
+  const commitsAndDiff = async (repo: string, since: string, head: string) => {
     const read = gitIn(repo, `the change since commit ${since} was not read`);
     const cut = { maxOutputBytes: 2 * MAX_CHANGE_INPUT_BYTES, keepCut: true };
     // The first parents only: never the commits a merge of the base brought in (ADR 0164).
@@ -240,7 +249,48 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       ],
       cut,
     );
-    return changeInput(since, log, diff, regression);
+    return { log, diff };
+  };
+
+  /** Whether commit `ancestor` is on the line to `head` in the clone of `repo`. */
+  const onLine = async (repo: string, ancestor: string, head: string): Promise<boolean> => {
+    if (options.git === undefined) throw new Error('the change since the round before: no git');
+    const args = ['merge-base', '--is-ancestor', ancestor, head];
+    return (await inClone(options.git)(options.clone(repo), args)).code === 0;
+  };
+
+  /**
+   * For a later round of a lens step that reviews a diff (ADR 0190): the change from the commit
+   * the round before reviewed to `worktree`'s, read as the change is, and what the round is told.
+   * Never a range that is not the round's own: none when that commit is not on the line to HEAD,
+   * as after a rewind, or when the base `merged` since would bring what it added (ADR 0164).
+   */
+  const roundFor = async (
+    batch: Batch,
+    ref: AttemptRef,
+    worktree: WorktreeRef,
+    merged: string | undefined,
+  ): Promise<{ input?: PromptInput; laterRound?: LaterRound }> => {
+    const before = roundBefore(batch, ref);
+    if (before === undefined) return {};
+    const step = `${ref.stepId}#${before.attempt}`;
+    const unread = (why: string) => ({ laterRound: { kind: 'unread', step, why } as const });
+    if (before.kind === 'unfound') return unread('no commit it reviewed is recorded');
+    const { repo, commit } = before;
+    if (repo.toLowerCase() !== worktree.repo.toLowerCase()) {
+      return unread(`it reviewed ${repo}, not ${worktree.repo}`);
+    }
+    if (!(await onLine(repo, commit, worktree.commit))) {
+      return unread(`the commit it reviewed, ${commit}, is not on the line to HEAD`);
+    }
+    if (merged !== undefined && !(await onLine(repo, merged, commit))) {
+      return unread(`the base was merged in since, at ${merged}`);
+    }
+    const { log, diff } = await commitsAndDiff(repo, commit, worktree.commit);
+    return {
+      input: roundChangeInput(commit, log, diff),
+      laterRound: { kind: 'since', step, commit },
+    };
   };
 
   /**
@@ -318,7 +368,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     ref: AttemptRef,
     found: StepBrewer,
     worktree: WorktreeRef,
-  ): Promise<{ inputs: PromptInput[]; houseYeast?: HouseYeastSelection }> => {
+  ): Promise<{
+    inputs: PromptInput[];
+    houseYeast?: HouseYeastSelection;
+    laterRound?: LaterRound;
+  }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
     const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
@@ -328,9 +382,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
     // A Finer simplifies the change, so it reads it as a Taster of a diff does (ADR 0166).
-    const start = mergedBase(state(), batch.id) ?? changeStart(batch, worktree.repo);
-    const since =
-      found.lens?.startsWith('diff/') || found.brewer.output.schema === FINING ? start : undefined;
+    const merged = mergedBase(state(), batch.id);
+    const start = merged ?? changeStart(batch, worktree.repo);
+    const diffLens = found.lens?.startsWith('diff/') === true;
+    const since = diffLens || found.brewer.output.schema === FINING ? start : undefined;
+    let laterRound: LaterRound | undefined;
     if (since !== undefined) {
       // The regression tests the batch's steps named, for the test-design lens (ADR 0170).
       const regression = [...batch.steps.keys()].flatMap((step) => {
@@ -338,6 +394,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         return names.length === 0 ? [] : [{ step, names }];
       });
       inputs.push(await changeFor(worktree.repo, since, worktree.commit, regression));
+      // A later round of a lens step reviews the change since the round before (ADR 0190).
+      if (diffLens) {
+        const round = await roundFor(batch, ref, worktree, merged);
+        if (round.input !== undefined) inputs.push(round.input);
+        laterRound = round.laterRound;
+      }
     }
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;
@@ -358,7 +420,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // Its commits are gone: it writes what the scan named another way (ADR 0187).
     const scanned = scanRetryOf(batch, ref);
     if (scanned !== undefined) inputs.push(scanned);
-    return rules === undefined ? { inputs } : { inputs, houseYeast: rules.record };
+    return {
+      inputs,
+      ...(rules === undefined ? {} : { houseYeast: rules.record }),
+      ...(laterRound === undefined ? {} : { laterRound }),
+    };
   };
 
   return {
@@ -397,7 +463,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
           ? outDocCopyOf(settingsFileOf(workRoot, { ...ref, attempt: attempt - 1 }))
           : undefined;
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
-      const { inputs, houseYeast } =
+      const { inputs, houseYeast, laterRound } =
         resumes === undefined
           ? await inputsFor(batch, ref, found, worktree)
           : { inputs: latest === undefined ? [] : [latest] };
@@ -416,6 +482,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         sessionId: session.id,
         ...(resumes === undefined ? {} : { resumes }),
         ...(outDocFrom === undefined ? {} : { outDocFrom }),
+        ...(laterRound === undefined ? {} : { laterRound }),
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });

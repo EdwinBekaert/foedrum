@@ -9,6 +9,7 @@ import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
+import { ranIn } from '../engine/session-resume.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -25,6 +26,7 @@ import {
   TastingOutDoc,
 } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
+import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
@@ -81,6 +83,8 @@ export interface PlanFacts {
    * in a worktree that lost it (ADR 0175).
    */
   outDocFrom?: string;
+  /** For a later round of a lens step that reviews a diff, what it is told (ADR 0190). */
+  laterRound?: LaterRound;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
 }
@@ -297,6 +301,84 @@ ${diff}`;
     source: { kind: 'change', since },
     text: bounded(text, MAX_CHANGE_INPUT_BYTES, 'change input'),
   };
+}
+
+/**
+ * The round of a lens step before attempt `ref` that was blocked by findings (ADR 0190): the
+ * commit its worktree started at, which it reviewed, or `unfound` when nothing records one. None
+ * for a first round: a retry, or an attempt after an answer, belongs to the round of the attempt
+ * it follows, so it reviews what that round reviews.
+ */
+export function roundBefore(batch: Batch, ref: AttemptRef): RoundBefore | undefined {
+  const step = batch.steps.get(ref.stepId);
+  if (step === undefined) return undefined;
+  const before = (n: number) =>
+    step.attempts.get(Math.max(0, ...[...step.attempts.keys()].filter((each) => each < n)));
+  let first = step.attempts.get(ref.attempt);
+  while (first !== undefined && (first.retry === true || first.answered === true)) {
+    first = before(first.attempt);
+  }
+  const earlier = first === undefined ? undefined : before(first.attempt);
+  if (earlier?.phase !== 'finished' || !blockedByFindings(earlier.outcome)) return undefined;
+  const ran = ranIn(step, earlier);
+  return ran === undefined
+    ? { kind: 'unfound', attempt: earlier.attempt }
+    : { kind: 'reviewed', attempt: earlier.attempt, ...ran.worktree };
+}
+
+/** The round before a later one, as `roundBefore` finds it. */
+export type RoundBefore =
+  | { kind: 'reviewed'; attempt: number; repo: string; commit: string }
+  | { kind: 'unfound'; attempt: number };
+
+/** An outcome blocked by findings, as decide records a blocked out doc's (`finish`). */
+const blockedByFindings = (outcome: StepOutcome): boolean =>
+  outcome.kind === 'failed' &&
+  !outcome.retryable &&
+  outcome.reason.startsWith('blocked (findings): ');
+
+/**
+ * What a later round of a lens step that reviews a diff is told (ADR 0190): with the change since
+ * the round before, to review only that; without it, why, and to review the whole change.
+ */
+export type LaterRound =
+  | { kind: 'since'; step: string; commit: string }
+  | { kind: 'unread'; step: string; why: string };
+
+/** The change since the round before (ADR 0190): its commits and diff, held to its limit. */
+export function roundChangeInput(since: string, log: string, diff: string): PromptInput {
+  const text = `The commits after ${since}, up to HEAD:\n${log.trimEnd()}\n\nTheir diff:\n${diff}`;
+  return {
+    name: 'roundChange',
+    source: { kind: 'change', since },
+    text: bounded(text, MAX_CHANGE_INPUT_BYTES, 'change input'),
+  };
+}
+
+/** The engine's fixed text for every `diff/` lens of a later round (ADR 0190). */
+export function laterRoundText(round: LaterRound): string {
+  switch (round.kind) {
+    case 'since':
+      return [
+        '## A later round',
+        '',
+        `An earlier round of this step, ${round.step}, reviewed the change up to commit ${round.commit} and sent it back with findings. {roundChange} holds the change since that commit.`,
+        '',
+        '- Review only the change since the round before.',
+        '- Name a defect a fix brought in as such: say in its `why` that the fix brought it in.',
+        '- Leave alone what the earlier round already reviewed. {change} still holds the whole change, to read a fix in its context.',
+      ].join('\n');
+    case 'unread':
+      return [
+        '## A later round',
+        '',
+        `An earlier round of this step, ${round.step}, sent the change back with findings, but the change since the round before could not be read: ${round.why}. Review the whole change in {change}.`,
+      ].join('\n');
+    default: {
+      const unhandled: never = round;
+      throw new Error(`Unhandled round ${JSON.stringify(unhandled)}`);
+    }
+  }
 }
 
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
@@ -610,9 +692,11 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   );
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer));
+  // The engine's text for a later round, for every lens alike, never one lens's file (ADR 0190).
+  const round = facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)];
   const instructions =
     resumes === undefined
-      ? `${facts.instructions.trimEnd()}\n\n${contract}`
+      ? [facts.instructions.trimEnd(), ...round, contract].join('\n\n')
       : goOn(brewer.output.doc, resumes);
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
