@@ -26,6 +26,121 @@
             "type": "string",
             "pattern": "\\S"
           }
+        },
+        "dispositions": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "dismissed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "pre-existing"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
         }
       },
       "required": [
@@ -58,6 +173,121 @@
           "items": {
             "type": "string",
             "pattern": "\\S"
+          }
+        },
+        "dispositions": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "dismissed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "pre-existing"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              }
+            ]
           }
         },
         "questions": {
@@ -130,6 +360,121 @@
             "pattern": "\\S"
           }
         },
+        "dispositions": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "dismissed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "pre-existing"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
         "blockerKind": {
           "type": "string",
           "enum": [
@@ -170,6 +515,121 @@
           "items": {
             "type": "string",
             "pattern": "\\S"
+          }
+        },
+        "dispositions": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "dismissed"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "disposition": {
+                    "type": "string",
+                    "const": "pre-existing"
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "disposition",
+                  "why"
+                ],
+                "additionalProperties": false
+              }
+            ]
           }
         }
       },

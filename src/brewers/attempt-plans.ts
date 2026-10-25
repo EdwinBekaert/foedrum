@@ -18,7 +18,13 @@ import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import { FINING, OutDocFrontmatter } from '../schemas/out-doc.ts';
+import {
+  FINING,
+  OutDocFrontmatter,
+  readOutDoc,
+  TASTING,
+  TastingOutDoc,
+} from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
@@ -28,6 +34,9 @@ import {
   attemptLimits,
   changeInput,
   changeStart,
+  type EarlierRound,
+  earlierFindingsInput,
+  earlierRoundsOf,
   type InputRead,
   inputsOf,
   type LaterRound,
@@ -308,6 +317,39 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
+   * For a later round of a lens step (ADR 0191): the earlier rounds' findings with their
+   * dispositions, a blocked round's read from the out doc in its worktree as the route input reads
+   * it (ADR 0128); none for a first round. An out doc that cannot be read is not an error: its round
+   * says so.
+   */
+  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, found: StepBrewer) => {
+    const planned = earlierRoundsOf(batch, ref, found.brewer.output.doc);
+    if (planned.length === 0) return undefined;
+    const rounds = planned.map((round): EarlierRound => {
+      if (!('outDoc' in round)) return round;
+      const { step, dispositions, outDoc } = round;
+      const read = files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
+      switch (read.kind) {
+        case 'text': {
+          const doc = readOutDoc(read.text, TastingOutDoc);
+          return doc.valid
+            ? { step, dispositions, findings: doc.frontmatter.findings }
+            : { step, dispositions, unread: `its out doc is invalid: ${doc.reason}` };
+        }
+        case 'missing':
+          return { step, dispositions, unread: 'it is missing' };
+        case 'unread':
+          return { step, dispositions, unread: read.reason };
+        default: {
+          const unhandled: never = read;
+          throw new Error(`Unhandled read ${JSON.stringify(unhandled)}`);
+        }
+      }
+    });
+    return earlierFindingsInput(ref.stepId, rounds);
+  };
+
+  /**
    * The house-yeast rules for an attempt with `stepLens` in `repo`, whose change runs from `since`
    * to `head` (ADR 0169): the Brewery's, and the repository's, from the Brewery or with git in the
    * clone at `since`, so the batch's own commits never add or remove one. The files the change
@@ -386,6 +428,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     inputs: PromptInput[];
     houseYeast?: HouseYeastSelection;
     laterRound?: LaterRound;
+    earlierFindings?: true;
   }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
@@ -415,6 +458,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         laterRound = round.laterRound;
       }
     }
+    // A later round of a Taster's step gets what the earlier rounds found (ADR 0191).
+    const earlier =
+      found.brewer.output.schema === TASTING ? earlierFindingsFor(batch, ref, found) : undefined;
+    if (earlier !== undefined) inputs.push(earlier);
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;
     const rules =
@@ -438,6 +485,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       inputs,
       ...(rules === undefined ? {} : { houseYeast: rules.record }),
       ...(laterRound === undefined ? {} : { laterRound }),
+      ...(earlier === undefined ? {} : { earlierFindings: true as const }),
     };
   };
 
@@ -477,7 +525,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
           ? outDocCopyOf(settingsFileOf(workRoot, { ...ref, attempt: attempt - 1 }))
           : undefined;
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
-      const { inputs, houseYeast, laterRound } =
+      const { inputs, houseYeast, laterRound, earlierFindings } =
         resumes === undefined
           ? await inputsFor(batch, ref, found, worktree)
           : { inputs: latest === undefined ? [] : [latest] };
@@ -497,6 +545,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(resumes === undefined ? {} : { resumes }),
         ...(outDocFrom === undefined ? {} : { outDocFrom }),
         ...(laterRound === undefined ? {} : { laterRound }),
+        ...(earlierFindings === undefined ? {} : { earlierFindings }),
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });

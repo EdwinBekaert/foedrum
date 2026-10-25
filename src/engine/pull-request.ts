@@ -5,6 +5,7 @@
 import type { IsCommit } from '../formats/secrets.ts';
 import {
   type Disposition,
+  dispositionsOf,
   type FiningChange,
   FiningOutDoc,
   type FiningReport,
@@ -15,6 +16,7 @@ import {
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
+  placeOf,
   pullRequestSectionsOf,
   type TastingFinding,
   TastingOutDoc,
@@ -24,7 +26,7 @@ import {
 import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey } from './effect-key.ts';
-import type { Batch, State } from './fold.ts';
+import type { Batch, State, Step } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 
 /** The effect that pushes the batch's task tree to its bottle branch, once per batch. */
@@ -73,6 +75,9 @@ export const knownCommits = (state: State, batchId: string): IsCommit => {
   return (word) => commits.has(word);
 };
 
+/** A finding left as there before the change (ADR 0191). */
+type PreExisting = Extract<Disposition, { disposition: 'pre-existing' }>;
+
 /** What a step reported in the out doc of its latest attempt that succeeded. */
 export interface StepReport {
   stepId: string;
@@ -87,7 +92,7 @@ export interface StepReport {
   /** The new tests and the regression tests a Gauger named (ADR 0170). */
   gauge?: GaugeReport;
   /** The findings its attempts marked pre-existing, for a person to file (ADR 0191). */
-  toFile?: readonly Disposition[];
+  toFile?: readonly PreExisting[];
 }
 
 /** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
@@ -259,6 +264,7 @@ export const stepReports = (batch: Batch): StepReport[] =>
     const sections = pullRequestSectionsOf(output);
     const fining = finingOf(output);
     const gauge = gaugeOf(output);
+    const toFile = preExistingOf(step);
     return [
       {
         stepId: step.id,
@@ -268,9 +274,27 @@ export const stepReports = (batch: Batch): StepReport[] =>
         ...(sections === undefined ? {} : { sections }),
         ...(fining === undefined ? {} : { fining }),
         ...(gauge === undefined ? {} : { gauge }),
+        ...(toFile.length === 0 ? {} : { toFile }),
       },
     ];
   });
+
+/**
+ * The findings the succeeded attempts of `step` marked pre-existing (ADR 0191), in order, each
+ * place and why once: every round's, since a later round never raises one again.
+ */
+const preExistingOf = (step: Step): PreExisting[] => {
+  const seen = new Set<string>();
+  return [...step.attempts.values()].flatMap((attempt) => {
+    if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
+    return dispositionsOf(attempt.outcome.output).filter((found): found is PreExisting => {
+      const key = JSON.stringify([found.file, found.line, found.why]);
+      if (found.disposition !== 'pre-existing' || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  });
+};
 
 /** Where a finding is, how bad, and whether it was there before the change, on one line. */
 export const findingText = ({ file, line, severity, introduced }: TastingFinding): string => {
@@ -775,27 +799,36 @@ export const pullRequestText = ({
     return withoutSecrets(read, stepId, isCommit);
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
-  const lines = reports.flatMap(({ stepId, summary, assumptions, tasting, fining, gauge }) => [
-    `${stepId}: ${shown(summary, stepId)}`,
-    ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
-    ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
-    ...(gauge?.regressionTests ?? []).map((name) => `  regression test: ${flat(name, stepId)}`),
-    // What a Finer changed, or why nothing (ADR 0166).
-    ...(fining?.changes ?? []).map(
-      (change) => `  simplified: ${flat(changeText(change), stepId)}: ${flat(change.why, stepId)}`,
-    ),
-    ...(fining?.unchanged === undefined ? [] : [`  unchanged: ${flat(fining.unchanged, stepId)}`]),
-    // A Taster's findings are listed, never acted on, unless its step is blocking (ADR 0161).
-    ...(tasting === undefined
-      ? []
-      : [
-          `  verdict: ${tasting.verdict}`,
-          ...tasting.findings.map(
-            (finding) =>
-              `  finding: ${flat(findingText(finding), stepId)}: ${flat(finding.why, stepId)}`,
-          ),
-        ]),
-  ]);
+  const lines = reports.flatMap(
+    ({ stepId, summary, assumptions, tasting, fining, gauge, toFile }) => [
+      `${stepId}: ${shown(summary, stepId)}`,
+      ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
+      ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
+      ...(gauge?.regressionTests ?? []).map((name) => `  regression test: ${flat(name, stepId)}`),
+      // What a Finer changed, or why nothing (ADR 0166).
+      ...(fining?.changes ?? []).map(
+        (change) =>
+          `  simplified: ${flat(changeText(change), stepId)}: ${flat(change.why, stepId)}`,
+      ),
+      ...(fining?.unchanged === undefined
+        ? []
+        : [`  unchanged: ${flat(fining.unchanged, stepId)}`]),
+      // The findings it left as there before the change, for the reviewer to file (ADR 0191).
+      ...(toFile ?? []).map(
+        (found) => `  to file: ${flat(placeOf(found), stepId)}: ${flat(found.why, stepId)}`,
+      ),
+      // A Taster's findings are listed, never acted on, unless its step is blocking (ADR 0161).
+      ...(tasting === undefined
+        ? []
+        : [
+            `  verdict: ${tasting.verdict}`,
+            ...tasting.findings.map(
+              (finding) =>
+                `  finding: ${flat(findingText(finding), stepId)}: ${flat(finding.why, stepId)}`,
+            ),
+          ]),
+    ],
+  );
   // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
   // output could otherwise make the fence, which comes twice, as long as the reports.
   let quoted = lines.join('\n').replace(/`{17,}/g, '`'.repeat(16));
