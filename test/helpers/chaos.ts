@@ -736,6 +736,11 @@ export interface ChaosEngine {
   play(move: Move, site?: number): Promise<boolean>;
   /** The faults the run had so far, at their sites, in order. */
   readonly faults: readonly Fault[];
+  /**
+   * The attempt leases that were live as the last tick began, with their owners: a driver that
+   * drives first may wait for one that another lets go later in the tick (#464).
+   */
+  leasedAtTick(): readonly { attemptKey: string; owner: string }[];
   /** The drivers that did not run in the last move: down after a kill, or stalled. */
   idle(): readonly string[];
   /** Applies the effects that are due and not in the ledger. */
@@ -822,6 +827,7 @@ export const openChaosEngine = async (
   let move = 0;
   const downUntil = new Map<string, number>();
   let idle: string[] = [];
+  let leasedAtTick: { attemptKey: string; owner: string }[] = [];
   // One connection for the whole run, which every driver process sees through its life. One
   // thread runs each transaction to its end before the next begins, so a connection per process
   // would show the same committed events and cost only page cache reloads. The terminal and the
@@ -1121,6 +1127,7 @@ export const openChaosEngine = async (
         });
       case 'tick':
         now = new Date(now.getTime() + next.advanceMs);
+        leasedAtTick = outside.currentLeases(now);
         return everyDriver((driver) => driver.tick());
       default: {
         const unhandled: never = next;
@@ -1137,6 +1144,7 @@ export const openChaosEngine = async (
     play,
     faults: faults.made,
     idle: () => idle,
+    leasedAtTick: () => leasedAtTick,
     applyEffects: async () => {
       await everyDriver((driver) => driver.applyEffects(), true);
     },
