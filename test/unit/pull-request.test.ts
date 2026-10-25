@@ -337,6 +337,18 @@ describe('unlinked (ADR 0167)', () => {
     assert.equal(unlinked('@octocat first'), 'octocat first');
   });
 
+  it('reads a span left open on its line as text, failing closed (ADR 0184)', () => {
+    assert.equal(unlinked('`@x and @y'), '`x and y');
+    assert.equal(unlinked('`a\n@ann`'), '`a\nann`');
+    assert.equal(unlinked('`a\r@ann`'), '`a\rann`');
+    assert.equal(unlinked('``@ann` and @bob'), '``ann` and bob');
+  });
+
+  it('pairs no span on a line with a < or around a | (ADR 0184)', () => {
+    assert.equal(unlinked('<b title="`">@ann`</b>'), '<b title="`">ann`</b>');
+    assert.equal(unlinked('| `a | @ann` |'), '| `a | ann` |');
+  });
+
   it('removes a closing keyword before an issue reference, in any case and form', () => {
     assert.equal(
       unlinked(
