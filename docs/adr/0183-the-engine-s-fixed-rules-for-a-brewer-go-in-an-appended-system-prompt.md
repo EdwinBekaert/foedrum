@@ -1,6 +1,6 @@
 # 0183. The engine's fixed rules for a brewer go in an appended system prompt
 
-Date: 2026-10-25 · Status: Accepted · Amends [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (what goes in the system prompt and what stays in the user prompt), [0042](0042-the-claude-command-line-and-stream-contract.md) (the runner passes `--append-system-prompt-file`) and [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) (the attempt's shell commands move from the out doc contract to that file)
+Date: 2026-10-25 · Status: Accepted · Amends [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (what goes in the system prompt and what stays in the user prompt), [0042](0042-the-claude-command-line-and-stream-contract.md) (the runner passes `--append-system-prompt-file`), [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) (the committing contract no longer ends with `Do not push.`), [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) (the attempt's shell commands move from the out doc contract to that file) and [0087](0087-sandboxed-commands-go-through-the-allow-rules-and-never-see-credentials.md) (its "Your shell runs only" line is now in that file)
 
 ## Context
 A brewer that commits gets `Bash(git status *)`, `Bash(git add *)` and `Bash(git commit *)` ([ADR 0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)).
