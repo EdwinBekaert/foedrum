@@ -1,6 +1,7 @@
 // Keeping the machine awake while `brew` or `serve` has an attempt running (#476, ADR 0195): each
 // platform's built-in way, held by a helper process that watches Foedrum's process id, so a killed
-// Foedrum lets the hold go. Only the idle timer is held off; the display may still turn off.
+// Foedrum lets the hold go. The idle timer is held off, and the display may still turn off; on
+// Linux the lock on sleep also holds off a suspend the user asks for.
 
 import { win32 } from 'node:path';
 import { environmentVariable } from './executables.ts';
