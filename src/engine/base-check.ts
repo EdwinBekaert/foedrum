@@ -1,9 +1,10 @@
 // The check of the Brewery's open pull requests when their base moves (ADR 0198): each intake pass
 // reads each base's tip as the push's own fetch reads it (ADR 0090), merge-trees the pull request's
 // head against a tip that moved since its last check, and records what it found. A conflict is
-// posted on the pull request through the ledger when it first appears or its files change; the
-// batch stays On tap.
+// posted on the pull request through the ledger when it first appears or its files change, and a
+// check that fails on the merged tree when it first fails (ADR 0209); the batch stays On tap.
 
+import type { GravityReading } from '../schemas/events.ts';
 import { EffectKeyParts, MAX_CONFLICTS, MergeResult, PushResult } from '../schemas/store.ts';
 import { effectMarker, type IssueMarks } from './claim-effects.ts';
 import type { CommandLog } from './command-log.ts';
@@ -13,7 +14,7 @@ import type { EffectTarget } from './effects.ts';
 import type { BaseCheck, Batch, State } from './fold.ts';
 import type { MergedCheckDue } from './merged-checks.ts';
 import { openedPullRequest, pushKey } from './pull-request.ts';
-import { plain } from './status-comment.ts';
+import { checkOf, plain, readingText } from './status-comment.ts';
 
 /** What a merge-tree of a pull request's head and its base's tip came to. */
 export type MergeTreeResult = { kind: 'clean' } | { kind: 'conflicts'; files: string[] };
@@ -212,7 +213,31 @@ export const conflictPosts = (batch: Batch): { n: number; check: BaseCheck }[] =
   return posts;
 };
 
+/** A check of a pull request whose run on the merged tree failed (ADR 0203). */
+type FailedCheck = BaseCheck & { failed: GravityReading };
+
+/**
+ * The checks of `batch` whose run on the merged tree posts a comment, each with its number from 1
+ * (ADR 0209): a failure of a pull request whose check before it was clean, conflicted, unchecked,
+ * failed another check, or none. A check is the one the status line names (`checkOf`).
+ */
+export const failurePosts = (batch: Batch): { n: number; check: FailedCheck }[] => {
+  const posts: { n: number; check: FailedCheck }[] = [];
+  // The check each pull request's check before failed; '' when it failed none.
+  const before = new Map<string, string>();
+  for (const check of batch.baseChecks ?? []) {
+    const { failed } = check;
+    const failing = failed === undefined ? '' : checkOf(failed);
+    if (failed !== undefined && before.get(check.pullRequest) !== failing) {
+      posts.push({ n: posts.length + 1, check: { ...check, failed } });
+    }
+    before.set(check.pullRequest, failing);
+  }
+  return posts;
+};
+
 const conflictKey = (batchId: string, n: number) => ({ batchId, effect: `base_conflict.${n}` });
+const failureKey = (batchId: string, n: number) => ({ batchId, effect: `base_check_failed.${n}` });
 
 /** The repository and number of a pull request at `url`: `https://<host>/<owner>/<name>/pull/<n>`. */
 const pullRequestOf = (url: string): { repo: string; number: number } => {
@@ -224,14 +249,42 @@ const pullRequestOf = (url: string): { repo: string; number: number } => {
   return { repo: `${owner}/${name}`, number: Number(number) };
 };
 
-/** The comment a conflict posts, without its marker. */
-const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseCheck): string =>
+/** A post's comment without its marker: the batch's heading, `body`, and that it stays On tap. */
+const postText = (batchId: string, body: string[]): string =>
   [
     `### Foedrum · batch \`${batchId}\``,
-    `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
-    conflicts.map((file) => `- ${plain(file)}`).join('\n'),
+    ...body,
     `The batch stays On tap. Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
+
+/** The comment a conflict posts, without its marker. */
+const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseCheck): string =>
+  postText(batchId, [
+    `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
+    conflicts.map((file) => `- ${plain(file)}`).join('\n'),
+  ]);
+
+/**
+ * `text` in a fenced code block whose fence is longer than any run of backticks in it, each `<!--`
+ * opened as `<!- -`: a marker a check printed would let a later post be found as posted (ADR 0033).
+ */
+const fenced = (text: string): string => {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map(([run]) => run.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}\n${text.replace(/\n$/, '').replaceAll('<!--', '<!- -')}\n${fence}`;
+};
+
+/**
+ * The comment a failure on the merged tree posts, without its marker. Its tail is the one recorded,
+ * already cut and with the lines that look like a secret left out (`readingOf`, ADR 0209).
+ */
+const failureText = (batchId: string, { branch, tip, failed }: FailedCheck): string =>
+  postText(batchId, [
+    `\`${branch}\` moved to \`${tip}\`, and this pull request merges with it cleanly but no longer passes its checks there: on the merged tree, ${plain(readingText(failed))}.`,
+    ...(failed.result === 'skipped' || failed.tail === ''
+      ? []
+      : ['The end of its output:', fenced(failed.tail)]),
+  ]);
 
 export interface BaseConflictEffectsOptions {
   marks: Pick<IssueMarks, 'findComment' | 'comment'>;
@@ -248,7 +301,8 @@ const commentId = (id: number): number => {
 };
 
 /**
- * The comment on the pull request each post calls for, for the driver (ADR 0198): due while the
+ * The comment on the pull request each post calls for, a conflict's (ADR 0198) or a failure's on
+ * the merged tree (ADR 0209), for the driver: due while the
  * batch is on tap and the pull request has no recorded end, found by its marker on the Brewery's
  * own comment (ADR 0033).
  */
@@ -279,9 +333,20 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
       const batch = state.batches.get(batchId);
       if (batch?.lane.kind !== 'on_tap') return [];
       const due = [];
-      for (const { n, check } of conflictPosts(batch)) {
+      const posts = [
+        ...conflictPosts(batch).map(({ n, check }) => ({
+          check,
+          key: conflictKey(batchId, n),
+          text: conflictText(batchId, check),
+        })),
+        ...failurePosts(batch).map(({ n, check }) => ({
+          check,
+          key: failureKey(batchId, n),
+          text: failureText(batchId, check),
+        })),
+      ];
+      for (const { check, key, text } of posts) {
         if (batch.pullRequestEnds?.[check.pullRequest] !== undefined) continue;
-        const key = conflictKey(batchId, n);
         const encoded = effectKey.encode(key);
         if (state.effects.has(encoded)) continue;
         let where: { repo: string; number: number };
@@ -290,7 +355,7 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
         } catch {
           continue;
         }
-        comments.set(encoded, { ...where, text: conflictText(batchId, check) });
+        comments.set(encoded, { ...where, text });
         due.push(key);
       }
       return due;

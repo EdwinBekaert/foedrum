@@ -20,7 +20,9 @@ What the intake does with a batch's pull request after it opens: it records its 
   The check records the first reading that did not pass (`failed`), or why the checks did not run (`unchecked`), so each tip is run at most once; a stop records nothing, and a kill leaves nothing recorded, so the next pass hands the run on again.
 - **A conflict is posted on the pull request** when it first appears or its set of files changes, one comment through the ledger, `[batch, "base_conflict.<n>"]`, found by its marker (`baseConflictEffects`).
   A new tip with the same files, and a clean merge, post nothing.
+- **A check that fails on the merged tree is posted on the pull request** when it first fails: the check before it was clean, conflicted, unchecked or failed another check, one comment through the ledger, `[batch, "base_check_failed.<n>"]`, numbered apart from the conflicts and due from the same effect ([ADR 0209](../../adr/0209-a-check-that-fails-on-an-open-pull-request-s-merged-tree-is-posted-on-it.md)).
+  It names the check as the status line does (`checkOf`, `readingText`) and the base's tip, and holds the recorded tail, already cut and read for secrets, in a fence longer than any run of backticks in it, with each `<!--` opened so no marker is posted.
+  The same check failing again, an `unchecked`, and a pass post nothing.
 - **The status comment shows the latest check** under its pull requests: the tip and files of a conflict, that it merges cleanly again after one, the check that fails on the merged tree and how, why the checks did not run there, that it passes its checks again after either, or that it is not checked since someone else pushed to its branch; nothing once the pull request ended ([GitHub](../humans/github.md)).
-  A failure on the merged tree is not posted on the pull request yet: that is #526.
 - **The batch stays On tap**: nothing sends it back yet.
 - **It needs git 2.38**, for `merge-tree --write-tree`: `foedrum doctor` requires it, so `foedrum serve` does not start on an older git ([ADR 0200](../../adr/0200-foedrum-requires-git-2-38.md)).

@@ -211,16 +211,24 @@ const baseCheckLine = (batch: Batch, url: string): string | undefined => {
     : undefined;
 };
 
+/**
+ * The check a reading is of, as a reason names it: the setup, a named check with its command, or a
+ * literal command. Two readings of the same check name it the same (#526).
+ */
+export const checkOf = (reading: GravityReading): string => {
+  if (reading.result === 'skipped') return `the check "${reading.check}"`;
+  if (reading.setup === true) return `the setup "${reading.command}"`;
+  return reading.check === undefined
+    ? `the check "${reading.command}"`
+    : `the check "${reading.check}" (${reading.command})`;
+};
+
 /** A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140). */
-const readingText = (reading: GravityReading): string => {
-  if (reading.result === 'skipped') return `the check "${reading.check}" was skipped`;
-  const what =
-    reading.setup === true
-      ? `the setup "${reading.command}"`
-      : reading.check === undefined
-        ? `the check "${reading.command}"`
-        : `the check "${reading.check}" (${reading.command})`;
+export const readingText = (reading: GravityReading): string => {
+  const what = checkOf(reading);
   switch (reading.result) {
+    case 'skipped':
+      return `${what} was skipped`;
     case 'exited':
       return `${what} failed with exit code ${reading.exitCode}`;
     case 'signaled':

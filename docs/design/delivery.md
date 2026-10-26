@@ -9,4 +9,6 @@ Foedrum ships as an npm command-line program with a companion Claude Code plugin
 | Brewery | The user's control repository | `foedrum init` |
 | Brewhouse (M6) | Dashboard served by the engine | `foedrum serve` prints its local address |
 
+Until the package is on npm (M3), `foedrum init` offers a `foedrum` command in a user folder on the PATH that runs the checkout's `src/cli/main.ts` ([ADR 0210](../adr/0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md)).
+
 The engine runs in a terminal or as a service the user sets up (documented for systemd, launchd and Task Scheduler); it never depends on an open Claude Code session.
