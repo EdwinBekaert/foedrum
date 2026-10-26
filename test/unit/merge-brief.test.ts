@@ -68,6 +68,12 @@ const recipes = fakeRecipes({
     routes: { [OPEN]: { pull_request: 'fix' } },
     pullRequests: [],
   }),
+  // No Taster at all.
+  bare: fakeRecipe({
+    steps: ['implement', OPEN],
+    actions: { [OPEN]: 'openPullRequest' },
+    pullRequests: [],
+  }),
 });
 const redProof = (recipe: string) => (recipe === 'nip' || recipe === 'skippy' ? 'red' : undefined);
 
@@ -904,6 +910,136 @@ describe('the merge brief (ADR 0225)', () => {
       );
       pending();
       assert.doesNotMatch(await statusText(), /is ready to merge/);
+    });
+
+    it('links no brief once a later record is ready and its brief is not posted yet (regression test)', async () => {
+      nip();
+      finished([passed('ci/build')]);
+      await post(effectsOf(fakeHost().host));
+      pending();
+      finished([passed('ci/build'), passed('ci/late')]);
+      assert.doesNotMatch(await statusText(), /is ready to merge/);
+    });
+
+    it('links the brief of a later head ready with the same checks (regression test)', async () => {
+      nip();
+      const { host } = fakeHost();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+      // A re-run fails it, and the fix round's head passes the very same check.
+      pending();
+      finished([failed('ci/test')]);
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'checks' },
+      });
+      nipFromImplement(2, fixed);
+      finished([passed('ci/test')], fixed);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.2']);
+      assert.ok(
+        (await statusText()).includes(`is ready to merge on \`ffffffff\`: <${url}#issuecomment-2>`),
+      );
+    });
+  });
+
+  describe('its limits (regression tests)', () => {
+    const blocked = (findings: TastingFinding[]): Ending => ({
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'Changes asked',
+      findings,
+    });
+    const at = (n: number): TastingFinding => ({
+      severity: 'major',
+      why: `Finding ${n}`,
+      introduced: true,
+      file: `src/f${n}.ts`,
+    });
+
+    it('lists 30 dispositions and counts the rest', async () => {
+      order('lined');
+      run('implement');
+      run('taste', blocked(Array.from({ length: 31 }, (_, n) => at(n))));
+      run('implement', {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Fixed',
+          assumptions: [],
+          dispositions: Array.from({ length: 31 }, (_, n) => ({
+            file: `src/f${n}.ts`,
+            disposition: 'fixed',
+          })),
+        },
+      });
+      run('taste', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(body, /- `taste`: fixed at src\/f29\.ts\n- and 1 more\n/);
+      assert.doesNotMatch(body, /src\/f30\.ts/);
+    });
+
+    it('lists ten findings a skip left open and counts the rest', async () => {
+      order('strict');
+      run('implement');
+      run('taste', blocked(Array.from({ length: 14 }, (_, n) => at(n))));
+      accept({ kind: 'skip', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(
+        body,
+        /left open by a skip: major in src\/f9\.ts: Finding 9\n- `taste`: left open by a skip: and 4 more/,
+      );
+      assert.doesNotMatch(body, /src\/f10\.ts/);
+    });
+
+    it('cuts a brief past its length at a whole line', async () => {
+      nip();
+      const long = (n: number) =>
+        `https://github.com/acme/web/actions/runs/${n}?${'x'.repeat(1_900)}`;
+      finished(Array.from({ length: 100 }, (_, n) => passed(`ci/${n}`, long(n))));
+      const body = await brief();
+      const note = '\n\n… the rest is cut: GitHub keeps comments shorter.';
+      assert.ok(body.includes(note));
+      const before = body.slice(0, body.indexOf(note));
+      assert.match(
+        before.slice(before.lastIndexOf('\n') + 1),
+        /^- ✅ ci\/\d+ \(success\) <https:.*x>$/,
+      );
+      assert.ok(body.length < 65_536);
+    });
+  });
+
+  describe('the steps that did not pass (regression tests)', () => {
+    it('says a step a person skipped after it failed, with its attempt', async () => {
+      order('late');
+      run('implement');
+      run('taste', tasting(), { commit: head });
+      run('fix', { kind: 'failed', retryable: true, reason: 'boom' });
+      run('fix', { kind: 'failed', retryable: true, reason: 'boom' });
+      assert.equal(batch().lane.kind, 'stuck');
+      accept({ kind: 'skip', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /- `fix`: did not pass: its attempt 2 failed, and a person's skip went past it\./,
+      );
+    });
+
+    it('says no Taster tasted a change of a recipe without one', async () => {
+      order('bare');
+      run('implement');
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(body, /- No Taster tasted this change\./);
+      assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
     });
   });
 });
