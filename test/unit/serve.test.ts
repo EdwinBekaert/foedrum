@@ -256,9 +256,10 @@ describe('runServe', () => {
 
   /**
    * Brews 12-1 with the porter recipe until its pull request is open, on a git that answers
-   * `version`, with a base that moved and a merge-tree that conflicts (ADR 0198).
+   * `version` (none when it is not given), with a base that moved and a merge-tree that conflicts
+   * (ADR 0198).
    */
-  const brewWithMovedBase = async (version: string) => {
+  const brewWithMovedBase = async (version?: string) => {
     const porter = JSON.stringify({
       name: 'porter',
       description: 'Brews an order in one step and opens its pull request.',
@@ -307,6 +308,7 @@ describe('runServe', () => {
           .filter(({ body }) => body.includes('base_conflict.1'))
           .map(({ body }) => ({ key, body })),
       );
+    const asked: string[] = [];
     let waits = 0;
     const code = await runServe(
       setup,
@@ -317,6 +319,9 @@ describe('runServe', () => {
           if (conflictComments().length > 0 || waits > 40) controller.abort();
         },
         git: async (_cwd, args) => {
+          asked.push(args.join(' '));
+          if (args[0] === '--version' && version === undefined)
+            return { code: null, stdout: '', stderr: '' };
           if (args[0] === '--version')
             return { code: 0, stdout: `git version ${version}\n`, stderr: '' };
           throw new Error('no red proof or guarded step runs here');
@@ -342,8 +347,16 @@ describe('runServe', () => {
     const baseChecks = createCommandLog({ store, recipes: setup.recipes })
       .state()
       .batches.get('12-1')?.baseChecks;
-    return { code, merged, pull, baseChecks, conflictComments };
+    return { code, merged, pull, baseChecks, conflictComments, asked };
   };
+
+  it('checks an open pull request against its base without asking git its version (ADR 0200)', async () => {
+    const { code, merged, baseChecks, asked } = await brewWithMovedBase();
+    assert.equal(code, 0);
+    assert.deepStrictEqual(merged, [`${FAKE_COMMIT} ${'b'.repeat(40)}`]);
+    assert.equal(baseChecks?.length, 1);
+    assert.deepStrictEqual(asked, []);
+  });
 
   it("checks an open pull request against its base's moved tip and comments the conflict on it, on git 2.38 (ADR 0198)", async () => {
     const { code, merged, pull, baseChecks, conflictComments } = await brewWithMovedBase('2.38.0');
