@@ -214,7 +214,7 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
 
     it('launches this node and program with brew <alias>#<issue> --take in the Brewery: exit 0', async () => {
       launched.length = 0;
-      const result = await brewInNewWindow('/home/ann/brewery', command, deps(0));
+      const result = await brewInNewWindow('/home/ann/brewery', command, 'session-ab12', deps(0));
       assert.equal(result.exitCode, 0);
       const [first] = launched;
       assert.deepStrictEqual(first?.args.slice(3, 7), [
@@ -227,8 +227,30 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       assert.match(result.stdout, /foedrum brew web#12 --take/);
     });
 
+    it("runs the window's brew as this brew's owner, without the Claude Code session's variables, so it opens the session", async () => {
+      launched.length = 0;
+      await brewInNewWindow('/home/ann/brewery', command, 'session-ab12', deps(0));
+      const [first] = launched;
+      assert.deepStrictEqual(first?.args.slice(-5), [
+        'brew',
+        'web#12',
+        '--take',
+        '--as',
+        'session-ab12',
+      ]);
+      assert.deepStrictEqual(first?.env, { DISPLAY: ':0' });
+    });
+
+    it('says it asked for the window, which only the window shows opened', async () => {
+      const result = await brewInNewWindow('/home/ann/brewery', command, 'session-ab12', deps(0));
+      assert.equal(
+        result.stdout,
+        'foedrum brew: asked for a new window that runs foedrum brew web#12 --take --as session-ab12; exit its claude session there when the step is done, then check the batch with foedrum status. If no window opened, run that command in a terminal\n',
+      );
+    });
+
     it('says the command to run in a terminal when no window opens: exit 5', async () => {
-      const result = await brewInNewWindow('/home/ann/brewery', command, deps(1));
+      const result = await brewInNewWindow('/home/ann/brewery', command, 'session-ab12', deps(1));
       assert.equal(result.exitCode, 5);
       assert.match(
         result.stderr,

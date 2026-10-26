@@ -41,11 +41,15 @@ describe('newWindowCommand (ADR 0222)', () => {
     });
   });
 
-  it("starts a console window through cmd.exe's start otherwise, by cmd's full path", () => {
-    const env = { ComSpec: win32.join('C:', 'Windows', 'System32', 'cmd.exe') };
+  it("starts a console window through cmd.exe's start otherwise, by cmd's full path under SYSTEMROOT, in any case", () => {
+    const env = {
+      systemroot: win32.join('D:', 'Windows'),
+      ComSpec: win32.join('D:', 'elsewhere.exe'),
+    };
     assert.deepStrictEqual(newWindowCommand(facts('win32', env), windowsLine), {
       kind: 'launch',
-      program: env.ComSpec,
+      program: win32.join('D:', 'Windows', 'System32', 'cmd.exe'),
+      env: { NoDefaultCurrentDirectoryInExePath: '1' },
       args: [
         '/d',
         '/c',

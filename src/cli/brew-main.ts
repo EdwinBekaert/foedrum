@@ -95,6 +95,7 @@ const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWind
 export const brewInNewWindow = async (
   cwd: string,
   input: BrewCommand,
+  _owner: string,
   deps: NewWindowDeps,
 ): Promise<CliResult> => {
   const { alias, issue } = input.issue;
@@ -127,7 +128,8 @@ export const brewFromCheckout = async (
   if ('refused' in owner) {
     return { exitCode: 2, stdout: '', stderr: `foedrum brew: ${owner.refused}\n` };
   }
-  if (input['new-window'] === true) return brewInNewWindow(cwd, input, thisMachine(env));
+  if (input['new-window'] === true)
+    return brewInNewWindow(cwd, input, owner.owner, thisMachine(env));
   const ready = await readServeSetup(cwd, 'brew', options);
   if (ready.kind === 'refused') return ready.result;
   const { setup } = ready;

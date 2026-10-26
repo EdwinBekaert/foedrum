@@ -684,6 +684,15 @@ export const foregroundProcess = (
     child.once('exit', (code) => resolve(code ?? 1));
   });
 
+/**
+ * Starts a launcher that hands a program to another process and returns, such as a new terminal
+ * window (ADR 0222): stdio ignored, so what it starts holds none of this process's pipes, and its
+ * exit code once it exits, or killed at its deadline.
+ */
+export const launchProcess: ExecProcess = async () => {
+  throw new Error('not implemented');
+};
+
 // A byte count as a person would write it: 4 MiB, 64 KiB, 1500 bytes.
 const inUnits = (bytes: number): string => {
   if (bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)} MiB`;

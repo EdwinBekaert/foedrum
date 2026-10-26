@@ -15,6 +15,7 @@ import {
   execProcessWith,
   foregroundProcess,
   isPidAlive,
+  launchProcess,
   processSpawner,
   runProcessThrough,
   type Spawner,
@@ -603,6 +604,52 @@ describe('execProcess and a .cmd file', { skip: process.platform !== 'win32' }, 
     } finally {
       planted.remove();
     }
+  });
+});
+
+describe('launchProcess with a real process (ADR 0222)', () => {
+  let dir: TempDir;
+  beforeEach(() => {
+    dir = makeTempDir('launch');
+  });
+  afterEach(() => removeTree(dir.path));
+
+  it('answers once the launcher exits, while the window it started still holds its output', async () => {
+    // As a terminal a launcher starts: it inherits the launcher's output and outlives it.
+    const window = "setTimeout(() => require('node:fs').writeFileSync('closed', ''), 60000)";
+    const launcher = [
+      "const { spawn } = require('node:child_process');",
+      `const window = spawn(process.execPath, ['-e', ${JSON.stringify(window)}], { stdio: 'inherit' });`,
+      "require('node:fs').writeFileSync('window.pid', String(window.pid));",
+      'window.unref();',
+    ].join(' ');
+    const result = await launchProcess(process.execPath, ['-e', launcher], {
+      cwd: dir.path,
+      timeoutMs: hangGuardMs,
+    });
+    const [pid] = pidsIn(join(dir.path, 'window.pid'));
+    try {
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.killed, undefined);
+      // The window is still open: the launch did not wait for it.
+      assert.equal(existsSync(join(dir.path, 'closed')), false);
+      assert.ok(pid !== undefined && isPidAlive(pid), 'the window runs on');
+    } finally {
+      if (pid !== undefined && isPidAlive(pid)) process.kill(pid);
+    }
+  });
+
+  it('runs the launcher in the folder given, with the environment given, and answers its exit code', async () => {
+    const script =
+      "require('node:fs').writeFileSync('env.json', JSON.stringify(process.env.FOEDRUM_GIVEN ?? null)); process.exit(3)";
+    const env = { ...brewerBaseEnv(process.env, process.platform), FOEDRUM_GIVEN: 'given' };
+    const result = await launchProcess(process.execPath, ['-e', script], {
+      cwd: dir.path,
+      env,
+      timeoutMs: hangGuardMs,
+    });
+    assert.equal(result.exitCode, 3);
+    assert.equal(JSON.parse(readFileSync(join(dir.path, 'env.json'), 'utf8')), 'given');
   });
 });
 
