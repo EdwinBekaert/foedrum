@@ -52,8 +52,12 @@ const resetOf = (resets: string, now: Date, zone: string): number | undefined =>
   // Today or the coming weekday; once that moment passed over an hour ago, a day or a week on.
   const first = weekday === undefined ? 0 : (WEEKDAYS.indexOf(weekday) - today.getUTCDay() + 7) % 7;
   const step = weekday === undefined ? 1 : 7;
+  const since = now.getTime() - passedWithinMs;
+  // Across midnight the hour before is yesterday's, or last week's weekday: always past.
+  const before = at(first - step);
+  if (before >= since) return before;
   const soonest = at(first);
-  return soonest >= now.getTime() - passedWithinMs ? soonest : at(first + step);
+  return soonest >= since ? soonest : at(first + step);
 };
 
 /**
