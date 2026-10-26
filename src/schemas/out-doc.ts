@@ -1,5 +1,6 @@
 // Out-doc frontmatter: how a brewer reports its outcome (brewers-and-recipes §2, ADR 0005).
 
+import { LensName } from './ids.ts';
 import { type DocResult, readDoc } from './read.ts';
 import { NonEmpty, Question } from './step-outcome.ts';
 import { z } from './zod.ts';
@@ -93,6 +94,9 @@ export const TastingFinding = z.strictObject({
   severity: z.enum(['blocker', 'major', 'minor']),
   why: NonEmpty,
   introduced: z.boolean(),
+  // Optional, so a one-lens out doc reads as before; an older Foedrum cannot read a finding with
+  // it (ADR 0220, as ADR 0191 records for dispositions).
+  lens: LensName.optional(),
 });
 export type TastingFinding = z.infer<typeof TastingFinding>;
 
@@ -131,6 +135,38 @@ export const TastingOutDoc = outDocFrontmatter({
     });
   }
 });
+
+/**
+ * The out doc of a Taster's step that reviews through `lenses` (ADR 0220): on a step of several
+ * together, each finding names the lens it was found through, one of the step's; on a one-lens step,
+ * a finding that names one names the step's, so no Taster labels its findings with lenses it was not
+ * given.
+ */
+export const tastingOutDocOf = (lenses: readonly string[]): typeof TastingOutDoc =>
+  TastingOutDoc.superRefine((doc, ctx) => {
+    const [one, ...more] = lenses;
+    for (const [at, { lens }] of doc.findings.entries()) {
+      if (lens === undefined ? more.length === 0 : lenses.includes(lens)) continue;
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          more.length === 0
+            ? `Must be the step's lens, ${one}, or left out`
+            : `Must name the lens it was found through: ${lenses.slice(0, -1).join(', ')} or ${lenses.at(-1)}`,
+        path: ['findings', at, 'lens'],
+      });
+    }
+  });
+
+/** The lens a finding was found through: its own, or else its step's (ADR 0220). */
+export const lensOfFinding = (
+  finding: TastingFinding,
+  stepLens: string | undefined,
+): string | undefined => finding.lens ?? stepLens;
+
+/** A finding's lens before the rest of its line, when it names one (ADR 0220). */
+export const lensFirst = ({ lens }: { lens?: string | undefined }): string =>
+  lens === undefined ? '' : `${lens}, `;
 
 /** What a Taster reported in the out doc of an attempt that succeeded. */
 export interface TastingReport {
