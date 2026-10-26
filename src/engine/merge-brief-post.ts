@@ -136,7 +136,8 @@ const baseLine = (batch: Batch, url: string): string => {
   if (latest.unchecked !== undefined) {
     return `- Not checked on the merged tree with ${at}: ${plain(latest.unchecked)}.`;
   }
-  return `- Merges cleanly with ${at}.`;
+  // A base check names no head (#547): it may be of a head before a fix round.
+  return `- The latest check against its base, which names no head, merged cleanly with ${at}.`;
 };
 
 /** The readings of a check step's latest success, its repository's setup left out (ADR 0163). */

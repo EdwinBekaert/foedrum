@@ -36,7 +36,7 @@ And a finding's `why`, a dismissal's reason and a risk-left item are a model's w
 - **What changed since it opened**: each fix round a failure sent back (ADR 0219): its number, the head whose checks failed, and the commit its push recorded (a round whose push is not recorded yet says it pushed nothing yet); or "nothing". The failed checks of an earlier round are not named: the fold keeps only the latest record of a pull request's checks.
 - **Evidence on `<sha>`**:
   - each check of the record with its conclusion and link, as the Stuck reason writes them, and how many more passed; or that no check ran on this head;
-  - how it merges with its base by the latest base check: cleanly at its tip, or not checked on the merged tree and why; or not checked against its base since the push;
+  - how it merges with its base by the latest base check, which names no head and so may be of a head before a fix round, as the brief says: cleanly at its tip, or not checked on the merged tree and why; or not checked against its base since the push;
   - the red proof's readings (`readingText`) when it succeeded, or "not run" with the `when` that was false, or that the recipe has none;
   - each other check step's latest success: the checks it read, and the ones it skipped because the repository has none, as not run;
   - each recipe step that did not run, with the `when` that was false, and each whose latest attempt did not succeed and that a person's skip went past, but a blocking Taster's step blocked by findings, which Findings lists;
