@@ -105,4 +105,13 @@ describe('the Brewery repository on GitHub (ADR 0207)', () => {
       /403.*Must have admin rights/,
     );
   });
+  it('fails on a 422 for anything but a label that is there', async () => {
+    const { client } = clientWith([
+      { status: 422, body: { message: 'Validation Failed', errors: [{ code: 'invalid' }] } },
+    ]);
+    await assert.rejects(
+      createLabel(client, 'acme/web', 'foedrum:brew', 'Brewed by Foedrum'),
+      /422.*Validation Failed/,
+    );
+  });
 });

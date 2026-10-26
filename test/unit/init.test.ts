@@ -62,6 +62,10 @@ interface Options {
   unlabelled?: readonly string[];
   /** Creating a label fails with this. */
   labelFails?: string;
+  /** Reading whether a target repository has the label fails with this. */
+  labelReadFails?: string;
+  /** Creating the Brewery's repository fails with this. */
+  createFails?: string;
   /** What `git status` prints; default nothing to commit. */
   status?: string;
   /** git calls that fail, by their command, with what git says. */
@@ -117,9 +121,11 @@ const init = async (
       },
       create: async (repo, login, isPrivate) => {
         run.events.push(`create ${repo} ${login} ${isPrivate ? 'private' : 'public'}`);
+        if (options.createFails !== undefined) throw new Error(options.createFails);
       },
       hasLabel: async (repo, label) => {
         run.events.push(`has ${repo} ${label}`);
+        if (options.labelReadFails !== undefined) throw new Error(options.labelReadFails);
         return !(options.unlabelled ?? []).includes(repo);
       },
       createLabel: async (repo, label, description) => {
@@ -745,5 +751,69 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
     for (const { args } of git) {
       for (const arg of args) assert.doesNotMatch(arg, /@|token|gh[pousr]_/i, arg);
     }
+  });
+  it("stops with GitHub's line when the repository cannot be created, cloning and writing nothing", async () => {
+    const { result, events, written } = await init(['', '', ''], outside(), {
+      createFails: 'GitHub answered 422 to creating the repository: name already exists',
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: GitHub answered 422 to creating the repository/);
+    assert.ok(!events.includes('git clone'), events.join('\n'));
+    assert.deepStrictEqual(written, []);
+  });
+
+  it('lists and adds only the files git names as new or changed', async () => {
+    const { lines, git } = await init(['', '', ''], undefined, { status: ' M foedrum.jsonc\0' });
+    assert.ok(lines.includes('  foedrum.jsonc'), lines.join('\n'));
+    assert.ok(!lines.includes('  models.jsonc'), lines.join('\n'));
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'add')?.args, [
+      'add',
+      '--',
+      'foedrum.jsonc',
+    ]);
+  });
+
+  it('stops at an add that fails, with the commands, committing and pushing nothing', async () => {
+    const { result, lines, git } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { add: 'fatal: index.lock exists' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git add failed: fatal: index.lock exists'), lines.join('\n'));
+    assert.ok(!git.some(({ args }) => ['commit', 'push'].includes(args[0] ?? '')));
+    assert.ok(lines.includes('git push -u origin HEAD'), lines.join('\n'));
+  });
+
+  it('names a status that fails, with the commands, and ends in 1', async () => {
+    const { result, lines, questions } = await init(['', ''], undefined, {
+      gitFails: { status: 'fatal: not a git repository' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git status failed: fatal: not a git repository'), lines.join('\n'));
+    assert.ok(lines.includes('git push -u origin HEAD'), lines.join('\n'));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+
+  it('names a label it cannot read, with the gh command, without asking', async () => {
+    const { result, lines, questions } = await init(['', 'acme/web', '', ''], undefined, {
+      labelReadFails: 'GitHub answered 500 to the label foedrum:brew of acme/web',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const at = lines.indexOf('GitHub answered 500 to the label foedrum:brew of acme/web');
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^gh label create foedrum:brew --repo acme\/web /);
+    assert.ok(!questions.some((question) => question.startsWith('Create')), questions.join('\n'));
+  });
+
+  it('stops with one line when standard input ends at the label question', async () => {
+    const { result, events } = await init(['', 'acme/web', '', ''], undefined, {
+      unlabelled: ['acme/web'],
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"/,
+    );
+    assert.ok(!events.some((event) => event.startsWith('git status')), events.join('\n'));
   });
 });

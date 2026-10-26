@@ -156,6 +156,13 @@ describe('initFromCheckout', () => {
         assert.ok(!call.args.join(' ').includes('ghp_'), call.args.join(' '));
         assert.ok(/"path"/i.test(call.env) && !call.env.includes('ghp_'), call.args[0]);
       }
+      // doctor runs in the new clone.
+      const doctor = calls.filter(({ args }) => !own.some((call) => call.args === args));
+      assert.ok(doctor.length > 0);
+      assert.ok(
+        doctor.every(({ cwd }) => cwd === undefined || cwd === clone),
+        JSON.stringify(doctor.map(({ cwd }) => cwd)),
+      );
       assert.equal(result.stderr, '');
     } finally {
       for (const [name, value] of Object.entries(saved)) {
