@@ -146,6 +146,8 @@ const run = async (seed: number, { ending: limited, family, holds }: Limit): Pro
     assert.deepStrictEqual(others, [], 'one window is closed');
     assert.ok(window);
     const closedAfter = store.lastEventId();
+    const notHeld = () =>
+      [...log.state().batches.values()].filter(({ id }) => !holds({ batchId: id }));
 
     // While it is closed, what still runs ends, maybe at the limit too, and the driver is killed.
     const killAt = random.int(6);
@@ -162,15 +164,26 @@ const run = async (seed: number, { ending: limited, family, holds }: Limit): Pro
         () => random.chance(0.3),
         (ref) => (holds(ref) && random.chance(0.3) ? limited : succeeded),
       );
-      // Past what runs: on to just before the reopen.
+      // Past what runs, and the batches the window does not hold, which brew on: on to just
+      // before the reopen.
       const skip = reopen - 2 * minute;
-      if (attempts.count() === 0 && each > killAt && now.getTime() < skip) now = new Date(skip);
+      const done = notHeld().every(({ lane }) => lane.kind === 'on_tap');
+      if (attempts.count() === 0 && done && each > killAt && now.getTime() < skip) {
+        now = new Date(skip);
+      }
     }
     const startedWhileClosed = store
       .eventsAfter(closedAfter)
       .map(({ event }) => event)
       .filter((event) => event.type === 'step.started' && holds(event));
     assert.deepStrictEqual(startedWhileClosed, [], 'no held brewer started while it was closed');
+    for (const { id, lane } of notHeld()) {
+      assert.equal(
+        lane.kind,
+        'on_tap',
+        `${id}, which the window does not hold, is on tap before it reopens`,
+      );
+    }
 
     for (let each = 0; each < 40; each++) {
       await tick();
