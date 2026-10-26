@@ -145,9 +145,6 @@ const failed = (command: string, message: string): CliResult => ({
   stderr: `foedrum ${command}: ${message}\n`,
 });
 
-// Reads every event of the Brewery's store and folds them; one line when there is no store (or
-// `none`, for a command that has an answer without one) or the fold refuses the log. Never writes
-// (ADR 0030). The store closes once `show` is done.
 /**
  * The lines of the limits that hold now (ADR 0217), from foedrum.jsonc and the recipes, read only
  * while a limit can hold; one line when they do not load.
@@ -164,6 +161,9 @@ const limitsHeld = (state: State, { config, recipes }: CliContext): string[] => 
   return limitLines(state, limits);
 };
 
+// Reads every event of the Brewery's store and folds them; one line when there is no store (or
+// `none`, for a command that has an answer without one) or the fold refuses the log. Never writes
+// (ADR 0030). The store closes once `show` is done.
 const readBrewery = async (
   command: string,
   { cwd, openStore }: CliContext,

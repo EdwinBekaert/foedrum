@@ -343,11 +343,10 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (repository !== undefined && failed.has(repository)) continue;
       const hold = tally.hold(entry);
       if (hold !== undefined) {
-        const reason = holdText(hold);
         heldOnce({
           repo: repository?.repo ?? brewery ?? '',
           issue: subOrder?.issue ?? order.issue,
-          reason,
+          reason: holdText(hold),
         });
         continue;
       }
