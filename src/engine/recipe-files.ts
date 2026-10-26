@@ -738,19 +738,18 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         const refusedLens = untasted(runnable, brewer);
         // The step's one lens, or its lenses together (ADR 0220).
         const named = runnable.lenses ?? (runnable.lens === undefined ? [] : [runnable.lens]);
-        const looked = named.map((name) => lenses.get(name));
         // A lens whose file or folder has a problem of its own is reported once, as that.
         const unreported = (name: string) => !lensFolderUnread && !brokenLenses.has(name);
         if (refusedLens.length === 0) {
-          for (const [at, name] of named.entries()) {
-            if (looked[at] !== undefined || !unreported(name)) continue;
+          for (const name of named) {
+            if (lenses.has(name) || !unreported(name)) continue;
             refusedLens.push(
               `step "${id}" names the lens "${name}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
             );
           }
         }
         for (const line of refusedLens) problems.push(`${path}: ${line}`);
-        const stepLensFiles = looked.filter((lens) => lens !== undefined);
+        const stepLensFiles = named.flatMap((name) => lenses.get(name) ?? []);
         if (refusedLens.length > 0 || stepLensFiles.length < named.length) return [];
         const deadline = runnable.deadline ?? brewer.deadline;
         if (tooLong(id, deadline)) return [];
