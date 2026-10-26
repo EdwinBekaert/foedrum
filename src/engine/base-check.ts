@@ -215,7 +215,7 @@ const conflictKey = (batchId: string, n: number) => ({ batchId, effect: `base_co
 const failureKey = (batchId: string, n: number) => ({ batchId, effect: `base_check_failed.${n}` });
 
 /** The repository and number of a pull request at `url`: `https://<host>/<owner>/<name>/pull/<n>`. */
-const pullRequestOf = (url: string): { repo: string; number: number } => {
+export const pullRequestOf = (url: string): { repo: string; number: number } => {
   const found = /^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)\/?$/.exec(new URL(url).pathname);
   const [, owner, name, number] = found ?? [];
   if (owner === undefined || name === undefined || number === undefined) {
