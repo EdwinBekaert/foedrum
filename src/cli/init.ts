@@ -577,7 +577,7 @@ const commitAndPush = async (
 };
 
 /**
- * The commits on HEAD that no remote has, as `<hash> <subject>`: none on a branch without a commit
+ * The commits on HEAD that origin, the remote the push goes to, lacks, as `<hash> <subject>`: none on a branch without a commit
  * yet; `undefined`, after saying git's line, when git cannot tell.
  */
 const commitsNotPushed = async (
@@ -588,7 +588,7 @@ const commitsNotPushed = async (
   if (head.code === 1) return [];
   const log =
     head.code === 0
-      ? await ports.git(folder, ['log', '--format=%h %s', 'HEAD', '--not', '--remotes'])
+      ? await ports.git(folder, ['log', '--format=%h %s', 'HEAD', '--not', '--remotes=origin'])
       : head;
   if (log.code !== 0) {
     ports.say(`git ${head.code === 0 ? 'log' : 'rev-parse'} failed: ${firstLine(log)}`);
