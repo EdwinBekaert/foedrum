@@ -127,6 +127,15 @@ describe('BrewCommand', () => {
       assert.equal(BrewCommand.safeParse(input).success, false, JSON.stringify(input));
     }
   });
+
+  it('takes --new-window, which opens the brew in a new terminal window (ADR 0222)', () => {
+    const parsed = BrewCommand.safeParse({ command: 'brew', issue: '12', 'new-window': true });
+    assert.deepStrictEqual(parsed.success && parsed.data, {
+      command: 'brew',
+      issue: { issue: 12 },
+      'new-window': true,
+    });
+  });
 });
 
 describe('brewOwner', () => {
