@@ -22,7 +22,8 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
       "tools": ["Bash(dotnet test*)", "Bash(dotnet build*)"],    // added to every brewer's allowlist
       "houseYeast": "repo",                                      // or "brewery" (ADR 0018)
       "alias": "billing",                                        // batches billing-<issue>
-      "intake": { "labels": ["foedrum"] }                       // claim and brew its labelled issues
+      "intake": { "labels": ["foedrum"] },                      // claim and brew its labelled issues
+      "sensitivePaths": [".github/workflows/**", "src/Auth/**"]  // named when a batch touches them (ADR 0201)
     }
   }
 }
@@ -67,6 +68,11 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 - `intake` (`labels`, at least one, and an optional `milestone`) makes the intake claim and brew the repository's open issues that pass it (ADR 0043).
   It needs an `alias`: a lower-case letter, then letters and digits, at most 20, unique in the Brewery; the batch of a claimed issue is `<alias>-<issue>` ([ADR 0050](../../adr/0050-the-intake-of-target-repository-issues.md)).
   `foedrum doctor` reports a `foedrum.jsonc` that does not pass the schema.
+- `sensitivePaths` lists path globs, relative to the repository with `/` between folders, as `posix.matchesGlob` reads them; there are no defaults ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)).
+  A glob that is blank, starts at `/` or `!`, holds a `\` or has a `.` or `..` segment is refused.
+  When a batch's pull request is pushed, the files its change adds, alters or deletes (a rename at both paths), from where its change starts to the commit pushed, are matched once, and the push's ledger result keeps how many matched and the first 50.
+  The status comment then names the first 10 in one line, `Touches sensitive paths: …`, with a count of the rest.
+  It is a fact for the person who merges, never an approval or a block: tasting does not change.
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 
 **`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:

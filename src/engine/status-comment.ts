@@ -7,7 +7,7 @@ import type { IsCommit } from '../formats/secrets.ts';
 import type { RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
-import type { BatchEffectKey } from '../schemas/store.ts';
+import { type BatchEffectKey, PushResult, type SensitiveFiles } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
 import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
@@ -15,7 +15,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { changeText, findingText, knownCommits } from './pull-request.ts';
+import { changeText, findingText, knownCommits, pushKey } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
@@ -459,17 +459,31 @@ const receiptLines = (batch: Batch, told: Told): string[] => {
   return more > 0 ? [...shown, `- and ${more} more`] : shown;
 };
 
+/** How many of the sensitive files a batch's change touches the comment names. */
+const mostSensitive = 10;
+
+/**
+ * The sensitive files the push of a batch's pull request recorded (ADR 0201), as one line: the
+ * first `mostSensitive`, each as a committer named it, and a count of the rest; none without them.
+ */
+const sensitiveLine = (sensitive: SensitiveFiles | undefined): string[] => {
+  if (sensitive === undefined) return [];
+  const named = sensitive.files.slice(0, mostSensitive).map(plain);
+  const more = sensitive.count - named.length;
+  return [`Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`];
+};
+
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the assumptions of
- * its out docs and, on tap, its pull requests. Every text a brewer or an issue wrote is one
- * escaped line.
+ * its out docs, on tap its pull requests, and the `sensitive` files its pushed change touches
+ * (ADR 0201). Every text a brewer or an issue wrote is one escaped line.
  */
 export const renderStatus = (
   batch: Batch,
   steps?: readonly string[],
   isCommit: IsCommit = () => false,
-  _sensitive?: { count: number; files: readonly string[] },
+  sensitive?: SensitiveFiles,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -508,6 +522,8 @@ export const renderStatus = (
           ],
     );
   }
+  const touched = sensitiveLine(sensitive);
+  if (touched.length > 0) sections.push(touched);
   const text = sections.map((lines) => lines.join('\n')).join('\n\n');
   if (text.length <= longestText) return text;
   // Whole lines only, so no escape or entity is cut in half.
@@ -581,7 +597,10 @@ const statusDue = (
   const issue = breweryIssueOf(state, batch);
   if (issue === undefined) return undefined;
   const { next: revision, latest: previous } = latestRevision(state, batchId);
-  const text = renderStatus(batch, steps, knownCommits(state, batchId));
+  // The push of the pull request recorded the sensitive files once (ADR 0201).
+  const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batchId))));
+  const sensitive = pushed.success ? pushed.data.sensitive : undefined;
+  const text = renderStatus(batch, steps, knownCommits(state, batchId), sensitive);
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
   const due = { key: revisionKey(batchId, revision), issue, text, digest };

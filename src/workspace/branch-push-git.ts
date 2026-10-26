@@ -287,8 +287,26 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         ...scanPatches(patches, isCommit),
       ];
     },
-    touchedFiles: async () => {
-      throw new Error('not implemented');
+    touchedFiles: async (since, commit, signal) => {
+      for (const sha of [since, commit]) {
+        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+      }
+      // Each path once, a rename's two as a deletion and an addition, never quoted after -z.
+      const args = [
+        'diff',
+        '--name-only',
+        '-z',
+        '--no-renames',
+        '--no-ext-diff',
+        '--no-relative',
+        '--ignore-submodules=none',
+        '--end-of-options',
+        since,
+        commit,
+      ];
+      const result = await local(clone, args, aborts(signal));
+      if (result.code !== 0) throw new Error(`git diff failed: ${firstLine(result)}`);
+      return result.stdout.split('\0').filter((path) => path !== '');
     },
   };
 };

@@ -3,12 +3,14 @@
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
 // pushes twice or opens two pull requests (I4). The attempt ends once both are recorded.
 
+import { posix } from 'node:path';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
 import type { ScanFinding } from '../schemas/store.ts';
-import { MAX_REFUSED, PushResult } from '../schemas/store.ts';
+import { MAX_REFUSED, MAX_SENSITIVE, PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
+import { mergedBase } from './base-merge.ts';
 import type { Ending } from './decide.ts';
 import { type DriverActions, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -99,7 +101,15 @@ export interface PullRequestActionsOptions {
 
 /** What one of the action's effects does, as `due` worked it out. */
 type ActionEffect =
-  | { kind: 'push'; push: BranchPush; revision: string; base: string; branch: string }
+  | {
+      kind: 'push';
+      push: BranchPush;
+      revision: string;
+      base: string;
+      branch: string;
+      /** Where the batch's change starts, and the globs its files are matched against (ADR 0201). */
+      sensitive?: { since: string; paths: readonly string[] };
+    }
   | {
       kind: 'open';
       repo: string;
@@ -203,7 +213,17 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   const targetOf = (effect: ActionEffect): EffectTarget => {
     switch (effect.kind) {
       case 'push': {
-        const { push, revision, base, branch } = effect;
+        const { push, revision, base, branch, sensitive } = effect;
+        // The files of the change that match a sensitive path, read once for commits that go.
+        const touched = async (commit: string, signal?: AbortSignal) => {
+          if (sensitive === undefined) return {};
+          const { since, paths } = sensitive;
+          const files = (await push.touchedFiles(since, commit, signal)).filter((file) =>
+            paths.some((glob) => posix.matchesGlob(file, glob)),
+          );
+          if (files.length === 0) return {};
+          return { sensitive: { count: files.length, files: files.slice(0, MAX_SENSITIVE) } };
+        };
         // The commit to push, and whether the base holds all of it: a pull request with no commits,
         // which the code host refuses, is recorded as nothing to push instead. The base as the
         // remote has it now, not the clone's origin/<base>, which may not have been fetched since
@@ -227,7 +247,8 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
             const { result } = await resolve(signal);
             if (result.empty === true) return { result };
             const tip = await push.remoteTip(branch, signal);
-            return tip === result.commit ? { result } : undefined;
+            if (tip !== result.commit) return undefined;
+            return { result: { ...result, ...(await touched(result.commit, signal)) } };
           },
           // Nothing leaves the machine before the scan of every commit it would carry (ADR 0079).
           apply: async (_key, signal): Promise<PushResult> => {
@@ -235,8 +256,9 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
             if (result.empty === true) return result;
             const found = await push.secretScan(start, result.commit, signal);
             if (found.length > 0) return { ...result, refused: found.slice(0, MAX_REFUSED) };
+            const matched = await touched(result.commit, signal);
             await push.push(result.commit, branch, signal);
-            return result;
+            return { ...result, ...matched };
           },
         };
       }
@@ -277,12 +299,16 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         batch.repo === undefined
           ? { issue: batch.issue }
           : { issue: batch.issue, repo: batch.repo };
+      // The change starts where a diff Taster's does (ADR 0161, ADR 0164); none before a start.
+      const since = mergedBase(state, batchId) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+      const paths = repository.sensitivePaths ?? [];
       effects.set(effectKey.encode(pushKey(batchId)), {
         kind: 'push',
         push: repository.push,
         revision,
         base: repository.base,
         branch,
+        ...(since === undefined || paths.length === 0 ? {} : { sensitive: { since, paths } }),
       });
       effects.set(effectKey.encode(pullRequestKey(batchId)), {
         kind: 'open',

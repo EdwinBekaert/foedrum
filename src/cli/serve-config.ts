@@ -295,6 +295,9 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         ...(repository.testReport === undefined ? {} : { testReport: repository.testReport }),
         ...(repository.setup === undefined ? {} : { setup: repository.setup }),
         ...(repository.houseYeast === 'brewery' ? { houseYeast: 'brewery' as const } : {}),
+        ...(repository.sensitivePaths === undefined
+          ? {}
+          : { sensitivePaths: repository.sensitivePaths }),
       };
     },
   );
