@@ -22,6 +22,7 @@ export interface Step {
     | 'checks'
     | 'pull-request'
     | 'on-tap'
+    | 'lenses'
     | 'brew'
     | 'resume'
     | 'replay';
