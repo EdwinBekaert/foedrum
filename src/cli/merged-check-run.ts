@@ -39,8 +39,13 @@ const mergedCheckEnd = (
       return { kind: 'unchecked', why: ending.summary };
     case 'failed':
       return { kind: 'unchecked', why: ending.reason };
-    default:
-      return { kind: 'unchecked', why: `the checks ended ${ending.kind}` };
+    // The check runner asks no question; were it to, the checks did not run.
+    case 'needs_input':
+      return { kind: 'unchecked', why: 'the checks ended asking a question' };
+    default: {
+      const unhandled: never = ending;
+      throw new Error(`Unhandled ending ${JSON.stringify(unhandled)}`);
+    }
   }
 };
 
