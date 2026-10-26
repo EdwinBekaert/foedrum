@@ -1,7 +1,9 @@
 // The openPullRequest action as the driver runs it (ADR 0071): two effects of the batch in the
 // ledger, the push of its task tree to the bottle branch and then the pull request on the code
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
-// pushes twice or opens two pull requests (I4). The attempt ends once both are recorded.
+// pushes twice or opens two pull requests (I4). The attempt ends once both are recorded. A later
+// round of the pull request, after a failure on it sent the batch back, pushes again under a key of
+// its own onto the round before, and opens nothing (ADR 0219).
 
 import { posix } from 'node:path';
 import type { IsCommit } from '../formats/secrets.ts';
