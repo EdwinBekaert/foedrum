@@ -506,4 +506,14 @@ describe('the foedrum command, on the edges of its machine (ADR 0210)', () => {
     const { lines } = await offer(posix('/home/ada/..tools'), ['n']);
     assert.equal(lines[1], '  1. /home/ada/..tools');
   });
+
+  it("never offers the home's parent folder", async () => {
+    const posixRun = await offer(posix('/home:/home/ada/tools'), ['n']);
+    assert.deepStrictEqual(posixRun.lines.slice(1, 3), [
+      '  1. /home/ada/tools',
+      'Not written. To write it by hand, put these lines in /home/ada/tools/foedrum:',
+    ]);
+    const windowsRun = await offer(windows('C:\\Users;C:\\Users\\ada\\tools'), ['n']);
+    assert.deepStrictEqual(windowsRun.lines.slice(1, 2), ['  1. C:\\Users\\ada\\tools']);
+  });
 });
