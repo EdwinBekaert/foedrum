@@ -15,12 +15,7 @@ import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
-import {
-  createMergedChecks,
-  type MergedCheckDue,
-  type MergedChecks,
-  mergedCheckStep,
-} from '../engine/merged-checks.ts';
+import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
@@ -215,7 +210,7 @@ const baseChecks = (
                   checks: {
                     wants: (batch: Batch) =>
                       mergedCheckStep(setup.recipes, setup.checks, batch) !== undefined,
-                    due: (due: MergedCheckDue) => merged.due(due),
+                    due: merged.due,
                   },
                 }),
           },
@@ -252,8 +247,6 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     );
     // A second writer on the store, as a terminal command is (ADR 0044).
     const log = createCommandLog({ store, recipes: setup.recipes });
-    const failed = (what: string, error: unknown): void =>
-      say(formatIntakeNotice({ kind: 'failed', what, error }));
     // One run at a time in the Cellar, beside the ticks and the pass (ADR 0203).
     const merged =
       shell.mergedTree === undefined
@@ -261,7 +254,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         : createMergedChecks({
             log,
             clock,
-            failed,
+            failed: (what, error) => say(formatIntakeNotice({ kind: 'failed', what, error })),
             run: mergedCheckRun({ setup, log, tree: shell.mergedTree, checkTree, clock }),
           });
     const bases = baseChecks(setup, shell, pushes, merged);

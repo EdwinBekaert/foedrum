@@ -25,7 +25,7 @@ export interface MergedCheckRunOptions {
 }
 
 /** How a run ended, from what the check runner read: the first reading that did not pass. */
-export const mergedCheckEnd = (
+const mergedCheckEnd = (
   { ending, readings = [] }: AttemptEnd,
   signal: AbortSignal,
 ): MergedCheckEnd => {
