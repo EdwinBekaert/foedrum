@@ -882,13 +882,18 @@ describe('checkBases', () => {
         }
       });
 
-      it('fences a tail that ends in a line break without a blank line, and opens a marker it holds', async () => {
+      it('fences a tail that ends in a line break without a blank line, and opens every marker it holds', async () => {
         onTap();
-        checked(tip1, { failed: { ...test, tail: 'not ok 1\n<!-- foedrum:x -->\n' } });
+        checked(tip1, {
+          failed: { ...test, tail: 'not ok 1\n<!-- foedrum:x -->\n<!-- foedrum:y -->\n' },
+        });
         const github = fakeGitHub();
         await drain(github);
         const [body] = bodies(github);
-        assert.ok(body?.includes('```\nnot ok 1\n<!- - foedrum:x -->\n```'), body);
+        assert.ok(
+          body?.includes('```\nnot ok 1\n<!- - foedrum:x -->\n<!- - foedrum:y -->\n```'),
+          body,
+        );
       });
 
       it('posts once when a kill came between the post and its record', async () => {
