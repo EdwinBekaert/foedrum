@@ -152,7 +152,15 @@ export type EngineCommand =
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string }
   /** The supervisor found the closed usage window's reopen due (ADR 0206). */
-  | { kind: 'reopen' };
+  | { kind: 'reopen' }
+  /**
+   * The supervisor found the batch's open pull request failed on `head`, the commit of its latest
+   * push: the batch goes back along its recipe's onPullRequestFail route, or Stuck (ADR 0219).
+   */
+  | { kind: 'fix_pull_request'; batchId: string; pullRequest: string; head: string; cause: FixCause };
+
+/** What is wrong with an open pull request that sends its batch back (ADR 0219). */
+export type FixCause = { kind: 'checks' };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
@@ -208,6 +216,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'stalled':
     case 'stopped':
       return [...withoutAnswer];
+    case 'pull_request_failed':
+      throw new Error('not implemented');
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
@@ -372,6 +382,8 @@ function run(draft: Draft, command: Command): Event[] {
     case 'remind':
       remind(draft, command.batchId);
       break;
+    case 'fix_pull_request':
+      throw new Error('not implemented');
     case 'retry': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'retry');

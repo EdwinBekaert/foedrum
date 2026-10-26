@@ -199,6 +199,23 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     }
   });
 
+  it('names the pushed task tree of a batch on tap whose pull request is open, for a fix round (ADR 0219)', () => {
+    const url = 'https://github.com/acme/app/pull/1';
+    const effects = new Map([
+      ...pushedFrom('refs/heads/foedrum/12-1/brew/2'),
+      [effectKey.encode({ batchId: '12-1', effect: 'pull_request' }), url],
+    ]);
+    const onTap = brewed(lanes['on-tap'] as Lane, effects);
+    assert.deepEqual(claims(onTap, []).open, new Set(['foedrum/12-1/brew/2']));
+    const batch = onTap.batches.get('12-1') as Batch;
+    const ended = {
+      ...onTap,
+      batches: new Map([['12-1', { ...batch, pullRequestEnds: { [url]: 'merged' as const } }]]),
+    };
+    assert.deepEqual(claims(ended, []).open, new Set());
+    assert.deepEqual(claims(brewed(lanes.cancelled as Lane, effects), []).open, new Set());
+  });
+
   it('leaves it out once a push recorded it', () => {
     const state = brewed(lanes['on-tap'] as Lane, pushedFrom('refs/heads/foedrum/12-1/brew/2'));
     assert.deepEqual(claims(state, []).unpushed, new Map());

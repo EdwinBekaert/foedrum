@@ -209,6 +209,11 @@ export interface Claims {
    * to its commits, kept while it holds any (ADR 0084).
    */
   unpushed?: ReadonlyMap<string, string>;
+  /**
+   * The branch of the task tree of each batch on tap whose pull request is open: a fix round
+   * starts from it (ADR 0219).
+   */
+  open?: ReadonlySet<string>;
 }
 
 /**

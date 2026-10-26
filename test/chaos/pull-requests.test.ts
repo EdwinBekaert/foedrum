@@ -68,11 +68,13 @@ const codeHost = (kills: readonly KillPoint[]) => {
   const opened = new Map<string, string>();
   const left = [...kills];
   let dead = false;
+  let killed = 0;
   const point = (at: KillPoint): void => {
     if (dead) throw new Killed('dead');
     if (left[0] !== at) return;
     left.shift();
     dead = true;
+    killed++;
     throw new Killed(at);
   };
   const push: BranchPush = {
@@ -116,7 +118,11 @@ const codeHost = (kills: readonly KillPoint[]) => {
     restart: () => {
       dead = false;
     },
-    kills: () => kills.length - left.length,
+    kills: () => killed,
+    /** Where the live driver dies from now on, each the first time it gets there. */
+    arm: (more: readonly KillPoint[]) => {
+      left.push(...more);
+    },
   };
 };
 
@@ -221,6 +227,138 @@ describe('chaos: the openPullRequest action killed around the push and the open 
         ['finished'],
         `one attempt of the action: ${ends.map((a) => attemptKey.encode({ batchId: '12-1', stepId: 'open-pull-request', attempt: a.attempt })).join(', ')}`,
       );
+    });
+  }
+});
+
+// A pull request whose checks failed on the pushed head goes back to `plan` and its fix is pushed
+// to the same branch (ADR 0219), killed on both sides of that round's push, once or twice. The
+// first round brews without kills; the round's task tree is plan's second attempt, at FIXED.
+const FIXED = 'e'.repeat(40);
+const fixing = fakeRecipes({
+  ale: fakeRecipe({
+    steps: ['plan', 'open-pull-request'],
+    actions: { 'open-pull-request': 'openPullRequest' },
+    routes: { 'open-pull-request': { pull_request: 'plan' } },
+    maxRounds: 2,
+    pullRequests: [],
+  }),
+});
+
+const fixRun = async (kills: readonly KillPoint[]) => {
+  const path = join(dir.path, `run-${++runs}.sqlite`);
+  let store = openSqliteEventStore(path);
+  const code = codeHost([]);
+  const commitOf = code.push.commit;
+  // The fix's task tree is plan's second attempt.
+  const push: BranchPush = {
+    ...code.push,
+    commit: async (revision, signal) => {
+      const commit = await commitOf(revision, signal);
+      return revision.endsWith('/plan/2') ? FIXED : commit;
+    },
+  };
+  const worktrees = fakeWorktrees();
+  const log = createCommandLog({ store, recipes: fixing });
+  log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+  log.issue(
+    { kind: 'route', batchId: '12-1', recipe: 'ale', reason: 'label', source: 'label' },
+    t0,
+  );
+  let starts = 0;
+  let driver: Driver | undefined;
+  let failed = false;
+  const roundDone = (): boolean => {
+    const batch = driver?.state().batches.get('12-1');
+    return batch?.lane.kind === 'on_tap' && (batch.steps.get('plan')?.attempts.size ?? 0) === 2;
+  };
+  try {
+    for (let ticks = 0; ticks < 40; ticks++) {
+      if (driver === undefined) {
+        code.restart();
+        starts++;
+        driver = await openDriver({
+          store,
+          runner,
+          recipes: fixing,
+          clock: () => t0,
+          lock: () => fakeLock('cellar'),
+          takes: () => true,
+          stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+          limits: () => defaultLimits,
+          worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: worktrees }],
+          actions: pullRequestActions({
+            brewery: 'acme/brewery',
+            repositories: [{ repo: 'acme/app', base: 'main', push }],
+            host: code.host,
+            orderTitle: async () => 'Add a --json flag',
+          }),
+        });
+      }
+      await driver.tick();
+      if (code.kills() >= starts) {
+        driver.close();
+        driver = undefined;
+        store.close();
+        store = openSqliteEventStore(path);
+        continue;
+      }
+      if (!failed && driver.state().batches.get('12-1')?.lane.kind === 'on_tap') {
+        // The intake reads the pull request's checks: the first round's head failed.
+        const event = {
+          type: 'pull_request.checks_finished',
+          batchId: '12-1',
+          pullRequest: 'https://github.com/acme/app/pull/1',
+          head: FAKE_COMMIT,
+          checks: [{ name: 'ci / test', kind: 'check_run', conclusion: 'failure' }],
+        } as const;
+        assert.equal(
+          createCommandLog({ store, recipes: fixing }).issue({ kind: 'record', event }, t0).kind,
+          'accepted',
+        );
+        failed = true;
+        code.arm(kills);
+        continue;
+      }
+      if (roundDone()) break;
+    }
+    const state = createCommandLog({ store, recipes: fixing }).state();
+    return { state, code, starts };
+  } finally {
+    driver?.close();
+    store.close();
+  }
+};
+
+describe('chaos: a fix round of a failing pull request killed around its push (ADR 0219)', () => {
+  const pushPoints = killPoints.filter((point) => point.includes('push'));
+  const runsOf: (readonly KillPoint[])[] = [
+    [],
+    ...pushPoints.map((point) => [point]),
+    ...pushPoints.flatMap((first, i) =>
+      pushPoints
+        .filter((second, j) => j > i || (j === i && second.startsWith('before')))
+        .map((second) => [first, second]),
+    ),
+  ];
+
+  for (const kills of runsOf) {
+    it(`pushes the fix once to the same pull request: ${kills.join(', then ') || 'no kill'}`, async () => {
+      const { state, code, starts } = await fixRun(kills);
+      const branch = 'foedrum/acme.brewery/12-1/acme.app';
+      assert.equal(starts, kills.length + 1, 'a new driver after each kill');
+      assert.deepEqual(code.pushes, [`${FAKE_COMMIT} ${branch}`, `${FIXED} ${branch}`]);
+      assert.equal(code.remote.get(branch), FIXED);
+      assert.deepEqual([...code.opened], [[branch, 'https://github.com/acme/app/pull/1']]);
+      assert.deepEqual(state.batches.get('12-1')?.lane, {
+        kind: 'on_tap',
+        pullRequests: ['https://github.com/acme/app/pull/1'],
+      });
+      assert.deepEqual([...state.effects.keys()].sort(), [
+        JSON.stringify(['12-1', 'pull_request']),
+        JSON.stringify(['12-1', 'push']),
+        JSON.stringify(['12-1', 'push.2']),
+      ]);
     });
   }
 });

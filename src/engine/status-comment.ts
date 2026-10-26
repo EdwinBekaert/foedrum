@@ -144,6 +144,8 @@ const stuckText = (reason: StuckReason, told: Told): string => {
       return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':
       return `no recipe was chosen by its routing deadline, ${reason.deadlineAt}`;
+    case 'pull_request_failed':
+      throw new Error('not implemented');
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
     case 'stopped': {
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;

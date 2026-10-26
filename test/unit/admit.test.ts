@@ -4,6 +4,15 @@ import { admit } from '../../src/engine/admit.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { emptyState, fold, type Lane } from '../../src/engine/fold.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import {
+  checksFinished,
+  firstHead,
+  fixPullRequest,
+  fixRound,
+  OPEN,
+  openedOnTap,
+  secondHead,
+} from '../helpers/open-pull-request.ts';
 
 const deadlineAt = '2026-10-15T10:00:00.000Z';
 const remindAt = '2026-10-17T10:00:00.000Z';
@@ -632,5 +641,73 @@ describe('admit bottles only finished sub-orders of its repository (ADR 0013)', 
 
   it('refuses a sub-order without a batch on tap', () => {
     refused(events, bottle('acme/api', [101, 102]), /sub-order 102 has no batch on tap/);
+  });
+});
+
+const scheduledPlan = (number: number): Event => ({
+  type: 'step.scheduled',
+  batchId: 'b1',
+  stepId: 'plan',
+  attempt: number,
+  deadlineAt,
+});
+
+describe('admit sends a batch on tap back only along its pull request route (ADR 0219)', () => {
+  const onTap = [...openedOnTap(), checksFinished('b1', firstHead)];
+  const [sentBack = scheduledPlan(2)] = fixRound('b1', firstHead, secondHead);
+  const accepted = (events: Event[], event: Event) =>
+    admit(fold(events), [event]).kind === 'accepted';
+
+  it('admits a schedule along the route of its open pull request', () => {
+    assert.equal(accepted(onTap, sentBack), true);
+  });
+
+  it('refuses a schedule without that route, or of another pull request, or one that ended', () => {
+    const other = 'https://github.com/acme/api/pull/13';
+    const route = { from: OPEN, why: 'pull_request', pullRequest: other, head: firstHead } as const;
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      state: 'merged',
+    };
+    assert.equal(accepted(onTap, scheduledPlan(2)), false);
+    assert.equal(accepted(onTap, { ...scheduledPlan(2), route }), false);
+    assert.equal(accepted([...onTap, ended], sentBack), false);
+  });
+
+  it('admits Stuck from on tap only on its pull request', () => {
+    const stuckOn = (reason: unknown): Event =>
+      ({
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason,
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt,
+      }) as Event;
+    const failedPullRequest = {
+      kind: 'pull_request_failed',
+      stepId: OPEN,
+      pullRequest: fixPullRequest,
+      head: firstHead,
+      rounds: 2,
+      failed: [{ name: 'ci / test', conclusion: 'failure' }],
+      more: 0,
+    };
+    assert.equal(accepted(onTap, stuckOn(failedPullRequest)), true);
+    assert.equal(
+      accepted(onTap, stuckOn({ kind: 'deadline_passed', stepId: 'plan', deadlineAt })),
+      false,
+    );
+  });
+
+  it('records the end of the pull request a batch brews a fix of', () => {
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      state: 'closed',
+    };
+    assert.equal(accepted([...onTap, sentBack], ended), true);
   });
 });

@@ -24,6 +24,13 @@ import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import {
+  checksFinished,
+  firstHead,
+  fixRound,
+  openedOnTap,
+  secondHead,
+} from '../helpers/open-pull-request.ts';
 
 const web = 'acme/web';
 const api = 'acme/api';
@@ -405,6 +412,21 @@ describe('createIntake', () => {
       // No release, no claim mark: those read only a claimed batch's ends (ADR 0043).
       assert.deepStrictEqual(marks.due(log.state(), '1-1'), []);
       assert.equal(github.refs.size, 0);
+    });
+
+    it('records the end of a pull request whose batch is brewing a fix of it (ADR 0219)', async () => {
+      const [sentBack] = fixRound('1-1', firstHead, secondHead, 2, pullRequest);
+      store.replay([
+        ...openedOnTap('1-1', 'half', firstHead, pullRequest),
+        checksFinished('1-1', firstHead, undefined, pullRequest),
+        ...(sentBack === undefined ? [] : [sentBack]),
+      ]);
+      log = createCommandLog({ store, recipes });
+      const { tracker } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'merged' });
+      await intake(tracker).poll();
+      const batch = log.state().batches.get('1-1');
+      assert.deepStrictEqual(batch?.pullRequestEnds, { [pullRequest]: 'merged' });
+      assert.equal(batch?.lane.kind, 'brewing');
     });
 
     it('checks the open pull requests against their bases after it records the ends (ADR 0198)', async () => {

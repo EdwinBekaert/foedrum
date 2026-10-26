@@ -19,7 +19,7 @@ import {
   walk,
 } from '../schemas/recipe.ts';
 import type { Attempt } from './fold.ts';
-import type { Recipe, RecipeAction, Recipes, Stall } from './recipes.ts';
+import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
 /** A file of the Brewery, by its path from the Brewery's root with `/`: its text, or why not. */
@@ -265,7 +265,7 @@ interface LineStep {
   /** Whether it gets another attempt after `attempts`, the last of which failed retryably. */
   mayRetry: (attempts: readonly Attempt[]) => boolean;
   /** Where its onFail (a check) or onBlocked findings (a brewer) route goes, and how often. */
-  route: { why: 'failed' | 'findings'; goto: string; maxRounds: number } | undefined;
+  route: { why: RouteWhy; goto: string; maxRounds: number } | undefined;
   /** The action it is, which the engine runs itself (ADR 0071); none for a brewer or a check. */
   action?: RecipeAction;
   /** A check step that expects its checks to pass: not a red proof (ADR 0164). */
@@ -510,6 +510,9 @@ function lineRecipe(
       return rounds < route.maxRounds ? route.goto : undefined;
     },
     rounds: roundsOf,
+    routesTo: () => {
+      throw new Error('not implemented');
+    },
   };
 }
 
