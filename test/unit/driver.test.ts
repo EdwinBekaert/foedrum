@@ -3171,4 +3171,112 @@ describe('openDriver', () => {
       assert.deepStrictEqual(driver.state().batches.get('b1')?.lane.kind, 'stuck');
     });
   });
+
+  describe('a pause (ADR 0202)', () => {
+    const who = { by: 'ada', via: 'terminal' } as const;
+    const pause = (issue?: number, stopAt?: number): void => {
+      const decision = intake.issue(
+        {
+          kind: 'pause',
+          ...(issue === undefined ? {} : { order: { issue } }),
+          ...who,
+          ...(stopAt === undefined ? {} : { stopAt: { at: at(stopAt), zone: 'UTC' } }),
+        },
+        now,
+      );
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    };
+    const resume = (issue?: number): void => {
+      const order = issue === undefined ? {} : { order: { issue } };
+      const decision = intake.issue({ kind: 'continue', ...order, ...who }, now);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    };
+
+    it('starts no attempt of a paused order, and starts it once the order continues', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      order('b2');
+      pause(1);
+      const driver = await open({ runner });
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b2')]);
+      resume(1);
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b2'), plan('b1')]);
+    });
+
+    it('starts nothing at all under --all, a batch ordered after it neither', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      pause();
+      // A person's own order is not held; what it schedules is.
+      assert.equal(
+        intake.issue({ kind: 'order_again', batchId: 'b2', order: { issue: 2 }, ...who }, now).kind,
+        'accepted',
+      );
+      const driver = await open({ runner });
+      await driver.tick();
+      assert.deepStrictEqual(started, []);
+    });
+
+    it('lets a running attempt end at its own point, and starts nothing after it', async () => {
+      const { runner, started, stopped, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      pause(1, 30);
+      now = at(10);
+      await driver.tick();
+      assert.deepStrictEqual(stopped, []);
+      end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      const implement = driver.state().batches.get('b1')?.steps.get('implement');
+      assert.equal(implement?.attempts.get(1)?.phase, 'scheduled');
+      assert.deepStrictEqual(types(store, 'b1').slice(-2), [
+        'step.finished plan#1',
+        'step.scheduled implement#1',
+      ]);
+    });
+
+    it('stops what still runs at the stopAt, as stopped by the pause, and runs it again on continue', async () => {
+      const { runner, started, stopped } = handRunner();
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      pause(1, 30);
+      now = at(29);
+      await driver.tick();
+      assert.deepStrictEqual(stopped, []);
+      now = at(30);
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(stopped, [attemptKey.encode(plan('b1'))]);
+      const step = driver.state().batches.get('b1')?.steps.get('plan');
+      const first = step?.attempts.get(1);
+      assert.equal(first?.phase === 'finished' && first.paused, true);
+      assert.equal(step?.attempts.get(2)?.phase, 'scheduled');
+      assert.deepStrictEqual(started, [plan('b1')]);
+      resume(1);
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)]);
+    });
+
+    it('starts nothing paused after a restart, and goes on once continued', async () => {
+      const first = handRunner();
+      order('b1');
+      pause(1);
+      const driver = await open({ runner: first.runner });
+      await driver.tick();
+      driver.close();
+      drivers.splice(drivers.indexOf(driver), 1);
+      const second = handRunner();
+      const again = await open({ runner: second.runner });
+      await again.tick();
+      assert.deepStrictEqual(second.started, []);
+      resume(1);
+      await again.tick();
+      assert.deepStrictEqual(second.started, [plan('b1')]);
+    });
+  });
 });

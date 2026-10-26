@@ -246,6 +246,9 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.taken_over':
       case 'pull_request.ended':
       case 'pull_request.base_checked':
+      case 'order.paused':
+      case 'order.continued':
+      case 'step.rescheduled':
         break;
       default:
         event satisfies never;

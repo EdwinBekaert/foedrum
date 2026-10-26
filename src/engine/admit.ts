@@ -122,6 +122,12 @@ function rule(state: State, event: Event): string | undefined {
       return endable(state, event);
     case 'pull_request.base_checked':
       return checkable(state, event);
+    // The fold refuses a continue of what is not paused; a pause holds any order (ADR 0202).
+    case 'order.paused':
+    case 'order.continued':
+      return undefined;
+    case 'step.rescheduled':
+      return lanes(state, event, ['brewing']);
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

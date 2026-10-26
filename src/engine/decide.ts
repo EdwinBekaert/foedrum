@@ -25,8 +25,9 @@ import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
-import type { Attempt, Batch, Lane, State } from './fold.ts';
+import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } from './fold.ts';
 import { claimStanding, same } from './issue-claims.ts';
+import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
@@ -107,6 +108,8 @@ export type EngineCommand =
       receipt?: Receipt;
       /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
       houseYeast?: HouseYeastSelection;
+      /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
+      paused?: true;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -127,7 +130,22 @@ export type EngineCommand =
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string };
 
-export type Command = HumanCommand | EngineCommand;
+/**
+ * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
+ * lifting (ADR 0202). `stopAt`: when what still runs is stopped, and the zone it was given in.
+ */
+export type PauseOrContinue =
+  | {
+      kind: 'pause';
+      order?: OrderRef;
+      by: string;
+      via: Surface;
+      why?: string;
+      stopAt?: { at: Date; zone: string };
+    }
+  | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
+
+export type Command = HumanCommand | PauseOrContinue | EngineCommand;
 
 export interface Context {
   now: Date;
@@ -214,6 +232,10 @@ function run(draft: Draft, command: Command): Event[] {
       // The intake's claim of a target issue waits on the code host between its read and this
       // order, so `foedrum order` may have ordered the issue in between (ADR 0105).
       if (order.repo !== undefined) refuseOrder(draft.state, batchId, order, busy);
+      // pause --all holds the intake: nothing is ordered or claimed (ADR 0202).
+      if (draft.state.pauses.all !== undefined && !draft.state.batches.has(batchId)) {
+        throw new Refusal('the Brewery is paused: nothing is ordered until foedrum continue --all');
+      }
       draft.push({
         type: 'batch.ordered',
         batchId,
@@ -352,6 +374,12 @@ function run(draft: Draft, command: Command): Event[] {
       draft.push(resumes === undefined ? event : { ...event, resumes });
       break;
     }
+    case 'pause':
+      pause(draft, command);
+      break;
+    case 'continue':
+      lift(draft, command);
+      break;
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);
@@ -434,7 +462,7 @@ function refuseOrder(
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, readings, claude, receipt, houseYeast } =
+  const { batchId, stepId, attempt, ending, usage, readings, claude, receipt, houseYeast, paused } =
     command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
@@ -446,6 +474,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
           reason: `${blockedBy(ending.blockerKind)}${ending.summary}`,
         }
       : ending;
+  const stopped = paused === true && stoppedByPause(draft, command);
   draft.push({
     type: 'step.finished',
     batchId,
@@ -457,8 +486,14 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
+    ...(stopped ? { paused: true } : {}),
   });
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
+  // A pause is a person's choice, no failure: the step runs again whatever attempts it has left.
+  if (stopped) {
+    schedule(draft, batchId, stepId, { retry: true });
+    return;
+  }
   const batch = draft.batch(batchId);
   switch (ending.kind) {
     case 'succeeded':
@@ -541,13 +576,15 @@ function retryOrStick(
   const batch = draft.batch(batchId);
   const recipe = recipeOf(draft, batch);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
-  if (retryable && recipe.mayRetry(batch, stepId)) {
+  // An attempt a pause stopped counts against no retry (ADR 0202).
+  const counted = withoutPaused(batch, stepId);
+  if (retryable && recipe.mayRetry(counted, stepId)) {
     schedule(draft, batchId, stepId, { retry: true });
     return;
   }
   const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
   if (back === undefined) {
-    const attempts = batch.steps.get(stepId)?.attempts.size ?? 0;
+    const attempts = counted.steps.get(stepId)?.attempts.size ?? 0;
     stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
   } else {
     goBack(draft, batchId, back, { from: stepId, why: 'failed' });
@@ -588,6 +625,10 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
   const { batchId, stepId, attempt } = command;
   const batch = requireLane(draft.batch(batchId), 'expire', ['brewing']);
   const current = running(batch, stepId, attempt);
+  // Its wait is the pause's, not the step's: continue gives it a new deadline (ADR 0202).
+  if (current.phase === 'scheduled' && pauseOf(draft.state, batch) !== undefined) {
+    throw new Refusal(`${attemptName(batch, stepId, attempt)} waits for its batch's pause`);
+  }
   if (draft.context.now.getTime() < Date.parse(current.deadlineAt)) {
     throw new Refusal(
       `${attemptName(batch, stepId, attempt)} is not due until ${current.deadlineAt}`,
@@ -963,4 +1004,119 @@ function requireStep(draft: Draft, batch: Batch, stepId: string): void {
 function recipeOf(draft: Draft, batch: Batch): Recipe {
   if (batch.recipe === undefined) throw new Refusal(`batch ${batch.id} has no recipe`);
   return find(draft, batch.recipe.name);
+}
+
+/** How an order is named in a refusal: `#<n>`, or `<owner>/<name>#<n>` for a target issue's. */
+const orderName = ({ issue, repo }: OrderRef): string => `${repo ?? ''}#${issue}`;
+
+/**
+ * A person's pause of an order, or with no order of the whole Brewery (ADR 0202): it holds any
+ * order with a batch that has not ended, and replaces an earlier pause of the same order.
+ */
+function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void {
+  const { order, by, via, why, stopAt } = command;
+  if (order !== undefined) {
+    // A sub-order's batches and a claimed issue's are held by the pause of their order.
+    const name = orderName(order);
+    const subOrder = order.repo === undefined ? draft.state.subOrders.get(order.issue) : undefined;
+    if (subOrder !== undefined) {
+      throw new Refusal(`${name} is a sub-order of #${subOrder.order}; pause #${subOrder.order}`);
+    }
+    const claimed = order.repo === undefined ? claimOfOrder(draft.state, order.issue) : undefined;
+    if (claimed?.repo !== undefined) {
+      const target = claimedName(claimed);
+      throw new Refusal(`${name} is the order of ${target}; pause ${target}`);
+    }
+    const key = orderKey(order);
+    const live = [...draft.state.batches.values()].some(
+      (batch) =>
+        nonTerminal.includes(batch.lane.kind) && orderKey(orderOfBatch(draft.state, batch)) === key,
+    );
+    if (!live) {
+      throw new Refusal(`there is no batch of ${orderName(order)} that has not ended to pause`);
+    }
+  }
+  draft.push({
+    type: 'order.paused',
+    ...(order === undefined ? {} : { order: { ...order } }),
+    by,
+    via,
+    ...(why === undefined ? {} : { why }),
+    ...(stopAt === undefined ? {} : { stopAt: stopAt.at.toISOString(), zone: stopAt.zone }),
+  });
+}
+
+/**
+ * Lifts a pause (ADR 0202): an order's, or with no order every one. Each scheduled attempt that had
+ * not started in a batch it lifts gets a new deadline from its step, as if just scheduled.
+ */
+function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): void {
+  const { order, by, via } = command;
+  const { pauses } = draft.state;
+  if (order === undefined) {
+    if (pauses.all === undefined && pauses.orders.size === 0) {
+      throw new Refusal('nothing is paused');
+    }
+  } else if (pauses.all !== undefined) {
+    throw new Refusal(
+      `the whole Brewery is paused: foedrum continue --all lifts it, ${orderName(order)} with it`,
+    );
+  } else if (!pauses.orders.has(orderKey(order))) {
+    throw new Refusal(`${orderName(order)} is not paused`);
+  }
+  const held = [...draft.state.batches.values()].filter(
+    (batch) => pauseOf(draft.state, batch) !== undefined,
+  );
+  draft.push({
+    type: 'order.continued',
+    ...(order === undefined ? {} : { order: { ...order } }),
+    by,
+    via,
+  });
+  for (const { id } of held) {
+    const batch = draft.batch(id);
+    if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') continue;
+    const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
+    for (const stepId of batch.steps.keys()) {
+      const latest = latestOf(batch, stepId);
+      // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
+      if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
+        continue;
+      }
+      draft.push({
+        type: 'step.rescheduled',
+        batchId: id,
+        stepId,
+        attempt: latest.attempt,
+        deadlineAt: draft.after(recipe.deadlineMs(stepId)),
+      });
+    }
+  }
+}
+
+/**
+ * Whether the end of an attempt the driver stopped as its batch's pause reached its stopAt
+ * (ADR 0202) is recorded as the pause's: it counts against no retry. The driver's flag decides,
+ * not the pause's state when the end is recorded, so a continue or a new pause that lands between
+ * the stop and the end spends no retry either. Only a cancelled end can be the pause's.
+ */
+function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish' }>): true {
+  const { batchId, stepId, attempt, ending } = command;
+  if (ending.kind !== 'cancelled') {
+    const name = attemptName(draft.batch(batchId), stepId, attempt);
+    throw new Refusal(`${name} was not stopped by a pause: it ended ${ending.kind}`);
+  }
+  return true;
+}
+
+/** `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202). */
+function withoutPaused(batch: Batch, stepId: string): Batch {
+  const step = batch.steps.get(stepId);
+  if (step === undefined) return batch;
+  const attempts = [...step.attempts].filter(
+    ([, attempt]) => attempt.phase !== 'finished' || attempt.paused !== true,
+  );
+  if (attempts.length === step.attempts.size) return batch;
+  const counted: Step = { ...step, attempts: new Map(attempts) };
+  return { ...batch, steps: new Map(batch.steps).set(stepId, counted) };
 }
