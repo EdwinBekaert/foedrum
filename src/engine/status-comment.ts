@@ -221,8 +221,9 @@ export const checkOf = (reading: GravityReading): string => {
 /** A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140). */
 export const readingText = (reading: GravityReading): string => {
   const what = checkOf(reading);
-  if (reading.result === 'skipped') return `${what} was skipped`;
   switch (reading.result) {
+    case 'skipped':
+      return `${what} was skipped`;
     case 'exited':
       return `${what} failed with exit code ${reading.exitCode}`;
     case 'signaled':

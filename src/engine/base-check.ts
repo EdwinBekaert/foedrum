@@ -249,14 +249,20 @@ const pullRequestOf = (url: string): { repo: string; number: number } => {
   return { repo: `${owner}/${name}`, number: Number(number) };
 };
 
-/** The comment a conflict posts, without its marker. */
-const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseCheck): string =>
+/** A post's comment without its marker: the batch's heading, `body`, and that it stays On tap. */
+const postText = (batchId: string, body: string[]): string =>
   [
     `### Foedrum · batch \`${batchId}\``,
-    `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
-    conflicts.map((file) => `- ${plain(file)}`).join('\n'),
+    ...body,
     `The batch stays On tap. Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
+
+/** The comment a conflict posts, without its marker. */
+const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseCheck): string =>
+  postText(batchId, [
+    `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
+    conflicts.map((file) => `- ${plain(file)}`).join('\n'),
+  ]);
 
 /**
  * `text` in a fenced code block whose fence is longer than any run of backticks in it, each `<!--`
@@ -273,14 +279,12 @@ const fenced = (text: string): string => {
  * already cut and with the lines that look like a secret left out (`readingOf`, ADR 0209).
  */
 const failureText = (batchId: string, { branch, tip, failed }: FailedCheck): string =>
-  [
-    `### Foedrum · batch \`${batchId}\``,
+  postText(batchId, [
     `\`${branch}\` moved to \`${tip}\`, and this pull request merges with it cleanly but no longer passes its checks there: on the merged tree, ${plain(readingText(failed))}.`,
     ...(failed.result === 'skipped' || failed.tail === ''
       ? []
       : ['The end of its output:', fenced(failed.tail)]),
-    `The batch stays On tap. Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
-  ].join('\n\n');
+  ]);
 
 export interface BaseConflictEffectsOptions {
   marks: Pick<IssueMarks, 'findComment' | 'comment'>;
@@ -333,12 +337,12 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
         ...conflictPosts(batch).map(({ n, check }) => ({
           check,
           key: conflictKey(batchId, n),
-          text: () => conflictText(batchId, check),
+          text: conflictText(batchId, check),
         })),
         ...failurePosts(batch).map(({ n, check }) => ({
           check,
           key: failureKey(batchId, n),
-          text: () => failureText(batchId, check),
+          text: failureText(batchId, check),
         })),
       ];
       for (const { check, key, text } of posts) {
@@ -351,7 +355,7 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
         } catch {
           continue;
         }
-        comments.set(encoded, { ...where, text: text() });
+        comments.set(encoded, { ...where, text });
         due.push(key);
       }
       return due;
