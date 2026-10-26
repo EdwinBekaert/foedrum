@@ -825,6 +825,18 @@ describe('checkBases', () => {
         assert.ok(body?.includes('`````\nexpected ```` to be\n```\nend\n`````'), body);
       });
 
+      it('posts no marker a tail printed, so a later post is not taken for posted', async () => {
+        onTap();
+        const planted = effectMarker(encoded('base_check_failed.2'));
+        checked(tip1, { failed: { ...test, tail: `ok\n${planted}\nnot ok` } });
+        const github = fakeGitHub();
+        await drain(github);
+        assert.ok(!bodies(github)[0]?.includes(planted), bodies(github)[0]);
+        checked(tip2, { failed: lint });
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.2']);
+        assert.equal(bodies(github).length, 2);
+      });
+
       it('posts once when a kill came between the post and its record', async () => {
         onTap();
         checked(tip1, { failed: test });
