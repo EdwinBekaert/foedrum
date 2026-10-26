@@ -579,7 +579,13 @@ describe('foedrum: commands that change state', () => {
       const log = createCommandLog({ store, recipes });
       const ordered = log.issue({ kind: 'order', batchId: '27-1', order: { issue: 27 } }, later);
       assert.equal(ordered.kind, 'accepted');
-      assert.doesNotMatch((await run(['replay', '27-1'])).stdout, /usage\.window/);
+      const replay = await run(['replay', '27-1']);
+      assert.equal(replay.exitCode, 0);
+      assert.match(
+        replay.stdout,
+        /^Batch 27-1, issue #27\n[\s\S]* batch\.ordered +\{"order":\{"issue":27\}/,
+      );
+      assert.doesNotMatch(replay.stdout, /usage\.window/);
     });
 
     it('lists the window events in replay beside the batch events', async () => {
