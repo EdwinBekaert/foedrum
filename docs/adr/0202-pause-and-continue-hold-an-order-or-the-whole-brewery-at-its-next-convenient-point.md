@@ -33,7 +33,7 @@ Messaging a running brewer to finish early is left to an issue of its own: the e
 - **At `--by`, what still runs of a paused batch is stopped** by the driver that runs it, at its next tick.
   Its end is the runner's for a stopped run (cancelled), recorded with `paused` on its `step.finished`: the pause is the person's choice, not a failure, so that attempt counts against none of the step's retries.
   The step is scheduled again at once, as a retry, so a brewer that resumes continues its session, whatever attempts it has left; that attempt waits for `continue`, and the batch stays paused, never Stuck on `attempts_exhausted`.
-  An end that comes after the pause was lifted or replaced, so that it no longer stops the batch, is an ordinary cancelled end, retried as any is; `decide` refuses `paused` on an end that is not cancelled.
+  The driver's flag decides, not the pause's state when the end is recorded: an end that comes after the pause was lifted or replaced is the pause's too, and its retry starts at once when nothing holds the batch any more; `decide` refuses `paused` on an end that is not cancelled.
 - **`pause --all` holds the intake**: no Brewery issue is ordered and no target issue claimed until `continue --all`; the engine's `order` command is refused while it holds.
   The intake still records pull request ends, checks bases and routes Ordered batches, which starts nothing, so an Ordered batch does not go Stuck on routing because of a pause.
   A pause of one order leaves the intake alone, and `foedrum order`, a person's own decision, is not held.
