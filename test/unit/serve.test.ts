@@ -324,7 +324,14 @@ describe('runServe', () => {
     const porter = JSON.stringify({
       name: 'porter',
       description: 'Brews an order in one step and opens its pull request.',
-      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      // With `passed`, a red proof its `when` skips, which the brief names (ADR 0225).
+      steps: [
+        { id: 'brew', brewer: 'cellarman' },
+        ...(passed
+          ? [{ id: 'red', check: 'test', expect: 'fail', of: 'brew', when: 'recipe.testFirst' }]
+          : []),
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -453,6 +460,10 @@ describe('runServe', () => {
     assert.equal(brief?.key, `acme/web#${pull?.number}`);
     assert.match(brief?.body ?? '', /^### Merge\? Add a --json flag @ `/);
     assert.match(brief?.body ?? '', /- ✅ ci \(success\)/);
+    assert.match(
+      brief?.body ?? '',
+      /- Red proof `red`: not run: its when "recipe\.testFirst" was false\./,
+    );
   });
 
   describe('a usage window per family (review of #555, ADR 0215)', () => {
