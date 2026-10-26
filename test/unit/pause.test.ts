@@ -9,7 +9,7 @@ import { type CommandLog, createCommandLog } from '../../src/engine/command-log.
 import type { Command, Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
-import { pauseOf, stopsNow } from '../../src/engine/pauses.ts';
+import { pauseOf, stopAtText, stopsNow } from '../../src/engine/pauses.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { planTick } from '../../src/engine/supervisor.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
@@ -387,5 +387,21 @@ describe('pause and continue (ADR 0202)', () => {
         ['expire b13'],
       );
     });
+  });
+});
+
+describe('stopAtText (ADR 0202)', () => {
+  it('shows the stop in UTC with the time and day in its zone', () => {
+    assert.equal(
+      stopAtText({ at: '2026-11-02T16:30:00.000Z', zone: 'Europe/Brussels' }),
+      '16:30 UTC (17:30 Europe/Brussels, 2 November)',
+    );
+  });
+
+  it('shows the stop in UTC with the zone named when this machine does not know the zone', () => {
+    assert.equal(
+      stopAtText({ at: '2026-11-02T16:30:00.000Z', zone: 'Nowhere/Atlantis' }),
+      '16:30 UTC (Nowhere/Atlantis)',
+    );
   });
 });
