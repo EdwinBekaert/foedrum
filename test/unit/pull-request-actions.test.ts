@@ -695,6 +695,31 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
     });
   });
 
+  it('matches a dot the glob writes only with a dot, also inside braces or a class, and keeps case (review of #523)', async () => {
+    const { actions } = actionsWith({
+      sensitivePaths: ['.github/workflows/**', '{.env,.npmrc}', '[.]secrets', 'src/auth/**'],
+      touched: [
+        'github/workflows/ci.yml',
+        '.env',
+        'env',
+        '.npmrc',
+        '.secrets',
+        'src/Auth/login.ts',
+        '.github/workflows/ci.yml',
+      ],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: {
+        count: 4,
+        files: ['.env', '.npmrc', '.secrets', '.github/workflows/ci.yml'],
+      },
+    });
+  });
+
   it('records them on a push it finds too', async () => {
     const { actions } = actionsWith({ sensitivePaths, touched, remote: { [branch]: tip } });
     keysOf(brewing(), actions);

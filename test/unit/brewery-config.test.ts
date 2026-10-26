@@ -480,6 +480,9 @@ describe('BreweryConfig: sensitive paths (ADR 0201)', () => {
       'src/auth/**',
       'db/migrations/*.sql',
       'a b/[ab]*',
+      // Near-misses of the refusals: two dots inside a name, a ! past the start.
+      'a..b/**',
+      'src/[!x]*.ts',
     ];
     const parsed = BreweryConfig.parse(config({ sensitivePaths }));
     assert.deepEqual(parsed.repositories['acme/web']?.sensitivePaths, sensitivePaths);
