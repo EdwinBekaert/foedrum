@@ -491,6 +491,16 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it('says a clean base check is the latest, which names no head, not a check of this head', async () => {
+      nip();
+      finished([passed('ci/build')]);
+      baseChecked({});
+      assert.match(
+        await brief(),
+        /- The latest check against its base, which names no head, merged cleanly with `main` at `cccccccc`\./,
+      );
+    });
+
     it('says the red proof read the new tests fail, and the checks a check step read and skipped', async () => {
       nip();
       finished([passed('ci/build')]);
