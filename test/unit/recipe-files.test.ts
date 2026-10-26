@@ -1839,6 +1839,14 @@ describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
       'recipes/amber.jsonc: step "taste" is interactive and has a "lens": a lens step is a Taster\'s headless review (ADR 0222)',
     ]);
   });
+
+  it('refuses one with lenses together, as with one lens (ADR 0220)', () => {
+    const lenses = ['diff/security', 'diff/correctness'];
+    const step = { id: 'taste', brewer: 'taster', lenses, ...talking };
+    assert.deepEqual(problemsOf(tasting([step])), [
+      'recipes/amber.jsonc: step "taste" is interactive and has a "lenses": a lens step is a Taster\'s headless review (ADR 0222)',
+    ]);
+  });
 });
 
 describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
