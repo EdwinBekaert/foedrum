@@ -49,9 +49,9 @@ export const sentBackFrom = (batch: Batch): ReadonlySet<string> => {
 export const fixHeld = (state: State, batch: Batch): boolean =>
   state.pauses.all !== undefined || state.pauses.orders.has(orderKey(orderOfBatch(state, batch)));
 
-/** The step of `recipe` that opens the pull request, and where its onPullRequestFail goes. */
-export const pullRequestRoute = (recipe: Recipe): { from: string; goto: string } | undefined => {
+/** The step of `recipe` that opens the pull request, when it has an onPullRequestFail route. */
+export const pullRequestRoute = (recipe: Recipe): string | undefined => {
   const from = recipe.steps.find((stepId) => recipe.action(stepId) === 'openPullRequest');
-  const goto = from === undefined ? undefined : recipe.routesTo(from, 'pull_request');
-  return from === undefined || goto === undefined ? undefined : { from, goto };
+  if (from === undefined) return undefined;
+  return recipe.routesTo(from, 'pull_request') === undefined ? undefined : from;
 };

@@ -685,13 +685,12 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
             // An action makes no progress the runner could see; its deadline covers it.
             stall: undefined,
             // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
-            mayRetry: (attempts) =>
-              attempts.length -
-                (attempts.findLastIndex(
-                  (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-                ) +
-                  1) <
-              ACTION_ATTEMPTS,
+            mayRetry: (attempts) => {
+              const succeeded = attempts.findLastIndex(
+                (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+              );
+              return attempts.length - succeeded - 1 < ACTION_ATTEMPTS;
+            },
             route:
               runnable.onPullRequestFail === undefined
                 ? undefined

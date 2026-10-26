@@ -744,11 +744,10 @@ function fixPullRequest(
     );
   }
   const recipe = recipeOf(draft, batch);
-  const route = pullRequestRoute(recipe);
-  if (route === undefined) {
+  const from = pullRequestRoute(recipe);
+  if (from === undefined) {
     throw new Refusal(`recipe ${batch.recipe?.name} has no onPullRequestFail route`);
   }
-  const { from } = route;
   const back = recipe.loopBack(batch, from, 'pull_request');
   if (back !== undefined) {
     goBack(draft, batchId, back, { from, why: 'pull_request', pullRequest, head });
