@@ -9,6 +9,7 @@ import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
 import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
 import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
+import { DEFAULT_OPEN_ORDERS } from '../engine/limits.ts';
 import {
   type BreweryFile,
   type BreweryFiles,
@@ -85,6 +86,8 @@ export interface ServeIntake {
   users: readonly string[];
   /** How many batches may be Ordered or Brewing at once: `concurrency`. */
   capacity: number;
+  /** How many orders may be open at once: `openOrders` (ADR 0217). */
+  openOrders: number;
   pollEveryMs: number;
   /** The target repositories with an intake filter, in the order foedrum.jsonc names them. */
   repositories: readonly IntakeRepository[];
@@ -378,6 +381,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       intake: {
         users: config.users ?? [],
         capacity: config.concurrency ?? DEFAULT_CONCURRENCY,
+        openOrders: config.openOrders ?? DEFAULT_OPEN_ORDERS,
         pollEveryMs: durationMs(config.pollEvery ?? DEFAULT_POLL),
         repositories: intakeRepositories(config),
       },

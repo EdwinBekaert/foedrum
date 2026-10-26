@@ -50,6 +50,18 @@ describe('Recipe', () => {
     assert.equal(parsed.testFirst, undefined);
   });
 
+  it('takes a concurrency of 1 to 20 whole batches, and none when the recipe does not say (ADR 0217)', () => {
+    for (const concurrency of [1, 20]) {
+      const parsed = Recipe.parse(recipe([plan], { concurrency })) as { concurrency?: number };
+      assert.equal(parsed.concurrency, concurrency, String(concurrency));
+    }
+    for (const concurrency of [0, 21, 1.5, -1, '2']) {
+      assert.equal(accepted(recipe([plan], { concurrency })), false, String(concurrency));
+    }
+    const parsed = Recipe.parse(recipe([plan])) as { concurrency?: number };
+    assert.equal(parsed.concurrency, undefined);
+  });
+
   it('defaults a check to expect a pass', () => {
     const step = Step.parse({ id: 'green', check: 'test' });
     assert.deepEqual(step, { id: 'green', check: 'test', expect: 'pass' });
