@@ -431,6 +431,7 @@ describe('createIntake', () => {
 
     it('records the end of that pull request while the batch is Stuck in the fix too (ADR 0219)', async () => {
       const [sentBack] = fixRound('1-1', firstHead, secondHead, 2, pullRequest);
+      assert.equal(sentBack?.type === 'step.scheduled' && sentBack.route?.why, 'pull_request');
       store.replay([
         ...openedOnTap('1-1', 'half', firstHead, pullRequest),
         checksFinished('1-1', firstHead, undefined, pullRequest),

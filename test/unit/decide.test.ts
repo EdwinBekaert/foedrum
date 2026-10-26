@@ -2399,11 +2399,12 @@ describe('decide: a failing check on the open pull request sends the batch back 
   it("refuses the same head again once a person's skip left it as it is", () => {
     const skip = { kind: 'skip', batchId: 'b1', ...by } as const;
     const skipped = decide(fold(stuckEvents), skip, ale(1));
+    assert.equal(skipped.kind, 'accepted');
     const events = skipped.kind === 'accepted' ? skipped.events : [];
-    assert.equal(
-      decide(fold([...stuckEvents, ...events]), fix(secondHead), ale(1)).kind,
-      'refused',
-    );
+    assert.deepStrictEqual(decide(fold([...stuckEvents, ...events]), fix(secondHead), ale(1)), {
+      kind: 'refused',
+      reason: `pull request ${fixPullRequest} of batch b1 has no failed checks on ${secondHead}, the head of the batch's latest push`,
+    });
   });
 
   it("makes the batch Stuck on its pull request when its route's step was skipped by its when", () => {
