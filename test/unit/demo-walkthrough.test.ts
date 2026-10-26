@@ -244,6 +244,13 @@ describe('laterRoundLines', () => {
     ]);
   });
 
+  it('says only what a later round reviews when its prompt has no earlier findings', () => {
+    const changeOnly = prompt.split('\r\n').slice(0, 7).join('\n');
+    assert.deepStrictEqual(laterRoundLines(ref, changeOnly), [
+      'demo: correctness #2 is told the change since commit 4567def, as {roundChange}',
+    ]);
+  });
+
   it('says nothing for a first round', () => {
     const first = prompt.split('\r\n').slice(0, 4).join('\n');
     assert.deepStrictEqual(laterRoundLines(ref, first), []);
