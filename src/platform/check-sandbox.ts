@@ -310,7 +310,7 @@ export interface SandboxedChecksOptions {
 /** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
 export type NetworkStackTool = 'pasta' | 'slirp4netns';
 
-/** In the order they are looked for: slirp4netns first, which Ubuntu lets into user namespaces. */
+/** In the order they are looked for: slirp4netns first, whose resolver works where pasta's has none. */
 const stackTools: readonly NetworkStackTool[] = ['slirp4netns', 'pasta'];
 
 /**
