@@ -92,8 +92,8 @@ describe('recordChecks', () => {
       event: { type: 'effect.applied', key: effectKey.encode(key), result },
     });
   /** `web-7` on tap with the pull request its ledger opened and the commit its push recorded. */
-  const onTap = (batchId = 'web-7'): void => {
-    accept({ kind: 'order', batchId, order: { issue: 7, repo: web } });
+  const onTap = (batchId = 'web-7', issue = 7): void => {
+    accept({ kind: 'order', batchId, order: { issue, repo: web } });
     accept({ kind: 'route', batchId, recipe: 'half', reason: 'label', source: 'label' });
     const ref = { batchId, stepId: 'plan', attempt: 1 };
     accept({ kind: 'record', event: { type: 'step.started', ...ref } });
@@ -275,7 +275,7 @@ describe('recordChecks', () => {
 
   it('reads no pull request that ended, nor one whose branch someone else pushed to', async () => {
     onTap('web-7');
-    onTap('web-8');
+    onTap('web-8', 8);
     accept({
       kind: 'record',
       event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'closed' },
