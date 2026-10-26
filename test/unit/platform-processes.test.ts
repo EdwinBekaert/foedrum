@@ -397,6 +397,26 @@ describe('execProcessWith', () => {
     assert.equal(handed, false);
   });
 
+  // The deadline, the stop and the tree kill stay the runner's with extra pipes (ADR 0218).
+  it('ends the tree and destroys the extra pipes when the signal aborts a run that has them', async () => {
+    const child = new FakeChild(79);
+    const three = new PassThrough();
+    const four = new PassThrough();
+    Object.assign(child, { stdio: [child.stdin, child.stdout, child.stderr, three, four] });
+    const { killed, exec } = fakeSpawner(child);
+    const stop = new AbortController();
+    const done = exec('slirp4netns', [], {
+      cwd: '/work',
+      signal: stop.signal,
+      pipes: { count: 2, onPipes: () => {} },
+    });
+    stop.abort();
+    const result = await done;
+    assert.equal(result.killed, 'stopped');
+    assert.deepEqual(killed, [79]);
+    assert.deepEqual([three.destroyed, four.destroyed], [true, true]);
+  });
+
   it('keeps a character whose bytes arrive in two chunks', async () => {
     const child = new FakeChild();
     const { exec } = fakeSpawner(child);

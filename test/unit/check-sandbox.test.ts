@@ -685,6 +685,37 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.match(result.output, /^bwrap gave no child pid on its --info-fd/);
   });
 
+  it('reads no pid of 0, nor from JSON that ends before it is whole', async () => {
+    for (const info of [['{"child-pid": 0}'], ['{"child-']]) {
+      const { calls, events, exec } = fakeSetup({ info });
+      const result = await linuxSetup(exec)(line, [], call);
+      assert.equal(calls.length, 1, info[0]);
+      assert.deepEqual(events, ['bwrap stopped'], info[0]);
+      assert.match(result.output, /^bwrap gave no child pid on its --info-fd/, info[0]);
+    }
+  });
+
+  it('reads the pid bwrap writes in more than one piece', async () => {
+    const { calls, events, exec } = fakeSetup({ info: ['{\n    "child-', 'pid": 42', '42\n}\n'] });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(calls[1]?.args, SLIRP4NETNS_ARGS);
+    assert.deepEqual(events, ['slirp4netns starts', 'the line runs', 'slirp4netns stopped']);
+  });
+
+  // ADR 0218: a stack that exits before it is up fails, whatever its exit code.
+  it('reads as not started, and never runs the line, when slirp4netns ends cleanly before it is up', async () => {
+    const { events, exec } = fakeSetup({ stack: 'exits-before-up' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /^slirp4netns: exit code 0 \(ADR 0218\)/);
+    assert.deepEqual(events, ['slirp4netns starts', 'bwrap stopped']);
+  });
+
   // Ubuntu's /etc/resolv.conf links into /run, which the sandbox hides: the stack's file goes
   // where the link points, so the link finds it.
   it("gives the resolver's file at the real path of /etc/resolv.conf, and a check none", async () => {
