@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve } from 'node:path';
 import { resolveExecutable } from './executables.ts';
-import { samePath } from './paths.ts';
+import { pathInside, samePath } from './paths.ts';
 import type { ExecProcess, ExecResult } from './processes.ts';
 import { realPath as realPathOf } from './real-path.ts';
 import { removeTree } from './remove.ts';
@@ -288,11 +288,19 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
     let paths: CheckSandboxPaths;
     try {
       const gitDir = gitDirOf(call.cwd);
+      const worktree = realPath(call.cwd);
+      const repository = gitDir === undefined ? undefined : realPath(gitDir);
+      // Only a repository outside the worktree, where no check writes, names what it borrows: a
+      // check could plant a record and an alternates file in its worktree (review of #528).
+      const outside =
+        repository !== undefined &&
+        !samePath(repository, worktree) &&
+        pathInside(worktree, repository) === undefined;
       paths = {
         home: realPath(options.home ?? homedir()),
-        worktree: realPath(call.cwd),
-        gitDir: gitDir === undefined ? undefined : realPath(gitDir),
-        borrowed: gitDir === undefined ? [] : borrowedOf(gitDir).map((store) => realPath(store)),
+        worktree,
+        gitDir: repository,
+        borrowed: outside ? borrowedOf(repository).map((store) => realPath(store)) : [],
       };
     } catch (error) {
       return unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`);
