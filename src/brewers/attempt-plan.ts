@@ -24,6 +24,7 @@ import {
   FiningOutDoc,
   GAUGE,
   GaugeOutDoc,
+  lensFirst,
   OutDocFrontmatter,
   PULL_REQUEST,
   PullRequestOutDoc,
@@ -32,6 +33,7 @@ import {
   type TastingFinding,
   TastingOutDoc,
   tastingOf,
+  tastingOutDocOf,
 } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
@@ -95,6 +97,8 @@ export interface PlanFacts {
   laterRound?: LaterRound;
   /** Whether its inputs hold the earlier rounds' findings, which the fixed text explains (ADR 0191). */
   earlierFindings?: true;
+  /** On a step of several lenses together, its lenses in its order, which the fixed text names (ADR 0220). */
+  together?: readonly string[];
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
 }
@@ -103,12 +107,14 @@ export interface PlanFacts {
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
  * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074). A Taster's
  * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
- * blocks it by findings (ADR 0161).
+ * blocks it by findings (ADR 0161). Each finding that names a lens names one of the step's `lenses`,
+ * and on a step of several together each finding names one (ADR 0220).
  */
 export function attemptLimits(
   brewer: BrewerFrontmatter,
   start?: string,
   blocking = false,
+  lenses?: readonly string[],
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
@@ -117,7 +123,9 @@ export function attemptLimits(
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
-      ? TastingOutDoc
+      ? lenses === undefined
+        ? TastingOutDoc
+        : tastingOutDocOf(lenses)
       : name === PULL_REQUEST
         ? PullRequestOutDoc
         : name === FINING
@@ -247,13 +255,29 @@ export function inputsOf(
         };
       }
       if (from.startsWith('lens:')) {
-        const lens = lenses.get(from.slice('lens:'.length));
+        // A step's lenses together are one input that names each (ADR 0220).
+        const named = from.slice('lens:'.length).split(',');
+        const each = named.flatMap((lens) => lenses.get(lens) ?? []);
+        const [first] = each;
         // The loader refuses a brewer whose lens it did not find.
-        if (lens === undefined) throw new Error(`the input "${name}" has no ${from}`);
+        if (first === undefined || each.length < named.length) {
+          throw new Error(`the input "${name}" has no ${from}`);
+        }
+        if (each.length === 1) {
+          return {
+            name,
+            source: { kind: 'lens', lens: first.name, path: first.path },
+            read: { kind: 'text', text: first.text },
+          };
+        }
         return {
           name,
-          source: { kind: 'lens', lens: lens.name, path: lens.path },
-          read: { kind: 'text', text: lens.text },
+          source: { kind: 'lenses', lenses: each.map(({ name, path }) => ({ lens: name, path })) },
+          // Each lens file as it is, a blank line apart.
+          read: {
+            kind: 'text',
+            text: each.map(({ text }) => (text.endsWith('\n') ? text : `${text}\n`)).join('\n'),
+          },
         };
       }
       // `file:<path>`: a relative path with `/`, checked by the brewer's schema.
@@ -507,7 +531,7 @@ function roundLines(findings: readonly TastingFinding[], dispositions: readonly 
         ? 'open'
         : `${disposed.disposition}${disposed.why === undefined ? '' : `: ${flatLine(disposed.why)}`}`;
     return [
-      `- ${finding.severity} in ${placeOf(finding)}${before}: ${flatLine(finding.why)}`,
+      `- ${lensFirst(finding)}${finding.severity} in ${placeOf(finding)}${before}: ${flatLine(finding.why)}`,
       `  ${said}`,
     ];
   });
@@ -533,6 +557,20 @@ export function earlierFindingsInput(stepId: string, rounds: readonly EarlierRou
     source: { kind: 'findings', step: stepId },
     text: bounded(text, MAX_EARLIER_FINDINGS_BYTES, 'earlier findings input'),
   };
+}
+
+/** The engine's fixed text for a step of several lenses together (ADR 0220). */
+function togetherText(lenses: readonly string[]): string {
+  return [
+    '## Several lenses together',
+    '',
+    `{lens} holds the lenses this step reviews through, together, in this order: ${lenses.join(', ')}.`,
+    '',
+    '- Review the change through each lens in turn.',
+    `- Give every finding the key "lens", naming the lens it was found through, one of ${lenses.join(', ')}: { "lens": "${lenses[0]}", "file": …, "line": …, "severity": …, "why": …, "introduced": … }. A finding without it, or with another lens, makes the out doc invalid.`,
+    '- Where the instructions or a lens file say to stay inside one lens, report under each lens only what it asks for.',
+    `- Start each item of \`riskLeft\` with its lens, such as \`${lenses[0]}: …\`.`,
+  ].join('\n');
 }
 
 /** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191, ADR 0204). */
@@ -901,6 +939,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const contract = outDocContract(brewer.output.doc, commits(brewer));
   // The engine's text for a later round, for every lens alike, never one lens's file (ADR 0190).
   const round = [
+    ...(facts.together === undefined ? [] : [togetherText(facts.together)]),
     ...(facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)]),
     ...(facts.earlierFindings === true ? [EARLIER_FINDINGS_TEXT] : []),
   ];

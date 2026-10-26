@@ -13,6 +13,7 @@ import {
   GaugeOutDoc,
   type GaugeReport,
   gaugeOf,
+  lensFirst,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
@@ -370,10 +371,15 @@ const preExistingOf = (step: Step): PreExisting[] => {
   });
 };
 
-/** Where a finding is, how bad, and whether it was there before the change, on one line. */
-export const findingText = ({ file, line, severity, introduced }: TastingFinding): string => {
+/**
+ * Where a finding is, how bad, and whether it was there before the change, on one line, after its
+ * lens when it names one.
+ */
+export const findingText = (finding: TastingFinding): string => {
+  const { file, line, severity, introduced } = finding;
   const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
-  return `${severity}${where}${introduced ? '' : ', there before the change'}`;
+  // The lens it was found through, on a step of several lenses together (ADR 0220).
+  return `${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'}`;
 };
 
 /** Where a Finer's change is: its file, and its line when it has one. */

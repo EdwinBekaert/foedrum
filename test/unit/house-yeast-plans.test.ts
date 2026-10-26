@@ -155,11 +155,12 @@ const planOf = (
   events = tasting,
   houseYeast: AttemptPlansOptions['houseYeast'] = { files: [], keptIn: () => 'repo' },
   attempt = 1,
+  brewers = loaded.valid ? loaded.brewers : assert.fail(),
 ) => {
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
   const plans = createAttemptPlans({
     state: () => fold(events),
-    brewers: loaded.valid ? loaded.brewers : assert.fail(),
+    brewers,
     models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
     repoTools: () => [],
     clone: (repo) => join('/clones', repo),
@@ -340,5 +341,47 @@ describe('createAttemptPlans: house yeast (#434, ADR 0169)', () => {
     assert.ok(!prompt.includes('name="houseYeast"'));
     assert.equal(houseYeast, undefined);
     assert.ok(!calls.some(({ args }) => args[0] === 'ls-tree' || args.includes('--name-status')));
+  });
+});
+
+describe('createAttemptPlans: house yeast of a step of several lenses together (#560, ADR 0220)', () => {
+  it('gives the step the rules of each of its lenses, each once, in their order (regression test, review of #571)', async () => {
+    const together = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'implement', brewer: 'cellarman' },
+              {
+                id: 'correctness',
+                brewer: 'taster',
+                lenses: ['diff/security', 'diff/correctness'],
+              },
+              { action: 'openPullRequest' },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const secrets = rule(
+      'secrets',
+      { globs: ['src/**'], lens: 'diff/security' },
+      'No token in a log.',
+    );
+    const everywhere = rule('everywhere', { globs: ['src/**'] }, 'Name things plainly.');
+    const git = repository('M\tsrc/wait.ts\n', { waits: WAITS, secrets, everywhere });
+    const { plan } = planOf(git, 'correctness', tasting, undefined, 1, together.brewers);
+    const { prompt, houseYeast } = await plan;
+    assert.deepEqual(houseYeast, { selected: ['secrets', 'everywhere', 'waits'], cut: [] });
+    const at = (id: string) => prompt.indexOf(ruleInput(id, `.foedrum/house-yeast/${id}.md`));
+    assert.ok(
+      at('secrets') > 0 && at('everywhere') > at('secrets') && at('waits') > at('everywhere'),
+    );
+    assert.equal(prompt.split('name="houseYeast"').length, 4, 'a rule not once');
   });
 });

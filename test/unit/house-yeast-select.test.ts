@@ -271,4 +271,28 @@ describe('pickRules: the rules one attempt gets (ADR 0169)', () => {
       invalid: ['.foedrum/house-yeast/broken.md', 'house-yeast/unread.md'],
     });
   });
+
+  it("gives a step's lenses together the rules each would get apart, each once, in the order of its lenses (ADR 0220)", () => {
+    const secrets = file('house-yeast/secrets.md', { lens: 'security' }, 'No token in a log.');
+    const layers = { repository: [], brewery: [...brewery, secrets] };
+    const change = { files: ['src/pay.ts'], lenses: ['diff/correctness', 'diff/security'] };
+    const { inputs, record } = pickRules(layers, change);
+    assert.deepEqual(record.selected, ['deadline', 'cents', 'secrets']);
+    assert.deepEqual(record.cut, []);
+    assert.deepEqual(
+      inputs.map(({ source }) => (source.kind === 'house-yeast' ? source.rule : '')),
+      ['deadline', 'cents', 'secrets'],
+    );
+  });
+
+  it('records a rule one lens cut and another selected as selected (ADR 0220)', () => {
+    const big = file('house-yeast/big.md', { lens: 'correctness' }, 'x'.repeat(60));
+    const small = file('house-yeast/small.md', { lens: 'security' }, 'Short.');
+    const anywhere = file('house-yeast/anywhere.md', {}, 'Name things plainly.');
+    const layers = { repository: [], brewery: [big, small, anywhere] };
+    const change = { files: ['src/pay.ts'], lenses: ['diff/correctness', 'diff/security'] };
+    const { record } = pickRules(layers, change, 26);
+    assert.deepEqual(record.selected, ['big', 'small', 'anywhere']);
+    assert.deepEqual(record.cut, []);
+  });
 });

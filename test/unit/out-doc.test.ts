@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   dispositionsOf,
+  lensOfFinding,
   MAX_DISPOSITION_FILE,
   MAX_DISPOSITION_WHY,
   MAX_RISK_LEFT,
@@ -13,6 +14,7 @@ import {
   readOutDoc,
   TastingOutDoc,
   tastingOf,
+  tastingOutDocOf,
 } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
 
@@ -309,5 +311,75 @@ describe("a Taster's riskLeft (ADR 0214)", () => {
       findings: [],
     });
     assert.deepEqual(tastingOf(approved), { verdict: 'approve', findings: [] });
+  });
+});
+
+describe("a finding's lens (#560, ADR 0220)", () => {
+  const finding = { file: 'src/a.ts', line: 3, severity: 'major', why: 'Wrong', introduced: true };
+  const changes = { status: 'done', summary: 'Tasted', verdict: 'changes' } as const;
+
+  it('takes a finding that names its lens, and reads one without it as before', () => {
+    const named = { ...finding, lens: 'diff/security' };
+    const doc = { ...changes, findings: [named, finding] };
+    assert.deepEqual(TastingOutDoc.safeParse(doc).data?.findings, [named, finding]);
+    assert.equal(
+      TastingOutDoc.safeParse({ ...doc, findings: [{ ...finding, lens: 'security' }] }).success,
+      false,
+    );
+  });
+
+  it("reads a finding without a lens as its step's", () => {
+    assert.equal(
+      lensOfFinding({ ...finding, severity: 'major' }, 'diff/correctness'),
+      'diff/correctness',
+    );
+    assert.equal(
+      lensOfFinding({ ...finding, severity: 'major', lens: 'diff/security' }, 'diff/correctness'),
+      'diff/security',
+    );
+  });
+
+  describe("the out doc of a step's lenses together", () => {
+    const schema = () => tastingOutDocOf(['diff/correctness', 'diff/security']);
+    const issuesOf = (findings: readonly unknown[]) => {
+      const read = schema().safeParse({ ...changes, findings });
+      assert.equal(read.success, false, 'the out doc should be refused');
+      return read.error?.issues.map(({ path, message }) => ({ path, message }));
+    };
+
+    it("takes findings that each name one of the step's lenses", () => {
+      const findings = [
+        { ...finding, lens: 'diff/security' },
+        { ...finding, lens: 'diff/correctness' },
+      ];
+      assert.deepEqual(schema().parse({ ...changes, findings }).findings, findings);
+    });
+
+    it('refuses a finding without a lens, at its path', () => {
+      assert.deepEqual(issuesOf([{ ...finding, lens: 'diff/security' }, finding]), [
+        {
+          path: ['findings', 1, 'lens'],
+          message: 'Must name the lens it was found through: diff/correctness or diff/security',
+        },
+      ]);
+    });
+
+    it("refuses a finding of a lens not of the step's, at its path", () => {
+      assert.deepEqual(issuesOf([{ ...finding, lens: 'diff/acceptance' }]), [
+        {
+          path: ['findings', 0, 'lens'],
+          message: 'Must name the lens it was found through: diff/correctness or diff/security',
+        },
+      ]);
+    });
+
+    it('still holds the verdict to the findings of every lens', () => {
+      const minor = { ...finding, severity: 'minor', lens: 'diff/security' };
+      const read = schema().safeParse({ ...changes, findings: [minor] });
+      assert.deepEqual(
+        read.error?.issues.map(({ path }) => path),
+        [['verdict']],
+      );
+    });
   });
 });
