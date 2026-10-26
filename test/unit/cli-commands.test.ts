@@ -396,6 +396,16 @@ describe('foedrum: commands that change state', () => {
       );
     });
 
+    it('replays the pause of all that held a batch since before it was ordered, and none lifted before', async () => {
+      await run(['pause', '--all', '--why', 'last week']);
+      await run(['continue', '--all']);
+      await run(['pause', '--all', '--why', 'release day']);
+      assert.equal((await run(['order', '#99'])).exitCode, 0);
+      const replay = (await run(['replay', '99-1'])).stdout;
+      assert.match(replay, /order\.paused +\{"by":"ada","via":"terminal","why":"release day"\}/);
+      assert.doesNotMatch(replay, /last week|order\.continued/);
+    });
+
     it('shows a pause in status and replay, with the pause and continue events that held the batch', async () => {
       await run(['pause', '23', '--why', 'lunch']);
       await run(['pause', '21']);

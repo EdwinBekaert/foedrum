@@ -48,6 +48,16 @@ describe('stopInstant (ADR 0202)', () => {
     assert.equal(instant('2h', 'UTC'), '2026-11-02T16:00:00.000Z');
   });
 
+  it("refuses a local time when this machine's zone is unknown to it, and takes a duration still", () => {
+    // ICU reports Etc/Unknown when it cannot tell the machine's zone, and rejects it as a zone.
+    const result = stopInstant('17:30', now, 'Etc/Unknown');
+    assert.deepStrictEqual(result, {
+      refused:
+        'this machine reports its time zone as Etc/Unknown, which it cannot read a local time in; give --by as a duration, such as 20m',
+    });
+    assert.equal(instant('20m', 'Etc/Unknown'), '2026-11-02T14:20:00.000Z');
+  });
+
   it('refuses what is neither, with what it takes', () => {
     for (const text of ['24:00', '17:60', '7:30', '17h30', 'tonight', '0m', '-5m', '']) {
       const result = stopInstant(text, now, 'UTC');
