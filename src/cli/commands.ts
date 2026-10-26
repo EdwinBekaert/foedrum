@@ -465,12 +465,23 @@ export const commands: readonly RegisteredCommand[] = [
         // And the ranks of its order, which it had in the intake's queue (ADR 0208).
         const ranked = (event: Event): boolean =>
           event.type === 'order.ranked' && orderKey(event.order) === order;
+        // And the usage window, which holds every batch's brewers, since the last time it opened
+        // before the batch was ordered (ADR 0206).
+        const windowed = (event: Event): boolean =>
+          event.type === 'usage.window_closed' || event.type === 'usage.window_opened';
+        const opened =
+          events
+            .filter(({ id: at, event }) => at < ordered && event.type === 'usage.window_opened')
+            .at(-1)?.id ?? 0;
         return done(
           formatReplay(
             batch,
             events.filter(
               ({ id: at, event }) =>
-                batchOf(event) === id || (at > lifted && held(event)) || ranked(event),
+                batchOf(event) === id ||
+                (at > lifted && held(event)) ||
+                ranked(event) ||
+                (at > opened && windowed(event)),
             ),
             pauseOf(state, batch),
           ),

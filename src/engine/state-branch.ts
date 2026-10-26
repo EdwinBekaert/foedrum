@@ -36,6 +36,9 @@ export const batchOf = (event: Event): string | undefined => {
     case 'order.paused':
     case 'order.continued':
     case 'order.ranked':
+    // The usage window holds every batch's brewers (ADR 0206).
+    case 'usage.window_closed':
+    case 'usage.window_opened':
       return undefined;
     case 'batch.ordered':
     case 'batch.recipe_chosen':
@@ -56,9 +59,6 @@ export const batchOf = (event: Event): string | undefined => {
     case 'pull_request.base_checked':
     case 'step.rescheduled':
       return event.batchId;
-    case 'usage.window_closed':
-    case 'usage.window_opened':
-      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

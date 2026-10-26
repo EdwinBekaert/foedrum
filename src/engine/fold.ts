@@ -466,6 +466,7 @@ function apply(state: State, event: Event): State {
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
+          ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;
@@ -675,9 +676,14 @@ function apply(state: State, event: Event): State {
         };
       });
     }
-    case 'usage.window_closed':
+    case 'usage.window_closed': {
+      // A later limit replaces the window in force: decide keeps the later reopen (ADR 0206).
+      const { limit, resets, reopensAt, read } = event;
+      return { ...state, usageWindow: { limit, resets, reopensAt, read } };
+    }
     case 'usage.window_opened':
-      throw new Error('not implemented');
+      if (state.usageWindow === undefined) throw reject('the usage window is not closed');
+      return { ...state, usageWindow: undefined };
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

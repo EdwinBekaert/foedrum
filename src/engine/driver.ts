@@ -30,6 +30,7 @@ import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
+import { reopenOf } from './usage-window.ts';
 import type { OutDocOf } from './worktree-claims.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
@@ -235,7 +236,12 @@ const rejectionSummary = (error: unknown): string => {
  * reported in its init goes on its step.finished, when the event can hold it: a blank version or
  * model is left out rather than refusing the ending with it (ADR 0116).
  */
-const finishOf = (ref: AttemptRef, end: AttemptEnd, paused: boolean): EngineCommand => {
+const finishOf = (
+  ref: AttemptRef,
+  end: AttemptEnd,
+  paused: boolean,
+  reopensAt: { at: Date; read: boolean } | undefined,
+): EngineCommand => {
   const { session, receipt, ...rest } = end;
   const report = ClaudeReport.safeParse({ version: session?.claudeVersion, model: session?.model });
   // Read from a stream the runner does not trust: one the event cannot hold is left out (ADR 0172).
@@ -248,6 +254,8 @@ const finishOf = (ref: AttemptRef, end: AttemptEnd, paused: boolean): EngineComm
     ...(took.success ? { receipt: took.data } : {}),
     // Stopped as its batch's pause reached its stopAt: no retry is spent on it (ADR 0202).
     ...(paused && end.ending.kind === 'cancelled' ? { paused: true as const } : {}),
+    // Its usage window reopens at the reset claude named, read in the machine's zone (ADR 0206).
+    ...(reopensAt === undefined ? {} : { reopensAt }),
   };
 };
 
@@ -305,6 +313,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     worktrees = [],
     brews = () => true,
     resumes = () => false,
+    zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     sessionId = randomUUID,
     drivesOn = () => true,
     holds = () => true,
@@ -704,6 +713,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           // Another driver's batch, or one this driver does not take, is not its to start.
           if (!claim(batch.id)) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
+          // No brewer starts while the usage window is closed; a check or an action does (ADR 0206).
+          const held = log.state().usageWindow !== undefined && brews(ref);
+          if (held && actionOf(log.state(), recipes, ref) === undefined) continue;
           const key = attemptKey.encode(ref);
           if (refused.has(key)) continue;
           const lease = stepLease(leases, ref);
@@ -756,7 +768,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         // refused (I2). An end whose record throws keeps its lease until it expires, and the
         // supervisor loses the attempt; a throw from the read after it is reported the same way.
         // Either way the other ends of the pass go on (#278, #289).
-        const command = finishOf(ref, end, stoppedByPause.delete(key));
+        const limit = end.ending.kind === 'blocked' ? end.ending.usageLimit : undefined;
+        const reopensAt = limit && reopenOf(limit.resets, clock(), zone());
+        const command = finishOf(ref, end, stoppedByPause.delete(key), reopensAt);
         try {
           if (!issue(command, (tx) => tx.releaseLease(key))) releaseAttempt(key);
           // An attempt of an ended batch held its worktree until now.

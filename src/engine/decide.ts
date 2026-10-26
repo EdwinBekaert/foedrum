@@ -427,7 +427,8 @@ function run(draft: Draft, command: Command): Event[] {
       stop(draft, command);
       break;
     case 'reopen':
-      throw new Error('not implemented');
+      reopen(draft);
+      break;
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);
@@ -510,8 +511,19 @@ function refuseOrder(
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, readings, claude, receipt, houseYeast, paused } =
-    command;
+  const {
+    batchId,
+    stepId,
+    attempt,
+    ending,
+    usage,
+    readings,
+    claude,
+    receipt,
+    houseYeast,
+    paused,
+    reopensAt,
+  } = command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
@@ -523,6 +535,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
         }
       : ending;
   const stopped = paused === true && stoppedByPause(draft, command);
+  const limited = usageLimitOf(draft, command);
   draft.push({
     type: 'step.finished',
     batchId,
@@ -535,8 +548,16 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
     ...(stopped ? { paused: true } : {}),
+    ...(limited === undefined ? {} : { usageLimited: true }),
   });
+  // The window is the subscription's, whatever becomes of this batch (ADR 0206).
+  if (limited !== undefined && reopensAt !== undefined) close(draft, limited, reopensAt);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
+  // A usage limit is the subscription's wait, no failure: the step runs again after the reopen.
+  if (limited !== undefined) {
+    schedule(draft, batchId, stepId, { retry: true });
+    return;
+  }
   // A pause is a person's choice, no failure: the step runs again whatever attempts it has left.
   if (stopped) {
     schedule(draft, batchId, stepId, { retry: true });
@@ -676,6 +697,13 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
   // Its wait is the pause's, not the step's: continue gives it a new deadline (ADR 0202).
   if (current.phase === 'scheduled' && pauseOf(draft.state, batch) !== undefined) {
     throw new Refusal(`${attemptName(batch, stepId, attempt)} waits for its batch's pause`);
+  }
+  // Its wait is the usage window's, which gives it a new deadline as it reopens (ADR 0206).
+  const window = draft.state.usageWindow;
+  if (current.phase === 'scheduled' && window !== undefined) {
+    throw new Refusal(
+      `${attemptName(batch, stepId, attempt)} waits for the usage window, which reopens at ${window.reopensAt}`,
+    );
   }
   if (draft.context.now.getTime() < Date.parse(current.deadlineAt)) {
     throw new Refusal(
@@ -1201,14 +1229,72 @@ function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish'
   return true;
 }
 
-/** `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202). */
+/**
+ * `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202)
+ * and those a usage limit ended (ADR 0206).
+ */
 function withoutPaused(batch: Batch, stepId: string): Batch {
   const step = batch.steps.get(stepId);
   if (step === undefined) return batch;
   const attempts = [...step.attempts].filter(
-    ([, attempt]) => attempt.phase !== 'finished' || attempt.paused !== true,
+    ([, attempt]) =>
+      attempt.phase !== 'finished' || (attempt.paused !== true && attempt.usageLimited !== true),
   );
   if (attempts.length === step.attempts.size) return batch;
   const counted: Step = { ...step, attempts: new Map(attempts) };
   return { ...batch, steps: new Map(batch.steps).set(stepId, counted) };
+}
+
+/**
+ * The usage limit a finish names (ADR 0206), checked: only on an end blocked on the environment,
+ * and with the reopen the driver read from its reset.
+ */
+function usageLimitOf(
+  draft: Draft,
+  command: Extract<Command, { kind: 'finish' }>,
+): UsageLimit | undefined {
+  const { batchId, stepId, attempt, ending, reopensAt } = command;
+  if (ending.kind !== 'blocked' || ending.usageLimit === undefined) return undefined;
+  const name = attemptName(draft.batch(batchId), stepId, attempt);
+  if (ending.blockerKind !== 'environment') {
+    throw new Refusal(`${name} ended at a usage limit but is not blocked on the environment`);
+  }
+  if (reopensAt === undefined) {
+    throw new Refusal(`${name} ended at a usage limit without the instant its window reopens`);
+  }
+  return ending.usageLimit;
+}
+
+/**
+ * Closes the usage window (ADR 0206), or keeps it closed until the later of its reopen and this
+ * one: the window reopens at the latest reset claude named.
+ */
+function close(
+  draft: Draft,
+  { limit, resets }: UsageLimit,
+  reopensAt: { at: Date; read: boolean },
+) {
+  const current = draft.state.usageWindow;
+  if (current !== undefined && Date.parse(current.reopensAt) >= reopensAt.at.getTime()) return;
+  draft.push({
+    type: 'usage.window_closed',
+    limit,
+    resets,
+    reopensAt: reopensAt.at.toISOString(),
+    read: reopensAt.read,
+  });
+}
+
+/**
+ * Opens the usage window once its reopen has come (ADR 0206): each scheduled attempt that has not
+ * started, in a batch no pause holds, gets a new deadline from its step, as on continue.
+ */
+function reopen(draft: Draft): void {
+  const window = draft.state.usageWindow;
+  if (window === undefined) throw new Refusal('the usage window is open');
+  if (draft.context.now.getTime() < Date.parse(window.reopensAt)) {
+    throw new Refusal(`the usage window reopens at ${window.reopensAt}`);
+  }
+  draft.push({ type: 'usage.window_opened', at: draft.context.now.toISOString() });
+  for (const batchId of draft.state.batches.keys()) rescheduleWaiting(draft, batchId);
 }
