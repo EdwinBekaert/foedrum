@@ -66,7 +66,7 @@ export const planTick = (input: TickInput): TickPlan => {
   };
   for (const { batchId } of due) {
     const batch = state.batches.get(batchId);
-    if (batch !== undefined) issue(dueCommand(state, batch, now));
+    if (batch !== undefined) issue(dueCommand(state, batch, now, recipes));
   }
   // The expired leases of lost attempts this tick leaves to the next: a batch's other children
   // of a parallel group, which would otherwise wait out their deadline with no lease (ADR 0168).
@@ -121,7 +121,12 @@ export const planTick = (input: TickInput): TickPlan => {
 };
 
 /** What a due deadline asks of `batch`: expire, remind (ADR 0025) or `unrouted` (ADR 0032). */
-function dueCommand(state: State, batch: Batch, now: Date): BatchCommand | undefined {
+function dueCommand(
+  state: State,
+  batch: Batch,
+  now: Date,
+  recipes: Recipes,
+): BatchCommand | undefined {
   const { lane } = batch;
   const isDue = (at: string): boolean => Date.parse(at) <= now.getTime();
   switch (lane.kind) {
@@ -131,8 +136,18 @@ function dueCommand(state: State, batch: Batch, now: Date): BatchCommand | undef
       // ADR 0215).
       const held =
         pauseOf(state, batch) !== undefined || Object.keys(state.usageWindows).length > 0;
+      // An interactive step's open session is a person's wait, with no deadline: its lease ends it
+      // when its driver dies (ADR 0222).
+      const recipe = batch.recipe && recipes.find(batch.recipe.name);
+      const open = (attempt: { phase: string; stepId: string }): boolean =>
+        attempt.phase === 'started' &&
+        recipe?.has(attempt.stepId) === true &&
+        recipe.interactive(attempt.stepId);
       const [late] = running(batch)
-        .filter((attempt) => isDue(attempt.deadlineAt) && !(held && attempt.phase === 'scheduled'))
+        .filter(
+          (attempt) =>
+            isDue(attempt.deadlineAt) && !(held && attempt.phase === 'scheduled') && !open(attempt),
+        )
         .sort((a, b) => Date.parse(a.deadlineAt) - Date.parse(b.deadlineAt));
       return (
         late && { kind: 'expire', batchId: batch.id, stepId: late.stepId, attempt: late.attempt }

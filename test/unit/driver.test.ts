@@ -44,6 +44,8 @@ const at = (minutes: number): Date => new Date(t0.getTime() + minutes * minute);
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'] }),
   half: fakeRecipe({ steps: ['plan'] }),
+  // Its plan step is interactive: a person's session (ADR 0222).
+  lauter: fakeRecipe({ steps: ['plan', 'implement'], interactive: ['plan'] }),
   ale: fakeRecipe({
     steps: ['plan', 'open'],
     actions: { open: 'openPullRequest' },
@@ -222,6 +224,67 @@ describe('openDriver', () => {
       const driver = await open({ runner });
       assert.deepStrictEqual(driver.progress(plan('b1')), shown);
       assert.equal(driver.progress(plan('b2')), undefined);
+    });
+  });
+
+  describe('an interactive step (ADR 0222)', () => {
+    /** Orders `batchId` and routes it to the lauter recipe: its interactive plan#1 is scheduled. */
+    const orderLauter = (batchId: string): void => {
+      const issue = Number(batchId.slice(1));
+      assert.equal(
+        intake.issue({ kind: 'order', batchId, order: { issue } }, now).kind,
+        'accepted',
+      );
+      const route = {
+        kind: 'route',
+        batchId,
+        recipe: 'lauter',
+        reason: 'label',
+        source: 'label',
+      } as const;
+      assert.equal(intake.issue(route, now).kind, 'accepted');
+    };
+
+    it('parks the scheduled attempt Stuck, waiting for a session, when it opens none, and starts nothing', async () => {
+      const { runner, started } = handRunner();
+      orderLauter('b1');
+      const driver = await open({ runner });
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(driver.state().batches.get('b1')?.lane, {
+        kind: 'stuck',
+        reason: { kind: 'waiting_for_session', stepId: 'plan' },
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt: '2026-10-17T12:00:00.000Z',
+      });
+      assert.deepStrictEqual(
+        types(store, 'b1').filter((type) => type === 'batch.stuck'),
+        ['batch.stuck'],
+      );
+    });
+
+    it('starts it when it opens sessions, and records since when the session is open', async () => {
+      const { runner, started, end } = handRunner();
+      orderLauter('b1');
+      const driver = await open({ runner, sessions: true });
+      await driver.drive();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      const start = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .find((event) => event.type === 'step.started');
+      assert.equal((start as { interactiveSince?: string }).interactiveSince, t0.toISOString());
+      end(plan('b1'));
+      await driver.drive();
+      // The next step is no session's.
+      const implement = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .filter((event) => event.type === 'step.started')
+        .at(-1);
+      assert.equal((implement as { stepId: string }).stepId, 'implement');
+      assert.equal((implement as { interactiveSince?: string }).interactiveSince, undefined);
     });
   });
 

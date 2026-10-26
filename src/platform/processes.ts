@@ -1,5 +1,7 @@
 // Starting, checking and killing processes, which differs between operating systems
-// (architecture §13). The one process runner of Foedrum and its scripts lives here.
+// (architecture §13). The one process runner of Foedrum and its scripts lives here, with the
+// foreground start of a program a person drives (ADR 0126) and the launch of a new terminal
+// window, which returns without waiting for the window (`launchProcess`, ADR 0222).
 
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
@@ -682,6 +684,48 @@ export const foregroundProcess = (
     });
     child.once('error', reject);
     child.once('exit', (code) => resolve(code ?? 1));
+  });
+
+/**
+ * Starts a launcher that hands a program to another process and returns, such as a new terminal
+ * window (ADR 0222): stdio ignored, so what it starts holds none of this process's pipes, and its
+ * exit code once it exits, or killed at its deadline.
+ */
+export type LaunchProcess = (
+  file: string,
+  args: readonly string[],
+  /** `timeoutMs`: the launcher is killed past it; a launch always has one. */
+  options: { cwd: string; env?: NodeJS.ProcessEnv | undefined; timeoutMs: number },
+) => Promise<Pick<ExecResult, 'exitCode' | 'stderr' | 'killed'>>;
+
+export const launchProcess: LaunchProcess = (file, args, { cwd, env, timeoutMs }) =>
+  new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = (
+      exitCode: number | null,
+      more: { stderr?: string; killed?: Killed } = {},
+    ): void => {
+      clearTimeout(timer);
+      resolve({ exitCode, stderr: '', ...more });
+    };
+    const command = spawnCommand(file, args, process.platform, env);
+    const child = spawn(command.file, command.args, {
+      cwd,
+      env: command.env,
+      shell: command.shell,
+      // Never a pipe: the window it opens would hold it, and the launch would wait for the window.
+      stdio: 'ignore',
+      // Out of this process's group, and on Windows out of the kill-on-close job node puts its
+      // children in, which would end the window cmd.exe's start opens when this process exits.
+      detached: true,
+    });
+    child.once('error', (error) => done(null, { stderr: error.message }));
+    // Its exit, not the close of its stdio, which what it started may share.
+    child.once('exit', (code) => done(code));
+    timer = setTimeout(() => {
+      if (child.pid !== undefined) killProcessTree(child.pid);
+      done(null, { killed: 'timed-out' });
+    }, timeoutMs);
   });
 
 // A byte count as a person would write it: 4 MiB, 64 KiB, 1500 bytes.

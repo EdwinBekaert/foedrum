@@ -119,7 +119,7 @@ exports[`foedrum status > lists every batch with its issue, lane and what it wai
   19-1  #19  conditioning  waiting for batch 13-1; reminder 2026-10-17T09:00:00.000Z
   20-1  #20  stuck         blocked at review (environment): denied Bash(curl); reminder 2026-10-17T09:00:00.000Z
   21-1  #21  stuck         attempts exhausted at test after 3: tests fail; reminder 2026-10-17T09:00:00.000Z
-  22-1  #22  stuck         waiting for a session at analyze; reminder 2026-10-17T09:00:00.000Z
+  22-1  #22  stuck         waiting for a session at analyze: foedrum brew 22 --take opens it in a terminal; reminder 2026-10-17T09:00:00.000Z
   23-1  #23  stuck         stalled at implement since 2026-10-15T11:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
   24-1  #24  stuck         deadline passed at plan (2026-10-15T10:00:00.000Z); reminder 2026-10-17T09:00:00.000Z
   25-1  #25  stuck         not routed by 2026-10-15T10:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
@@ -149,7 +149,7 @@ Commands:
   continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
   stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches are Stuck until retry
   order <issue>                                           Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
-  brew <issue> [--as <name>] [--take]                     Brew an issue's batch here until it is on tap, Stuck or needs input
+  brew <issue> [--as <name>] [--take] [--new-window]      Brew an issue's batch here until it is on tap, Stuck or needs input
   rank <order> [<place>] [--why <reason>]                 Move an order in the intake's queue to place <n>, or mark it to finish first
   takeover <batch> [--as <name>]                          Hand a batch from the driver that holds it to another: --as, else this session
 

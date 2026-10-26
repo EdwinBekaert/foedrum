@@ -36,7 +36,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071) |
 | **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
 | **Driver** | What moves a batch forward: an engineer's Claude Code session or terminal through `foedrum brew` (interactive, ADR 0123) or the Cellar (autonomous); one at a time per batch, held as a batch lease it renews |
-| **Session step** | A recipe step that runs in an engineer's own Claude Code session: refine, triage, review |
+| **Interactive step** | A brewer step with `"interactive": true` and a `prompt`, whose attempt runs as a person's `claude` session in `foedrum brew`'s terminal, with the brewer's guards and out doc (ADR 0222) |
 | **Brewhouse** | The live dashboard (later) |
 | **Tasting log** | Plain-language summaries of what a batch changed (later) |
 | **Brew sheet** | A one-page explanation of a part of Foedrum, a pull request or an issue: one line with the premise, then one verified picture (`/brew-sheet`) |

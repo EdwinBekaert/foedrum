@@ -65,6 +65,8 @@ export type Attempt =
       answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
+      /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
+      interactiveSince?: string;
       abandoned?: true;
     }
   | {
@@ -494,6 +496,9 @@ function apply(state: State, event: Event): State {
           phase: 'started',
           ...(event.session === undefined ? {} : { session: event.session }),
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
+          ...(event.interactiveSince === undefined
+            ? {}
+            : { interactiveSince: event.interactiveSince }),
         };
       });
       const { worktree, stepId, attempt } = event;

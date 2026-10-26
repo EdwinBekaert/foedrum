@@ -113,6 +113,25 @@ const setup = (
 const start = { ref, limits: { outDoc: { file: 'brew.md', schema: OutDocFrontmatter } } };
 
 describe('createAttemptPlans: plan', () => {
+  it("plans an interactive step's session with the recipe's prompt and its prompt file (ADR 0222)", async () => {
+    const interactive = { prompt: 'Plan it with me.' };
+    const brewers = {
+      find: (recipe: string, stepId: string) => {
+        const found = loaded.brewers.find(recipe, stepId);
+        return found && { ...found, interactive };
+      },
+    };
+    const { plans } = setup(undefined, {}, undefined, brewers);
+    const planned = await plans.plan(start);
+    assert.match(planned.prompt, /Plan it with me\./);
+    assert.equal(
+      planned.interactive?.file,
+      join(workRoot, 'attempt-settings', '12-1', 'brew', '1.prompt.md'),
+    );
+    const plain = await setup().plans.plan(start);
+    assert.equal(plain.interactive, undefined);
+  });
+
   it('puts the text of a lens input in the prompt, tagged with the lens and its file (ADR 0098)', async () => {
     const withLens = loadRecipes({
       recipes: [

@@ -71,9 +71,10 @@ describe('resolveRecipe', () => {
     assert.deepStrictEqual(resolveRecipe(file, brewers), { ...file, testFirst: true });
   });
 
-  it("counts a session step's fallback brewer", () => {
-    const refine = { id: 'refine', session: 'refine', deadline: '1h', fallback: 'cellarman' };
-    assert.equal(resolveRecipe(recipe([refine]), brewers).testFirst, true);
+  it("counts a loop's brewer", () => {
+    const fix = { id: 'fix', brewer: 'cellarman' };
+    const review = { id: 'review', loop: { maxRounds: 1, until: 'fix.status', steps: [fix] } };
+    assert.equal(resolveRecipe(recipe([review]), brewers).testFirst, true);
   });
 
   it('refuses a recipe that names a brewer the Brewery does not have', () => {

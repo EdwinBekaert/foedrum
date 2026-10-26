@@ -488,7 +488,7 @@ export const Event = z.discriminatedUnion('type', [
     stepId: StepId,
     when: NonEmpty,
   }),
-  // `session` is required for brewer and session steps; the schema cannot tell the step kind.
+  // `session` is required for brewer steps; the schema cannot tell the step kind.
   // `worktree` is the one this attempt was given; a resumed session's attempt runs in the
   // worktree of the attempt it continues, named by `session.worktree`, and has none (ADR 0029).
   z.strictObject({
@@ -496,6 +496,8 @@ export const Event = z.discriminatedUnion('type', [
     ...step,
     session: SessionRef.optional(),
     worktree: WorktreeRef.optional(),
+    // An interactive step's: when its session opened, a person's wait (ADR 0222).
+    interactiveSince: Timestamp.optional(),
   }),
   // `readings`: a check step's, one per check it read, in order (ADR 0069), or a brewer's, its
   // repository's setup's (ADR 0163). `claude`: a brewer's, once claude's init came (ADR 0116).

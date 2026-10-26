@@ -11,7 +11,7 @@ What the intake does with a batch's pull request after it opens: it records its 
   Every check counts: `success`, `neutral` and `skipped` pass, every other conclusion fails (`checkPassed`); a check run not completed and a commit status `pending` run.
   Every open head is read on every pass, one recorded finished too: a re-run that passed is recorded on the same head, and a check that registers after the others finished records it pending again; the latest record is how the checks stand now, never for good.
   A head that moved is read from the start, and a record of another head never counts for it.
-  **There is no deadline**: the engine waits as long as the checks run, and the status comment says since when (a written exception to "every wait has a deadline" beside a person's pause and a blocked sub-order, [invariants](../engine/invariants.md)).
+  **There is no deadline**: the engine waits as long as the checks run, and the status comment says since when (a written exception to "every wait has a deadline" beside a person's pause, an open interactive session and a blocked sub-order, [invariants](../engine/invariants.md)).
   A read that fails is reported and records nothing; the next pass tries again.
 - **Each pass then checks the open pull requests against their base** (`checkBases`, `src/engine/base-check.ts`): for each batch On tap, the pull request its ledger opened with no recorded end, and the commit its push recorded.
   It reads each base's tip once per pass, as the push's own fetch reads it (`BranchPush.baseTip`, [ADR 0090](../../adr/0090-the-push-fetches-the-base-in-a-git-directory-of-its-own.md)), so a merge into the base by anyone counts.

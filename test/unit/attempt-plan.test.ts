@@ -3,9 +3,10 @@
 // each input's text is read from.
 
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  absoluteReadRule,
   answersOf,
   attemptLimits,
   changeStart,
@@ -15,6 +16,7 @@ import {
   modelOf,
   outDocContract,
   planAttempt,
+  promptFileOf,
   scanRetryOf,
   settingsFileOf,
   systemPromptFileOf,
@@ -1030,6 +1032,44 @@ describe('planAttempt', () => {
     assert.deepEqual(plan.permissions.toolchain, {
       HOME: '/home/brewer',
       PATH: '/home/brewer/.volta/bin:/usr/bin',
+    });
+  });
+
+  describe('an interactive step (ADR 0222)', () => {
+    const interactive = { prompt: 'Plan it with me.' };
+    const promptFile = join('/root', 'attempt-settings', '12-1', 'brew', '1.prompt.md');
+
+    it("puts the recipe's prompt after the brewer's body and before the out doc contract", () => {
+      const { prompt } = planAttempt({ ...facts(), interactive });
+      const contract = outDocContract('brew.md', false);
+      assert.ok(prompt.includes(`Plan it with me.\n\n${contract}`), prompt);
+      assert.ok(prompt.indexOf('Brew the plan in') < prompt.indexOf('Plan it with me.'), prompt);
+      assert.ok(!planAttempt(facts()).prompt.includes('Plan it with me.'));
+    });
+
+    it('has its session read the whole prompt from a file beside its settings, which it alone may read', () => {
+      const plan = planAttempt({ ...facts(), interactive });
+      assert.equal(promptFileOf(plan.settingsFile), promptFile);
+      assert.deepEqual(plan.interactive, {
+        file: promptFile,
+        firstMessage: `Read ${promptFile}: it is your task in this session.`,
+      });
+      const rule = 'Read(//root/attempt-settings/12-1/brew/1.prompt.md)';
+      assert.equal(plan.permissions.allow.at(-1), rule);
+      assert.ok(attemptSettings(plan.permissions).permissions.allow.includes(rule));
+      const plain = planAttempt(facts());
+      assert.equal(plain.interactive, undefined);
+      assert.ok(!plain.permissions.allow.some((allowed) => allowed.includes('prompt.md')));
+    });
+
+    it('writes a Windows path in the POSIX form Claude Code matches, its drive in lower case', () => {
+      assert.equal(
+        absoluteReadRule(
+          win32.join('D:', 'work', 'attempt-settings', '12-1', 'brew', '1.prompt.md'),
+        ),
+        'Read(//d/work/attempt-settings/12-1/brew/1.prompt.md)',
+      );
+      assert.equal(absoluteReadRule('/root/a/1.prompt.md'), 'Read(//root/a/1.prompt.md)');
     });
   });
 
