@@ -1,6 +1,6 @@
 # 0211. The intake starts ready sub-orders at their order's rank, once their blockers merged
 
-Date: 2026-10-26 · Status: Accepted · Amends [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (the queue gains ready sub-orders, and `rank` accepts a started order with sub-orders left) and [0013](0013-single-repo-sub-orders-bottles-and-releases.md) (a `code` blocker is done when its pull request is merged, not stacked on its branch, and the sub-order waits for that merge without a batch, outside Conditioning)
+Date: 2026-10-26 · Status: Accepted · Amends [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (the queue gains ready sub-orders, and `rank` accepts a started order with sub-orders left), [0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md) (a second exception to "every wait has a deadline") and [0013](0013-single-repo-sub-orders-bottles-and-releases.md) (a `code` blocker is done when its pull request is merged, not stacked on its branch, and the sub-order waits for that merge without a batch, outside Conditioning)
 
 ## Context
 An order can be decomposed into sub-orders with "blocked by" dependencies (`order.decomposed`, [ADR 0013](0013-single-repo-sub-orders-bottles-and-releases.md)), but nothing starts them: the intake never orders a sub-order, and `rank` refuses one ("its plan ranks it").
