@@ -210,7 +210,8 @@ describe('npm run demo', () => {
     const [blocked] = (DEMO_SCRIPT.correctness?.[0]?.tasting?.findings ?? []) as { why?: string }[];
     assert.ok(
       part('checks').includes(
-        `\n  Round correctness#1:\n  - major in greet.mjs:2: ${blocked?.why}\n    fixed: `,
+        // The Cellar's own lines are indented by two spaces, the input's by two more.
+        `\n    Round correctness#1:\n    - major in greet.mjs:2: ${blocked?.why}\n      fixed: `,
       ),
       part('checks'),
     );
