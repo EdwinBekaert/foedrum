@@ -30,6 +30,7 @@ import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } 
 import { claimStanding, same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
+import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
@@ -260,8 +261,20 @@ function run(draft: Draft, command: Command): Event[] {
       });
       break;
     }
-    case 'rank':
-      throw new Error('not implemented');
+    case 'rank': {
+      const { order, place, by, via, why } = command;
+      const refused = rankRefusal(draft.state, order);
+      if (refused !== undefined) throw new Refusal(refused);
+      draft.push({
+        type: 'order.ranked',
+        order: { ...order },
+        place: { ...place },
+        by,
+        via,
+        ...(why === undefined ? {} : { why }),
+      });
+      break;
+    }
     case 'unrouted':
       unrouted(draft, command.batchId);
       break;

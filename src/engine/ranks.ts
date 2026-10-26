@@ -2,7 +2,8 @@
 // person moved an order with `foedrum rank`. Pure: the intake and `rank` both sort through it.
 
 import type { OrderRef } from '../schemas/events.ts';
-import type { Rank, State } from './fold.ts';
+import { claimedName, claimOfOrder } from './claim-orders.ts';
+import { orderKey, type Rank, type State } from './fold.ts';
 
 /** An order of the intake's queue, as it sorts. */
 export interface QueuedOrder {
@@ -13,35 +14,85 @@ export interface QueuedOrder {
   source: number;
 }
 
+type Ranks = ReadonlyMap<string, Rank>;
+
+const marked = (rank: Rank | undefined): boolean => rank?.place.kind === 'first';
+
+// A rank's place stands in for its issue's arrival.
+const arrivalOf = (queued: QueuedOrder, rank: Rank | undefined): string =>
+  rank?.place.kind === 'position' ? rank.place.arrival : queued.created;
+
 /**
  * `queue` in rank order: the orders marked "finish first" by when they were marked, then the rest
- * by arrival, a rank's in place of its issue's.
+ * by arrival, a rank's in place of its issue's. A ranked order goes ahead of an unranked one that
+ * shares its arrival, the later of two ranks ahead; then the Brewery's own issue, the order
+ * foedrum.jsonc lists the repositories in, and the issue number break a tie.
  */
-export const rankQueue = <T extends QueuedOrder>(
-  _queue: readonly T[],
-  _ranks: ReadonlyMap<string, Rank>,
-): T[] => {
-  throw new Error('not implemented');
-};
+export const rankQueue = <T extends QueuedOrder>(queue: readonly T[], ranks: Ranks): T[] =>
+  queue
+    .map((queued) => ({ queued, rank: ranks.get(orderKey(queued.order)) }))
+    .sort((one, other) => {
+      if (marked(one.rank) !== marked(other.rank)) return marked(one.rank) ? -1 : 1;
+      if (marked(one.rank)) return (one.rank?.seq ?? 0) - (other.rank?.seq ?? 0);
+      const arrived =
+        Date.parse(arrivalOf(one.queued, one.rank)) -
+        Date.parse(arrivalOf(other.queued, other.rank));
+      if (arrived !== 0) return arrived;
+      if ((one.rank === undefined) !== (other.rank === undefined)) return one.rank ? -1 : 1;
+      if (one.rank !== undefined && other.rank !== undefined) return other.rank.seq - one.rank.seq;
+      return (
+        one.queued.source - other.queued.source || one.queued.order.issue - other.queued.order.issue
+      );
+    })
+    .map(({ queued }) => queued);
 
 /**
  * The arrival `rank <order> <position>` records: that of the order now at `position` among those
- * of `queue` without the mark, leaving `order` out; past the end, `now`.
+ * of `queue` without the mark, leaving `order` out; past the end, `now`. So the order keeps its
+ * place relative to the orders around it as they are ordered, and a later arrival goes behind it.
  */
 export const arrivalAt = (
-  _queue: readonly QueuedOrder[],
-  _ranks: ReadonlyMap<string, Rank>,
-  _order: OrderRef,
-  _position: number,
-  _now: Date,
+  queue: readonly QueuedOrder[],
+  ranks: Ranks,
+  order: OrderRef,
+  position: number,
+  now: Date,
 ): string => {
-  throw new Error('not implemented');
+  const key = orderKey(order);
+  const there = rankQueue(queue, ranks).filter(
+    (queued) => orderKey(queued.order) !== key && !marked(ranks.get(orderKey(queued.order))),
+  )[position - 1];
+  return there === undefined
+    ? now.toISOString()
+    : arrivalOf(there, ranks.get(orderKey(there.order)));
 };
 
 /**
- * Why `order` cannot be ranked, from the folded state alone, or undefined: it has a batch, is a
- * sub-order, or is the Brewery issue of a claimed target issue.
+ * Why `order` cannot be ranked, from the folded state alone, or undefined: it is a sub-order, which
+ * its plan ranks, the Brewery issue of a claimed target issue, or it has a batch, so it left the
+ * queue.
  */
-export const rankRefusal = (_state: State, _order: OrderRef): string | undefined => {
-  throw new Error('not implemented');
+export const rankRefusal = (state: State, order: OrderRef): string | undefined => {
+  const name = `${order.repo ?? ''}#${order.issue}`;
+  if (order.repo === undefined) {
+    const subOrder = state.subOrders.get(order.issue);
+    if (subOrder !== undefined) {
+      return `${name} is a sub-order of #${subOrder.order}; its plan ranks it`;
+    }
+    const claimed = claimOfOrder(state, order.issue);
+    if (claimed !== undefined) {
+      const target = claimedName(claimed);
+      return `${name} is the order of ${target}; rank ${target}`;
+    }
+  }
+  const key = orderKey(order);
+  const batch = [...state.batches.values()]
+    .filter(
+      ({ issue, repo }) => orderKey({ issue, ...(repo === undefined ? {} : { repo }) }) === key,
+    )
+    .at(-1);
+  if (batch !== undefined) {
+    return `${name} was ordered as batch ${batch.id}: a rank orders only the queue`;
+  }
+  return undefined;
 };

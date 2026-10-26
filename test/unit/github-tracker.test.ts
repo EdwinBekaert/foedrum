@@ -83,7 +83,13 @@ describe('githubTargetTracker', () => {
     });
 
     it('reads labels given as plain names, and assignees given as null', async () => {
-      const item = { number: 10, state: 'open', user: { login: 'alice' }, labels: ['foedrum'] };
+      const item = {
+        number: 10,
+        state: 'open',
+        user: { login: 'alice' },
+        labels: ['foedrum'],
+        created_at: '2026-10-14T08:00:00Z',
+      };
       const { tracker } = trackerWith([
         { status: 200, body: [{ ...item, assignees: null, milestone: null }] },
       ]);

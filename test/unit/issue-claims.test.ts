@@ -8,7 +8,6 @@ import {
   type Claimant,
   type ClaimedBatch,
   type ClaimHost,
-  claimCandidates,
   claimEffectsDue,
   claimIssue,
   claimLabel,
@@ -202,125 +201,6 @@ describe('claimIssue', () => {
       assert.deepEqual(other, { kind: 'taken', by: first.brewery });
       assert.equal(github.calls.get('create'), 2);
     }
-  });
-});
-
-describe('claimCandidates', () => {
-  const pass = (claimant: Claimant, given: Partial<CandidateOptions> = {}, limit = 10) => ({
-    ...options(claimant, given),
-    repo,
-    now,
-    limit,
-  });
-
-  it('lets one of two Breweries order an issue both pick, and the other skip it', async () => {
-    const github = fakeGitHub();
-    const issues = [issue(7)];
-    const [ofAlice, ofBob] = await Promise.all([
-      claimCandidates(github.host, issues, pass(alice)),
-      claimCandidates(github.host, issues, pass(bob)),
-    ]);
-    assert.deepEqual(ofAlice, { order: [7], taken: [] });
-    assert.deepEqual(ofBob, { order: [], taken: [{ issue: 7, by: 'alice/brewery' }] });
-    assert.deepEqual(await claimCandidates(github.host, issues, pass(bob)), ofBob);
-  });
-
-  it('orders an issue once when the listing has it twice', async () => {
-    // Pages of a listing shift while it is read, so one issue can come back on two of them.
-    const github = fakeGitHub();
-    assert.deepEqual(await claimCandidates(github.host, [issue(7), issue(7)], pass(alice)), {
-      order: [7],
-      taken: [],
-    });
-  });
-
-  it('claims only candidates, oldest issue first', async () => {
-    const github = fakeGitHub();
-    const issues = [
-      issue(9),
-      issue(8, { assignees: ['bob'] }),
-      issue(3),
-      issue(5, { state: 'closed' }),
-    ];
-    assert.deepEqual(await claimCandidates(github.host, issues, pass(alice)), {
-      order: [3, 9],
-      taken: [],
-    });
-    assert.deepEqual([...github.refs.keys()].sort(), [`${repo}#3`, `${repo}#9`]);
-  });
-
-  it('claims oldest first only up to the limit, leaving the rest for the next pass', async () => {
-    const github = fakeGitHub();
-    const issues = [issue(9), issue(3), issue(5)];
-    assert.deepEqual(await claimCandidates(github.host, issues, pass(alice, {}, 1)), {
-      order: [3],
-      taken: [],
-    });
-    assert.deepEqual([...github.refs.keys()], [`${repo}#3`]);
-    const next = pass(alice, { brewed: new Set([3]) }, 1);
-    assert.deepEqual(await claimCandidates(github.host, issues, next), { order: [5], taken: [] });
-  });
-
-  it('leaves the issues past the limit to another Brewery', async () => {
-    const github = fakeGitHub();
-    const issues = [issue(3), issue(5), issue(9)];
-    await claimCandidates(github.host, issues, pass(alice, {}, 1));
-    assert.deepEqual(await claimCandidates(github.host, issues, pass(bob, {}, 2)), {
-      order: [5, 9],
-      taken: [{ issue: 3, by: 'alice/brewery' }],
-    });
-  });
-
-  it('claims nothing with a limit of 0', async () => {
-    const github = fakeGitHub();
-    assert.deepEqual(await claimCandidates(github.host, [issue(7)], pass(alice, {}, 0)), {
-      order: [],
-      taken: [],
-    });
-    assert.equal(github.refs.size, 0);
-  });
-
-  for (const limit of [-1, 1.5, Number.NaN]) {
-    it(`refuses a limit of ${limit}`, async () => {
-      await assert.rejects(
-        claimCandidates(fakeGitHub().host, [issue(7)], pass(alice, {}, limit)),
-        RangeError,
-      );
-    });
-  }
-
-  it('orders its own claim again when the batch was never ordered, and not once it was', async () => {
-    const github = fakeGitHub();
-    await claimCandidates(github.host, [issue(7)], pass(alice));
-    assert.deepEqual(await claimCandidates(github.host, [issue(7)], pass(alice)), {
-      order: [7],
-      taken: [],
-    });
-    const brewed = pass(alice, { brewed: new Set([7]) });
-    assert.deepEqual(await claimCandidates(github.host, [issue(7)], brewed), {
-      order: [],
-      taken: [],
-    });
-  });
-
-  it('stops at a claim the code host fails, and still returns the claims it holds', async () => {
-    const github = fakeGitHub();
-    const failing: ClaimHost = {
-      ...github.host,
-      create: async (into, number, message) => {
-        if (number === 3) throw new Error('502 Bad Gateway');
-        return github.host.create(into, number, message);
-      },
-    };
-    const issues = [issue(1), issue(2), issue(3), issue(4)];
-    let claimed: Awaited<ReturnType<typeof claimCandidates>> | undefined;
-    await assert.doesNotReject(async () => {
-      claimed = await claimCandidates(failing, issues, pass(alice));
-    });
-    assert.deepEqual(claimed?.order, [1, 2]);
-    assert.equal(claimed?.failed?.issue, 3);
-    assert.match(String(claimed?.failed?.error), /502 Bad Gateway/);
-    assert.equal(github.refs.has(`${repo}#4`), false, 'it stops there');
   });
 });
 

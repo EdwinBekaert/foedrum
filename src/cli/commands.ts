@@ -17,10 +17,18 @@ import {
   fold,
   InvalidLogError,
   orderKey,
+  type Rank,
   type State,
 } from '../engine/fold.ts';
+import {
+  intakeQueue,
+  intakeRepositories,
+  type Listing,
+  type QueuedIssue,
+} from '../engine/intake.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
+import { arrivalAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -243,6 +251,56 @@ const orderRefOf = (target: OrderTarget, context: CliContext): OrderRef | { refu
   return { issue, repo: found[0] };
 };
 
+/**
+ * The intake's queue as a pass would read it now, in rank order (ADR 0208): the Brewery's open
+ * issues and every intake repository's, through gh's login; or what could not be read.
+ */
+const readQueue = async (
+  config: BreweryConfig,
+  brewery: string,
+  state: State,
+  context: CliContext,
+): Promise<QueuedIssue[] | { refused: string }> => {
+  const { tracker, login } = context.queue(config);
+  const read = async <T>(what: string, reading: () => Promise<T>): Promise<T> => {
+    try {
+      return await reading();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`cannot read the intake's queue: ${what}: ${message}`);
+    }
+  };
+  try {
+    const claimant = { brewery, login: await read('the login gh uses', () => login()) };
+    const own = await read(`listing ${brewery}`, () => tracker.issues(brewery));
+    const repositories: Listing[] = [];
+    for (const repository of intakeRepositories(config)) {
+      const { repo, filter } = repository;
+      const issues = await read(`listing ${repo}`, () => tracker.issues(repo, filter));
+      repositories.push({ repository, issues });
+    }
+    const authors = config.users ?? [];
+    return intakeQueue(state, { brewery: own, repositories }, { authors, claimant });
+  } catch (error) {
+    return { refused: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+/** How `rank` shows an order's rank, or that it has none. */
+const rankText = (rank: Rank | undefined): string => {
+  if (rank === undefined) return 'by its arrival';
+  const { place, by, via, why } = rank;
+  const what = place.kind === 'first' ? 'marked to finish first' : `ranked ${place.position}`;
+  return `${what} by ${by} via ${via}${why === undefined ? '' : `: ${why}`}`;
+};
+
+/** Where `order` stands in `queue`: `place <n> of <all> in the queue`, or undefined. */
+const placeIn = (queue: readonly QueuedIssue[], order: OrderRef): string | undefined => {
+  const key = orderKey(order);
+  const at = queue.findIndex((queued) => orderKey(queued.order) === key);
+  return at < 0 ? undefined : `place ${at + 1} of ${queue.length} in the queue`;
+};
+
 /** The questions `batch` asks while Stuck on `needs_input`, in order; none otherwise. */
 const questionsOf = (state: State, batchId: string): readonly string[] => {
   const lane = state.batches.get(batchId)?.lane;
@@ -403,11 +461,15 @@ export const commands: readonly RegisteredCommand[] = [
                 at < ordered && event.type === 'order.continued' && held(event),
             )
             .at(-1)?.id ?? 0;
+        // And the ranks of its order, which it had in the intake's queue (ADR 0208).
+        const ranked = (event: Event): boolean =>
+          event.type === 'order.ranked' && orderKey(event.order) === order;
         return done(
           formatReplay(
             batch,
             events.filter(
-              ({ id: at, event }) => batchOf(event) === id || (at > lifted && held(event)),
+              ({ id: at, event }) =>
+                batchOf(event) === id || (at > lifted && held(event)) || ranked(event),
             ),
             pauseOf(state, batch),
           ),
@@ -627,7 +689,55 @@ export const commands: readonly RegisteredCommand[] = [
     optional: ['place'],
     options: { why: 'reason' },
     schema: RankCommand,
-    handler: async () => failed('rank', 'not implemented'),
+    // Reads the queue as a pass would, through gh's login, and records the place it finds.
+    handler: async ({ order: target, place, why }, context) => {
+      const order = orderRefOf(target, context);
+      if ('refused' in order) return failed('rank', order.refused);
+      const config = context.config();
+      const { brewery } = config;
+      if (brewery === undefined) return failed('rank', NAME_THE_BREWERY);
+      const name = givenName(target);
+      return writeBrewery('rank', context, async (log) => {
+        const refusal = rankRefusal(log.state(), order);
+        if (refusal !== undefined) return failed('rank', refusal);
+        const queue = await readQueue(config, brewery, log.state(), context);
+        if ('refused' in queue) return failed('rank', queue.refused);
+        const before = placeIn(queue, order);
+        if (before === undefined) {
+          return failed(
+            'rank',
+            `${name} is not in the intake's queue: closed, filtered out, assigned to someone else or not opened by an allow-listed user`,
+          );
+        }
+        const { ranks } = log.state();
+        if (place === undefined) {
+          return done(`${name}: ${before}, ${rankText(ranks.get(orderKey(order)))}\n`);
+        }
+        const now = context.now();
+        const decision = log.issue(
+          {
+            kind: 'rank',
+            order,
+            place:
+              place === 'first'
+                ? { kind: 'first' }
+                : {
+                    kind: 'position',
+                    position: place,
+                    arrival: arrivalAt(queue, ranks, order, place, now),
+                  },
+            by: context.user(),
+            via: context.surface,
+            ...(why === undefined ? {} : { why }),
+          },
+          now,
+        );
+        if (decision.kind === 'refused') return failed('rank', decision.reason);
+        const after = placeIn(rankQueue(queue, log.state().ranks), order);
+        const ranked = place === 'first' ? 'marked to finish first' : `ranked ${place}`;
+        return done(`${name} ${ranked}: ${after}\n`);
+      });
+    },
   }),
   define({
     name: 'takeover',

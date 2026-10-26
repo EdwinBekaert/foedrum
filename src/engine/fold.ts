@@ -535,8 +535,13 @@ function apply(state: State, event: Event): State {
         subOrders,
       };
     }
-    case 'order.ranked':
-      throw new Error('not implemented');
+    case 'order.ranked': {
+      const { order, place, by, via, why } = event;
+      const seq = 1 + Math.max(0, ...[...state.ranks.values()].map((rank) => rank.seq));
+      const rank: Rank = { order, place, seq, by, via, ...(why === undefined ? {} : { why }) };
+      // A later rank of the same order replaces the earlier one (ADR 0208).
+      return { ...state, ranks: put(state.ranks, orderKey(order), rank) };
+    }
     case 'batch.waiting': {
       const { on, remindAt } = event;
       return setLane(state, event.batchId, { kind: 'conditioning', on, remindAt });
