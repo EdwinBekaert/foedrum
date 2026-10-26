@@ -286,7 +286,10 @@ describe('the merge brief (ADR 0225)', () => {
       const [comment] = comments;
       assert.ok(comment);
       const marker = effectMarker(effectKey.encode({ batchId: 'web-7', effect: 'brief.1' }));
-      assert.ok(comment.body.endsWith(`\n\n${marker}`));
+      const digest = readyOf(log.state(), batch())?.digest;
+      assert.ok(
+        comment.body.endsWith(`\n\n<!-- foedrum:brief ${url} ${head} ${digest} -->\n${marker}`),
+      );
       assert.ok(comment.body.startsWith('### Merge? Add a --json flag @ `aaaaaaaa`\n'));
       assert.match(comment.body, /\*\*Ready to merge\.\*\*/);
       assert.match(comment.body, /waits for whoever merges/);
@@ -685,7 +688,7 @@ describe('the merge brief (ADR 0225)', () => {
       open();
       finished([passed('ci/build')]);
       const body = await brief();
-      const text = body.slice(0, body.lastIndexOf('<!-- foedrum:'));
+      const text = body.slice(0, body.indexOf('<!-- foedrum:'));
       assert.doesNotMatch(text, /closes #3/i);
       assert.doesNotMatch(text, /@ann/);
       assert.doesNotMatch(text, /<!--/);
