@@ -659,6 +659,48 @@ describe('sandboxedChecks for a repository that borrows an object store', () => 
     assert.ok(!none.calls[0]?.args.includes(store));
   });
 
+  // A check writes its worktree, `.git` and a record inside it included: an alternates file there
+  // must not bind the home folder or /run for a later check (review of #528).
+  it('binds no store a repository inside the worktree names, and binds one beside it whose name only starts with it', async () => {
+    const planted = `${worktree}/fake`;
+    const inside = fake();
+    await sandboxedChecks(
+      options(inside.exec, {
+        platform: 'linux',
+        gitDirOf: () => planted,
+        borrowedOf: () => [home, '/run'],
+      }),
+    )(line, [], call);
+    const args = inside.calls[0]?.args ?? [];
+    assert.ok(
+      !args.some((arg, n) => arg === '--ro-bind' && [home, '/run'].includes(args[n + 1] ?? '')),
+    );
+    const beside = `${worktree}-own.git`;
+    const outside = fake();
+    await sandboxedChecks(
+      options(outside.exec, {
+        platform: 'linux',
+        gitDirOf: () => beside,
+        borrowedOf: (repository) => (repository === beside ? [store] : []),
+      }),
+    )(line, [], call);
+    assert.ok(outside.calls[0]?.args.includes(store));
+  });
+
+  it('binds no store under Seatbelt that a repository inside the worktree names', async () => {
+    const { calls, exec } = fake();
+    const temp = { make: () => '/private/var/folders/x/T/foedrum-check-1', remove: async () => {} };
+    await sandboxedChecks(
+      options(exec, {
+        platform: 'darwin',
+        temp,
+        gitDirOf: () => worktree,
+        borrowedOf: () => [home],
+      }),
+    )(line, [], call);
+    assert.ok(!calls[0]?.args.some((arg) => arg.startsWith('BORROWED_')));
+  });
+
   it('lets a check read the store under Seatbelt, as a parameter, and write nothing there', async () => {
     const { calls, exec } = fake();
     const temp = { make: () => '/private/var/folders/x/T/foedrum-check-1', remove: async () => {} };
