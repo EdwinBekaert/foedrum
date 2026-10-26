@@ -1,6 +1,6 @@
 # 0212. `foedrum init` takes every answer as an option, and `/foedrum:init` asks them in a session
 
-Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-the-brewery-s-repository-labels-the-targets-and-pushes.md) (init's questions take options, and `--no-input` refuses an unanswered one before anything is created) and [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) (the folder and re-point questions take options)
+Date: 2026-10-26 · Status: Accepted · Amends [0199](0199-foedrum-init-writes-a-brewery-s-files-in-its-clone.md) (init takes options, an option's answer that does not pass is refused instead of asked again, and init is no longer terminal-only), [0207](0207-foedrum-init-creates-the-brewery-s-repository-labels-the-targets-and-pushes.md) (init's questions take options, and `--no-input` refuses an unanswered one before anything is created), [0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) (the folder and re-point questions take options, and on Windows a `foedrum` script for Git Bash goes beside `foedrum.cmd`) and [0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md) (the plugin carries `init`)
 
 ## Context
 [ADR 0207](0207-foedrum-init-creates-the-brewery-s-repository-labels-the-targets-and-pushes.md) and [ADR 0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md) have `foedrum init` ask its questions on the terminal, so the registry marks `init` terminal-only and the plugin ([ADR 0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md)) has no `/foedrum:init`. A skill runs `foedrum` through the Bash tool, where no one answers a terminal question. #530 asks for every answer as an argument, a missing one refused with one line that names it, and a skill that asks the same questions in the session.
@@ -9,6 +9,7 @@ Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-
 
 ### Every question has an option
 - The value of an option is the answer typed on the terminal, keyed by the repository or file the question is about. It goes through the same parse and the same checks as a typed answer: a Brewery GitHub already has, a name no folder can have on Windows, an alias that is taken, a target GitHub cannot find, the schema's message. An empty value takes the default, as Enter does.
+- The checks that end init for a typed answer too (a Brewery GitHub already has, a name no folder can have on Windows, a folder of that name already there) end it the same way for an option, in 1, before anything is created.
 - The options, in the order init asks the questions:
   - `--brewery <owner/name>`: `Brewery repository`.
   - `--visibility <private|public>`: `Private or public`, outside a clone.
@@ -22,12 +23,12 @@ Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-
   - `--shim <number|n>`: `Write the foedrum command into which folder?`.
   - `--repoint <y|n>`: `<file> runs the Foedrum in <other>. Point it at <this>?`.
 - `--alias`, `--use-checks`, `--check`, `--change` and `--label` may be given more than once, one per repository or file. The registry gains options that repeat, shown in `--help` with `...`, and a synopsis for a command whose options are too many for its row: init's row shows `[--<question> <answer>]... [--no-input]`, and its options are listed below the table.
-- A question answered by its option is not asked. A value that does not pass is refused with exit 2 and one line that names the option and says why; it is not asked again, since a command line cannot answer twice.
+- A question answered by its option is not asked. A value that does not pass a check a typed answer would be asked again for is refused with exit 2 and one line that names the option and says why; it is not asked again, since a command line cannot answer twice.
 - A keyed option for a question init does not ask (an alias of a target it keeps, a label a target has) is not used.
 
 ### `--no-input`
 - With `--no-input`, a question whose option was not given is refused with exit 2 and one line: `no answer to "<question>"`, with its default, and the option to add.
-- Every question is checked before anything is created on GitHub or written: the questions init asks after the repository is created (a file that would change, a label, the push, the folder of the `foedrum` command or its re-point) are checked for an option when the other questions are answered, by the same tests init uses to ask them, after printing the lines that question shows (what a file would change, the folders). Whether a target has the label is read then, only with `--no-input`.
+- Every question is checked before anything is created on GitHub or written: the questions init asks after the repository is created (a file that would change, a label, the push, the folder of the `foedrum` command or its re-point) are checked for an option when the other questions are answered, by the same tests init uses to ask them, after printing the lines that question shows (what a file would change, the folders). Whether a target has the label is read then, when its `--label` is given or under `--no-input`, and once: the label step later uses that reading.
 - `--push` is required whenever `--no-input` is given, also when git would list nothing: which files git lists is known only after they are written.
 - A yes or no without its option is refused, never taken from its default. The defaults of the label and the push act on GitHub, so a forgotten option would create a label or push commits nobody chose; a silent no would leave a Brewery half set up without a line saying so.
 - Without `--no-input`, init asks on the terminal every question not given, in the same order and with the same defaults as before.
@@ -39,10 +40,22 @@ Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-
 - It never answers for the engineer, also not with a default.
 - The skill runs only `foedrum`, which reaches GitHub through gh's own login ([ADR 0073](0073-github-only-through-gh-s-own-login.md)): no token anywhere.
 
+### Before the `foedrum` command exists
+- Until the package is on npm (M3), `foedrum` is on the PATH only once init has written its shim ([ADR 0210](0210-foedrum-init-writes-the-foedrum-command-into-a-user-folder-on-the-path.md)), so on a machine with only gh and a Foedrum checkout the skill's first `foedrum` would not be found.
+- The skill runs `command -v foedrum` first. When it finds none, it asks the engineer for the folder of their Foedrum checkout, checks that `<folder>/src/cli/main.ts` is a file, and runs `node '<folder>/src/cli/main.ts' init …` every round instead, the folder single-quoted as every value. init's shim question then puts `foedrum` on the PATH for the next session.
+- The plugin cannot find the checkout itself: `CLAUDE_PLUGIN_ROOT` is not in the Bash tool's environment ([ADR 0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md)), and the plugin's marketplace clone has no `node_modules` for Foedrum's runtime dependency.
+
+### A `foedrum` script for Git Bash on Windows
+- The plugin's skills run `foedrum` through the Bash tool, which is Git Bash on Windows (ADR 0125), and Git Bash does not run `foedrum.cmd` by its bare name: `foedrum` is `command not found` there (tried 2026-10-26). So on Windows, init writes, beside `foedrum.cmd`, the `foedrum` script it writes on Linux and macOS: `#!/bin/sh`, LF line ends, `exec node '<checkout>\src\cli\main.ts' "$@"`, with the same mark. PowerShell and cmd still run `foedrum.cmd`; npm's own shims put `<name>` and `<name>.cmd` side by side in one folder on Windows for the same reason.
+- The two files are one shim: init looks at both in each folder it would offer. Both of init's and running this checkout are kept without a question; one of them missing is written without a question, since the other runs this checkout already; either running another checkout names that file in the re-point question, and a yes writes both, a no keeps both; either not being one of init's is left as it is, and neither file is written. A no, or a file it cannot write, prints both for the user to write by hand.
+- This reverses ADR 0210's rejection of a second file for Git Bash: the caller that needs it is the plugin, not a native-Windows shell.
+
 ## Consequences
 - In a Claude Code session opened in an empty folder, `/foedrum:init` ends with a pushed Brewery, the labels and the `foedrum` command, asking the same questions the terminal asks.
 - A script or CI can run `foedrum init --no-input …` and know it either ran with the answers it gave or created nothing.
 - The skill runs init once per question, each run reading GitHub again: 8 to 12 short runs for a first Brewery.
+- On a machine without `foedrum` on the PATH, the engineer names the checkout once per `/foedrum:init`.
+- On Windows the folder holds two files for one command; a shim init wrote before this change, `foedrum.cmd` alone, gets its script on the next run without a question.
 - A new question in init is a new option, and refused under `--no-input` until given: the skill learns it from init's line without a change.
 
 ## Alternatives considered
@@ -52,3 +65,6 @@ Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-
 - **A repeatable `--target`:** the targets answer is a list separated by spaces already, and one option keeps its parse the terminal's.
 - **Take a yes or no's default under `--no-input`:** a forgotten option would create a label or push (see above).
 - **Ask the questions after creation where they are, and refuse there under `--no-input`:** the repository would be created, or a file written, before a refusal.
+- **Refuse a `--brewery` GitHub already has with exit 2, so the skill asks it again:** a typed name ends init there too; the skill shows the line and the engineer runs `/foedrum:init` again with another name.
+- **The skill finds the checkout itself:** nothing in the session names it (see above); asking once is one question.
+- **Leave Git Bash on Windows to a later issue:** every `/foedrum:` skill would stay `command not found` on Windows with init's own shim, and #530 asks for a working `foedrum` command.
