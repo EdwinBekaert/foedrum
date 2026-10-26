@@ -10,7 +10,10 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   A breakdown produced interactively with the `/foedrum:refine` plugin ([interactive refinement](../humans/refinement.md)) counts as approved.
 - **One sub-order, one repository.** A sub-order never spans repositories.
   A brewer *writes* in exactly one repository and may *read* sibling repositories for context.
-- **Each sub-order gets its own batch** and recipe; batches are scheduled in dependency order.
+- **Each sub-order gets its own batch** and recipe, once it is **ready**: in its order's latest breakdown, without a batch, and every sub-order it is blocked by done, its pull request merged ([ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)).
+  The ready set is a pure function of the fold (`readySubOrders`, `src/engine/ready-set.ts`); the intake orders the ready sub-orders of all orders at their order's rank, in their plan's order ([ranking](ranking.md)).
+  A sub-order of a paused order, or of an order whose latest batch was cancelled, is not ordered; a cancelled sub-order never is.
+  A bottle's pull request counts as merged when a batch it bottles records it `merged`: whoever opens bottles lists it in each bottled batch's `batch.on_tap`.
 - **Bottling: choosing what goes into a pull request.** A **bottle** is a pull request.
   It bundles one or more finished sub-orders of the same repository: their branches are merged into a bottle branch by plain git (conflicts go to the Blender).
   Policy per recipe: `"bottling": "perSubOrder" | "perRepo" | "manual"`; manually with `/foedrum bottle #101 #102`.
@@ -19,8 +22,8 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
 
 | Kind | Meaning | The dependent batch waits for |
 |---|---|---|
-| `code` | Builds on another sub-order's code in the same repository | That sub-order's branch (stacked) |
-| `release` | Needs a published version of another repository's library | The bottle to be merged, CI to publish, and the **release signal** to report the new version; the dependent batch then starts by bumping the dependency |
+| `code` | Builds on another sub-order's code in the same repository | That sub-order's pull request to be merged, so it starts from a base that holds the change (ADR 0211) |
+| `release` | Needs a published version of another repository's library | The bottle to be merged, CI to publish, and the **release signal** to report the new version; the dependent batch then starts by bumping the dependency; until the release signal is recorded (#538) such a sub-order is never ready |
 
 - **Release signals** are configured per repository: **GitHub release or tag** first; package registries (NuGet, npm, Maven, …) later through the same interface.
   Developing against a pre-release build is a later option.
@@ -34,7 +37,7 @@ flowchart TD
   O --> S2["102 lib-core<br/>validate X"]
   O --> S3["103 api<br/>use X"]
   O --> S4["104 web<br/>show X"]
-  S1 -->|"code: stacked on its branch"| S2
+  S1 -->|"code: once its pull request merged"| S2
   S1 & S2 --> BA["Bottle A: lib-core pull request"]
   BA -->|"merged, CI publishes"| R(["release lib-core 2.4.0"])
   R -->|"release: conditioning until then"| S3
