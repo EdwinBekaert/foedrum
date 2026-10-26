@@ -58,8 +58,9 @@ export interface OwnGitDirEntry {
   modifiedMs: number;
 }
 
-// The name `withOwnGitDir` gives a git directory: a `randomUUID`, which is lower case, and `.git`.
-const OWN_GIT_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.git$/;
+// The name `withOwnGitDir` gives a git directory: a `randomUUID`, which is lower case, and `.git`;
+// with `.tree`, the worktree a merged-check run makes beside it (ADR 0203).
+const OWN_GIT_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:git|tree)$/;
 
 /** Whether an entry of the root could be a git directory of Foedrum's own: the only ones read. */
 export const isOwnGitDir = (name: string, directory: boolean): boolean =>

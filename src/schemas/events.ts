@@ -188,6 +188,9 @@ export const GravityReading = z.discriminatedUnion('result', [
 ]);
 export type GravityReading = z.infer<typeof GravityReading>;
 
+/** The longest reason a base check records for checks that did not run (ADR 0203). */
+export const MAX_UNCHECKED_LENGTH = 500;
+
 export const Answer = z.strictObject({ q: NonEmpty, answer: NonEmpty });
 export type Answer = z.infer<typeof Answer>;
 
@@ -487,6 +490,10 @@ export const Event = z.discriminatedUnion('type', [
     conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
     // The bottle branch's tip when someone else pushed to it: no merge-tree ran, and none will.
     branchMoved: CommitSha.optional(),
+    // On a clean merge, the first reading of the checks on the merged tree that did not pass, or
+    // why they did not run (ADR 0203).
+    failed: GravityReading.optional(),
+    unchecked: z.string().min(1).max(MAX_UNCHECKED_LENGTH).optional(),
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),

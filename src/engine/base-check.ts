@@ -11,6 +11,7 @@ import { type DriverEffects, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { BaseCheck, Batch, State } from './fold.ts';
+import type { MergedCheckDue } from './merged-checks.ts';
 import { openedPullRequest, pushKey } from './pull-request.ts';
 import { plain } from './status-comment.ts';
 
@@ -31,6 +32,11 @@ export interface BaseCheckRepository {
    * `undefined` when it has no such branch.
    */
   branchTip(branch: string, signal?: AbortSignal): Promise<string | undefined>;
+  /**
+   * The run of the checks on the merged tree (ADR 0203): whether `batch` has checks to run, and
+   * the hand-off of a clean merge, which the pass then does not record.
+   */
+  checks?: { wants(batch: Batch): boolean; due(due: MergedCheckDue): void };
 }
 
 export interface BaseCheckOptions {
@@ -165,6 +171,18 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     }
     // A pass given up at its deadline records nothing more.
     if (signal.aborted) return;
+    // A clean merge with checks to run is the merged-check run's to record (ADR 0203).
+    if (merged.kind === 'clean' && repository.checks?.wants(batch) === true) {
+      repository.checks.due({
+        batchId: batch.id,
+        pullRequest: open.url,
+        branch: repository.base,
+        tip,
+        head: open.head,
+        checked: batch.baseChecks?.filter((check) => check.pullRequest === open.url).length ?? 0,
+      });
+      continue;
+    }
     const files = merged.kind === 'conflicts' ? merged.files.slice(0, MAX_CONFLICTS) : [];
     record(
       batch.id,

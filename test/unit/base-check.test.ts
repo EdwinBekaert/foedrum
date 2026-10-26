@@ -17,9 +17,11 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
+import type { MergedCheckDue } from '../../src/engine/merged-checks.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { baseCheckLines, renderStatus } from '../../src/engine/status-comment.ts';
+import type { GravityReading } from '../../src/schemas/events.ts';
 import { MAX_CONFLICTS, type PushResult } from '../../src/schemas/store.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -36,6 +38,8 @@ const tip3 = 'e'.repeat(40);
 const recipes = fakeRecipes({
   half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }),
   twice: fakeRecipe({ steps: ['plan'], pullRequests: [other] }),
+  // A batch on tap with a second pull request beside the one its ledger opened.
+  both: fakeRecipe({ steps: ['plan'], pullRequests: [other, pullRequest] }),
   // Two steps that each merged the base, as two check attempts would (ADR 0164).
   again: fakeRecipe({ steps: ['plan', 'green'], pullRequests: [pullRequest] }),
 });
@@ -451,6 +455,97 @@ describe('checkBases', () => {
     );
   });
 
+  describe('the checks on the merged tree (ADR 0203)', () => {
+    /** The run's side of the hand-off: whether the batch has checks, and each due run. */
+    const handing = (wants = true) => {
+      const handed: MergedCheckDue[] = [];
+      const checks = { wants: () => wants, due: (due: MergedCheckDue) => void handed.push(due) };
+      return { handed, checks };
+    };
+
+    it('hands a clean merge of a moved tip to the run, once per pass, and records nothing', async () => {
+      onTap();
+      const { repository } = fakeRepository({ [tip1]: clean });
+      const { handed, checks } = handing();
+      await pass({ ...repository, checks });
+      assert.equal(batch().baseChecks, undefined);
+      assert.deepStrictEqual(handed, [
+        // With how many checks it had then: a check recorded after drops the run (review of #528).
+        { batchId: 'web-7', pullRequest, branch: 'main', tip: tip1, head, checked: 0 },
+      ]);
+      // Nothing recorded yet: the next pass hands it on again, which the run's queue takes once.
+      await pass({ ...repository, checks });
+      assert.equal(handed.length, 2);
+    });
+
+    it("counts only the handed-on pull request's own checks", async () => {
+      onTap('web-7', 'both');
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest: other,
+          branch: 'main',
+          tip: tip2,
+          conflicts: ['src/b.ts'],
+        },
+      });
+      const { repository } = fakeRepository({ [tip1]: clean });
+      const { handed, checks } = handing();
+      await pass({ ...repository, checks });
+      assert.deepStrictEqual(
+        handed.map((due) => [due.pullRequest, due.checked]),
+        [[pullRequest, 0]],
+      );
+    });
+
+    it('records a clean merge as before when the batch has no checks to run', async () => {
+      onTap();
+      const { repository } = fakeRepository({ [tip1]: clean });
+      const { handed, checks } = handing(false);
+      await pass({ ...repository, checks });
+      assert.deepStrictEqual(batch().baseChecks, [{ pullRequest, branch: 'main', tip: tip1 }]);
+      assert.deepStrictEqual(handed, []);
+    });
+
+    it('runs no check for a conflict: it is recorded as before', async () => {
+      onTap();
+      const { repository } = fakeRepository({ [tip1]: conflicts('src/a.ts') });
+      const { handed, checks } = handing();
+      await pass({ ...repository, checks });
+      assert.deepStrictEqual(handed, []);
+      assert.deepStrictEqual(batch().baseChecks, [
+        { pullRequest, branch: 'main', tip: tip1, conflicts: ['src/a.ts'] },
+      ]);
+    });
+
+    it('hands nothing on for a tip whose run is recorded, until the tip moves', async () => {
+      onTap();
+      const { repository, state } = fakeRepository({ [tip1]: clean, [tip2]: clean });
+      const { handed, checks } = handing();
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest,
+          branch: 'main',
+          tip: tip1,
+          unchecked: 'the worktree could not be made',
+        },
+      });
+      await pass({ ...repository, checks });
+      assert.deepStrictEqual(handed, []);
+      state.at = tip2;
+      await pass({ ...repository, checks });
+      assert.deepStrictEqual(
+        handed.map(({ tip, checked }) => [tip, checked]),
+        [[tip2, 1]],
+      );
+    });
+  });
+
   describe('the status comment', () => {
     it('shows no base check of a pull request that ended', async () => {
       onTap();
@@ -484,6 +579,94 @@ describe('checkBases', () => {
         `- <${pullRequest}> merges cleanly with \`main\` again at \`dddddddd\``,
       ]);
       assert.ok(renderStatus(batch()).includes('merges cleanly with `main` again'));
+    });
+
+    const checked = (tip: string, found: Record<string, unknown> = {}): void =>
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest,
+          branch: 'main',
+          tip,
+          ...found,
+        },
+      } as Parameters<CommandLog['issue']>[0]);
+    const failing: GravityReading = {
+      result: 'exited',
+      check: 'test',
+      command: 'npm test',
+      exitCode: 1,
+      tail: 'not ok 1 - adds',
+    };
+
+    it('shows a failing check on the merged tree with its name and how it failed, then that it passes again', () => {
+      onTap();
+      checked(tip1, { failed: failing });
+      assert.deepStrictEqual(baseCheckLines(batch()), [
+        `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the check "test" (npm test) failed with exit code 1`,
+      ]);
+      assert.ok(renderStatus(batch()).includes('fails on the merged tree'));
+      checked(tip2);
+      assert.deepStrictEqual(baseCheckLines(batch()), [
+        `- <${pullRequest}> passes its checks on the merged tree with \`main\` again at \`dddddddd\``,
+      ]);
+    });
+
+    it('shows a setup that failed on the merged tree, and why checks did not run', () => {
+      onTap();
+      checked(tip1, {
+        failed: { result: 'exited', setup: true, command: 'npm ci', exitCode: 2, tail: '' },
+      });
+      assert.deepStrictEqual(baseCheckLines(batch()), [
+        `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the setup "npm ci" failed with exit code 2`,
+      ]);
+      checked(tip2, { unchecked: 'git worktree add failed: fatal: *disk* full' });
+      assert.deepStrictEqual(baseCheckLines(batch()), [
+        `- <${pullRequest}> is not checked on the merged tree with \`main\` at \`dddddddd\`: git worktree add failed: fatal: \\*disk\\* full`,
+      ]);
+      checked(tip3);
+      assert.deepStrictEqual(baseCheckLines(batch()), [
+        `- <${pullRequest}> passes its checks on the merged tree with \`main\` again at \`eeeeeeee\``,
+      ]);
+    });
+
+    it('says how each kind of reading failed on the merged tree, a literal command by its line', () => {
+      const ran = { check: 'test', command: 'npm test', tail: '' } as const;
+      const cases: [GravityReading, string][] = [
+        [{ result: 'signaled', ...ran, signal: 'SIGSEGV' }, 'was ended by SIGSEGV'],
+        [{ result: 'unstarted', ...ran }, 'could not start'],
+        [{ result: 'killed', ...ran, killed: 'timed-out' }, 'did not finish by its deadline'],
+        [
+          { result: 'killed', ...ran, killed: 'too-much-output' },
+          "wrote more output than the process runner's limit",
+        ],
+        [{ result: 'killed', ...ran, killed: 'stopped' }, 'was stopped'],
+      ];
+      onTap();
+      for (const [n, [reading, how]] of cases.entries()) {
+        checked(String(n).repeat(40).slice(0, 40), { failed: reading });
+        assert.match(
+          baseCheckLines(batch())[0] ?? '',
+          new RegExp(`: the check "test" \\(npm test\\) ${how.replace(/[.()]/g, '\\$&')}$`),
+        );
+      }
+      checked(tip1, { failed: { result: 'exited', command: 'make e2e', exitCode: 2, tail: '' } });
+      assert.match(
+        baseCheckLines(batch())[0] ?? '',
+        /: the check "make e2e" failed with exit code 2$/,
+      );
+    });
+
+    it('keeps the failure and the reason on the fold of the check', () => {
+      onTap();
+      checked(tip1, { failed: failing });
+      checked(tip2, { unchecked: 'no worktree' });
+      assert.deepStrictEqual(batch().baseChecks, [
+        { pullRequest, branch: 'main', tip: tip1, failed: failing },
+        { pullRequest, branch: 'main', tip: tip2, unchecked: 'no worktree' },
+      ]);
     });
   });
 

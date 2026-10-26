@@ -184,6 +184,10 @@ export interface BaseCheck {
   conflicts?: readonly string[];
   /** The bottle branch's tip, when someone else pushed to it: not checked, then or after. */
   branchMoved?: string;
+  /** The first reading of the checks on the merged tree that did not pass (ADR 0203). */
+  failed?: GravityReading;
+  /** Why the checks did not run on the merged tree (ADR 0203). */
+  unchecked?: string;
 }
 
 /** One attempt on a batch's path: its step and its number. */
@@ -564,13 +568,16 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'pull_request.base_checked': {
-      const { batchId, pullRequest, branch, tip, conflicts, branchMoved } = event;
+      const { batchId, pullRequest, branch, tip, conflicts, branchMoved, failed, unchecked } =
+        event;
       const check: BaseCheck = {
         pullRequest,
         branch,
         tip,
         ...(conflicts === undefined ? {} : { conflicts }),
         ...(branchMoved === undefined ? {} : { branchMoved }),
+        ...(failed === undefined ? {} : { failed }),
+        ...(unchecked === undefined ? {} : { unchecked }),
       };
       return updateBatch(state, batchId, (batch) => ({
         ...batch,

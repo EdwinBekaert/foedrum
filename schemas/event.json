@@ -1794,6 +1794,223 @@
         "branchMoved": {
           "type": "string",
           "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "failed": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "skipped"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                }
+              },
+              "required": [
+                "result",
+                "check"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "exited"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "exitCode": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "exitCode",
+                "tail"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "killed"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "killed": {
+                  "type": "string",
+                  "enum": [
+                    "timed-out",
+                    "stopped",
+                    "too-much-output"
+                  ]
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "killed",
+                "tail"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "signaled"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "signal": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "signal",
+                "tail"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "unstarted"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "tail"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "unchecked": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         }
       },
       "required": [
