@@ -28,7 +28,7 @@ import {
 } from '../engine/intake.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
-import { placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
+import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -253,13 +253,15 @@ const orderRefOf = (target: OrderTarget, context: CliContext): OrderRef | { refu
 
 /**
  * The intake's queue as a pass would read it now, in rank order (ADR 0208): the Brewery's open
- * issues and every intake repository's, through gh's login; or what could not be read.
+ * issues and every intake repository's, through gh's login; or what could not be read. `placed`,
+ * the order being ranked, is in it while sub-orders of it are left, ready or not (ADR 0211).
  */
 const readQueue = async (
   config: BreweryConfig,
   brewery: string,
   state: State,
   context: CliContext,
+  placed: OrderRef,
 ): Promise<QueuedIssue[] | { refused: string }> => {
   const { tracker, login } = context.queue(config);
   const read = async <T>(what: string, reading: () => Promise<T>): Promise<T> => {
@@ -280,7 +282,7 @@ const readQueue = async (
       repositories.push({ repository, issues });
     }
     const authors = config.users ?? [];
-    return intakeQueue(state, { brewery: own, repositories }, { authors, claimant });
+    return intakeQueue(state, { brewery: own, repositories }, { authors, claimant }, placed);
   } catch (error) {
     return { refused: error instanceof Error ? error.message : String(error) };
   }
@@ -294,11 +296,15 @@ const rankText = (rank: Rank | undefined): string => {
   return `${what} by ${by} via ${via}${why === undefined ? '' : `: ${why}`}`;
 };
 
-/** Where `order` stands in `queue`: `place <n> of <all> in the queue`, or undefined. */
+/**
+ * Where `order` stands in `queue`: `place <n> of <all> in the queue`, or undefined. An order's
+ * ready sub-orders hold one place (ADR 0211).
+ */
 const placeIn = (queue: readonly QueuedIssue[], order: OrderRef): string | undefined => {
   const key = orderKey(order);
-  const at = queue.findIndex((queued) => orderKey(queued.order) === key);
-  return at < 0 ? undefined : `place ${at + 1} of ${queue.length} in the queue`;
+  const orders = onePerOrder(queue);
+  const at = orders.findIndex((queued) => orderKey(queued.order) === key);
+  return at < 0 ? undefined : `place ${at + 1} of ${orders.length} in the queue`;
 };
 
 /** The questions `batch` asks while Stuck on `needs_input`, in order; none otherwise. */
@@ -700,7 +706,7 @@ export const commands: readonly RegisteredCommand[] = [
       return writeBrewery('rank', context, async (log) => {
         const refusal = rankRefusal(log.state(), order);
         if (refusal !== undefined) return failed('rank', refusal);
-        const queue = await readQueue(config, brewery, log.state(), context);
+        const queue = await readQueue(config, brewery, log.state(), context, order);
         if ('refused' in queue) return failed('rank', queue.refused);
         const before = placeIn(queue, order);
         if (before === undefined) {

@@ -21,6 +21,13 @@ export interface QueuedOrder {
 
 type Ranks = ReadonlyMap<string, Rank>;
 
+/** Whether a sub-order of the latest breakdown of `order` has no batch yet (ADR 0211). */
+export const hasSubOrdersLeft = (state: State, order: OrderRef): boolean =>
+  order.repo === undefined &&
+  (state.orders.get(order.issue)?.subOrders ?? []).some(
+    (issue) => (state.subOrders.get(issue)?.batchIds.length ?? 0) === 0,
+  );
+
 const marked = (rank: Rank | undefined): boolean => rank?.place.kind === 'first';
 
 // A rank's place stands in for its issue's arrival.
@@ -50,11 +57,26 @@ export const rankQueue = <T extends QueuedOrder>(queue: readonly T[], ranks: Ran
       if (arrived !== 0) return arrived;
       const [tie, otherTie] = [tieOf(one.rank), tieOf(other.rank)];
       if (tie !== otherTie) return tie < otherTie ? -1 : 1;
+      // A started order's next sub-order goes ahead of a new order of its place (ADR 0211).
+      const started = Number(one.queued.subOrder === undefined);
+      const otherStarted = Number(other.queued.subOrder === undefined);
+      if (started !== otherStarted) return started - otherStarted;
       return (
         one.queued.source - other.queued.source || one.queued.order.issue - other.queued.order.issue
       );
     })
     .map(({ queued }) => queued);
+
+/** `queue` with one entry per order: an order's ready sub-orders hold one place (ADR 0211). */
+export const onePerOrder = <T extends QueuedOrder>(queue: readonly T[]): T[] => {
+  const seen = new Set<string>();
+  return queue.filter(({ order }) => {
+    const key = orderKey(order);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 /**
  * Where `rank <order> <position>` puts the order: the arrival of the order now at `position` among
@@ -72,7 +94,7 @@ export const placeAt = (
 ): { arrival: string; tie: number } => {
   const key = orderKey(order);
   const rankOf = (queued: QueuedOrder): Rank | undefined => ranks.get(orderKey(queued.order));
-  const unmarked = rankQueue(queue, ranks).filter(
+  const unmarked = onePerOrder(rankQueue(queue, ranks)).filter(
     (queued) => orderKey(queued.order) !== key && !marked(rankOf(queued)),
   );
   const there = unmarked[position - 1];
@@ -94,7 +116,7 @@ export const placeAt = (
 /**
  * Why `order` cannot be ranked, from the folded state alone, or undefined: it is a sub-order, which
  * its plan ranks, the Brewery issue of a claimed target issue, or it has a batch, so it left the
- * queue.
+ * queue, and no sub-order of its latest breakdown is left to start (ADR 0211).
  */
 export const rankRefusal = (state: State, order: OrderRef): string | undefined => {
   const name = `${order.repo ?? ''}#${order.issue}`;
@@ -115,7 +137,7 @@ export const rankRefusal = (state: State, order: OrderRef): string | undefined =
       ({ issue, repo }) => orderKey({ issue, ...(repo === undefined ? {} : { repo }) }) === key,
     )
     .at(-1);
-  if (batch !== undefined) {
+  if (batch !== undefined && !hasSubOrdersLeft(state, order)) {
     return `${name} was ordered as batch ${batch.id}: a rank orders only the queue`;
   }
   return undefined;
