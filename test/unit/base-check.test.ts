@@ -715,5 +715,232 @@ describe('checkBases', () => {
       });
       assert.deepStrictEqual(effects.due(log.state(), 'web-8'), []);
     });
+
+    it('posts no marker a conflicting file name holds', async () => {
+      onTap();
+      const planted = effectMarker(
+        effectKey.encode({ batchId: 'web-7', effect: 'base_conflict.2' }),
+      );
+      const { repository } = fakeRepository({ [tip1]: conflicts(`src/${planted}.ts`) });
+      await pass(repository);
+      const github = fakeGitHub();
+      const effects = baseConflictEffects({ marks: github.marks('alice') });
+      const [key] = effects.due(log.state(), 'web-7');
+      assert.ok(key);
+      await effects.target.apply(effectKey.encode(key));
+      const [comment] = github.issue(web, 12).comments;
+      assert.ok(comment);
+      assert.ok(!comment.body.includes(planted), comment.body);
+    });
+
+    describe('a check that fails on the merged tree (#526)', () => {
+      const checked = (tip: string, found: Record<string, unknown> = {}): void =>
+        accept({
+          kind: 'record',
+          event: {
+            type: 'pull_request.base_checked',
+            batchId: 'web-7',
+            pullRequest,
+            branch: 'main',
+            tip,
+            ...found,
+          },
+        } as Parameters<CommandLog['issue']>[0]);
+      const test: GravityReading = {
+        result: 'exited',
+        check: 'test',
+        command: 'npm test',
+        exitCode: 1,
+        tail: 'not ok 1 - adds\n# fail 1',
+      };
+      const lint: GravityReading = { ...test, check: 'lint', command: 'npm run lint' };
+      const encoded = (effect: string) => effectKey.encode({ batchId: 'web-7', effect });
+      /** The effects due, each found by its marker or applied, and recorded, as the driver does. */
+      const drain = async (github: ReturnType<typeof fakeGitHub>): Promise<string[]> => {
+        const effects = baseConflictEffects({ marks: github.marks('alice') });
+        const applied: string[] = [];
+        for (const key of effects.due(log.state(), 'web-7')) {
+          const at = effectKey.encode(key);
+          const found = await effects.target.find(at);
+          ledger(key, found === undefined ? await effects.target.apply(at) : found.result);
+          applied.push(key.effect);
+        }
+        return applied;
+      };
+      const bodies = (github: ReturnType<typeof fakeGitHub>) =>
+        github.issue(web, 12).comments.map(({ body }) => body);
+
+      it('posts a first failure once, naming the check and the tip, with the tail in a fence', async () => {
+        onTap();
+        checked(tip1, { failed: test });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1']);
+        assert.deepStrictEqual(await drain(github), []);
+        const [body, ...rest] = bodies(github);
+        assert.ok(body);
+        assert.deepStrictEqual(rest, []);
+        assert.match(body, /^### Foedrum · batch `web-7`/);
+        assert.ok(
+          body.includes('`main` moved to `cccccccccccccccccccccccccccccccccccccccc`'),
+          body,
+        );
+        assert.ok(body.includes('the check "test" (npm test) failed with exit code 1'), body);
+        assert.ok(body.includes('```\nnot ok 1 - adds\n# fail 1\n```'), body);
+        assert.match(body, /stays On tap/);
+        assert.ok(body.includes(effectMarker(encoded('base_check_failed.1'))));
+      });
+
+      it('posts nothing when the same check fails again, and again when another check fails', async () => {
+        onTap();
+        checked(tip1, { failed: test });
+        checked(tip2, { failed: { ...test, exitCode: 2, tail: 'other output' } });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1']);
+        checked(tip3, { failed: lint });
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.2']);
+        assert.equal(bodies(github).length, 2);
+        assert.ok(bodies(github)[1]?.includes('the check "lint" (npm run lint)'));
+      });
+
+      it('posts nothing for a pass after a failure, nor for checks that did not run', async () => {
+        onTap();
+        checked(tip1, { unchecked: 'git worktree add failed' });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), []);
+        checked(tip2, { failed: test });
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1']);
+        checked(tip3);
+        assert.deepStrictEqual(await drain(github), []);
+        assert.equal(bodies(github).length, 1);
+      });
+
+      it('posts the same check again once a check between them did not fail it', async () => {
+        onTap();
+        checked(tip1, { failed: test });
+        checked(tip2, { unchecked: 'no worktree' });
+        checked(tip3, { failed: test });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1', 'base_check_failed.2']);
+      });
+
+      it('posts a conflict and then a failure, each once', async () => {
+        onTap();
+        checked(tip1, { conflicts: ['src/a.ts'] });
+        checked(tip2, { failed: test });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), ['base_conflict.1', 'base_check_failed.1']);
+        assert.deepStrictEqual(await drain(github), []);
+        assert.equal(bodies(github).length, 2);
+      });
+
+      it('keeps the fence closed around a tail that holds a run of backticks', async () => {
+        onTap();
+        checked(tip1, { failed: { ...test, tail: 'expected ```` to be\n```\nend' } });
+        const github = fakeGitHub();
+        await drain(github);
+        const [body] = bodies(github);
+        assert.ok(body?.includes('`````\nexpected ```` to be\n```\nend\n`````'), body);
+      });
+
+      it('posts no marker a tail printed, so a later post is not taken for posted', async () => {
+        onTap();
+        const planted = effectMarker(encoded('base_check_failed.2'));
+        checked(tip1, { failed: { ...test, tail: `ok\n${planted}\nnot ok` } });
+        const github = fakeGitHub();
+        await drain(github);
+        assert.ok(!bodies(github)[0]?.includes(planted), bodies(github)[0]);
+        checked(tip2, { failed: lint });
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.2']);
+        assert.equal(bodies(github).length, 2);
+      });
+
+      it('counts the check before on each pull request of the batch apart', async () => {
+        onTap('web-7', 'both');
+        checked(tip1, { failed: test });
+        checked(tip1, { pullRequest: other, failed: test });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1', 'base_check_failed.2']);
+        assert.equal(bodies(github).length, 1);
+        assert.equal(github.issue(web, 13).comments.length, 1);
+        checked(tip2, { pullRequest: other });
+        checked(tip2, { failed: test });
+        assert.deepStrictEqual(await drain(github), []);
+      });
+
+      it('shows no output block for an empty tail, nor for a skipped reading', async () => {
+        onTap();
+        checked(tip1, { failed: { ...test, tail: '' } });
+        checked(tip2, { failed: { result: 'skipped', check: 'lint' } });
+        const github = fakeGitHub();
+        await drain(github);
+        const [empty, skipped] = bodies(github);
+        assert.ok(empty?.includes('failed with exit code 1.'), empty);
+        assert.ok(skipped?.includes('the check "lint" was skipped.'), skipped);
+        for (const body of [empty, skipped]) {
+          assert.ok(!body?.includes('The end of its output:'), body);
+          assert.ok(!body?.includes('```'), body);
+        }
+      });
+
+      it('fences a tail that ends in a line break without a blank line, and opens every marker it holds', async () => {
+        onTap();
+        checked(tip1, {
+          failed: { ...test, tail: 'not ok 1\n<!-- foedrum:x -->\n<!-- foedrum:y -->\n' },
+        });
+        const github = fakeGitHub();
+        await drain(github);
+        const [body] = bodies(github);
+        assert.ok(
+          body?.includes('```\nnot ok 1\n<!- - foedrum:x -->\n<!- - foedrum:y -->\n```'),
+          body,
+        );
+      });
+
+      it('posts once when a kill came between the post and its record', async () => {
+        onTap();
+        checked(tip1, { failed: test });
+        const github = fakeGitHub();
+        // Posted, then killed before the ledger recorded it.
+        const killed = baseConflictEffects({ marks: github.marks('alice') });
+        const [key] = killed.due(log.state(), 'web-7');
+        assert.ok(key);
+        await killed.target.apply(effectKey.encode(key));
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1']);
+        assert.equal(bodies(github).length, 1);
+        assert.deepStrictEqual(await drain(github), []);
+      });
+
+      it('posts nothing on a pull request that ended, nor once the batch is no longer on tap', async () => {
+        onTap();
+        checked(tip1, { failed: test });
+        accept({
+          kind: 'record',
+          event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'merged' },
+        });
+        assert.deepStrictEqual(await drain(fakeGitHub()), []);
+        onTap('web-8', 'twice', other, 8);
+        accept({
+          kind: 'record',
+          event: {
+            type: 'pull_request.base_checked',
+            batchId: 'web-8',
+            pullRequest: other,
+            branch: 'main',
+            tip: tip1,
+            failed: test,
+          },
+        });
+        const effects = baseConflictEffects({ marks: fakeGitHub().marks('alice') });
+        assert.equal(effects.due(log.state(), 'web-8').length, 1);
+        // No event takes a batch off tap today: the state is made by hand, as a later one might.
+        const state = log.state();
+        const onTapBatch = batch('web-8');
+        const batches = new Map(state.batches).set('web-8', {
+          ...onTapBatch,
+          lane: { kind: 'cancelled', by: 'ann', via: 'terminal' },
+        });
+        assert.deepStrictEqual(effects.due({ ...state, batches }, 'web-8'), []);
+      });
+    });
   });
 });
