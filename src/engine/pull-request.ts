@@ -49,6 +49,31 @@ export const openedPullRequest = (state: State, batchId: string): string | undef
 };
 
 /**
+ * The open pull request of `batch` that its ledger opened, with the commit and the bottle branch
+ * its push recorded; `undefined` also once someone else pushed to that branch (ADR 0198).
+ */
+export const openOf = (
+  state: State,
+  batch: Batch,
+): { url: string; head: string; branch: string } | undefined => {
+  const { lane } = batch;
+  const url = openedPullRequest(state, batch.id);
+  if (lane.kind !== 'on_tap' || url === undefined || !lane.pullRequests.includes(url)) {
+    return undefined;
+  }
+  if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  const moved = batch.baseChecks?.some(
+    (check) => check.pullRequest === url && check.branchMoved !== undefined,
+  );
+  if (moved === true) return undefined;
+  const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
+  if (!pushed.success || pushed.data.empty === true || pushed.data.refused !== undefined) {
+    return undefined;
+  }
+  return { url, head: pushed.data.commit, branch: pushed.data.branch };
+};
+
+/**
  * The commits the state records for `batchId`, which a 40-character hexadecimal word may name
  * without being a key (ADR 0088): where its attempts' worktrees started, its rewinds' commits, and
  * the commit its push recorded or the commits it refused (ADR 0079). Read from the folded state,
