@@ -1357,8 +1357,12 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
   const sensitiveLine = (text: string): string | undefined =>
     text.split('\n').find((line) => line.startsWith('Touches sensitive paths'));
 
-  it('names them in one line after the pull requests', () => {
-    const text = renderStatus(onTap, steps, undefined, {
+  it('names them in one line after the steps, before the sections that grow with the out docs', () => {
+    const withAssumptions = batch({
+      lane: { kind: 'on_tap', pullRequests: [pr] },
+      steps: new Map([step('plan', done(1, ['Kept the flag']))]),
+    });
+    const text = renderStatus(withAssumptions, steps, undefined, {
       count: 2,
       files: ['src/auth/login.ts', '.github/workflows/ci.yml'],
     });
@@ -1366,7 +1370,22 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
       sensitiveLine(text),
       'Touches sensitive paths: src/auth/login.ts, .github/workflows/ci.yml',
     );
-    assert.ok(text.indexOf(pr) < text.indexOf('Touches sensitive paths'), text);
+    const at = text.indexOf('Touches sensitive paths');
+    assert.ok(lineOf(text, 'taste') !== '' && text.indexOf(lineOf(text, 'taste')) < at, text);
+    assert.ok(at < text.indexOf('**Assumptions**'), text);
+  });
+
+  it('keeps the line when the comment is cut to the length GitHub takes (review of #523)', () => {
+    const long = Array.from({ length: 10 }, (_, n) => `${n} ${'*'.repeat(300)}`);
+    const many = Array.from({ length: 40 }, (_, n) => step(`s${n}`, done(1, long)));
+    const text = renderStatus(
+      batch({ lane: { kind: 'on_tap', pullRequests: [pr] }, steps: new Map(many) }),
+      undefined,
+      undefined,
+      { count: 1, files: ['.github/workflows/ci.yml'] },
+    );
+    assert.match(text, /the rest is cut/);
+    assert.equal(sensitiveLine(text), 'Touches sensitive paths: .github/workflows/ci.yml');
   });
 
   it('shows nothing when none was recorded', () => {

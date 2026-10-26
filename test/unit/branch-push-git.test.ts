@@ -828,7 +828,25 @@ describe('openBranchPush: touchedFiles (ADR 0201)', () => {
         ],
       ],
     );
-    assert.deepEqual(calls[0]?.options?.config, IN_CLONE);
+  });
+
+  it('reads the files as committed, as the secret scan does: no replace ref, graft or shallow file of the clone changes them (review of #523)', async () => {
+    const { git, calls } = recordingGit(() => ok(''));
+    await openBranchPush({ git, clone }).touchedFiles(SINCE, TIP);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0]?.options?.env, {
+      GIT_NO_REPLACE_OBJECTS: '1',
+      GIT_GRAFT_FILE: devNull,
+      GIT_SHALLOW_FILE: devNull,
+      GIT_NO_LAZY_FETCH: '1',
+    });
+    assert.deepEqual(calls[0]?.options?.config, {
+      'core.attributesFile': devNull,
+      'log.showRoot': 'true',
+      'advice.graftFileDeprecated': 'false',
+      'protocol.allow': 'never',
+      ...IN_CLONE,
+    });
   });
 
   it("fails with git's reason when git does, and refuses a commit that is no full sha before git runs", async () => {

@@ -671,6 +671,29 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
     assert.deepEqual(pushes, [`${tip} ${branch}`]);
   });
 
+  it('lets a wildcard match a file or folder whose name starts with a dot (review of #523)', async () => {
+    const { actions } = actionsWith({
+      sensitivePaths: ['src/auth/**', '**/*.yml', 'config/*'],
+      touched: [
+        'src/auth/.env',
+        '.github/workflows/ci.yml',
+        'config/.npmrc',
+        'src/authx.ts',
+        'a.yaml',
+      ],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: {
+        count: 3,
+        files: ['src/auth/.env', '.github/workflows/ci.yml', 'config/.npmrc'],
+      },
+    });
+  });
+
   it('records them on a push it finds too', async () => {
     const { actions } = actionsWith({ sensitivePaths, touched, remote: { [branch]: tip } });
     keysOf(brewing(), actions);
