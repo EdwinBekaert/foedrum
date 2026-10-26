@@ -184,6 +184,32 @@ describe('the usage window (ADR 0206)', () => {
       );
     });
 
+    it('closes the window also when its step left the recipe, which makes the batch Stuck', () => {
+      order(12);
+      start('b12');
+      // The recipe file changed under the batch: plan is no step of pint any more.
+      const changed = createCommandLog({
+        store,
+        recipes: fakeRecipes({ pint: fakeRecipe({ steps: ['implement'] }) }),
+      });
+      const decision = changed.issue(
+        {
+          kind: 'finish',
+          batchId: 'b12',
+          stepId: 'plan',
+          attempt: 1,
+          ending: limited,
+          reopensAt: { at: at(230), read: true },
+        },
+        now,
+      );
+      assert.deepStrictEqual(decision.kind === 'accepted' && types(decision.events), [
+        'step.finished',
+        'usage.window_closed',
+        'batch.stuck',
+      ]);
+    });
+
     it('is refused when its end is not blocked on the environment', () => {
       order(12);
       start('b12');
@@ -504,6 +530,8 @@ describe('reopenOf (ADR 0206)', () => {
       '3:45pm (Europe/Paris)',
       '3:45pmx',
       '3:45PM',
+      '0:30am',
+      '3:5pm',
       'mon 12:00am',
     ]) {
       assert.deepStrictEqual(

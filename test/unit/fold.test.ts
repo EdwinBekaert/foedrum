@@ -42,6 +42,26 @@ const batch = (state: State, id = 'b1'): Batch => {
 };
 
 describe('fold', () => {
+  it('refuses an open of the usage window when it is not closed, and opens a closed one (ADR 0206)', () => {
+    const at = '2026-10-26T14:50:00.000Z';
+    const opened = { type: 'usage.window_opened', at } as const;
+    assert.throws(() => fold([opened]), /the usage window is not closed/);
+    const closed = {
+      type: 'usage.window_closed',
+      limit: 'session',
+      resets: '3:45pm',
+      reopensAt: at,
+      read: true,
+    } as const;
+    assert.equal(fold([closed, opened]).usageWindow, undefined);
+    assert.deepStrictEqual(fold([closed]).usageWindow, {
+      limit: 'session',
+      resets: '3:45pm',
+      reopensAt: at,
+      read: true,
+    });
+  });
+
   it('starts from the empty state', () => {
     const empty = {
       orders: new Map(),

@@ -3311,6 +3311,17 @@ describe('openDriver', () => {
     // 3:45pm in UTC at t0, plus the margin.
     const reopen = new Date('2026-10-15T15:50:00.000Z');
 
+    it('reads the reset in the zone it was given', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, zone: () => 'Europe/Brussels' });
+      await driver.drive();
+      end(plan('b1'), limited);
+      await driver.tick();
+      // 15:45 in Brussels on 15 October, in summer time, plus the margin.
+      assert.equal(driver.state().usageWindow?.reopensAt, '2026-10-15T13:50:00.000Z');
+    });
+
     it('closes the window at the reset read in its zone, and starts no brewer until it reopens', async () => {
       const { runner, started, end } = handRunner();
       order('b1');
