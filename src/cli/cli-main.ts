@@ -20,6 +20,7 @@ import { storePath } from './commands.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { readKeptBranches } from './kept-branches-git.ts';
+import { lensSource } from './lens-report.ts';
 import { boardTerminal, type TerminalStream } from './live-terminal.ts';
 import { type CliResult, runCli } from './run.ts';
 import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.ts';
@@ -56,6 +57,7 @@ export const cliFromCheckout = async (
       // Files that do not load refuse the command with doctor's line (ADR 0053).
       recipes: () => breweryRecipes(cwd),
       brewers: () => brewerSource(loadBrewery(cwd)),
+      lenses: () => lensSource(loadBrewery(cwd)),
       user: () => userName(() => userInfo().username, process.env),
       surface: 'terminal',
       now: () => new Date(),

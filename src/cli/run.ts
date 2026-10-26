@@ -17,6 +17,7 @@ import { columns } from './columns.ts';
 import { commands, type RegisteredCommand } from './commands.ts';
 import type { DoctorFacts } from './doctor.ts';
 import type { BranchReading } from './kept-branches.ts';
+import type { LensSource } from './lens-report.ts';
 
 /** What `rank` reads of GitHub to know the intake's queue (ADR 0208). */
 export interface QueueReads {
@@ -47,6 +48,11 @@ export interface CliContext {
    * (ADR 0159); throws doctor's line when the files do not load.
    */
   brewers: () => BrewerSource;
+  /**
+   * The lenses in use and each recipe's lens steps, from the Brewery's files, for `foedrum lenses`
+   * (ADR 0221); throws doctor's line when the files do not load.
+   */
+  lenses: () => LensSource;
   /** Who issues the command: the name its events record (ADR 0019). */
   user: () => string;
   /** Where the command comes from: the surface its events record. */

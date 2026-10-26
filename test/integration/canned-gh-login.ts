@@ -93,6 +93,7 @@ export const doctorHere = async (
     openWritableStore: notForDoctor('store'),
     recipes: notForDoctor('recipes'),
     brewers: notForDoctor('brewer files'),
+    lenses: notForDoctor('lens files'),
     user: () => 'doctor-test',
     surface: 'terminal',
     now: () => new Date(),

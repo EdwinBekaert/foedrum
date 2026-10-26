@@ -931,6 +931,73 @@
         "usageLimited": {
           "type": "boolean",
           "const": true
+        },
+        "findings": {
+          "type": "object",
+          "properties": {
+            "kept": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "allOf": [
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\r\\n]*$"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "blocker",
+                      "major",
+                      "minor"
+                    ]
+                  },
+                  "why": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "pattern": "\\S"
+                  },
+                  "introduced": {
+                    "type": "boolean"
+                  },
+                  "lens": {
+                    "type": "string",
+                    "pattern": "^(?:diff|plan)\\/(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                  }
+                },
+                "required": [
+                  "severity",
+                  "why",
+                  "introduced"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "more": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kept",
+            "more"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
