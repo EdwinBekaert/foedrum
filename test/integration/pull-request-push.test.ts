@@ -19,6 +19,7 @@ import {
 } from '../../src/engine/pull-request-actions.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { PushResult } from '../../src/schemas/store.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
@@ -78,8 +79,11 @@ describe('the openPullRequest push with real git', () => {
     git(path, ['commit', '-q', '-m', 'Plan']);
   };
 
-  /** Brews batch 12-1 of the ale recipe, whose plan does `work`, to the end of one tick. */
-  const brew = async (work: (path: string) => void = commitPlan) => {
+  /**
+   * Brews batch 12-1 of the ale recipe, whose plan does `work`, to the end of one tick, in a
+   * repository that names `sensitivePaths` when given.
+   */
+  const brew = async (work: (path: string) => void = commitPlan, sensitivePaths?: string[]) => {
     const clock = () => new Date('2026-10-18T12:00:00.000Z');
     const requests: PullRequestRequest[] = [];
     const host: PullRequestHost = {
@@ -137,6 +141,7 @@ describe('the openPullRequest push with real git', () => {
               clone: user,
               own: { url: origin, root: join(dir.path, `git-dirs-${runs}`) },
             }),
+            ...(sensitivePaths === undefined ? {} : { sensitivePaths }),
           },
         ],
         host,
@@ -174,6 +179,27 @@ describe('the openPullRequest push with real git', () => {
       git(origin, ['for-each-ref', '--format=%(refname)']).trim().split('\n').sort(),
       [`refs/heads/${bottle}`, 'refs/heads/main'],
     );
+  });
+
+  it('records the sensitive files the change adds, deletes and renames, as git names them (ADR 0201)', async () => {
+    const { state } = await brew(
+      (path) => {
+        mkdirSync(join(path, '.github', 'workflows'), { recursive: true });
+        writeFileSync(join(path, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+        mkdirSync(join(path, 'auth'));
+        git(path, ['mv', 'readme.txt', 'auth/ré adme.txt']);
+        commitPlan(path);
+        git(path, ['add', '.github']);
+        git(path, ['commit', '-q', '-m', 'Add CI']);
+      },
+      ['.github/workflows/**', 'readme.txt', 'auth/**'],
+    );
+    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' });
+    assert.deepEqual(PushResult.parse(pushed?.result).sensitive, {
+      count: 3,
+      files: ['.github/workflows/ci.yml', 'auth/ré adme.txt', 'readme.txt'],
+    });
   });
 
   it('never forces: a bottle branch the origin has at another commit stops the push', async () => {
