@@ -22,6 +22,7 @@ import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { githubCheckReader } from '../github/checks.ts';
 import { GitHubRateLimited } from '../github/client.ts';
+import { githubReleaseReader } from '../github/releases.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
 import type { ExecProcess } from '../platform/processes.ts';
@@ -172,7 +173,7 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
     case 'held':
       return `${notice.repo}#${notice.issue} waits: ${notice.reason}`;
     case 'released':
-      throw new Error('not implemented');
+      return `recorded the release ${notice.version} of ${notice.repo}`;
     case 'taken':
       return `${notice.repo}#${notice.issue} is claimed by ${notice.by ?? 'a ref whose record cannot be read'}`;
     case 'refused':
@@ -242,7 +243,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   let stopRuns: AbortController | undefined;
   let merged: MergedChecks | undefined;
   try {
-    const { store, driver, reads, claims, claimant, pushes, checkTree } = await wireDriver(
+    const { store, driver, reads, client, claims, claimant, pushes, checkTree } = await wireDriver(
       setup,
       shell,
       opened,
@@ -292,6 +293,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
       bases,
       checks: githubCheckReader(reads),
+      releases: githubReleaseReader(reads, client),
     });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).
     let nextPoll = Number.NEGATIVE_INFINITY;

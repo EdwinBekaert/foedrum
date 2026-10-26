@@ -4,6 +4,8 @@
 // - records the checks on each open pull request's head: since when it waits for them, and how
 //   each one finished once they all have (ADR 0213);
 // - checks each open pull request whose base's tip moved against that tip (ADR 0198);
+// - records the latest release of each repository a merged `release` blocker waits on, once it
+//   holds a merge of every blocker waiting on it (ADR 0223);
 // - walks one queue, in rank order (ADR 0208) and only up to the Brewery's free capacity: the
 //   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, the
 //   ready sub-orders of its orders, which it orders as `<issue>-1` under their order's batch
@@ -41,7 +43,7 @@ import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
-import type { ReleaseReader } from './releases.ts';
+import { type ReleaseReader, recordReleases } from './releases.ts';
 
 /**
  * What the intake reads: the open issues of a target repository (architecture §3.1's `Tracker`,
@@ -264,7 +266,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
     options;
   const most = defaultLeaseMs / 2;
-  const { deadlineMs = most, bases = [], checks, limits = NO_LIMITS } = options;
+  const { deadlineMs = most, bases = [], checks, releases, limits = NO_LIMITS } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
     throw new RangeError(
       `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
@@ -484,6 +486,12 @@ export const createIntake = (options: IntakeOptions): Intake => {
     }
     if (bases.length > 0 && !signal.aborted) {
       await checkBases({ log, repositories: bases, clock, failed }, signal);
+    }
+    // Before the queue, so a release recorded here starts its sub-order in this pass (ADR 0223).
+    if (releases !== undefined && !signal.aborted) {
+      const released = (repo: string, version: string): void =>
+        report({ kind: 'released', repo, version });
+      await recordReleases({ log, reader: releases, clock, released, failed }, signal);
     }
     // pause --all holds the intake: it orders and claims nothing, and still routes (ADR 0202).
     const free = log.state().pauses.all === undefined ? freeCapacity(log.state(), capacity) : 0;

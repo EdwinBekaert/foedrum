@@ -33,7 +33,7 @@ import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { githubClaimHost } from '../github/claims.ts';
-import { createGitHubClient } from '../github/client.ts';
+import { createGitHubClient, type GitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
 import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
@@ -80,6 +80,8 @@ export interface Wired {
   driver: Driver;
   /** One cache of conditional reads for every GitHub read (ADR 0052). */
   reads: GitHubReads;
+  /** The GitHub client under them, for GraphQL (ADR 0073). */
+  client: GitHubClient;
   /** The claim refs on GitHub (ADR 0043). */
   claims: ClaimHost;
   claimant: Claimant;
@@ -317,7 +319,7 @@ export const wireDriver = async (
     report,
   });
   opened.driver = driver;
-  return { store, driver, reads, claims, claimant, pushes, checkTree: checks.checkTree };
+  return { store, driver, reads, client, claims, claimant, pushes, checkTree: checks.checkTree };
 };
 
 /** Closes what `opened` holds: the driver, which stops its runs and lets the lock go, or the lock. */

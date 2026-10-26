@@ -76,9 +76,17 @@ export const nonTerminal: readonly Lane['kind'][] = ['ordered', 'brewing', 'cond
 function rule(state: State, event: Event): string | undefined {
   switch (event.type) {
     case 'batch.ordered':
-    case 'release.observed':
     case 'effect.applied':
       return undefined;
+    case 'release.observed': {
+      // Once per version, so two writers record a release once (ADR 0223).
+      const { repo, version } = event;
+      const known = state.releases.some(
+        (release) =>
+          release.repo.toLowerCase() === repo.toLowerCase() && release.version === version,
+      );
+      return known ? `the release ${version} of ${repo} is already recorded` : undefined;
+    }
     case 'batch.recipe_chosen':
       return lanes(state, event, ['ordered', 'conditioning', 'stuck']);
     case 'step.scheduled':

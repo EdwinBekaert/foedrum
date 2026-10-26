@@ -59,6 +59,44 @@ export const GitHubPullRequest = z.object({
   state: z.enum(['open', 'closed']),
   merged: z.boolean().optional(),
   merged_at: z.string().nullable().optional(),
+  /** The commit its merge made, which a release must hold (ADR 0223). */
+  merge_commit_sha: CommitSha.nullable().optional(),
+});
+
+/** `GET /repos/{owner}/{repo}/releases/latest`: its tag and when it was published (ADR 0223). */
+export const GitHubLatestRelease = z.object({
+  tag_name: z.string(),
+  published_at: z.iso.datetime({ offset: true }),
+});
+
+/** A commit's date, as GraphQL gives a tag's target (ADR 0223). */
+const TaggedCommit = z.object({ committedDate: z.iso.datetime({ offset: true }) });
+
+/** The newest tag by its commit's date, as `GraphQL refs(refPrefix: "refs/tags/")` gives it. */
+export const GitHubLatestTag = z.object({
+  repository: z.object({
+    refs: z.object({
+      nodes: z
+        .array(
+          z.object({
+            name: z.string(),
+            // A lightweight tag's target is its commit, an annotated tag's is a tag of one; a tag
+            // of a tree or a blob has neither.
+            target: z.union([
+              TaggedCommit,
+              z.object({ target: TaggedCommit }),
+              z.object({}).transform(() => undefined),
+            ]),
+          }),
+        )
+        .max(1),
+    }),
+  }),
+});
+
+/** `GET /repos/{owner}/{repo}/compare/{base}...{head}`: how head stands to base (ADR 0223). */
+export const GitHubCompare = z.object({
+  status: z.enum(['ahead', 'behind', 'identical', 'diverged']),
 });
 
 /** The head of `GET /repos/{owner}/{repo}/pulls/{n}` (ADR 0213). */

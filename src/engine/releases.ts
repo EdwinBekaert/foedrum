@@ -4,6 +4,7 @@
 // block start.
 
 import type { CommandLog } from './command-log.ts';
+import { releaseWaits } from './ready-set.ts';
 
 /** A repository's latest release as the code host has it: GitHub's latest release, else tag. */
 export interface LatestRelease {
@@ -36,10 +37,59 @@ export interface ReleaseReadOptions {
   failed: (what: string, error: unknown) => void;
 }
 
-/** One pass: reads the latest release of each repository a blocker waits on, and records it. */
+/** Whether the fold holds `version` of `repo`, in any case. */
+const recorded = (log: CommandLog, repo: string, version: string): boolean =>
+  log
+    .state()
+    .releases.some(
+      (release) => release.repo.toLowerCase() === repo.toLowerCase() && release.version === version,
+    );
+
+/**
+ * One pass: reads the latest release of each repository a blocker waits on, and records it when
+ * it holds a merge of every blocker waiting on it (ADR 0223).
+ */
 export const recordReleases = async (
-  _options: ReleaseReadOptions,
-  _signal: AbortSignal,
+  options: ReleaseReadOptions,
+  signal: AbortSignal,
 ): Promise<void> => {
-  throw new Error('not implemented');
+  const { log, reader, clock, released, failed } = options;
+  // The waits as the log has them at the start: a release recorded here ends its own.
+  for (const { repo, blockers } of releaseWaits(log.state())) {
+    if (signal.aborted) return;
+    let holdsAll = true;
+    let latest: LatestRelease | undefined;
+    try {
+      latest = await reader.latest(repo, signal);
+      if (latest === undefined || recorded(log, repo, latest.version)) continue;
+      for (const merged of blockers) {
+        let held = false;
+        for (const pullRequest of merged) {
+          held = await reader.holds(repo, latest, pullRequest, signal);
+          if (held) break;
+        }
+        // A release recorded counts for every blocker merged before it: it must hold them all.
+        if (!held) {
+          holdsAll = false;
+          break;
+        }
+      }
+    } catch (error) {
+      failed(`reading the latest release of ${repo}`, error);
+      continue;
+    }
+    // A pass given up at its deadline records nothing more.
+    if (signal.aborted) return;
+    if (!holdsAll) continue;
+    const { version } = latest;
+    const event = {
+      type: 'release.observed',
+      repo,
+      package: repo.split('/').at(-1) ?? repo,
+      version,
+    } as const;
+    const decision = log.issue({ kind: 'record', event }, clock());
+    if (decision.kind === 'accepted') released(repo, version);
+    else failed(`recording the release ${version} of ${repo}`, new Error(decision.reason));
+  }
 };
