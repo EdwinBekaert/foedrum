@@ -29,7 +29,7 @@ A retry of a batch Stuck on routing sends it back to Ordered with a new routing 
 
 The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](../../adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)).
 It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`).
-Cancelled is terminal, and so is On tap, but for one way out: a batch whose recipe's `openPullRequest` step has `onPullRequestFail` goes back to Brewing along that route when a check fails on its open pull request's head, or Stuck (`pull_request_failed`) once its rounds are used ([open pull requests](../intake/open-pull-requests.md), [ADR 0219](../../adr/0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md)).
+Cancelled is terminal, and so is On tap, but for one way out: a batch whose recipe's `openPullRequest` step has `onPullRequestFail` goes back to Brewing along that route when a check fails on its open pull request's head, or Stuck (`pull_request_failed`) once its rounds are used or when its route's step was skipped by its `when` ([open pull requests](../intake/open-pull-requests.md), [ADR 0219](../../adr/0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md)).
 The admission allows `step.scheduled` from On tap only with such a route, on its open pull request, and `batch.stuck` from On tap only for that reason.
 A blocked out doc is recorded as a final failure and routed by its blocker kind ([the out doc contract](../recipes/out-doc.md)).
 Rewind is allowed only from Stuck.
