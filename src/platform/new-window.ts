@@ -21,7 +21,7 @@ export interface WindowLine {
   cwd: string;
   program: string;
   args: readonly string[];
-  /** The environment the launcher, and through it the window, gets; this process's by default. */
+  /** The environment the launcher, and through it the window, gets; the facts' by default. */
   env?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -48,9 +48,11 @@ export function newWindowCommand(facts: WindowFacts, line: WindowLine): WindowLa
   const command = [line.program, ...line.args];
   switch (platform) {
     case 'win32': {
-      // Both read the line as cmd.exe's and Windows Terminal's syntax: only plain words pass.
+      // Both read the line as cmd.exe's and Windows Terminal's syntax: only plain words pass, and
+      // an aliased order's #, which neither reads as syntax.
+      const plain = (word: string): string => word.replaceAll('#', '');
       try {
-        windowsCommandLine(line.program, [line.cwd, ...line.args]);
+        windowsCommandLine(line.program, [line.cwd, ...line.args].map(plain));
       } catch (error) {
         return none((error as Error).message);
       }
@@ -113,11 +115,9 @@ export async function openInNewWindow(
 ): Promise<{ kind: 'opened' } | { kind: 'none'; why: string }> {
   const launch = newWindowCommand(facts, line);
   if (launch.kind === 'none') return launch;
-  const env =
-    line.env === undefined && launch.env === undefined
-      ? {}
-      : { env: { ...line.env, ...launch.env } };
-  const options = { cwd: line.cwd, timeoutMs: LAUNCH_MS, ...env };
+  // The line's environment, else the machine's, with what the launcher needs over it.
+  const env = { ...(line.env ?? facts.env), ...launch.env };
+  const options = { cwd: line.cwd, timeoutMs: LAUNCH_MS, env };
   const result = await exec(launch.program, launch.args, options);
   if (result.exitCode === 0) return { kind: 'opened' };
   const name = launch.program.split(/[\\/]/).at(-1) ?? launch.program;
