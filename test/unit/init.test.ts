@@ -68,6 +68,8 @@ interface Options {
   createFails?: string;
   /** What `git status` prints; default nothing to commit. */
   status?: string;
+  /** What `git log` prints of the commits no remote has; default none. */
+  unpushed?: string;
   /** git calls that fail, by their command, with what git says. */
   gitFails?: Readonly<Record<string, string>>;
 }
@@ -138,7 +140,11 @@ const init = async (
       run.events.push(`git ${args[0]}`);
       const fails = options.gitFails?.[args[0] ?? ''];
       if (fails !== undefined) return { code: 1, stdout: '', stderr: `${fails}\n` };
-      return { code: 0, stdout: args[0] === 'status' ? (options.status ?? '') : '', stderr: '' };
+      const printed: Readonly<Record<string, string | undefined>> = {
+        status: options.status,
+        log: options.unpushed,
+      };
+      return { code: 0, stdout: printed[args[0] ?? ''] ?? '', stderr: '' };
     },
     doctor: async (folder) => {
       run.events.push(`doctor ${folder}`);
@@ -821,5 +827,93 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
       /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"/,
     );
     assert.ok(!events.some((event) => event.startsWith('git status')), events.join('\n'));
+  });
+  it('commits only the files it lists, never what else is staged, and prints the same command', async () => {
+    const yes = await init(['', '', ''], undefined, { status: ' M foedrum.jsonc\0' });
+    assert.deepStrictEqual(yes.git.find(({ args }) => args[0] === 'commit')?.args, [
+      'commit',
+      '-m',
+      'Set up the Brewery with foedrum init',
+      '--',
+      'foedrum.jsonc',
+    ]);
+    const no = await init(['', '', 'n'], undefined, { status: ' M foedrum.jsonc\0' });
+    assert.ok(
+      no.lines.includes('git commit -m "Set up the Brewery with foedrum init" -- foedrum.jsonc'),
+      no.lines.join('\n'),
+    );
+  });
+
+  it('lists the commits GitHub does not have yet, which the push sends too, before asking', async () => {
+    const { lines, git } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      unpushed: 'abc1234 Local work\ndef5678 More local work\n',
+    });
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'log')?.args, [
+      'log',
+      '--format=%h %s',
+      'HEAD',
+      '--not',
+      '--remotes',
+    ]);
+    const at = lines.indexOf('Also pushed, not on GitHub yet:');
+    assert.ok(at > lines.indexOf('  .claude/settings.json'), lines.join('\n'));
+    assert.deepStrictEqual(lines.slice(at + 1, at + 3), [
+      '  abc1234 Local work',
+      '  def5678 More local work',
+    ]);
+  });
+
+  it('asks git for no commits on a branch that has none yet', async () => {
+    const { git, lines } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { 'rev-parse': '' },
+    });
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'rev-parse')?.args, [
+      'rev-parse',
+      '-q',
+      '--verify',
+      'HEAD',
+    ]);
+    assert.ok(!git.some(({ args }) => args[0] === 'log'));
+    assert.ok(!lines.includes('Also pushed, not on GitHub yet:'), lines.join('\n'));
+    assert.ok(git.some(({ args }) => args[0] === 'push'));
+  });
+
+  it('pushes nothing when it cannot tell which commits GitHub lacks', async () => {
+    const { result, lines, git, questions } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { log: 'fatal: bad object' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git log failed: fatal: bad object'), lines.join('\n'));
+    assert.ok(!git.some(({ args }) => args[0] === 'push'));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+
+  it('refuses a name Windows cannot have as a folder before asking GitHub, but not a near miss', async () => {
+    for (const name of ['octocat/NUL', 'octocat/con.d', 'octocat/com1', 'octocat/brewery.']) {
+      const { result, events } = await init([name, '', ''], outside());
+      assert.equal(result.exitCode, 1, name);
+      const folder = name.split('/')[1] ?? '';
+      assert.equal(
+        result.stderr,
+        `foedrum init: ${folder} cannot be a folder on Windows; choose another name\n`,
+      );
+      assert.deepStrictEqual(events, [], name);
+    }
+    const { events } = await init(['octocat/console', '', ''], outside());
+    assert.ok(events.includes('create octocat/console octocat private'), events.join('\n'));
+  });
+
+  it('names the folder and the repository it created when input ends after them', async () => {
+    const { result } = await init(['', '', 'acme/web', '', ''], outside(), {
+      unlabelled: ['acme/web'],
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"; .*octocat\/foedrum-brewery is created and cloned into the folder foedrum-brewery/,
+    );
   });
 });
