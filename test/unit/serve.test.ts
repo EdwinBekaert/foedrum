@@ -1126,6 +1126,7 @@ describe('runServe', () => {
       const fetch: typeof globalThis.fetch = async (input, init) => {
         const target = input instanceof Request ? input.url : String(input);
         if (started && (init?.method ?? 'GET') === 'GET' && target.includes('/pulls/')) {
+          events.push('pass waiting');
           await aborted;
           events.push('pass read');
         }
@@ -1189,8 +1190,12 @@ describe('runServe', () => {
       assert.equal(code, 1);
       const at = (event: string) => events.indexOf(event);
       assert.ok(at('run started') >= 0, events.join(', '));
-      // The run is stopped before the pass underway ends, and the lock goes after it settled.
-      assert.ok(at('pass read') === -1 || at('run aborted') < at('pass read'), events.join(', '));
+      // A pass was underway, the run is stopped before it ends, and the lock goes after both.
+      assert.ok(
+        at('pass waiting') >= 0 && at('pass waiting') < at('run aborted'),
+        events.join(', '),
+      );
+      assert.ok(at('run aborted') < at('pass read'), events.join(', '));
       assert.ok(
         at('run settled') >= 0 && at('run settled') < at('lock released'),
         events.join(', '),
