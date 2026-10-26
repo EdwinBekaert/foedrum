@@ -20,6 +20,7 @@ import { diagnose, formatDiagnosis } from './doctor.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { runInit } from './init.ts';
+import type { ShimPorts } from './init-shim.ts';
 import { type CliResult, printable } from './run.ts';
 
 /** How long init's clone, commit and push may each take. */
@@ -67,6 +68,8 @@ export const initFromCheckout = async (
   cwd: string,
   options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>> & {
     terminal?: InitTerminal;
+    /** The environment and home the foedrum command is written for; default this process's. */
+    shim?: Partial<Pick<ShimPorts, 'env' | 'home'>>;
   },
 ): Promise<CliResult> => {
   const { input, output } = options?.terminal ?? { input: process.stdin, output: process.stdout };
@@ -109,8 +112,26 @@ export const initFromCheckout = async (
         const diagnosis = diagnose(await doctorFromCheckout(at(folder), options));
         return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };
       },
+      shim: machineShim(options?.shim),
     });
   } finally {
     answers.close();
   }
+};
+
+/** The machine the foedrum command is written on (ADR 0210). */
+const machineShim = (_given: Partial<Pick<ShimPorts, 'env' | 'home'>> | undefined): ShimPorts => {
+  const missing = (): never => {
+    throw new Error('not implemented');
+  };
+  return {
+    platform: process.platform,
+    env: {},
+    home: '',
+    entry: '',
+    writable: missing,
+    read: missing,
+    write: missing,
+    resolve: missing,
+  };
 };

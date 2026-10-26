@@ -18,6 +18,7 @@ import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
 import { firstLine } from '../workspace/clone-git.ts';
 import type { GitResult } from '../workspace/git.ts';
+import type { ShimPorts } from './init-shim.ts';
 import type { CliResult } from './run.ts';
 
 export interface InitPorts {
@@ -47,6 +48,8 @@ export interface InitPorts {
   git: (folder: string, args: readonly string[]) => Promise<GitResult>;
   /** doctor's report on the clone in `folder`, and whether it found the machine ready. */
   doctor: (folder: string) => Promise<{ ok: boolean; report: string }>;
+  /** The machine the `foedrum` command is written on (ADR 0210). */
+  shim: ShimPorts;
 }
 
 /** The plugin the Brewery's sessions enable, from this repository as its marketplace (ADR 0125). */
