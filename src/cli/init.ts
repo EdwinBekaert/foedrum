@@ -6,6 +6,7 @@
 // files, GitHub through gh, git and doctor; init-main.ts gives the real ones.
 
 import { parseJsonc } from '../formats/jsonc.ts';
+import { LABEL_COLOR } from '../github/brewery-repository.ts';
 import type { RepositoryFacts } from '../github/repository-facts.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { BreweryClaudeSettings } from '../schemas/brewery-settings.ts';
@@ -449,7 +450,12 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
 
     for (const repo of targets) await intakeLabel(ports, confirm, repo);
-    pushFailed = !(await commitAndPush(ports, confirm, folder));
+    pushFailed = !(await commitAndPush(
+      ports,
+      confirm,
+      folder,
+      plans.map(({ path }) => path),
+    ));
   } catch (error) {
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written`);
@@ -470,7 +476,7 @@ type Confirm = (question: string, byDefault: boolean) => Promise<boolean>;
 
 /** The one command that creates the intake label in `repo` later. */
 const labelCommand = (repo: string): string =>
-  `gh label create ${INTAKE_LABEL} --repo ${repo} --description "${LABEL_DESCRIPTION}" --color ededed`;
+  `gh label create ${INTAKE_LABEL} --repo ${repo} --description "${LABEL_DESCRIPTION}" --color ${LABEL_COLOR}`;
 
 /**
  * The intake label in `repo`, after asking (ADR 0207): one that is there is left alone; a no, or a
@@ -504,9 +510,9 @@ const commitAndPush = async (
   ports: InitPorts,
   confirm: Confirm,
   folder: string,
+  files: readonly string[],
 ): Promise<boolean> => {
   const { say } = ports;
-  const files = ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json'];
   const status = await ports.git(folder, [
     'status',
     '--porcelain=v1',

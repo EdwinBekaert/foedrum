@@ -7,15 +7,19 @@ import { refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 
 /** The colour Foedrum's marks give a label they create. */
-const LABEL_COLOR = 'ededed';
+export const LABEL_COLOR = 'ededed';
 
-/** Whether GitHub has `repo`. */
-export const repositoryExists = async (client: GitHubClient, repo: string): Promise<boolean> => {
-  const answer = await client.rest('GET', `/repos/${repoPath(repo)}`);
+/** Whether GitHub has what `path` names: 404 is no, 200 yes, any other answer refuses `what`. */
+const found = async (client: GitHubClient, path: string, what: string): Promise<boolean> => {
+  const answer = await client.rest('GET', path);
   if (answer.status === 404) return false;
-  if (answer.status !== 200) throw refused(answer.status, answer.body, `the repository ${repo}`);
+  if (answer.status !== 200) throw refused(answer.status, answer.body, what);
   return true;
 };
+
+/** Whether GitHub has `repo`. */
+export const repositoryExists = async (client: GitHubClient, repo: string): Promise<boolean> =>
+  found(client, `/repos/${repoPath(repo)}`, `the repository ${repo}`);
 
 /** Creates `repo`, empty: under the login when it is the owner, else under the organization. */
 export const createRepository = async (
@@ -40,14 +44,12 @@ export const labelExists = async (
   client: GitHubClient,
   repo: string,
   label: string,
-): Promise<boolean> => {
-  const path = `/repos/${repoPath(repo)}/labels/${encodeURIComponent(label)}`;
-  const answer = await client.rest('GET', path);
-  if (answer.status === 404) return false;
-  if (answer.status !== 200)
-    throw refused(answer.status, answer.body, `the label ${label} of ${repo}`);
-  return true;
-};
+): Promise<boolean> =>
+  found(
+    client,
+    `/repos/${repoPath(repo)}/labels/${encodeURIComponent(label)}`,
+    `the label ${label} of ${repo}`,
+  );
 
 /** Creates the label `label` in `repo`; one made in the meantime counts as made. */
 export const createLabel = async (
