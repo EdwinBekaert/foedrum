@@ -185,6 +185,18 @@ export const routeLines = (ref: { stepId: string; attempt: number }, prompt: str
 };
 
 /**
+ * What a later round of a lens step was told, from its prompt: the change since the round before,
+ * and the earlier rounds' findings with what was done with them (ADR 0190, ADR 0191); nothing for
+ * a first round.
+ */
+export const laterRoundLines = (
+  _ref: { stepId: string; attempt: number },
+  _prompt: string,
+): string[] => {
+  throw new Error('not implemented');
+};
+
+/**
  * A process's output in two parts: the lines before the first line `at` matches, and the rest
  * from it; or, with `keep: 'with'`, that line goes with the first part. All of it is the first
  * part when no line matches.

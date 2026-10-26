@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { DEMO_SCRIPT } from '../../scripts/demo/brewer.ts';
 import { codeHost, fileJournal } from '../../scripts/demo/code-host.ts';
 import {
   BREW_ORDER,
@@ -24,7 +25,6 @@ import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { hangGuardMs } from '../helpers/load.ts';
-import { NIP_SCRIPT } from '../helpers/nip-fixture.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const root = join(import.meta.dirname, '..', '..');
@@ -39,6 +39,7 @@ describe('npm run demo', () => {
 
   it('brews one order with Nip through a crash and a restart, another with foedrum brew, on a machine with no git identity', async () => {
     const scratch = join(dir.path, 'demo');
+    const scriptedAttempts = Object.values(DEMO_SCRIPT).reduce((n, turns) => n + turns.length, 0);
     // A machine with no git identity of its own, as a CI runner or a fresh clone has: no system
     // configuration, and a global one of the test's own that only stops git from guessing an
     // identity from the user and host names, which it would on a host whose name has a dot.
@@ -53,8 +54,9 @@ describe('npm run demo', () => {
     const result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
-      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe.
-      timeoutMs: 10 * hangGuardMs,
+      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe, counted by the
+      // attempts its script plays in a batch, the tasting loop's second round too (ADR 0193).
+      timeoutMs: scriptedAttempts * hangGuardMs,
     });
     assert.equal(result.exitCode, 0, result.output);
     assert.ok(result.stdout.includes(CRASH_LINE), result.output);
@@ -146,14 +148,19 @@ describe('npm run demo', () => {
         ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
         : [],
     );
-    // The three lens attempts run side by side, so they may end in any order.
+    // The three lens attempts of a round run side by side, so they may end in any order.
     const lensOutcome = /^(?:correctness|security|test-design)#/;
-    const firstLens = outcomes.findIndex((outcome) => lensOutcome.test(outcome));
-    const inOrder = [
-      ...outcomes.slice(0, firstLens),
-      ...outcomes.slice(firstLens, firstLens + 3).sort(),
-      ...outcomes.slice(firstLens + 3),
-    ];
+    const inOrder: string[] = [];
+    let round: string[] = [];
+    for (const outcome of [...outcomes, '']) {
+      if (lensOutcome.test(outcome)) {
+        round.push(outcome);
+        continue;
+      }
+      inOrder.push(...round.sort());
+      round = [];
+      if (outcome !== '') inOrder.push(outcome);
+    }
     assert.deepStrictEqual(inOrder, [
       'gauge#1 failed',
       'gauge#2 succeeded',
@@ -164,10 +171,19 @@ describe('npm run demo', () => {
       'implement#2 succeeded',
       'fine#2 succeeded',
       'green#2 succeeded',
-      ...['correctness', 'security', 'test-design'].map((lens) => `${lens}#1 succeeded`),
+      // Round 1: correctness blocks with its finding, and the batch goes back to implement once.
+      'correctness#1 failed',
+      'security#1 succeeded',
+      'test-design#1 succeeded',
+      'implement#3 succeeded',
+      'fine#3 succeeded',
+      'green#3 succeeded',
+      // Round 2 approves.
+      ...['correctness', 'security', 'test-design'].map((lens) => `${lens}#2 succeeded`),
       'open-pull-request#1 succeeded',
     ]);
-    // The parallel group's three lens attempts all started before any of them ended (ADR 0168).
+    // In each round, the parallel group's three lens attempts all started before any of them
+    // ended (ADR 0168).
     const lenses = new Set(['correctness', 'security', 'test-design']);
     const group = events.flatMap((event) =>
       (event.type === 'step.started' || event.type === 'step.finished') &&
@@ -176,28 +192,54 @@ describe('npm run demo', () => {
         ? [event.type]
         : [],
     );
-    assert.deepStrictEqual(group.slice(0, 3), ['step.started', 'step.started', 'step.started']);
-    assert.equal(group.length, 6, JSON.stringify(group));
+    const started = ['step.started', 'step.started', 'step.started'];
+    assert.deepStrictEqual([group.slice(0, 3), group.slice(6, 9)], [started, started]);
+    assert.equal(group.length, 12, JSON.stringify(group));
     // While they brewed, foedrum status showed the three of them at once.
     assert.match(
       part('checks'),
       /brewing +correctness #1 started, security #1 started, test-design #1 started/,
     );
-    // The status comment's path line has the three side by side, and each one's findings show
-    // under its own step.
+    // Correctness's finding sends the batch back to implement, with its out doc as the route
+    // input (ADR 0128), and round 2 is told the change since round 1 and that finding marked
+    // fixed, by the Cellarman's disposition (ADR 0190, ADR 0191, ADR 0193).
+    assert.match(
+      part('checks'),
+      /demo: implement #3 is told why step implement runs again: the findings of step correctness/,
+    );
+    const [blocked] = (DEMO_SCRIPT.correctness?.[0]?.tasting?.findings ?? []) as { why?: string }[];
+    assert.ok(
+      part('checks').includes(
+        `\n  Round correctness#1:\n  - major in greet.mjs:2: ${blocked?.why}\n    fixed: `,
+      ),
+      part('checks'),
+    );
+    assert.match(
+      part('checks'),
+      /demo: correctness #2 is told the change since commit [0-9a-f]{7,}, as \{roundChange\}, and the earlier findings, as \{earlierFindings\}:/,
+    );
+    assert.match(
+      part('checks'),
+      /brewing +correctness #2 started, security #2 started, test-design #2 started/,
+    );
+    // The status comment's path line has both rounds, the three lenses side by side in each and
+    // the batch back to implement between them, and each one's findings show under its own step.
     const comment = host.comments(BREWERY, ORDER.number)[0]?.body ?? '';
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`green #2` ✅ → `correctness #1` ✅ → `security #1` ✅ → `test-design #1` ✅ → `open-pull-request #1` ✅/,
+      /`green #2` ✅ → `correctness #1` ❌ → `security #1` ✅ → `test-design #1` ✅ → `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
     );
-    for (const lens of lenses) assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
+    for (const lens of ['security', 'test-design']) {
+      assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
+    }
     assert.ok(
       events.some((event) => event.type === 'batch.on_tap' && event.batchId === '2-1'),
       JSON.stringify(events),
     );
 
-    // The Cellarman's second fix is the tip of the bottle branch on the target's remote.
+    // The Cellarman's third fix, after round 1's finding, is the tip of the bottle branch on the
+    // target's remote.
     const head = pulls[0]?.head ?? '';
     const log = await runGit(root, [
       '--git-dir',
@@ -208,6 +250,6 @@ describe('npm run demo', () => {
       head,
     ]);
     assert.equal(log.code, 0, log.stderr);
-    assert.equal(log.stdout.trim(), NIP_SCRIPT.implement?.[1]?.message);
+    assert.equal(log.stdout.trim(), DEMO_SCRIPT.implement?.[2]?.message);
   });
 });

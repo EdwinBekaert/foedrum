@@ -166,7 +166,14 @@ describe('the demo Brewery', () => {
     const group = {
       id: 'taste',
       parallel: [
-        { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+        // The one lens that blocks: its changes send the batch back to implement once (ADR 0193).
+        {
+          id: 'correctness',
+          brewer: 'taster',
+          lens: 'diff/correctness',
+          blocking: true,
+          onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
+        },
         { id: 'security', brewer: 'taster', lens: 'diff/security' },
         { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
       ],

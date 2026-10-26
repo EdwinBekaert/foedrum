@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { type DemoBrewersOptions, demoBrewers } from '../../scripts/demo/brewer.ts';
+import { DEMO_SCRIPT, type DemoBrewersOptions, demoBrewers } from '../../scripts/demo/brewer.ts';
 import type { Life } from '../../scripts/demo/core.ts';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
-import type { AttemptStart } from '../../src/engine/brewer-runner.ts';
+import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { NIP_SCRIPT } from '../helpers/nip-fixture.ts';
@@ -33,6 +33,20 @@ const brewers = (life: Life, options: Partial<DemoBrewersOptions> = {}, code = 0
     ...options,
   });
   return { runner, log };
+};
+
+/** The out doc of a Taster's attempt of `stepId`, which must succeed. */
+const tasted = async (runner: BrewerRunner, stepId: string, attempt: number) => {
+  const end = await runner.start({
+    ref: { batchId: '1-1', stepId, attempt },
+    limits: { outDoc: { file: 'taste.md', schema: TastingOutDoc } },
+  }).ended;
+  assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
+  const doc = end.ending.kind === 'succeeded' ? end.ending.output : undefined;
+  return doc as {
+    verdict?: string;
+    findings?: { file?: string; line?: number; why?: string }[];
+  };
 };
 
 /** Lets every pending promise and git call settle. */
@@ -168,24 +182,18 @@ describe('the demo brewers', () => {
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
   });
 
-  it("play the three Tasters of the parallel group: each one's own advisory finding in its out doc, and no commit", async () => {
+  it("play the three Tasters of the parallel group's first round: correctness asks for changes, the others approve, each with a finding of its own, and no commit", async () => {
     const { runner, log } = brewers('finish');
     const findings: string[] = [];
-    for (const stepId of ['correctness', 'security', 'test-design']) {
-      const start: AttemptStart = {
-        ref: { batchId: '1-1', stepId, attempt: 1 },
-        limits: { outDoc: { file: 'taste.md', schema: TastingOutDoc } },
-      };
-      const end = await runner.start(start).ended;
-      assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
-      const doc = end.ending.kind === 'succeeded' ? end.ending.output : undefined;
-      const { verdict, findings: found } = doc as {
-        verdict?: string;
-        findings?: { file?: string; why?: string }[];
-      };
-      assert.equal(verdict, 'approve', stepId);
-      assert.equal(found?.length, 1, `${stepId}: ${JSON.stringify(found)}`);
-      findings.push(found?.[0]?.why ?? '');
+    for (const [stepId, verdict] of [
+      ['correctness', 'changes'],
+      ['security', 'approve'],
+      ['test-design', 'approve'],
+    ] as const) {
+      const doc = await tasted(runner, stepId, 1);
+      assert.equal(doc.verdict, verdict, stepId);
+      assert.equal(doc.findings?.length, 1, `${stepId}: ${JSON.stringify(doc.findings)}`);
+      findings.push(doc.findings?.[0]?.why ?? '');
     }
     assert.equal(new Set(findings).size, 3, findings.join('\n'));
     assert.deepStrictEqual(log, [
@@ -193,6 +201,46 @@ describe('the demo brewers', () => {
       `write ${join(cwd, 'taste.md')}`,
       `write ${join(cwd, 'taste.md')}`,
     ]);
+  });
+
+  it("play the tasting loop (ADR 0193): the Cellarman's third attempt fixes correctness's finding and records it fixed, and correctness's second round approves", async () => {
+    const messages: string[] = [];
+    const { runner } = brewers('finish', {
+      git: async (_at, args) => {
+        if (args[0] === 'commit') messages.push(args.at(-1) ?? '');
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    const [finding] = (await tasted(runner, 'correctness', 1)).findings ?? [];
+    let fixed: unknown;
+    for (const attempt of [1, 2, 3]) {
+      const { ending } = await runner.start(startOf('implement', attempt)).ended;
+      assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+      if (ending.kind === 'succeeded') fixed = ending.output;
+    }
+    assert.equal(messages.length, 3, messages.join('\n'));
+    assert.equal(messages[2], DEMO_SCRIPT.implement?.[2]?.message);
+    assert.deepStrictEqual((fixed as { dispositions?: unknown }).dispositions, [
+      {
+        file: finding?.file,
+        line: finding?.line,
+        disposition: 'fixed',
+        why: 'greet trims the name before it asks whether it is empty',
+      },
+    ]);
+    const round2 = await tasted(runner, 'correctness', 2);
+    assert.equal(round2.verdict, 'approve');
+    assert.deepStrictEqual(round2.findings, []);
+    // The advisory lenses run again in the second round, and approve again.
+    for (const stepId of ['security', 'test-design']) {
+      await tasted(runner, stepId, 1);
+      assert.equal((await tasted(runner, stepId, 2)).verdict, 'approve', stepId);
+    }
+    // The Finer runs after each of the Cellarman's three attempts.
+    for (const attempt of [1, 2, 3]) {
+      const { ending } = await runner.start(startOf('fine', attempt)).ended;
+      assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    }
   });
 
   it("write each attempt's out doc to the file its limits name, whatever its step", async () => {
