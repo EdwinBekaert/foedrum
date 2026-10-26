@@ -9,9 +9,11 @@ import {
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
   MOST_OPEN_FINDINGS,
+  MOST_RECORDED_FINDINGS,
   type OrderRef,
   type RankPlace,
   type Receipt,
+  type RecordedFindings,
   type RoundsOut,
   type ScheduleRoute,
   type StuckOption,
@@ -561,6 +563,10 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(houseYeast === undefined ? {} : { houseYeast }),
     ...(stopped ? { paused: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
+    // A blocking Taster's findings, which no other event keeps unless its rounds run out (ADR 0221).
+    ...(ending.kind === 'blocked' && ending.findings !== undefined
+      ? { findings: recorded(ending.findings) }
+      : {}),
   });
   // The window is the subscription's, whatever becomes of this step. An end refused because its
   // batch left brewing closes nothing: the next brewer meets the limit and closes it (ADR 0206).
@@ -943,21 +949,34 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
 }
 
 /**
- * What a findings route that used its `rounds` leaves open (ADR 0192): the first findings of its
- * last round, on one line and cut to what the status comment reads of them, and a count of the
- * rest. A text the schema took has a character that is not blank, so it is never blank once cut.
- * Every finding of the last round is open: no brewer has disposed of it yet, and a Taster never
- * raises a disposed finding again as it was, only a contest of it, which stays open (ADR 0191).
+ * The first `most` of `findings`, on one line and cut to what the status comment reads of them, and
+ * a count of the rest. A text the schema took has a character that is not blank, so it is never
+ * blank once cut.
  */
-const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsOut => {
+const cutFindings = (findings: readonly TastingFinding[], most: number) => {
   const cut = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
-  const open = findings.slice(0, MOST_OPEN_FINDINGS).map(({ file, why, ...finding }) => ({
+  const kept = findings.slice(0, most).map(({ file, why, ...finding }) => ({
     ...finding,
     ...(file === undefined ? {} : { file: cut(file) }),
     why: cut(why),
   }));
-  return { rounds, open, more: findings.length - open.length };
+  return { kept, more: findings.length - kept.length };
 };
+
+/**
+ * What a findings route that used its `rounds` leaves open (ADR 0192): the first findings of its
+ * last round, cut, and a count of the rest. Every finding of the last round is open: no brewer has
+ * disposed of it yet, and a Taster never raises a disposed finding again as it was, only a contest
+ * of it, which stays open (ADR 0191).
+ */
+const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsOut => {
+  const { kept, more } = cutFindings(findings, MOST_OPEN_FINDINGS);
+  return { rounds, open: kept, more };
+};
+
+/** The findings `step.finished` keeps of an attempt blocked by them, cut as `roundsOut` cuts (ADR 0221). */
+const recorded = (findings: readonly TastingFinding[]): RecordedFindings =>
+  cutFindings(findings, MOST_RECORDED_FINDINGS);
 
 /** How a blocked out doc's failure reason starts, by its blocker kind. */
 const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;

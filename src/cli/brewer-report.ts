@@ -67,12 +67,16 @@ const add = (tally: Counts, attempt: Attempt): void => {
     return;
   }
   tally.outcomes[attempt.outcome.kind] += 1;
-  const { usage } = attempt;
+  addUsage(tally.usage, attempt.usage);
+};
+
+/** Adds `usage` to `sum`; an attempt that reported none adds nothing. */
+export const addUsage = (sum: Usage, usage: Usage | undefined): void => {
   if (usage === undefined) return;
-  tally.usage.inputTokens += usage.inputTokens;
-  tally.usage.outputTokens += usage.outputTokens;
-  tally.usage.cacheReadTokens += usage.cacheReadTokens;
-  tally.usage.cacheWriteTokens += usage.cacheWriteTokens;
+  sum.inputTokens += usage.inputTokens;
+  sum.outputTokens += usage.outputTokens;
+  sum.cacheReadTokens += usage.cacheReadTokens;
+  sum.cacheWriteTokens += usage.cacheWriteTokens;
 };
 
 /**
@@ -149,7 +153,19 @@ export const brewerReport = (
   };
 };
 
-const number = (n: number): string => n.toLocaleString('en-US');
+/** A count with its digits grouped. */
+export const number = (n: number): string => n.toLocaleString('en-US');
+
+/** The tokens of `usage`, each of the four counts on its own, or that none were reported. */
+export const tokensLine = ({
+  inputTokens,
+  outputTokens,
+  cacheReadTokens,
+  cacheWriteTokens,
+}: Usage): string =>
+  inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens === 0
+    ? '  tokens: none reported'
+    : `  tokens: ${number(inputTokens)} input, ${number(outputTokens)} output, ${number(cacheReadTokens)} cache read, ${number(cacheWriteTokens)} cache write`;
 
 const outcomeNames: readonly [keyof Outcomes, string][] = [
   ['succeeded', 'succeeded'],
@@ -167,13 +183,9 @@ const tallyLines = ({ attempts, outcomes, stuck, usage }: Tally): string[] => {
   const ended = outcomeNames
     .filter(([kind]) => outcomes[kind] > 0)
     .map(([kind, name]) => `${number(outcomes[kind])} ${name}`);
-  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens } = usage;
-  const spent = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
   return [
     `  ${number(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'}: ${ended.join(', ')}`,
-    spent === 0
-      ? '  tokens: none reported'
-      : `  tokens: ${number(inputTokens)} input, ${number(outputTokens)} output, ${number(cacheReadTokens)} cache read, ${number(cacheWriteTokens)} cache write`,
+    tokensLine(usage),
     ...held,
   ];
 };

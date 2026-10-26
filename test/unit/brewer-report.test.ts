@@ -484,7 +484,7 @@ describe('brewerSource', () => {
         { ...stepBrewer('coder'), name: 'coder', path: 'defaults/brewers/coder.md' },
       ],
       lenses: [],
-      named: { brewers: new Set(['planner']), lenses: new Set() },
+      named: { brewers: new Set(['planner']), lenses: new Set(), reviewLenses: new Set() },
     },
   };
 
