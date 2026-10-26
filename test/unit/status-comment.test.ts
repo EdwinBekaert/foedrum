@@ -1389,7 +1389,7 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
           files: ['src/auth/<b>@alice_*x*.ts', long],
         }),
       ) ?? assert.fail('no line');
-    assert.match(line, /src\/auth\/&lt;b&gt;&#64;alice_\\*x\\*\.ts, /);
+    assert.ok(line.includes('src/auth/&lt;b&gt;&#64;alice\\_\\*x\\*.ts, '), line);
     assert.doesNotMatch(line, /a{300}/);
     assert.match(line, /a…$/);
   });

@@ -497,7 +497,7 @@ describe('BreweryConfig: sensitive paths (ADR 0201)', () => {
       ' ',
       '/src/**',
       '!src/auth/**',
-      'srcauth**',
+      'src\\auth\\**',
       '../x',
       'src/./a',
       'src/../a',
