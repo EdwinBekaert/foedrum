@@ -473,13 +473,55 @@ describe('the foedrum command, on the edges of its machine (ADR 0210)', () => {
     ]);
   });
 
-  it('only says to create the folder when it is on the PATH already', async () => {
+  it('only says to create the folder, or make it writable, when it is on the PATH already', async () => {
     const { lines } = await offer(posix('/usr/bin:/home/ada/.local/bin', { writable: [] }));
     assert.deepStrictEqual(lines.slice(0, 3), [
       'No folder on the PATH is inside /home/ada to write the foedrum command into.',
-      'Create /home/ada/.local/bin: it is on the PATH already.',
+      'Create /home/ada/.local/bin, or make it writable: it is on the PATH already.',
       'Not written. To write it by hand, put these lines in /home/ada/.local/bin/foedrum:',
     ]);
+  });
+
+  it('says so of ~/bin alone too, and on Windows without the PowerShell line', async () => {
+    const bin = await offer(posix('/usr/bin:/home/ada/bin', { writable: [] }));
+    assert.equal(
+      bin.lines[1],
+      'Create /home/ada/bin, or make it writable: it is on the PATH already.',
+    );
+    const windowsRun = await offer(
+      windows('C:\\Windows\\system32;C:\\Users\\ada\\.local\\bin', { writable: [] }),
+    );
+    assert.equal(
+      windowsRun.lines[1],
+      'Create C:\\Users\\ada\\.local\\bin, or make it writable: it is on the PATH already.',
+    );
+    assert.ok(
+      !windowsRun.lines.some((line) => line.includes('New-Item')),
+      windowsRun.lines.join('\n'),
+    );
+  });
+
+  it('names no folder at all when the home is a root folder', async () => {
+    const { lines } = await offer(posix('/usr/bin:/bin', { home: '/' }));
+    assert.deepStrictEqual(lines.slice(0, 3), [
+      'No folder on the PATH is inside / to write the foedrum command into.',
+      'A home that is a root folder holds every folder, so init names none; write it by hand into a folder of yours on the PATH:',
+      '  #!/bin/sh',
+    ]);
+    assert.ok(!lines.some((line) => line.startsWith('Create')), lines.join('\n'));
+    assert.equal(lines.at(-1), 'and run chmod 755 on it');
+  });
+
+  it('doubles each quote PowerShell reads as one, typographic ones too', async () => {
+    const { lines } = await offer(
+      windows('C:\\Windows\\system32', { home: 'C:\\Users\\o\u2018b\u2019r\u201ai\u201ben' }),
+    );
+    assert.ok(
+      lines[2]?.includes(
+        "'C:\\Users\\o\u2018\u2018b\u2019\u2019r\u201a\u201ai\u201b\u201ben\\.local\\bin'",
+      ),
+      lines[2],
+    );
   });
 
   it('quotes a user profile with an apostrophe in the PowerShell line', async () => {
