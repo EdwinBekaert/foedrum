@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   borrowedStores,
+  insideFolders,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
@@ -618,11 +619,14 @@ describe('worktreeGitDir', () => {
   });
 });
 
-// A worktree of Foedrum's own git directory borrows the clone's objects through its alternates:
-// the same objects a check step's worktree reads with the clone's repository (ADR 0203).
+// A worktree of Foedrum's own git directory borrows the clone's objects through its alternates;
+// the sandbox binds them only from a folder Foedrum alone writes (ADR 0203).
 describe('sandboxedChecks for a repository that borrows an object store', () => {
   const store = '/home/ada/.foedrum/acme/clones/acme.api/.git/objects';
-  const borrowing = { borrowedOf: (repository: string) => (repository === gitDir ? [store] : []) };
+  const borrowing = {
+    borrowedOf: (repository: string) => (repository === gitDir ? [store] : []),
+    borrowsFrom: (repository: string) => repository === gitDir,
+  };
 
   it('binds the store read-only in bwrap, after the repository and before the worktree', async () => {
     const { calls, exec } = fake();
@@ -682,6 +686,7 @@ describe('sandboxedChecks for a repository that borrows an object store', () => 
         platform: 'linux',
         gitDirOf: () => beside,
         borrowedOf: (repository) => (repository === beside ? [store] : []),
+        borrowsFrom: (repository) => repository === beside,
       }),
     )(line, [], call);
     assert.ok(outside.calls[0]?.args.includes(store));
@@ -699,6 +704,46 @@ describe('sandboxedChecks for a repository that borrows an object store', () => 
       }),
     )(line, [], call);
     assert.ok(!calls[0]?.args.some((arg) => arg.startsWith('BORROWED_')));
+  });
+
+  it('binds no store by default, from any repository', async () => {
+    const { calls, exec } = fake();
+    await sandboxedChecks(options(exec, { platform: 'linux', borrowedOf: () => [store] }))(
+      line,
+      [],
+      call,
+    );
+    assert.ok(!calls[0]?.args.includes(store));
+  });
+
+  // A brewer or a check writes its own worktree, and a sibling attempt's path is plain to work out:
+  // a record planted there is outside this worktree, but not in a folder Foedrum alone writes
+  // (review of #528).
+  it("binds no store a sibling attempt's worktree names, and binds one Foedrum's own git directory names", async () => {
+    const gitDirs = '/home/ada/.foedrum/acme/acme.api/git-dirs';
+    const borrowsFrom = insideFolders([gitDirs], (path) => path);
+    const sibling = fake();
+    await sandboxedChecks(
+      options(sibling.exec, {
+        platform: 'linux',
+        gitDirOf: () => '/home/ada/.foedrum/acme/attempts/12-1/build/1/x',
+        borrowedOf: () => [home],
+        borrowsFrom,
+      }),
+    )(line, [], call);
+    // The home folder only as the tmpfs that hides it.
+    assert.equal(sibling.calls[0]?.args.filter((arg) => arg === home).length, 1);
+    const own = fake();
+    const ownDir = `${gitDirs}/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.git`;
+    await sandboxedChecks(
+      options(own.exec, {
+        platform: 'linux',
+        gitDirOf: () => ownDir,
+        borrowedOf: () => [store],
+        borrowsFrom,
+      }),
+    )(line, [], call);
+    assert.ok(own.calls[0]?.args.includes(store));
   });
 
   it('lets a check read the store under Seatbelt, as a parameter, and write nothing there', async () => {
@@ -722,6 +767,24 @@ describe('sandboxedChecks for a repository that borrows an object store', () => 
   it('names no store in the profile when the repository borrows none', () => {
     assert.doesNotMatch(seatbeltProfile(0), /BORROWED/);
     assert.match(seatbeltProfile(0, { borrowed: 2 }), /\(param "BORROWED_1"\)/);
+  });
+});
+
+describe('insideFolders', () => {
+  const root = '/home/ada/.foedrum/acme/acme.api/git-dirs';
+  const own = `${root}/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.git`;
+
+  it('holds a repository whose real path lies inside a root, the root read by its real path too', () => {
+    assert.equal(insideFolders([root], (path) => path)(own), true);
+    const linked = (path: string) => path.replace('/home/ada/', '/var/home/ada/');
+    assert.equal(insideFolders([root], linked)(linked(own)), true);
+  });
+
+  it('holds neither the root itself, nor a folder beside it whose name only starts with it, nor any other', () => {
+    const inside = insideFolders([root], (path) => path);
+    assert.equal(inside(root), false);
+    assert.equal(inside(`${root}-x/0b6f2c1e.git`), false);
+    assert.equal(inside('/home/ada/.foedrum/acme/attempts/12-1/build/1/x'), false);
   });
 });
 

@@ -1100,6 +1100,104 @@ describe('runServe', () => {
       assert.deepStrictEqual(run, { started: true, aborted: true, settled: true });
     });
 
+    // On the way out a pass underway may wait for its deadline: the run is stopped first, and
+    // settles before the lock goes (review of #528).
+    it('stops a run on the merged tree before it waits for the pass, and lets the lock go once it settled', async () => {
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
+      const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
+      log.issue({ ...route, source: 'label' }, t0);
+      const succeeding: BrewerRunner = {
+        start: () => ({
+          ended: Promise.resolve({
+            ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          }),
+          stop: () => {},
+        }),
+        progress: () => undefined,
+      };
+      const events: string[] = [];
+      let started = false;
+      let stopped: () => void = () => {};
+      const aborted = new Promise<void>((resolve) => {
+        stopped = resolve;
+      });
+      // The pass's read of the pull request waits until the run was stopped.
+      const fetch: typeof globalThis.fetch = async (input, init) => {
+        const target = input instanceof Request ? input.url : String(input);
+        if (started && (init?.method ?? 'GET') === 'GET' && target.includes('/pulls/')) {
+          await aborted;
+          events.push('pass read');
+        }
+        return api.fetch(input, init);
+      };
+      const code = await runServe(
+        { ...setup, intake: { ...setup.intake, pollEveryMs: 0 } },
+        shell({
+          fetch,
+          // A hang guard only: the order of events is what the test reads.
+          intakeDeadlineMs: 5000,
+          runner: () => succeeding,
+          exec: async () => ({ exitCode: 0, stdout: 'ok 1\n', stderr: '', output: 'ok 1\n' }),
+          lock: () => ({
+            owner: 'cellar',
+            path: join(dir.path, 'drivers', 'cellar.lock'),
+            held: true,
+            release: () => {
+              events.push('lock released');
+            },
+          }),
+          stateBranch: () => ({
+            start: async () => ({ decision: 'ready' }),
+            flush: async () => {
+              if (events.includes('run started')) {
+                throw new StateBranchStopError('the push was rejected: another engine wrote');
+              }
+              return { kind: 'unchanged' };
+            },
+          }),
+          push: (repository) => ({
+            commit: async () => FAKE_COMMIT,
+            baseTip: async () => (pushes.length > 0 ? 'e' : 'b').repeat(40),
+            isAncestor: async (commit, of) => commit === of,
+            remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+            push: async (commit, branch) => {
+              pushes.push(`${repository.repo} ${commit} ${branch}`);
+            },
+            secretScan: async () => [],
+            touchedFiles: async () => [],
+          }),
+          mergeTree: () => async () => ({ kind: 'clean' }),
+          mergedTree: () => async (_head, _tip, _use, signal) => {
+            started = true;
+            events.push('run started');
+            await new Promise<void>((resolve) => {
+              signal?.addEventListener('abort', () => resolve(), { once: true });
+            });
+            events.push('run aborted');
+            stopped();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            events.push('run settled');
+            throw new Error('stopped');
+          },
+          wait: async () => {
+            calls.push('wait');
+            if (calls.length > 80) controller.abort();
+          },
+        }),
+      );
+      assert.equal(code, 1);
+      const at = (event: string) => events.indexOf(event);
+      assert.ok(at('run started') >= 0, events.join(', '));
+      // The run is stopped before the pass underway ends, and the lock goes after it settled.
+      assert.ok(at('pass read') === -1 || at('run aborted') < at('pass read'), events.join(', '));
+      assert.ok(
+        at('run settled') >= 0 && at('run settled') < at('lock released'),
+        events.join(', '),
+      );
+      assert.ok(!lines.some((line) => line.includes('longer than its deadline')), lines.join('\n'));
+    });
+
     it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {
       const { checks, events, batch } = await brewWithChecks(0);
       assert.equal(batch?.lane.kind, 'on_tap');

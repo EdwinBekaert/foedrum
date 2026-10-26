@@ -217,6 +217,16 @@ export const borrowedStores = (repository: string): string[] => {
     .map((line) => resolve(objects, line));
 };
 
+/**
+ * Whether a repository's real path lies inside one of `roots`, each read by its real path:
+ * the folders Foedrum alone writes, for `borrowsFrom` (ADR 0203).
+ */
+export const insideFolders =
+  (_roots: readonly string[], _realPath: (path: string) => string) =>
+  (_realRepository: string): boolean => {
+    throw new Error('not implemented');
+  };
+
 export interface SandboxedChecksOptions {
   /** The process runner the sandbox is started through. */
   exec: ExecProcess;
@@ -234,6 +244,11 @@ export interface SandboxedChecksOptions {
   gitDirOf?: (worktree: string) => string | undefined;
   /** The object stores a repository borrows; default `borrowedStores`. */
   borrowedOf?: (repository: string) => readonly string[];
+  /**
+   * Whether the sandbox binds the stores the repository at this real path borrows: one in a folder
+   * Foedrum alone writes (ADR 0203). Default none.
+   */
+  borrowsFrom?: (realRepository: string) => boolean;
   /** Default folders under `os.tmpdir()`. */
   temp?: TempFolders;
   /** Whether the sandbox keeps the network, as a repository's setup needs (ADR 0158). */
