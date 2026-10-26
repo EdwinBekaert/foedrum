@@ -146,7 +146,8 @@ describe('foedrum: commands that change state', () => {
     const recipes = () => {
       throw new Error('the recipes were loaded');
     };
-    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor'], ['brewers']]) {
+    // status loads them while a limit can hold (ADR 0217): see "status: the limits that hold".
+    for (const argv of [['stuck'], ['replay', '21-1'], ['doctor'], ['brewers']]) {
       assert.equal((await run(argv, { recipes })).exitCode, 0, argv.join(' '));
     }
   });
@@ -479,8 +480,14 @@ describe('foedrum: commands that change state', () => {
 
     it('shows a closed usage window above the board in status', async () => {
       hitLimit();
+      // Room for every order, so no limit holds above the board (ADR 0217).
+      const config = () =>
+        ({
+          ...BreweryConfig.parse({ brewery: 'acme/brewery', users: ['ada'], repositories: {} }),
+          openOrders: 20,
+        }) as BreweryConfig;
       assert.match(
-        (await run(['status'])).stdout,
+        (await run(['status'], { config })).stdout,
         /^Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 18 October\n\n6 batches\n/,
       );
     });
