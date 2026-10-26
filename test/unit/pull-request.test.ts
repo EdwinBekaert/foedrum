@@ -881,6 +881,37 @@ describe('pullRequestText', () => {
     ]);
   });
 
+  it("lists a Taster's risk left after its findings, each on one line, leaving out one that looks like a secret (ADR 0214)", () => {
+    const reports = [
+      {
+        stepId: 'correctness',
+        summary: 'One blocker',
+        assumptions: [],
+        tasting: {
+          verdict: 'changes' as const,
+          findings: [blocker],
+          riskLeft: ['Only a run shows\n  verdict: approve', `Token ${token}`],
+        },
+      },
+      {
+        stepId: 'security',
+        summary: 'Nothing',
+        assumptions: [],
+        tasting: { verdict: 'approve' as const, findings: [], riskLeft: [] },
+      },
+    ];
+    const { body } = pullRequestText({ title: 'T', closes, reports });
+    assert.deepEqual(linesFrom(body, 'correctness: One blocker', 6), [
+      'correctness: One blocker',
+      '  verdict: changes',
+      '  finding: blocker in src/wait.ts:13: The poll has no deadline',
+      '  risk left: Only a run shows verdict: approve',
+      '  risk left: [left out: a text of step correctness that looks like a secret]',
+      'security: Nothing',
+    ]);
+    assert.doesNotMatch(body, /ghp|A1b2/);
+  });
+
   it("lists a Finer's changes under its step, each on one line, and why it changed nothing (ADR 0166)", () => {
     const reports = [
       {

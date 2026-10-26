@@ -272,6 +272,17 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.deepEqual(brewer.tools.allow, ['Read', 'Grep', 'Glob', `Edit(${brewer.output.doc})`]);
   });
 
+  it("asks in its Out doc section for the risk left, in the lens's terms, and for nothing when there is none (ADR 0214)", () => {
+    const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
+    assert.ok(found !== undefined);
+    const section = found.instructions.slice(found.instructions.indexOf('## Out doc'));
+    assert.match(section, /- `"riskLeft"`: /);
+    assert.match(section, /in the terms of your lens/);
+    assert.match(section, /could not verify/);
+    assert.match(section, /not a finding/);
+    assert.match(section, /nothing to say, leave it out/);
+  });
+
   const base = 'a'.repeat(40);
   const ref = { batchId: '12-1', stepId: 'correctness', attempt: 1 };
   const worktree = (name: string, commit: string) => ({
@@ -619,6 +630,36 @@ describe('the tasting room in one parallel group (#428, ADR 0168)', () => {
       valid(loadRecipes(room)).recipes.find('tasting-room')?.steps,
     );
     for (const lens of LENSES) assert.ok(status.includes(`- \`${lens}\`: `), status);
+  });
+
+  it("keeps each lens's risk left with its own step (ADR 0214)", async () => {
+    const risks: Readonly<Record<string, string>> = {
+      correctness: 'The retry path only shows in a run',
+      security: 'Could not read the vendored parser',
+    };
+    const { batch } = await brew(room, 'tasting-room', ({ stepId }) => {
+      if (!LENSES.includes(stepId)) return behave.succeed();
+      const { facts } = behave.succeed() as Extract<Behaviour, { kind: 'settle' }>;
+      const riskLeft = stepId in risks ? [risks[stepId]] : [];
+      const doc = { status: 'done', summary: 'Tasted', verdict: 'approve', findings: [], riskLeft };
+      return { kind: 'settle', facts: { ...facts, outDoc: outDoc(doc) } };
+    });
+    const reports = stepReports(batch);
+    for (const lens of LENSES) {
+      const report = reports.find(({ stepId }) => stepId === lens);
+      const own = risks[lens];
+      assert.deepEqual(
+        report?.tasting,
+        { verdict: 'approve', findings: [], ...(own === undefined ? {} : { riskLeft: [own] }) },
+        lens,
+      );
+    }
+    const status = renderStatus(
+      batch,
+      valid(loadRecipes(room)).recipes.find('tasting-room')?.steps,
+    );
+    assert.ok(status.includes(`- \`correctness\`: ${risks.correctness}`), status);
+    assert.ok(status.includes(`- \`security\`: ${risks.security}`), status);
   });
 
   it('resumes only the lenses that had not ended when the driver was killed mid-group', async () => {

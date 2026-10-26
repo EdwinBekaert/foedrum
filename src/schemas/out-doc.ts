@@ -96,6 +96,10 @@ export const TastingFinding = z.strictObject({
 });
 export type TastingFinding = z.infer<typeof TastingFinding>;
 
+/** The most items a Taster's `riskLeft` lists, and the longest one (ADR 0214). */
+export const MOST_RISKS_LEFT = 10;
+export const MAX_RISK_LEFT = 300;
+
 /** A Taster's out doc: the contract's, with its findings, and a verdict when it is done. */
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
@@ -125,6 +129,8 @@ export const TastingOutDoc = outDocFrontmatter({
 export interface TastingReport {
   verdict: z.infer<typeof Verdict>;
   findings: readonly TastingFinding[];
+  /** The risk left after its review and what it could not verify (ADR 0214); none when empty. */
+  riskLeft?: readonly string[];
 }
 
 /**
