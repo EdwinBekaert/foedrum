@@ -126,15 +126,25 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
   const folders = inside.toSorted((a, b) => rank(a) - rank(b));
 
   if (folders.length === 0) {
-    // A bin folder of the user's that is on the PATH but not made yet only needs making.
+    say(`No folder on the PATH is inside ${home} to write the foedrum command into.`);
+    // Every folder lies inside a root home, so init names none, a system folder least of all.
+    if (rootHome) {
+      say(
+        'A home that is a root folder holds every folder, so init names none; write it by hand into a folder of yours on the PATH:',
+      );
+      for (const line of text.split(/\r?\n/).slice(0, -1)) say(`  ${line}`);
+      if (!windows) say('and run chmod 755 on it');
+      return;
+    }
+    // A bin folder of the user's on the PATH only needs making, or making writable.
     const listed = preferred.find((own) => onPath.some((folder) => same(folder, own)));
     const suggested = listed ?? (preferred[0] as string);
-    say(`No folder on the PATH is inside ${home} to write the foedrum command into.`);
     if (listed !== undefined) {
-      say(`Create ${suggested}: it is on the PATH already.`);
+      say(`Create ${suggested}, or make it writable: it is on the PATH already.`);
     } else if (windows) {
-      // PowerShell's single-quoted strings write a `'` as `''`.
-      const quoted = suggested.replaceAll("'", "''");
+      // PowerShell's single-quoted strings write each quote it reads as one twice, typographic
+      // ones too.
+      const quoted = suggested.replace(/['‘’‚‛]/g, (quote) => quote + quote);
       say(`Create ${suggested} and add it to your PATH, in PowerShell:`);
       say(
         `  New-Item -ItemType Directory -Force '${quoted}'; [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';${quoted}', 'User')`,
