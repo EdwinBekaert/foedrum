@@ -585,7 +585,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       // The commit its worktree started at, which a done of a brewer that commits needs one after.
       const batch = state().batches.get(ref.batchId);
       const start = worktreeOf(batch, ref)?.worktree.commit;
-      return attemptLimits(found.brewer, start, found.blocking, found.together);
+      const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
+      return attemptLimits(found.brewer, start, found.blocking, lenses);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

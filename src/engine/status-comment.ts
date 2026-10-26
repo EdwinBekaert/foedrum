@@ -518,14 +518,17 @@ const mostFindings = 10;
 /**
  * The findings of each Taster's step whose latest finished attempt succeeded (ADR 0161): a blocking
  * verdict ends its attempt blocked, and an earlier round's findings are no longer current. A step of
- * several lenses together shows `mostFindings` of each lens, as its lenses apart would (ADR 0220).
+ * several lenses together shows `mostFindings` of each lens, as its lenses apart would (ADR 0220):
+ * its schema has every finding name one of the step's lenses, which bounds the groups. Any other
+ * step shows `mostFindings` in all.
  */
 const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
   stepIds.flatMap((stepId) => {
-    const byLens = Map.groupBy(
-      tastingOf(latestOutput(batch, stepId))?.findings ?? [],
-      ({ lens }) => lens,
-    );
+    const findings = tastingOf(latestOutput(batch, stepId))?.findings ?? [];
+    const named = findings.every(({ lens }) => lens !== undefined);
+    const byLens = named
+      ? Map.groupBy(findings, ({ lens }) => lens)
+      : new Map([[undefined, findings]]);
     return [...byLens].flatMap(([lens, findings]) =>
       capped(
         stepId,

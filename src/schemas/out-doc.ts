@@ -137,16 +137,22 @@ export const TastingOutDoc = outDocFrontmatter({
 });
 
 /**
- * The out doc of a Taster's step that runs `lenses` together (ADR 0220): each finding names the
- * lens it was found through, one of the step's.
+ * The out doc of a Taster's step that reviews through `lenses` (ADR 0220): on a step of several
+ * together, each finding names the lens it was found through, one of the step's; on a one-lens step,
+ * a finding that names one names the step's, so no Taster labels its findings with lenses it was not
+ * given.
  */
 export const tastingOutDocOf = (lenses: readonly string[]): typeof TastingOutDoc =>
   TastingOutDoc.superRefine((doc, ctx) => {
+    const [one, ...more] = lenses;
     for (const [at, { lens }] of doc.findings.entries()) {
-      if (lens !== undefined && lenses.includes(lens)) continue;
+      if (lens === undefined ? more.length === 0 : lenses.includes(lens)) continue;
       ctx.addIssue({
         code: 'custom',
-        message: `Must name the lens it was found through: ${lenses.slice(0, -1).join(', ')} or ${lenses.at(-1)}`,
+        message:
+          more.length === 0
+            ? `Must be the step's lens, ${one}, or left out`
+            : `Must name the lens it was found through: ${lenses.slice(0, -1).join(', ')} or ${lenses.at(-1)}`,
         path: ['findings', at, 'lens'],
       });
     }

@@ -106,14 +106,14 @@ export interface PlanFacts {
  * The limits the runner enforces for an attempt of `brewer` in a worktree that started at
  * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074). A Taster's
  * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
- * blocks it by findings (ADR 0161). On a step of several lenses together, each finding names one of
- * `together` (ADR 0220).
+ * blocks it by findings (ADR 0161). Each finding that names a lens names one of the step's `lenses`,
+ * and on a step of several together each finding names one (ADR 0220).
  */
 export function attemptLimits(
   brewer: BrewerFrontmatter,
   start?: string,
   blocking = false,
-  together?: readonly string[],
+  lenses?: readonly string[],
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
@@ -122,9 +122,9 @@ export function attemptLimits(
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
-      ? together === undefined
+      ? lenses === undefined
         ? TastingOutDoc
-        : tastingOutDocOf(together)
+        : tastingOutDocOf(lenses)
       : name === PULL_REQUEST
         ? PullRequestOutDoc
         : name === FINING
