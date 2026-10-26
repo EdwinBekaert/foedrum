@@ -35,6 +35,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'release.observed':
     case 'order.paused':
     case 'order.continued':
+    case 'order.ranked':
       return undefined;
     case 'batch.ordered':
     case 'batch.recipe_chosen':

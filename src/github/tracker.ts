@@ -5,13 +5,13 @@
 import type { TargetTracker } from '../engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
 import { Repo } from '../schemas/events.ts';
-import { GitHubIssue, GitHubPullRequest } from '../schemas/github.ts';
+import { GitHubListedIssue, GitHubPullRequest } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
 /** What the intake reads of an issue GitHub listed. */
 const targetIssue = (body: unknown, what: string): TargetIssue => {
-  const issue = checked(GitHubIssue, body, what);
+  const issue = checked(GitHubListedIssue, body, what);
   return {
     number: issue.number,
     state: issue.state,
@@ -21,6 +21,7 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     assignees: assigneeLogins(issue.assignees),
     // A deleted account is nobody, so never an allow-listed author.
     author: issue.user?.login ?? '',
+    created: new Date(issue.created_at).toISOString(),
   };
 };
 

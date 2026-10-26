@@ -123,6 +123,32 @@ const IssueTarget = z
 export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: IssueTarget });
 export type OrderCommand = z.infer<typeof OrderCommand>;
 
+/** `first`, or a place of the intake's queue counted from 1 (ADR 0208). */
+const RankPlaceArgument = z.union([
+  z.literal('first'),
+  z
+    .string()
+    .regex(/^[1-9][0-9]{0,5}$/, 'Must be first, or a place in the queue counted from 1')
+    .transform(Number),
+]);
+
+/**
+ * `foedrum rank <order> [<n> | first] [--why <reason>]` (ADR 0208): an order as `pause` takes it,
+ * and where to put it in the intake's queue; with no place, it prints the order's.
+ */
+export const RankCommand = z
+  .strictObject({
+    command: z.literal('rank'),
+    order: IssueTarget,
+    place: RankPlaceArgument.optional(),
+    why: NonEmpty.optional(),
+  })
+  .refine(({ place, why }) => why === undefined || place !== undefined, {
+    message: 'Give --why with a place: <n> or first',
+    path: ['why'],
+  });
+export type RankCommand = z.infer<typeof RankCommand>;
+
 /**
  * `foedrum takeover <batch> [--as <name>]` (ADR 0124): the batch, and the driver it hands it to,
  * the Cellar's included.

@@ -8,6 +8,7 @@ import type {
   Event,
   GravityReading,
   OrderRef,
+  RankPlace,
   Receipt,
   ScheduleRoute,
   SessionRef,
@@ -241,6 +242,19 @@ export interface Pause {
   stopAt?: { at: string; zone: string };
 }
 
+/**
+ * A person's rank of an order of the intake's queue (ADR 0208): its place, and `seq`, which says
+ * which of the ranks in force came later.
+ */
+export interface Rank {
+  order: OrderRef;
+  place: RankPlace;
+  seq: number;
+  by: string;
+  via: Surface;
+  why?: string;
+}
+
 /** The pauses in force: of the whole Brewery (`--all`), and of each order by `orderKey`. */
 export interface Pauses {
   all?: Pause;
@@ -256,6 +270,8 @@ export interface State {
   /** The idempotency ledger: result by effect key (invariant I4). */
   effects: ReadonlyMap<string, unknown>;
   pauses: Pauses;
+  /** The ranks in force, by `orderKey` (ADR 0208). */
+  ranks: ReadonlyMap<string, Rank>;
 }
 
 export const emptyState: State = {
@@ -266,6 +282,7 @@ export const emptyState: State = {
   releases: [],
   effects: new Map(),
   pauses: { orders: new Map() },
+  ranks: new Map(),
 };
 
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
@@ -521,6 +538,13 @@ function apply(state: State, event: Event): State {
         }),
         subOrders,
       };
+    }
+    case 'order.ranked': {
+      const { order, place, by, via, why } = event;
+      const seq = 1 + Math.max(0, ...[...state.ranks.values()].map((rank) => rank.seq));
+      const rank: Rank = { order, place, seq, by, via, ...(why === undefined ? {} : { why }) };
+      // A later rank of the same order replaces the earlier one (ADR 0208).
+      return { ...state, ranks: put(state.ranks, orderKey(order), rank) };
     }
     case 'batch.waiting': {
       const { on, remindAt } = event;

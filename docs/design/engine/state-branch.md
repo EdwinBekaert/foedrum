@@ -22,7 +22,7 @@ sequenceDiagram
 ```
 
 - On a dedicated **`foedrum/state` branch** (keeping `main` for configuration), each batch has a folder with an append-only `events.jsonl` and its **out docs** (plans, reviews, reports) — readable, reviewable history.
-  Events without a batch (bottles, releases, pauses and continues) go to a top-level `events.jsonl`.
+  Events without a batch (bottles, releases, pauses and continues, and ranks) go to a top-level `events.jsonl`.
   Every line carries the store's event id, so a rebuild merges the files by id and gets the same ids and state ([ADR 0024](../../adr/0024-state-branch-layout-outbox-and-divergence.md)).
   Batch and step ids are path segments: lower case, a letter or digit at both ends, at most 64 characters, no Windows device names (`src/schemas/ids.ts`).
   A remote branch with a symbolic link or submodule is refused before checkout.

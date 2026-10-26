@@ -109,6 +109,7 @@ describe('foedrum: commands that change state', () => {
     readKeptBranches: async () => assert.fail('no kept branch to read'),
     config: () => assert.fail('no foedrum.jsonc to read'),
     claims: () => assert.fail('no claim host to reach'),
+    queue: () => assert.fail('no queue to read'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),
@@ -172,7 +173,31 @@ describe('foedrum: commands that change state', () => {
       pause: ['pause', '21'],
       continue: ['continue', '21'],
       order: ['order', '#99'],
+      rank: ['rank', '#98', 'first'],
       takeover: ['takeover', '22-1', '--as', 'ann'],
+    };
+    // rank reads the intake's queue: one labelled Brewery issue, #98 (ADR 0208).
+    const queued: Partial<CliContext> = {
+      config: () =>
+        BreweryConfig.parse({ brewery: 'acme/brewery', users: ['ada'], repositories: {} }),
+      queue: () => ({
+        tracker: {
+          issues: async () => [
+            {
+              number: 98,
+              state: 'open',
+              pullRequest: false,
+              labels: ['recipe:pint'],
+              milestone: undefined,
+              assignees: [],
+              author: 'ada',
+              created: iso(-60),
+            },
+          ],
+          pullRequest: async () => 'open',
+        },
+        login: async () => 'ada',
+      }),
     };
     // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123); so
     // is resume on a running batch (ADR 0127), and on a finished attempt it appends nothing.
@@ -182,7 +207,8 @@ describe('foedrum: commands that change state', () => {
     assert.deepStrictEqual(names, Object.keys(lines));
     for (const name of names) {
       opened = { readOnly: [], writable: [] };
-      assert.equal((await run(lines[name] ?? [])).exitCode, 0, name);
+      const overrides = name === 'rank' ? queued : {};
+      assert.equal((await run(lines[name] ?? [], overrides)).exitCode, 0, name);
       assert.deepStrictEqual(opened, { readOnly: [], writable: [storePath] }, name);
     }
   });
@@ -700,6 +726,7 @@ describe('foedrum stuck', () => {
       readKeptBranches: async () => assert.fail('no kept branch to read'),
       config: () => assert.fail('no foedrum.jsonc to read'),
       claims: () => assert.fail('no claim host to reach'),
+      queue: () => assert.fail('no queue to read'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
@@ -931,6 +958,7 @@ describe('foedrum brewers', () => {
       readKeptBranches: async () => assert.fail('no kept branch to read'),
       config: () => assert.fail('no foedrum.jsonc to read'),
       claims: () => assert.fail('no claim host to reach'),
+      queue: () => assert.fail('no queue to read'),
       serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
       brew: async () => assert.fail('no brew here'),
       watch: async () => assert.fail('no watch here'),
@@ -1078,6 +1106,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.equal(given, config);
       return github.host;
     },
+    queue: () => assert.fail('no queue to read'),
     serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),

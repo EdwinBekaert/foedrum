@@ -10,7 +10,13 @@ export interface FakeApiIssue {
   body?: string;
   title?: string;
   state?: 'open' | 'closed';
+  /** When it was created; by default a minute after 2026-10-01 per issue number. */
+  created?: string;
 }
+
+/** The creation time the fake gives an issue that names none: one minute per issue number. */
+export const createdOf = (number: number): string =>
+  new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString();
 
 /** A pull request the fake opened, as `POST /repos/{owner}/{repo}/pulls` asked for it. */
 export interface FakeApiPull {
@@ -104,6 +110,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     labels: found.labels.map((name) => ({ name })),
     assignees: (found.assignees ?? []).map((assignee) => ({ login: assignee })),
     body: found.body ?? null,
+    created_at: found.created ?? createdOf(found.number),
     ...(found.title === undefined ? {} : { title: found.title }),
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));

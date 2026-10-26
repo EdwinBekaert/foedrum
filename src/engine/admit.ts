@@ -125,6 +125,8 @@ function rule(state: State, event: Event): string | undefined {
     // The fold refuses a continue of what is not paused; a pause holds any order (ADR 0202).
     case 'order.paused':
     case 'order.continued':
+    // decide refuses a rank of an order that left the queue (ADR 0208).
+    case 'order.ranked':
       return undefined;
     case 'step.rescheduled':
       return lanes(state, event, ['brewing']);

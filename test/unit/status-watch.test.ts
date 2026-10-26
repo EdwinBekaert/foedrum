@@ -520,6 +520,7 @@ describe('foedrum status --watch: the command layer', () => {
     readKeptBranches: async () => assert.fail('no kept branch to read'),
     config: () => assert.fail('no foedrum.jsonc to read'),
     claims: () => assert.fail('no claim host to reach'),
+    queue: () => assert.fail('no queue to read'),
     serve: async () => assert.fail('no serve here'),
     brew: async () => assert.fail('no brew here'),
     watch: async () => assert.fail('no watch here'),

@@ -52,6 +52,7 @@ describe('githubTargetTracker', () => {
           milestone: 'M1',
           assignees: ['alice'],
           author: 'alice',
+          created: '2026-10-14T08:00:00.000Z',
         },
         {
           number: 8,
@@ -61,6 +62,7 @@ describe('githubTargetTracker', () => {
           milestone: undefined,
           assignees: [],
           author: 'bob',
+          created: '2026-10-15T08:00:00.000Z',
         },
         // A deleted account is nobody, so never an allow-listed author.
         {
@@ -71,6 +73,7 @@ describe('githubTargetTracker', () => {
           milestone: undefined,
           assignees: [],
           author: '',
+          created: '2026-10-15T09:00:00.000Z',
         },
       ]);
       assert.deepStrictEqual(
@@ -80,7 +83,13 @@ describe('githubTargetTracker', () => {
     });
 
     it('reads labels given as plain names, and assignees given as null', async () => {
-      const item = { number: 10, state: 'open', user: { login: 'alice' }, labels: ['foedrum'] };
+      const item = {
+        number: 10,
+        state: 'open',
+        user: { login: 'alice' },
+        labels: ['foedrum'],
+        created_at: '2026-10-14T08:00:00Z',
+      };
       const { tracker } = trackerWith([
         { status: 200, body: [{ ...item, assignees: null, milestone: null }] },
       ]);

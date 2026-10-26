@@ -10,6 +10,7 @@ import {
   MAX_OPEN_FINDING_TEXT,
   MOST_OPEN_FINDINGS,
   type OrderRef,
+  type RankPlace,
   type Receipt,
   type RoundsOut,
   type ScheduleRoute,
@@ -29,6 +30,7 @@ import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } 
 import { claimStanding, same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
+import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
@@ -145,7 +147,20 @@ export type PauseOrContinue =
     }
   | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
 
-export type Command = HumanCommand | PauseOrContinue | EngineCommand;
+/**
+ * A person's rank of an order of the intake's queue (ADR 0208); later the Innkeeper's (#227).
+ * `place`: marked "finish first", or a position kept as the arrival of the order that was there.
+ */
+export interface RankOrder {
+  kind: 'rank';
+  order: OrderRef;
+  place: RankPlace;
+  by: string;
+  via: Surface;
+  why?: string;
+}
+
+export type Command = HumanCommand | PauseOrContinue | RankOrder | EngineCommand;
 
 export interface Context {
   now: Date;
@@ -243,6 +258,20 @@ function run(draft: Draft, command: Command): Event[] {
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
         routeBy: draft.after(draft.context.routingMs),
         at: draft.after(0),
+      });
+      break;
+    }
+    case 'rank': {
+      const { order, place, by, via, why } = command;
+      const refused = rankRefusal(draft.state, order);
+      if (refused !== undefined) throw new Refusal(refused);
+      draft.push({
+        type: 'order.ranked',
+        order: { ...order },
+        place: { ...place },
+        by,
+        via,
+        ...(why === undefined ? {} : { why }),
       });
       break;
     }

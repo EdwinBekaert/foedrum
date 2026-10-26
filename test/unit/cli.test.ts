@@ -64,6 +64,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   readKeptBranches: async () => assert.fail('no kept branch to read'),
   config: () => assert.fail('no foedrum.jsonc to read'),
   claims: () => assert.fail('no claim host to reach'),
+  queue: () => assert.fail('no queue to read'),
   serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
   brew: async () => assert.fail('no brew here'),
   watch: async () => assert.fail('no watch here'),

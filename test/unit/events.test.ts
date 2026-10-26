@@ -162,6 +162,14 @@ const valid: Record<Event['type'], Event> = {
     zone: 'Europe/Brussels',
   },
   'order.continued': { type: 'order.continued', by: 'ada', via: 'plugin' },
+  'order.ranked': {
+    type: 'order.ranked',
+    order: { issue: 7, repo: 'acme/web' },
+    place: { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z', tie: 0.5 },
+    by: 'ada',
+    via: 'terminal',
+    why: 'the release needs it',
+  },
   'step.rescheduled': {
     type: 'step.rescheduled',
     batchId: 'b1',
@@ -277,6 +285,24 @@ describe('Event', () => {
     rejects(Event, finished([{ result: 'skipped' }]));
     rejects(Event, finished([{ result: 'passed', check: 'test' }]));
     rejects(Event, finished([{ ...exited, result: 'killed', killed: 'crashed' }]));
+  });
+
+  it('accepts a rank marked first, and refuses a place it cannot sort by (ADR 0208)', () => {
+    const ranked = valid['order.ranked'];
+    const place = { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z', tie: 0 };
+    accepts(Event, { ...ranked, place: { kind: 'first' } });
+    rejects(Event, { ...ranked, place: { kind: 'first', arrival: place.arrival } });
+    rejects(Event, { ...ranked, place: { ...place, position: 0 } });
+    rejects(Event, { ...ranked, place: { ...place, position: 1.5 } });
+    rejects(Event, { ...ranked, place: { kind: 'position', position: 2 } });
+    rejects(Event, { ...ranked, place: { ...place, arrival: 'yesterday' } });
+    accepts(Event, { ...ranked, place });
+    accepts(Event, { ...ranked, place: { ...place, tie: -1 } });
+    rejects(Event, { ...ranked, place: without(place, 'tie') });
+    rejects(Event, { ...ranked, place: { ...place, tie: 'x' } });
+    rejects(Event, { ...ranked, place: { kind: 'last' } });
+    rejects(Event, without(ranked, 'by'));
+    rejects(Event, { ...ranked, why: '' });
   });
 
   it('accepts an attempt scheduled by an onFail or onBlocked route (ADR 0064)', () => {
