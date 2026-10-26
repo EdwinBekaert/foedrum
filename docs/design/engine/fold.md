@@ -1,6 +1,7 @@
 # The fold and the guard
 
 Current state is a pure fold over events (`src/engine/fold.ts`): orders and sub-orders (one repository each) with their dependencies, batches with their lane, steps, attempts, rewinds, bottles, observed releases and the idempotency ledger.
+Each merge and each release gets a position, counted together in the order of the log (`State.merges`, `Release.seq`), so the ready set can tell a release after a merge from one before it ([ADR 0216](../../adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)).
 An issue is in at most one of `orders` and `subOrders`, and every batch is listed on exactly one of them.
 Breakdowns have one level ([work breakdown](../intake/work-breakdown.md)): only an order is decomposed.
 Several sub-orders of one order may target the same repository; the fold orders nothing among them beyond the recorded dependencies.

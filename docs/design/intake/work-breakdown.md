@@ -10,7 +10,7 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   A breakdown produced interactively with the `/foedrum:refine` plugin ([interactive refinement](../humans/refinement.md)) counts as approved.
 - **One sub-order, one repository.** A sub-order never spans repositories.
   A brewer *writes* in exactly one repository and may *read* sibling repositories for context.
-- **Each sub-order gets its own batch** and recipe, once it is **ready**: in its order's latest breakdown, without a batch, and every sub-order it is blocked by done, its pull request merged ([ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)).
+- **Each sub-order gets its own batch** and recipe, once it is **ready**: in its order's latest breakdown, without a batch, and every sub-order it is blocked by done, its pull request merged ([ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)), and for a `release` dependency a release of its repository recorded after that merge ([ADR 0216](../../adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)).
   The ready set is a pure function of the fold (`readySubOrders`, `src/engine/ready-set.ts`); the intake orders the ready sub-orders of all orders at their order's rank, in their plan's order ([ranking](ranking.md)), within the free capacity and their recipe's `concurrency`; the open-order limit never holds one ([limits](limits.md)).
   A sub-order of a paused order, of an order stopped while a batch of it is still Stuck `stopped`, or of an order whose latest batch was cancelled, is not ordered; a cancelled sub-order never is.
   A bottle's pull request counts as merged when a batch it bottles records it `merged`: whoever opens bottles lists it in each bottled batch's `batch.on_tap`.
@@ -23,13 +23,14 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
 | Kind | Meaning | The dependent batch waits for |
 |---|---|---|
 | `code` | Builds on another sub-order's code in the same repository | That sub-order's pull request to be merged, so it starts from a base that holds the change (ADR 0211) |
-| `release` | Needs a published version of another repository's library | The bottle to be merged, CI to publish, and the **release signal** to report the new version; the dependent batch then starts by bumping the dependency; until the release signal is recorded (#538) such a sub-order is never ready |
+| `release` | Needs a published version of another repository's library | That sub-order's pull request (or its bottle's) to be merged, and then a `release.observed` of its repository: any release of it after the merge counts, since a breakdown names no package or version (ADR 0216); the dependent batch's recipe then bumps the dependency |
 
 - **Release signals** are configured per repository: **GitHub release or tag** first; package registries (NuGet, npm, Maven, …) later through the same interface.
+  Nothing records a `release.observed` yet: the ready set reads recorded ones, and the intake reading each repository's latest release or tag is to come (ADR 0216).
   Developing against a pre-release build is a later option.
 
 An example: order 100 splits into four sub-orders, one repository each, bottled per repository.
-The api sub-order needs a published lib-core, so it conditions until the release signal reports it.
+The api sub-order needs a published lib-core, so it has no batch until a release of lib-core is recorded after Bottle A merged: it waits outside Conditioning, as a `code` wait does.
 
 ```mermaid
 flowchart TD
@@ -40,7 +41,7 @@ flowchart TD
   S1 -->|"code: once its pull request merged"| S2
   S1 & S2 --> BA["Bottle A: lib-core pull request"]
   BA -->|"merged, CI publishes"| R(["release lib-core 2.4.0"])
-  R -->|"release: conditioning until then"| S3
+  R -->|"release: no batch until then"| S3
   S3 --> BB["Bottle B: api pull request<br/>bumps lib-core first"]
   S4 --> BC["Bottle C: web pull request"]
 ```

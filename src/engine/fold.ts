@@ -262,6 +262,8 @@ export interface Release {
   repo: string;
   package: string;
   version: string;
+  /** Its position among the merges and releases the fold recorded (`State.merges`, ADR 0216). */
+  seq: number;
 }
 
 /**
@@ -312,6 +314,11 @@ export interface State {
   batches: ReadonlyMap<string, Batch>;
   bottles: ReadonlyMap<string, Bottle>;
   releases: readonly Release[];
+  /**
+   * The position of each pull request's first recorded merge, by URL, counted with the releases'
+   * `seq`: which release came after which merge (ADR 0216).
+   */
+  merges: ReadonlyMap<string, number>;
   /** The idempotency ledger: result by effect key (invariant I4). */
   effects: ReadonlyMap<string, unknown>;
   pauses: Pauses;
@@ -327,6 +334,7 @@ export const emptyState: State = {
   batches: new Map(),
   bottles: new Map(),
   releases: [],
+  merges: new Map(),
   effects: new Map(),
   pauses: { orders: new Map() },
   ranks: new Map(),
@@ -336,6 +344,12 @@ export const emptyState: State = {
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
 export const orderKey = ({ issue, repo }: OrderRef): string =>
   `${repo?.toLowerCase() ?? ''}#${issue}`;
+
+/**
+ * The position of the next merge or release: each one recorded adds one entry to `merges` or
+ * `releases`, so their sizes count them in the order of the log (ADR 0216).
+ */
+const nextPosition = (state: State): number => state.merges.size + state.releases.length + 1;
 
 /**
  * A log the fold cannot replay, and where it broke. The command layer refuses such events
@@ -606,7 +620,8 @@ function apply(state: State, event: Event): State {
     }
     case 'release.observed': {
       const { repo, package: name, version } = event;
-      return { ...state, releases: [...state.releases, { repo, package: name, version }] };
+      const release = { repo, package: name, version, seq: nextPosition(state) };
+      return { ...state, releases: [...state.releases, release] };
     }
     case 'batch.rewound': {
       const { batchId, toStepId, by, via, shas } = event;
@@ -633,12 +648,15 @@ function apply(state: State, event: Event): State {
       return setLane(state, event.batchId, { kind: 'cancelled', by: event.by, via: event.via });
     case 'pull_request.ended': {
       const { batchId, pullRequest, state: end } = event;
-      return updateBatch(state, batchId, (batch) => {
+      const ended = updateBatch(state, batchId, (batch) => {
         if (batch.pullRequestEnds?.[pullRequest] !== undefined) {
           throw reject(`pull request ${pullRequest} of batch ${batchId} already ended`);
         }
         return { ...batch, pullRequestEnds: { ...batch.pullRequestEnds, [pullRequest]: end } };
       });
+      // A bottle's pull request is recorded merged by each batch it bottles: the first counts.
+      if (end === 'closed' || ended.merges.has(pullRequest)) return ended;
+      return { ...ended, merges: put(ended.merges, pullRequest, nextPosition(state)) };
     }
     case 'pull_request.base_checked': {
       const { batchId, pullRequest, branch, tip, conflicts, branchMoved, failed, unchecked } =

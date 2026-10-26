@@ -1,6 +1,7 @@
-// The ready set (ADR 0211) over generated breakdowns: one intake pass never orders a sub-order whose
-// blocker has not merged, never more than the free capacity, and every ready sub-order while a slot
-// is free. The oracle below reads the generated plan, not the fold.
+// The ready set (ADR 0211, ADR 0216) over generated breakdowns: one intake pass never orders a
+// sub-order whose blocker has not merged, or for a `release` blocker was not released after its merge,
+// never more than the free capacity, and every ready sub-order while a slot is free. The oracle below
+// reads the generated plan, not the fold.
 
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
@@ -26,8 +27,12 @@ interface Plan {
   events: Event[];
   listed: TargetIssue[];
   capacity: number;
-  /** Every sub-order, with its order and how it stands. */
-  subOrders: Map<number, { order: number; standing: Standing }>;
+  /** Every sub-order, with its order, its repository and how it stands. */
+  subOrders: Map<number, { order: number; repo: string; standing: Standing }>;
+  /** Where in `events` each merged sub-order's merge was recorded. */
+  merges: Map<number, number>;
+  /** Where in `events` each release was recorded, and of which repository, in any case. */
+  releases: { at: number; repo: string }[];
   dependencies: Dependency[];
   /** The batches Ordered or Brewing before the pass. */
   busy: number;
@@ -37,8 +42,17 @@ const generate = (seed: number): Plan => {
   const random = seededRandom(seed);
   const events: Event[] = [];
   const listed: TargetIssue[] = [];
-  const subOrders = new Map<number, { order: number; standing: Standing }>();
+  const subOrders = new Map<number, { order: number; repo: string; standing: Standing }>();
+  const merges = new Map<number, number>();
+  const releases: { at: number; repo: string }[] = [];
   const dependencies: Dependency[] = [];
+  const repos = ['acme/web', 'acme/lib-core'];
+  /** A release of `repo`, written in either case: GitHub's names are case-insensitive. */
+  const release = (repo: string): void => {
+    const written = random.pick([repo, repo.toUpperCase()]);
+    releases.push({ at: events.length, repo: written });
+    events.push({ type: 'release.observed', repo: written, package: 'lib', version: '1.0.0' });
+  };
   let busy = 0;
   let number = 1;
   const issue = (n: number): TargetIssue => ({
@@ -57,6 +71,7 @@ const generate = (seed: number): Plan => {
     listed.push(issue(order));
     events.push({ type: 'batch.ordered', batchId, order: { issue: order }, routeBy });
     const plan = Array.from({ length: 1 + random.int(5) }, () => number++);
+    const repoOf = new Map(plan.map((n) => [n, random.pick(repos)]));
     const blocks: Dependency[] = [];
     plan.forEach((subOrder, i) => {
       // Blocked only by an earlier sub-order of the plan: no cycle.
@@ -73,7 +88,7 @@ const generate = (seed: number): Plan => {
     events.push({
       type: 'order.decomposed',
       batchId,
-      subOrders: plan.map((n) => ({ issue: n, repo: 'acme/web' })),
+      subOrders: plan.map((n) => ({ issue: n, repo: repoOf.get(n) as string })),
       dependencies: blocks,
     });
     events.push({ type: 'batch.on_tap', batchId, pullRequests: [] });
@@ -88,10 +103,11 @@ const generate = (seed: number): Plan => {
         'closed',
         'merged',
       ]);
-      subOrders.set(subOrder, { order, standing });
+      const repo = repoOf.get(subOrder) as string;
+      subOrders.set(subOrder, { order, repo, standing });
       if (standing === 'none') continue;
       const id = `${subOrder}-1`;
-      const url = `https://github.com/acme/web/pull/${subOrder}`;
+      const url = `https://github.com/${repo}/pull/${subOrder}`;
       events.push({
         type: 'batch.ordered',
         batchId: id,
@@ -104,12 +120,42 @@ const generate = (seed: number): Plan => {
         continue;
       }
       events.push({ type: 'batch.on_tap', batchId: id, pullRequests: [url] });
-      if (standing !== 'open') {
-        events.push({ type: 'pull_request.ended', batchId: id, pullRequest: url, state: standing });
-      }
+      if (standing === 'open') continue;
+      // A release before the merge never counts for it; one after, of its repository, does.
+      if (random.chance(0.3)) release(repo);
+      if (standing === 'merged') merges.set(subOrder, events.length);
+      events.push({ type: 'pull_request.ended', batchId: id, pullRequest: url, state: standing });
+      if (random.chance(0.5)) release(random.pick(repos));
     }
   }
-  return { events, listed, capacity: random.int(8), subOrders, dependencies, busy };
+  return {
+    events,
+    listed,
+    capacity: random.int(8),
+    subOrders,
+    merges,
+    releases,
+    dependencies,
+    busy,
+  };
+};
+
+/** Whether `blockedBy` is done for a dependency of `kind`, by the generated plan alone. */
+const isDone = (plan: Plan, { blockedBy, kind }: Dependency): boolean => {
+  const merged = plan.merges.get(blockedBy);
+  if (merged === undefined) return false;
+  switch (kind) {
+    case 'code':
+      return true;
+    case 'release': {
+      const repo = plan.subOrders.get(blockedBy)?.repo;
+      return plan.releases.some(
+        (release) => release.at > merged && release.repo.toLowerCase() === repo,
+      );
+    }
+    default:
+      return kind satisfies never;
+  }
 };
 
 /** Whether `subOrder` may start, by the generated plan alone. */
@@ -117,10 +163,7 @@ const isReady = (plan: Plan, subOrder: number): boolean =>
   plan.subOrders.get(subOrder)?.standing === 'none' &&
   plan.dependencies
     .filter((dependency) => dependency.subOrder === subOrder)
-    .every(
-      ({ blockedBy, kind }) =>
-        kind === 'code' && plan.subOrders.get(blockedBy)?.standing === 'merged',
-    );
+    .every((dependency) => isDone(plan, dependency));
 
 it('one pass orders only ready sub-orders, within the free capacity, and all of them while slots are free', () =>
   forEachSeedAsync(100, async (seed) => {

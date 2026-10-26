@@ -1,7 +1,9 @@
-// The ready set (ADR 0211): the sub-orders the intake may start now, a pure function of the folded
-// state. A sub-order is ready when it is in its order's latest breakdown, has no batch yet, and
-// every sub-order it is blocked by is done: its pull request merged.
+// The ready set (ADR 0211, ADR 0216): the sub-orders the intake may start now, a pure function of the
+// folded state. A sub-order is ready when it is in its order's latest breakdown, has no batch yet,
+// and every sub-order it is blocked by is done: its pull request merged, and for a `release`
+// dependency, a release of its repository recorded after that merge.
 
+import type { Dependency } from '../schemas/events.ts';
 import { orderKey, type State } from './fold.ts';
 import { orderOfBatch } from './pauses.ts';
 
@@ -12,28 +14,42 @@ export interface ReadySubOrder {
   parentBatchId: string;
 }
 
-/** The pull requests some batch recorded `merged`. */
-const mergedPullRequests = (state: State): Set<string> => {
-  const merged = new Set<string>();
-  for (const batch of state.batches.values()) {
-    for (const [url, end] of Object.entries(batch.pullRequestEnds ?? {})) {
-      if (end === 'merged') merged.add(url);
-    }
-  }
-  return merged;
-};
+/**
+ * Where the fold recorded the merges of `issue`'s pull requests: of one of its batches, or of a
+ * bottle it is in, which its bottled batches record as theirs (ADR 0211).
+ */
+const mergesOf = (state: State, issue: number): number[] =>
+  [
+    ...(state.subOrders.get(issue)?.batchIds ?? []).flatMap((id) =>
+      Object.entries(state.batches.get(id)?.pullRequestEnds ?? {})
+        .filter(([, end]) => end === 'merged')
+        .map(([url]) => url),
+    ),
+    ...[...state.bottles.values()]
+      .filter((bottle) => bottle.subOrders.includes(issue))
+      .map((bottle) => bottle.pullRequest),
+  ].flatMap((url) => state.merges.get(url) ?? []);
 
 /**
- * Whether `issue` is done: a pull request of one of its batches merged, or of a bottle it is in,
- * which its bottled batches record as theirs (ADR 0211).
+ * Whether the sub-order a dependency is blocked by is done: its pull request merged, and for
+ * `release`, its repository released after that merge, in any case (ADR 0211, ADR 0216).
  */
-const isDone = (state: State, issue: number, merged: ReadonlySet<string>): boolean =>
-  (state.subOrders.get(issue)?.batchIds ?? []).some((id) =>
-    Object.values(state.batches.get(id)?.pullRequestEnds ?? {}).includes('merged'),
-  ) ||
-  [...state.bottles.values()].some(
-    (bottle) => bottle.subOrders.includes(issue) && merged.has(bottle.pullRequest),
-  );
+const isDone = (state: State, { blockedBy, kind }: Dependency): boolean => {
+  const merges = mergesOf(state, blockedBy);
+  switch (kind) {
+    case 'code':
+      return merges.length > 0;
+    case 'release': {
+      const repo = state.subOrders.get(blockedBy)?.repo.toLowerCase();
+      return state.releases.some(
+        (release) =>
+          release.repo.toLowerCase() === repo && merges.some((merged) => merged < release.seq),
+      );
+    }
+    default:
+      return kind satisfies never;
+  }
+};
 
 /** The Brewery orders a person stopped that still have a batch Stuck for it (ADR 0205). */
 const stoppedOrders = (state: State): Set<number> => {
@@ -48,7 +64,6 @@ const stoppedOrders = (state: State): Set<number> => {
 
 /** The ready sub-orders of every order not held, by order number, each order's in its plan's order. */
 export const readySubOrders = (state: State): ReadySubOrder[] => {
-  const merged = mergedPullRequests(state);
   const stopped = stoppedOrders(state);
   const ready: ReadySubOrder[] = [];
   const orders = [...state.orders.values()].sort((one, other) => one.issue - other.issue);
@@ -62,11 +77,9 @@ export const readySubOrders = (state: State): ReadySubOrder[] => {
     for (const issue of subOrders) {
       if ((state.subOrders.get(issue)?.batchIds.length ?? 0) > 0) continue;
       const blockers = dependencies.filter((dependency) => dependency.subOrder === issue);
-      // `release` waits for a release signal no one records yet (#538).
-      const unblocked = blockers.every(
-        ({ blockedBy, kind }) => kind === 'code' && isDone(state, blockedBy, merged),
-      );
-      if (unblocked) ready.push({ order, issue, parentBatchId });
+      if (blockers.every((blocker) => isDone(state, blocker))) {
+        ready.push({ order, issue, parentBatchId });
+      }
     }
   }
   return ready;
