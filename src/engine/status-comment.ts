@@ -464,13 +464,12 @@ const mostSensitive = 10;
 
 /**
  * The sensitive files the push of a batch's pull request recorded (ADR 0201), as one line: the
- * first `mostSensitive`, each as a committer named it, and a count of the rest; none without them.
+ * first `mostSensitive`, each as a committer named it, and a count of the rest.
  */
-const sensitiveLine = (sensitive: SensitiveFiles | undefined): string[] => {
-  if (sensitive === undefined) return [];
+const sensitiveLine = (sensitive: SensitiveFiles): string => {
   const named = sensitive.files.slice(0, mostSensitive).map(plain);
   const more = sensitive.count - named.length;
-  return [`Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`];
+  return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
 /**
@@ -522,8 +521,7 @@ export const renderStatus = (
           ],
     );
   }
-  const touched = sensitiveLine(sensitive);
-  if (touched.length > 0) sections.push(touched);
+  if (sensitive !== undefined) sections.push([sensitiveLine(sensitive)]);
   const text = sections.map((lines) => lines.join('\n')).join('\n\n');
   if (text.length <= longestText) return text;
   // Whole lines only, so no escape or entity is cut in half.

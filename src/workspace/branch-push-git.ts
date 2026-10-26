@@ -304,9 +304,8 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         since,
         commit,
       ];
-      const result = await local(clone, args, aborts(signal));
-      if (result.code !== 0) throw new Error(`git diff failed: ${firstLine(result)}`);
-      return result.stdout.split('\0').filter((path) => path !== '');
+      const listed = await gitOutput(local, clone, args, aborts(signal));
+      return listed.split('\0').filter((path) => path !== '');
     },
   };
 };
