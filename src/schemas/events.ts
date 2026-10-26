@@ -63,6 +63,13 @@ export const HeadCheck = z.strictObject({
 });
 export type HeadCheck = z.infer<typeof HeadCheck>;
 
+/** The most failed checks a batch Stuck on its pull request's checks names (ADR 0219). */
+export const MOST_FAILED_CHECKS = 5;
+
+/** A failed check a batch Stuck on its pull request's checks names (ADR 0219). */
+export const FailedCheck = HeadCheck.pick({ name: true, conclusion: true, url: true });
+export type FailedCheck = z.infer<typeof FailedCheck>;
+
 /** Where a command or answer came from (ADR 0019). */
 export const Surface = z.enum(['plugin', 'terminal', 'comment', 'dashboard']);
 export type Surface = z.infer<typeof Surface>;
@@ -114,9 +121,18 @@ export type OrderRef = z.infer<typeof OrderRef>;
 
 /**
  * The route back that scheduled an attempt (ADR 0064): from the step whose check failed
- * (`onFail`) or whose brewer was blocked by findings (`onBlocked`).
+ * (`onFail`) or whose brewer was blocked by findings (`onBlocked`), or from the openPullRequest
+ * step whose pull request failed its checks on `head` (`onPullRequestFail`, ADR 0219).
  */
-export const ScheduleRoute = z.strictObject({ from: StepId, why: z.enum(['failed', 'findings']) });
+export const ScheduleRoute = z.discriminatedUnion('why', [
+  z.strictObject({ from: StepId, why: z.enum(['failed', 'findings']) }),
+  z.strictObject({
+    from: StepId,
+    why: z.literal('pull_request'),
+    pullRequest: PullRequestUrl,
+    head: CommitSha,
+  }),
+]);
 export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
 
 /** A sub-order writes in exactly one repository (architecture §3.2). */
@@ -296,6 +312,17 @@ export const StuckReason = z.discriminatedUnion('kind', [
   }),
   // An Ordered batch that nothing routed by its routing deadline (ADR 0032).
   z.strictObject({ kind: z.literal('routing'), deadlineAt: Timestamp }),
+  // The openPullRequest step `stepId`'s pull request failed its checks on `head` with its
+  // onPullRequestFail rounds used: the first failed checks, and how many more (ADR 0219).
+  z.strictObject({
+    kind: z.literal('pull_request_failed'),
+    stepId: StepId,
+    pullRequest: PullRequestUrl,
+    head: CommitSha,
+    rounds: Count,
+    failed: z.array(FailedCheck).max(MOST_FAILED_CHECKS),
+    more: Count,
+  }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({
     kind: z.literal('stopped'),

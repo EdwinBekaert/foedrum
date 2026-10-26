@@ -2,7 +2,11 @@
 // The state machine handles every outcome and blocker kind itself; a recipe only answers these
 // questions, so recipe files (#52) can change without touching the lifecycle.
 
+import type { ScheduleRoute } from '../schemas/events.ts';
 import type { Batch } from './fold.ts';
+
+/** Why a route sends a batch back: a failed check, findings, or its pull request (ADR 0219). */
+export type RouteWhy = ScheduleRoute['why'];
 
 /** An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071). */
 export type RecipeAction = 'openPullRequest';
@@ -66,15 +70,18 @@ export interface Recipe {
   /** Whether `stepId` gets another attempt after a failed or cancelled one (`maxAttempts`). */
   mayRetry(batch: Batch, stepId: string): boolean;
   /**
-   * The step an `onFail` route (a failed check) or an `onBlocked: findings` route sends `batch`
-   * back to, or `undefined` when `stepId` has no such route or its rounds are used up.
+   * The step an `onFail` route (a failed check), an `onBlocked: findings` route or an
+   * `onPullRequestFail` route (ADR 0219) sends `batch` back to, or `undefined` when `stepId` has no
+   * such route or its rounds are used up.
    */
-  loopBack(batch: Batch, stepId: string, why: 'failed' | 'findings'): string | undefined;
+  loopBack(batch: Batch, stepId: string, why: RouteWhy): string | undefined;
+  /** The step the `why` route of `stepId` goes back to, whatever its rounds; `undefined` without one. */
+  routesTo(stepId: string, why: RouteWhy): string | undefined;
   /**
    * How many rounds the `why` route of `stepId` has sent `batch` back, or `undefined` when the step
    * has no such route (ADR 0064, ADR 0192).
    */
-  rounds(batch: Batch, stepId: string, why: 'failed' | 'findings'): number | undefined;
+  rounds(batch: Batch, stepId: string, why: RouteWhy): number | undefined;
 }
 
 export interface Recipes {

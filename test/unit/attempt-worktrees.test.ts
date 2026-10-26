@@ -584,6 +584,46 @@ describe('planClean', () => {
     });
   });
 
+  describe('the task tree of an open pull request (ADR 0219)', () => {
+    const taskTree = ref('12-1', 'brew', 2);
+    const name = attemptBranch(taskTree);
+    const keptLine = `kept branch ${name}: it holds the task tree of batch 12-1, whose pull request is open (ADR 0219)`;
+    const open: Claims = { ...claims({ '12-1': 'ended' }), open: new Set([name]) };
+
+    it('removes its worktree but keeps its branch for a fix round, and says why', () => {
+      const worktree = listed(taskTree);
+
+      const plan = planClean(facts([worktree]), open, root);
+
+      assert.deepEqual(plan.actions[0], {
+        kind: 'remove',
+        label: '12-1/brew/2',
+        path: worktree.path,
+        record: worktree.record,
+        branch: undefined,
+      });
+      assert.ok(!plan.actions.some((action) => action.kind === 'delete-branch'));
+      assert.deepEqual(plan.kept, [keptLine]);
+    });
+
+    it('deletes the other branches of the batch', () => {
+      const other = ref('12-1', 'brew', 1);
+
+      const plan = planClean(
+        { worktrees: [], branches: [branchOf(other), branchOf(taskTree)], folders: [] },
+        open,
+        root,
+      );
+
+      assert.deepEqual(plan, {
+        actions: [
+          { kind: 'delete-branch', branch: attemptBranch(other), tip: tipOf(attemptBranch(other)) },
+        ],
+        kept: [keptLine],
+      });
+    });
+  });
+
   it('keeps the empty folder of a live batch', () => {
     const plan = planClean(
       { worktrees: [], branches: [], folders: [{ batchId: '13-1', attempts: [] }] },

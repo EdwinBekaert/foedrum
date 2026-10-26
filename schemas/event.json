@@ -180,25 +180,57 @@
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
         },
         "route": {
-          "type": "object",
-          "properties": {
-            "from": {
-              "type": "string",
-              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "why": {
+                  "type": "string",
+                  "enum": [
+                    "failed",
+                    "findings"
+                  ]
+                }
+              },
+              "required": [
+                "from",
+                "why"
+              ],
+              "additionalProperties": false
             },
-            "why": {
-              "type": "string",
-              "enum": [
-                "failed",
-                "findings"
-              ]
+            {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "why": {
+                  "type": "string",
+                  "const": "pull_request"
+                },
+                "pullRequest": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "head": {
+                  "type": "string",
+                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                }
+              },
+              "required": [
+                "from",
+                "why",
+                "pullRequest",
+                "head"
+              ],
+              "additionalProperties": false
             }
-          },
-          "required": [
-            "from",
-            "why"
-          ],
-          "additionalProperties": false
+          ]
         },
         "retry": {
           "type": "boolean",
@@ -1315,6 +1347,87 @@
               "required": [
                 "kind",
                 "deadlineAt"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "pull_request_failed"
+                },
+                "stepId": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "pullRequest": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "head": {
+                  "type": "string",
+                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "rounds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "failed": {
+                  "maxItems": 5,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "conclusion": {
+                        "type": "string",
+                        "enum": [
+                          "success",
+                          "neutral",
+                          "skipped",
+                          "failure",
+                          "cancelled",
+                          "timed_out",
+                          "action_required",
+                          "stale",
+                          "startup_failure",
+                          "error",
+                          "unknown"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "conclusion"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "more": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "stepId",
+                "pullRequest",
+                "head",
+                "rounds",
+                "failed",
+                "more"
               ],
               "additionalProperties": false
             },
