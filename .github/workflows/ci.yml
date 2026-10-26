@@ -101,6 +101,33 @@ jobs:
       - name: npm run test:integration
         run: npm run test:integration
 
+      # TEMPORARY (#425): why pasta cannot join bwrap's network namespace here. Removed before the
+      # pull request is ready.
+      - name: Diagnose the setup's network stack
+        if: ${{ always() && matrix.os == 'ubuntu-latest' }}
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y slirp4netns > /dev/null
+          pasta --version | head -1; slirp4netns --version | head -1; bwrap --version
+          ls -l /etc/apparmor.d | grep -iE 'pasta|passt|slirp|bwrap' || true
+          sudo aa-status 2>/dev/null | grep -iE 'pasta|passt|slirp|bwrap|unprivileged' || true
+          sudo grep -iE 'pasta|passt|slirp|bwrap|unprivileged' /sys/kernel/security/apparmor/profiles || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          attach() {
+            echo "== $1"
+            "${@:2}" & local holder=$!
+            sleep 1
+            local pid; pid=$(pgrep -P "$holder" | head -1); pid=${pid:-$holder}
+            echo "target $pid: $(readlink /proc/$pid/ns/user) $(readlink /proc/$pid/ns/net), AppArmor label: $(cat /proc/$pid/attr/current 2>/dev/null)"
+            echo "its parent $holder, AppArmor label: $(cat /proc/$holder/attr/current 2>/dev/null)"
+            timeout 10 pasta --config-net --quiet -4 -a 10.0.2.100 -n 24 -g 10.0.2.2 --no-map-gw -t none -u none -T none -U none "$pid"; echo "pasta exit $?"
+            timeout 5 slirp4netns --configure --mtu=65520 --disable-host-loopback "$pid" tap1; echo "slirp4netns exit $?"
+            kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+          }
+          attach "unshare -Urn" unshare -Urn sleep 30
+          attach "bwrap, as a setup" bwrap --die-with-parent --unshare-pid --new-session --unshare-net --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp sleep 30
+          sudo dmesg | grep -iE 'apparmor="DENIED"' | tail -30 || true
+
       # The properties of invariants I1–I6 with many more seeds than npm run check runs within its
       # per-file budget (architecture §9): 500 scenarios per invariant on the Linux leg, and 1,000
       # on every leg in the nightly run. The scenarios are a pure function of the seed and the code
