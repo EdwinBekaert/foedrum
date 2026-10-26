@@ -169,6 +169,8 @@ describe('foedrum: commands that change state', () => {
       recipe: ['recipe', '25-1', 'stout', 'start over'],
       rewind: ['rewind', '26-1', 'plan', `acme/app=${SHA}`],
       cancel: ['cancel', '23-1'],
+      pause: ['pause', '21'],
+      continue: ['continue', '21'],
       order: ['order', '#99'],
       takeover: ['takeover', '22-1', '--as', 'ann'],
     };

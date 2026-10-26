@@ -94,7 +94,7 @@ A brewer is a reusable agent role; a recipe puts brewers, checks and actions in 
 Gravity readings run the repository's own commands at zero model tokens, in an OS sandbox where one exists, and the red proof makes recipes test-first by structure: [check steps](design/checks/check-steps.md), [the check sandbox](design/checks/sandbox.md), [the red proof](design/checks/red-proof.md).
 
 **[Humans in the loop](design/humans/README.md).**
-An engineer drives a batch from a Claude Code session, every action is one typed command, and GitHub shows the status: [foedrum brew and the plugin](design/humans/brew.md), [one command layer](design/humans/commands.md), [the plugin](design/humans/plugin.md), [on GitHub](design/humans/github.md), [interactive refinement](design/humans/refinement.md).
+An engineer drives a batch from a Claude Code session, every action is one typed command, and GitHub shows the status: [foedrum brew and the plugin](design/humans/brew.md), [one command layer](design/humans/commands.md), [pause and continue](design/humans/pause.md), [the plugin](design/humans/plugin.md), [on GitHub](design/humans/github.md), [interactive refinement](design/humans/refinement.md).
 
 **[Testing strategy](design/testing/README.md).**
 Stability is proven, not claimed: [unit](design/testing/unit.md), [integration](design/testing/integration.md), [fake brewer runner](design/testing/fake-runner.md), [property](design/testing/property.md), [chaos](design/testing/chaos.md) and [end-to-end](design/testing/end-to-end.md) tests.

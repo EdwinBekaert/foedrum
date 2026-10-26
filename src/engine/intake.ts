@@ -321,7 +321,8 @@ export const createIntake = (options: IntakeOptions): Intake => {
         report({ kind: 'failed', what, error });
       await checkBases({ log, repositories: bases, clock, failed }, signal);
     }
-    let free = freeCapacity(log.state(), capacity);
+    // pause --all holds the intake: it orders and claims nothing, and still routes (ADR 0202).
+    let free = log.state().pauses.all === undefined ? freeCapacity(log.state(), capacity) : 0;
     // The Brewery's issues read in this pass, for routing: target issues never route (ADR 0156).
     let listed: readonly TargetIssue[] = [];
     // The Brewery's own issues first: its owners' requests, before a shared queue (ADR 0068).

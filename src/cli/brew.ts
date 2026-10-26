@@ -12,6 +12,7 @@ import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
+import { pauseOf } from '../engine/pauses.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
@@ -265,6 +266,13 @@ export const runBrew = async (
       return refuse(
         `batch ${latest.id} of ${named} is ${lane}; foedrum order ${asGiven} orders it again`,
       );
+    }
+    // A paused order would wait with nothing to do: it is continued first (ADR 0202).
+    if (log.state().pauses.all !== undefined) {
+      return refuse('the Brewery is paused; foedrum continue --all lets it brew');
+    }
+    if (latest !== undefined && pauseOf(log.state(), latest) !== undefined) {
+      return refuse(`${named} is paused; foedrum continue ${asGiven} lets it brew`);
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));

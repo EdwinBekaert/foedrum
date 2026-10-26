@@ -11,8 +11,16 @@ import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
-import { type Batch, emptyState, fold, InvalidLogError, type State } from '../engine/fold.ts';
+import {
+  type Batch,
+  emptyState,
+  fold,
+  InvalidLogError,
+  orderKey,
+  type State,
+} from '../engine/fold.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
+import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -22,9 +30,12 @@ import {
   BrewersCommand,
   CancelCommand,
   CELLAR_OWNER,
+  ContinueCommand,
   DoctorCommand,
   InitCommand,
   OrderCommand,
+  type OrderTarget,
+  PauseCommand,
   RecipeCommand,
   ReplayCommand,
   ResumeCommand,
@@ -35,12 +46,13 @@ import {
   StuckCommand,
   TakeoverCommand,
 } from '../schemas/commands.ts';
-import type { OrderRef, Surface } from '../schemas/events.ts';
+import type { Event, OrderRef, Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { brewerReport, formatBrewerReport, recipesRun } from './brewer-report.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import { brewOwner } from './driver-owner.ts';
 import { keptBranchLines } from './kept-branches.ts';
+import { stopInstant } from './pause-time.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
 import { NAME_THE_BREWERY } from './serve-config.ts';
@@ -211,6 +223,25 @@ const claimOf = (
   return { repo, alias, brewery: config.brewery, config };
 };
 
+/** An order as a person wrote it: `<alias>#<n>` or `#<n>`. */
+const givenName = ({ alias, issue }: OrderTarget): string => `${alias ?? ''}#${issue}`;
+
+/**
+ * The order `target` names: a Brewery issue, or a target repository's by its alias in
+ * foedrum.jsonc (ADR 0202).
+ */
+const orderRefOf = (target: OrderTarget, context: CliContext): OrderRef | { refused: string } => {
+  const { alias, issue } = target;
+  if (alias === undefined) return { issue };
+  const found = Object.entries(context.config().repositories).find(
+    ([, repository]) => repository.alias === alias,
+  );
+  if (found === undefined) {
+    return { refused: `foedrum.jsonc names no repository with the alias ${alias}` };
+  }
+  return { issue, repo: found[0] };
+};
+
 /** The questions `batch` asks while Stuck on `needs_input`, in order; none otherwise. */
 const questionsOf = (state: State, batchId: string): readonly string[] => {
   const lane = state.batches.get(batchId)?.lane;
@@ -356,10 +387,20 @@ export const commands: readonly RegisteredCommand[] = [
       readBrewery('replay', context, (events, state) => {
         const batch = state.batches.get(id);
         if (batch === undefined) return failed('replay', `no batch ${id} in the event store`);
+        // Beside its own events, the pauses and continues of its order or of all since it was
+        // ordered, which name no batch (ADR 0202).
+        const ordered = events.find(({ event }) => batchOf(event) === id)?.id ?? 0;
+        const order = orderKey(orderOfBatch(state, batch));
+        const held = (event: Event): boolean =>
+          (event.type === 'order.paused' || event.type === 'order.continued') &&
+          (event.order === undefined || orderKey(event.order) === order);
         return done(
           formatReplay(
             batch,
-            events.filter(({ event }) => batchOf(event) === id),
+            events.filter(
+              ({ id: at, event }) => batchOf(event) === id || (at > ordered && held(event)),
+            ),
+            pauseOf(state, batch),
           ),
         );
       }),
@@ -460,6 +501,78 @@ export const commands: readonly RegisteredCommand[] = [
     schema: CancelCommand,
     handler: async ({ batch }, context) =>
       changeBrewery('cancel', context, (_state, issued) => ({ kind: 'cancel', ...issued(batch) })),
+  }),
+  define({
+    name: 'pause',
+    summary: 'Pause an order, or all with --all: nothing new starts; --by stops what runs',
+    changesState: true,
+    positionals: [],
+    optional: ['order'],
+    options: { by: 'time', why: 'reason' },
+    flags: ['all'],
+    schema: PauseCommand,
+    handler: async ({ order: target, by: time, why }, context) => {
+      const order = target === undefined ? undefined : orderRefOf(target, context);
+      if (order !== undefined && 'refused' in order) return failed('pause', order.refused);
+      let stopAt: { at: Date; zone: string } | undefined;
+      if (time !== undefined) {
+        const zone = context.zone();
+        const instant = stopInstant(time, context.now(), zone);
+        if ('refused' in instant) return failed('pause', instant.refused);
+        stopAt = { at: instant.at, zone };
+      }
+      return writeBrewery('pause', context, async (log) => {
+        const decision = log.issue(
+          {
+            kind: 'pause',
+            ...(order === undefined ? {} : { order }),
+            by: context.user(),
+            via: context.surface,
+            ...(why === undefined ? {} : { why }),
+            ...(stopAt === undefined ? {} : { stopAt }),
+          },
+          context.now(),
+        );
+        if (decision.kind === 'refused') return failed('pause', decision.reason);
+        const held =
+          target === undefined
+            ? 'The Brewery is paused: nothing new starts and nothing is ordered'
+            : `${givenName(target)} paused: nothing new of it starts`;
+        const stopped =
+          stopAt === undefined
+            ? ''
+            : `; what still runs at ${stopAtText({ at: stopAt.at.toISOString(), zone: stopAt.zone })} is stopped`;
+        return done(`${held}, and what runs ends at its next convenient point${stopped}\n`);
+      });
+    },
+  }),
+  define({
+    name: 'continue',
+    summary: 'Lift the pause of an order, or every pause with --all',
+    changesState: true,
+    positionals: [],
+    optional: ['order'],
+    flags: ['all'],
+    schema: ContinueCommand,
+    handler: async ({ order: target }, context) => {
+      const order = target === undefined ? undefined : orderRefOf(target, context);
+      if (order !== undefined && 'refused' in order) return failed('continue', order.refused);
+      return writeBrewery('continue', context, async (log) => {
+        const decision = log.issue(
+          {
+            kind: 'continue',
+            ...(order === undefined ? {} : { order }),
+            by: context.user(),
+            via: context.surface,
+          },
+          context.now(),
+        );
+        if (decision.kind === 'refused') return failed('continue', decision.reason);
+        return done(
+          target === undefined ? 'The Brewery continues\n' : `${givenName(target)} continues\n`,
+        );
+      });
+    },
   }),
   define({
     name: 'order',

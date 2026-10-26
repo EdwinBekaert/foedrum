@@ -2,7 +2,8 @@
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
 import { orderName } from '../engine/claim-orders.ts';
-import type { Batch, State } from '../engine/fold.ts';
+import type { Batch, Pause, State } from '../engine/fold.ts';
+import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { columns } from './columns.ts';
@@ -79,6 +80,16 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
   }
 };
 
+/**
+ * Who paused a batch, with the surface when `via`, and why, and when what still runs is stopped
+ * (ADR 0202).
+ */
+export const pauseLine = ({ by, via, why, stopAt }: Pause, withVia = false): string =>
+  [
+    `by ${by}${withVia ? ` via ${via}` : ''}${why === undefined ? '' : `: ${why}`}`,
+    ...(stopAt === undefined ? [] : [`what still runs is stopped at ${stopAtText(stopAt)}`]),
+  ].join('; ');
+
 /** The issue a batch brews: `#<n>` in the Brewery, `<owner>/<name>#<n>` in a target repository. */
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
@@ -92,6 +103,8 @@ export const statusRow = (
   interactive: ReadonlyMap<string, string> = new Map(),
 ): string[] => {
   const { lane, detail } = describeLane(batch);
+  const pause = pauseOf(state, batch);
+  const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
   const owner = interactive.get(batch.id);
   const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
   // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
@@ -101,7 +114,7 @@ export const statusRow = (
     batch.id,
     orderName(state, batch),
     lane,
-    [detail, ...by, total].filter((part) => part !== '').join('; '),
+    [detail, ...paused, ...by, total].filter((part) => part !== '').join('; '),
   ];
 };
 

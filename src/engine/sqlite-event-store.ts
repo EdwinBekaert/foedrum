@@ -317,10 +317,13 @@ export const openSqliteEventStore = (
       case 'pull_request.ended':
       case 'pull_request.base_checked':
         return;
+      case 'step.rescheduled':
+        // A paused attempt's new deadline as its pause is lifted (ADR 0202).
+        setDeadline.run(event.batchId, event.stepId, event.attempt, Date.parse(event.deadlineAt));
+        return;
       case 'order.paused':
       case 'order.continued':
-      case 'step.rescheduled':
-        throw new Error('not implemented');
+        return;
       default: {
         const unhandled: never = event;
         throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
