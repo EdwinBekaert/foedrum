@@ -16,4 +16,4 @@ What the intake does with a batch's pull request after it opens: it records its 
 - **The status comment shows the latest check** under its pull requests: the tip and files of a conflict, that it merges cleanly again after one, or that it is not checked since someone else pushed to its branch; nothing once the pull request ended ([GitHub](../humans/github.md)).
 - **The batch stays On tap**: nothing sends it back yet.
   Running the repository's checks on the merged tree is #511.
-- **It needs git 2.38**, for `merge-tree --write-tree`: `foedrum serve` reads git's version once at its start, and on an older git, or one that names no version, says so in one line and checks nothing; `foedrum doctor` says the same.
+- **It needs git 2.38**, for `merge-tree --write-tree`: `foedrum doctor` requires it, so `foedrum serve` does not start on an older git ([ADR 0200](../../adr/0200-foedrum-requires-git-2-38.md)).

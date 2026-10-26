@@ -20,9 +20,6 @@ const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 /** A merge of a large tree takes a while; the intake pass's deadline aborts it sooner. */
 const MERGE_TIMEOUT_MS = 120_000;
 
-/** `git merge-tree --write-tree` came in git 2.38. */
-const LEAST = [2, 38] as const;
-
 const fullSha = (sha: string): string => {
   if (!SHA.test(sha)) throw new Error(`${JSON.stringify(sha)} is no full commit sha`);
   return sha;
@@ -59,19 +56,3 @@ export const openMergeTree =
     }
     return { kind: 'conflicts', files };
   };
-
-/**
- * Whether the git `git` runs can merge-tree with `--write-tree`: 2.38 or later; `undefined` when
- * it names no version (it failed, or was killed).
- */
-export const mergeTreeSupported = async (
-  git: Git,
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<boolean | undefined> => {
-  const result = await git(cwd, ['--version'], signal === undefined ? {} : { signal });
-  const version = result.code === 0 ? /git version (\d+)\.(\d+)/.exec(result.stdout) : null;
-  if (version === null) return undefined;
-  const [major, minor] = [Number(version[1]), Number(version[2])];
-  return major > LEAST[0] || (major === LEAST[0] && minor >= LEAST[1]);
-};
