@@ -516,6 +516,46 @@ describe('foedrum: commands that change state', () => {
       assert.doesNotMatch(replay, /"limit":"session"|usage\.window_opened/);
     });
 
+    it('lists in replay a family window still closed at the last reopen before the batch was ordered (ADR 0215)', async () => {
+      hitLimit();
+      const log = createCommandLog({ store, recipes });
+      const accept = (command: Parameters<typeof log.issue>[0], at: Date) =>
+        assert.equal(log.issue(command, at).kind, 'accepted', JSON.stringify(command));
+      accept(
+        {
+          kind: 'record',
+          event: { type: 'step.started', batchId: '23-1', stepId: 'plan', attempt: 2 },
+        },
+        t0,
+      );
+      accept(
+        {
+          kind: 'finish',
+          batchId: '23-1',
+          stepId: 'plan',
+          attempt: 2,
+          ending: {
+            kind: 'blocked',
+            blockerKind: 'environment',
+            summary: 'claude hit its Sonnet limit, which resets 5:45pm',
+            usageLimit: { limit: 'Sonnet', resets: '5:45pm' },
+          },
+          reopensAt: { at: new Date('2026-10-18T16:50:00.000Z'), read: true },
+        },
+        t0,
+      );
+      // The window of every brewer reopens; the Sonnet window stays closed.
+      const later = new Date('2026-10-18T15:00:00.000Z');
+      accept({ kind: 'reopen' }, later);
+      accept({ kind: 'order', batchId: '27-1', order: { issue: 27 } }, later);
+      const replay = (await run(['replay', '27-1'])).stdout;
+      assert.match(replay, /usage\.window_closed +\{"limit":"Sonnet"/);
+      assert.match(
+        replay,
+        /usage\.window_opened +\{"at":"2026-10-18T15:00:00\.000Z","scope":"all"\}/,
+      );
+    });
+
     it('lists the window events in replay beside the batch events', async () => {
       hitLimit();
       const replay = (await run(['replay', '23-1'])).stdout;
