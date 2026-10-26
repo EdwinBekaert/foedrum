@@ -29,7 +29,9 @@ Messaging a running brewer to finish early is left to an issue of its own: the e
 - **A scheduled attempt that has not started has no deadline while its batch is paused**: the supervisor does not expire it, since the wait is a person's, not the step's.
   `continue` gives each such attempt of the batches it lifts a new deadline from its step (`step.rescheduled`), as if it had just been scheduled, so a long pause never makes a batch Stuck on its deadline.
 - **At `--by`, what still runs of a paused batch is stopped** by the driver that runs it, at its next tick.
-  Its end is the runner's for a stopped run (cancelled), retried as a cancelled attempt is while attempts are left, else Stuck (`attempts_exhausted`), as after a restart; the retry waits for `continue`.
+  Its end is the runner's for a stopped run (cancelled), recorded with `paused` on its `step.finished`: the pause is the person's choice, not a failure, so that attempt counts against none of the step's retries.
+  The step is scheduled again at once, as a retry, so a brewer that resumes continues its session, whatever attempts it has left; that attempt waits for `continue`, and the batch stays paused, never Stuck on `attempts_exhausted`.
+  `decide` refuses such an end of a batch whose pause has not reached its `stopAt`.
 - **`pause --all` holds the intake**: no Brewery issue is ordered and no target issue claimed until `continue --all`; the engine's `order` command is refused while it holds.
   The intake still records pull request ends, checks bases and routes Ordered batches, which starts nothing, so an Ordered batch does not go Stuck on routing because of a pause.
   A pause of one order leaves the intake alone, and `foedrum order`, a person's own decision, is not held.
@@ -54,7 +56,7 @@ Only a person, until the Innkeeper's planning job (#227) decides when to continu
 
 ## Consequences
 - An engineer can stop a Brewery at the end of the day without losing an attempt underway, and stop one order without touching the rest.
-- A kill at `--by` costs an attempt of the step, as a restart does; with its attempts used up the batch goes Stuck, where `retry` gives it another.
+- A kill at `--by` costs the work the attempt had done since its last commit, but no attempt of the step: a recipe's `maxAttempts` counts every attempt but those a pause stopped.
 - A pause has no reminder: the person who paused it decided to wait, and the status comment shows it. A batch that is Stuck or Conditioning keeps its reminders.
 - Three event types, a fold field and a driver, supervisor and intake rule; `serve` and its wiring are unchanged.
 - Chaos case: a driver killed during a pause; after the restart nothing starts until `continue`, and then the batch goes on to on tap.
@@ -63,5 +65,5 @@ Only a person, until the Innkeeper's planning job (#227) decides when to continu
 - **A lane of its own (Paused).** One more lane in every `switch`, the guard's table and the board, and a running attempt would have to finish in a lane that is not brewing; a pause also covers batches ordered later, which a lane cannot.
 - **Decide nothing new while paused (no `step.scheduled` until `continue`).** Keeps deadlines as they are, but `continue` would have to work out what each finish would have scheduled, repeating the state machine.
 - **Keep the deadline of a waiting attempt through the pause.** A pause longer than a step's deadline would make the batch Stuck on its deadline, which a person did not cause.
-- **Count the kill at `--by` as no attempt.** Saves the attempt, but needs an ending of its own for one rare case; `stop` (#518) will need such an ending anyway, and can bring it here.
+- **Count the kill at `--by` as an attempt, as a lost one is.** No new field, but a kill of a step's last allowed attempt would make the batch Stuck on `attempts_exhausted` for what a person chose.
 - **Hold the whole intake, routing included.** An Ordered batch would go Stuck on routing an hour into a pause.
