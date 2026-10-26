@@ -14,6 +14,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type {
   Event,
   OrderRef,
+  RecordedFindings,
   StuckOption,
   StuckReason,
   WaitCondition,
@@ -375,12 +376,18 @@ describe('decide finish', () => {
     attempt,
     ending,
   });
-  const finished = (outcome: StepOutcome, stepId = 'plan', attempt = 1): Event => ({
+  const finished = (
+    outcome: StepOutcome,
+    stepId = 'plan',
+    attempt = 1,
+    findings?: RecordedFindings,
+  ): Event => ({
     type: 'step.finished',
     batchId: 'b1',
     stepId,
     attempt,
     outcome,
+    ...(findings === undefined ? {} : { findings }),
   });
   const succeeded = { kind: 'succeeded', output: { plan: 'ok' } } as const;
   const retryable = { kind: 'failed', retryable: true, reason: 'out doc missing' } as const;
@@ -535,7 +542,8 @@ describe('decide finish', () => {
         findings: [{ severity: 'major', why: 'no deadline', introduced: true }],
       } as const;
       accepts(brewing(), finish(withFindings), [
-        finished(recorded('findings')),
+        // With its findings (ADR 0221).
+        finished(recorded('findings'), 'plan', 1, { kept: [...withFindings.findings], more: 0 }),
         stuckOn({
           kind: 'blocked',
           stepId: 'plan',
@@ -1782,12 +1790,14 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     attempt,
     ending,
   });
+  // With the Taster's findings, which a later report counts (ADR 0221).
   const recorded = (attempt: number): Event => ({
     type: 'step.finished',
     batchId: 'b1',
     stepId: 'implement',
     attempt,
     outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): the test is wrong' },
+    findings: { kept: blocked.findings.map((each) => ({ ...each })), more: 0 },
   });
   const findings = { from: 'implement', why: 'findings' } as const;
   const inHalfAnHour = '2026-10-15T12:30:00.000Z';
@@ -1933,6 +1943,34 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
         ...many.slice(1, 10),
       ],
       more: 2,
+    });
+  });
+
+  /** The step.finished the batch's first round records when it ends with `ending`. */
+  const finishedOf = (ending: Ending) => {
+    const firstRound = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+    ];
+    const decision = decide(fold(firstRound), finish(1, ending), withRoute());
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const finished = decision.kind === 'accepted' ? decision.events[0] : undefined;
+    assert.ok(finished?.type === 'step.finished', JSON.stringify(finished));
+    return finished;
+  };
+
+  it("records a blocked Taster's findings on its step.finished, the first 100 cut as a Stuck reason's, and counts the rest (ADR 0221)", () => {
+    const long = { ...finding(1), file: ` src/${'a'.repeat(2_000)}.ts`, why: 'x\n'.repeat(1_000) };
+    const many = [long, ...Array.from({ length: 100 }, (_, n) => finding(n + 2))];
+    assert.deepStrictEqual(finishedOf({ ...blocked, findings: many }).findings, {
+      kept: [
+        { ...long, file: long.file.trim().slice(0, 1_000), why: 'x '.repeat(500) },
+        ...many.slice(1, 100),
+      ],
+      more: 1,
     });
   });
 

@@ -513,6 +513,7 @@ describe('foedrum status --watch: the command layer', () => {
     openWritableStore: () => undefined,
     recipes: () => ({ find: () => undefined }),
     brewers: () => assert.fail('no brewer files to read'),
+    lenses: () => assert.fail('no lens files to read'),
     user: () => 'ada',
     surface: 'terminal',
     now: () => new Date(T0),

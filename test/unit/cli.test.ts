@@ -57,6 +57,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   openWritableStore: () => undefined,
   recipes: () => ({ find: () => undefined }),
   brewers: () => assert.fail('no brewer files to read'),
+  lenses: () => assert.fail('no lens files to read'),
   user: () => 'ada',
   surface: 'terminal',
   now: () => new Date(D1),
