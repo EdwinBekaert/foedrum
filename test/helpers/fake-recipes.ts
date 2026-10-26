@@ -19,6 +19,8 @@ export interface FakeRecipe {
   merges?: readonly string[];
   /** The children of each step that is a parallel group, by its id (ADR 0168); default none. */
   groups?: Readonly<Record<string, readonly string[]>>;
+  /** The interactive steps, whose attempts run as a person's session (ADR 0222); default none. */
+  interactive?: readonly string[];
 }
 
 export const hour = 3_600_000;
@@ -33,6 +35,7 @@ export const fakeRecipe = ({
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
   groups = {},
+  interactive = [],
 }: FakeRecipe): Recipe => {
   const [firstStep] = steps;
   if (firstStep === undefined) throw new Error('A recipe needs a step');
@@ -53,6 +56,7 @@ export const fakeRecipe = ({
     has: (stepId) => steps.includes(stepId) || groupOf(stepId) !== undefined,
     children: (stepId) => groups[stepId],
     group: groupOf,
+    interactive: (stepId) => interactive.includes(stepId),
     action: (stepId) => actions[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
     // As the loaded recipe does, a parallel group has no deadline: only its children are scheduled.

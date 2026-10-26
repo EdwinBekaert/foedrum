@@ -63,6 +63,8 @@ export interface StepBrewer {
   lens?: string;
   /** On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161). */
   blocking?: boolean;
+  /** On an interactive step: the recipe's first message to the session (ADR 0222). */
+  interactive?: { prompt: string };
 }
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
@@ -488,6 +490,9 @@ function lineRecipe(
     has: (id) => byId.has(id) || groups.has(id),
     children: (id) => children.get(id),
     group: (id) => byId.get(id)?.group,
+    interactive: () => {
+      throw new Error('not implemented');
+    },
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),

@@ -1069,7 +1069,9 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
     const fix = { id: 'fix', brewer: 'cellarman' };
     assert.deepEqual(
       problemsOf(
-        withCellarman([{ id: 'review', loop: { maxRounds: 1, until: 'fix.status', steps: [fix] } }]),
+        withCellarman([
+          { id: 'review', loop: { maxRounds: 1, until: 'fix.status', steps: [fix] } },
+        ]),
       ),
       [
         'recipes/stout.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
@@ -1764,6 +1766,58 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     const back = { ...correctness, onBlocked: { findings: { goto: 'security', maxRounds: 1 } } };
     assert.deepEqual(problemsOf(grouped([security, back])), [
       'recipes/amber.jsonc: step "correctness" in the parallel group "tasting" routes back to "security" in its own group: route to a step before the group (ADR 0168)',
+    ]);
+  });
+});
+
+describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
+  const lauter = {
+    id: 'lauter',
+    brewer: 'maltster',
+    interactive: true,
+    prompt: 'Plan it with me.',
+  };
+  const files = brewery({
+    recipes: [recipe('pale', [lauter, { id: 'plan', brewer: 'brewmaster' }])],
+  });
+
+  it('loads it: the recipe says which step is interactive, and its brewer carries the prompt', () => {
+    const result = loadRecipes(files);
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.equal(pale?.interactive('lauter'), true);
+    assert.equal(pale?.interactive('plan'), false);
+    assert.deepEqual(result.brewers.find('pale', 'lauter')?.interactive, {
+      prompt: 'Plan it with me.',
+    });
+    assert.equal(result.brewers.find('pale', 'plan')?.interactive, undefined);
+  });
+
+  const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const security = { path: 'defaults/lenses/diff/security.md', text: 'Look for secrets.' };
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const tasting = (steps: readonly unknown[]): BreweryFiles => ({
+    recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
+    brewers: [committer, taster],
+    defaults: { lenses: [security] },
+  });
+  const talking = { interactive: true, prompt: 'Talk it through.' };
+
+  it('refuses one in a parallel group: its children run side by side, and a session needs the terminal', () => {
+    const child = { id: 'security', brewer: 'taster', lens: 'diff/security', ...talking };
+    assert.deepEqual(problemsOf(tasting([{ id: 'taste', parallel: [child] }])), [
+      'recipes/amber.jsonc: step "security" in the parallel group "taste" is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)',
+    ]);
+  });
+
+  it("refuses one with a lens: a lens step is a Taster's headless review", () => {
+    const step = { id: 'taste', brewer: 'taster', lens: 'diff/security', ...talking };
+    assert.deepEqual(problemsOf(tasting([step])), [
+      'recipes/amber.jsonc: step "taste" is interactive and has a "lens": a lens step is a Taster\'s headless review (ADR 0222)',
     ]);
   });
 });

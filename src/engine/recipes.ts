@@ -45,6 +45,11 @@ export interface Recipe {
   children(stepId: string): readonly string[] | undefined;
   /** The parallel group `stepId` is a child of, or `undefined` when it is none's (ADR 0168). */
   group(stepId: string): string | undefined;
+  /**
+   * Whether `stepId` is an interactive brewer step: its attempts run as a person's session, which
+   * only a driver with a terminal opens (ADR 0222).
+   */
+  interactive(stepId: string): boolean;
   /** The action `stepId` is, which the engine runs itself; `undefined` for any other step. */
   action(stepId: string): RecipeAction | undefined;
   /**

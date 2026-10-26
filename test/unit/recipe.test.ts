@@ -516,3 +516,44 @@ describe('step references', () => {
     });
   }
 });
+
+describe('an interactive brewer step (ADR 0222)', () => {
+  const lauter = {
+    id: 'lauter',
+    brewer: 'maltster',
+    interactive: true,
+    prompt: 'Plan it with me.',
+  };
+
+  it('accepts a brewer step that says interactive with a prompt, as a brewer step', () => {
+    assert.equal(stepKind(Step.parse(lauter)), 'brewer');
+    assert.equal(accepted(recipe([lauter])), true);
+  });
+
+  it('accepts a prompt of 4 KiB', () => {
+    assert.equal(Step.safeParse({ ...lauter, prompt: 'x'.repeat(4096) }).success, true);
+  });
+
+  const invalid: [string, unknown][] = [
+    ['interactive without a prompt', { brewer: 'maltster', interactive: true }],
+    ['a prompt without interactive', { brewer: 'maltster', prompt: 'Plan it.' }],
+    ['interactive false', { ...lauter, interactive: false }],
+    ['an empty prompt', { ...lauter, prompt: '' }],
+    ['a prompt over 4 KiB', { ...lauter, prompt: 'x'.repeat(4097) }],
+    ['interactive on a check', { id: 'green', check: 'test', interactive: true, prompt: 'p' }],
+    ['interactive on a gate', { id: 'g', gate: 'human', deadline: '1d', interactive: true }],
+    ['a prompt on an action', { action: 'openPullRequest', prompt: 'p' }],
+    ['interactive on a parallel group', { ...tasting, interactive: true, prompt: 'p' }],
+  ];
+  for (const [what, value] of invalid) {
+    it(`rejects ${what}`, () => {
+      assert.equal(Step.safeParse(value).success, false);
+    });
+  }
+
+  it('refuses a session step, naming the interactive brewer step that replaced it', () => {
+    const result = Step.safeParse({ id: 'refine', session: 'refine', deadline: '2d' });
+    assert.equal(result.success, false);
+    assert.match(String(result.error), /"interactive": true/);
+  });
+});

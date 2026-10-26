@@ -7,7 +7,12 @@
   "testFirst": false,
   "steps": [
     { "id": "context", "brewer": "maltster" },
-    { "id": "refine", "brewer": "brewmaster" },
+    {
+      "id": "refine",
+      "brewer": "brewmaster",
+      "interactive": true,
+      "prompt": "Refine the order with me: its repositories, their release order and what each sub-order delivers."
+    },
     { "id": "approve-breakdown", "gate": "human", "deadline": "3d" },
     { "id": "brew", "fanOut": { "approval": false, "bottling": "perSubOrder" } },
     { "id": "report", "action": "comment" }
