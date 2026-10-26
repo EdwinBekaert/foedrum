@@ -134,7 +134,7 @@ export type EngineCommand =
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
  * lifting (ADR 0202). `stopAt`: when what still runs is stopped, and the zone it was given in.
  */
-export type PauseCommand =
+export type PauseOrContinue =
   | {
       kind: 'pause';
       order?: OrderRef;
@@ -145,7 +145,7 @@ export type PauseCommand =
     }
   | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
 
-export type Command = HumanCommand | PauseCommand | EngineCommand;
+export type Command = HumanCommand | PauseOrContinue | EngineCommand;
 
 export interface Context {
   now: Date;
