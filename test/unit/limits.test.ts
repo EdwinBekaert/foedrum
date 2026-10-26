@@ -237,6 +237,38 @@ describe('the limits of a pass (ADR 0217)', () => {
       const listed = { [brewery]: [issue(1, ['recipe:half']), issue(10, ['recipe:nip'])] };
       await intake(listed).poll();
       assert.deepStrictEqual(lanes(), ['12-1 brewing nip', '1-1 brewing half']);
+      // The notice names the sub-order, not its order.
+      assert.deepStrictEqual(held(), [
+        {
+          kind: 'held',
+          repo: brewery,
+          issue: 10,
+          reason: 'recipe nip brews its 1 at once (concurrency)',
+        },
+      ]);
+    });
+
+    it('routes one of two Ordered batches of a recipe at its limit in one pass, and holds the other', async () => {
+      for (const [batchId, number, order] of [
+        ['web-7', 7, 20],
+        ['web-8', 8, 21],
+      ] as const) {
+        accept({ kind: 'order', batchId, order: { issue: number, repo: web } });
+        accept({
+          kind: 'record',
+          event: { type: 'effect.applied', key: `["${batchId}","order.issue"]`, result: order },
+        });
+      }
+      const listed = {
+        [brewery]: [issue(20, ['recipe:nip']), issue(21, ['recipe:nip'])],
+        [web]: [],
+      };
+      await intake(listed).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 brewing nip', 'web-8 ordered']);
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'unrouted').map(({ kind }) => kind),
+        ['unrouted'],
+      );
     });
   });
 
@@ -299,6 +331,16 @@ describe('the limits of a pass (ADR 0217)', () => {
       await intake(listed, { limits: { ...unlimited, openOrders: 2 } }).poll();
       assert.deepStrictEqual(lanes(), ['1-1 brewing half', '2-1 brewing half']);
     });
+
+    it('counts a target issue it claimed as a new order of the same pass', async () => {
+      const listed = { [web]: [issue(7, ['foedrum']), issue(8, ['foedrum'])] };
+      await intake(listed, { limits: { ...unlimited, openOrders: 1 } }).poll();
+      assert.deepStrictEqual(lanes(), ['web-7 ordered']);
+      assert.deepStrictEqual([...github.refs.keys()], [`${web}#7`]);
+      assert.deepStrictEqual(held(), [
+        { kind: 'held', repo: web, issue: 8, reason: "1 order is open, the Brewery's openOrders" },
+      ]);
+    });
   });
 
   describe('what an open order is (decided 2026-10-26)', () => {
@@ -318,6 +360,16 @@ describe('the limits of a pass (ADR 0217)', () => {
       accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
       brewing(2, 'half');
       assert.deepStrictEqual(open(), ['#1', '#2']);
+    });
+
+    it('counts an order with a batch Conditioning', () => {
+      accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
+      accept({ kind: 'order', batchId: '2-1', order: { issue: 2 } });
+      accept({ kind: 'wait', batchId: '1-1', on: { kind: 'sibling', batchId: '2-1' } });
+      accept({ kind: 'cancel', batchId: '2-1', by: 'alice', via: 'terminal' });
+      assert.equal(log.state().batches.get('1-1')?.lane.kind, 'conditioning');
+      assert.deepStrictEqual(open(), ['#1']);
+      assert.equal(mayHold(log.state()), true);
     });
 
     it('counts a paused order, a stopped one and a Stuck one', () => {

@@ -1929,6 +1929,45 @@ describe('runServe', () => {
       ]);
     });
 
+    it('holds a second order of a recipe at its own concurrency, read from the recipe file (ADR 0217)', async () => {
+      store = empty();
+      const files = serveInputs().files;
+      const limited = JSON.stringify({ ...JSON.parse(recipe), concurrency: 1 });
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            config: config({ concurrency: 2 }, {}),
+            local: local({ workRoot: dir.path }),
+            brewery: {
+              ...files.brewery,
+              recipes: files.brewery.recipes.map((each) =>
+                each.path === 'recipes/stout.jsonc' ? { ...each, text: limited } : each,
+              ),
+            },
+          },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [12, 13].map((number) => ({
+            number,
+            labels: ['recipe:stout'],
+            author: 'ann',
+          })),
+        },
+      });
+      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      assert.deepStrictEqual([...state().batches.keys()], ['12-1']);
+      const waits = lines.filter((line) => line.includes('#13 waits'));
+      assert.deepStrictEqual(waits, [
+        'foedrum serve: Acme/Brewery#13 waits: recipe stout brews its 1 at once (concurrency)',
+      ]);
+    });
+
     it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
       store = empty();
       setup = intakeSetup();
