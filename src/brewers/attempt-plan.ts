@@ -515,7 +515,7 @@ export function earlierFindingsInput(stepId: string, rounds: readonly EarlierRou
   };
 }
 
-/** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191). */
+/** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191, ADR 0204). */
 const EARLIER_FINDINGS_TEXT = [
   "## The earlier rounds' findings",
   '',
