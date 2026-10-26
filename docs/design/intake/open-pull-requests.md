@@ -1,6 +1,6 @@
 # Open pull requests
 
-What the intake does with a batch's pull request after it opens: it records its end, and it checks it against its base whenever the base moves ([ADR 0198](../../adr/0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md)).
+What the intake does with a batch's pull request after it opens: it records its end, and it checks it against its base whenever the base moves ([ADR 0198](../../adr/0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md)), the repository's checks on the merged tree included ([ADR 0203](../../adr/0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md)).
 
 - **The end is recorded for every batch On tap**, a Brewery issue's and a claimed issue's alike: `pull_request.ended`, appended when a pass reads a merge or a close (`recordEnds`, `src/engine/intake.ts`).
   A claimed batch's release waits for it ([target-repository issues](target-issues.md)); for a Brewery issue's batch it only ends the checks below.
@@ -11,9 +11,15 @@ What the intake does with a batch's pull request after it opens: it records its 
   A tip that moved is merged with the head by `git merge-tree --write-tree` in a git directory of Foedrum's own with the clone's objects, so no hook or merge driver of the clone's takes part (`openMergeTree`, `src/workspace/merge-tree-git.ts`).
   Each check is recorded as `pull_request.base_checked`, with the tip and the conflicting files, at most 50, when there are any.
   A tip or a merge-tree that fails records nothing and is reported; the next pass tries again.
+- **A clean merge of a batch with checks to run is handed to the merged-check run**, which records it instead (`BaseCheckRepository.checks`, [ADR 0203](../../adr/0203-an-open-pull-request-s-checks-run-on-its-merged-tree-when-its-base-moves.md)).
+  The checks are those of the batch's recipe's check step that merges the base (`mergedCheckStep`, `src/engine/merged-checks.ts`), Nip's `green`.
+  The run (`createMergedChecks`) runs beside the ticks and the pass in `foedrum serve`, one at a time in the Cellar, from a queue of each pull request's newest due tip; just before a run the log is read again, and a pull request that ended or a tip already checked is dropped.
+  It reads the checks as a check step's attempt does, setup first (`checkTree`, `src/checks/check-runner.ts`; `mergedCheckRun`, `src/cli/merged-check-run.ts`), in a worktree of a commit of the merged tree on head and tip, made from a git directory of Foedrum's own that borrows the clone's objects and holds a copy of its tags and remote-tracking refs (`openMergedTree`, `src/workspace/merge-tree-git.ts`); no hook or configuration of the clone's takes part.
+  Its deadline is that step's, at most 55 minutes, so the cleanup's floor of an hour holds for the `<uuid>.tree` a killed run leaves.
+  The check records the first reading that did not pass (`failed`), or why the checks did not run (`unchecked`), so each tip is run at most once; a stop records nothing, and a kill leaves nothing recorded, so the next pass hands the run on again.
 - **A conflict is posted on the pull request** when it first appears or its set of files changes, one comment through the ledger, `[batch, "base_conflict.<n>"]`, found by its marker (`baseConflictEffects`).
   A new tip with the same files, and a clean merge, post nothing.
-- **The status comment shows the latest check** under its pull requests: the tip and files of a conflict, that it merges cleanly again after one, or that it is not checked since someone else pushed to its branch; nothing once the pull request ended ([GitHub](../humans/github.md)).
+- **The status comment shows the latest check** under its pull requests: the tip and files of a conflict, that it merges cleanly again after one, the check that fails on the merged tree and how, why the checks did not run there, that it passes its checks again after either, or that it is not checked since someone else pushed to its branch; nothing once the pull request ended ([GitHub](../humans/github.md)).
+  A failure on the merged tree is not posted on the pull request yet: that is #526.
 - **The batch stays On tap**: nothing sends it back yet.
-  Running the repository's checks on the merged tree is #511.
 - **It needs git 2.38**, for `merge-tree --write-tree`: `foedrum doctor` requires it, so `foedrum serve` does not start on an older git ([ADR 0200](../../adr/0200-foedrum-requires-git-2-38.md)).
