@@ -156,7 +156,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     let failure: { error: unknown } | undefined;
     try {
       // Another driver's batches are its own supervisor's: their deadlines and leases stay as they are.
-      const { commands, releaseLeases } = planTick({
+      const { commands, releaseLeases, reopen } = planTick({
         state: log.state(),
         due: store.batchesPastDeadline(now).filter(({ batchId }) => acts(batchId)),
         expiredLeases: store.expiredLeases(now).filter((lease) => {
@@ -167,6 +167,8 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
         recipes,
         now,
       });
+      // Before the batches' commands, which were planned while the window was closed (ADR 0206).
+      if (reopen === true) appended += apply({ kind: 'reopen' }, now);
       for (const command of commands) {
         if (acts(command.batchId)) appended += apply(command, now);
       }

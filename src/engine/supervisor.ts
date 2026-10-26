@@ -49,6 +49,8 @@ export interface TickPlan {
   commands: BatchCommand[];
   /** Every expired lease but those of lost attempts it leaves to the next tick (ADR 0168). */
   releaseLeases: string[];
+  /** The closed usage window's reopen is due, before the batches' commands (ADR 0206). */
+  reopen?: true;
 }
 
 /** The commands one tick issues: deadlines first (invariant I5), then lost, then stalled attempts. */
@@ -101,9 +103,13 @@ export const planTick = (input: TickInput): TickPlan => {
       }
     }
   }
+  // The window is every batch's: whichever supervisor ticks first reopens it (ADR 0206).
+  const window = state.usageWindow;
+  const reopen = window !== undefined && Date.parse(window.reopensAt) <= now.getTime();
   return {
     commands: [...commands.values()],
     releaseLeases: expiredLeases.map((lease) => lease.attemptKey).filter((key) => !kept.has(key)),
+    ...(reopen ? { reopen: true as const } : {}),
   };
 };
 
@@ -113,12 +119,11 @@ function dueCommand(state: State, batch: Batch, now: Date): BatchCommand | undef
   const isDue = (at: string): boolean => Date.parse(at) <= now.getTime();
   switch (lane.kind) {
     case 'brewing': {
-      // A paused batch's attempt that has not started waits for continue, not its step (ADR 0202).
-      const paused = pauseOf(state, batch) !== undefined;
+      // A paused batch's attempt that has not started waits for continue, not its step (ADR 0202),
+      // and any while the usage window is closed for its reopen (ADR 0206).
+      const held = pauseOf(state, batch) !== undefined || state.usageWindow !== undefined;
       const [late] = running(batch)
-        .filter(
-          (attempt) => isDue(attempt.deadlineAt) && !(paused && attempt.phase === 'scheduled'),
-        )
+        .filter((attempt) => isDue(attempt.deadlineAt) && !(held && attempt.phase === 'scheduled'))
         .sort((a, b) => Date.parse(a.deadlineAt) - Date.parse(b.deadlineAt));
       return (
         late && { kind: 'expire', batchId: batch.id, stepId: late.stepId, attempt: late.attempt }

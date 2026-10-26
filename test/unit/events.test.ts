@@ -177,6 +177,14 @@ const valid: Record<Event['type'], Event> = {
     attempt: 2,
     deadlineAt: '2026-12-31T17:30:00.000Z',
   },
+  'usage.window_closed': {
+    type: 'usage.window_closed',
+    limit: 'weekly',
+    resets: 'Mon 12:00am',
+    reopensAt: '2027-01-03T23:05:00.000Z',
+    read: true,
+  },
+  'usage.window_opened': { type: 'usage.window_opened', at: '2027-01-03T23:05:00.000Z' },
 };
 
 const accepts = (

@@ -257,11 +257,11 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
     return { kind: 'blocked', blockerKind: 'environment', summary };
   }
   // claude refuses every request until the window resets: another attempt now would be refused
-  // too, so a human retries after the reset claude named (ADR 0091).
+  // too, so the engine holds the brewers until the reset claude named (ADR 0091, ADR 0206).
   if (facts.usageLimit !== undefined) {
     const { limit, resets } = facts.usageLimit;
-    const summary = `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`;
-    return { kind: 'blocked', blockerKind: 'environment', summary };
+    const summary = `claude hit its ${limit} limit, which resets ${resets}`;
+    return { kind: 'blocked', blockerKind: 'environment', summary, usageLimit: facts.usageLimit };
   }
   // Nothing resets by itself: no request goes through until a human acts (ADR 0129).
   if (facts.spendLimit !== undefined) {
