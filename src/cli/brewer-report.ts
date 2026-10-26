@@ -142,7 +142,6 @@ export const brewerReport = (
       tallyOf(recipe, lane.reason.stepId)?.stuck.push(batch.id);
     }
   }
-  const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   return {
     brewers: [...brewers]
       .sort(([a], [b]) => byName(a, b))
@@ -152,6 +151,9 @@ export const brewerReport = (
     ),
   };
 };
+
+/** Names in code-unit order, the same on every machine. */
+export const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** A count with its digits grouped. */
 export const number = (n: number): string => n.toLocaleString('en-US');

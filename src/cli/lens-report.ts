@@ -8,7 +8,7 @@ import type { Attempt, Batch, State } from '../engine/fold.ts';
 import { lensRounds } from '../engine/lens-rounds.ts';
 import type { Usage } from '../schemas/events.ts';
 import { type Disposition, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
-import { addUsage, type LoadedBrewers, number, tokensLine } from './brewer-report.ts';
+import { addUsage, byName, type LoadedBrewers, number, tokensLine } from './brewer-report.ts';
 
 /** The lenses in use and what each recipe's step reviews through now, from the loaded files. */
 export interface LensSource {
@@ -184,7 +184,6 @@ export const lensReport = (
       addRounds(batch, step.id, tallyOf);
     }
   }
-  const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   return {
     lenses: [...lenses]
       .sort(([a], [b]) => byName(a, b))

@@ -13,7 +13,6 @@ import {
   type OrderRef,
   type RankPlace,
   type Receipt,
-  type RecordedFindings,
   type RoundsOut,
   type ScheduleRoute,
   type StuckOption,
@@ -565,7 +564,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(limited === undefined ? {} : { usageLimited: true }),
     // A blocking Taster's findings, which no other event keeps unless its rounds run out (ADR 0221).
     ...(ending.kind === 'blocked' && ending.findings !== undefined
-      ? { findings: recorded(ending.findings) }
+      ? { findings: cutFindings(ending.findings, MOST_RECORDED_FINDINGS) }
       : {}),
   });
   // The window is the subscription's, whatever becomes of this step. An end refused because its
@@ -973,10 +972,6 @@ const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsO
   const { kept, more } = cutFindings(findings, MOST_OPEN_FINDINGS);
   return { rounds, open: kept, more };
 };
-
-/** The findings `step.finished` keeps of an attempt blocked by them, cut as `roundsOut` cuts (ADR 0221). */
-const recorded = (findings: readonly TastingFinding[]): RecordedFindings =>
-  cutFindings(findings, MOST_RECORDED_FINDINGS);
 
 /** How a blocked out doc's failure reason starts, by its blocker kind. */
 const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
