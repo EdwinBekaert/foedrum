@@ -38,6 +38,8 @@ const tip3 = 'e'.repeat(40);
 const recipes = fakeRecipes({
   half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }),
   twice: fakeRecipe({ steps: ['plan'], pullRequests: [other] }),
+  // A batch on tap with a second pull request beside the one its ledger opened.
+  both: fakeRecipe({ steps: ['plan'], pullRequests: [other, pullRequest] }),
   // Two steps that each merged the base, as two check attempts would (ADR 0164).
   again: fakeRecipe({ steps: ['plan', 'green'], pullRequests: [pullRequest] }),
 });
@@ -474,6 +476,28 @@ describe('checkBases', () => {
       // Nothing recorded yet: the next pass hands it on again, which the run's queue takes once.
       await pass({ ...repository, checks });
       assert.equal(handed.length, 2);
+    });
+
+    it("counts only the handed-on pull request's own checks", async () => {
+      onTap('web-7', 'both');
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest: other,
+          branch: 'main',
+          tip: tip2,
+          conflicts: ['src/b.ts'],
+        },
+      });
+      const { repository } = fakeRepository({ [tip1]: clean });
+      const { handed, checks } = handing();
+      await pass({ ...repository, checks });
+      assert.deepStrictEqual(
+        handed.map((due) => [due.pullRequest, due.checked]),
+        [[pullRequest, 0]],
+      );
     });
 
     it('records a clean merge as before when the batch has no checks to run', async () => {

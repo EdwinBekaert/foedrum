@@ -147,6 +147,18 @@ describe('mergedCheckRun', () => {
       kind: 'unchecked',
       why: 'no worktree to read',
     });
+    const asked: AttemptEnd = {
+      ending: {
+        kind: 'needs_input',
+        questions: [
+          { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'no way to tell' },
+        ],
+      },
+    };
+    assert.deepStrictEqual(await runWith(asked).run(due, live), {
+      kind: 'unchecked',
+      why: 'the checks ended asking a question',
+    });
   });
 
   it('ends unchecked without a tree for a batch the log has not, or without a step that merges its base', async () => {

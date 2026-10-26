@@ -786,6 +786,25 @@ describe('insideFolders', () => {
     assert.equal(inside(`${root}-x/0b6f2c1e.git`), false);
     assert.equal(inside('/home/ada/.foedrum/acme/attempts/12-1/build/1/x'), false);
   });
+
+  // The sandbox gives it the repository's real path: a path under the root that is a link into a
+  // worktree is the worktree's (review of #528).
+  it('holds no repository named under the root through a link to a worktree', async () => {
+    const worktreeFake = `${worktree}/fake`;
+    const real = (path: string) => (path === `${root}/link.git` ? worktreeFake : path);
+    const { calls, exec } = fake();
+    await sandboxedChecks(
+      options(exec, {
+        platform: 'linux',
+        realPath: real,
+        gitDirOf: () => `${root}/link.git`,
+        borrowedOf: () => [home],
+        borrowsFrom: insideFolders([root], real),
+      }),
+    )(line, [], call);
+    const args = calls[0]?.args ?? [];
+    assert.equal(args.filter((arg) => arg === home).length, 1);
+  });
 });
 
 describe('borrowedStores', () => {
