@@ -1397,6 +1397,122 @@ describe('runBrew', () => {
     ]);
   });
 
+  describe('an interactive step (ADR 0222)', () => {
+    // A cellarman with attempts to spare, whose refine step is a person's session.
+    const lauter = JSON.stringify({
+      name: 'lauter',
+      description: 'Refines an order with a person, then opens its pull request.',
+      steps: [
+        { id: 'refine', brewer: 'steward', interactive: true, prompt: 'Refine it with me.' },
+        { action: 'openPullRequest' },
+      ],
+      testFirst: false,
+    });
+    const steward = brewer
+      .replace('"cellarman"', '"steward"')
+      .replace('"maxAttempts": 1', '"maxAttempts": 3');
+    beforeEach(() => {
+      const inputs = serveInputs({
+        files: { ...serveInputs().files, local: local({ workRoot: dir.path }) },
+      });
+      const { brewery } = inputs.files;
+      const result = serveSetup({
+        ...inputs,
+        files: {
+          ...inputs.files,
+          brewery: {
+            ...brewery,
+            recipes: [...brewery.recipes, { path: 'recipes/lauter.jsonc', text: lauter }],
+            brewers: [...brewery.brewers, { path: 'brewers/steward.md', text: steward }],
+          },
+        },
+      });
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            {
+              number: 12,
+              labels: ['recipe:lauter'],
+              author: 'ann',
+              title: 'Lauter',
+              body: 'Plan it.',
+            },
+          ],
+        },
+      });
+    });
+    const resumedBy = () =>
+      store
+        .eventsAfter(0)
+        .flatMap(({ event }) =>
+          event.type === 'batch.resumed' ? [`${event.action} by ${event.by} via ${event.via}`] : [],
+        );
+
+    it('opens the session on a terminal and goes on from its out doc to on tap: exit 0', async () => {
+      assert.equal(await runBrew(setup, shell(behave.succeed('Refined')), request), 0);
+      assert.deepStrictEqual(started, ['refine#1']);
+      const opened = store
+        .eventsAfter(0)
+        .find(({ event }) => event.type === 'step.started' && event.stepId === 'refine');
+      assert.equal(
+        opened?.event.type === 'step.started' ? opened.event.interactiveSince : undefined,
+        t0.toISOString(),
+      );
+    });
+
+    it('parks the batch without a terminal, starting nothing, and says why: exit 3', async () => {
+      const piped = { ...request, noSessions: 'no-terminal' } as const;
+      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      assert.deepStrictEqual(started, []);
+      assert.match(
+        lines.at(-2) ?? '',
+        /^foedrum brew: batch 12-1 is stuck: waiting for a session at refine: foedrum brew 12 --take opens it in a terminal; reminder [^;]+; options: retry, /,
+      );
+      assert.equal(
+        lines.at(-1),
+        'foedrum brew: stdin is not a terminal, and claude needs one: run foedrum brew #12 in a terminal',
+      );
+    });
+
+    it('parks the batch inside Claude Code, and names the brew to run in a terminal: exit 3', async () => {
+      const inside = { ...request, noSessions: 'claude-code' } as const;
+      assert.equal(await runBrew(setup, shell(behave.succeed()), inside), 3);
+      assert.equal(
+        lines.at(-1),
+        'foedrum brew: run foedrum brew #12 in a terminal to open its session',
+      );
+    });
+
+    it('waits for a session again, never retrying by itself, when the session closes without an out doc: exit 3', async () => {
+      assert.equal(await runBrew(setup, shell(behave.fail(true)), request), 3);
+      assert.deepStrictEqual(started, ['refine#1']);
+      assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
+      assert.equal(lines.at(-1), 'foedrum brew: run foedrum brew #12 again to reopen the session');
+    });
+
+    it('retries a batch it finds waiting for a session at its start, as the person, and opens the session: exit 0', async () => {
+      const piped = { ...request, noSessions: 'no-terminal' } as const;
+      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      assert.equal(await runBrew(setup, shell(behave.succeed('Refined')), request), 0);
+      assert.deepStrictEqual(resumedBy(), ['retry by ann via terminal']);
+      assert.deepStrictEqual(started, ['refine#2']);
+      assert.ok(
+        lines.includes('foedrum brew: batch 12-1 waits for a session at refine; opening it'),
+        String(lines),
+      );
+    });
+
+    it('leaves a batch waiting for a session to the person when it opens none: exit 3', async () => {
+      const piped = { ...request, noSessions: 'no-terminal' } as const;
+      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      assert.deepStrictEqual(resumedBy(), []);
+      assert.deepStrictEqual(started, []);
+    });
+  });
+
   it('drives on, as the same owner, the batch it left needing input once it is answered: exit 0', async () => {
     assert.equal(await runBrew(setup, shell(behave.needInput()), request), 4);
     const answers = [{ q: question.q, answer: 'sqlite' }];

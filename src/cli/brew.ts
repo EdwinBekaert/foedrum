@@ -37,6 +37,11 @@ export interface BrewRequest {
   via: Surface;
   /** `--take`: take the batch over from the driver that holds it, instead of refusing it. */
   take?: true;
+  /**
+   * Why it opens no interactive step's session, when it does not (ADR 0222): it runs inside Claude
+   * Code, or its stdin is no terminal. Its driver then parks such a step's attempt.
+   */
+  noSessions?: 'claude-code' | 'no-terminal';
 }
 
 /** How `foedrum brew` ends (ADR 0123); 2, a wrong command line, is the terminal's. */
