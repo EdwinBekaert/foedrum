@@ -279,6 +279,14 @@ describe('the intake in rank order (ADR 0208)', () => {
     assert.deepStrictEqual(ordered(), ['13-1', 'web-7']);
   });
 
+  it('claims and orders an issue once when a shifting listing returns it twice', async () => {
+    // Pages of a listing shift while it is read, so one issue can come back on two of them.
+    const twice = { ...listings(), [web]: [issue(8, at(1)), issue(8, at(1))], [api]: [] };
+    await intake({ tracker: fakeTracker(twice), capacity: 5 }).poll();
+    assert.deepStrictEqual(ordered(), ['web-8', '12-1', '13-1']);
+    assert.equal(github.calls.get('create'), 1);
+  });
+
   it('records a rank with who, from where and why, and refuses one of an order that left the queue', () => {
     const decision = log.issue({ ...rank({ issue: 12 }, first), why: 'the release' }, t0);
     assert.deepStrictEqual(decision, {
