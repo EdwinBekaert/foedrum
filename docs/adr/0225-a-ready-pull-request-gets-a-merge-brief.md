@@ -20,7 +20,7 @@ And a finding's `why`, a dismissal's reason and a risk-left item are a model's w
   - `openOf` gives the open pull request and the head of the batch's latest push: On tap, opened by its ledger, no recorded end, no push by someone else, and the latest push not moved, gone, empty or refused;
   - the latest record of its checks (`Batch.pullRequestChecks[url]`) is finished, on that head, and `checkPassed` passes every check it keeps; a record keeps the failed checks first, so the ones it left out (`more`) passed too;
   - the pull request's latest base check, if any, has no `conflicts` and no `failed`; an `unchecked` one does not hold it up and the brief says the checks did not run on the merged tree;
-  - no step's latest attempt ended blocked by findings (`onFindings`): a blocking Taster's open finding holds the pull request up even after a person's skip, until the maintainer decides otherwise.
+- **No open blocking finding needs no check of its own**: a batch is On tap only once each step succeeded, was skipped by its `when`, or a person's skip went past it. A blocking Taster's step whose latest attempt ended blocked by findings (`onFindings`) is On tap only after such a skip, and the maintainer decided (2026-10-26) that it is ready then: the person accepted those findings, and the brief lists them as left open by a skip, so whoever merges sees what was accepted.
 - **A head with no checks is ready** once ADR 0213 records it finished with none, one pass after it was first seen; the brief says no check ran on it.
 - **A paused order still gets its brief**: it records a fact and runs nothing ([ADR 0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md)).
 
@@ -40,7 +40,7 @@ And a finding's `why`, a dismissal's reason and a risk-left item are a model's w
   - the red proof's readings (`readingText`) when it succeeded, or "not run" with the `when` that was false, or that the recipe has none;
   - each other check step's latest success: the checks it read, and the ones it skipped because the repository has none, as not run;
   - the findings each route round answered, `fixed`, `dismissed` or `pre-existing` with its reason, at its place and with the step whose findings it answered; and the findings of each Taster's step whose latest attempt succeeded, as the status comment lists them, each after its lens when it names one;
-  - each recipe step that did not run, with the `when` that was false, and each whose latest attempt did not succeed and that a person's skip went past;
+  - each recipe step that did not run, with the `when` that was false, and each whose latest attempt did not succeed and that a person's skip went past; a blocking Taster's step blocked by findings is listed as left open by a skip, with its attempt. Its findings are in that attempt's out doc in its worktree, not in the log, so they are not listed one by one; once a blocked Taster's findings are on `step.finished` (#561), they are;
   - the commit the last Taster reviewed and the fix rounds since (`tasted at <sha>`, from the ledger, no git);
   - the sensitive paths the latest push recorded (`sensitiveLine`, [ADR 0201](0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)).
 - **Risk left**: the last Taster's `riskLeft` (ADR 0214: the last tasting step in the recipe's order, its latest attempt when it succeeded, or each child of a parallel group), each item after its step; or "none recorded".
@@ -55,11 +55,12 @@ No hiding of an outdated brief (#549), no body render (#548), no conflict or mer
 ## Consequences
 - A ready brewed pull request gets one comment a person can merge from without reading the steps, and one more each time its ready record changes.
 - One ledger entry per brief; no new event, no change to the fold or the admission.
-- A pull request whose blocking Taster's findings a person skipped gets no brief.
+- A pull request whose blocking Taster's findings a person skipped gets a brief that says so.
 - After a kill and a changed record, an older brief and the new one can carry the same marker; the ledger names the new one.
 - A person who edits the pull request's title sees it in the next brief, not in one already posted.
 
 ## Alternatives considered
+- **No brief while a skipped blocking step's findings are open**: the skip is the person's acceptance of them; holding the brief back would leave a pull request a person chose to let through with nothing that says it is ready (the maintainer, 2026-10-26).
 - **Read GitHub at post time to decide ready**: the record is the one fact the engine, the status comment and the fix route agree on; a second reading could disagree with them.
 - **Ready on the first finished record of a head**: a late check makes it pending again (ADR 0213), and the brief would stand for a record that no longer holds.
 - **One brief per head, not per record**: a re-run that turns a failure green, or a late check, would change the evidence and post nothing.
