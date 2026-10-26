@@ -26,6 +26,9 @@ export const failedPullRequest = (state: State, batch: Batch): FailedPullRequest
   if (open === undefined) return undefined;
   const latest = batch.pullRequestChecks?.[open.url];
   if (latest?.kind !== 'finished' || latest.head !== open.head) return undefined;
+  // A person's skip left this head as it is.
+  const left = batch.pullRequestLeft;
+  if (left?.pullRequest === open.url && left.head === open.head) return undefined;
   // A record keeps the failed checks first, so the checks it left out never hide a failure.
   const failed = latest.checks.filter(({ conclusion }) => !checkPassed(conclusion));
   return failed.length === 0 ? undefined : { pullRequest: open.url, head: open.head, failed };

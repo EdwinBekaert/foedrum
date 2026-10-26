@@ -749,7 +749,9 @@ function fixPullRequest(
     throw new Refusal(`recipe ${batch.recipe?.name} has no onPullRequestFail route`);
   }
   const back = recipe.loopBack(batch, from, 'pull_request');
-  if (back !== undefined) {
+  // A step its when skipped runs no round: the batch is Stuck on its pull request instead, which
+  // the admission allows from on tap, where goBack's divergence is not (ADR 0219).
+  if (back !== undefined && batch.skipped?.has(back) !== true) {
     goBack(draft, batchId, back, { from, why: 'pull_request', pullRequest, head });
     return;
   }
