@@ -103,13 +103,26 @@ describe('createMergedChecks', () => {
     assert.ok(found);
     return found;
   };
-  const due = (batchId: string, pullRequest: string, tip: string): MergedCheckDue => ({
+  const due = (batchId: string, pullRequest: string, tip: string, checked = 0): MergedCheckDue => ({
     batchId,
     pullRequest,
     branch: 'main',
     tip,
     head,
+    checked,
   });
+  const conflictAt = (batchId: string, pullRequest: string, tip: string) =>
+    accept({
+      kind: 'record',
+      event: {
+        type: 'pull_request.base_checked',
+        batchId,
+        pullRequest,
+        branch: 'main',
+        tip,
+        conflicts: ['src/a.ts'],
+      },
+    });
   const checks = (run: (due: MergedCheckDue, signal: AbortSignal) => Promise<MergedCheckEnd>) =>
     createMergedChecks({
       log,
@@ -302,6 +315,51 @@ describe('createMergedChecks', () => {
     assert.deepStrictEqual(batch('web-7').baseChecks, [
       { pullRequest: web, branch: 'main', tip: tip1, failed: failing },
     ]);
+  });
+
+  // A newer check by the pass, or a moved bottle branch, stands over an older tip's run (review
+  // of #528).
+  it('records nothing for a run whose pull request was checked again while it ran', async () => {
+    onTap('web-7', 'nip', web);
+    const { calls, run } = fakeRun();
+    const merged = checks(run);
+    merged.due(due('web-7', web, tip1));
+    merged.poll(live);
+    conflictAt('web-7', web, tip2);
+    calls[0]?.end({ kind: 'passed' });
+    await merged.settled();
+    assert.deepStrictEqual(
+      batch('web-7').baseChecks?.map(({ tip }) => tip),
+      [tip2],
+    );
+  });
+
+  it('starts no run for a pull request checked again since it was handed on, a moved branch included', async () => {
+    onTap('web-7', 'nip', web);
+    onTap('web-8', 'nip2', web2, 'acme/web', 8);
+    const { calls, run } = fakeRun();
+    const merged = checks(run);
+    merged.due(due('web-7', web, tip1));
+    merged.due(due('web-8', web2, tip1));
+    conflictAt('web-7', web, tip2);
+    accept({
+      kind: 'record',
+      event: {
+        type: 'pull_request.base_checked',
+        batchId: 'web-8',
+        pullRequest: web2,
+        branch: 'main',
+        tip: tip2,
+        branchMoved: 'f'.repeat(40),
+      },
+    });
+    // A run starts within the poll, or not at all.
+    merged.poll(live);
+    assert.deepStrictEqual(calls, []);
+    // Handed on after that check, it runs.
+    merged.due(due('web-7', web, tip1, 1));
+    merged.poll(live);
+    assert.equal(calls.length, 1);
   });
 
   it('settles at once when no run is underway', async () => {

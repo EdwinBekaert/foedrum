@@ -468,7 +468,8 @@ describe('checkBases', () => {
       await pass({ ...repository, checks });
       assert.equal(batch().baseChecks, undefined);
       assert.deepStrictEqual(handed, [
-        { batchId: 'web-7', pullRequest, branch: 'main', tip: tip1, head },
+        // With how many checks it had then: a check recorded after drops the run (review of #528).
+        { batchId: 'web-7', pullRequest, branch: 'main', tip: tip1, head, checked: 0 },
       ]);
       // Nothing recorded yet: the next pass hands it on again, which the run's queue takes once.
       await pass({ ...repository, checks });
@@ -515,8 +516,8 @@ describe('checkBases', () => {
       state.at = tip2;
       await pass({ ...repository, checks });
       assert.deepStrictEqual(
-        handed.map(({ tip }) => tip),
-        [tip2],
+        handed.map(({ tip, checked }) => [tip, checked]),
+        [[tip2, 1]],
       );
     });
   });

@@ -19,6 +19,8 @@ export interface MergedCheckDue {
   tip: string;
   /** The commit Foedrum pushed. */
   head: string;
+  /** How many checks of the pull request the log held when it was handed on. */
+  checked?: number;
 }
 
 /** How a run on the merged tree ended. */
