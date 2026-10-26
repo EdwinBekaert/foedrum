@@ -132,7 +132,13 @@ export const wireDriver = async (
     // The last check before the pull request merges that branch as the push fetches it (ADR 0164).
     const merge = { base: into, push, worktree: shell.merge(repository) };
     worktrees.push({ repo, base, manager, merge });
-    pushes.push({ repo, base: into, push });
+    const { sensitivePaths } = repository;
+    pushes.push({
+      repo,
+      base: into,
+      push,
+      ...(sensitivePaths === undefined ? {} : { sensitivePaths }),
+    });
   }
   const client = createGitHubClient({
     exec: shell.gh,

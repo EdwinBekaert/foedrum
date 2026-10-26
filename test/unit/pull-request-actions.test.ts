@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
@@ -38,10 +39,12 @@ const fakePush = (
   behind: string[] = [],
   found: ScanFinding[] = [],
   fetched = main,
+  touched: string[] = [],
 ) => {
   const asked: string[] = [];
   const pushes: string[] = [];
   const scans: string[] = [];
+  const diffs: string[] = [];
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
@@ -62,8 +65,12 @@ const fakePush = (
       scans.push(`${from}..${to}`);
       return found;
     },
+    touchedFiles: async (since, to) => {
+      diffs.push(`${since}..${to}`);
+      return touched;
+    },
   };
-  return { target, asked, pushes, remote, scans };
+  return { target, asked, pushes, remote, scans, diffs };
 };
 
 /** A code host with the pull requests the Brewery opened, by head branch. */
@@ -139,6 +146,8 @@ const actionsWith = (
     answer?: string;
     found?: ScanFinding[];
     fetched?: string;
+    touched?: string[];
+    sensitivePaths?: string[];
   } = {},
 ) => {
   const pushed = fakePush(
@@ -147,12 +156,20 @@ const actionsWith = (
     options.behind,
     options.found,
     options.fetched,
+    options.touched,
   );
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
     brewery: 'acme/brewery',
-    repositories: [{ repo: 'acme/api', base: 'main', push: pushed.target }],
+    repositories: [
+      {
+        repo: 'acme/api',
+        base: 'main',
+        push: pushed.target,
+        ...(options.sensitivePaths === undefined ? {} : { sensitivePaths: options.sensitivePaths }),
+      },
+    ],
     host: code.host,
     orderTitle: async (order) => {
       titles.push(order);
@@ -638,5 +655,206 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
       withoutSecrets(stopped, 'open-pull-request', knownCommits(state, '12-1')),
       stopped,
     );
+  });
+});
+
+describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)', () => {
+  const sensitivePaths = ['.github/workflows/**', 'src/auth/**'];
+  const touched = ['src/auth/login.ts', 'README.md', '.github/workflows/ci.yml'];
+  const sensitive = { count: 2, files: ['src/auth/login.ts', '.github/workflows/ci.yml'] };
+
+  it('records the files that match, as git named them, from where the change starts to the commit pushed', async () => {
+    const { actions, diffs, pushes } = actionsWith({ sensitivePaths, touched });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from, sensitive });
+    // The batch started at its first attempt's commit.
+    assert.deepEqual(diffs, [`${other}..${tip}`]);
+    assert.deepEqual(pushes, [`${tip} ${branch}`]);
+  });
+
+  it('lets a wildcard match a file or folder whose name starts with a dot (review of #523)', async () => {
+    const { actions } = actionsWith({
+      sensitivePaths: ['src/auth/**', '**/*.yml', 'config/*'],
+      touched: [
+        'src/auth/.env',
+        '.github/workflows/ci.yml',
+        'config/.npmrc',
+        'src/authx.ts',
+        'a.yaml',
+      ],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: {
+        count: 3,
+        files: ['src/auth/.env', '.github/workflows/ci.yml', 'config/.npmrc'],
+      },
+    });
+  });
+
+  it('matches a dot the glob writes only with a dot, also inside braces or a class, and keeps case (review of #523)', async () => {
+    const { actions } = actionsWith({
+      sensitivePaths: ['.github/workflows/**', '{.env,.npmrc}', '[.]secrets', 'src/auth/**'],
+      touched: [
+        'github/workflows/ci.yml',
+        '.env',
+        'env',
+        '.npmrc',
+        '.secrets',
+        'src/Auth/login.ts',
+        '.github/workflows/ci.yml',
+      ],
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: {
+        count: 4,
+        files: ['.env', '.npmrc', '.secrets', '.github/workflows/ci.yml'],
+      },
+    });
+  });
+
+  it('records them on a push it finds too', async () => {
+    const { actions } = actionsWith({ sensitivePaths, touched, remote: { [branch]: tip } });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.find(push), {
+      result: { branch, commit: tip, from, sensitive },
+    });
+  });
+
+  it('records nothing when the change touches none of them', async () => {
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched: ['README.md'] });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.equal(diffs.length, 1);
+  });
+
+  it('reads no diff when the repository names no sensitive paths', async () => {
+    for (const paths of [undefined, []]) {
+      const { actions, diffs } = actionsWith({
+        touched,
+        ...(paths === undefined ? {} : { sensitivePaths: paths }),
+      });
+      keysOf(brewing(), actions);
+      assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+      assert.deepEqual(diffs, []);
+    }
+  });
+
+  it('reads no diff for a push the scan refused, nor for nothing to push', async () => {
+    const found: ScanFinding[] = [{ commit: tip, place: 'message', kind: 'GitHub token' }];
+    const refused = actionsWith({ sensitivePaths, touched, found });
+    keysOf(brewing(), refused.actions);
+    assert.deepEqual(await refused.actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      refused: found,
+    });
+    assert.deepEqual(refused.diffs, []);
+    const empty = actionsWith({ sensitivePaths, touched, behind: [tip] });
+    keysOf(brewing(), empty.actions);
+    assert.deepEqual(await empty.actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      empty: true,
+    });
+    assert.deepEqual(empty.diffs, []);
+  });
+
+  it('keeps the first 50 files and counts them all', async () => {
+    const many = Array.from({ length: 60 }, (_, n) => `src/auth/f${n}.ts`);
+    const { actions } = actionsWith({ sensitivePaths, touched: many });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: { count: 60, files: many.slice(0, 50) },
+    });
+  });
+
+  it('reads no diff for a batch with no recorded start', async () => {
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched });
+    const state = brewing();
+    const batch = state.batches.get('12-1');
+    assert.ok(batch);
+    const unstarted: State = { ...state, batches: new Map([['12-1', { ...batch, starts: {} }]]) };
+    keysOf(unstarted, actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.deepEqual(diffs, []);
+  });
+});
+
+describe('pullRequestActions: where the sensitive-path diff starts, and when it fails (review of #523)', () => {
+  const sensitivePaths = ['src/auth/**'];
+  const touched = ['src/auth/login.ts'];
+
+  it('diffs from the base the batch merged, not from where it started (ADR 0164)', async () => {
+    const merged = 'e'.repeat(40);
+    const mergeKey = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(mergeKey, { base: merged, merged: 'f'.repeat(40) }),
+    ]);
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched });
+    keysOf(state, actions);
+    await actions.target.apply(push);
+    assert.deepEqual(diffs, [`${merged}..${tip}`]);
+  });
+
+  it('finds the start of a repository the Brewery names in another case', async () => {
+    const pushed = fakePush({}, base, [], [], base, touched);
+    const actions = pullRequestActions({
+      brewery: 'acme/brewery',
+      repositories: [{ repo: 'Acme/API', base: 'main', push: pushed.target, sensitivePaths }],
+      host: fakeHost().host,
+      orderTitle: async () => 'Add a --json flag',
+    });
+    keysOf(brewing(), actions);
+    const result = await actions.target.apply(push);
+    assert.deepEqual(pushed.diffs, [`${other}..${tip}`]);
+    assert.deepEqual((result as { sensitive?: unknown }).sensitive, {
+      count: 1,
+      files: touched,
+    });
+  });
+
+  it('fails the push effect, pushing nothing, when the files cannot be read', async () => {
+    const pushed = fakePush();
+    const actions = pullRequestActions({
+      brewery: 'acme/brewery',
+      repositories: [
+        {
+          repo: 'acme/api',
+          base: 'main',
+          sensitivePaths,
+          push: {
+            ...pushed.target,
+            touchedFiles: async () => {
+              throw new Error('git diff failed: fatal: bad object');
+            },
+          },
+        },
+      ],
+      host: fakeHost().host,
+      orderTitle: async () => 'Add a --json flag',
+    });
+    keysOf(brewing(), actions);
+    await assert.rejects(actions.target.apply(push), {
+      message: 'git diff failed: fatal: bad object',
+    });
+    assert.deepEqual(pushed.pushes, []);
   });
 });

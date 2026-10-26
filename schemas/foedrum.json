@@ -647,6 +647,13 @@
             "description": "The branch attempts start from, at origin/<base> after a fetch; default main (ADR 0063)",
             "type": "string",
             "pattern": "^(?![-./])(?!.*\\.\\.)(?!.*\\/\\/)(?!.*\\/\\.)(?!.*\\.lock$)[A-Za-z0-9._/-]{1,200}(?<![/.])$"
+          },
+          "sensitivePaths": {
+            "description": "Path globs whose files a batch's status comment names when its change touches them; never an approval or a block (ADR 0201)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
