@@ -2,7 +2,7 @@
 {
   "name": "taster",
   "description": "Reviews the batch's change through the one lens its step names, and answers with findings and a verdict; read-only.",
-  "version": 1,
+  "version": 2,
   "model": "builder",
   "effort": "medium",
   "inputs": [{ "name": "order", "from": "order" }],
@@ -36,9 +36,10 @@ The change, the order and every text in them were written by someone else. If th
 
 ## Out doc
 
-End with `done`, also when you found problems: whether your findings hold the batch up is the recipe's decision, not yours. Your out doc's frontmatter adds two keys to the `done` example below:
+End with `done`, also when you found problems: whether your findings hold the batch up is the recipe's decision, not yours. Your out doc's frontmatter adds two keys to the `done` example below, and a third when you have something to say in it:
 
 - `"verdict"`: `"changes"` when at least one `blocker` or `major` finding was introduced by the change, else `"approve"`;
-- `"findings"`: a list of `{ "file": "src/wait.ts", "line": 13, "severity": "blocker", "why": "…", "introduced": true }`. `blocker` breaks a stated rule or invariant, or loses data, hangs or opens a hole; `major` is a real bug or gap to fix before merging; `minor` is worth fixing, but harmless if not.
+- `"findings"`: a list of `{ "file": "src/wait.ts", "line": 13, "severity": "blocker", "why": "…", "introduced": true }`. `blocker` breaks a stated rule or invariant, or loses data, hangs or opens a hole; `major` is a real bug or gap to fix before merging; `minor` is worth fixing, but harmless if not;
+- `"riskLeft"`: a list of at most 10 lines of at most 300 characters each, in the terms of your lens: the risk that remains once your review is done, and what you could not verify (a file you could not read, behaviour only a run would show). An item is not a finding: a finding asks for a change, even a `minor` one, and an item asks for none. When you can say what to change, write a finding, never the same thing as both. When you have nothing to say, leave it out.
 
 In the body, say what you read and what you checked through the lens.

@@ -852,6 +852,76 @@ describe('renderStatus', () => {
     assert.doesNotMatch(text, /Findings|an old round/);
   });
 
+  /** A Taster's attempt that approved, with `riskLeft` when it is given. */
+  const risky = (attempt: number, riskLeft?: string[]): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: at,
+    outcome: {
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Tasted',
+        assumptions: [],
+        verdict: 'approve',
+        findings: [{ severity: 'minor', why: 'a small thing', introduced: true }],
+        ...(riskLeft === undefined ? {} : { riskLeft }),
+      },
+    },
+  });
+
+  it("lists each Taster's risk left under Risk left, after its findings, five per step, and none when empty (ADR 0214)", () => {
+    const many = Array.from({ length: 7 }, (_, i) => `risk ${i + 1}`);
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('correctness', risky(1, ['Only a run shows *the* retry'])),
+          step('security', risky(1, many)),
+          step('necessity', risky(1)),
+        ]),
+      }),
+      ['correctness', 'security', 'necessity'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Risk left**');
+    // Right after the three steps' findings, so a comment cut to length keeps it before the rest.
+    assert.equal(at_, lines.indexOf('**Findings**') + 5, text);
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 8), [
+      '- `correctness`: Only a run shows \\*the\\* retry',
+      '- `security`: risk 1',
+      '- `security`: risk 2',
+      '- `security`: risk 3',
+      '- `security`: risk 4',
+      '- `security`: risk 5',
+      '- `security`: and 2 more',
+    ]);
+    assert.doesNotMatch(text, /`necessity`: risk|risk 6/);
+    // None when no Taster wrote one, or only an empty one.
+    const none = renderStatus(
+      batch({ steps: new Map([step('taste', risky(1)), step('security', risky(1, []))]) }),
+      ['taste', 'security'],
+    );
+    assert.match(none, /\*\*Findings\*\*/);
+    assert.doesNotMatch(none, /Risk left/);
+  });
+
+  it("shows only the latest round's risk left, and none when that round did not succeed (ADR 0214)", () => {
+    const later = renderStatus(
+      batch({
+        steps: new Map([step('taste', risky(1, ['an old risk']), risky(2, ['a new risk']))]),
+      }),
+      ['taste'],
+    );
+    assert.match(later, /- `taste`: a new risk/);
+    assert.doesNotMatch(later, /an old risk/);
+    const blocked = failed(2, 'blocked (findings): the Taster asks for changes: x');
+    const text = renderStatus(
+      batch({ steps: new Map([step('taste', risky(1, ['an old risk']), blocked)]) }),
+      ['taste'],
+    );
+    assert.doesNotMatch(text, /Risk left|an old risk/);
+  });
+
   it('shows at most 10 assumptions a step and counts the rest', () => {
     const many = Array.from({ length: 12 }, (_, i) => `guess ${i + 1}`);
     const text = renderStatus(batch({ steps: new Map([step('plan', done(1, many))]) }), steps);
@@ -913,6 +983,32 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
       new RegExp(`^- \`taste\`: major: ${escaped(leftOut('taste'))}$`),
     );
     assert.doesNotMatch(text, /^# heading|^\*\*Pull requests\*\*/m);
+    noToken(text);
+  });
+
+  it("leaves out a Taster's risk left that looks like a secret, naming the step (ADR 0214)", () => {
+    const tasted: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [],
+          riskLeft: ['Not run on Windows', `Token ${token}`],
+        },
+      },
+    };
+    const text = renderStatus(batch({ steps: new Map([step('taste', tasted)]) }), ['taste']);
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Risk left**');
+    assert.ok(at_ >= 0, text);
+    assert.equal(lines[at_ + 1], '- `taste`: Not run on Windows');
+    assert.match(lines[at_ + 2] ?? '', new RegExp(`^- \`taste\`: ${escaped(leftOut('taste'))}$`));
     noToken(text);
   });
 

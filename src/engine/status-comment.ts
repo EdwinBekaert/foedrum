@@ -491,6 +491,17 @@ const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): str
     ),
   );
 
+/** How many items of one Taster's risk left the comment shows. */
+const mostRisksLeft = 5;
+
+/** The risk left each Taster's step wrote in its latest round, as its findings are (ADR 0214). */
+const riskLeftLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) =>
+    capped(stepId, tastingOf(latestOutput(batch, stepId))?.riskLeft ?? [], mostRisksLeft, (risk) =>
+      told(risk, stepId),
+    ),
+  );
+
 /** How many changes of one Finer's step the comment shows. */
 const mostChanges = 10;
 
@@ -591,6 +602,8 @@ export const renderStatus = (
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
   const findings = findingLines(batch, stepIds, told);
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
+  const risksLeft = riskLeftLines(batch, stepIds, told);
+  if (risksLeft.length > 0) sections.push(['**Risk left**', ...risksLeft]);
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);
   const receipts = receiptLines(batch, told);
