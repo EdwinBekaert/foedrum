@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
-import { brewFromCheckout } from '../../src/cli/brew-main.ts';
+import { brewFromCheckout, noSessionsOf } from '../../src/cli/brew-main.ts';
 import { brewOwner } from '../../src/cli/driver-owner.ts';
 import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
@@ -150,6 +150,21 @@ describe('brewOwner', () => {
       assert.ok('refused' in owner, JSON.stringify(env));
       assert.match(owner.refused, /--as <name>/);
     }
+  });
+});
+
+describe('noSessionsOf (ADR 0222)', () => {
+  it('opens sessions on a terminal outside Claude Code', () => {
+    assert.equal(noSessionsOf({}, 'linux', true), undefined);
+  });
+
+  it('opens none inside Claude Code, whose session keeps the terminal, by the name as Windows reads it', () => {
+    assert.equal(noSessionsOf({ CLAUDE_CODE_CHILD_SESSION: '1' }, 'linux', true), 'claude-code');
+    assert.equal(noSessionsOf({ claude_code_child_session: '1' }, 'win32', true), 'claude-code');
+  });
+
+  it('opens none when stdin is no terminal: a pipe, CI, or mintty without a console', () => {
+    assert.equal(noSessionsOf({}, 'win32', false), 'no-terminal');
   });
 });
 
