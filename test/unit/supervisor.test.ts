@@ -554,4 +554,32 @@ describe('planTick: a failing check on an open pull request (ADR 0219)', () => {
     ];
     assert.deepStrictEqual(tick(moved), []);
   });
+
+  it("sends nothing once a person's skip left the failed head as it is, nor for a person's head after it", () => {
+    const skipped: Event[] = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead),
+      checksFinished('b1', secondHead),
+      {
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason: {
+          kind: 'pull_request_failed',
+          stepId: OPEN,
+          pullRequest: fixPullRequest,
+          head: secondHead,
+          rounds: 1,
+          failed: [{ name: failedCheck.name, conclusion: 'failure' }],
+          more: 0,
+        },
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt: ahead,
+      },
+      { type: 'batch.resumed', batchId: 'b1', by: 'ada', via: 'terminal', action: 'skip' },
+      { type: 'batch.on_tap', batchId: 'b1', pullRequests: [fixPullRequest] },
+    ];
+    assert.deepStrictEqual(tick(skipped), []);
+    assert.deepStrictEqual(tick([...skipped, checksFinished('b1', 'f'.repeat(40))]), []);
+  });
 });
