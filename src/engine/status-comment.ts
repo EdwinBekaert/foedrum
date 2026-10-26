@@ -142,6 +142,8 @@ const stuckText = (reason: StuckReason, told: Told): string => {
       return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':
       return `no recipe was chosen by its routing deadline, ${reason.deadlineAt}`;
+    case 'stopped':
+      throw new Error('not implemented');
     default:
       return reason satisfies never;
   }

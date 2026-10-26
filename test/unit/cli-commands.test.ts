@@ -171,6 +171,7 @@ describe('foedrum: commands that change state', () => {
       cancel: ['cancel', '23-1'],
       pause: ['pause', '21'],
       continue: ['continue', '21'],
+      stop: ['stop', '23'],
       order: ['order', '#99'],
       takeover: ['takeover', '22-1', '--as', 'ann'],
     };
@@ -424,6 +425,53 @@ describe('foedrum: commands that change state', () => {
       const after = (await run(['replay', '23-1'])).stdout;
       assert.match(after, /order\.continued/);
       assert.doesNotMatch(after, / {2}paused {2}/);
+    });
+  });
+
+  describe('stop (ADR 0205)', () => {
+    it('makes the brewing batch of an order Stuck stopped, recorded with who, from where and why', async () => {
+      assert.deepStrictEqual(
+        await run(['stop', '#23', '--why', 'lunch']),
+        ok('#23 stopped: 23-1 is Stuck at plan; foedrum retry continues it\n'),
+      );
+      assert.deepStrictEqual(appended(1), [
+        {
+          type: 'batch.stuck',
+          batchId: '23-1',
+          reason: { kind: 'stopped', stepId: 'plan', by: 'ada', via: 'terminal', why: 'lunch' },
+          options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+          remindAt: iso(2 * 24 * 60),
+        },
+      ]);
+    });
+
+    it('refuses an order with no brewing batch, and no order or --all, appending nothing', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['stop', '21']),
+        refused('stop', 'there is no brewing batch of #21 to stop'),
+      );
+      for (const argv of [['stop'], ['stop', '--all']]) {
+        const result = await run(argv);
+        assert.equal(result.exitCode, 2, argv.join(' '));
+        assert.match(result.stderr, /^foedrum stop: /, argv.join(' '));
+      }
+      assert.equal(lastId(), before);
+    });
+
+    it('shows a stopped batch in stuck, status and replay, with who and why', async () => {
+      await run(['stop', '23', '--why', 'lunch'], { surface: 'plugin' });
+      const said = /stopped at plan by ada via plugin: lunch/;
+      const { stdout: stuck } = await run(['stuck']);
+      assert.match(stuck, new RegExp(`23-1 +#23 +${said.source}; reminder `));
+      assert.match(stuck, /23-1[^\n]*\n {2}options: retry, skip, recipe, rewind, cancel\n/);
+      assert.match((await run(['status'])).stdout, new RegExp(`23-1 +#23 +stuck +${said.source}`));
+      assert.match((await run(['replay', '23-1'])).stdout, said);
+    });
+
+    it('is continued by retry, from the step it stopped', async () => {
+      await run(['stop', '23']);
+      assert.deepStrictEqual(await run(['retry', '23-1']), ok('23-1 brewing: plan #2 scheduled\n'));
     });
   });
 

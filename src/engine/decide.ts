@@ -145,7 +145,10 @@ export type PauseOrContinue =
     }
   | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
 
-export type Command = HumanCommand | PauseOrContinue | EngineCommand;
+/** A person's stop of an order (ADR 0205): each of its brewing batches goes Stuck at once. */
+export type Stop = { kind: 'stop'; order: OrderRef; by: string; via: Surface; why?: string };
+
+export type Command = HumanCommand | PauseOrContinue | Stop | EngineCommand;
 
 export interface Context {
   now: Date;
@@ -167,6 +170,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'waiting_for_session':
     case 'stalled':
       return [...withoutAnswer];
+    case 'stopped':
+      throw new Error('not implemented');
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
@@ -379,6 +384,9 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'continue':
       lift(draft, command);
+      break;
+    case 'stop':
+      stop(draft, command);
       break;
     default: {
       const unhandled: never = command;
@@ -1044,6 +1052,11 @@ function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void
     ...(why === undefined ? {} : { why }),
     ...(stopAt === undefined ? {} : { stopAt: stopAt.at.toISOString(), zone: stopAt.zone }),
   });
+}
+
+/** A person's stop of an order (ADR 0205). */
+function stop(_draft: Draft, _command: Stop): void {
+  throw new Error('not implemented');
 }
 
 /**

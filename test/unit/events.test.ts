@@ -740,6 +740,7 @@ describe('StuckReason', () => {
       turnsWithoutProgress: 60,
     },
     routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
+    stopped: { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: 'lunch' },
   };
   for (const [kind, reason] of Object.entries(reasons)) {
     it(`accepts ${kind}`, () => accepts(StuckReason, reason));
@@ -752,6 +753,10 @@ describe('StuckReason', () => {
     rejects(StuckReason, { kind: 'blocked', stepId: 'brew', summary: 'x' }));
   it('rejects attempts_exhausted with zero attempts', () =>
     rejects(StuckReason, { ...reasons.attempts_exhausted, attempts: 0 }));
+  it('accepts stopped without a reason, and rejects it without who stopped it', () => {
+    accepts(StuckReason, { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'plugin' });
+    rejects(StuckReason, { kind: 'stopped', stepId: 'brew', via: 'plugin' });
+  });
 });
 
 describe('WaitCondition', () => {
