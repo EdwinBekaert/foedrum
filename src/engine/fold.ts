@@ -184,6 +184,11 @@ export interface Batch {
    * while none was. A record names its head: it says nothing of another.
    */
   pullRequestChecks?: Readonly<Record<string, HeadChecks>>;
+  /**
+   * The failed head of a pull request that a person's skip of a batch Stuck on its checks left as
+   * it is (ADR 0219): nothing sends the batch back for it again. Absent while no skip did.
+   */
+  pullRequestLeft?: { pullRequest: string; head: string };
 }
 
 /** Whether two finished records of a head's checks say the same, in whatever order (ADR 0213). */
@@ -546,15 +551,30 @@ function apply(state: State, event: Event): State {
         steps: abandon(batch.steps),
       }));
     }
-    case 'batch.resumed':
+    case 'batch.resumed': {
       // A retry of a batch Stuck on routing waits to be routed again (ADR 0032).
-      return setLane(
+      const resumed = setLane(
         state,
         event.batchId,
         event.routeBy === undefined
           ? { kind: 'brewing' }
           : { kind: 'ordered', routeBy: event.routeBy },
       );
+      // A skip of a batch Stuck on its pull request's checks leaves that head as it is (ADR 0219).
+      const lane = state.batches.get(event.batchId)?.lane;
+      if (
+        event.action !== 'skip' ||
+        lane?.kind !== 'stuck' ||
+        lane.reason.kind !== 'pull_request_failed'
+      ) {
+        return resumed;
+      }
+      const { pullRequest, head } = lane.reason;
+      return updateBatch(resumed, event.batchId, (batch) => ({
+        ...batch,
+        pullRequestLeft: { pullRequest, head },
+      }));
+    }
     case 'order.decomposed': {
       const { id, issue, repo } = batchOf(state, event.batchId);
       // Sub-orders are Brewery issues, split from a Brewery order (ADR 0043).

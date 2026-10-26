@@ -4,10 +4,10 @@
 // There is no deadline: the engine waits as long as they run, and the status comment says so.
 
 import { type CheckConclusion, type HeadCheck, MAX_HEAD_CHECKS } from '../schemas/events.ts';
-import { openOf } from './base-check.ts';
 import type { CommandLog } from './command-log.ts';
 import type { RecordedEvent } from './decide.ts';
 import { sameHeadChecks } from './fold.ts';
+import { openOf } from './pull-request.ts';
 
 /** A check on a pull request's head as the code host has it now; no `conclusion` while it runs. */
 export type ReadCheck = Omit<HeadCheck, 'conclusion'> & { conclusion?: CheckConclusion };

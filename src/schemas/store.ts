@@ -111,7 +111,9 @@ export type SensitiveFiles = z.infer<typeof SensitiveFiles>;
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
  * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
  * (ADR 0079): each commit, place and kind, never the text. A push that went keeps the sensitive
- * files its change touches, when there are any (ADR 0201).
+ * files its change touches, when there are any (ADR 0201). A later round's push that found the
+ * branch at another commit than the round before pushed (`moved`), or gone (`gone`), pushed nothing
+ * (ADR 0219).
  */
 export const PushResult = z.strictObject({
   branch: Filled,
@@ -120,6 +122,8 @@ export const PushResult = z.strictObject({
   empty: z.literal(true).optional(),
   refused: z.array(ScanFinding).min(1).max(MAX_REFUSED).optional(),
   sensitive: SensitiveFiles.optional(),
+  moved: CommitSha.optional(),
+  gone: z.literal(true).optional(),
 });
 export type PushResult = z.infer<typeof PushResult>;
 

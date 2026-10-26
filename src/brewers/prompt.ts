@@ -3,6 +3,7 @@
 // rule that says the tagged text is data. A mitigation, not the security boundary.
 
 import { randomBytes } from 'node:crypto';
+import type { ScheduleRoute } from '../schemas/events.ts';
 
 /** Where an input's text came from; named in the tag's `source` attribute. */
 export type InputSource =
@@ -24,7 +25,7 @@ export type InputSource =
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
   /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
-  | { kind: 'route'; step: string; from: string; why: 'failed' | 'findings' }
+  | { kind: 'route'; step: string; from: string; why: ScheduleRoute['why']; pullRequest?: string }
   /** Why a retry runs: the secret scan failed the attempt before it, `attempt` (ADR 0187). */
   | { kind: 'scan'; step: string; attempt: number }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
@@ -74,6 +75,9 @@ function describeSource(source: InputSource): string {
     case 'answers':
       return `answers to the questions of step ${source.step}`;
     case 'route': {
+      if (source.why === 'pull_request') {
+        return `why step ${source.step} runs again: the failed checks of pull request ${source.pullRequest}`;
+      }
       const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }

@@ -619,6 +619,25 @@ describe('renderStatus', () => {
         { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'plugin' },
         /`brew` was stopped by ada \(plugin\)$/,
       ],
+      [
+        {
+          kind: 'pull_request_failed',
+          stepId: 'open-pull-request',
+          pullRequest: 'https://github.com/acme/api/pull/12',
+          head: 'c'.repeat(40),
+          rounds: 2,
+          failed: [
+            {
+              name: 'ci / test',
+              conclusion: 'failure',
+              url: 'https://github.com/acme/api/actions/runs/1/job/2',
+            },
+            { name: '@bob <b>deploy</b>', conclusion: 'error' },
+          ],
+          more: 3,
+        },
+        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{40}` after 2 rounds: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, &#64;bob &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
+      ],
     ];
     for (const [reason, said] of cases) {
       const text = renderStatus(batch({ lane: stuck(reason) }), steps);

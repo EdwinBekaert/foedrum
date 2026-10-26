@@ -30,8 +30,47 @@ import { effectKey } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 
-/** The effect that pushes the batch's task tree to its bottle branch, once per batch. */
-export const pushKey = (batchId: string): BatchEffectKey => ({ batchId, effect: 'push' });
+/**
+ * The effect that pushes the batch's task tree to its bottle branch in `round` of its pull request:
+ * `push` in the first, as before rounds were, then `push.<n>` (ADR 0219).
+ */
+export const pushKey = (batchId: string, round = 1): BatchEffectKey => ({
+  batchId,
+  effect: round === 1 ? 'push' : `push.${round}`,
+});
+
+/**
+ * The round of the batch's pull request: 1, and one more each time a failure on it sent the batch
+ * back (ADR 0219).
+ */
+export const pullRequestRound = (batch: Batch): number => {
+  let round = 1;
+  for (const step of batch.steps.values()) {
+    for (const attempt of step.attempts.values()) {
+      if (attempt.route?.why === 'pull_request') round++;
+    }
+  }
+  return round;
+};
+
+/**
+ * What the ledger recorded for each push of `batchId`, round by round from the first, as far as
+ * they go: a round pushes only after the one before (ADR 0219).
+ */
+export const recordedPushes = (state: State, batchId: string): unknown[] => {
+  const recorded: unknown[] = [];
+  for (let round = 1; ; round++) {
+    const key = effectKey.encode(pushKey(batchId, round));
+    if (!state.effects.has(key)) return recorded;
+    recorded.push(state.effects.get(key));
+  }
+};
+
+/** The latest push the ledger recorded for `batchId` (ADR 0219), when it is one the engine records. */
+export const latestPush = (state: State, batchId: string): PushResult | undefined => {
+  const parsed = PushResult.safeParse(recordedPushes(state, batchId).at(-1));
+  return parsed.success ? parsed.data : undefined;
+};
 
 /** The effect that opens the batch's pull request, once per batch. */
 export const pullRequestKey = (batchId: string): BatchEffectKey => ({
@@ -50,9 +89,42 @@ export const openedPullRequest = (state: State, batchId: string): string | undef
 };
 
 /**
+ * The open pull request of `batch` that its ledger opened, with the commit and the bottle branch
+ * its push recorded; `undefined` also once someone else pushed to that branch (ADR 0198).
+ */
+export const openOf = (
+  state: State,
+  batch: Batch,
+): { url: string; head: string; branch: string } | undefined => {
+  const { lane } = batch;
+  const url = openedPullRequest(state, batch.id);
+  if (lane.kind !== 'on_tap' || url === undefined || !lane.pullRequests.includes(url)) {
+    return undefined;
+  }
+  if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  const moved = batch.baseChecks?.some(
+    (check) => check.pullRequest === url && check.branchMoved !== undefined,
+  );
+  if (moved === true) return undefined;
+  // A round that found the branch moved or gone pushed nothing: the pull request is left alone.
+  const pushed = latestPush(state, batch.id);
+  if (
+    pushed === undefined ||
+    pushed.empty === true ||
+    pushed.refused !== undefined ||
+    pushed.moved !== undefined ||
+    pushed.gone === true
+  ) {
+    return undefined;
+  }
+  return { url, head: pushed.commit, branch: pushed.branch };
+};
+
+/**
  * The commits the state records for `batchId`, which a 40-character hexadecimal word may name
  * without being a key (ADR 0088): where its attempts' worktrees started, its rewinds' commits, and
- * the commit its push recorded or the commits it refused (ADR 0079). Read from the folded state,
+ * the commit each push recorded, the commits it refused (ADR 0079) and the commit it found the
+ * branch moved to (ADR 0219). Read from the folded state,
  * never from git.
  */
 export const knownCommits = (state: State, batchId: string): IsCommit => {
@@ -68,10 +140,12 @@ export const knownCommits = (state: State, batchId: string): IsCommit => {
   for (const rewind of batch?.rewinds ?? []) {
     for (const sha of Object.values(rewind.shas)) commits.add(sha);
   }
-  const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batchId))));
-  if (pushed.success) {
+  for (const recorded of recordedPushes(state, batchId)) {
+    const pushed = PushResult.safeParse(recorded);
+    if (!pushed.success) continue;
     commits.add(pushed.data.commit);
     for (const { commit } of pushed.data.refused ?? []) commits.add(commit);
+    if (pushed.data.moved !== undefined) commits.add(pushed.data.moved);
   }
   return (word) => commits.has(word);
 };
