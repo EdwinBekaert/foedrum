@@ -1,7 +1,7 @@
 # The usage window
 
 When claude hits a usage limit of its subscription, the engine holds the brewer attempts that limit covers until its window reopens, and goes on by itself after the reset ([ADR 0206](../../adr/0206-a-run-out-usage-window-holds-every-brewer-attempt-until-it-reopens.md)).
-A session or weekly limit holds every brewer; an Opus or Sonnet limit only the brewers on that model family ([ADR 0215](../../adr/0215-an-opus-or-sonnet-limit-holds-only-the-brewers-of-its-family.md)).
+A session or weekly limit holds every brewer; an Opus or Sonnet limit only the brewers on that model family, and those whose family cannot be told ([ADR 0215](../../adr/0215-an-opus-or-sonnet-limit-holds-only-the-brewers-of-its-family.md)).
 
 ```mermaid
 flowchart LR

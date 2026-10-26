@@ -1,5 +1,5 @@
-// The usage window (ADR 0206): when claude hits a usage limit, no brewer attempt starts until the
-// reset it named, read in the machine's time zone.
+// The usage windows (ADR 0206, ADR 0215): when claude hits a usage limit, no brewer attempt that
+// limit's window holds starts until the reset it named, read in the machine's time zone.
 
 import { type UsageLimitName, UsageScope } from '../schemas/events.ts';
 import type { UsageWindow, UsageWindows } from './fold.ts';
