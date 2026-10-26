@@ -29,7 +29,7 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   Developing against a pre-release build is a later option.
 
 An example: order 100 splits into four sub-orders, one repository each, bottled per repository.
-The api sub-order needs a published lib-core, so it waits, without a batch, until the release signal reports it.
+The api sub-order needs a published lib-core, so it conditions until the release signal reports it.
 
 ```mermaid
 flowchart TD
@@ -40,7 +40,7 @@ flowchart TD
   S1 -->|"code: once its pull request merged"| S2
   S1 & S2 --> BA["Bottle A: lib-core pull request"]
   BA -->|"merged, CI publishes"| R(["release lib-core 2.4.0"])
-  R -->|"release: waits until then"| S3
+  R -->|"release: conditioning until then"| S3
   S3 --> BB["Bottle B: api pull request<br/>bumps lib-core first"]
   S4 --> BC["Bottle C: web pull request"]
 ```

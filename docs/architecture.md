@@ -31,7 +31,7 @@ Hosted or multi-tenant service · public webhook server (1.0 polls) · trackers 
 | Issue in the Brewery | **Order** |
 | Single-repository part of an order (sub-issue) | **Sub-order** |
 | Pull request bundling one or more sub-orders | **Bottle** |
-| Waiting for a merge or release | **Conditioning** ⏳ |
+| A batch waiting for a merge or release | **Conditioning** ⏳ |
 | Agent role (prompt, inputs, output, model, tools, permissions, budget) | **Brewer** |
 | Pipeline: brewers and checks in order, with loops | **Recipe** |
 | One execution of a recipe for an order | **Batch** |
