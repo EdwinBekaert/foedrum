@@ -17,6 +17,9 @@ interface Machine {
   files?: Record<string, string>;
   /** What `foedrum` resolves to after the run; default the file written. */
   resolves?: string | null;
+  /** Reading or writing a file throws this. */
+  readFails?: string;
+  writeFails?: string;
 }
 
 interface Run {
@@ -60,8 +63,12 @@ const offer = async (machine: Machine, answers: readonly string[] = []): Promise
     home: machine.home,
     entry: machine.entry,
     writable: (folder) => machine.writable.includes(folder),
-    read: (path) => files.get(path),
+    read: (path) => {
+      if (machine.readFails !== undefined) throw new Error(machine.readFails);
+      return files.get(path);
+    },
     write: (path, text, executable) => {
+      if (machine.writeFails !== undefined) throw new Error(machine.writeFails);
       run.written.push({ path, text, executable });
       files.set(path, text);
     },
@@ -81,6 +88,15 @@ const offer = async (machine: Machine, answers: readonly string[] = []): Promise
     },
   });
   return run;
+};
+
+/** offer, failing the test when offerShim throws instead of saying why. */
+const settled = async (machine: Machine, answers: readonly string[] = []): Promise<Run> => {
+  let run: Run | undefined;
+  await assert.doesNotReject(async () => {
+    run = await offer(machine, answers);
+  });
+  return run as Run;
 };
 
 const QUESTION = 'Write the foedrum command into which folder? [1, or n for none]: ';
@@ -407,5 +423,87 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     assert.deepStrictEqual(lines, [
       '/home/ada/.local/bin/foedrum is there and is not a foedrum command init wrote; it is left as it is',
     ]);
+  });
+});
+
+describe('the foedrum command, on the edges of its machine (ADR 0210)', () => {
+  it('on Windows keeps cmd from running a node in the working directory', async () => {
+    const { written } = await offer(windows('C:\\Users\\ada\\bin'), ['']);
+    const lines = (written[0]?.text ?? '').split('\r\n');
+    const set = lines.indexOf('set "NoDefaultCurrentDirectoryInExePath=1"');
+    assert.ok(lines.indexOf('setlocal') >= 0 && lines.indexOf('setlocal') < set, lines.join('\n'));
+    assert.ok(set < lines.indexOf(`node "${WIN_ENTRY}" %*`), lines.join('\n'));
+  });
+
+  it('says a write it cannot make in one line, prints the shim and goes on', async () => {
+    const { lines, written } = await settled(
+      posix('/home/ada/.local/bin', { writeFails: 'EACCES: permission denied' }),
+      [''],
+    );
+    assert.deepStrictEqual(written, []);
+    assert.ok(
+      lines.includes('Could not write /home/ada/.local/bin/foedrum: EACCES: permission denied'),
+      lines.join('\n'),
+    );
+    assert.equal(lines.at(-1), 'and run: chmod 755 /home/ada/.local/bin/foedrum');
+  });
+
+  it('says a file it cannot read in one line, prints the shim and writes nothing', async () => {
+    const { lines, questions, written } = await settled(
+      posix('/home/ada/.local/bin', { readFails: 'EISDIR: illegal operation on a directory' }),
+    );
+    assert.deepStrictEqual(questions, []);
+    assert.deepStrictEqual(written, []);
+    assert.equal(
+      lines[0],
+      'Could not read /home/ada/.local/bin/foedrum: EISDIR: illegal operation on a directory',
+    );
+    assert.ok(lines.includes('  #!/bin/sh'), lines.join('\n'));
+  });
+
+  it('on POSIX reads a folder with a trailing slash as the same folder', async () => {
+    const { lines } = await offer(
+      posix('/home/ada/tools:/home/ada/.local/bin/:/home/ada/.local/bin'),
+      ['n'],
+    );
+    assert.deepStrictEqual(lines.slice(1, 4), [
+      '  1. /home/ada/.local/bin/',
+      '  2. /home/ada/tools',
+      'Not written. To write it by hand, put these lines in /home/ada/.local/bin/foedrum:',
+    ]);
+  });
+
+  it('only says to create the folder when it is on the PATH already', async () => {
+    const { lines } = await offer(posix('/usr/bin:/home/ada/.local/bin', { writable: [] }));
+    assert.deepStrictEqual(lines.slice(0, 3), [
+      'No folder on the PATH is inside /home/ada to write the foedrum command into.',
+      'Create /home/ada/.local/bin: it is on the PATH already.',
+      'Not written. To write it by hand, put these lines in /home/ada/.local/bin/foedrum:',
+    ]);
+  });
+
+  it('quotes a user profile with an apostrophe in the PowerShell line', async () => {
+    const { lines } = await offer(windows('C:\\Windows\\system32', { home: "C:\\Users\\o'brien" }));
+    assert.equal(
+      lines[2],
+      `  New-Item -ItemType Directory -Force 'C:\\Users\\o''brien\\.local\\bin'; [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\\Users\\o''brien\\.local\\bin', 'User')`,
+    );
+  });
+
+  it('offers nothing when the home is a root folder, where every folder would be inside it', async () => {
+    for (const machine of [
+      posix('/usr/local/bin:/opt/bin', { home: '/' }),
+      windows('C:\\Windows\\system32;C:\\tools', { home: 'C:\\' }),
+    ]) {
+      const { questions, written, lines } = await offer(machine);
+      assert.deepStrictEqual(questions, [], machine.platform);
+      assert.deepStrictEqual(written, [], machine.platform);
+      assert.match(lines[0] ?? '', /^No folder on the PATH is inside /, machine.platform);
+    }
+  });
+
+  it('offers a folder in the home whose name starts with two dots', async () => {
+    const { lines } = await offer(posix('/home/ada/..tools'), ['n']);
+    assert.equal(lines[1], '  1. /home/ada/..tools');
   });
 });
