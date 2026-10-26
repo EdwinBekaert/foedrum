@@ -168,6 +168,8 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
       return `routed batch ${notice.batchId} to the recipe ${notice.recipe}`;
     case 'unrouted':
       return `batch ${notice.batchId} is not routed: ${notice.reason}`;
+    case 'held':
+      throw new Error('not implemented');
     case 'taken':
       return `${notice.repo}#${notice.issue} is claimed by ${notice.by ?? 'a ref whose record cannot be read'}`;
     case 'refused':

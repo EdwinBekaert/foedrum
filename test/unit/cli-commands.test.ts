@@ -469,6 +469,32 @@ describe('foedrum: commands that change state', () => {
     const limited = () =>
       fakeRecipes({ pint: { ...fakeRecipe({ steps: ['plan', 'implement'] }), concurrency: 1 } });
 
+    it('prints each limit that holds above the board, read from foedrum.jsonc and the recipes', async () => {
+      const result = await run(['status'], { config: config({ openOrders: 6 }), recipes: limited });
+      assert.equal(result.exitCode, 0);
+      assert.match(
+        result.stdout,
+        /^recipe pint: 1 of 1 at once \(23-1\); its next orders wait\nopen orders: 6 of 6 \(#21, #22, #23, #24, #25, #26\); new orders wait\n\n6 batches\n/,
+      );
+    });
+
+    it('prints the board and one line when foedrum.jsonc or the recipes do not load', async () => {
+      const broken = () => {
+        throw new Error('foedrum.jsonc: "openOrders" must be at most 20\nand more');
+      };
+      for (const overrides of [
+        { config: broken, recipes: limited },
+        { config: config(), recipes: broken },
+      ]) {
+        const result = await run(['status'], overrides);
+        assert.equal(result.exitCode, 0);
+        assert.match(
+          result.stdout,
+          /^the limits could not be read: foedrum\.jsonc: "openOrders" must be at most 20\n\n6 batches\n/,
+        );
+      }
+    });
+
     it('reads neither foedrum.jsonc nor the recipes while no batch is Ordered, Brewing, Conditioning or Stuck', async () => {
       for (const id of ['21-1', '22-1', '23-1', '24-1', '25-1', '26-1']) {
         assert.equal((await run(['cancel', id])).exitCode, 0, id);

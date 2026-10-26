@@ -34,6 +34,7 @@ import {
   same,
   type TargetIssue,
 } from './issue-claims.ts';
+import type { Limits } from './limits.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
@@ -75,6 +76,8 @@ export type IntakeNotice =
   | { kind: 'routed'; batchId: string; recipe: string }
   /** An Ordered batch whose label names no one recipe it can brew; reported once per reason. */
   | { kind: 'unrouted'; batchId: string; reason: string }
+  /** An issue of the queue a limit holds (ADR 0217); reported once per issue and reason. */
+  | { kind: 'held'; repo: string; issue: number; reason: string }
   /** A repository it could not list or claim in, or a pull request it could not read. */
   | { kind: 'failed'; what: string; error: unknown };
 
@@ -94,6 +97,8 @@ export interface IntakeOptions {
   repositories: readonly IntakeRepository[];
   /** How many batches may be Ordered or Brewing at once. */
   capacity: number;
+  /** A recipe's `concurrency` and the open-order limit (ADR 0217); none by default. */
+  limits?: Limits;
   clock: () => Date;
   report?: (notice: IntakeNotice) => void;
   /**

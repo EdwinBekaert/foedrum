@@ -130,6 +130,7 @@ export const formatStatus = (
   state: State,
   kept: readonly string[] = [],
   interactive: ReadonlyMap<string, string> = new Map(),
+  _held: readonly string[] = [],
 ): string => {
   const batches = [...state.batches.values()];
   // Above the board: each holds every batch's brewers, or those of its family (ADR 0206, ADR 0215).
