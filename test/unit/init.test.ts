@@ -72,6 +72,8 @@ interface Options {
   unpushed?: string;
   /** git calls that fail, by their command, with what git says. */
   gitFails?: Readonly<Record<string, string>>;
+  /** The exit code of a git call that fails, by its command; default 1. */
+  gitCodes?: Readonly<Record<string, number>>;
 }
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
@@ -139,7 +141,9 @@ const init = async (
       run.git.push({ folder, args });
       run.events.push(`git ${args[0]}`);
       const fails = options.gitFails?.[args[0] ?? ''];
-      if (fails !== undefined) return { code: 1, stdout: '', stderr: `${fails}\n` };
+      if (fails !== undefined) {
+        return { code: options.gitCodes?.[args[0] ?? ''] ?? 1, stdout: '', stderr: `${fails}\n` };
+      }
       const printed: Readonly<Record<string, string | undefined>> = {
         status: options.status,
         log: options.unpushed,
@@ -826,6 +830,8 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
       result.stderr,
       /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"/,
     );
+    // Inside a clone init created nothing, so the line names nothing.
+    assert.doesNotMatch(result.stderr, /created and cloned/);
     assert.ok(!events.some((event) => event.startsWith('git status')), events.join('\n'));
   });
   it('commits only the files it lists, never what else is staged, and prints the same command', async () => {
@@ -892,7 +898,15 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
   });
 
   it('refuses a name Windows cannot have as a folder before asking GitHub, but not a near miss', async () => {
-    for (const name of ['octocat/NUL', 'octocat/con.d', 'octocat/com1', 'octocat/brewery.']) {
+    for (const name of [
+      'octocat/NUL',
+      'octocat/con.d',
+      'octocat/com1',
+      'octocat/prn',
+      'octocat/AUX',
+      'octocat/lpt9',
+      'octocat/brewery.',
+    ]) {
       const { result, events } = await init([name, '', ''], outside());
       assert.equal(result.exitCode, 1, name);
       const folder = name.split('/')[1] ?? '';
@@ -902,8 +916,10 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
       );
       assert.deepStrictEqual(events, [], name);
     }
-    const { events } = await init(['octocat/console', '', ''], outside());
-    assert.ok(events.includes('create octocat/console octocat private'), events.join('\n'));
+    for (const near of ['console', 'com0', 'lpt']) {
+      const { events } = await init([`octocat/${near}`, '', ''], outside());
+      assert.ok(events.includes(`create octocat/${near} octocat private`), events.join('\n'));
+    }
   });
 
   it('names the folder and the repository it created when input ends after them', async () => {
@@ -915,5 +931,19 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
       result.stderr,
       /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"; .*octocat\/foedrum-brewery is created and cloned into the folder foedrum-brewery/,
     );
+  });
+  it('pushes nothing when git cannot tell whether the branch has a commit', async () => {
+    const { result, lines, git, questions } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { 'rev-parse': 'fatal: not a git repository' },
+      gitCodes: { 'rev-parse': 128 },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(
+      lines.includes('git rev-parse failed: fatal: not a git repository'),
+      lines.join('\n'),
+    );
+    assert.ok(!git.some(({ args }) => ['log', 'push'].includes(args[0] ?? '')));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
   });
 });

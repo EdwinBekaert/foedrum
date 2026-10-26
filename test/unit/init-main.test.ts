@@ -115,6 +115,8 @@ describe('initFromCheckout', () => {
           return ok();
         }
         if (args[0] === 'status') return ok('?? foedrum.jsonc\0');
+        // A new clone has no commit yet.
+        if (args[0] === 'rev-parse') return { exitCode: 1, stdout: '', stderr: '', output: '' };
         if (['add', 'commit', 'push'].includes(args[0] ?? '')) return ok();
         return ok('1.0.0\n');
       };
@@ -149,16 +151,19 @@ describe('initFromCheckout', () => {
       assert.ok(readFileSync(join(clone, 'foedrum.jsonc'), 'utf8').includes('foedrum-brewery'));
       // Neither gh nor git gets the token, in an argument or the environment it is given whole.
       const own = calls.filter(({ args }) =>
-        ['api', 'clone', 'status', 'add', 'commit', 'push'].includes(args[0] ?? ''),
+        ['api', 'clone', 'status', 'rev-parse', 'add', 'commit', 'push'].includes(args[0] ?? ''),
       );
-      assert.equal(own.length, 8);
+      assert.equal(own.length, 9);
       for (const call of own) {
         assert.ok(!call.args.join(' ').includes('ghp_'), call.args.join(' '));
         assert.ok(/"path"/i.test(call.env) && !call.env.includes('ghp_'), call.args[0]);
       }
       // doctor runs in the new clone.
       const doctor = calls.filter(({ args }) => !own.some((call) => call.args === args));
-      assert.ok(doctor.length > 0);
+      assert.ok(
+        doctor.some(({ cwd }) => cwd === clone),
+        JSON.stringify(doctor.map(({ cwd }) => cwd)),
+      );
       assert.ok(
         doctor.every(({ cwd }) => cwd === undefined || cwd === clone),
         JSON.stringify(doctor.map(({ cwd }) => cwd)),
