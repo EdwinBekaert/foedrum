@@ -551,7 +551,8 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(stopped ? { paused: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
   });
-  // The window is the subscription's, whatever becomes of this batch (ADR 0206).
+  // The window is the subscription's, whatever becomes of this step. An end refused because its
+  // batch left brewing closes nothing: the next brewer meets the limit and closes it (ADR 0206).
   if (limited !== undefined && reopensAt !== undefined) close(draft, limited, reopensAt);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
   // A pause is a person's choice and a usage limit the subscription's wait, no failure: the step

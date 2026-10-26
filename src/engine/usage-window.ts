@@ -8,6 +8,11 @@ import { fromWallClock, wallClock } from './wall-clock.ts';
 export const reopenMarginMs = 5 * 60_000;
 /** How long the window stays closed when the reset cannot be read. */
 export const unreadRetryMs = 60 * 60_000;
+/**
+ * How long ago a reset that matches may have been and still be the one claude named: the end may
+ * be handled minutes after claude wrote it, and claude names the reset to the minute.
+ */
+export const passedWithinMs = 60 * 60_000;
 
 /** When a closed usage window reopens, and whether claude's reset could be read. */
 export interface Reopen {
@@ -44,11 +49,11 @@ const resetOf = (resets: string, now: Date, zone: string): number | undefined =>
       ),
       zone,
     );
-  // Today or the coming weekday; once that moment has passed, a day or a week on.
+  // Today or the coming weekday; once that moment passed over an hour ago, a day or a week on.
   const first = weekday === undefined ? 0 : (WEEKDAYS.indexOf(weekday) - today.getUTCDay() + 7) % 7;
   const step = weekday === undefined ? 1 : 7;
   const soonest = at(first);
-  return soonest > now.getTime() ? soonest : at(first + step);
+  return soonest >= now.getTime() - passedWithinMs ? soonest : at(first + step);
 };
 
 /**

@@ -363,8 +363,8 @@ const recipeChosen = z.discriminatedUnion('source', [
 /** The usage windows of a Claude subscription that claude names when one runs out (ADR 0091). */
 export const UsageLimitName = z.enum(['session', 'weekly', 'Opus', 'Sonnet']);
 export type UsageLimitName = z.infer<typeof UsageLimitName>;
-/** claude's reset text is cut to 200 characters, as any text its stream gives (ADR 0091). */
-const MAX_RESETS_LENGTH = 200;
+/** claude's reset text is cut to 200 characters and an ellipsis, as any text its stream gives (ADR 0091). */
+const MAX_RESETS_LENGTH = 201;
 
 export const Event = z.discriminatedUnion('type', [
   z

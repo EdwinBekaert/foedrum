@@ -2340,7 +2340,7 @@
         "resets": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 200
+          "maxLength": 201
         },
         "reopensAt": {
           "type": "string",
