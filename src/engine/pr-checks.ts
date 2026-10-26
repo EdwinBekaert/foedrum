@@ -7,6 +7,7 @@ import { type CheckConclusion, type HeadCheck, MAX_HEAD_CHECKS } from '../schema
 import { openOf } from './base-check.ts';
 import type { CommandLog } from './command-log.ts';
 import type { RecordedEvent } from './decide.ts';
+import { sameHeadChecks } from './fold.ts';
 
 /** A check on a pull request's head as the code host has it now; no `conclusion` while it runs. */
 export type ReadCheck = Omit<HeadCheck, 'conclusion'> & { conclusion?: CheckConclusion };
@@ -90,8 +91,7 @@ export const recordChecks = async (
     let read: readonly ReadCheck[];
     try {
       head = await reader.head(open.url, signal);
-      // A head recorded finished is not read again.
-      if (latest?.kind === 'finished' && latest.head === head) continue;
+      // Every pass reads them again: a re-run, or a check that registered late, changes them.
       read = await reader.checks(open.url, head, signal);
     } catch (error) {
       failed(`reading the checks of ${open.url}`, error);
@@ -99,22 +99,25 @@ export const recordChecks = async (
     }
     // A pass given up at its deadline records nothing more.
     if (signal.aborted) return;
-    const waited = latest?.kind === 'pending' && latest.head === head;
+    // The latest record, when it is of this head: a record of another never counts for it.
+    const before = latest?.head === head ? latest : undefined;
     const finished: HeadCheck[] = [];
     for (const { conclusion, ...check } of read) {
       if (conclusion !== undefined) finished.push({ ...check, conclusion });
     }
-    // No check at all is finished only on a pass after the one that saw none: the repository's
-    // workflows may not have registered theirs yet.
-    if (finished.length === read.length && (read.length > 0 || waited)) {
+    // No check at all is finished only on a pass after one that recorded this head: the
+    // repository's workflows may not have registered theirs yet.
+    if (finished.length === read.length && (read.length > 0 || before !== undefined)) {
+      const checks = kept(finished);
+      if (before?.kind === 'finished' && sameHeadChecks(before, checks)) continue;
       record({
         type: 'pull_request.checks_finished',
         batchId,
         pullRequest: open.url,
         head,
-        ...kept(finished),
+        ...checks,
       });
-    } else if (!waited) {
+    } else if (before?.kind !== 'pending') {
       const since = clock().toISOString();
       record({ type: 'pull_request.checks_pending', batchId, pullRequest: open.url, head, since });
     }

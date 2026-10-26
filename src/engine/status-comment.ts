@@ -274,8 +274,14 @@ export const checkLines = (batch: Batch): string[] =>
 /** What the latest record of the checks on the head of the pull request `url` says (ADR 0213). */
 const checkLine = (batch: Batch, url: string): string | undefined => {
   const record = batch.pullRequestChecks?.[url];
-  // An ended pull request is read no more: its last record says nothing now.
-  if (record === undefined || batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  // An ended pull request, and one someone else pushed to, are read no more (`openOf`): its last
+  // record says nothing now.
+  const moved = batch.baseChecks?.some(
+    (check) => check.pullRequest === url && check.branchMoved !== undefined,
+  );
+  if (record === undefined || batch.pullRequestEnds?.[url] !== undefined || moved === true) {
+    return undefined;
+  }
   const head = code(shortSha(record.head));
   if (record.kind === 'pending') {
     return `- ${link(url)} waits for its checks on ${head} since ${record.since}`;

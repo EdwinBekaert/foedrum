@@ -3,7 +3,14 @@
 
 import { Event } from '../schemas/events.ts';
 import { z } from '../schemas/zod.ts';
-import { type Batch, fold, InvalidLogError, type Lane, type State } from './fold.ts';
+import {
+  type Batch,
+  fold,
+  InvalidLogError,
+  type Lane,
+  type State,
+  sameHeadChecks,
+} from './fold.ts';
 
 /** What the command layer appends, or why it appends nothing. */
 export type Decision =
@@ -265,8 +272,8 @@ function checkable(
 }
 
 /**
- * The checks on a pull request's head are recorded once (ADR 0213): pending before they finish,
- * then finished; a head that moved starts again.
+ * A record of the checks on a pull request's head says something new (ADR 0213): a pending
+ * record after anything but a pending one, a finished record whose checks differ from the latest.
  */
 function unrecorded(
   state: State,
@@ -274,7 +281,11 @@ function unrecorded(
 ): string | undefined {
   const latest = state.batches.get(event.batchId)?.pullRequestChecks?.[event.pullRequest];
   if (latest?.head !== event.head) return undefined;
-  return latest.kind === 'finished' || event.type === 'pull_request.checks_pending'
+  const same =
+    event.type === 'pull_request.checks_pending'
+      ? latest.kind === 'pending'
+      : latest.kind === 'finished' && sameHeadChecks(latest, event);
+  return same
     ? `the checks on ${event.head} of ${event.pullRequest} are already recorded`
     : undefined;
 }

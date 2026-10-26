@@ -59,7 +59,7 @@ export const HeadCheck = z.strictObject({
   name: z.string().min(1).max(MAX_HEAD_CHECK_NAME_LENGTH),
   kind: z.enum(['check_run', 'status']),
   conclusion: CheckConclusion,
-  url: PullRequestUrl.optional(),
+  url: PullRequestUrl.max(MAX_HEAD_CHECK_URL_LENGTH).optional(),
 });
 export type HeadCheck = z.infer<typeof HeadCheck>;
 

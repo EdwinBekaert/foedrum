@@ -3,7 +3,7 @@
 // conditional reads (ADR 0052). Everything it reads is untrusted input, checked field by field.
 
 import type { PullRequestCheckReader, ReadCheck } from '../engine/pr-checks.ts';
-import { CheckConclusion, MAX_HEAD_CHECK_NAME_LENGTH, PullRequestUrl } from '../schemas/events.ts';
+import { CheckConclusion, HeadCheck, MAX_HEAD_CHECK_NAME_LENGTH } from '../schemas/events.ts';
 import { GitHubCheckRun, GitHubCommitStatus, GitHubPullRequestHead } from '../schemas/github.ts';
 import { CommitSha } from '../schemas/store.ts';
 import { checked, refused, repoPath } from './answers.ts';
@@ -16,7 +16,10 @@ const conclusionOf = (text: string | null | undefined): CheckConclusion => {
   return parsed.success ? parsed.data : 'unknown';
 };
 
-/** A check as the record keeps it: its name cut, empty named by its kind; a link only when https. */
+/**
+ * A check as the record keeps it: its name cut, empty named by its kind; a link only when it is
+ * https and no longer than a record keeps.
+ */
 const readCheck = (
   name: string,
   kind: ReadCheck['kind'],
@@ -30,7 +33,7 @@ const readCheck = (
     name: cut === '' ? kind : cut,
     kind,
     ...(conclusion === undefined ? {} : { conclusion }),
-    ...(PullRequestUrl.safeParse(url).success ? { url: url as string } : {}),
+    ...(HeadCheck.shape.url.unwrap().safeParse(url).success ? { url: url as string } : {}),
   };
 };
 

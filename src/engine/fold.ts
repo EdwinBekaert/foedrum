@@ -181,6 +181,21 @@ export interface Batch {
   pullRequestChecks?: Readonly<Record<string, HeadChecks>>;
 }
 
+/** Whether two finished records of a head's checks say the same, in whatever order (ADR 0213). */
+export const sameHeadChecks = (
+  a: { checks: readonly HeadCheck[]; more?: number | undefined },
+  b: { checks: readonly HeadCheck[]; more?: number | undefined },
+): boolean => {
+  const text = ({ checks, more }: typeof a): string =>
+    JSON.stringify([
+      checks
+        .map(({ name, kind, conclusion, url }) => JSON.stringify([name, kind, conclusion, url]))
+        .sort(),
+      more ?? 0,
+    ]);
+  return text(a) === text(b);
+};
+
 /** The checks on a pull request's head (ADR 0213): still running since a pass saw it, or finished. */
 export type HeadChecks =
   | { kind: 'pending'; head: string; since: string }
