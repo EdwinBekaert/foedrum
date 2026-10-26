@@ -1,6 +1,6 @@
-# Pause and continue
+# Pause, continue and stop
 
-An engineer halts work with `foedrum pause` and goes on with `foedrum continue`, for one order or for the whole Brewery ([ADR 0202](../../adr/0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md)).
+An engineer halts work with `foedrum pause` and goes on with `foedrum continue`, for one order or for the whole Brewery ([ADR 0202](../../adr/0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md)), or ends an order's work at once with `foedrum stop` ([stop](#stop)).
 
 ```mermaid
 flowchart LR
@@ -21,4 +21,22 @@ flowchart LR
 - `--by` takes a local time (`17:30`, today in the machine's time zone, tomorrow once past) or a duration (`20m`); the event records the UTC instant and the machine's zone. At that instant the driver stops what still runs of the paused batches; the end is recorded with `paused`, counts against none of the step's retries, and the step is scheduled again as a retry, waiting for `continue`; the driver's flag decides, so an end that comes after the pause was lifted or replaced is the pause's too.
 - Under `--all` the intake orders and claims nothing, and the engine's `order` is refused; it still records pull request ends, checks bases and routes Ordered batches. A person's `foedrum order` is not held.
 - The status comment says **Paused** with who, from where, why and the `--by` instant in UTC with the time in its zone; `foedrum status` adds `paused by …` to the batch's line, and `foedrum replay` lists the pause and continue events that held it and the pause in its state.
-- Only a person continues, until the Innkeeper's planning job (#227); `stop` (#518) kills at once.
+- Only a person continues, until the Innkeeper's planning job (#227); `stop` kills at once.
+
+## Stop
+
+`foedrum stop <order> [--why <reason>]` ends an order's work at once, and `retry` continues it from the same step ([ADR 0205](../../adr/0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md)).
+
+```mermaid
+flowchart LR
+  S["stop #12"] --> K["each brewing batch Stuck, stopped:<br/>its attempts abandoned"]
+  K --> D["the driver stops their runs<br/>at its next tick"]
+  D -->|"retry"| R["the step scheduled again,<br/>resuming its session"]
+```
+
+- The order is named and refused as a pause's is: a sub-order, or the Brewery issue that is a claimed issue's order, is refused with the order to stop; an order with no brewing batch is refused too. There is no `--all`: `pause --all --by` stops everything that runs, and one `continue --all` lifts it.
+- Each brewing batch of the order, its sub-orders' too, goes Stuck with reason `stopped`, which carries who stopped it, from where and why, and names the first step whose latest attempt had not finished; a batch with nothing running, only scheduled, goes Stuck the same way. Ordered, Conditioning and Stuck batches are left as they are.
+- Stuck abandons the batch's unfinished attempts, so the driver that runs one stops its process tree at its next tick, and the runner's end of it is refused, spending no attempt; what it committed stays on its branch, and what it had not committed is lost.
+- A stopped batch offers `retry`, `skip`, `recipe`, `rewind` and `cancel`, with the Stuck reminder; `retry` schedules the named step as a retry, and in a parallel group also the other children that had not ended.
+- A stop leaves a pause as it is, so a retried step of a paused batch waits for `continue`; a pause of a stopped batch holds what its retry schedules.
+- The status comment's Stuck line, `foedrum stuck`, `status` and `replay` say `stopped`, with who, from where and why.
