@@ -17,6 +17,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { createSupervisor } from '../../src/engine/supervisor-loop.ts';
 import { type Random, seededRandom } from '../helpers/event-sequences.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
+import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import { forEachSeedAsync } from '../helpers/property.ts';
 
@@ -107,7 +108,7 @@ const tracker = (planned: readonly Planned[], opened: ReadonlySet<number>): Targ
     milestone: undefined,
     assignees: [],
     author: 'ann',
-    created: new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString(),
+    created: createdOf(number),
   });
   return {
     issues: async (repo) =>

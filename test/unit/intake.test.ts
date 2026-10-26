@@ -22,6 +22,7 @@ import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
+import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const web = 'acme/web';
@@ -53,7 +54,7 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   assignees: [],
   author: 'alice',
   // A minute apart by number, so the lower number arrived first (ADR 0208).
-  created: new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString(),
+  created: createdOf(number),
   ...fields,
 });
 const record = (brewery: string, number: number): string =>

@@ -20,6 +20,7 @@ import {
 } from '../../src/engine/issue-claims.ts';
 import type { EffectKey } from '../../src/schemas/store.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
+import { createdOf } from '../helpers/fake-github-api.ts';
 
 const repo = 'acme/app';
 const now = '2026-10-16T09:00:00.000Z';
@@ -35,7 +36,7 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   assignees: [],
   author: 'alice',
   // A minute apart by number, so the lower number arrived first (ADR 0208).
-  created: new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString(),
+  created: createdOf(number),
   ...fields,
 });
 const options = (claimant: Claimant, fields: Partial<CandidateOptions> = {}): CandidateOptions => ({
