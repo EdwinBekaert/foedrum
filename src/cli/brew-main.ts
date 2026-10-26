@@ -4,9 +4,10 @@
 // Claude Code, an interactive step's session opens in the foreground (ADR 0222). cli-main.ts loads it.
 
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
+import type { BrewerRunner } from '../engine/brewer-runner.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
-import { openInNewWindow } from '../platform/new-window.ts';
-import { execProcess, foregroundProcess } from '../platform/processes.ts';
+import { openInNewWindow, type WindowFacts } from '../platform/new-window.ts';
+import { type ExecProcess, execProcess, foregroundProcess } from '../platform/processes.ts';
 import type { BrewCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
@@ -34,27 +35,74 @@ export const noSessionsOf = (
 };
 
 /**
+ * brew's shell: with sessions, a runner that opens an interactive step's session in the foreground
+ * and runs every other attempt headless, a resumed one too, as serve's (ADR 0222); without, serve's.
+ */
+export const brewShellOf = (
+  base: ServeShell,
+  noSessions: BrewRequest['noSessions'],
+  interactive: (
+    claude: string,
+    plan: Parameters<ServeShell['runner']>[1],
+    opensResumed: boolean,
+  ) => BrewerRunner,
+): ServeShell =>
+  noSessions === undefined
+    ? { ...base, runner: (claude, plan) => interactive(claude, plan, false) }
+    : base;
+
+/** What brew is asked to brew, as whom and who asked, and why it opens no session, if it does not. */
+export const brewRequestOf = (
+  input: BrewCommand,
+  owner: string,
+  issued: { by: string; via: Surface },
+  noSessions: BrewRequest['noSessions'],
+): BrewRequest => ({
+  target: input.issue,
+  owner,
+  ...issued,
+  ...(input.take === true ? { take: true } : {}),
+  ...(noSessions === undefined ? {} : { noSessions }),
+});
+
+/** What `--new-window` starts the brew with: the machine's launcher facts, node and program. */
+export interface NewWindowDeps extends WindowFacts {
+  /** This node. */
+  execPath: string;
+  /** The `foedrum` program this node runs. */
+  script: string;
+  exec: ExecProcess;
+}
+
+/** The real machine's: this process's node, program and platform, and its PATH. */
+const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWindowDeps => {
+  const { platform } = process;
+  return {
+    platform,
+    env,
+    find: (name) => resolveExecutable(name, { env, platform }),
+    execPath: process.execPath,
+    script: process.argv[1] ?? '',
+    exec: execProcess,
+  };
+};
+
+/**
  * Opens a new terminal window that runs `foedrum brew <issue> --take` with this node and program,
  * for the plugin's session, which cannot hand its terminal to claude (ADR 0222). Where none can
  * open, it says the line to run in a terminal (exit 5).
  */
-const brewInNewWindow = async (
+export const brewInNewWindow = async (
   cwd: string,
   input: BrewCommand,
-  env: Readonly<Record<string, string | undefined>>,
+  deps: NewWindowDeps,
 ): Promise<CliResult> => {
   const { alias, issue } = input.issue;
   const target = `${alias === undefined ? '' : `${alias}#`}${issue}`;
   const words = ['brew', target, '--take', ...(input.as === undefined ? [] : ['--as', input.as])];
   const shown = `foedrum ${words.join(' ')}`;
-  const { platform } = process;
-  const facts = {
-    platform,
-    env,
-    find: (name: string) => resolveExecutable(name, { env, platform }),
-  };
-  const line = { cwd, program: process.execPath, args: [process.argv[1] ?? '', ...words] };
-  const opened = await openInNewWindow(facts, line, execProcess);
+  const line = { cwd, program: deps.execPath, args: [deps.script, ...words] };
+  const opened = await openInNewWindow(deps, line, deps.exec);
   if (opened.kind === 'opened') {
     const said = `foedrum brew: opened ${shown} in a new window; exit its claude session there when the step is done, then check the batch with foedrum status`;
     return { exitCode: 0, stdout: `${said}\n`, stderr: '' };
@@ -79,7 +127,7 @@ export const brewFromCheckout = async (
   if ('refused' in owner) {
     return { exitCode: 2, stdout: '', stderr: `foedrum brew: ${owner.refused}\n` };
   }
-  if (input['new-window'] === true) return brewInNewWindow(cwd, input, env);
+  if (input['new-window'] === true) return brewInNewWindow(cwd, input, thisMachine(env));
   const ready = await readServeSetup(cwd, 'brew', options);
   if (ready.kind === 'refused') return ready.result;
   const { setup } = ready;
@@ -112,43 +160,33 @@ export const brewFromCheckout = async (
       command: 'brew',
       keepAwake: thisMachineAwake(options),
     });
-    const shell: ServeShell = {
-      ...base,
+    const shell = brewShellOf(
       // A live line only where standard output is a terminal that takes it (ADR 0174).
-      ...(live === undefined ? {} : { terminal: live }),
-      // Every other attempt runs headless, as serve's (ADR 0222).
-      ...(noSessions === undefined
-        ? {
-            runner: (claude, plan) =>
-              interactiveBrewerRunner({
-                claude,
-                plan,
-                opensResumed: false,
-                setup: base.setup,
-                terminalEnv: terminalEnv(env, process.platform),
-                platform: process.platform,
-                say: print,
-                foreground: (program, args, folder, variables) =>
-                  gate.foreground(async () => {
-                    terminal?.clear();
-                    foreground = true;
-                    try {
-                      return await foregroundProcess(program, args, folder, variables);
-                    } finally {
-                      foreground = false;
-                    }
-                  }),
-              }),
-          }
-        : {}),
-    };
-    const exitCode = await runBrew(setup, shell, {
-      target: input.issue,
-      owner: owner.owner,
-      ...issued,
-      ...(input.take === true ? { take: true } : {}),
-      ...(noSessions === undefined ? {} : { noSessions }),
-    });
+      live === undefined ? base : { ...base, terminal: live },
+      noSessions,
+      (claude, plan, opensResumed) =>
+        interactiveBrewerRunner({
+          claude,
+          plan,
+          opensResumed,
+          setup: base.setup,
+          terminalEnv: terminalEnv(env, process.platform),
+          platform: process.platform,
+          say: print,
+          foreground: (program, args, folder, variables) =>
+            gate.foreground(async () => {
+              terminal?.clear();
+              foreground = true;
+              try {
+                return await foregroundProcess(program, args, folder, variables);
+              } finally {
+                foreground = false;
+              }
+            }),
+        }),
+    );
+    const request = brewRequestOf(input, owner.owner, issued, noSessions);
+    const exitCode = await runBrew(setup, shell, request);
     return { exitCode, stdout: '', stderr: '' };
   } finally {
     listening.stop();
