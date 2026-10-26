@@ -36,7 +36,7 @@ And a finding's `why`, a dismissal's reason and a risk-left item are a model's w
 - **What changed since it opened**: each fix round a failure sent back (ADR 0219): its number, the head whose checks failed, and the commit its push recorded, or that it found the branch moved or gone; or "nothing". The failed checks of an earlier round are not named: the fold keeps only the latest record of a pull request's checks.
 - **Evidence on `<sha>`**:
   - each check of the record with its conclusion and link, as the Stuck reason writes them, and how many more passed; or that no check ran on this head;
-  - how it merges with its base by the latest base check: cleanly, cleanly with its checks passing on the merged tree, or not checked there and why; or not checked since the push;
+  - how it merges with its base by the latest base check: cleanly at its tip, or not checked on the merged tree and why; or not checked against its base since the push;
   - the red proof's readings (`readingText`) when it succeeded, or "not run" with the `when` that was false, or that the recipe has none;
   - each other check step's latest success: the checks it read, and the ones it skipped because the repository has none, as not run;
   - the findings each route round answered, `fixed`, `dismissed` or `pre-existing` with its reason, at its place and with the step whose findings it answered; and the findings of each Taster's step whose latest attempt succeeded, as the status comment lists them, each after its lens when it names one;
@@ -55,6 +55,7 @@ No hiding of an outdated brief (#549), no body render (#548), no conflict or mer
 ## Consequences
 - A ready brewed pull request gets one comment a person can merge from without reading the steps, and one more each time its ready record changes.
 - One ledger entry per brief; no new event, no change to the fold or the admission.
+- A base check records no head, and none runs again until the base moves: a conflict recorded on a head before a fix round holds the next head's brief until the base moves and that head is checked (#547 sends a conflict back along the route).
 - A pull request whose blocking Taster's findings a person skipped gets a brief that says so.
 - After a kill and a changed record, an older brief and the new one can carry the same marker; the ledger names the new one.
 - A person who edits the pull request's title sees it in the next brief, not in one already posted.
