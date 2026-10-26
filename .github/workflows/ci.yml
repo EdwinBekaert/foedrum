@@ -102,46 +102,47 @@ jobs:
       - name: npm run test:integration
         run: npm run test:integration
 
-      # TEMPORARY (#425): why no user-mode network stack can join the network namespace of a
-      # setup's bwrap here. Removed before the pull request is ready.
-      - name: Diagnose the setup's network namespace
+      # TEMPORARY (#425): whether a setup's bwrap with a /dev built without devpts makes one user
+      # namespace that slirp4netns and pasta can join. Removed before the pull request is ready.
+      - name: Verify the setup's network namespace without devpts
         if: ${{ always() && matrix.os == 'ubuntu-latest' }}
         continue-on-error: true
         run: |
           set +e
-          ls -l /usr/bin/bwrap /usr/bin/slirp4netns; lsns --version
-          echo "this shell: user $(readlink /proc/$$/ns/user) net $(readlink /proc/$$/ns/net) label $(cat /proc/$$/attr/current)"
-          info="$RUNNER_TEMP/bwrap-info.json"
-          args=(--die-with-parent --unshare-pid --new-session --unshare-net --info-fd 3
-            --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp sleep 60)
-          echo "bwrap ${args[*]}"
-          bwrap "${args[@]}" 3> "$info" &
-          holder=$!
-          sleep 2
-          echo "info: $(cat "$info")"
-          pid=$(grep -o '"child-pid": *[0-9]*' "$info" | grep -o '[0-9]*$')
-          for p in "$holder" "$pid" $(pgrep -P "$pid"); do
-            echo "pid $p ($(cat /proc/$p/comm)): user $(readlink /proc/$p/ns/user) net $(readlink /proc/$p/ns/net) label $(cat /proc/$p/attr/current)"
-            grep -E '^(Uid|CapEff|NSpid)' /proc/$p/status | tr '\n' ' '; echo
-          done
-          echo "== every user namespace, with its parent (PNS): a nested one shows a bwrap parent"
-          sudo lsns -t user -o NS,PID,PPID,PNS,ONS,COMMAND
-          echo "== every network namespace, with its owning user namespace (ONS)"
-          sudo lsns -t net -o NS,PID,PPID,ONS,COMMAND
-          for p in "$pid" $(pgrep -P "$pid"); do
-            u=$(readlink /proc/$p/ns/user | grep -o '[0-9]*'); n=$(readlink /proc/$p/ns/net | grep -o '[0-9]*')
-            echo "pid $p: user $u (parent $(sudo lsns -t user -n -o NS,PNS | awk -v u="$u" '$1==u {print $2}')), net $n owned by $(sudo lsns -t net -n -o NS,ONS | awk -v n="$n" '$1==n {print $2}')"
-          done
-          echo "== nsenter as this user"
-          nsenter --target "$pid" --user --preserve-credentials true; echo "user only: $?"
-          nsenter --target "$pid" --user --net --preserve-credentials true; echo "user and net: $?"
-          nsenter --target "$pid" --user --net true; echo "user and net, no preserve: $?"
-          echo "== slirp4netns"
-          timeout 5 slirp4netns --configure --mtu=65520 --disable-host-loopback "$pid" tap0; echo "slirp4netns: $?"
-          timeout 5 slirp4netns --configure --mtu=65520 --disable-host-loopback --userns-path=/proc/$pid/ns/user --netns-type=path /proc/$pid/ns/net tap0; echo "slirp4netns by path: $?"
-          kill "$holder"; wait "$holder"
-          echo "== AppArmor denials"
-          sudo dmesg | grep -iE 'apparmor="(DENIED|AUDIT)"' | tail -40
+          sudo apt-get install -y passt > /dev/null 2>&1; pasta --version | head -1; slirp4netns --version | head -1
+          dev=(--tmpfs /dev)
+          for node in null zero full random urandom tty; do dev+=(--dev-bind "/dev/$node" "/dev/$node"); done
+          dev+=(--tmpfs /dev/shm --symlink /proc/self/fd /dev/fd --symlink /proc/self/fd/0 /dev/stdin
+            --symlink /proc/self/fd/1 /dev/stdout --symlink /proc/self/fd/2 /dev/stderr)
+          try() {
+            local stack=$1 info="$RUNNER_TEMP/info-$1.json"
+            local args=(--die-with-parent --unshare-pid --new-session --unshare-net --info-fd 3
+              --ro-bind / / "${dev[@]}" --proc /proc --tmpfs /tmp sleep 60)
+            echo "== $stack: bwrap ${args[*]}"
+            bwrap "${args[@]}" 3> "$info" &
+            local holder=$!
+            sleep 2
+            local pid; pid=$(grep -o '"child-pid": *[0-9]*' "$info" | grep -o '[0-9]*$')
+            local u n; u=$(readlink /proc/$pid/ns/user | grep -o '[0-9]*'); n=$(readlink /proc/$pid/ns/net | grep -o '[0-9]*')
+            echo "child $pid: user $u (parent $(sudo lsns -t user -n -o NS,PNS | awk -v u="$u" '$1==u {print $2}')), net $n owned by $(sudo lsns -t net -n -o NS,ONS | awk -v n="$n" '$1==n {print $2}')"
+            nsenter --target "$pid" --user --net --preserve-credentials true; echo "nsenter user and net: $?"
+            local stackpid=""
+            case $stack in
+              slirp4netns)
+                slirp4netns --configure --mtu=65520 --disable-host-loopback "$pid" tap0 > "$RUNNER_TEMP/slirp.log" 2>&1 &
+                stackpid=$!; sleep 2; echo "slirp4netns running: $(kill -0 $stackpid 2>/dev/null && echo yes || echo no)"; cat "$RUNNER_TEMP/slirp.log" ;;
+              pasta)
+                pasta --config-net --quiet -4 -a 10.0.2.100 -n 24 -g 10.0.2.2 --no-map-gw -t none -u none -T none -U none --dns-forward 10.0.2.3 "$pid"
+                echo "pasta exit: $?" ;;
+            esac
+            nsenter --target "$pid" --user --net --preserve-credentials ip -br addr
+            nsenter --target "$pid" --user --net --preserve-credentials ip route
+            [ -n "$stackpid" ] && kill "$stackpid"
+            kill "$holder"; wait "$holder" 2>/dev/null
+          }
+          try slirp4netns
+          try pasta
+          sudo dmesg | grep -iE 'apparmor="DENIED"' | tail -20
 
       # The properties of invariants I1–I6 with many more seeds than npm run check runs within its
       # per-file budget (architecture §9): 500 scenarios per invariant on the Linux leg, and 1,000
