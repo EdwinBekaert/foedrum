@@ -11,6 +11,7 @@ import { type WatchShell, watchStatus } from '../../src/cli/status-watch.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import { StatusCommand } from '../../src/schemas/commands.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { linux } from '../helpers/doctor-facts.ts';
@@ -560,8 +561,12 @@ describe('foedrum status --watch: the command layer', () => {
   });
 
   it('prints the plain status byte for byte, without calling the watch', async () => {
+    // Room for every order, so no limit line comes above the board (ADR 0217).
+    const config = (): BreweryConfig =>
+      ({ ...BreweryConfig.parse({ repositories: {} }), openOrders: 20 }) as BreweryConfig;
     const result = await run(['status'], {
       openStore: () => storeWith([ordered(11), ordered(12)]),
+      config,
     });
     assert.deepEqual(result, {
       exitCode: 0,

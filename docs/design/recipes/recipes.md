@@ -11,6 +11,7 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
   "description": "Small feature in one repository",
   "match": { "labels": ["feature"] },
   "testFirst": true,                                         // the router may switch it off, with a reason
+  "concurrency": 2,                                          // at most 2 of its batches at once; none by default (ADR 0217)
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },                // writes plan.md
     { "id": "gauge", "brewer": "gauger",                     // failing tests (+ stubs) + commit
