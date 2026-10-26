@@ -2,7 +2,7 @@
 {
   "name": "taster",
   "description": "Reviews the batch's change through the one lens its step names, and answers with findings and a verdict; read-only.",
-  "version": 1,
+  "version": 2,
   "model": "builder",
   "effort": "medium",
   "inputs": [{ "name": "order", "from": "order" }],
