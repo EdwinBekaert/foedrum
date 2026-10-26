@@ -39,9 +39,11 @@ const LIVE: ReadonlySet<Batch['lane']['kind']> = new Set([
   'stuck',
 ]);
 
-/** Whether a limit can hold now: some batch is Ordered, Brewing, Conditioning or Stuck. */
-export const mayHold = (state: State): boolean =>
-  [...state.batches.values()].some(({ lane }) => LIVE.has(lane.kind));
+/**
+ * Whether a limit can hold now: some order is open, which every batch Ordered, Brewing,
+ * Conditioning or Stuck makes its own.
+ */
+export const mayHold = (state: State): boolean => openOrders(state).size > 0;
 
 /**
  * The open orders (ADR 0217), by `orderKey` in the order their batches were ordered, each with its

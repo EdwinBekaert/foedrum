@@ -1,6 +1,6 @@
 # 0217. A recipe's concurrency and the open-order limit hold what the intake starts
 
-Date: 2026-10-26 · Status: Accepted · Amends [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (the Brewery's limit gains a recipe's and an open-order limit), [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (part 3 is these two limits; overlapping `touches` follows #388) [0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md) (the queue skips what a limit holds) and [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (`foedrum status` loads the recipes while a limit can hold)
+Date: 2026-10-26 · Status: Accepted · Amends [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (the Brewery's limit gains a recipe's and an open-order limit), [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (part 3 is these two limits; overlapping `touches` follows #388), [0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md) (the queue skips what a limit holds) and [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (`foedrum status` loads the recipes while a limit can hold)
 
 ## Context
 The Brewery's `concurrency` is the only limit on what starts: a pass orders and claims its queue in rank order until the batches Ordered or Brewing reach it ([ADR 0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md), [ADR 0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md)), with the ready sub-orders in the same queue ([ADR 0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)).
@@ -59,13 +59,13 @@ What a limit holds is a function of the folded state, the listing and the config
 - `foedrum status` prints, above the board as it prints the usage windows, one line per limit that holds now, read from the store, foedrum.jsonc and the recipes, without the network: a recipe at its limit, with the batches that hold it (`recipe nip: 1 of 1 at once (12-1); its next orders wait`), and the open-order limit once it is reached, with the open orders.
   It reads only what is Brewing for a recipe, since the labels of the Ordered batches are on GitHub.
   When foedrum.jsonc or the recipes do not load, it prints the board as before and one line that says the limits could not be read, and exits 0.
-- **This amends [ADR 0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) for `status` alone:** a read-only command never loaded the recipes, and `status` now loads them, with foedrum.jsonc, while some batch is Ordered, Brewing, Conditioning or Stuck, the only time a limit can hold. The cost is one read of the recipe files and Foedrum's defaults per `status`; with no such batch it reads only the store, as before.
+- **This amends [ADR 0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) for `status` alone:** a read-only command never loaded the recipes, and `status` now loads them, with foedrum.jsonc, while some order is open (a batch Ordered, Brewing, Conditioning or Stuck, or a sub-order of a breakdown left without a batch), the only time a limit can hold. The cost is one read of the recipe files and Foedrum's defaults per `status`; with no open order it reads only the store, as before.
 - `foedrum status --watch` stays as it is: a load each second for its redraw is a cost the plain board does not have, and a later issue can bring the lines there.
-- `serve` prints a `held` intake notice once per order and reason, as it prints `unrouted` once.
+- `serve` prints a `held` intake notice once per issue and reason, as it prints `unrouted` once.
 - A held order's rank does not change.
 
 ### Next
-The third limit comes with #388's `touches`: two ready sub-orders whose `touches` overlap do not run side by side.
+The third limit (#566) comes with #388's `touches`: two ready sub-orders whose `touches` overlap do not run side by side.
 
 ## Consequences
 - With a recipe's `concurrency` of 1, a second order for it waits while the first brews, a later order of another recipe takes the free slot, and `foedrum status` says why the second waits.

@@ -23,5 +23,5 @@ flowchart LR
 - **Not held:** a batch that goes back to Brewing (a retry, a `continue`, an answer), a person's `recipe` for a Stuck batch, and `foedrum brew`; the limits pace what the intake starts by itself.
 - **No event:** what a limit holds is a function of the folded state, the listing and the config, as the ready set is.
 - **Where it shows:** `serve` prints `<repo>#<n> waits: <why>` once per issue and reason; `foedrum status` prints, above the board, one line per limit that holds, a recipe's from its batches Brewing (`recipe nip: 1 of 1 at once (12-1); its next orders wait`) and the open orders once the limit is reached (`limitLines`).
-  It reads foedrum.jsonc and the recipes only while some batch is Ordered, Brewing, Conditioning or Stuck, and says in one line when they do not load; `status --watch` does not show them yet.
-- Next: two ready sub-orders whose plan `touches` overlap never run side by side, with #388's `touches`.
+  It reads foedrum.jsonc and the recipes only while some order is open (`mayHold`), and says in one line when they do not load; `status --watch` does not show them yet.
+- Next (#566): two ready sub-orders whose plan `touches` overlap never run side by side, with #388's `touches`.
