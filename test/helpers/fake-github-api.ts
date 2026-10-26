@@ -142,6 +142,20 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const pull = pulls.some(
       (each) => each.repo === repo.toLowerCase() && each.number === Number(number),
     );
+    // And to its issue read, which gives a pull request's title (ADR 0225).
+    const asIssueOfPull = pulls.find(
+      (each) => each.repo === repo.toLowerCase() && each.number === Number(number),
+    );
+    if (found === undefined && asIssueOfPull !== undefined && method === 'GET' && what === '') {
+      return json(200, {
+        number: asIssueOfPull.number,
+        state: 'open',
+        user: { login: asIssueOfPull.author },
+        labels: [],
+        title: asIssueOfPull.title,
+        pull_request: {},
+      });
+    }
     if (found === undefined && !(pull && what === 'comments')) return notFound();
     const key = `${repo.toLowerCase()}#${Number(number)}`;
     const fieldsOf = (body ?? {}) as { body?: string };
