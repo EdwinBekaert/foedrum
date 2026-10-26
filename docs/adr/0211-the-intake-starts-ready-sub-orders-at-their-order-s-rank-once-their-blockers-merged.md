@@ -24,6 +24,7 @@ The limits on what runs side by side (a recipe's `concurrency`, the open-order l
 - **`code`** now waits for the blocker's merge, not for its branch: a sub-order starts from a base that holds the change, and its pull request never stacks on another that may still change or close.
 - **The wait.** A blocked sub-order has no batch while it waits for its blockers' merges, so it is in no lane: no Conditioning reason and no reminder, which ADR 0013 gave the wait for a merge.
   What it waits for is the blocker's pull request, which is On tap and shown on its own batch; the board (#240) is where the queue and what its sub-orders wait for will show.
+- It is the second exception to "every wait has a deadline", beside a person's pause (ADR 0202): the blocker's open pull request is what waits on a person, and CLAUDE.md's engine rules name it.
 - **`release`** is left out of this record: a sub-order with a `release` blocker is never ready here. #538 adds the release signal (a `release.observed` of the blocker's repository after its merge); until then such a sub-order waits, and nothing produces one.
 
 ### Where it starts them
