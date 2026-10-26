@@ -13,6 +13,7 @@ import {
   brewRequestOf,
   brewShellOf,
   noSessionsOf,
+  thisMachine,
 } from '../../src/cli/brew-main.ts';
 import { brewOwner } from '../../src/cli/driver-owner.ts';
 import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
@@ -24,6 +25,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { FlushResult } from '../../src/engine/state-branch-git.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
+import { launchProcess } from '../../src/platform/processes.ts';
 import { BrewCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import {
@@ -249,6 +251,23 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       );
     });
 
+    it("leaves out the session's variables in any case on Windows, and keeps every other", async () => {
+      launched.length = 0;
+      const env = {
+        Claude_Code_Child_Session: '1',
+        CLAUDE_CODE_SESSION_ID: 'ab12',
+        PATH: 'C:\\Windows',
+      };
+      const windows = { ...deps(0), platform: 'win32' as const, env, find: () => 'wt.exe' };
+      await brewInNewWindow(
+        'D:\\brewery',
+        BrewCommand.parse({ command: 'brew', issue: '12' }),
+        'ann',
+        windows,
+      );
+      assert.deepStrictEqual(launched[0]?.env, { PATH: 'C:\\Windows' });
+    });
+
     it('says the command to run in a terminal when no window opens: exit 5', async () => {
       const result = await brewInNewWindow('/home/ann/brewery', command, 'session-ab12', deps(1));
       assert.equal(result.exitCode, 5);
@@ -257,6 +276,18 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
         /no new window can open here \(setsid exited with code 1: no\); run foedrum brew web#12 --take/,
       );
     });
+  });
+});
+
+describe('thisMachine (ADR 0222)', () => {
+  it('launches through launchProcess, with this node, this program and the environment given', () => {
+    const env = { DISPLAY: ':0' };
+    const machine = thisMachine(env);
+    assert.equal(machine.exec, launchProcess);
+    assert.equal(machine.execPath, process.execPath);
+    assert.equal(machine.script, process.argv[1]);
+    assert.equal(machine.env, env);
+    assert.equal(machine.platform, process.platform);
   });
 });
 

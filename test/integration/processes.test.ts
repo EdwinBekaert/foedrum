@@ -640,6 +640,28 @@ describe('launchProcess with a real process (ADR 0222)', () => {
     }
   });
 
+  it('kills a launcher that does not return by its deadline, and says so', async () => {
+    const script =
+      "require('node:fs').writeFileSync('launcher.pid', String(process.pid)); setInterval(() => {}, 1000)";
+    const result = await launchProcess(process.execPath, ['-e', script], {
+      cwd: dir.path,
+      timeoutMs: 2000,
+    });
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, 'timed-out');
+    await assertAllEnd(pidsIn(join(dir.path, 'launcher.pid')));
+  });
+
+  it('answers a launcher that cannot start with its error, at once', async () => {
+    const result = await launchProcess(join(dir.path, 'no-such-launcher'), [], {
+      cwd: dir.path,
+      timeoutMs: hangGuardMs,
+    });
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.stderr, /ENOENT/);
+  });
+
   it('runs the launcher in the folder given, with the environment given, and answers its exit code', async () => {
     const script =
       "require('node:fs').writeFileSync('env.json', JSON.stringify(process.env.FOEDRUM_GIVEN ?? null)); process.exit(3)";
