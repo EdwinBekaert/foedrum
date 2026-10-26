@@ -329,21 +329,29 @@ describe('pause and continue (ADR 0202)', () => {
       );
     });
 
-    it("is refused as stopped by a pause when its batch's pause has not reached its stopAt", () => {
+    it('is recorded as an ordinary cancelled end when its pause no longer stops it as the end comes', () => {
       order(12);
       start('b12');
       accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(10), zone: 'UTC' } });
-      refuse(
-        {
-          kind: 'finish',
-          batchId: 'b12',
-          stepId: 'plan',
-          attempt: 1,
-          ending: { kind: 'cancelled' },
-          paused: true,
-        },
-        /not stopped by a pause/,
-      );
+      now = at(10);
+      // The driver stopped the run; a person continued before its end was recorded.
+      accept({ kind: 'continue', order: { issue: 12 }, ...who });
+      const events = accept({
+        kind: 'finish',
+        batchId: 'b12',
+        stepId: 'plan',
+        attempt: 1,
+        ending: { kind: 'cancelled' },
+        paused: true,
+      });
+      assert.deepStrictEqual(events[0], {
+        type: 'step.finished',
+        batchId: 'b12',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'cancelled' },
+      });
+      assert.equal(events[1]?.type, 'step.scheduled');
     });
 
     it('leaves the attempt it stopped out of the count, so the next failure is retried', () => {
