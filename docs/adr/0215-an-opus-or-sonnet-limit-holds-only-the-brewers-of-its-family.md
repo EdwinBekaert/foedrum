@@ -34,6 +34,7 @@ The maintainer settled on #242 (2026-10-25) that an Opus or Sonnet limit pauses 
 - **The driver** knows it: it is given each attempt's family (`family`, from the brewer and `models.jsonc` in `serve` and `brew`; none, every limit's, by default), and starts no brewer attempt a closed window holds.
 - **`decide` and the supervisor** see only state, which records no attempt's family: while any window is closed, no scheduled attempt that has not started expires, whatever its family.
   A brewer of an open family starts at once, so its wait is a lease's at most, and every reopen gives it a fresh deadline.
+  One that the hold kept past its deadline and that starts before a reopen is expired by the next tick, as it would have been without the window: the hold never ends it sooner.
 
 ### The reopen
 - **Each scope reopens at its own reset.** When one or more windows' reopens have passed, the supervisor issues `reopen`; the engine appends `usage.window_opened` `{ at, scope }` for each of them, and then gives every waiting attempt a fresh deadline, as ADR 0206 does.
