@@ -63,6 +63,16 @@ describe('newWindowCommand (ADR 0222)', () => {
     });
   });
 
+  it("takes an aliased order's #, which neither cmd.exe nor Windows Terminal reads as syntax", () => {
+    const line = { ...windowsLine, args: [windowsLine.args[0] ?? '', 'brew', 'web#12', '--take'] };
+    const command = newWindowCommand(facts('win32', {}, ['wt.exe']), line);
+    assert.deepStrictEqual(command.kind === 'launch' && command.args.slice(-3), [
+      'brew',
+      'web#12',
+      '--take',
+    ]);
+  });
+
   it('refuses a Windows line cmd.exe would read as more than its words', () => {
     const env = { ComSpec: 'C:\\Windows\\System32\\cmd.exe' };
     const line = { ...windowsLine, args: [...windowsLine.args, '--as', 'ann&calc'] };
@@ -131,11 +141,11 @@ describe('newWindowCommand (ADR 0222)', () => {
 });
 
 describe('openInNewWindow (ADR 0222)', () => {
-  const ran: { file: string; args: readonly string[]; cwd: string }[] = [];
+  const ran: { file: string; args: readonly string[]; cwd: string; env?: object }[] = [];
   const exec =
     (exitCode: number | null): ExecProcess =>
-    async (file, args, { cwd }) => {
-      ran.push({ file, args, cwd });
+    async (file, args, { cwd, env }) => {
+      ran.push({ file, args, cwd, ...(env === undefined ? {} : { env }) });
       return { exitCode, stdout: '', stderr: exitCode === 0 ? '' : 'no', output: '' };
     };
   const linux = facts('linux', { DISPLAY: ':0' }, ['setsid', 'x-terminal-emulator']);
@@ -146,6 +156,26 @@ describe('openInNewWindow (ADR 0222)', () => {
     assert.deepStrictEqual(
       ran.map(({ file, cwd }) => [file, cwd]),
       [['/found/setsid', unixLine.cwd]],
+    );
+  });
+
+  it("gives the launcher the line's environment, else the machine's, with the launcher's own variables over it", async () => {
+    ran.length = 0;
+    const windows = facts('win32', { PATH: 'C:\\bin', SYSTEMROOT: 'C:\\Windows' });
+    const own = {
+      ...windowsLine,
+      env: { PATH: 'D:\\tools', NoDefaultCurrentDirectoryInExePath: '0' },
+    };
+    await openInNewWindow(windows, own, exec(0));
+    await openInNewWindow(windows, windowsLine, exec(0));
+    await openInNewWindow(linux, unixLine, exec(0));
+    assert.deepStrictEqual(
+      ran.map(({ env }) => env),
+      [
+        { PATH: 'D:\\tools', NoDefaultCurrentDirectoryInExePath: '1' },
+        { PATH: 'C:\\bin', SYSTEMROOT: 'C:\\Windows', NoDefaultCurrentDirectoryInExePath: '1' },
+        { DISPLAY: ':0' },
+      ],
     );
   });
 
