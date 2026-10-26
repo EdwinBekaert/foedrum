@@ -81,14 +81,14 @@ describe('renderStatus', () => {
       by: 'ada',
       via: 'terminal',
       why: 'end of the day',
-      stopAt: { at: '2026-10-18T16:30:00.000Z', zone: 'Europe/Brussels' },
+      stopAt: { at: '2026-10-18T15:30:00.000Z', zone: 'Europe/Brussels' },
     } as const;
     const lines = renderStatus(batch(), steps, undefined, pause).split('\n');
     const lane = lines.indexOf('🍺 **Brewing**');
     assert.ok(lane > 0);
     assert.equal(
       lines[lane + 1],
-      '⏸️ **Paused** by ada (terminal): end of the day. Nothing new starts; what runs ends at its next convenient point, and what still runs at 16:30 UTC (17:30 Europe/Brussels, 18 October) is stopped.',
+      '⏸️ **Paused** by ada (terminal): end of the day. Nothing new starts; what runs ends at its next convenient point, and what still runs at 15:30 UTC (17:30 Europe/Brussels, 18 October) is stopped.',
     );
     const plain = renderStatus(batch(), steps, undefined, { by: 'ada', via: 'plugin' });
     assert.match(
