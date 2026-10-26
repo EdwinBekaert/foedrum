@@ -1250,6 +1250,43 @@
                 "deadlineAt"
               ],
               "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "stopped"
+                },
+                "stepId": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "by": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "via": {
+                  "type": "string",
+                  "enum": [
+                    "plugin",
+                    "terminal",
+                    "comment",
+                    "dashboard"
+                  ]
+                },
+                "why": {
+                  "type": "string",
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "kind",
+                "stepId",
+                "by",
+                "via"
+              ],
+              "additionalProperties": false
             }
           ]
         },
