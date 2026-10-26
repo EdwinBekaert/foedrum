@@ -93,11 +93,25 @@ export const MAX_REFUSED = 50;
 export const ScanFinding = z.strictObject({ commit: CommitSha, place: Filled, kind: Filled });
 export type ScanFinding = z.infer<typeof ScanFinding>;
 
+/** The most sensitive files the ledger names of one push (ADR 0201). */
+export const MAX_SENSITIVE = 50;
+
+/**
+ * The files of a batch's change that match its repository's sensitive paths (ADR 0201): how many,
+ * and the first `MAX_SENSITIVE` of them as git named them.
+ */
+export const SensitiveFiles = z.strictObject({
+  count: z.int().min(1),
+  files: z.array(Filled).min(1).max(MAX_SENSITIVE),
+});
+export type SensitiveFiles = z.infer<typeof SensitiveFiles>;
+
 /**
  * The result the ledger keeps for the push of the openPullRequest action (ADR 0071): the branch,
  * the commit pushed, the revision it was resolved from, and whether the base already holds every
  * commit of it, so nothing was pushed; or what the secret scan found, so nothing was pushed either
- * (ADR 0079): each commit, place and kind, never the text.
+ * (ADR 0079): each commit, place and kind, never the text. A push that went keeps the sensitive
+ * files its change touches, when there are any (ADR 0201).
  */
 export const PushResult = z.strictObject({
   branch: Filled,
@@ -105,6 +119,7 @@ export const PushResult = z.strictObject({
   from: Filled,
   empty: z.literal(true).optional(),
   refused: z.array(ScanFinding).min(1).max(MAX_REFUSED).optional(),
+  sensitive: SensitiveFiles.optional(),
 });
 export type PushResult = z.infer<typeof PushResult>;
 
