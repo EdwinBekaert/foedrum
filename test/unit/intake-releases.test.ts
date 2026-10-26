@@ -173,6 +173,22 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     assert.deepStrictEqual(releases(), [`${lib} lib-core v1.0.0`]);
   });
 
+  it('asks whether a tag holds the merge with the tag as the reader gave it (review of #578)', async () => {
+    recorded(...waiting);
+    const given: LatestRelease[] = [];
+    const tag: LatestRelease = { ...v1, tag: true };
+    const reader: ReleaseReader = {
+      latest: async () => tag,
+      holds: async (_repo, release) => {
+        given.push(release);
+        return true;
+      },
+    };
+    await poll(reader);
+    assert.deepStrictEqual(given, [tag]);
+    assert.deepStrictEqual(releases(), [`${lib} lib-core v1.0.0`]);
+  });
+
   it('records the repository as the breakdown spells it', async () => {
     recorded(
       ...decomposed(

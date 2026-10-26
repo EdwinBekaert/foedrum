@@ -253,6 +253,25 @@ describe('githubReleaseReader', () => {
       );
     });
 
+    it('fails on a merge commit it cannot read or whose date is not what it should be (review of #578)', async () => {
+      const tag = { version: 'v2.4.0', published: '2026-10-26T09:00:00.000Z', tag: true };
+      await assert.rejects(
+        readerWith([merged, { status: 502, body: { message: 'Bad gateway' } }]).reader.holds(
+          repo,
+          tag,
+          pullRequest,
+        ),
+        /502.*Bad gateway/,
+      );
+      await assert.rejects(
+        readerWith([
+          merged,
+          { status: 200, body: { committer: { date: 'yesterday' } } },
+        ]).reader.holds(repo, tag, pullRequest),
+        /not what it should be/,
+      );
+    });
+
     it('names a tag with a slash as one path segment', async () => {
       const { reader, requests } = readerWith([merged, compared('behind')]);
       const slashed = { version: 'release/v2', published: v2.published };
