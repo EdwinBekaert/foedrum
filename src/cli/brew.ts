@@ -12,7 +12,7 @@ import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
-import { pauseOf } from '../engine/pauses.ts';
+import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
@@ -268,15 +268,22 @@ export const runBrew = async (
       );
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
-    const pausedLine = (state: State): string =>
-      state.pauses.all === undefined
-        ? `${named} is paused; foedrum continue ${asGiven} lets it brew`
-        : 'the Brewery is paused; foedrum continue --all lets it brew';
+    // A sub-order's batch waits for its order's pause, which is the one to continue.
+    const pausedLine = (state: State, batch: Batch | undefined): string => {
+      if (state.pauses.all !== undefined) {
+        return 'the Brewery is paused; foedrum continue --all lets it brew';
+      }
+      const held = batch === undefined ? undefined : orderOfBatch(state, batch);
+      if (held === undefined || held.issue === issue) {
+        return `${named} is paused; foedrum continue ${asGiven} lets it brew`;
+      }
+      return `${named} is a sub-order of #${held.issue}, which is paused; foedrum continue #${held.issue} lets it brew`;
+    };
     if (
       log.state().pauses.all !== undefined ||
       (latest !== undefined && pauseOf(log.state(), latest) !== undefined)
     ) {
-      return refuse(pausedLine(log.state()));
+      return refuse(pausedLine(log.state(), latest));
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
@@ -439,7 +446,7 @@ export const runBrew = async (
           // A pause that came while it brews: once nothing of the batch runs, nothing will
           // until a person continues it (ADR 0202).
           if (pauseOf(driver.state(), now) !== undefined && runningAttempts(now).length === 0) {
-            return refuse(pausedLine(driver.state()));
+            return refuse(pausedLine(driver.state(), now));
           }
           break;
         case 'ordered':
