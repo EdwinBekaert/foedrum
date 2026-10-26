@@ -83,11 +83,15 @@ const counting = async (listen: (server: Server, done: () => void) => void) => {
 };
 
 /**
- * node connecting to `target` (its connect arguments): exit 0 when it connected, 3 when not, also
- * when nothing answers within 5 s, as an unmapped gateway may not.
+ * node connecting to `target` (its connect arguments): exit 0 when it connected, 3 when not. With
+ * `unansweredAfterMs`, also 3 when nothing answers by then, as an unmapped gateway may not: a hang
+ * guard for a refusal only, never a limit on a connection that should be made (ADR 0070).
  */
-const connectLine = (target: string) =>
-  `"${process.execPath}" -e "require('net').connect(${target}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(3)).setTimeout(5000,()=>process.exit(3))"`;
+const connectLine = (target: string, unansweredAfterMs?: number) => {
+  const guard =
+    unansweredAfterMs === undefined ? '' : `.setTimeout(${unansweredAfterMs},()=>process.exit(3))`;
+  return `"${process.execPath}" -e "require('net').connect(${target}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))${guard}"`;
+};
 
 /** An IPv4 address of this machine that is not the loopback, or undefined. */
 const outsideAddress = (): string | undefined =>
@@ -275,7 +279,7 @@ describe('a setup in the real sandbox, the network kept', {
       assert.equal(open.exitCode, 0, open.output);
       await waitUntil('the server saw the connection', () => server.connections() === 1);
       for (const host of ['127.0.0.1', '10.0.2.2']) {
-        const result = await setup(connectLine(`${server.port},'${host}'`));
+        const result = await setup(connectLine(`${server.port},'${host}'`, 30_000));
         assert.equal(result.exitCode, 3, `${host}: ${result.output}`);
       }
       assert.equal(server.connections(), 1);
