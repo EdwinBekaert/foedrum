@@ -417,6 +417,18 @@ describe('admit lane rules (ADR 0025)', () => {
       assert.equal(admit(fold(events), appended).kind, 'accepted', lane);
     }
   });
+
+  it('refuses a release of a repository and version already folded, in any case (ADR 0223)', () => {
+    const release: Event = {
+      type: 'release.observed',
+      repo: 'acme/lib-core',
+      package: 'lib-core',
+      version: 'v2.4.0',
+    };
+    refused([release], { ...release, repo: 'Acme/Lib-Core' }, /v2\.4\.0 of Acme\/Lib-Core/);
+    assert.equal(admit(fold([release]), [{ ...release, version: 'v2.5.0' }]).kind, 'accepted');
+    assert.equal(admit(fold([release]), [{ ...release, repo: 'acme/web' }]).kind, 'accepted');
+  });
 });
 
 describe('admit records the end of a pull request the batch opened or waits for (#103)', () => {

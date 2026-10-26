@@ -25,8 +25,8 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
 | `code` | Builds on another sub-order's code in the same repository | That sub-order's pull request to be merged, so it starts from a base that holds the change (ADR 0211) |
 | `release` | Needs a published version of another repository's library | That sub-order's pull request (or its bottle's) to be merged, and then a `release.observed` of its repository: any release of it after the merge counts, since a breakdown names no package or version (ADR 0216); the dependent batch's recipe then bumps the dependency |
 
-- **Release signals** are configured per repository: **GitHub release or tag** first; package registries (NuGet, npm, Maven, …) later through the same interface.
-  Nothing records a `release.observed` yet: the ready set reads recorded ones, and the intake reading each repository's latest release or tag is to come (ADR 0216).
+- **Release signals** need no configuration: each intake pass reads, through gh, the latest **GitHub release**, else the newest tag, of every repository a merged `release` blocker waits on, and no other ([ADR 0223](../../adr/0223-the-intake-records-a-release-that-holds-a-waiting-release-blocker-s-merge.md)); package registries (NuGet, npm, Maven, …) later.
+  It records a `release.observed` only when the release holds a merge of every blocker that waits on that repository (GitHub's compare of the tag with the merge commit, not done for a release published before the merge, or a tag whose commit is older than the merge commit), once per version, so the sub-orders they block start in that pass.
   Developing against a pre-release build is a later option.
 
 An example: order 100 splits into four sub-orders, one repository each, bottled per repository.
