@@ -345,7 +345,7 @@ describe('a later tasting round gets the earlier findings with their disposition
     // A dismissal stands on its evidence, which the round checks (#521, ADR 0204).
     assert.match(
       prompt,
-      /a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong/i,
+      /check the evidence a dismissed or pre-existing finding's why names: a file and line, a test, or a sentence of the order or of a decision record\. Treat a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way\./i,
     );
     assert.ok(prompt.search(NEVER_AGAIN) < prompt.indexOf('When you finish, write taste.md'));
   });
