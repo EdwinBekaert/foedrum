@@ -428,6 +428,9 @@ const startStack = (
   return { up: Promise.race([isUp, ended]), ended };
 };
 
+/** Why a setup did not start when bwrap told no pid it could be read by. */
+const NO_PID = 'bwrap gave no child pid on its --info-fd';
+
 /**
  * A setup's line in bwrap with a network namespace of its own, which the stack joins before the
  * line runs, and which ends with bwrap (ADR 0218). A stack that fails before it is up stops bwrap
@@ -458,7 +461,7 @@ const inOwnNamespace = async (
     data?.end(`nameserver ${NAMESPACE_DNS}\n`);
     const pid = info === undefined ? undefined : await childPid(info);
     if (pid === undefined) {
-      fail(`bwrap gave no child pid on its --info-fd`);
+      fail(NO_PID);
       return;
     }
     const run = startStack(exec, stack, pid, { ...call, signal: stoppedBy(stopStack.signal) });
@@ -486,7 +489,7 @@ const inOwnNamespace = async (
   if (failure === undefined) return result;
   // bwrap that failed under its own name says why, also when Foedrum stopped it for want of a
   // pid before the runner saw it end (review of #564).
-  return result.stderr.startsWith('bwrap: ')
+  return failure === NO_PID && result.stderr.startsWith('bwrap: ')
     ? unstarted(result.stderr.trim())
     : unstarted(failure, '0218');
 };
