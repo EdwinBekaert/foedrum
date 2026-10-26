@@ -61,6 +61,8 @@ const LABEL_DESCRIPTION = 'Foedrum brews an issue with this label into a pull re
 const COMMIT_MESSAGE = 'Set up the Brewery with foedrum init';
 const PUSH = ['push', '-u', 'origin', 'HEAD'];
 const IGNORED = '.foedrum/';
+/** A name Windows keeps for a device, before any dot: no folder can have it (CON, NUL, COM1, …). */
+const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 /** No aliases of its own: every alias is Foedrum's default (ADR 0153). */
 const MODELS = `// Model aliases over Foedrum's defaults (ADR 0153), such as { "builder": "opus" }.
 { "models": {} }
@@ -239,6 +241,8 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
   const written: string[] = [];
   // Whether a git call of the commit and push failed, which ends init in 1.
   let pushFailed = false;
+  // What init made on GitHub and in a new folder, which a refusal after it names.
+  let created = '';
   // A foedrum.jsonc that reads but does not pass is the user's to fix, before any question.
   const config: Existing = inClone ? readObject(files.read('foedrum.jsonc')) : { kind: 'missing' };
   if (config.kind === 'read') {
@@ -262,13 +266,17 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     );
     let isPrivate = true;
     if (!inClone) {
+      const name = brewery.split('/')[1] ?? '';
+      // The clone's folder must be one on every platform the Brewery's machines run.
+      if (WINDOWS_DEVICE.test(name) || name.endsWith('.')) {
+        return refuse(`${name} cannot be a folder on Windows; choose another name`);
+      }
       // init creates a repository, never takes one over.
       if (await ports.github.exists(brewery)) {
         return refuse(
           `${brewery} is on GitHub already; run init in its clone (git clone https://github.com/${brewery}.git)`,
         );
       }
-      const name = brewery.split('/')[1] ?? '';
       if (files.exists(name)) {
         return refuse(`the folder ${name} is there already; run init where it is not`);
       }
@@ -424,6 +432,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       const cloned = await ports.git('', ['clone', '--', url, folder]);
       if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
       say(`Cloned it into ${folder}`);
+      created = `; ${brewery} is created and cloned into the folder ${folder}`;
     }
 
     for (const plan of plans) {
@@ -458,7 +467,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     ));
   } catch (error) {
     if (error instanceof NoAnswer) {
-      return refuse(`no answer to "${error.message}"; nothing more is written`);
+      return refuse(`no answer to "${error.message}"; nothing more is written${created}`);
     }
     throw error;
   }
@@ -523,37 +532,69 @@ const commitAndPush = async (
   ]);
   let listed = files;
   let ok = status.code === 0;
-  if (ok) {
+  if (!ok) {
+    say(`git status failed: ${firstLine(status)}`);
+  } else {
     const entries = status.stdout.split('\0').map((entry) => entry.slice(3));
     listed = files.filter((file) => entries.includes(file));
     if (listed.length === 0) {
       say('Nothing to commit');
       return true;
     }
-    say('To commit and push:');
-    for (const file of listed) say(`  ${file}`);
-    if (await confirm('Commit and push these? [Y/n]: ', true)) {
-      for (const args of [['add', '--', ...listed], ['commit', '-m', COMMIT_MESSAGE], PUSH]) {
-        const done = await ports.git(folder, args);
-        if (done.code !== 0) {
-          say(`git ${args[0]} failed: ${firstLine(done)}`);
-          ok = false;
-          break;
+    // The push sends every commit no remote has, so the question lists them with the files.
+    const unpushed = await commitsNotPushed(ports, folder);
+    ok = unpushed !== undefined;
+    if (unpushed !== undefined) {
+      say('To commit and push:');
+      for (const file of listed) say(`  ${file}`);
+      if (unpushed.length > 0) {
+        say('Also pushed, not on GitHub yet:');
+        for (const commit of unpushed) say(`  ${commit}`);
+      }
+      if (await confirm('Commit and push these? [Y/n]: ', true)) {
+        // The commit takes the listed files only, never what else is staged.
+        const commit = ['commit', '-m', COMMIT_MESSAGE, '--', ...listed];
+        for (const args of [['add', '--', ...listed], commit, PUSH]) {
+          const done = await ports.git(folder, args);
+          if (done.code !== 0) {
+            say(`git ${args[0]} failed: ${firstLine(done)}`);
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          say('Committed and pushed');
+          return true;
         }
       }
-      if (ok) {
-        say('Committed and pushed');
-        return true;
-      }
     }
-  } else {
-    say(`git status failed: ${firstLine(status)}`);
   }
   say(`To commit and push them${folder === '' ? '' : `, in ${folder}`}:`);
   say(`git add -- ${listed.join(' ')}`);
-  say(`git commit -m "${COMMIT_MESSAGE}"`);
+  say(`git commit -m "${COMMIT_MESSAGE}" -- ${listed.join(' ')}`);
   say(`git ${PUSH.join(' ')}`);
   return ok;
+};
+
+/**
+ * The commits on HEAD that no remote has, as `<hash> <subject>`: none on a branch without a commit
+ * yet; `undefined`, after saying git's line, when git cannot tell.
+ */
+const commitsNotPushed = async (
+  ports: InitPorts,
+  folder: string,
+): Promise<string[] | undefined> => {
+  const head = await ports.git(folder, ['rev-parse', '-q', '--verify', 'HEAD']);
+  if (head.code === 1) return [];
+  const log =
+    head.code === 0
+      ? await ports.git(folder, ['log', '--format=%h %s', 'HEAD', '--not', '--remotes'])
+      : head;
+  if (log.code !== 0) {
+    ports.say(`git ${head.code === 0 ? 'log' : 'rev-parse'} failed: ${firstLine(log)}`);
+    return undefined;
+  }
+  return log.stdout.split(/\r?\n/).filter((line) => line !== '');
 };
 
 const refuse = (message: string): CliResult => ({
