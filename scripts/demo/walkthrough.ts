@@ -196,11 +196,10 @@ export const laterRoundLines = (
   const lines = prompt.split(/\r?\n/);
   /** The source and the lines of the prompt's input named `name`, or undefined without one. */
   const input = (name: string) => {
-    const open = lines.findIndex((line) =>
-      new RegExp(`^<(untrusted-input-\\w+) source="[^"]*" name="${name}">$`).test(line),
-    );
+    const opening = new RegExp(`^<(untrusted-input-\\w+) source="([^"]*)" name="${name}">$`);
+    const open = lines.findIndex((line) => opening.test(line));
     if (open === -1) return undefined;
-    const [, tag = '', source = ''] = /^<(\S+) source="([^"]*)"/.exec(lines[open] ?? '') ?? [];
+    const [, tag = '', source = ''] = opening.exec(lines[open] ?? '') ?? [];
     const close = lines.indexOf(`</${tag}>`, open);
     return { source, text: lines.slice(open + 1, close === -1 ? undefined : close) };
   };
