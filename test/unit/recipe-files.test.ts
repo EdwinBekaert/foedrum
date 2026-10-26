@@ -246,13 +246,12 @@ describe('loadRecipes: fails closed', () => {
           steps: [{ id: 'taste', brewer: 'brewmaster' }],
         },
       },
-      { id: 'refine', session: 'refine', deadline: '1d' },
       { id: 'approve', gate: 'human', deadline: '1d' },
       { action: 'comment' },
       { id: 'split', fanOut: {} },
     ];
-    const kinds = ['loop', 'session', 'gate', 'action', 'fanOut'];
-    const ids = ['review', 'refine', 'approve', 'comment', 'split'];
+    const kinds = ['loop', 'gate', 'action', 'fanOut'];
+    const ids = ['review', 'approve', 'comment', 'split'];
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
@@ -529,23 +528,20 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ]);
   });
 
-  it("names a loop's step or a session step's fallback that commits before the red proof", () => {
+  it("names a loop's step that commits before the red proof", () => {
     const steps = [
       { id: 'gauge', brewer: 'gauger' },
       {
         id: 'review',
         loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'cellarman' }] },
       },
-      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' },
       red,
     ];
     const before = (id: string) =>
       `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge" (ADR 0064)`;
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
-      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
       before('fix'),
-      before('refine'),
     ]);
   });
 
@@ -555,11 +551,9 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
         id: 'review',
         loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'nobody' }] },
       },
-      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'ghost' },
     ];
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
-      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
     ]);
   });
 
@@ -1071,14 +1065,15 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       brewers: [maltster, cellarman],
     });
 
-  it("counts a nested step's brewer that commits, such as a session's fallback (review of #230)", () => {
+  it("counts a nested step's brewer that commits, such as a loop's (review of #230)", () => {
+    const fix = { id: 'fix', brewer: 'cellarman' };
     assert.deepEqual(
       problemsOf(
-        withCellarman([{ id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' }]),
+        withCellarman([{ id: 'review', loop: { maxRounds: 1, until: 'fix.status', steps: [fix] } }]),
       ),
       [
-        'recipes/stout.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
-        'recipes/stout.jsonc: step "refine" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+        'recipes/stout.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+        'recipes/stout.jsonc: step "fix" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
       ],
     );
   });

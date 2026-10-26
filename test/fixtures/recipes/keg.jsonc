@@ -7,7 +7,7 @@
   "testFirst": false,
   "steps": [
     { "id": "context", "brewer": "maltster" },
-    { "id": "refine", "session": "refine", "deadline": "2d", "fallback": "brewmaster" },
+    { "id": "refine", "brewer": "brewmaster" },
     { "id": "approve-breakdown", "gate": "human", "deadline": "3d" },
     { "id": "brew", "fanOut": { "approval": false, "bottling": "perSubOrder" } },
     { "id": "report", "action": "comment" }
