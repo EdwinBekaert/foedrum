@@ -82,9 +82,12 @@ const counting = async (listen: (server: Server, done: () => void) => void) => {
   };
 };
 
-/** node connecting to `target` (its connect arguments): exit 0 when it connected, 3 when not. */
+/**
+ * node connecting to `target` (its connect arguments): exit 0 when it connected, 3 when not, also
+ * when nothing answers within 5 s, as an unmapped gateway may not.
+ */
 const connectLine = (target: string) =>
-  `"${process.execPath}" -e "require('net').connect(${target}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))"`;
+  `"${process.execPath}" -e "require('net').connect(${target}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(3)).setTimeout(5000,()=>process.exit(3))"`;
 
 /** An IPv4 address of this machine that is not the loopback, or undefined. */
 const outsideAddress = (): string | undefined =>

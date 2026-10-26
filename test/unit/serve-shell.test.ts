@@ -165,8 +165,11 @@ describe('serveShell', () => {
     assert.equal(started.length, 1);
     assert.equal(started[0]?.[0], '/usr/bin/bwrap');
     assert.ok(started[0]?.includes('/home/brewer'));
-    // A network namespace of its own, which a user-mode network stack joins (ADR 0218).
+    // The network kept, through a namespace of its own that a user-mode network stack joins:
+    // only a setup's bwrap tells its child's pid and gets the stack's resolver (ADR 0218).
     assert.ok(started[0]?.includes('--unshare-net'));
+    assert.ok(started[0]?.includes('--info-fd'));
+    assert.ok(started[0]?.includes('--ro-bind-data'));
     assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
   });
 
@@ -221,8 +224,11 @@ describe('serveShell', () => {
       .ended;
     assert.equal(started.length, 1);
     assert.equal(started[0]?.[0], '/usr/bin/bwrap');
-    // A network namespace of its own, which a user-mode network stack joins (ADR 0218).
+    // The network kept, through a namespace of its own that a user-mode network stack joins:
+    // only a setup's bwrap tells its child's pid and gets the stack's resolver (ADR 0218).
     assert.ok(started[0]?.includes('--unshare-net'));
+    assert.ok(started[0]?.includes('--info-fd'));
+    assert.ok(started[0]?.includes('--ro-bind-data'));
     assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
     assert.deepStrictEqual(end.ending, {
       kind: 'blocked',

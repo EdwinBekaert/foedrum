@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { type Duplex, PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import {
   borrowedStores,
@@ -413,21 +413,27 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
 
 /**
  * A fake runner for a setup's two processes on Linux (ADR 0218): bwrap writes its child's pid to
- * fd 3 and runs the line once fd 4 has a byte; the stack is up, or fails, as `stack` says. What
- * it records: the calls, the order of events and the resolver's file bwrap was given on fd 5.
+ * fd 3 (in the chunks `info` gives) and runs the line once fd 4 has a byte; the stack is up,
+ * fails, exits without coming up, or hangs, as `stack` says. `bwrap` says how bwrap ends: when the
+ * line is done, when it is stopped mid-line, at its deadline once the stack has started, or under
+ * its own name before or after it would tell a pid. What it records: the calls, the order of
+ * events and the resolver's file bwrap was given on fd 5.
  */
 const fakeSetup = ({
-  info = '{\n    "child-pid": 4242\n}\n',
+  info = ['{\n    "child-pid": 4242\n}\n'],
   stack = 'up',
+  bwrap = 'line-ends',
   answer = {},
 }: {
-  info?: string;
-  stack?: 'up' | 'fails';
+  info?: readonly string[];
+  stack?: 'up' | 'fails' | 'exits-before-up' | 'hangs';
+  bwrap?: 'line-ends' | 'line-runs-until-stopped' | 'times-out' | 'fails-at-once' | 'fails-late';
   answer?: Partial<ExecResult>;
 } = {}) => {
   const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
   const events: string[] = [];
   const resolver = { text: '' };
+  const handed: Duplex[][] = [];
   const ran = (more: Partial<ExecResult> = {}): ExecResult => ({
     exitCode: 0,
     stdout: '',
@@ -435,34 +441,54 @@ const fakeSetup = ({
     output: '',
     ...more,
   });
-  const stopped = (signal: AbortSignal | undefined, what: string) =>
+  const ownFailure = 'bwrap: setting up uid map: Permission denied\n';
+  const stopped = (signal: AbortSignal | undefined, what: string, more: Partial<ExecResult> = {}) =>
     new Promise<ExecResult>((done) => {
       const stop = () => {
         events.push(what);
-        done(ran({ exitCode: null, killed: 'stopped' }));
+        done(ran({ exitCode: null, killed: 'stopped', ...more }));
       };
       if (signal?.aborted) stop();
       else signal?.addEventListener('abort', stop, { once: true });
     });
+  // Resolves once `event` is among the events, checked after each turn of the event loop.
+  const once = (event: string) =>
+    new Promise<void>((done) => {
+      const look = () => (events.includes(event) ? done() : setImmediate(look));
+      look();
+    });
   const exec: ExecProcess = async (file, args, options) => {
     calls.push({ file, args, options });
     const pipes = Array.from({ length: options.pipes?.count ?? 0 }, () => new PassThrough());
+    handed.push(pipes);
     options.pipes?.onPipes(pipes);
     const [first, second, third] = pipes;
     if (file === '/usr/bin/bwrap') {
       if (first === undefined || second === undefined) return ran(answer);
-      if (info === '') {
+      if (bwrap === 'fails-at-once') {
         first.end();
-        return ran({ exitCode: 1, stderr: 'bwrap: setting up uid map: Permission denied\n' });
+        return ran({ exitCode: 1, stderr: ownFailure, output: ownFailure });
       }
-      first.end(info);
+      if (bwrap === 'fails-late') {
+        // Its info pipe closes first, and the runner sees it end only after Foedrum stopped it.
+        first.end();
+        return stopped(options.signal, 'bwrap stopped', { stderr: ownFailure, output: ownFailure });
+      }
+      for (const chunk of info.slice(0, -1)) first.write(chunk);
+      first.end(info.at(-1));
+      if (bwrap === 'times-out') {
+        return once(`${stack === 'up' ? 'the line runs' : 'slirp4netns starts'}`).then(() => {
+          events.push('bwrap timed out');
+          return ran({ exitCode: null, killed: 'timed-out' });
+        });
+      }
       return Promise.race([
         new Promise<ExecResult>((done) =>
           second.once('data', () => {
             // bwrap has read the resolver's file by the time the line runs.
             resolver.text = String(third?.read() ?? '');
             events.push('the line runs');
-            done(ran(answer));
+            if (bwrap === 'line-ends') done(ran(answer));
           }),
         ),
         stopped(options.signal, 'bwrap stopped'),
@@ -474,12 +500,15 @@ const fakeSetup = ({
       const said = `${tool}: Couldn't open user namespace /proc/4242/ns/user: Permission denied\n`;
       return ran({ exitCode: 1, stderr: said, output: said });
     }
+    // A slirp4netns that ends cleanly before it said it was up: never a namespace with a network.
+    if (stack === 'exits-before-up') return ran();
+    if (stack === 'hangs') return stopped(options.signal, `${tool} stopped`);
     // pasta forks to the background once the namespace is up; slirp4netns says so on fd 3.
     if (tool === 'pasta') return ran();
     first?.write('1');
     return stopped(options.signal, 'slirp4netns stopped');
   };
-  return { calls, events, resolver, exec };
+  return { calls, events, resolver, handed, exec };
 };
 
 const stackTools =
@@ -640,7 +669,7 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
   });
 
   it('reads as not started, and starts no stack, when bwrap fails before it tells its pid', async () => {
-    const { calls, exec } = fakeSetup({ info: '' });
+    const { calls, exec } = fakeSetup({ bwrap: 'fails-at-once' });
     const result = await linuxSetup(exec)(line, [], call);
     assert.equal(calls.length, 1);
     assert.equal(result.exitCode, null);
@@ -648,7 +677,7 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
   });
 
   it('stops bwrap, and reads as not started, when its pid cannot be read', async () => {
-    const { calls, events, exec } = fakeSetup({ info: '{"child-pid": "x"}' });
+    const { calls, events, exec } = fakeSetup({ info: ['{"child-pid": "x"}'] });
     const result = await linuxSetup(exec)(line, [], call);
     assert.equal(calls.length, 1);
     assert.deepEqual(events, ['bwrap stopped']);
@@ -695,20 +724,26 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(checked.calls[0]?.options.pipes, undefined);
   });
 
-  it('ends the run as stopped, the stack too, when the caller stops it', async () => {
+  it('ends the run as stopped, the stack after it, when the caller stops it while the line runs', async () => {
     const stop = new AbortController();
-    const { events, exec } = fakeSetup();
+    const { events, exec } = fakeSetup({ bwrap: 'line-runs-until-stopped' });
     const running = linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(line, [], {
       ...call,
       signal: stop.signal,
     });
+    await new Promise<void>((done) => {
+      const look = () => (events.includes('the line runs') ? done() : setImmediate(look));
+      look();
+    });
     stop.abort();
     const result = await running;
     assert.equal(result.killed, 'stopped');
-    assert.equal(
-      events.filter((event) => event === 'slirp4netns starts').length,
-      events.filter((event) => event === 'slirp4netns stopped').length,
-    );
+    assert.deepEqual(events, [
+      'slirp4netns starts',
+      'the line runs',
+      'bwrap stopped',
+      'slirp4netns stopped',
+    ]);
   });
 
   // Seatbelt's network* also covers Unix sockets, such as launchd's ssh-agent under /private/tmp
