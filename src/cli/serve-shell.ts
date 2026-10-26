@@ -27,7 +27,7 @@ import { openWorktreeMerge } from '../workspace/base-merge-git.ts';
 import { openBranchPush } from '../workspace/branch-push-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
-import { openMergeTree } from '../workspace/merge-tree-git.ts';
+import { openMergedTree, openMergeTree } from '../workspace/merge-tree-git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
 
@@ -137,6 +137,13 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     // In a git directory of its own with the clone's objects, as the base fetch (ADR 0198).
     mergeTree: (repository) =>
       openMergeTree({
+        git,
+        clone: worktreeClonePath(workRoot, repository),
+        own: ownRemote(repository.repo),
+      }),
+    // A worktree of the merged tree from such a directory, for the checks on it (ADR 0203).
+    mergedTree: (repository) =>
+      openMergedTree({
         git,
         clone: worktreeClonePath(workRoot, repository),
         own: ownRemote(repository.repo),

@@ -110,10 +110,13 @@ const NO_CHECKS: RepositoryChecks = {
  */
 export type CheckTree = (
   refs: readonly CheckRef[],
-  worktree: WorktreeRef,
+  worktree: TreeIn,
   deadlineAt: string,
   signal: AbortSignal,
 ) => Promise<AttemptEnd>;
+
+/** Where a tree is: its repository and its folder. */
+export type TreeIn = Pick<WorktreeRef, 'repo' | 'path'>;
 
 /** The check runner, and the checks of a tree it runs a check step's through. */
 export type CheckRunner = BrewerRunner & { checkTree: CheckTree };
@@ -136,7 +139,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   /** Runs one check in the worktree through the checks' process runner, its sandbox (ADR 0076). */
   const runCheck = (
     check: Extract<PlannedCheck, { kind: 'run' }>,
-    worktree: WorktreeRef,
+    worktree: TreeIn,
     deadlineAt: string,
     signal: AbortSignal,
     maxOutputBytes?: number,
@@ -155,7 +158,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
    * the first check starts at once, before the engine could stop the attempt.
    */
   const prepare = (
-    worktree: WorktreeRef,
+    worktree: TreeIn,
     deadlineAt: string,
     signal: AbortSignal,
   ): Promise<GravityReading[]> | undefined => {

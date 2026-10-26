@@ -13,7 +13,14 @@ import type { DriverNotice } from '../engine/driver.ts';
 import type { DriverLock } from '../engine/driver-lock.ts';
 import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
+import type { Batch } from '../engine/fold.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
+import {
+  createMergedChecks,
+  type MergedCheckDue,
+  type MergedChecks,
+  mergedCheckStep,
+} from '../engine/merged-checks.ts';
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
@@ -26,6 +33,7 @@ import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { MergedTree } from '../workspace/merge-tree-git.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
+import { mergedCheckRun } from './merged-check-run.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
@@ -185,6 +193,7 @@ const baseChecks = (
   setup: ServeSetup,
   shell: ServeShell,
   pushes: readonly PullRequestRepository[],
+  merged: MergedChecks | undefined,
 ): BaseCheckRepository[] => {
   const { mergeTree } = shell;
   if (mergeTree === undefined) return [];
@@ -199,6 +208,16 @@ const baseChecks = (
             tip: (name, signal) => push.baseTip(name, signal),
             mergeTree: mergeTree(repository),
             branchTip: (branch, signal) => push.remoteTip(branch, signal),
+            // The checks on the merged tree, of a batch whose recipe has them (ADR 0203).
+            ...(merged === undefined
+              ? {}
+              : {
+                  checks: {
+                    wants: (batch: Batch) =>
+                      mergedCheckStep(setup.recipes, setup.checks, batch) !== undefined,
+                    due: (due: MergedCheckDue) => merged.due(due),
+                  },
+                }),
           },
         ];
   });
@@ -220,7 +239,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   const opened: Opened = { lock };
   let polling: Promise<void> | undefined;
   try {
-    const { store, driver, reads, claims, claimant, pushes } = await wireDriver(
+    const { store, driver, reads, claims, claimant, pushes, checkTree } = await wireDriver(
       setup,
       shell,
       opened,
@@ -231,12 +250,25 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         report: (notice) => say(formatNotice(notice)),
       },
     );
-    const bases = baseChecks(setup, shell, pushes);
+    // A second writer on the store, as a terminal command is (ADR 0044).
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    const failed = (what: string, error: unknown): void =>
+      say(formatIntakeNotice({ kind: 'failed', what, error }));
+    // One run at a time in the Cellar, beside the ticks and the pass (ADR 0203).
+    const merged =
+      shell.mergedTree === undefined
+        ? undefined
+        : createMergedChecks({
+            log,
+            clock,
+            failed,
+            run: mergedCheckRun({ setup, log, tree: shell.mergedTree, checkTree, clock }),
+          });
+    const bases = baseChecks(setup, shell, pushes, merged);
     // GitHub's rate limit holds requests until then: no pass starts before it (ADR 0052).
     let pausedUntil = 0;
     const intake = createIntake({
-      // A second writer on the store, as a terminal command is (ADR 0044).
-      log: createCommandLog({ store, recipes: setup.recipes }),
+      log,
       brewery: setup.brewery,
       tracker: githubTargetTracker(reads),
       claims,
@@ -286,6 +318,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     }
     while (!signal.aborted) {
       poll();
+      merged?.poll(signal);
       try {
         await driver.tick();
       } catch (error) {
@@ -295,8 +328,9 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       if (signal.aborted) break;
       await wait(intervalMs, signal);
     }
-    // Its deadline bounds the wait.
+    // Its deadline bounds the wait; the stop ends the run's processes.
     await polling;
+    await merged?.settled();
     say('stopped');
     return 0;
   } catch (error) {
