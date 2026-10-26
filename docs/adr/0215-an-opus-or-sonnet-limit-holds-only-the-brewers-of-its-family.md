@@ -48,7 +48,7 @@ The maintainer settled on #242 (2026-10-25) that an Opus or Sonnet limit pauses 
 
 ## Consequences
 - With an Opus limit hit, a Sonnet brewer still starts, and `foedrum status` says only the Opus window is closed.
-- A brewer on a model Foedrum cannot place still waits for every limit, as under ADR 0206.
+- A brewer on a model Foedrum cannot place still waits for every limit, as under ADR 0206: an Opus limit also holds a Haiku brewer, and `foedrum status` then shows only the Opus window closed while that brewer waits.
 - `openDriver` gains a `family` option; `serve` and `brew` give it from the brewer's model; `decide`'s `reopen` stays one command.
 - A log of #543 still folds and reopens.
 - Chaos case: a driver killed while one family's window is closed; after the restart that family's brewers wait for the reopen, the other family's start, and every batch goes on to on tap.
