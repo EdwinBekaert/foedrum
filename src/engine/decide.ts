@@ -18,6 +18,7 @@ import {
   type StuckReason,
   type Surface,
   type Usage,
+  UsageScope,
   type WaitCondition,
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
@@ -27,13 +28,21 @@ import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './ad
 import type { UsageLimit } from './brewer-runner.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
-import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } from './fold.ts';
+import {
+  type Attempt,
+  type Batch,
+  type Lane,
+  orderKey,
+  type State,
+  type Step,
+  type UsageWindow,
+} from './fold.ts';
 import { claimStanding, same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
-import type { Reopen } from './usage-window.ts';
+import { type Reopen, scopeOf } from './usage-window.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
 interface Issuer {
@@ -696,8 +705,9 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
   if (current.phase === 'scheduled' && pauseOf(draft.state, batch) !== undefined) {
     throw new Refusal(`${attemptName(batch, stepId, attempt)} waits for its batch's pause`);
   }
-  // Its wait is the usage window's, which gives it a new deadline as it reopens (ADR 0206).
-  const window = draft.state.usageWindow;
+  // Its wait is the usage window's, which gives it a new deadline as it reopens (ADR 0206). The
+  // state does not know its family: any closed window holds it (ADR 0215).
+  const [window] = windowsByReopen(draft.state);
   if (current.phase === 'scheduled' && window !== undefined) {
     throw new Refusal(
       `${attemptName(batch, stepId, attempt)} waits for the usage window, which reopens at ${window.reopensAt}`,
@@ -1264,11 +1274,11 @@ function usageLimitOf(
 }
 
 /**
- * Closes the usage window (ADR 0206), or keeps it closed until the later of its reopen and this
- * one: the window reopens at the latest reset claude named.
+ * Closes the usage window of the limit's scope (ADR 0206, ADR 0215), or keeps it closed until the
+ * later of its reopen and this one: each window reopens at the latest reset claude named for it.
  */
 function close(draft: Draft, { limit, resets }: UsageLimit, reopensAt: Reopen) {
-  const current = draft.state.usageWindow;
+  const current = draft.state.usageWindows[scopeOf(limit)];
   if (current !== undefined && Date.parse(current.reopensAt) >= reopensAt.at.getTime()) return;
   draft.push({
     type: 'usage.window_closed',
@@ -1280,15 +1290,28 @@ function close(draft: Draft, { limit, resets }: UsageLimit, reopensAt: Reopen) {
 }
 
 /**
- * Opens the usage window once its reopen has come (ADR 0206): each scheduled attempt that has not
- * started, in a batch no pause holds, gets a new deadline from its step, as on continue.
+ * Opens each usage window whose reopen has come (ADR 0206, ADR 0215): then each scheduled attempt
+ * that has not started, in a batch no pause holds, gets a new deadline from its step, as on
+ * continue, also while another window stays closed, since an attempt it held may start now.
  */
 function reopen(draft: Draft): void {
-  const window = draft.state.usageWindow;
-  if (window === undefined) throw new Refusal('the usage window is open');
-  if (draft.context.now.getTime() < Date.parse(window.reopensAt)) {
-    throw new Refusal(`the usage window reopens at ${window.reopensAt}`);
+  const windows = draft.state.usageWindows;
+  const [first] = windowsByReopen(draft.state);
+  if (first === undefined) throw new Refusal('the usage window is open');
+  const now = draft.context.now;
+  if (now.getTime() < Date.parse(first.reopensAt)) {
+    throw new Refusal(`the usage window reopens at ${first.reopensAt}`);
   }
-  draft.push({ type: 'usage.window_opened', at: draft.context.now.toISOString() });
+  for (const scope of UsageScope.options) {
+    const window = windows[scope];
+    if (window === undefined || now.getTime() < Date.parse(window.reopensAt)) continue;
+    draft.push({ type: 'usage.window_opened', at: now.toISOString(), scope });
+  }
   for (const batchId of draft.state.batches.keys()) rescheduleWaiting(draft, batchId);
 }
+
+/** The closed usage windows, the first to reopen first. */
+const windowsByReopen = (state: State): UsageWindow[] =>
+  Object.values(state.usageWindows).sort(
+    (a, b) => Date.parse(a.reopensAt) - Date.parse(b.reopensAt),
+  );

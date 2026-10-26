@@ -49,7 +49,7 @@ export interface TickPlan {
   commands: BatchCommand[];
   /** Every expired lease but those of lost attempts it leaves to the next tick (ADR 0168). */
   releaseLeases: string[];
-  /** The closed usage window's reopen is due, before the batches' commands (ADR 0206). */
+  /** A closed usage window's reopen is due, before the batches' commands (ADR 0206, ADR 0215). */
   reopen?: true;
 }
 
@@ -103,9 +103,11 @@ export const planTick = (input: TickInput): TickPlan => {
       }
     }
   }
-  // The window is every batch's: whichever supervisor ticks first reopens it (ADR 0206).
-  const window = state.usageWindow;
-  const reopen = window !== undefined && Date.parse(window.reopensAt) <= now.getTime();
+  // A window is every batch's: whichever supervisor ticks first reopens it (ADR 0206), and each
+  // reopens at its own reset (ADR 0215).
+  const reopen = Object.values(state.usageWindows).some(
+    (window) => Date.parse(window.reopensAt) <= now.getTime(),
+  );
   return {
     commands: [...commands.values()],
     releaseLeases: expiredLeases.map((lease) => lease.attemptKey).filter((key) => !kept.has(key)),
@@ -120,8 +122,10 @@ function dueCommand(state: State, batch: Batch, now: Date): BatchCommand | undef
   switch (lane.kind) {
     case 'brewing': {
       // A paused batch's attempt that has not started waits for continue, not its step (ADR 0202),
-      // and any while the usage window is closed for its reopen (ADR 0206).
-      const held = pauseOf(state, batch) !== undefined || state.usageWindow !== undefined;
+      // and any while a usage window is closed for its reopen, whatever its family (ADR 0206,
+      // ADR 0215).
+      const held =
+        pauseOf(state, batch) !== undefined || Object.keys(state.usageWindows).length > 0;
       const [late] = running(batch)
         .filter((attempt) => isDue(attempt.deadlineAt) && !(held && attempt.phase === 'scheduled'))
         .sort((a, b) => Date.parse(a.deadlineAt) - Date.parse(b.deadlineAt));

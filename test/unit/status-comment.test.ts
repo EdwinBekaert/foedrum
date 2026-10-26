@@ -105,7 +105,9 @@ describe('renderStatus', () => {
       reopensAt: '2026-10-25T23:05:00.000Z',
       read: true,
     } as const;
-    const lines = renderStatus(batch(), steps, undefined, undefined, undefined, closed).split('\n');
+    const lines = renderStatus(batch(), steps, undefined, undefined, undefined, {
+      all: closed,
+    }).split('\n');
     const lane = lines.indexOf('🍺 **Brewing**');
     assert.ok(lane > 0);
     assert.equal(
@@ -113,19 +115,32 @@ describe('renderStatus', () => {
       '⏳ Usage window closed: claude hit its weekly limit, which resets Mon 12:00am; brewers wait until 23:05 UTC, 25 October.',
     );
     const unread = renderStatus(batch(), steps, undefined, undefined, undefined, {
-      ...closed,
-      resets: 'soon <b>',
-      read: false,
+      all: { ...closed, resets: 'soon <b>', read: false },
     });
     assert.match(
       unread,
       /⏳ Usage window closed: claude hit its weekly limit, which resets soon &lt;b&gt;; brewers try again at 23:05 UTC, 25 October\./,
     );
     assert.doesNotMatch(
-      renderStatus(ordered(), undefined, undefined, undefined, undefined, closed),
+      renderStatus(ordered(), undefined, undefined, undefined, undefined, { all: closed }),
       /Usage window/,
     );
     assert.doesNotMatch(renderStatus(batch(), steps), /Usage window/);
+  });
+
+  it('says which family window is closed, each on its own line, every brewer first (ADR 0215)', () => {
+    const window = { resets: '3:45pm', reopensAt: '2026-10-25T23:05:00.000Z', read: true } as const;
+    const lines = renderStatus(batch(), steps, undefined, undefined, undefined, {
+      Sonnet: { ...window, limit: 'Sonnet' },
+      all: { ...window, limit: 'session' },
+      Opus: { ...window, limit: 'Opus' },
+    }).split('\n');
+    const lane = lines.indexOf('🍺 **Brewing**');
+    assert.deepStrictEqual(lines.slice(lane + 1, lane + 4), [
+      '⏳ Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 23:05 UTC, 25 October.',
+      '⏳ Opus usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers on Opus wait until 23:05 UTC, 25 October.',
+      '⏳ Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet wait until 23:05 UTC, 25 October.',
+    ]);
   });
 
   it("escapes a pause's reason as any text an issue wrote (ADR 0202)", () => {

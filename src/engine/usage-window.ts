@@ -1,7 +1,8 @@
-// The usage window (ADR 0206): when claude hits a usage limit, no brewer attempt starts until the
-// reset it named, read in the machine's time zone.
+// The usage windows (ADR 0206, ADR 0215): when claude hits a usage limit, no brewer attempt that
+// limit's window holds starts until the reset it named, read in the machine's time zone.
 
-import type { UsageWindow } from './fold.ts';
+import { type UsageLimitName, UsageScope } from '../schemas/events.ts';
+import type { UsageWindow, UsageWindows } from './fold.ts';
 import { fromWallClock, wallClock } from './wall-clock.ts';
 
 /** Added to the reset, so the first attempt after it does not meet a window still closed. */
@@ -13,6 +14,32 @@ export const unreadRetryMs = 60 * 60_000;
  * be handled minutes after claude wrote it, and claude names the reset to the minute.
  */
 export const passedWithinMs = 60 * 60_000;
+
+/** A model family whose own usage limit claude names: an Opus or a Sonnet window (ADR 0215). */
+export type ModelFamily = Exclude<UsageScope, 'all'>;
+
+/**
+ * The family of a model id or family as `claude --model` takes it, by its words (`opus` or
+ * `sonnet`); undefined when it cannot be told, and every limit holds it (ADR 0215).
+ */
+export const familyOf = (model: string): ModelFamily | undefined => {
+  const words = new Set(model.toLowerCase().split(/[^a-z0-9]+/));
+  const opus = words.has('opus');
+  if (opus === words.has('sonnet')) return undefined;
+  return opus ? 'Opus' : 'Sonnet';
+};
+
+/** Whose brewers the window of `limit` holds: a session or weekly limit every brewer's. */
+export const scopeOf = (limit: UsageLimitName): UsageScope =>
+  limit === 'Opus' || limit === 'Sonnet' ? limit : 'all';
+
+/**
+ * Whether `windows` hold a brewer attempt on `family`: the window of every brewer, its family's,
+ * or any window when its family cannot be told (ADR 0215).
+ */
+export const windowHolds = (windows: UsageWindows, family: ModelFamily | undefined): boolean =>
+  windows.all !== undefined ||
+  (family === undefined ? Object.keys(windows).length > 0 : windows[family] !== undefined);
 
 /** When a closed usage window reopens, and whether claude's reset could be read. */
 export interface Reopen {
@@ -87,5 +114,19 @@ const utc = (instant: Date): string => {
 };
 
 /** The line the status comment and `foedrum status` show while the window is closed. */
-export const usageWindowText = ({ limit, resets, reopensAt, read }: UsageWindow): string =>
-  `Usage window closed: claude hit its ${limit} limit, which resets ${resets}; brewers ${read ? 'wait until' : 'try again at'} ${utc(new Date(reopensAt))}`;
+export const usageWindowText = ({ limit, resets, reopensAt, read }: UsageWindow): string => {
+  const scope = scopeOf(limit);
+  // A family's window names the family, and the brewers it holds (ADR 0215).
+  const [window, brewers] =
+    scope === 'all'
+      ? ['Usage window', 'brewers']
+      : [`${scope} usage window`, `brewers on ${scope}`];
+  return `${window} closed: claude hit its ${limit} limit, which resets ${resets}; ${brewers} ${read ? 'wait until' : 'try again at'} ${utc(new Date(reopensAt))}`;
+};
+
+/** A line for each closed window: every brewer's first, then Opus's, then Sonnet's (ADR 0215). */
+export const usageWindowsText = (windows: UsageWindows): string[] =>
+  UsageScope.options.flatMap((scope) => {
+    const window = windows[scope];
+    return window === undefined ? [] : [usageWindowText(window)];
+  });

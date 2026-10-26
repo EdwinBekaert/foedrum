@@ -42,9 +42,9 @@ This table says what each one records.
 | `order.paused` | A person's pause of an order, or with no `order` of the whole Brewery and its intake, with `by`, `via`, the reason (`why`) and when what still runs is stopped (`stopAt`, with the `zone` it was given in) ([pause and continue](../humans/pause.md)) |
 | `order.continued` | A person lifted an order's pause, or with no `order` every pause, with `by` and `via` |
 | `order.ranked` | A person moved an order of the intake's queue to a position, kept as an arrival and a tie, or marked it to finish first, with `by`, `via` and `why` ([ranking](../intake/ranking.md)) |
-| `step.rescheduled` | The new deadline of a scheduled attempt that had not started when its batch was paused, as its pause is lifted, or while the usage window was closed, as it reopens |
-| `usage.window_closed` | A brewer's attempt ended at a usage limit: the `limit`, claude's `resets` text, the UTC `reopensAt` and whether the reset was `read` ([the usage window](usage-window.md)) |
-| `usage.window_opened` | The usage window reopened `at` its `reopensAt`: brewer attempts start again |
+| `step.rescheduled` | The new deadline of a scheduled attempt that had not started when its batch was paused, as its pause is lifted, or while a usage window was closed, as one reopens |
+| `usage.window_closed` | A brewer's attempt ended at a usage limit: the `limit`, which names the window's scope (`session` and `weekly` every brewer's, `Opus` and `Sonnet` their family's), claude's `resets` text, the UTC `reopensAt` and whether the reset was `read` ([the usage window](usage-window.md)) |
+| `usage.window_opened` | The usage window of `scope` (`all`, `Opus` or `Sonnet`) reopened `at` its `reopensAt`: the brewer attempts it held start again; without a `scope`, as logs before ADR 0215 wrote it, every closed window reopened |
 
 `Surface` is `plugin`, `terminal`, `comment` or `dashboard`.
 Session ids are part of the state, so any action can resume the right session ([ADR 0019](../../adr/0019-interactive-sessions-and-one-command-layer.md)).

@@ -363,6 +363,12 @@ const recipeChosen = z.discriminatedUnion('source', [
 /** The usage windows of a Claude subscription that claude names when one runs out (ADR 0091). */
 export const UsageLimitName = z.enum(['session', 'weekly', 'Opus', 'Sonnet']);
 export type UsageLimitName = z.infer<typeof UsageLimitName>;
+/**
+ * Whose brewers a closed usage window holds (ADR 0215): `all` for a session or weekly limit, a
+ * model family for an Opus or Sonnet limit.
+ */
+export const UsageScope = z.enum(['all', 'Opus', 'Sonnet']);
+export type UsageScope = z.infer<typeof UsageScope>;
 /** claude's reset text is cut to 200 characters and an ellipsis, as any text its stream gives (ADR 0091). */
 const MAX_RESETS_LENGTH = 201;
 
@@ -579,7 +585,12 @@ export const Event = z.discriminatedUnion('type', [
     reopensAt: Timestamp,
     read: z.boolean(),
   }),
-  // The usage window reopened at `at`: brewer attempts start again (ADR 0206).
-  z.strictObject({ type: z.literal('usage.window_opened'), at: Timestamp }),
+  // The usage window of `scope` reopened at `at`: its brewer attempts start again (ADR 0206).
+  // Without a scope, as #543 wrote it, every closed window opened (ADR 0215).
+  z.strictObject({
+    type: z.literal('usage.window_opened'),
+    at: Timestamp,
+    scope: UsageScope.optional(),
+  }),
 ]);
 export type Event = z.infer<typeof Event>;

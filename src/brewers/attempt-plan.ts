@@ -11,6 +11,7 @@ import { onFindings } from '../engine/decide.ts';
 import type { Batch } from '../engine/fold.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -146,6 +147,24 @@ export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string
     );
   }
   return model;
+}
+
+/**
+ * The model family the brewer runs on, read as its attempt runs it, a blind-tasting swap included;
+ * undefined when it cannot be told, also when models.jsonc has no model for its alias (ADR 0215).
+ */
+export function familyOfBrewer(
+  models: ModelsConfig,
+  brewer: BrewerFrontmatter,
+): ModelFamily | undefined {
+  let model: string;
+  try {
+    model = modelOf(models, brewer);
+  } catch {
+    // Its plan fails the attempt with the reason; until then every limit holds it.
+    return undefined;
+  }
+  return familyOf(model);
 }
 
 /**

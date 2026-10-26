@@ -13,14 +13,14 @@ import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Attempt, Batch, Lane, Pause, State, UsageWindow } from './fold.ts';
+import type { Attempt, Batch, Lane, Pause, State, UsageWindows } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { changeText, findingText, knownCommits, pushKey } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
-import { usageWindowText } from './usage-window.ts';
+import { usageWindowsText } from './usage-window.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
 export interface StatusComments {
@@ -311,11 +311,11 @@ const pauseText = ({ by, via, why, stopAt }: Pause): string => {
   return `⏸️ **Paused** by ${plain(by)} (${via})${reason}. Nothing new starts; what runs ends at its next convenient point${stopped}.`;
 };
 
-/** What a brewing batch shows while the usage window is closed (ADR 0206). */
-const usageWindowLines = (batch: Batch, window: UsageWindow | undefined): string[] =>
-  window === undefined || batch.lane.kind !== 'brewing'
+/** What a brewing batch shows while a usage window is closed, a line each (ADR 0206, ADR 0215). */
+const usageWindowLines = (batch: Batch, windows: UsageWindows): string[] =>
+  batch.lane.kind !== 'brewing'
     ? []
-    : [`⏳ ${plain(usageWindowText(window))}.`];
+    : usageWindowsText(windows).map((text) => `⏳ ${plain(text)}.`);
 
 const recipeText = (recipe: Batch['recipe']): string => {
   if (recipe === undefined) return 'No recipe is chosen yet.';
@@ -572,7 +572,7 @@ export const renderStatus = (
   isCommit: IsCommit = () => false,
   paused?: Pause,
   sensitive?: SensitiveFiles,
-  usageWindow?: UsageWindow,
+  usageWindows: UsageWindows = {},
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -586,7 +586,7 @@ export const renderStatus = (
     [
       ...laneText(batch.lane, told),
       ...(paused === undefined ? [] : [pauseText(paused)]),
-      ...usageWindowLines(batch, usageWindow),
+      ...usageWindowLines(batch, usageWindows),
     ],
     [
       recipeText(batch.recipe),
@@ -702,7 +702,7 @@ const statusDue = (
     knownCommits(state, batchId),
     paused,
     sensitive,
-    state.usageWindow,
+    state.usageWindows,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
