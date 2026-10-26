@@ -28,6 +28,7 @@ import type { EventStore } from '../engine/event-store.ts';
 import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { laneLabelEffects } from '../engine/lane-labels.ts';
+import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
@@ -159,12 +160,8 @@ export const wireDriver = async (
   // gh's login: the status comments and the claim marks count only its own (ADR 0072, ADR 0073).
   const login = await githubLogin(client, signal);
   const claimant: Claimant = { brewery: setup.brewery, login };
-  const status = statusEffects({
-    brewery: setup.brewery,
-    comments: githubStatusComments({ client, reads, login }),
-    recipes: setup.recipes,
-    clock,
-  });
+  const comments = githubStatusComments({ client, reads, login });
+  const status = statusEffects({ brewery: setup.brewery, comments, recipes: setup.recipes, clock });
   const marks = githubIssueMarks({ client, reads, login });
   // Each Brewery issue's lane label, through the ledger as its status comment (ADR 0154).
   const labels = laneLabelEffects({ brewery: setup.brewery, host: marks });
@@ -174,10 +171,16 @@ export const wireDriver = async (
   ].some((batch) => batch.repo !== undefined);
   // A conflict with a base that moved, posted on its pull request (ADR 0198).
   const conflicts = baseConflictEffects({ marks });
+  // A ready pull request's merge brief, on it, its title read as an issue's (ADR 0225).
+  const briefs = mergeBriefEffects({
+    host: { find: comments.find, create: comments.create, title: marks.title },
+    recipes: setup.recipes,
+    redProof: (recipe) => setup.checks.redProof(recipe)?.id,
+  });
   const effects =
     setup.intake.repositories.length > 0 || claimed
-      ? combineEffects(status, labels, conflicts, claimEffects({ claimant, marks, claims }))
-      : combineEffects(status, labels, conflicts);
+      ? combineEffects(status, labels, conflicts, briefs, claimEffects({ claimant, marks, claims }))
+      : combineEffects(status, labels, conflicts, briefs);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,

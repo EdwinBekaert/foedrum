@@ -27,7 +27,7 @@ import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { type FakeGitHubApi, fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import {
   FAKE_COMMIT,
@@ -318,12 +318,21 @@ describe('runServe', () => {
   /**
    * Brews 12-1 with the porter recipe until its pull request is open, with a base that moved and a
    * merge-tree that conflicts (ADR 0198), on a git that records what it is asked and answers nothing.
+   * With `passed`, the merge-tree is clean and every check on the head passed, until the merge brief
+   * is posted (ADR 0225).
    */
-  const brewWithMovedBase = async () => {
+  const brewWithMovedBase = async (passed = false) => {
     const porter = JSON.stringify({
       name: 'porter',
       description: 'Brews an order in one step and opens its pull request.',
-      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      // With `passed`, a red proof its `when` skips, which the brief names (ADR 0225).
+      steps: [
+        { id: 'brew', brewer: 'cellarman' },
+        ...(passed
+          ? [{ id: 'red', check: 'test', expect: 'fail', of: 'brew', when: 'recipe.testFirst' }]
+          : []),
+        { action: 'openPullRequest' },
+      ],
       testFirst: false,
     });
     const result = serveSetup(
@@ -352,6 +361,21 @@ describe('runServe', () => {
       { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
       t0,
     );
+    // The head of the pull request and the one check on it, which passed (ADR 0213).
+    const checks = (_method: string, url: URL): Instead | undefined => {
+      if (!passed) return undefined;
+      if (/^\/repos\/acme\/web\/pulls\/\d+$/.test(url.pathname)) {
+        return { status: 200, body: { head: { sha: FAKE_COMMIT } } };
+      }
+      if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/check-runs`)) {
+        const run = { name: 'ci', status: 'completed', conclusion: 'success', html_url: null };
+        return { status: 200, body: { total_count: 1, check_runs: [run] } };
+      }
+      if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/status`)) {
+        return { status: 200, body: { statuses: [] } };
+      }
+      return undefined;
+    };
     const github = fakeGitHubApi({
       login: 'ann',
       issues: {
@@ -359,8 +383,14 @@ describe('runServe', () => {
           { number: 12, labels: [], author: 'ann', title: 'Add a --json flag', body: 'Please.' },
         ],
       },
+      instead: checks,
     });
     const merged: string[] = [];
+    // The pull request's comments that carry the merge brief's marker.
+    const briefComments = () =>
+      [...github.comments.entries()].flatMap(([key, comments]) =>
+        comments.filter(({ body }) => body.includes('brief.1')).map(({ body }) => ({ key, body })),
+      );
     // The pull request's comments that carry the conflict's marker.
     const conflictComments = () =>
       [...github.comments.entries()].flatMap(([key, comments]) =>
@@ -376,7 +406,11 @@ describe('runServe', () => {
         fetch: github.fetch,
         wait: async () => {
           waits++;
-          if (conflictComments().length > 0 || waits > 40) controller.abort();
+          // A person retitles the pull request once it is open: the brief reads its title.
+          const [opened] = github.pulls;
+          if (passed && opened !== undefined) opened.title = 'Add a --json flag, retitled';
+          const done = passed ? briefComments() : conflictComments();
+          if (done.length > 0 || waits > 40) controller.abort();
         },
         git: async (_cwd, args) => {
           asked.push(args.join(' '));
@@ -396,7 +430,7 @@ describe('runServe', () => {
         }),
         mergeTree: () => async (head, tip) => {
           merged.push(`${head} ${tip}`);
-          return { kind: 'conflicts', files: ['src/cli.ts'] };
+          return passed ? { kind: 'clean' } : { kind: 'conflicts', files: ['src/cli.ts'] };
         },
       }),
     );
@@ -404,7 +438,7 @@ describe('runServe', () => {
     const baseChecks = createCommandLog({ store, recipes: setup.recipes })
       .state()
       .batches.get('12-1')?.baseChecks;
-    return { code, merged, pull, baseChecks, conflictComments, asked };
+    return { code, merged, pull, baseChecks, conflictComments, briefComments, asked };
   };
 
   it("checks an open pull request against its base's moved tip and comments the conflict on it (ADR 0198)", async () => {
@@ -420,6 +454,20 @@ describe('runServe', () => {
     assert.ok(comment, lines.join('\n'));
     assert.equal(comment?.key, `acme/web#${pull?.number}`);
     assert.match(comment?.body ?? '', /src\/cli\.ts/);
+  });
+
+  it('posts the merge brief on a pull request whose checks passed on its head (ADR 0225, regression test)', async () => {
+    const { code, pull, briefComments } = await brewWithMovedBase(true);
+    assert.equal(code, 0);
+    const [brief] = briefComments();
+    assert.ok(brief, lines.join(String.fromCodePoint(0x0a)));
+    assert.equal(brief?.key, `acme/web#${pull?.number}`);
+    assert.match(brief?.body ?? '', /^### Merge\? Add a --json flag, retitled @ `/);
+    assert.match(brief?.body ?? '', /- ✅ ci \(success\)/);
+    assert.match(
+      brief?.body ?? '',
+      /- Red proof `red`: not run: its when "recipe\.testFirst" was false\./,
+    );
   });
 
   describe('a usage window per family (review of #555, ADR 0215)', () => {

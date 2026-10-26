@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
-import { StatusRevision } from '../schemas/status-comment.ts';
+import { type MergeBrief, StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey, SensitiveFiles } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -14,6 +14,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, Pause, State, UsageWindows } from './fold.ts';
+import { briefNow } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
@@ -94,7 +95,7 @@ export const plain = (text: string): string => {
   return `${line}…`;
 };
 
-const code = (id: string): string => `\`${id}\``;
+export const code = (id: string): string => `\`${id}\``;
 
 /**
  * What the status comment and `foedrum stuck` recommend when a findings route ran out of rounds,
@@ -113,7 +114,7 @@ type Told = (text: string, stepId: string) => string;
  * A URL as an autolink of its normalized form: the schema keeps the text it was given, and `new URL`
  * encodes the spaces and angle brackets that would let the rest of it render as Markdown.
  */
-const link = (url: string): string => `<${new URL(url).href}>`;
+export const link = (url: string): string => `<${new URL(url).href}>`;
 
 const waitText = (on: WaitCondition): string => {
   switch (on.kind) {
@@ -191,7 +192,7 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 };
 
 /** A commit as the comments show it: its first eight digits. */
-const shortSha = (sha: string): string => sha.slice(0, 8);
+export const shortSha = (sha: string): string => sha.slice(0, 8);
 
 /**
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
@@ -487,7 +488,7 @@ const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
 };
 
 /** The first `most` of `all` as lines of `stepId`, and a line that counts the rest, as `rest`. */
-const capped = <T>(
+export const capped = <T>(
   stepId: string,
   all: readonly T[],
   most: number,
@@ -625,7 +626,7 @@ const mostSensitive = 10;
  * The sensitive files the push of a batch's pull request recorded (ADR 0201), as one line: the
  * first `mostSensitive`, each as a committer named it, and a count of the rest.
  */
-const sensitiveLine = (sensitive: SensitiveFiles): string => {
+export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   const named = sensitive.files.slice(0, mostSensitive).map(plain);
   const more = sensitive.count - named.length;
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
@@ -635,7 +636,8 @@ const sensitiveLine = (sensitive: SensitiveFiles): string => {
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the `sensitive`
  * files its pushed change touches (ADR 0201), the assumptions of its out docs and, on tap, its pull
- * requests. Every text a brewer or an issue wrote is one escaped line.
+ * requests, with a link to the `brief` that says one is ready to merge (ADR 0225). Every text a
+ * brewer or an issue wrote is one escaped line.
  */
 export const renderStatus = (
   batch: Batch,
@@ -644,6 +646,7 @@ export const renderStatus = (
   paused?: Pause,
   sensitive?: SensitiveFiles,
   usageWindows: UsageWindows = {},
+  brief?: MergeBrief,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -688,6 +691,12 @@ export const renderStatus = (
             '**Pull requests**',
             ...pullRequests.map((url) => baseCheckLine(batch, url) ?? `- ${link(url)}`),
             ...checkLines(batch),
+            // The merge brief of the record that makes it ready now (ADR 0225).
+            ...(brief === undefined
+              ? []
+              : [
+                  `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
+                ]),
           ],
     );
   }
@@ -774,6 +783,7 @@ const statusDue = (
     paused,
     sensitive,
     state.usageWindows,
+    briefNow(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
