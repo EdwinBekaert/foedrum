@@ -144,7 +144,7 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
     } else if (windows) {
       // PowerShell's single-quoted strings write each quote it reads as one twice, typographic
       // ones too.
-      const quoted = suggested.replace(/['‘’‚‛]/g, (quote) => quote + quote);
+      const quoted = suggested.replace(/['\u2018\u2019\u201a\u201b]/g, (quote) => quote + quote);
       say(`Create ${suggested} and add it to your PATH, in PowerShell:`);
       say(
         `  New-Item -ItemType Directory -Force '${quoted}'; [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';${quoted}', 'User')`,
