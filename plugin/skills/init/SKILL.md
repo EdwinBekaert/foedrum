@@ -17,7 +17,7 @@ Every command below runs with the Bash tool, never PowerShell, in this folder. P
 
 ## Find foedrum
 
-Until init has written the `foedrum` command, it may not be on the PATH (ADR 0212). Run `command -v foedrum` with the Bash tool. When it prints a path, step 1 runs foedrum itself. When it prints nothing, ask the engineer for the folder of their Foedrum checkout, with AskUserQuestion, without proposing one. Check that `<folder>/src/cli/main.ts` is a file (`test -f '<folder>/src/cli/main.ts'`, the folder single-quoted as below); when it is not, say so and ask again. Then step 1 runs the checkout's `node '<folder>/src/cli/main.ts' init --via plugin` instead, every round.
+Until init has written the `foedrum` command, it may not be on the PATH (ADR 0212). Run `command -v foedrum` with the Bash tool. When it prints a path, step 1 runs foedrum itself. When it prints nothing, ask the engineer for the folder of their Foedrum checkout, with AskUserQuestion, without proposing one. Check that `<folder>/src/cli/main.ts` is a file (`test -f '<folder>/src/cli/main.ts'`, the folder single-quoted as below); when it is not, say so and ask again. Then step 1 runs the checkout's `node '<folder>/src/cli/main.ts' init --no-input --via plugin` instead, every round.
 
 ## Run it
 
