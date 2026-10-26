@@ -52,15 +52,9 @@ From a terminal outside a Claude Code session, `foedrum brew` needs a name for i
 
 ## How it fits together
 
-```mermaid
-flowchart LR
-  I[Issue in the Brewery] --> R{Recipe}
-  R --> B1[Brewer: plan] --> B2[Brewer: build] --> G[Checks: tests, lint, types]
-  G -->|fail| B2
-  G --> T[Brewer: review]
-  T -->|findings| F[Brewer: fix] --> T
-  T -->|approved| PR[Pull request in target repo]
-```
+[![The brewing line: how one issue is brewed into a pull request, step by step](docs/images/foedrum-brewing-line.png)](docs/images/foedrum-brewing-line.png)
+
+The full line as designed. Each recipe picks its own steps: Nip, the quick fix that works today, starts at the Gauger and is tasted through two lenses.
 
 ## Documentation
 
