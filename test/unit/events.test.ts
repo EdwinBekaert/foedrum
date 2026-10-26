@@ -296,6 +296,8 @@ describe('Event', () => {
     rejects(Event, { ...ranked, place: { ...place, position: 1.5 } });
     rejects(Event, { ...ranked, place: { kind: 'position', position: 2 } });
     rejects(Event, { ...ranked, place: { ...place, arrival: 'yesterday' } });
+    rejects(Event, { ...ranked, place: without(place, 'tie') });
+    rejects(Event, { ...ranked, place: { ...place, tie: 'x' } });
     rejects(Event, { ...ranked, place: { kind: 'last' } });
     rejects(Event, without(ranked, 'by'));
     rejects(Event, { ...ranked, why: '' });

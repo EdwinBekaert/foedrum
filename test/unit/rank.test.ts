@@ -220,6 +220,28 @@ describe('rankQueue', () => {
         '#12',
       ]);
     });
+
+    it('puts an order halfway between two ranked orders that share an arrival', () => {
+      // api#2 and web#1 ranked at 10:01 with ties 0 and 1: api#1, api#2, web#1, #12, web#3.
+      const neighbours = [
+        ranked({ issue: 2, repo: api }, position(2, at(1), 0)),
+        ranked({ issue: 1, repo: web }, position(3, at(1), 1)),
+      ];
+      const ranks = ranksOf(...neighbours);
+      const place = placeAt(rankQueue(queue, ranks), ranks, order, 3, t0);
+      assert.deepStrictEqual(place, { arrival: at(1), tie: 0.5 });
+      const moved = ranksOf(
+        ...neighbours,
+        ranked(order, { kind: 'position', position: 3, ...place }),
+      );
+      assert.deepStrictEqual(names(rankQueue(queue, moved)), [
+        'acme/api#1',
+        'acme/api#2',
+        'acme/web#3',
+        'acme/web#1',
+        '#12',
+      ]);
+    });
   });
 });
 
