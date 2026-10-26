@@ -73,6 +73,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   When a batch's pull request is pushed, the files its change adds, alters or deletes (a rename at both paths), from where its change starts to the commit pushed, are matched once, and the push's ledger result keeps how many matched and the first 50 ([openPullRequest](open-pull-request.md)).
   The status comment then names the first 10 in one line after its steps, `Touches sensitive paths: …`, with a count of the rest, in every lane from then on.
   It is a fact for the person who merges, never an approval or a block: tasting does not change.
+- At the top level, `concurrency` (1 to 20, default 1) is how many batches may be Ordered or Brewing at once ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)), and `openOrders` (1 to 20, default 3) how many orders may be in progress at once ([limits](../intake/limits.md)).
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 
 **`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:

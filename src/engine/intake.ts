@@ -8,10 +8,12 @@
 //   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, the
 //   ready sub-orders of its orders, which it orders as `<issue>-1` under their order's batch
 //   (ADR 0211), and the candidates of each repository with an intake filter, which it claims and
-//   orders as `<alias>-<issue>`, each Ordered until it is routed by its deadline (ADR 0032);
+//   orders as `<alias>-<issue>`, each Ordered until it is routed by its deadline (ADR 0032),
+//   skipping what a recipe's `concurrency` or the open-order limit holds (ADR 0217);
 // - routes every Ordered batch whose Brewery issue it read by that issue's one `recipe:<name>`
 //   label, whoever ordered it: this pass, a pass killed before it routed, or a retry. A claimed
-//   batch's Brewery issue is its order (ADR 0144, ADR 0156), never the target issue.
+//   batch's Brewery issue is its order (ADR 0144, ADR 0156), never the target issue. A batch
+//   whose recipe brews its `concurrency` waits Ordered (ADR 0217).
 // Everything it reads from the tracker is untrusted input; it decides nothing by asking a model.
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
