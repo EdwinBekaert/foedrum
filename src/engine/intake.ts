@@ -1,6 +1,8 @@
 // The intake (ADR 0008, ADR 0043, ADR 0068). One pass, in this order:
 // - records the end of each pull request of a batch on tap that merged or closed
 //   (`pull_request.ended`), the fact a claimed batch's release waits for (ADR 0198);
+// - records the checks on each open pull request's head: since when it waits for them, and how
+//   each one finished once they all have (ADR 0213);
 // - checks each open pull request whose base's tip moved against that tip (ADR 0198);
 // - walks one queue, in rank order (ADR 0208) and only up to the Brewery's free capacity: the
 //   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, and
