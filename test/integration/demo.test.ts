@@ -208,10 +208,11 @@ describe('npm run demo', () => {
       /demo: implement #3 is told why step implement runs again: the findings of step correctness/,
     );
     const [blocked] = (DEMO_SCRIPT.correctness?.[0]?.tasting?.findings ?? []) as { why?: string }[];
+    const [fixed] = (DEMO_SCRIPT.implement?.[2]?.dispositions ?? []) as { why?: string }[];
     assert.ok(
       part('checks').includes(
         // The Cellar's own lines are indented by two spaces, the input's by two more.
-        `\n    Round correctness#1:\n    - major in greet.mjs:2: ${blocked?.why}\n      fixed: `,
+        `\n    Round correctness#1:\n    - major in greet.mjs:2: ${blocked?.why}\n      fixed: ${fixed?.why}\n`,
       ),
       part('checks'),
     );
@@ -252,5 +253,19 @@ describe('npm run demo', () => {
     ]);
     assert.equal(log.code, 0, log.stderr);
     assert.equal(log.stdout.trim(), DEMO_SCRIPT.implement?.[2]?.message);
+    // Round 2 is told the change since the commit round 1 reviewed: the one before that fix.
+    const reviewed = await runGit(root, [
+      '--git-dir',
+      join(scratch, 'web.git'),
+      'rev-parse',
+      `${head}~1`,
+    ]);
+    assert.equal(reviewed.code, 0, reviewed.stderr);
+    assert.ok(
+      part('checks').includes(
+        `demo: correctness #2 is told the change since commit ${reviewed.stdout.trim()}, as {roundChange}`,
+      ),
+      part('checks'),
+    );
   });
 });
