@@ -34,6 +34,8 @@ Nothing produces a sub-order yet either (mash, #388).
 ### The wait
 - A sub-order waiting for a release has no batch, as one waiting for a `code` blocker's merge has (ADR 0211): it is in no lane, outside Conditioning, with no reminder, and the intake orders it in the first pass after the release is recorded.
 - ADR 0013's "conditions until the release signal reports it" no longer holds for a sub-order: Conditioning stays the wait of a batch that has started (`batch.waiting`).
+- It widens ADR 0211's exception to "every wait has a deadline": once the blocker's pull request merged, no open pull request shows the wait, which is for CI to publish and a release to be recorded.
+  The blocker's batch stays On tap with its pull request merged, and the board (#240) is where the queue and what its sub-orders wait for will show; until a producer records releases, nothing ends this wait, as nothing produces such a sub-order either (What records a release).
 
 ### Not here
 - The dependent's first step, bumping the dependency (ADR 0013), is its recipe's: nothing in this record starts it.

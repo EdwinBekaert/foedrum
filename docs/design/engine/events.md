@@ -31,7 +31,7 @@ This table says what each one records.
 | `order.decomposed` | A breakdown: its sub-orders, one repository each, and their dependencies (`code` or `release`) |
 | `batch.waiting` | Conditioning on a merge, a release or a sibling batch, with a reminder |
 | `bottle.opened` | A bottle: its repository, sub-orders and pull request |
-| `release.observed` | A released version of a repository's package; it releases the merges of that repository recorded before it ([ADR 0216](../../adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
+| `release.observed` | A released version of a repository's package; the ready set counts it for a `release` blocker in that repository whose merge the fold recorded before it ([ADR 0216](../../adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
 | `batch.rewound` | A rewind to a step, with each repository's sha, `by` and `via` |
 | `batch.on_tap` | A batch done, with its pull requests |
 | `batch.cancelled` | A cancel, with `by` and `via` |
