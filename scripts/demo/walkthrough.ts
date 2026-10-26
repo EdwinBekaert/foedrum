@@ -73,6 +73,12 @@ export const STEPS: readonly Step[] = [
     lookFor: 'foedrum status shows the batch on tap, with its pull request.',
   },
   {
+    id: 'lenses',
+    title: 'foedrum lenses',
+    lookFor:
+      "each lens with its rounds, its findings by severity and how they ended, and its tokens: correctness's one finding is fixed, which only the round it blocked recorded; security and test-design each left one minor finding open, and diff/acceptance, a lens of Nip's that this Brewery's recipe does not run, has no rounds.",
+  },
+  {
     id: 'brew',
     title: `foedrum brew ${BREW_ORDER.number} --as ${USER}`,
     lookFor: `the same order again as issue #${BREW_ORDER.number}, brewed from a terminal instead of the Cellar: foedrum brew orders it, routes it by its label, and drives that one batch to its pull request.`,
