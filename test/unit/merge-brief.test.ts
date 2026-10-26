@@ -690,9 +690,9 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(text, /@ann/);
       assert.doesNotMatch(text, /<!--/);
       assert.doesNotMatch(text, /\*\*bold\*\*/);
-      assert.doesNotMatch(text, /\]\(https/);
+      assert.ok(!text.includes('[x](https'));
       assert.ok(!text.includes(secret));
-      assert.match(text, /\[left out: a text of step taste that looks like a secret\]/);
+      assert.match(text, /left out: a text of step taste that looks like a secret/);
     });
 
     it("escapes the pull request's title, which anyone with write access chose", async () => {
@@ -701,7 +701,10 @@ describe('the merge brief (ADR 0225)', () => {
       const { host, comments } = fakeHost('Fix @ann <!-- x --> **now**');
       await post(effectsOf(host));
       const title = comments[0]?.body.split('\n')[0] ?? '';
-      assert.equal(title, '### Merge? Fix &#64;ann &lt;!-- x --&gt; \\*\\*now\\*\\* @ `aaaaaaaa`');
+      assert.equal(
+        title,
+        '### Merge? Fix &#64;ann &lt;\\!-- x --&gt; \\*\\*now\\*\\* @ `aaaaaaaa`',
+      );
     });
   });
 
