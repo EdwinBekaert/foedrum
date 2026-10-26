@@ -165,6 +165,14 @@ describe('rankQueue', () => {
     ]);
   });
 
+  it('puts the lower number first of two issues of one repository that arrived in the same second', () => {
+    const same = [
+      queued({ issue: 9, repo: web }, at(0), 1),
+      queued({ issue: 4, repo: web }, at(0), 1),
+    ];
+    assert.deepStrictEqual(names(rankQueue(same, ranksOf())), ['acme/web#4', 'acme/web#9']);
+  });
+
   it("matches an order's rank by its repository in any case", () => {
     const ranks = ranksOf(ranked({ issue: 3, repo: 'Acme/Web' }, first));
     assert.deepStrictEqual(names(rankQueue(queue, ranks))[0], 'acme/web#3');
@@ -518,6 +526,39 @@ describe('foedrum rank (ADR 0208)', () => {
     const result = await run(['rank', 'web#7', '1'], { config: () => unnamed });
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /^foedrum rank: .*"brewery"/);
+  });
+
+  it("counts an issue assigned to the login gh uses as the Brewery's own, and refuses one assigned to someone else", async () => {
+    // The login differs from every allow-listed author, so only the login read can let web#7 in.
+    const assigned =
+      (assignee: string): CliContext['queue'] =>
+      () => ({
+        tracker: fakeTracker({
+          ...listings(),
+          [web]: [issue(7, at(4), { assignees: [assignee] })],
+        }),
+        login: async () => 'brewery-bot',
+      });
+    assert.deepStrictEqual(
+      await run(['rank', 'web#7', '1'], { queue: assigned('brewery-bot') }),
+      ok('web#7 ranked 1: place 1 of 4 in the queue\n'),
+    );
+    assert.deepStrictEqual(
+      await run(['rank', 'web#7', '1'], { queue: assigned('bob') }),
+      refused(
+        "web#7 is not in the intake's queue: closed, filtered out, assigned to someone else or not opened by an allow-listed user",
+      ),
+    );
+    const noLogin: CliContext['queue'] = () => ({
+      tracker: fakeTracker(listings()),
+      login: async () => {
+        throw new Error('401 Bad credentials');
+      },
+    });
+    assert.deepStrictEqual(
+      await run(['rank', 'web#7', '1'], { queue: noLogin }),
+      refused("cannot read the intake's queue: the login gh uses: 401 Bad credentials"),
+    );
   });
 
   it('refuses --why without a place', async () => {
