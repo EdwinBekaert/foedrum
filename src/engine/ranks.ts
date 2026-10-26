@@ -22,11 +22,16 @@ const marked = (rank: Rank | undefined): boolean => rank?.place.kind === 'first'
 const arrivalOf = (queued: QueuedOrder, rank: Rank | undefined): string =>
   rank?.place.kind === 'position' ? rank.place.arrival : queued.created;
 
+// Where an order goes among those of its arrival: a ranked one by its tie, the lower ahead, and an
+// unranked one behind them.
+const tieOf = (rank: Rank | undefined): number =>
+  rank?.place.kind === 'position' ? rank.place.tie : Number.POSITIVE_INFINITY;
+
 /**
  * `queue` in rank order: the orders marked "finish first" by when they were marked, then the rest
- * by arrival, a rank's in place of its issue's. A ranked order goes ahead of an unranked one that
- * shares its arrival, the later of two ranks ahead; then the Brewery's own issue, the order
- * foedrum.jsonc lists the repositories in, and the issue number break a tie.
+ * by arrival, a rank's in place of its issue's. Of the orders that share an arrival, the ranked ones
+ * go first by their tie; then the Brewery's own issue, the order foedrum.jsonc lists the
+ * repositories in, and the issue number break a tie.
  */
 export const rankQueue = <T extends QueuedOrder>(queue: readonly T[], ranks: Ranks): T[] =>
   queue
@@ -38,8 +43,8 @@ export const rankQueue = <T extends QueuedOrder>(queue: readonly T[], ranks: Ran
         Date.parse(arrivalOf(one.queued, one.rank)) -
         Date.parse(arrivalOf(other.queued, other.rank));
       if (arrived !== 0) return arrived;
-      if ((one.rank === undefined) !== (other.rank === undefined)) return one.rank ? -1 : 1;
-      if (one.rank !== undefined && other.rank !== undefined) return other.rank.seq - one.rank.seq;
+      const [tie, otherTie] = [tieOf(one.rank), tieOf(other.rank)];
+      if (tie !== otherTie) return tie < otherTie ? -1 : 1;
       return (
         one.queued.source - other.queued.source || one.queued.order.issue - other.queued.order.issue
       );
@@ -47,39 +52,38 @@ export const rankQueue = <T extends QueuedOrder>(queue: readonly T[], ranks: Ran
     .map(({ queued }) => queued);
 
 /**
- * The arrival `rank <order> <position>` records: that of the order now at `position` among those
- * of `queue` without the mark, leaving `order` out; past the end, `now`. So the order keeps its
- * place relative to the orders around it as they are ordered, and a later arrival goes behind it.
+ * Where `rank <order> <position>` puts the order: the arrival of the order now at `position` among
+ * those of `queue` without the mark, leaving `order` out, and a tie that puts it just ahead of that
+ * order and behind the ranked orders of the same arrival ahead of it; past the end, `now`. So the
+ * order keeps its place relative to the orders around it as they are ordered, and a later arrival
+ * goes behind it.
  */
-export const arrivalAt = (
+export const placeAt = (
   queue: readonly QueuedOrder[],
   ranks: Ranks,
   order: OrderRef,
   position: number,
   now: Date,
-): string => {
-  const key = orderKey(order);
-  const there = rankQueue(queue, ranks).filter(
-    (queued) => orderKey(queued.order) !== key && !marked(ranks.get(orderKey(queued.order))),
-  )[position - 1];
-  return there === undefined
-    ? now.toISOString()
-    : arrivalOf(there, ranks.get(orderKey(there.order)));
-};
-
-/**
- * Where `rank <order> <position>` puts the order: the arrival of the order now at `position` among
- * those of `queue` without the mark, leaving `order` out, and a tie that puts it just ahead of that
- * order and behind the ranked orders of the same arrival ahead of it; past the end, `now`.
- */
-export const placeAt = (
-  _queue: readonly QueuedOrder[],
-  _ranks: Ranks,
-  _order: OrderRef,
-  _position: number,
-  _now: Date,
 ): { arrival: string; tie: number } => {
-  throw new Error('not implemented');
+  const key = orderKey(order);
+  const rankOf = (queued: QueuedOrder): Rank | undefined => ranks.get(orderKey(queued.order));
+  const unmarked = rankQueue(queue, ranks).filter(
+    (queued) => orderKey(queued.order) !== key && !marked(rankOf(queued)),
+  );
+  const there = unmarked[position - 1];
+  if (there === undefined) return { arrival: now.toISOString(), tie: 0 };
+  const arrival = arrivalOf(there, rankOf(there));
+  const tie = tieOf(rankOf(there));
+  // A ranked order ahead of it with the same arrival: the new rank goes between the two.
+  const ahead = unmarked[position - 2];
+  const between =
+    ahead !== undefined &&
+    rankOf(ahead) !== undefined &&
+    Date.parse(arrivalOf(ahead, rankOf(ahead))) === Date.parse(arrival)
+      ? tieOf(rankOf(ahead))
+      : undefined;
+  if (between === undefined) return { arrival, tie: Number.isFinite(tie) ? tie - 1 : 0 };
+  return { arrival, tie: Number.isFinite(tie) ? (between + tie) / 2 : between + 1 };
 };
 
 /**
