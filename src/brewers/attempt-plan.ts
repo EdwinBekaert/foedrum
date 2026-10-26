@@ -731,13 +731,17 @@ export function systemPromptFileOf(settingsFile: string): string {
 }
 
 /** An interactive step's prompt file, beside its settings file: `<attempt>.prompt.md` (ADR 0222). */
-export function promptFileOf(_settingsFile: string): string {
-  throw new Error('not implemented');
+export function promptFileOf(settingsFile: string): string {
+  return join(dirname(settingsFile), `${basename(settingsFile, '.json')}.prompt.md`);
 }
 
 /** A Read rule for the one file at the absolute `path`, as Claude Code matches it (ADR 0222). */
-export function absoluteReadRule(_path: string): string {
-  throw new Error('not implemented');
+export function absoluteReadRule(path: string): string {
+  // Claude Code matches a Windows path in POSIX form, `C:\x` as `/c/x`; `//` makes it absolute.
+  const posixPath = path
+    .replaceAll('\\', '/')
+    .replace(/^([A-Za-z]):/, (_, drive: string) => `/${drive.toLowerCase()}`);
+  return `Read(/${posixPath})`;
 }
 
 /**
@@ -860,13 +864,20 @@ export function goOn(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes, outDocFrom } = facts;
-  const permissions = attemptPermissions(
+  const granted = attemptPermissions(
     brewer,
     facts.repoTools,
     facts.sandbox,
     facts.configDirs,
     env.base,
   );
+  // An interactive session reads its prompt from its file beside the settings, and no other file
+  // outside the worktree (ADR 0222).
+  const promptFile = facts.interactive && promptFileOf(facts.settingsFile);
+  const permissions =
+    promptFile === undefined
+      ? granted
+      : { ...granted, allow: [...granted.allow, absoluteReadRule(promptFile)] };
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer));
   // The engine's text for a later round, for every lens alike, never one lens's file (ADR 0190).
@@ -874,9 +885,11 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     ...(facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)]),
     ...(facts.earlierFindings === true ? [EARLIER_FINDINGS_TEXT] : []),
   ];
+  // The Brewery's first message to an interactive step's session follows the brewer's own.
+  const recipePrompt = facts.interactive === undefined ? [] : [facts.interactive.prompt.trimEnd()];
   const instructions =
     resumes === undefined
-      ? [facts.instructions.trimEnd(), ...round, contract].join('\n\n')
+      ? [facts.instructions.trimEnd(), ...recipePrompt, ...round, contract].join('\n\n')
       : goOn(brewer.output.doc, resumes);
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
@@ -902,5 +915,13 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     // A resumed session has them recorded until it is compacted; then claude reads the file again.
     systemPrompt: attemptSystemPrompt(brewer, allow, facts.settingsFile),
     ...(outDocFrom === undefined ? {} : { outDocFrom }),
+    ...(promptFile === undefined
+      ? {}
+      : {
+          interactive: {
+            file: promptFile,
+            firstMessage: `Read ${promptFile}: it is your task in this session.`,
+          },
+        }),
   };
 }

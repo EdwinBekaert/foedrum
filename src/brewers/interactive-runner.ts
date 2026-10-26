@@ -1,7 +1,8 @@
-// The brewer runner of `foedrum resume` on a running batch (ADR 0127): an attempt that resumes a
-// session runs as the engineer's interactive `claude --resume` in the foreground, with the
-// attempt's settings, guards and environment, and ends by the out doc the session wrote, through
-// settleAttempt as every run does. An attempt that starts fresh runs headless, as its driver would.
+// The brewer runner of `foedrum resume` on a running batch (ADR 0127) and of `foedrum brew` on a
+// terminal (ADR 0222): an interactive step's attempt opens a new session, and with resume an attempt
+// that resumes a session opens it, as the person's interactive `claude` in the foreground, with the
+// attempt's settings, guards and environment; each ends by the out doc the session wrote, through
+// settleAttempt as every run does. Every other attempt runs headless, as its driver would.
 
 import { resolve } from 'node:path';
 import { passed, settleReadings } from '../checks/gravity.ts';
@@ -26,7 +27,7 @@ import {
 } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { attemptSettings, writeAttemptSettings } from './attempt-settings.ts';
-import { resumeArgs } from './claude-command.ts';
+import { interactiveArgs, resumeArgs } from './claude-command.ts';
 import {
   type ClaudeAttemptPlan,
   claudeBrewerRunner,
@@ -128,7 +129,10 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       let args: string[];
       try {
         plan = await deps.plan(attempt);
-        if (plan.call.session.kind !== 'resume') {
+        // By the step: an interactive step's session opens; a resumed one only in resume's runner.
+        const { interactive } = plan;
+        const resumed = plan.call.session.kind === 'resume' && deps.opensResumed !== false;
+        if (interactive === undefined && !resumed) {
           const planned = plan;
           const runner = deps.headless(async () => planned);
           headless.set(key, runner);
@@ -141,17 +145,23 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
+        // The whole prompt, inputs in their nonce tags, which the first message points at.
+        if (interactive !== undefined) deps.files.writePrompt(interactive.file, plan.prompt);
         // Read by the out doc this session writes, never one the run before left (ADR 0118).
         deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
         const { model, effort, tools, session } = plan.call;
-        args = resumeArgs({
+        const call = {
           model,
           effort,
           settingsFile: plan.settingsFile,
           tools,
           sessionId: session.id,
           appendSystemPromptFile: systemPrompt?.file,
-        });
+        };
+        args =
+          interactive === undefined
+            ? resumeArgs(call)
+            : interactiveArgs({ ...call, firstMessage: interactive.firstMessage });
       } catch (error) {
         return unstartable(error);
       }
@@ -170,9 +180,19 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       }
       const readings = before.length === 0 ? {} : { readings: before };
       const label = `${ref.batchId} ${ref.stepId}#${ref.attempt}`;
-      const what = `finish the step, have the session write ${limits.outDoc.file} as the brewer's instructions say, then exit claude; the batch goes on from its next step`;
+      const doc = limits.outDoc.file;
+      const [command, what] =
+        plan.interactive === undefined
+          ? [
+              'resume',
+              `finish the step, have the session write ${doc} as the brewer's instructions say`,
+            ]
+          : [
+              'brew',
+              `work the step through with the session, have it write ${doc} as the brewer's instructions say`,
+            ];
       deps.say(
-        `foedrum resume: opening session ${plan.call.session.id} of ${label} in ${plan.cwd}: ${what}`,
+        `foedrum ${command}: opening session ${plan.call.session.id} of ${label} in ${plan.cwd}: ${what}, then exit claude; the batch goes on from its next step`,
       );
       // The terminal's own variables under the attempt's environment (ADR 0109's forced variables
       // included), by name as the platform reads it, as for a finished attempt (ADR 0126).

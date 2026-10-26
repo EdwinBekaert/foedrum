@@ -68,8 +68,15 @@ export interface InteractiveCall extends ResumeCall {
 }
 
 /** The arguments of an interactive `claude` that opens an interactive step's new session. */
-export function interactiveArgs(_call: InteractiveCall): string[] {
-  throw new Error('not implemented');
+export function interactiveArgs(call: InteractiveCall): string[] {
+  const { firstMessage, sessionId } = call;
+  // One line of the engine's own, never an option: it is the session's first message.
+  if (firstMessage === '' || firstMessage.startsWith('-') || /[\r\n]/.test(firstMessage)) {
+    refuse('first message', firstMessage);
+  }
+  const resumed = resumeArgs(call);
+  // First, so no option that takes several values reads it as one of them.
+  return [firstMessage, '--session-id', sessionId, ...resumed.slice(resumed.indexOf('--model'))];
 }
 
 // The checks every command line's values pass.

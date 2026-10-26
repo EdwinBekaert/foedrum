@@ -548,6 +548,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(outDocFrom === undefined ? {} : { outDocFrom }),
         ...(laterRound === undefined ? {} : { laterRound }),
         ...(earlierFindings === undefined ? {} : { earlierFindings }),
+        ...(found.interactive === undefined ? {} : { interactive: found.interactive }),
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
