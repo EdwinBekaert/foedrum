@@ -544,6 +544,26 @@ describe('the usage window (ADR 0206)', () => {
       assert.deepStrictEqual(log.state().usageWindows, {});
     });
 
+    // Review of #555: the window that closed first is not the first to reopen.
+    it('reopens the earlier window when it closed after the later one', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Sonnet', at(300));
+      hitBy('b13', 'Opus', at(230));
+      now = at(229);
+      refuse({ kind: 'reopen' }, /reopens at 2026-10-26T15:50:00\.000Z/);
+      now = at(230);
+      const opened = accept({ kind: 'reopen' }).filter(
+        (event) => event.type === 'usage.window_opened',
+      );
+      assert.deepStrictEqual(opened, [
+        { type: 'usage.window_opened', at: at(230).toISOString(), scope: 'Opus' },
+      ]);
+      assert.deepStrictEqual(log.state().usageWindows, { Sonnet: window('Sonnet', at(300)) });
+    });
+
     it('opens every window whose reopen has come in one reopen', () => {
       order(12);
       order(13);

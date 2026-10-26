@@ -556,6 +556,32 @@ describe('foedrum: commands that change state', () => {
       );
     });
 
+    // Review of #555: a log #543 wrote opens every window with an open without a scope.
+    it('leaves out of replay a window a log of #543 closed and opened before the batch was ordered', async () => {
+      store.withTransaction((tx) => {
+        tx.append({
+          type: 'usage.window_closed',
+          limit: 'Sonnet',
+          resets: '3:45pm',
+          reopensAt: '2026-10-18T14:50:00.000Z',
+          read: true,
+        });
+        tx.append({
+          type: 'usage.window_closed',
+          limit: 'session',
+          resets: '3:45pm',
+          reopensAt: '2026-10-18T14:50:00.000Z',
+          read: true,
+        });
+        tx.append({ type: 'usage.window_opened', at: '2026-10-18T14:50:00.000Z' });
+      });
+      const later = new Date('2026-10-18T15:00:00.000Z');
+      const log = createCommandLog({ store, recipes });
+      const ordered = log.issue({ kind: 'order', batchId: '27-1', order: { issue: 27 } }, later);
+      assert.equal(ordered.kind, 'accepted');
+      assert.doesNotMatch((await run(['replay', '27-1'])).stdout, /usage\.window/);
+    });
+
     it('lists the window events in replay beside the batch events', async () => {
       hitLimit();
       const replay = (await run(['replay', '23-1'])).stdout;
