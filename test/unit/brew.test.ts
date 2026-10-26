@@ -7,7 +7,13 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
-import { brewFromCheckout, noSessionsOf } from '../../src/cli/brew-main.ts';
+import {
+  brewFromCheckout,
+  brewInNewWindow,
+  brewRequestOf,
+  brewShellOf,
+  noSessionsOf,
+} from '../../src/cli/brew-main.ts';
 import { brewOwner } from '../../src/cli/driver-owner.ts';
 import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
@@ -159,6 +165,76 @@ describe('brewOwner', () => {
       assert.ok('refused' in owner, JSON.stringify(env));
       assert.match(owner.refused, /--as <name>/);
     }
+  });
+});
+
+describe("brew-main's shell, request and new window (ADR 0222)", () => {
+  const issued = { by: 'ann', via: 'plugin' } as const;
+  const command = BrewCommand.parse({ command: 'brew', issue: 'web#12', take: true });
+
+  it('asks runBrew to open no session, with why, only when the machine opens none', () => {
+    assert.deepStrictEqual(brewRequestOf(command, 'ann', issued, 'no-terminal'), {
+      target: { alias: 'web', issue: 12 },
+      owner: 'ann',
+      ...issued,
+      take: true,
+      noSessions: 'no-terminal',
+    });
+    assert.equal('noSessions' in brewRequestOf(command, 'ann', issued, undefined), false);
+  });
+
+  it("keeps serve's runner without sessions, and with them runs every attempt through the interactive runner, a resumed one headless", () => {
+    const served: BrewerRunner = { start: () => assert.fail('serve'), progress: () => undefined };
+    const base = { runner: () => served } as unknown as ServeShell;
+    const made: boolean[] = [];
+    const interactive = (_claude: string, _plan: unknown, opensResumed: boolean): BrewerRunner => {
+      made.push(opensResumed);
+      return served;
+    };
+    assert.equal(brewShellOf(base, 'claude-code', interactive), base);
+    const plan = async () => assert.fail('no plan');
+    brewShellOf(base, undefined, interactive).runner('/bin/claude', plan);
+    assert.deepStrictEqual(made, [false]);
+  });
+
+  describe('brewInNewWindow', () => {
+    const launched: { file: string; args: readonly string[]; env: unknown }[] = [];
+    const deps = (exitCode: number | null) => ({
+      platform: 'linux' as const,
+      env: { DISPLAY: ':0', CLAUDE_CODE_CHILD_SESSION: '1' },
+      find: (name: string) =>
+        ['setsid', 'x-terminal-emulator'].includes(name) ? `/usr/bin/${name}` : undefined,
+      execPath: '/usr/bin/node',
+      script: '/opt/foedrum/src/cli/main.ts',
+      exec: async (file: string, args: readonly string[], options: { env?: unknown }) => {
+        launched.push({ file, args, env: options.env });
+        return { exitCode, stdout: '', stderr: exitCode === 0 ? '' : 'no', output: '' };
+      },
+    });
+
+    it('launches this node and program with brew <alias>#<issue> --take in the Brewery: exit 0', async () => {
+      launched.length = 0;
+      const result = await brewInNewWindow('/home/ann/brewery', command, deps(0));
+      assert.equal(result.exitCode, 0);
+      const [first] = launched;
+      assert.deepStrictEqual(first?.args.slice(3, 7), [
+        '/usr/bin/node',
+        '/opt/foedrum/src/cli/main.ts',
+        'brew',
+        'web#12',
+      ]);
+      assert.ok(first?.args.includes('--take'));
+      assert.match(result.stdout, /foedrum brew web#12 --take/);
+    });
+
+    it('says the command to run in a terminal when no window opens: exit 5', async () => {
+      const result = await brewInNewWindow('/home/ann/brewery', command, deps(1));
+      assert.equal(result.exitCode, 5);
+      assert.match(
+        result.stderr,
+        /no new window can open here \(setsid exited with code 1: no\); run foedrum brew web#12 --take/,
+      );
+    });
   });
 });
 
@@ -1435,7 +1511,8 @@ describe('runBrew', () => {
     const steward = brewer
       .replace('"cellarman"', '"steward"')
       .replace('"maxAttempts": 1', '"maxAttempts": 3');
-    beforeEach(() => {
+    /** The Brewery with the lauter recipe and `stewardText` as its steward. */
+    const lauterSetup = (stewardText: string): ServeSetup => {
       const inputs = serveInputs({
         files: { ...serveInputs().files, local: local({ workRoot: dir.path }) },
       });
@@ -1447,11 +1524,14 @@ describe('runBrew', () => {
           brewery: {
             ...brewery,
             recipes: [...brewery.recipes, { path: 'recipes/lauter.jsonc', text: lauter }],
-            brewers: [...brewery.brewers, { path: 'brewers/steward.md', text: steward }],
+            brewers: [...brewery.brewers, { path: 'brewers/steward.md', text: stewardText }],
           },
         },
       });
-      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      return result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    };
+    beforeEach(() => {
+      setup = lauterSetup(steward);
       api = fakeGitHubApi({
         login: 'ann',
         issues: {
@@ -1527,6 +1607,27 @@ describe('runBrew', () => {
         lines.includes('foedrum brew: batch 12-1 waits for a session at refine; opening it'),
         String(lines),
       );
+    });
+
+    it('reopens the session fresh, with the whole prompt, also for a brewer with retryMode resume (ADR 0222)', async () => {
+      setup = lauterSetup(
+        steward.replace('"maxAttempts": 3', '"maxAttempts": 3,\n  "retryMode": "resume"'),
+      );
+      assert.equal(await runBrew(setup, shell(behave.fail(true)), request), 3);
+      const again = shell(behave.succeed('Refined'), { lock: () => fakeLock('ann') });
+      assert.equal(await runBrew(setup, again, request), 0, String(lines));
+      const reopened = store
+        .eventsAfter(0)
+        .flatMap(({ event }) =>
+          event.type === 'step.started' && event.stepId === 'refine' && event.attempt === 2
+            ? [event]
+            : [],
+        );
+      assert.equal(reopened.length, 1);
+      assert.equal(reopened[0]?.session?.resumes, undefined);
+      // Never even asked to resume: a fallback would say why it could not (ADR 0117).
+      assert.equal(reopened[0]?.session?.fallback, undefined);
+      assert.ok(reopened[0]?.worktree !== undefined, 'a fresh session gets a worktree of its own');
     });
 
     it('leaves a batch waiting for a session to the person when it opens none: exit 3', async () => {

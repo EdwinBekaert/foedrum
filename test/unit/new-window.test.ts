@@ -97,6 +97,18 @@ describe('newWindowCommand (ADR 0222)', () => {
     ]);
   });
 
+  it('falls back to x-terminal-emulator when $TERMINAL is not on the PATH', () => {
+    const env = { DISPLAY: ':0', TERMINAL: 'nowhere' };
+    const command = newWindowCommand(
+      facts('linux', env, ['setsid', 'x-terminal-emulator']),
+      unixLine,
+    );
+    assert.deepStrictEqual(command.kind === 'launch' && command.args.slice(0, 2), [
+      '-f',
+      '/found/x-terminal-emulator',
+    ]);
+  });
+
   it('opens no window where there is no desktop: SSH, no display on Linux, or no terminal found', () => {
     const cases: [WindowFacts, RegExp][] = [
       [facts('darwin', { SSH_CONNECTION: '10.0.0.1 22 10.0.0.2 22' }, ['osascript']), /SSH/],
@@ -140,5 +152,7 @@ describe('openInNewWindow (ADR 0222)', () => {
     assert.deepStrictEqual(ran, []);
     const failed = await openInNewWindow(linux, unixLine, exec(1));
     assert.deepStrictEqual(failed, { kind: 'none', why: 'setsid exited with code 1: no' });
+    const unfinished = await openInNewWindow(linux, unixLine, exec(null));
+    assert.deepStrictEqual(unfinished, { kind: 'none', why: 'setsid did not finish: no' });
   });
 });
