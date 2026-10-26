@@ -148,7 +148,7 @@ Commands:
   continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
   stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches are Stuck until retry
   order <issue>                                           Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
-  brew <issue> [--as <name>] [--take]                     Brew an issue's batch here until it is on tap, Stuck or needs input
+  brew <issue> [--as <name>] [--take] [--new-window]      Brew an issue's batch here until it is on tap, Stuck or needs input
   rank <order> [<place>] [--why <reason>]                 Move an order in the intake's queue to place <n>, or mark it to finish first
   takeover <batch> [--as <name>]                          Hand a batch from the driver that holds it to another: --as, else this session
 

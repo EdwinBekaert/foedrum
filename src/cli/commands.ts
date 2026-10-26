@@ -781,7 +781,7 @@ export const commands: readonly RegisteredCommand[] = [
     changesState: true,
     positionals: ['issue'],
     options: { as: 'name' },
-    flags: ['take'],
+    flags: ['take', 'new-window'],
     schema: BrewCommand,
     // A driver of its own on the machine, run by the terminal (ADR 0123).
     handler: async (input, context) =>

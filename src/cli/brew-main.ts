@@ -4,8 +4,9 @@
 // Claude Code, an interactive step's session opens in the foreground (ADR 0222). cli-main.ts loads it.
 
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
-import { environmentVariable } from '../platform/executables.ts';
-import { foregroundProcess } from '../platform/processes.ts';
+import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
+import { openInNewWindow } from '../platform/new-window.ts';
+import { execProcess, foregroundProcess } from '../platform/processes.ts';
 import type { BrewCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
@@ -33,6 +34,36 @@ export const noSessionsOf = (
 };
 
 /**
+ * Opens a new terminal window that runs `foedrum brew <issue> --take` with this node and program,
+ * for the plugin's session, which cannot hand its terminal to claude (ADR 0222). Where none can
+ * open, it says the line to run in a terminal (exit 5).
+ */
+const brewInNewWindow = async (
+  cwd: string,
+  input: BrewCommand,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<CliResult> => {
+  const { alias, issue } = input.issue;
+  const target = `${alias === undefined ? '' : `${alias}#`}${issue}`;
+  const words = ['brew', target, '--take', ...(input.as === undefined ? [] : ['--as', input.as])];
+  const shown = `foedrum ${words.join(' ')}`;
+  const { platform } = process;
+  const facts = {
+    platform,
+    env,
+    find: (name: string) => resolveExecutable(name, { env, platform }),
+  };
+  const line = { cwd, program: process.execPath, args: [process.argv[1] ?? '', ...words] };
+  const opened = await openInNewWindow(facts, line, execProcess);
+  if (opened.kind === 'opened') {
+    const said = `foedrum brew: opened ${shown} in a new window; exit its claude session there when the step is done, then check the batch with foedrum status`;
+    return { exitCode: 0, stdout: `${said}\n`, stderr: '' };
+  }
+  const said = `foedrum brew: no new window can open here (${opened.why}); run ${shown} in a terminal`;
+  return { exitCode: 5, stdout: '', stderr: `${said}\n` };
+};
+
+/**
  * Brews the batch of `input.issue` in the Brewery checkout `cwd`, as the command layer `issued` it.
  * A driver with no owner, from `--as` or the session in `env`, is a mistake of the command line
  * (exit 2); its lines go straight to the terminal.
@@ -48,6 +79,7 @@ export const brewFromCheckout = async (
   if ('refused' in owner) {
     return { exitCode: 2, stdout: '', stderr: `foedrum brew: ${owner.refused}\n` };
   }
+  if (input['new-window'] === true) return brewInNewWindow(cwd, input, env);
   const ready = await readServeSetup(cwd, 'brew', options);
   if (ready.kind === 'refused') return ready.result;
   const { setup } = ready;
