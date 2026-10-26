@@ -5,7 +5,7 @@ import { DEMO_SCRIPT, type DemoBrewersOptions, demoBrewers } from '../../scripts
 import type { Life } from '../../scripts/demo/core.ts';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
-import { OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
+import { FiningOutDoc, OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { NIP_SCRIPT } from '../helpers/nip-fixture.ts';
 
@@ -238,7 +238,10 @@ describe('the demo brewers', () => {
     }
     // The Finer runs after each of the Cellarman's three attempts.
     for (const attempt of [1, 2, 3]) {
-      const { ending } = await runner.start(startOf('fine', attempt)).ended;
+      const { ending } = await runner.start({
+        ref: { batchId: '1-1', stepId: 'fine', attempt },
+        limits: { outDoc: { file: 'fine.md', schema: FiningOutDoc } },
+      }).ended;
       assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
     }
   });
