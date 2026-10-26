@@ -474,6 +474,35 @@ describe('foedrum: commands that change state', () => {
       await run(['stop', '23']);
       assert.deepStrictEqual(await run(['retry', '23-1']), ok('23-1 brewing: plan #2 scheduled\n'));
     });
+
+    it("names each batch it stops, a sub-order's too, and shows a stop without a reason as such", async () => {
+      const log = createCommandLog({ store, recipes });
+      for (const command of [
+        {
+          kind: 'record',
+          event: {
+            type: 'order.decomposed',
+            batchId: '23-1',
+            subOrders: [{ issue: 30, repo: 'acme/api' }],
+            dependencies: [],
+          },
+        },
+        { kind: 'order', batchId: '30-1', order: { issue: 30 }, parentBatchId: '23-1' },
+        { kind: 'route', batchId: '30-1', recipe: 'pint', reason: 'label', source: 'label' },
+      ] satisfies Parameters<typeof log.issue>[0][]) {
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      }
+      assert.deepStrictEqual(
+        await run(['stop', '23']),
+        ok(
+          '#23 stopped: 23-1 is Stuck at plan, 30-1 is Stuck at plan; foedrum retry continues each\n',
+        ),
+      );
+      assert.match(
+        (await run(['stuck'])).stdout,
+        /23-1 +#23 +stopped at plan by ada via terminal; reminder /,
+      );
+    });
   });
 
   describe('--via (ADR 0125)', () => {
