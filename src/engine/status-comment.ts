@@ -113,7 +113,7 @@ type Told = (text: string, stepId: string) => string;
  * A URL as an autolink of its normalized form: the schema keeps the text it was given, and `new URL`
  * encodes the spaces and angle brackets that would let the rest of it render as Markdown.
  */
-const link = (url: string): string => `<${new URL(url).href}>`;
+export const link = (url: string): string => `<${new URL(url).href}>`;
 
 const waitText = (on: WaitCondition): string => {
   switch (on.kind) {
@@ -183,7 +183,7 @@ const openLines = (stepId: string, { rounds, open, more }: RoundsOut, told: Told
 };
 
 /** A commit as the comments show it: its first eight digits. */
-const shortSha = (sha: string): string => sha.slice(0, 8);
+export const shortSha = (sha: string): string => sha.slice(0, 8);
 
 /**
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
@@ -612,7 +612,7 @@ const mostSensitive = 10;
  * The sensitive files the push of a batch's pull request recorded (ADR 0201), as one line: the
  * first `mostSensitive`, each as a committer named it, and a count of the rest.
  */
-const sensitiveLine = (sensitive: SensitiveFiles): string => {
+export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   const named = sensitive.files.slice(0, mostSensitive).map(plain);
   const more = sensitive.count - named.length;
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
