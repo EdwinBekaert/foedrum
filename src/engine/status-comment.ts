@@ -95,7 +95,7 @@ export const plain = (text: string): string => {
   return `${line}…`;
 };
 
-const code = (id: string): string => `\`${id}\``;
+export const code = (id: string): string => `\`${id}\``;
 
 /**
  * What the status comment and `foedrum stuck` recommend when a findings route ran out of rounds,
@@ -475,7 +475,7 @@ const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
 };
 
 /** The first `most` of `all` as lines of `stepId`, and a line that counts the rest, as `rest`. */
-const capped = <T>(
+export const capped = <T>(
   stepId: string,
   all: readonly T[],
   most: number,

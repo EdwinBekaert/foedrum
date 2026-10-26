@@ -20,7 +20,16 @@ import { briefKey, briefOf, latestBrief, type ReadyRecord, readyOf } from './mer
 import { withoutSecrets } from './out-doc-text.ts';
 import { findingText, knownCommits, latestPush, recordedPushes, unlinked } from './pull-request.ts';
 import type { Recipe, Recipes } from './recipes.ts';
-import { checkOf, link, plain, readingText, sensitiveLine, shortSha } from './status-comment.ts';
+import {
+  capped,
+  checkOf,
+  code,
+  link,
+  plain,
+  readingText,
+  sensitiveLine,
+  shortSha,
+} from './status-comment.ts';
 
 /** The pull request's comments and title on the code host, as the Brewery's own identity has them. */
 export interface MergeBriefHost {
@@ -42,11 +51,7 @@ export interface MergeBriefEffectsOptions {
   recipes: Recipes;
   /** The red proof step of the recipe `recipe`, when it has one (ADR 0078). */
   redProof?: (recipe: string) => string | undefined;
-  /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
-  deadlineMs?: number;
 }
-
-const code = (text: string): string => `\`${text}\``;
 
 /** How much of a model's text is read for secrets: what `plain` shows, and room past it. */
 const scanned = 1_000;
@@ -66,8 +71,7 @@ type Told = (text: string, stepId: string) => string;
 /** The attempt of `stepId` with the highest number. */
 const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
   const attempts = batch.steps.get(stepId)?.attempts;
-  if (attempts === undefined || attempts.size === 0) return undefined;
-  return attempts.get(Math.max(...attempts.keys()));
+  return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
 };
 
 /** The output of the latest attempt of `stepId` when it finished and succeeded. */
@@ -300,17 +304,14 @@ const dispositionLines = (steps: Steps, told: Told): string[] => {
 
 /** The findings of each Taster's step whose latest attempt succeeded: advisory, left open. */
 const openLines = (steps: Steps, told: Told): string[] =>
-  steps.ids.flatMap((stepId) => {
-    const findings = tastingOf(succeededOutput(steps.batch, stepId)?.output)?.findings ?? [];
-    const shown = findings
-      .slice(0, mostFindings)
-      .map(
-        (finding) =>
-          `- ${code(stepId)}: open: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
-      );
-    const more = findings.length - shown.length;
-    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
-  });
+  steps.ids.flatMap((stepId) =>
+    capped(
+      stepId,
+      tastingOf(succeededOutput(steps.batch, stepId)?.output)?.findings ?? [],
+      mostFindings,
+      (finding) => `open: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+    ),
+  );
 
 /**
  * Each blocking Taster's step blocked by its findings that a person's skip went past, and each
@@ -430,7 +431,7 @@ const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): 
  * when the text after its title is this record's, else posted.
  */
 export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffects => {
-  const { host, recipes, redProof = () => undefined, deadlineMs } = options;
+  const { host, recipes, redProof = () => undefined } = options;
   // The brief behind each key `due` gave; the driver asks `due` before it applies a key.
   const briefs = new Map<string, DueBrief>();
   const briefFor = (key: string): DueBrief => {
@@ -473,6 +474,5 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
       return [key];
     },
     target,
-    ...(deadlineMs === undefined ? {} : { deadlineMs }),
   };
 };
