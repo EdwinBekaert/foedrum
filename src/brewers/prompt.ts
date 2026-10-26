@@ -17,6 +17,8 @@ export type InputSource =
    * `lenses/plan/<name>.md` (ADR 0143), or the default's.
    */
   | { kind: 'lens'; lens: string; path: string }
+  /** The lenses of a step that reviews through several together, in its order (ADR 0220). */
+  | { kind: 'lenses'; lenses: readonly { lens: string; path: string }[] }
   /** Where the change a Taster reviews starts: the commit its batch started at (ADR 0161). */
   | { kind: 'change'; since: string }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
@@ -65,6 +67,8 @@ function describeSource(source: InputSource): string {
         : `house-yeast rule ${source.rule}, file ${source.path}`;
     case 'lens':
       return `lens ${source.lens}, file ${source.path}`;
+    case 'lenses':
+      return `lenses ${source.lenses.map(({ lens, path }) => `${lens} (file ${path})`).join(', ')}`;
     case 'change':
       return `the change since commit ${source.since}`;
     case 'answers':

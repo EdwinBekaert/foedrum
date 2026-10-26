@@ -350,8 +350,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   };
 
   /**
-   * The house-yeast rules for an attempt with `stepLens` in `repo`, whose change runs from `since`
-   * to `head` (ADR 0169): the Brewery's, and the repository's, from the Brewery or with git in the
+   * The house-yeast rules for an attempt with `stepLenses` in `repo`, whose change runs from
+   * `since` to `head` (ADR 0169): the rules each lens would get apart, each once (ADR 0220): the Brewery's, and the repository's, from the Brewery or with git in the
    * clone at `since`, so the batch's own commits never add or remove one. The files the change
    * touched are read in the clone too; with no `since`, it touched none.
    */
@@ -359,12 +359,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     repo: string,
     since: string | undefined,
     head: string,
-    stepLens: string | undefined,
+    stepLenses: readonly string[],
     houseYeast: NonNullable<AttemptPlansOptions['houseYeast']>,
   ): Promise<PickedRules> => {
     const keptIn = houseYeast.keptIn(repo);
     const fromBrewery = breweryRules(houseYeast.files, repo, keptIn);
-    const lens = stepLens === undefined ? {} : { lens: stepLens };
+    const lens = stepLenses.length === 0 ? {} : { lenses: stepLenses };
     // Before an attempt recorded where the batch started, nothing changed, and no commit holds
     // the repository's own rules.
     if (since === undefined) return pickRules(fromBrewery, { files: [], ...lens });
@@ -443,7 +443,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // A Finer simplifies the change, so it reads it as a Taster of a diff does (ADR 0166).
     const merged = mergedBase(state(), batch.id);
     const start = merged ?? changeStart(batch, worktree.repo);
-    const diffLens = found.lens?.startsWith('diff/') === true;
+    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
+    // A step's lenses together share one folder (ADR 0143, ADR 0220).
+    const diffLens = stepLenses[0]?.startsWith('diff/') === true;
     const since = diffLens || found.brewer.output.schema === FINING ? start : undefined;
     let laterRound: LaterRound | undefined;
     if (since !== undefined) {
@@ -468,7 +470,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const { houseYeast } = options;
     const rules =
       found.brewer.houseYeast && houseYeast !== undefined
-        ? await houseYeastFor(worktree.repo, start, worktree.commit, found.lens, houseYeast)
+        ? await houseYeastFor(worktree.repo, start, worktree.commit, stepLenses, houseYeast)
         : undefined;
     if (rules !== undefined) inputs.push(...rules.inputs);
     const answers = answersOf(batch, ref.stepId);
@@ -548,6 +550,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(outDocFrom === undefined ? {} : { outDocFrom }),
         ...(laterRound === undefined ? {} : { laterRound }),
         ...(earlierFindings === undefined ? {} : { earlierFindings }),
+        ...(found.together === undefined ? {} : { together: found.together }),
         env: { ...options.env, platform },
         ...(options.random === undefined ? {} : { random: options.random }),
       });
@@ -581,7 +584,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (found === undefined) return noBrewer;
       // The commit its worktree started at, which a done of a brewer that commits needs one after.
       const batch = state().batches.get(ref.batchId);
-      return attemptLimits(found.brewer, worktreeOf(batch, ref)?.worktree.commit, found.blocking);
+      const start = worktreeOf(batch, ref)?.worktree.commit;
+      return attemptLimits(found.brewer, start, found.blocking, found.together);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };
