@@ -17,7 +17,17 @@ import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
-export type ToolName = 'npm' | 'git' | 'gh' | 'claude' | 'bwrap' | 'socat' | 'podman' | 'docker';
+export type ToolName =
+  | 'npm'
+  | 'git'
+  | 'gh'
+  | 'claude'
+  | 'bwrap'
+  | 'socat'
+  | 'pasta'
+  | 'slirp4netns'
+  | 'podman'
+  | 'docker';
 
 /** A tool found on PATH, and what its version command answered. */
 export interface ToolRun {
@@ -227,6 +237,32 @@ const toolLine = (name: ToolName, run: ToolRun | undefined): ToolLine => ({
   version: versionOf(run),
   path: run?.path,
 });
+
+/**
+ * The user-mode network stack a Linux setup's namespace gets the network from (ADR 0218):
+ * slirp4netns, else pasta, else slirp4netns as missing. pasta prints its version as its first
+ * line's second word (`pasta 2024_09_06.6b38f07`), not a dotted number; Ubuntu 24.04's says
+ * `pasta unknown version`.
+ */
+const stackLine = (tools: DoctorFacts['tools']): ToolLine => {
+  if (tools.slirp4netns !== undefined || tools.pasta === undefined) {
+    return toolLine('slirp4netns', tools.slirp4netns);
+  }
+  const said = tools.pasta.exitCode === 0 ? firstLine(tools.pasta)?.split(/\s+/)[1] : undefined;
+  return { name: 'pasta', version: said === 'unknown' ? undefined : said, path: tools.pasta.path };
+};
+
+/** A setup does not start on Linux without a stack; a Brewery without one needs neither. */
+const stackProblems = ({ platform, tools }: DoctorFacts): Problem[] =>
+  platform === 'linux' && tools.pasta === undefined && tools.slirp4netns === undefined
+    ? [
+        {
+          required: false,
+          what: 'slirp4netns or pasta (passt) not found',
+          fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)",
+        },
+      ]
+    : [];
 
 /** Whether the dotted version `version` comes before `least`. */
 const isBefore = (version: string, least: readonly number[]): boolean => {
@@ -653,6 +689,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...configProblems(facts),
     ...recipes.problems,
     ...sandboxProblems,
+    ...stackProblems(facts),
   ];
   // Podman first: it runs without a daemon or root. One that does not answer its version (a
   // runtime waiting for its daemon) is passed over for the next; when none answers, the first
@@ -679,7 +716,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       toolLine('claude', tools.claude),
       // The sandbox's own tools matter on Linux only.
       ...(facts.platform === 'linux'
-        ? [toolLine('bwrap', tools.bwrap), toolLine('socat', tools.socat)]
+        ? [toolLine('bwrap', tools.bwrap), toolLine('socat', tools.socat), stackLine(tools)]
         : []),
     ],
     isolation,

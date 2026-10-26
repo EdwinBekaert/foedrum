@@ -19,6 +19,12 @@ const linuxTools: Record<ToolName, ToolRun | undefined> = {
   claude: ran('/home/brewer/.local/bin/claude', '2.1.301 (Claude Code)\n'),
   bwrap: ran('/usr/bin/bwrap', 'bubblewrap 0.9.0\n'),
   socat: ran('/usr/bin/socat', 'socat by Gerhard Rieger\nsocat version 1.7.4.4 on Jan  1 2024\n'),
+  // A Linux setup's network stack, as Ubuntu 24.04's slirp4netns prints its version (ADR 0218).
+  pasta: undefined,
+  slirp4netns: ran(
+    '/usr/bin/slirp4netns',
+    'slirp4netns version 1.2.1\ncommit: 09e31e92fa3d2a1d3ca261adaf7a2c1d3a1b4c5d\nlibslirp: 4.7.0\nSLIRP_CONFIG_VERSION_MAX: 4\nlibseccomp: 2.5.5\n',
+  ),
   podman: undefined,
   docker: undefined,
 };
@@ -56,6 +62,8 @@ export const windows: DoctorFacts = {
     claude: ran('C:\\Users\\brewer\\.local\\bin\\claude.exe', '2.1.301 (Claude Code)\r\n'),
     bwrap: undefined,
     socat: undefined,
+    pasta: undefined,
+    slirp4netns: undefined,
     podman: undefined,
     docker: undefined,
   },
@@ -67,6 +75,6 @@ export const macos: DoctorFacts = {
   platform: 'darwin',
   kernelRelease: '24.6.0',
   node: '24.20.0',
-  tools: { ...linuxTools, bwrap: undefined, socat: undefined },
+  tools: { ...linuxTools, bwrap: undefined, socat: undefined, slirp4netns: undefined },
   github: loggedIn('github.com', '/opt/homebrew/bin/gh'),
 };

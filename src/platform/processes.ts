@@ -5,7 +5,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
-import type { Readable, Writable } from 'node:stream';
+import type { Duplex, Readable, Writable } from 'node:stream';
 import { environmentVariable, resolveExecutable } from './executables.ts';
 import { JOB_OBJECT_FAILED, jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
@@ -49,13 +49,16 @@ export interface SpawnCommand {
  * so the bare `node` in npm's shims is never one planted in the working directory (#12). Anything
  * else starts directly, without a shell.
  */
+/** Whether a file is a .cmd or .bat file, which Windows runs through cmd.exe (ADR 0031). */
+const isBatchFile = (file: string): boolean => /\.(?:cmd|bat)$/i.test(file);
+
 export const spawnCommand = (
   file: string,
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
 ): SpawnCommand =>
-  platform === 'win32' && /\.(?:cmd|bat)$/i.test(file)
+  platform === 'win32' && isBatchFile(file)
     ? throughCmd(windowsCommandLine(file, args), env)
     : { file, args: [...args], shell: false, env };
 
@@ -181,6 +184,18 @@ export interface ExecOptions {
   shell?: boolean | undefined;
   /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
   stdin?: string | undefined;
+  /**
+   * Pipes the program gets beyond stdin, stdout and stderr, as file descriptors 3, 4, … in order,
+   * each handed to `onPipes` as a stream once it has started: bwrap's `--info-fd` and
+   * `--block-fd`, for instance (ADR 0218). Not with `shell`, nor in a Job Object on Windows.
+   */
+  pipes?: ExtraPipes | undefined;
+}
+
+/** Extra pipes a program gets (`ExecOptions.pipes`). */
+export interface ExtraPipes {
+  count: number;
+  onPipes: (pipes: readonly Duplex[]) => void;
 }
 
 export interface ExecResult {
@@ -209,6 +224,8 @@ export interface ChildHandle {
   readonly stdin?: Writable | null | undefined;
   readonly stdout: Readable;
   readonly stderr: Readable;
+  /** The program's file descriptors as streams: the extra pipes from index 3 (ADR 0218). */
+  readonly stdio?: readonly unknown[];
   on(event: 'error', listener: (error: Error) => void): unknown;
   on(
     event: 'close',
@@ -237,6 +254,8 @@ export interface Spawner {
       env: NodeJS.ProcessEnv;
       jobObject?: boolean;
       stdin?: boolean;
+      /** How many extra pipes the program gets, as file descriptors 3 and up (ADR 0218). */
+      pipes?: number;
       /** `file` is a command line for the platform shell. */
       shell?: boolean;
     },
@@ -279,6 +298,7 @@ export const execProcessWith =
       jobObject = false,
       shell = false,
       stdin,
+      pipes,
     },
   ) =>
     new Promise((done) => {
@@ -304,10 +324,21 @@ export const execProcessWith =
         done(failed(`${file}: a command line for the shell takes no arguments`));
         return;
       }
+      // The shell and the Job Object's helper hand their program the standard three only.
+      if (pipes !== undefined && (shell || (jobObject && jobObjects))) {
+        done(failed(`${file}: extra pipes cannot go through a shell or a Job Object`));
+        return;
+      }
       // The shell finds the programs of a command line itself.
       const program = shell || resolve === undefined ? file : resolve(file, env);
       if (program === undefined) {
         done(failed(`${file}: not found on PATH (ENOENT)`));
+        return;
+      }
+      // A .cmd or .bat file runs through cmd.exe on Windows: the same refusal, on every platform,
+      // since no program the pipes are for has such a name.
+      if (pipes !== undefined && isBatchFile(program)) {
+        done(failed(`${file}: extra pipes cannot go through a shell or a Job Object`));
         return;
       }
       let child: ChildHandle;
@@ -318,11 +349,13 @@ export const execProcessWith =
           jobObject,
           ...(shell ? { shell } : {}),
           ...(stdin === undefined ? {} : { stdin: true }),
+          ...(pipes === undefined ? {} : { pipes: pipes.count }),
         });
       } catch (error) {
         done(failed(error));
         return;
       }
+      const extra = (child.stdio ?? []).slice(3, 3 + (pipes?.count ?? 0)) as Duplex[];
       let finished = false;
       const finish = (result: ExecResult): void => {
         if (finished) return;
@@ -331,11 +364,15 @@ export const execProcessWith =
         signal?.removeEventListener('abort', stop);
         done(result);
       };
-      const kill = (killed: Killed): void => {
-        if (finished) return;
+      const tearDown = (): void => {
         if (child.pid !== undefined) killTree(child.pid);
         child.stdout.destroy();
         child.stderr.destroy();
+        for (const pipe of extra) pipe.destroy();
+      };
+      const kill = (killed: Killed): void => {
+        if (finished) return;
+        tearDown();
         finish(ended(null, killed));
       };
       const stop = (): void => kill('stopped');
@@ -373,6 +410,17 @@ export const execProcessWith =
         }
         child.stdin.on('error', () => {});
         child.stdin.end(stdin);
+      }
+      if (pipes !== undefined) {
+        if (extra.length < pipes.count) {
+          tearDown();
+          finish(failed(`${file}: no pipe ${3 + extra.length}`));
+          return;
+        }
+        // A program that ends before it reads or writes them makes them fail (EPIPE, ECONNRESET);
+        // how it ended says more.
+        for (const pipe of extra) pipe.on('error', () => {});
+        pipes.onPipes(extra);
       }
       child.on('close', (code, endedBy) => {
         // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
@@ -604,7 +652,7 @@ const jobObjectsHere = process.platform === 'win32';
 
 /** The real spawner. Unit tests use a fake one instead (ADR 0021). */
 export const processSpawner: Spawner = {
-  spawn: (file, args, { cwd, env, jobObject = false, stdin = false, shell = false }) => {
+  spawn: (file, args, { cwd, env, jobObject = false, stdin = false, shell = false, pipes = 0 }) => {
     const command = shell
       ? shellCommand(file, process.platform, env)
       : spawnCommand(file, args, process.platform, env);
@@ -617,9 +665,13 @@ export const processSpawner: Spawner = {
       windowsHide: true,
       ...killableSpawnOptions(),
     };
-    return stdin
-      ? spawn(start.file, start.args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
-      : spawn(start.file, start.args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const extra = Array.from({ length: pipes }, () => 'pipe' as const);
+    const child = spawn(start.file, start.args, {
+      ...options,
+      stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe', ...extra],
+    });
+    // Pipes, so never null.
+    return child as typeof child & { stdout: Readable; stderr: Readable };
   },
   killTree: killProcessTree,
   jobObjects: jobObjectsHere,
