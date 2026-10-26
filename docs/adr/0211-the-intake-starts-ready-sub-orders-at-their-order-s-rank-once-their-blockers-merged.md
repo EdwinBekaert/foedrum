@@ -1,9 +1,9 @@
 # 0211. The intake starts ready sub-orders at their order's rank, once their blockers merged
 
-Date: 2026-10-26 · Status: Accepted · Amends [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (the queue gains ready sub-orders, and `rank` accepts a started order with sub-orders left) and [0013](0013-single-repository-sub-orders-bottles-and-releases.md) (a `code` blocker is done when its pull request is merged, not stacked on its branch)
+Date: 2026-10-26 · Status: Accepted · Amends [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (the queue gains ready sub-orders, and `rank` accepts a started order with sub-orders left) and [0013](0013-single-repo-sub-orders-bottles-and-releases.md) (a `code` blocker is done when its pull request is merged, not stacked on its branch, and the sub-order waits for that merge without a batch, outside Conditioning)
 
 ## Context
-An order can be decomposed into sub-orders with "blocked by" dependencies (`order.decomposed`, [ADR 0013](0013-single-repository-sub-orders-bottles-and-releases.md)), but nothing starts them: the intake never orders a sub-order, and `rank` refuses one ("its plan ranks it").
+An order can be decomposed into sub-orders with "blocked by" dependencies (`order.decomposed`, [ADR 0013](0013-single-repo-sub-orders-bottles-and-releases.md)), but nothing starts them: the intake never orders a sub-order, and `rank` refuses one ("its plan ranks it").
 #239 settled on 2026-10-25 that sub-orders rank in their plan's order, and that **a blocker is done when its pull request is merged**, never only On tap, so that what it blocks starts from a base that holds the change.
 #531 is part 2 of #239: the ready sub-orders of all orders start in rank and plan order, within the Brewery's free capacity.
 Nothing produces sub-orders yet (mash, #388 and #389), so this is built on recorded `order.decomposed` events.
@@ -22,6 +22,8 @@ The limits on what runs side by side (a recipe's `concurrency`, the open-order l
 - A pull request still open, or ended `closed`, or a batch only On tap, is not done.
 - **Bottles:** nothing opens a bottle yet. A bottle's pull request is recorded ended through the batches it bottles: whoever opens bottles puts the bottle's pull request in each bottled batch's `batch.on_tap`, so the intake records its end per batch as it does today. No new event.
 - **`code`** now waits for the blocker's merge, not for its branch: a sub-order starts from a base that holds the change, and its pull request never stacks on another that may still change or close.
+- **The wait.** A blocked sub-order has no batch while it waits for its blockers' merges, so it is in no lane: no Conditioning reason and no reminder, which ADR 0013 gave the wait for a merge.
+  What it waits for is the blocker's pull request, which is On tap and shown on its own batch; the board (#240) is where the queue and what its sub-orders wait for will show.
 - **`release`** is left out of this record: a sub-order with a `release` blocker is never ready here. #538 adds the release signal (a `release.observed` of the blocker's repository after its merge); until then such a sub-order waits, and nothing produces one.
 
 ### Where it starts them
@@ -64,5 +66,6 @@ The limits on what runs side by side (a recipe's `concurrency`, the open-order l
 - **An event that marks a sub-order ready.** A second record of what the fold already knows, written by the engine, which a restart could see out of step with the merges it follows.
 - **`release` as merged plus a later `release.observed` now.** It needs the fold to order a release against a merge, which it does not keep; #538 adds it with the release signal.
 - **Arrival from the order's first batch.** No listing needed, but `orderedAt` is when the order left the queue, not when it arrived, so a started order would rank behind orders that came after it; and it is absent on older batches.
+- **Order a blocked sub-order at once, Conditioning on its blocker's merge.** Its wait would have a reason and a reminder, as ADR 0013 had it, but every sub-order of every order would hold a batch from the breakdown on, many of them for sub-orders a later breakdown cancels, and the batch would leave Conditioning by the ready set's rule instead of starting by it: the same decision, with a lane to keep in step.
 - **Places that count sub-orders.** `rank X 2` behind an order with three ready sub-orders would land ahead of that whole order, not at place 2.
 - **Order a closed sub-order's issue anyway.** The breakdown is the authority, but a person who closed the issue has dropped it, and brewing it would spend a slot on work no one wants.
