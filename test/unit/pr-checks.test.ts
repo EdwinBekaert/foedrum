@@ -396,6 +396,19 @@ describe('recordChecks', () => {
     assert.equal(record.more, 6);
   });
 
+  it('counts the failed checks a record left out when every check it kept failed', async () => {
+    onTap();
+    const checks = [
+      ...Array.from({ length: MAX_HEAD_CHECKS + 20 }, (_, n) => failing(`job ${n}`, 'failure')),
+      ...Array.from({ length: 10 }, (_, n) => passed(`ok ${n}`)),
+    ];
+    await pass(fakeReader({ [head]: checks }).reader);
+    // 120 failed, but the record keeps 100 and counts 30 left out, failed or not: at least 99 more.
+    assert.deepStrictEqual(checkLines(batch()), [
+      `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: job 0 (failure), and at least 99 more`,
+    ]);
+  });
+
   it(`records exactly ${MAX_HEAD_CHECKS} checks with no count of more, and one more again`, async () => {
     onTap();
     const checks = Array.from({ length: MAX_HEAD_CHECKS }, (_, n) => passed(`job ${n}`));
