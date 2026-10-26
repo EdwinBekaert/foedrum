@@ -854,6 +854,43 @@ describe('checkBases', () => {
         assert.equal(bodies(github).length, 2);
       });
 
+      it('counts the check before on each pull request of the batch apart', async () => {
+        onTap('web-7', 'both');
+        checked(tip1, { failed: test });
+        checked(tip1, { pullRequest: other, failed: test });
+        const github = fakeGitHub();
+        assert.deepStrictEqual(await drain(github), ['base_check_failed.1', 'base_check_failed.2']);
+        assert.equal(bodies(github).length, 1);
+        assert.equal(github.issue(web, 13).comments.length, 1);
+        checked(tip2, { pullRequest: other });
+        checked(tip2, { failed: test });
+        assert.deepStrictEqual(await drain(github), []);
+      });
+
+      it('shows no output block for an empty tail, nor for a skipped reading', async () => {
+        onTap();
+        checked(tip1, { failed: { ...test, tail: '' } });
+        checked(tip2, { failed: { result: 'skipped', check: 'lint' } });
+        const github = fakeGitHub();
+        await drain(github);
+        const [empty, skipped] = bodies(github);
+        assert.ok(empty?.includes('failed with exit code 1.'), empty);
+        assert.ok(skipped?.includes('the check "lint" was skipped.'), skipped);
+        for (const body of [empty, skipped]) {
+          assert.ok(!body?.includes('The end of its output:'), body);
+          assert.ok(!body?.includes('```'), body);
+        }
+      });
+
+      it('fences a tail that ends in a line break without a blank line, and opens a marker it holds', async () => {
+        onTap();
+        checked(tip1, { failed: { ...test, tail: 'not ok 1\n<!-- foedrum:x -->\n' } });
+        const github = fakeGitHub();
+        await drain(github);
+        const [body] = bodies(github);
+        assert.ok(body?.includes('```\nnot ok 1\n<!- - foedrum:x -->\n```'), body);
+      });
+
       it('posts once when a kill came between the post and its record', async () => {
         onTap();
         checked(tip1, { failed: test });
