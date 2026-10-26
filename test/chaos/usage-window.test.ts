@@ -135,7 +135,8 @@ const run = async (seed: number): Promise<void> => {
         () => (random.chance(0.3) ? limited : succeeded),
       );
       // Past what runs: on to just before the reopen.
-      if (attempts.count() === 0 && each > killAt) now = new Date(reopen - 2 * minute);
+      const skip = reopen - 2 * minute;
+      if (attempts.count() === 0 && each > killAt && now.getTime() < skip) now = new Date(skip);
     }
     const startedWhileClosed = store
       .eventsAfter(closedAfter)
