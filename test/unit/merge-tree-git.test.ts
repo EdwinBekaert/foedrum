@@ -1,14 +1,13 @@
 // The merge-tree of an open pull request's head and its base's tip (ADR 0198), the shell, with a
 // fake git that records every call (ADR 0021): it runs in a git directory of Foedrum's own with
-// the clone's objects, reads git's exit code and NUL-separated output, and runs only on a git that
-// has `--write-tree`.
+// the clone's objects, and reads git's exit code and NUL-separated output.
 
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { describe, it } from 'node:test';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
-import { mergeTreeSupported, openMergeTree } from '../../src/workspace/merge-tree-git.ts';
+import { openMergeTree } from '../../src/workspace/merge-tree-git.ts';
 import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
 const HEAD = 'a'.repeat(40);
@@ -95,26 +94,5 @@ describe('openMergeTree', () => {
     const config = mergeTree()?.options?.config ?? {};
     assert.equal(config['remote.foedrum.url'], url);
     assert.equal(config['remote.foedrum.promisor'], 'true');
-  });
-});
-
-describe('mergeTreeSupported', () => {
-  const answering =
-    (result: GitResult): Git =>
-    async () =>
-      result;
-  it('is true from git 2.38 on, false before it, and unknown when git names no version', async () => {
-    const cases: [GitResult, boolean | undefined][] = [
-      [ok('git version 2.38.0\n'), true],
-      [ok('git version 2.56.0.windows.2\n'), true],
-      [ok('git version 3.0.1\n'), true],
-      [ok('git version 2.37.9\n'), false],
-      [ok('git version 2.31.0\n'), false],
-      [exited(1, '', 'not git'), undefined],
-      [ok('something else'), undefined],
-    ];
-    for (const [result, supported] of cases) {
-      assert.equal(await mergeTreeSupported(answering(result), clone), supported, result.stdout);
-    }
   });
 });

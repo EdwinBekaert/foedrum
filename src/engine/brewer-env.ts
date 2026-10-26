@@ -66,7 +66,7 @@ export function brewerBaseEnv(
  * program, wherever the user's or the clone's configuration set them (an empty helper clears the
  * list), no cookie file, no empty login for Negotiate, and every transport refused but local
  * paths, as git allows them by default, git, http and https, so neither ssh nor a remote helper can
- * reach a key or a login. git reads these variables since 2.31, which doctor requires.
+ * reach a key or a login. git reads these variables since 2.31; doctor requires 2.38 (ADR 0200).
  */
 const NO_PUSH_CREDENTIALS: readonly (readonly [string, string])[] = [
   ['credential.helper', ''],

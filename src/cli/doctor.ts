@@ -146,9 +146,11 @@ export interface Diagnosis {
 
 // package.json's engines.
 const MIN_NODE = [24, 15] as const;
-// git reads GIT_CONFIG_COUNT, which a brewer's forced configuration rests on, since 2.31.0 (ADR 0109).
-const MIN_GIT = [2, 31, 0] as const;
-const GIT_INSTALL = 'install git 2.31.0 or later, https://git-scm.com/downloads';
+// `git merge-tree --write-tree`, which the base check of open pull requests runs (ADR 0198), came in
+// 2.38.0 (ADR 0200); GIT_CONFIG_COUNT, which a brewer's forced configuration rests on, in 2.31.0
+// (ADR 0109).
+const MIN_GIT = [2, 38, 0] as const;
+const GIT_INSTALL = 'install git 2.38.0 or later, https://git-scm.com/downloads';
 // gh keeps its login in the OS keyring by default since 2.26.0 (ADR 0073).
 const MIN_GH = [2, 26, 0] as const;
 const GH_INSTALL =
@@ -347,24 +349,6 @@ const gitProblems = (run: ToolRun | undefined): Problem[] => {
   return isBefore(version, MIN_GIT)
     ? [{ required: true, what: `git ${version} is too old`, fix: GIT_INSTALL }]
     : [];
-};
-
-// `git merge-tree --write-tree`, which the base check of open pull requests needs, came in 2.38
-// (ADR 0198): an older git that Foedrum still runs on only skips that check. A git already too old
-// says so in its own problem.
-const MERGE_TREE_GIT = [2, 38, 0] as const;
-const baseCheckProblems = (run: ToolRun | undefined): Problem[] => {
-  const version = versionOf(run);
-  if (version === undefined || isBefore(version, MIN_GIT) || !isBefore(version, MERGE_TREE_GIT)) {
-    return [];
-  }
-  return [
-    {
-      required: false,
-      what: `git ${version} has no merge-tree --write-tree, so foedrum serve does not check open pull requests against a base that moved (ADR 0198)`,
-      fix: 'install git 2.38.0 or later, https://git-scm.com/downloads',
-    },
-  ];
 };
 
 // git, gh and claude: Foedrum cannot run brewers without them.
@@ -659,7 +643,6 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
         ]
       : []),
     ...gitProblems(tools.git),
-    ...baseCheckProblems(tools.git),
     ...githubProblems(facts),
     ...requiredProblems(
       'claude',

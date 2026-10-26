@@ -6,6 +6,7 @@ import {
   diagnosisLines,
   headingOf,
   LOST_LINE,
+  laterRoundLines,
   lostAttemptLine,
   PAUSE_PROMPT,
   pausesBetweenSteps,
@@ -68,6 +69,16 @@ describe('the walkthrough steps', () => {
     assert.match(lookFor('checks'), /brewing at once/);
     assert.match(lookFor('pull-request'), /path line/);
     assert.match(lookFor('pull-request'), /each one's findings under its own step/);
+  });
+
+  it('say where the tasting loop shows (ADR 0193): correctness asks for changes, the batch goes back once, and round 2 gets the change since round 1 and the finding marked fixed', () => {
+    const lookFor = (id: string) => STEPS.find((step) => step.id === id)?.lookFor ?? '';
+    assert.match(lookFor('checks'), /correctness #1 blocks/);
+    assert.match(lookFor('checks'), /back to implement #3/);
+    assert.match(lookFor('checks'), /correctness #2, security #2 and test-design #2/);
+    assert.match(lookFor('checks'), /the change since round 1/);
+    assert.match(lookFor('checks'), /marked fixed/);
+    assert.match(lookFor('pull-request'), /path line has both rounds/);
   });
 
   it('say that the diagnosis is the demo own, not doctor on this machine', () => {
@@ -204,6 +215,62 @@ describe('routeLines', () => {
 
   it('says nothing for an attempt no route scheduled', () => {
     assert.deepStrictEqual(routeLines(ref, 'Make the tests pass.\nnot ok 2 - a test'), []);
+  });
+});
+
+describe('laterRoundLines', () => {
+  const ref = { stepId: 'correctness', attempt: 2 };
+  const prompt = [
+    'Taste the change.',
+    '<untrusted-input-abc source="the change since commit 0123abc">',
+    'diff --git a/greet.mjs b/greet.mjs',
+    '</untrusted-input-abc>',
+    '<untrusted-input-abc source="the change since commit 4567def" name="roundChange">',
+    'diff --git a/greet.mjs b/greet.mjs',
+    '</untrusted-input-abc>',
+    '<untrusted-input-abc source="the earlier rounds&#39; findings of step correctness, with what was done with them" name="earlierFindings">',
+    'Round correctness#1:',
+    '- major in greet.mjs:2: a name of only spaces is greeted as itself',
+    '  fixed: greet trims the name',
+    '</untrusted-input-abc>',
+  ].join('\r\n');
+
+  it("says what a later round reviews and lists the earlier rounds' findings with what was done with them, from its prompt", () => {
+    assert.deepStrictEqual(laterRoundLines(ref, prompt), [
+      'demo: correctness #2 is told the change since commit 4567def, as {roundChange}, and the earlier findings, as {earlierFindings}:',
+      '  Round correctness#1:',
+      '  - major in greet.mjs:2: a name of only spaces is greeted as itself',
+      '    fixed: greet trims the name',
+    ]);
+  });
+
+  it('says only what a later round reviews when its prompt has no earlier findings', () => {
+    const changeOnly = prompt.split('\r\n').slice(0, 7).join('\n');
+    assert.deepStrictEqual(laterRoundLines(ref, changeOnly), [
+      'demo: correctness #2 is told the change since commit 4567def, as {roundChange}',
+    ]);
+  });
+
+  it('lists the earlier findings to the end of the prompt when their input is not closed', () => {
+    const unclosed = prompt.split('\r\n').slice(0, -1).join('\n');
+    assert.deepStrictEqual(laterRoundLines(ref, unclosed).slice(-1), [
+      '    fixed: greet trims the name',
+    ]);
+  });
+
+  it('reads only a whole opening tag: one with more text after it is no input of its name', () => {
+    const trailing = prompt.replace('name="roundChange">', 'name="roundChange"> and more');
+    assert.deepStrictEqual(laterRoundLines(ref, trailing), []);
+    const leading = prompt.replace(
+      '<untrusted-input-abc source="the change since commit 4567def"',
+      'x <untrusted-input-abc source="the change since commit 4567def"',
+    );
+    assert.deepStrictEqual(laterRoundLines(ref, leading), []);
+  });
+
+  it('says nothing for a first round', () => {
+    const first = prompt.split('\r\n').slice(0, 4).join('\n');
+    assert.deepStrictEqual(laterRoundLines(ref, first), []);
   });
 });
 

@@ -48,29 +48,75 @@ const tasting = (lens: string, file: string, line: number, why: string): Scripte
   },
 });
 
+/** The finding the blocking correctness lens asks changes for in round 1 (ADR 0193). */
+const SPACES = {
+  file: 'greet.mjs',
+  line: 2,
+  severity: 'major',
+  why: 'a name of only spaces is greeted as itself, not as a stranger',
+  introduced: true,
+} as const;
+
+/** The Cellarman's fix of the finding, and its disposition (ADR 0191). */
+const FIX_SPACES: Scripted = {
+  files: {
+    'greet.mjs':
+      "export function greet(name) {\n  return 'Hello, ' + (name.trim() === '' ? 'stranger' : name) + '!';\n}\n",
+  },
+  message: 'Greet a visitor whose name is only spaces as a stranger',
+  summary: 'greet greets a name of only spaces as a stranger, as the correctness lens asked.',
+  dispositions: [
+    {
+      file: SPACES.file,
+      line: SPACES.line,
+      disposition: 'fixed',
+      why: 'greet trims the name before it asks whether it is empty',
+    },
+  ],
+};
+
+const security = tasting(
+  'diff/security',
+  'greet.mjs',
+  2,
+  'the name goes into the greeting as it is: a caller that writes the greeting into HTML must escape it',
+);
+const testDesign = tasting(
+  'diff/test-design',
+  'greet.test.mjs',
+  10,
+  'the new test covers the empty name only; a name of only spaces has no test',
+);
+
 /**
- * The Nip fixture's script, with a Taster for each lens step of the demo's parallel group (ADR
- * 0168): each one approves with a finding of its own, so the status comment shows each one's
- * findings under its own step.
+ * The Nip fixture's Gauger and Cellarman, with a Taster for each lens step of the demo's parallel
+ * group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the blocking correctness lens
+ * asks for changes with one finding, and the advisory ones approve with a finding of their own,
+ * so the status comment shows each one's findings under its own step. The Cellarman's third
+ * attempt fixes the finding and records it fixed, and the Finer runs after it once more. In
+ * round 2 correctness approves, and the advisory lenses, whose findings are still open, raise
+ * them again.
  */
 export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
-  ...NIP_SCRIPT,
-  security: [
-    tasting(
-      'diff/security',
-      'greet.mjs',
-      2,
-      'the name goes into the greeting as it is: a caller that writes the greeting into HTML must escape it',
-    ),
+  gauge: NIP_SCRIPT.gauge ?? [],
+  implement: [...(NIP_SCRIPT.implement ?? []), FIX_SPACES],
+  fine: [...(NIP_SCRIPT.fine ?? []), ...(NIP_SCRIPT.fine ?? []).slice(0, 1)],
+  correctness: [
+    {
+      files: {},
+      message: '',
+      summary: 'One major finding through diff/correctness: changes asked for.',
+      tasting: { verdict: 'changes', findings: [SPACES] },
+    },
+    {
+      files: {},
+      message: '',
+      summary: 'The finding of round 1 is fixed, and the fix brings in no defect.',
+      tasting: { verdict: 'approve', findings: [] },
+    },
   ],
-  'test-design': [
-    tasting(
-      'diff/test-design',
-      'greet.test.mjs',
-      10,
-      'the new test covers the empty name only; a name of only spaces has no test',
-    ),
-  ],
+  security: [security, security],
+  'test-design': [testDesign, testDesign],
 };
 
 export const demoBrewers = (options: DemoBrewersOptions): BrewerRunner => {

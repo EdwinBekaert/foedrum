@@ -315,10 +315,10 @@ describe('runServe', () => {
   });
 
   /**
-   * Brews 12-1 with the porter recipe until its pull request is open, on a git that answers
-   * `version`, with a base that moved and a merge-tree that conflicts (ADR 0198).
+   * Brews 12-1 with the porter recipe until its pull request is open, with a base that moved and a
+   * merge-tree that conflicts (ADR 0198), on a git that records what it is asked and answers nothing.
    */
-  const brewWithMovedBase = async (version: string) => {
+  const brewWithMovedBase = async () => {
     const porter = JSON.stringify({
       name: 'porter',
       description: 'Brews an order in one step and opens its pull request.',
@@ -367,6 +367,7 @@ describe('runServe', () => {
           .filter(({ body }) => body.includes('base_conflict.1'))
           .map(({ body }) => ({ key, body })),
       );
+    const asked: string[] = [];
     let waits = 0;
     const code = await runServe(
       setup,
@@ -377,8 +378,7 @@ describe('runServe', () => {
           if (conflictComments().length > 0 || waits > 40) controller.abort();
         },
         git: async (_cwd, args) => {
-          if (args[0] === '--version')
-            return { code: 0, stdout: `git version ${version}\n`, stderr: '' };
+          asked.push(args.join(' '));
           throw new Error('no red proof or guarded step runs here');
         },
         // The bottle branch holds what was pushed; the base moved to 'b…' since.
@@ -403,12 +403,13 @@ describe('runServe', () => {
     const baseChecks = createCommandLog({ store, recipes: setup.recipes })
       .state()
       .batches.get('12-1')?.baseChecks;
-    return { code, merged, pull, baseChecks, conflictComments };
+    return { code, merged, pull, baseChecks, conflictComments, asked };
   };
 
-  it("checks an open pull request against its base's moved tip and comments the conflict on it, on git 2.38 (ADR 0198)", async () => {
-    const { code, merged, pull, baseChecks, conflictComments } = await brewWithMovedBase('2.38.0');
+  it("checks an open pull request against its base's moved tip and comments the conflict on it (ADR 0198)", async () => {
+    const { code, merged, pull, baseChecks, conflictComments, asked } = await brewWithMovedBase();
     assert.equal(code, 0);
+    assert.deepStrictEqual(asked, []);
     assert.deepStrictEqual(merged, [`${FAKE_COMMIT} ${'b'.repeat(40)}`]);
     const url = `https://github.com/acme/web/pull/${pull?.number}`;
     assert.deepStrictEqual(baseChecks, [
@@ -418,15 +419,6 @@ describe('runServe', () => {
     assert.ok(comment, lines.join('\n'));
     assert.equal(comment?.key, `acme/web#${pull?.number}`);
     assert.match(comment?.body ?? '', /src\/cli\.ts/);
-  });
-
-  it('checks no open pull request and posts nothing on a git older than 2.38 (ADR 0198)', async () => {
-    const { code, merged, pull, baseChecks, conflictComments } = await brewWithMovedBase('2.37.1');
-    assert.equal(code, 0);
-    assert.ok(pull, 'the pull request is open');
-    assert.deepStrictEqual(merged, []);
-    assert.equal(baseChecks, undefined);
-    assert.deepStrictEqual(conflictComments(), []);
   });
 
   it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
@@ -626,62 +618,6 @@ describe('runServe', () => {
     assert.equal(
       createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane.kind,
       'on_tap',
-    );
-  });
-
-  for (const [version, says] of [
-    ['2.37.1', true],
-    ['2.38.0', false],
-  ] as const) {
-    it(`reads git's version once at its start, and ${says ? 'says' : 'does not say'} on git ${version} that no open pull request is checked (ADR 0198)`, async () => {
-      const said =
-        'foedrum serve: git is older than 2.38, which merge-tree --write-tree needs: open pull requests are not checked against a base that moved (ADR 0198)';
-      const asked: string[] = [];
-      const code = await runServe(
-        setup,
-        shell({
-          mergeTree: () => async () => assert.fail('no pull request is open'),
-          git: async (_cwd, args) => {
-            asked.push(args.join(' '));
-            if (args[0] === '--version') {
-              return {
-                code: 0,
-                stdout: `git version ${version}
-`,
-                stderr: '',
-              };
-            }
-            throw new Error('no red proof or guarded step runs here');
-          },
-        }),
-      );
-      assert.equal(code, 0);
-      assert.deepStrictEqual(asked, ['--version']);
-      assert.equal(lines.includes(said), says);
-    });
-  }
-
-  it("says that git's version could not be read, not that git is too old, when git names none (ADR 0198)", async () => {
-    const code = await runServe(
-      setup,
-      shell({
-        mergeTree: () => async () => assert.fail('no pull request is open'),
-        git: async (_cwd, args) => {
-          if (args[0] === '--version') return { code: null, stdout: '', stderr: '' };
-          throw new Error('no red proof or guarded step runs here');
-        },
-      }),
-    );
-    assert.equal(code, 0);
-    assert.ok(
-      lines.includes(
-        "foedrum serve: git's version could not be read: open pull requests are not checked against a base that moved (ADR 0198)",
-      ),
-      lines.join('\n'),
-    );
-    assert.equal(
-      lines.some((line) => line.includes('older than 2.38')),
-      false,
     );
   });
 
