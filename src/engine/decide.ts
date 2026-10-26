@@ -895,6 +895,12 @@ const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
   return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
 };
 
+/** Whether the latest attempt of `stepId` is unfinished and not abandoned by Stuck. */
+const unfinished = (batch: Batch, stepId: string): boolean => {
+  const latest = latestOf(batch, stepId);
+  return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
+};
+
 /**
  * The step the child `stepId` of a parallel group goes back to once its group ended: its latest
  * attempt was blocked by findings with its route's rounds not used up (ADR 0168).
@@ -926,11 +932,7 @@ function settle(draft: Draft, batchId: string, group: string): void {
   const children = recipe.children(group) ?? [];
   // Never past the group while an attempt of the batch runs: a sibling, or a child its recipe
   // dropped, whose finish then makes the batch Stuck (`leftRecipe`).
-  const inFlight = [...batch.steps.keys()].some((stepId) => {
-    const latest = latestOf(batch, stepId);
-    return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
-  });
-  if (inFlight) return;
+  if ([...batch.steps.keys()].some((stepId) => unfinished(batch, stepId))) return;
   // A child the batch never scheduled joined the group after the batch entered it: its file
   // changed under the batch, and the group would wait for it with nothing in flight.
   const added = children.find((child) => !batch.steps.has(child));
@@ -1072,10 +1074,7 @@ function stop(draft: Draft, command: Stop): void {
   const { order, by, via, why } = command;
   const stops = batchesOf(draft, order, 'stop').flatMap((batch) => {
     if (batch.lane.kind !== 'brewing') return [];
-    const stepId = [...batch.steps.keys()].find((id) => {
-      const latest = latestOf(batch, id);
-      return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
-    });
+    const stepId = [...batch.steps.keys()].find((id) => unfinished(batch, id));
     return stepId === undefined ? [] : [{ batchId: batch.id, stepId }];
   });
   if (stops.length === 0) {
