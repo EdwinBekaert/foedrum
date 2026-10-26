@@ -780,6 +780,16 @@ describe('insideFolders', () => {
     assert.equal(insideFolders([root], linked)(linked(own)), true);
   });
 
+  // A merged tree's worktree is `<uuid>.tree` in the root, which its check writes: only a direct
+  // `<uuid>.git` child, which no check writes, holds (review of #528).
+  it('holds no repository nested in the root, as one planted in a merged tree’s worktree is, nor a direct child that is no .git', () => {
+    const inside = insideFolders([root], (path) => path);
+    const tree = `${root}/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.tree`;
+    assert.equal(inside(`${tree}/evil`), false);
+    assert.equal(inside(`${own}/worktrees`), false);
+    assert.equal(inside(tree), false);
+  });
+
   it('holds neither the root itself, nor a folder beside it whose name only starts with it, nor any other', () => {
     const inside = insideFolders([root], (path) => path);
     assert.equal(inside(root), false);
