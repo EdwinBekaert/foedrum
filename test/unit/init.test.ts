@@ -946,4 +946,8 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
     assert.ok(!git.some(({ args }) => ['log', 'push'].includes(args[0] ?? '')));
     assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
   });
+  it('lists the commits that origin, the remote the push goes to, does not have', async () => {
+    const { git } = await init(['', '', ''], undefined, { status: ALL_NEW });
+    assert.equal(git.find(({ args }) => args[0] === 'log')?.args.at(-1), '--remotes=origin');
+  });
 });
