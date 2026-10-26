@@ -99,7 +99,12 @@ const run = async (seed: number): Promise<void> => {
     }
 
     // The pause: one order or all of them, with --by or without.
-    const order = random.chance(0.5) ? { order: { issue: 1 + random.int(count) } } : {};
+    // A pause holds only an order with a batch that has not ended; else it is --all.
+    const live = [...log.state().batches.values()].filter(
+      ({ lane }) => lane.kind !== 'on_tap' && lane.kind !== 'cancelled',
+    );
+    const one = live.length > 0 && random.chance(0.5) ? random.pick(live) : undefined;
+    const order = one === undefined ? {} : { order: { issue: one.issue } };
     const stopAt = random.chance(0.5)
       ? { stopAt: { at: new Date(now.getTime() + random.int(5) * minute), zone: 'UTC' } }
       : {};
