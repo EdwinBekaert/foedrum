@@ -31,6 +31,7 @@ The ready set of sub-orders (#531) and the limits (#532) are the next parts, not
 - **A tie orders the ranked orders that share an arrival**, the lower ahead, and they all go ahead of the unranked ones of that arrival.
   `rank <order> <n>` chooses it so the order goes just ahead of the order at place `n` and behind a ranked order of the same arrival ahead of that one: below the tie of the order at `n`, between the two ties, or one above the tie of the ranked order ahead when the order at `n` is unranked.
   So `rank X 1` after `rank Y 1` puts X ahead of Y, and `rank Y 3` after `rank X 2`, with the order at place 3 sharing X's arrival, puts Y between X and it.
+  An order ranked next to unranked orders that share an arrival goes ahead of all of them, as an issue created in the same second as its neighbour does: only a rank carries a tie.
 - **A later rank of the same order replaces the earlier one**, so marking a marked order again moves it behind the other marked ones.
 - `rank` is refused with one line for an alias `foedrum.jsonc` does not name, for an order that has a batch in any lane (it has left the queue), for a sub-order (its plan ranks it, part 2), for the Brewery issue that is a claimed issue's order (rank the target issue), and for an order that is not in the queue now (closed, filtered out, opened by someone not allow-listed, assigned to someone else); also when the queue cannot be read.
 
