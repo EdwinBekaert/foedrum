@@ -5,7 +5,7 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading } from '../schemas/events.ts';
-import { dispositionsOf, placeOf, tastingOf } from '../schemas/out-doc.ts';
+import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
 import { MergeBrief } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
 import { pullRequestOf } from './base-check.ts';
@@ -15,6 +15,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, State } from './fold.ts';
+import { type LensRound, lensRounds } from './lens-rounds.ts';
 import { briefKey, briefOf, latestBrief, type ReadyRecord, readyOf } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { findingText, knownCommits, latestPush, recordedPushes, unlinked } from './pull-request.ts';
@@ -267,27 +268,32 @@ const tastedLine = (steps: Steps, ready: ReadyRecord): string => {
 };
 
 /**
- * The findings each route round answered, with what the step it went back to did (ADR 0191), in
- * the order they ran: each attempt a findings route scheduled, or a retry or answer that continued
- * it, that succeeded.
+ * The findings each round of a Taster's step left: a success's from its out doc, a blocked round's
+ * as `step.finished` recorded them (ADR 0221).
  */
-const dispositionLines = (batch: Batch, told: Told): string[] => {
-  const answering = new Map<string, string>();
-  const lines: string[] = [];
-  for (const { stepId, attempt } of batch.path ?? []) {
-    const ran = batch.steps.get(stepId)?.attempts.get(attempt);
-    if (ran === undefined) continue;
-    if (ran.route?.why === 'findings') answering.set(stepId, ran.route.from);
-    else if (ran.retry !== true && ran.answered !== true) answering.delete(stepId);
-    const from = answering.get(stepId);
-    if (from === undefined || ran.phase !== 'finished' || ran.outcome.kind !== 'succeeded') {
-      continue;
-    }
-    for (const found of dispositionsOf(ran.outcome.output)) {
-      const why = found.why === undefined ? '' : `: ${told(found.why, stepId)}`;
-      lines.push(`- ${code(from)}: ${found.disposition} at ${told(placeOf(found), stepId)}${why}`);
-    }
-  }
+const roundFindings = (ran: LensRound['ran']): readonly TastingFinding[] =>
+  ran.outcome.kind === 'succeeded'
+    ? (tastingOf(ran.outcome.output)?.findings ?? [])
+    : (ran.findings?.kept ?? []);
+
+/**
+ * What the step each findings route went back to did with each finding (ADR 0191), round by round
+ * in the order they ran, each after the lens of the finding at its place, the first not already
+ * taken, as a later round's input pairs them (ADR 0220).
+ */
+const dispositionLines = (steps: Steps, told: Told): string[] => {
+  const lines = tastingSteps(steps).flatMap((stepId) =>
+    lensRounds(steps.batch, stepId).flatMap(({ ran, dispositions }) => {
+      const left = [...roundFindings(ran)];
+      return dispositions.map((found) => {
+        const at = left.findIndex(({ file, line }) => file === found.file && line === found.line);
+        const [finding] = at < 0 ? [] : left.splice(at, 1);
+        const lens = finding === undefined ? '' : lensFirst(finding);
+        const why = found.why === undefined ? '' : `: ${told(found.why, stepId)}`;
+        return `- ${code(stepId)}: ${lens}${found.disposition} at ${told(placeOf(found), stepId)}${why}`;
+      });
+    }),
+  );
   const more = lines.length - mostDispositions;
   return more > 0 ? [...lines.slice(0, mostDispositions), `- and ${more} more`] : lines;
 };
@@ -306,13 +312,24 @@ const openLines = (steps: Steps, told: Told): string[] =>
     return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
   });
 
-/** Each blocking Taster's step blocked by its findings that a person's skip went past. */
-const skippedOpenLines = (steps: Steps): string[] =>
+/**
+ * Each blocking Taster's step blocked by its findings that a person's skip went past, and each
+ * finding its round recorded (ADR 0221), which the skip accepted.
+ */
+const skippedOpenLines = (steps: Steps, told: Told): string[] =>
   steps.ids.flatMap((stepId) => {
     const latest = latestOf(steps.batch, stepId);
     if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return [];
+    const left = `- ${code(stepId)}: left open by a skip`;
+    const { kept = [], more = 0 } = latest.findings ?? {};
+    const shown = kept.slice(0, mostFindings);
+    const rest = kept.length + more - shown.length;
     return [
-      `- ${code(stepId)}: left open by a skip: its attempt ${latest.attempt} was blocked by its findings`,
+      `${left}: its attempt ${latest.attempt} was blocked by its findings`,
+      ...shown.map(
+        (finding) => `${left}: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+      ),
+      ...(rest > 0 ? [`${left}: and ${rest} more`] : []),
     ];
   });
 
@@ -359,9 +376,9 @@ const briefRest = (
   const head = code(shortSha(ready.head));
   const sensitive = latestPush(state, batch.id)?.sensitive;
   const findings = [
-    ...dispositionLines(batch, told),
+    ...dispositionLines(steps, told),
     ...openLines(steps, told),
-    ...skippedOpenLines(steps),
+    ...skippedOpenLines(steps, told),
   ];
   const risks = riskLines(steps, told);
   const sections = [
