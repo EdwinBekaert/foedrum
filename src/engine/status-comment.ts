@@ -7,7 +7,7 @@ import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
-import { type BatchEffectKey, PushResult, type SensitiveFiles } from '../schemas/store.ts';
+import type { BatchEffectKey, SensitiveFiles } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
 import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
@@ -17,7 +17,7 @@ import type { Attempt, Batch, Lane, Pause, State, UsageWindows } from './fold.ts
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
-import { changeText, findingText, knownCommits, pushKey } from './pull-request.ts';
+import { changeText, findingText, knownCommits, latestPush } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
@@ -144,8 +144,15 @@ const stuckText = (reason: StuckReason, told: Told): string => {
       return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':
       return `no recipe was chosen by its routing deadline, ${reason.deadlineAt}`;
-    case 'pull_request_failed':
-      throw new Error('not implemented');
+    // A check's name and link are whoever runs CI's words (ADR 0213), shown as plain text and a link.
+    case 'pull_request_failed': {
+      const checks = reason.failed.map(
+        ({ name, conclusion, url }) =>
+          `${plain(name)} (${conclusion})${url === undefined ? '' : ` ${link(url)}`}`,
+      );
+      const more = reason.more > 0 ? [`and ${reason.more} more`] : [];
+      return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} after ${roundsText(reason.rounds)}: ${[...checks, ...more].join(', ')}`;
+    }
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
     case 'stopped': {
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;
@@ -733,9 +740,8 @@ const statusDue = (
   const issue = breweryIssueOf(state, batch);
   if (issue === undefined) return undefined;
   const { next: revision, latest: previous } = latestRevision(state, batchId);
-  // The push of the pull request recorded the sensitive files once (ADR 0201).
-  const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batchId))));
-  const sensitive = pushed.success ? pushed.data.sensitive : undefined;
+  // The latest push of the pull request recorded the sensitive files (ADR 0201, ADR 0219).
+  const sensitive = latestPush(state, batchId)?.sensitive;
   const paused = pauseOf(state, batch);
   const text = renderStatus(
     batch,

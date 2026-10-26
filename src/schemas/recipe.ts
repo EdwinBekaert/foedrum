@@ -125,6 +125,9 @@ const ActionStep = z.strictObject({
   id: StepId.optional().describe('Defaults to the action name in kebab case'),
   action: z.enum(['openPullRequest', 'comment', 'label', 'blend']),
   when,
+  onPullRequestFail: Route.optional().describe(
+    'openPullRequest only: where a failing check on the open pull request sends the batch, and how often (ADR 0219)',
+  ),
 });
 
 const FanOutStep = z.strictObject({
@@ -227,6 +230,10 @@ function references(step: Step): Reference[] {
     const path = ['onBlocked', 'findings', 'goto'];
     found.push({ id: step.onBlocked.findings.goto, path, kind: 'route' });
   }
+  if ('onPullRequestFail' in step && step.onPullRequestFail) {
+    const path = ['onPullRequestFail', 'goto'];
+    found.push({ id: step.onPullRequestFail.goto, path, kind: 'route' });
+  }
   return found;
 }
 
@@ -278,7 +285,8 @@ const RecipeFields = z.strictObject({
 });
 
 /**
- * A recipe: step ids are unique, every goto, red proof and expression names a step, a route goes
+ * A recipe: step ids are unique, every goto, red proof and expression names a step, only the
+ * openPullRequest action has an onPullRequestFail route, a route goes
  * back to an earlier step at the same level or in an enclosing loop, and a red proof reads an
  * earlier step's tests.
  */
@@ -305,6 +313,15 @@ export const Recipe = RecipeFields.superRefine((recipe, ctx) => {
     }
   }
   for (const [order, { step, path }] of steps.entries()) {
+    // The pull request the route is for is the one the openPullRequest action opens (ADR 0219).
+    if ('action' in step && step.onPullRequestFail && step.action !== 'openPullRequest') {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Only the openPullRequest action has onPullRequestFail (ADR 0219)',
+        path: [...path, 'onPullRequestFail'],
+      });
+      continue;
+    }
     const from = { order, list: path.slice(0, -1) };
     for (const reference of references(step)) {
       const to = places.get(reference.id);

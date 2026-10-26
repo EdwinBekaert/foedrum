@@ -40,6 +40,8 @@
         { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance" }
       ]
     },
-    { "action": "openPullRequest" }
+    // A check that fails on the pull request's head sends the batch back to Cellarman, twice at most,
+    // and the fix is pushed to the same pull request (ADR 0219).
+    { "action": "openPullRequest", "onPullRequestFail": { "goto": "implement", "maxRounds": 2 } }
   ]
 }

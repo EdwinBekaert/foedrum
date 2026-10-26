@@ -41,7 +41,7 @@ const stuckOn = (reason: StuckReason): string => {
     case 'routing':
       return `not routed by ${reason.deadlineAt}`;
     case 'pull_request_failed':
-      throw new Error('not implemented');
+      return `${reason.pullRequest} failed its checks on ${reason.head} at ${reason.stepId} after ${reason.rounds} ${reason.rounds === 1 ? 'round' : 'rounds'}`;
     case 'stopped':
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
     default: {

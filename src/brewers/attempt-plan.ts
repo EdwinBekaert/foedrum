@@ -9,12 +9,13 @@ import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import { onFindings } from '../engine/decide.ts';
 import type { Batch } from '../engine/fold.ts';
+import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
-import type { GravityReading } from '../schemas/events.ts';
+import type { GravityReading, ScheduleRoute } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
   type Disposition,
@@ -569,6 +570,7 @@ export function routeOf(
 ): PlannedRoute | undefined {
   const route = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
   if (route === undefined) return undefined;
+  if (route.why === 'pull_request') return pullRequestRouteOf(batch, ref.stepId, route);
   const { from, why } = route;
   const source = { kind: 'route', step: ref.stepId, from, why } as const;
   // The attempt that routed: the latest of its step that finished, never an earlier round's.
@@ -586,6 +588,46 @@ export function routeOf(
   const root = routing.worktree?.path ?? routing.session?.worktree;
   if (why === 'failed' || root === undefined || doc === undefined) return { source, text };
   return { source, text, outDoc: { path: join(root, doc), root } };
+}
+
+/** What a check run or a commit status is called in a route input. */
+const checkKind = { check_run: 'check run', status: 'commit status' } as const;
+
+/**
+ * What sent a step back from its open pull request (ADR 0219): each check that failed on the head
+ * of the record the route names, from the event log. A name and a link are whoever runs CI's
+ * words: untrusted, as every route input is (ADR 0128). No pass changes the record while the batch
+ * brews, since the checks are read only of a batch on tap.
+ */
+function pullRequestRouteOf(
+  batch: Batch,
+  step: string,
+  route: Extract<ScheduleRoute, { why: 'pull_request' }>,
+): PlannedRoute {
+  const { from, why, pullRequest, head } = route;
+  const source = { kind: 'route', step, from, why, pullRequest } as const;
+  const record = batch.pullRequestChecks?.[pullRequest];
+  if (record?.kind !== 'finished' || record.head !== head) {
+    return {
+      source,
+      text: `Pull request ${pullRequest} failed its checks on ${head}; the record of them is no longer the latest.`,
+    };
+  }
+  const failed = record.checks
+    .filter(({ conclusion }) => !checkPassed(conclusion))
+    .map(
+      ({ name, kind, conclusion, url }) =>
+        `- ${name} (${checkKind[kind]}): ${conclusion}${url === undefined ? '' : `, ${url}`}`,
+    );
+  const more =
+    record.more === undefined ? [] : [`- and ${record.more} more checks the record left out`];
+  const text = [
+    `Pull request ${pullRequest} failed its checks on ${head}:`,
+    ...failed,
+    ...more,
+    "You cannot open these links. The recipe's own checks run on your change after this step.",
+  ].join('\n');
+  return { source, text };
 }
 
 const leftOutReason = '[left out: a reason that looks like a secret]';

@@ -22,7 +22,7 @@ import { defaultLeaseMs } from './batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from './claim-orders.ts';
 import type { CommandLog } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
-import { emptyState, orderKey, type State } from './fold.ts';
+import { type Batch, emptyState, orderKey, type State } from './fold.ts';
 import {
   type Claimant,
   type ClaimHost,
@@ -35,6 +35,7 @@ import {
   type TargetIssue,
 } from './issue-claims.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
+import { sentBackFrom } from './pull-request-fix.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
 
@@ -267,12 +268,17 @@ export const createIntake = (options: IntakeOptions): Intake => {
 
   /**
    * Records the end of each pull request of a batch on tap that merged or closed: a Brewery
-   * issue's too, so its base is checked no more (ADR 0198).
+   * issue's too, so its base is checked no more (ADR 0198); and of the pull request a batch brews
+   * a fix of, Stuck or not, so its action pushes nothing to it (ADR 0219).
    */
+  const endable = (batch: Batch): readonly string[] => {
+    const { lane } = batch;
+    if (lane.kind === 'on_tap') return lane.pullRequests;
+    return lane.kind === 'brewing' || lane.kind === 'stuck' ? [...sentBackFrom(batch)] : [];
+  };
   const recordEnds = async (signal: AbortSignal): Promise<void> => {
     for (const batch of log.state().batches.values()) {
-      if (batch.lane.kind !== 'on_tap') continue;
-      for (const pullRequest of batch.lane.pullRequests) {
+      for (const pullRequest of endable(batch)) {
         if (batch.pullRequestEnds?.[pullRequest] !== undefined) continue;
         let state: PullRequestState;
         try {

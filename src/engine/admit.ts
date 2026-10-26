@@ -11,6 +11,7 @@ import {
   type State,
   sameHeadChecks,
 } from './fold.ts';
+import { sentBackFrom } from './pull-request-fix.ts';
 
 /** What the command layer appends, or why it appends nothing. */
 export type Decision =
@@ -81,6 +82,10 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.recipe_chosen':
       return lanes(state, event, ['ordered', 'conditioning', 'stuck']);
     case 'step.scheduled':
+      // From on tap only back along the route of its open pull request (ADR 0219).
+      return sentBack(state, event)
+        ? undefined
+        : lanes(state, event, ['ordered', 'brewing', 'conditioning']);
     case 'step.skipped':
       return lanes(state, event, ['ordered', 'brewing', 'conditioning']);
     case 'step.started':
@@ -99,7 +104,12 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.stuck': {
       // Stuck on routing only before a recipe, and on a step only after one (ADR 0032).
       const routing = event.reason.kind === 'routing';
-      const allowed: Lane['kind'][] = routing ? ['ordered', 'stuck'] : ['brewing', 'stuck'];
+      // Stuck from on tap only on the checks of its pull request (ADR 0219).
+      const allowed: Lane['kind'][] = routing
+        ? ['ordered', 'stuck']
+        : event.reason.kind === 'pull_request_failed'
+          ? ['on_tap', 'stuck']
+          : ['brewing', 'stuck'];
       return lanes(state, event, allowed) ?? stuckOn(state, event.batchId, routing);
     }
     case 'batch.resumed':
@@ -231,18 +241,39 @@ function rewindable(
     : undefined;
 }
 
-/** A batch records the end of a pull request it opened (on tap) or waits for (Conditioning). */
+/**
+ * Whether `event` schedules a step of a batch on tap back along the route of its open pull request
+ * (ADR 0219).
+ */
+function sentBack(state: State, event: Extract<Event, { type: 'step.scheduled' }>): boolean {
+  const batch = state.batches.get(event.batchId);
+  const { route } = event;
+  return (
+    batch?.lane.kind === 'on_tap' &&
+    route?.why === 'pull_request' &&
+    batch.lane.pullRequests.includes(route.pullRequest) &&
+    batch.pullRequestEnds?.[route.pullRequest] === undefined
+  );
+}
+
+/**
+ * A batch records the end of a pull request it opened (on tap), waits for (Conditioning), or brews
+ * a fix of, Stuck or not (ADR 0219).
+ */
 function endable(
   state: State,
   event: Extract<Event, { type: 'pull_request.ended' }>,
 ): string | undefined {
-  const lane = state.batches.get(event.batchId)?.lane;
-  if (lane === undefined) return undefined;
+  const batch = state.batches.get(event.batchId);
+  if (batch === undefined) return undefined;
+  const { lane } = batch;
   const ours =
     (lane.kind === 'on_tap' && lane.pullRequests.includes(event.pullRequest)) ||
     (lane.kind === 'conditioning' &&
       lane.on.kind === 'merge' &&
-      lane.on.pullRequest === event.pullRequest);
+      lane.on.pullRequest === event.pullRequest) ||
+    ((lane.kind === 'brewing' || lane.kind === 'stuck') &&
+      sentBackFrom(batch).has(event.pullRequest));
   return ours
     ? undefined
     : `batch ${event.batchId} neither opened nor waits for ${event.pullRequest}`;

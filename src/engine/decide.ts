@@ -8,6 +8,7 @@ import {
   type Event,
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
+  MOST_FAILED_CHECKS,
   MOST_OPEN_FINDINGS,
   type OrderRef,
   type RankPlace,
@@ -40,6 +41,7 @@ import {
 import { claimStanding, same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
+import { failedPullRequest, fixHeld, pullRequestRoute } from './pull-request-fix.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { type Reopen, scopeOf } from './usage-window.ts';
@@ -157,7 +159,13 @@ export type EngineCommand =
    * The supervisor found the batch's open pull request failed on `head`, the commit of its latest
    * push: the batch goes back along its recipe's onPullRequestFail route, or Stuck (ADR 0219).
    */
-  | { kind: 'fix_pull_request'; batchId: string; pullRequest: string; head: string; cause: FixCause };
+  | {
+      kind: 'fix_pull_request';
+      batchId: string;
+      pullRequest: string;
+      head: string;
+      cause: FixCause;
+    };
 
 /** What is wrong with an open pull request that sends its batch back (ADR 0219). */
 export type FixCause = { kind: 'checks' };
@@ -215,9 +223,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'waiting_for_session':
     case 'stalled':
     case 'stopped':
-      return [...withoutAnswer];
     case 'pull_request_failed':
-      throw new Error('not implemented');
+      return [...withoutAnswer];
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
@@ -383,7 +390,8 @@ function run(draft: Draft, command: Command): Event[] {
       remind(draft, command.batchId);
       break;
     case 'fix_pull_request':
-      throw new Error('not implemented');
+      fixPullRequest(draft, command);
+      break;
     case 'retry': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'retry');
@@ -394,6 +402,20 @@ function run(draft: Draft, command: Command): Event[] {
         break;
       }
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
+      // Back along the route once more: a person's round past its rounds (ADR 0219).
+      if (reason.kind === 'pull_request_failed') {
+        const { stepId, pullRequest, head } = reason;
+        const goto = recipeOf(draft, draft.batch(batchId)).routesTo(stepId, 'pull_request');
+        if (goto === undefined) {
+          throw new Refusal(
+            `step ${stepId} of batch ${batchId} has no onPullRequestFail route any more`,
+          );
+        }
+        schedule(draft, batchId, goto, {
+          route: { from: stepId, why: 'pull_request', pullRequest, head },
+        });
+        break;
+      }
       schedule(draft, batchId, reason.stepId, { retry: true });
       resumeGroup(draft, batchId, reason.stepId);
       break;
@@ -697,6 +719,55 @@ function goBack(draft: Draft, batchId: string, back: string, route: ScheduleRout
     return;
   }
   schedule(draft, batchId, back, { route });
+}
+
+/**
+ * A batch on tap whose open pull request failed its checks on `head`, the commit of its latest
+ * push, goes back along its recipe's onPullRequestFail route, or Stuck once its rounds are used
+ * (ADR 0219). Every fact the supervisor read is checked again on the state decided on.
+ */
+function fixPullRequest(
+  draft: Draft,
+  command: Extract<Command, { kind: 'fix_pull_request' }>,
+): void {
+  const { batchId, pullRequest, head } = command;
+  const batch = requireLane(draft.batch(batchId), 'fix_pull_request', ['on_tap']);
+  const failed = failedPullRequest(draft.state, batch);
+  if (failed?.pullRequest !== pullRequest || failed.head !== head) {
+    throw new Refusal(
+      `pull request ${pullRequest} of batch ${batchId} has no failed checks on ${head}, the head of the batch's latest push`,
+    );
+  }
+  if (fixHeld(draft.state, batch)) {
+    throw new Refusal(
+      `batch ${batchId} is paused: its pull request goes back once it is continued`,
+    );
+  }
+  const recipe = recipeOf(draft, batch);
+  const route = pullRequestRoute(recipe);
+  if (route === undefined) {
+    throw new Refusal(`recipe ${batch.recipe?.name} has no onPullRequestFail route`);
+  }
+  const { from } = route;
+  const back = recipe.loopBack(batch, from, 'pull_request');
+  if (back !== undefined) {
+    goBack(draft, batchId, back, { from, why: 'pull_request', pullRequest, head });
+    return;
+  }
+  const shown = failed.failed.slice(0, MOST_FAILED_CHECKS).map(({ name, conclusion, url }) => ({
+    name,
+    conclusion,
+    ...(url === undefined ? {} : { url }),
+  }));
+  stick(draft, batchId, {
+    kind: 'pull_request_failed',
+    stepId: from,
+    pullRequest,
+    head,
+    rounds: recipe.rounds(batch, from, 'pull_request') ?? 0,
+    failed: shown,
+    more: failed.failed.length - shown.length,
+  });
 }
 
 /** An Ordered batch past its routing deadline gets Stuck, so a human hears of it (ADR 0032). */

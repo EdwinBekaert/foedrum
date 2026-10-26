@@ -71,7 +71,9 @@ function describeSource(source: InputSource): string {
     case 'answers':
       return `answers to the questions of step ${source.step}`;
     case 'route': {
-      if (source.why === 'pull_request') throw new Error('not implemented');
+      if (source.why === 'pull_request') {
+        return `why step ${source.step} runs again: the failed checks of pull request ${source.pullRequest}`;
+      }
       const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }

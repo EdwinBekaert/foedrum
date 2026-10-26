@@ -264,7 +264,10 @@ interface LineStep {
   stall: Stall | undefined;
   /** Whether it gets another attempt after `attempts`, the last of which failed retryably. */
   mayRetry: (attempts: readonly Attempt[]) => boolean;
-  /** Where its onFail (a check) or onBlocked findings (a brewer) route goes, and how often. */
+  /**
+   * Where its onFail (a check), onBlocked findings (a brewer) or onPullRequestFail (the
+   * openPullRequest action, ADR 0219) route goes, and how often.
+   */
   route: { why: RouteWhy; goto: string; maxRounds: number } | undefined;
   /** The action it is, which the engine runs itself (ADR 0071); none for a brewer or a check. */
   action?: RecipeAction;
@@ -279,7 +282,10 @@ interface LineStep {
  * the driver until then, through a GitHub rate-limit pause, which lasts an hour at most (ADR 0052).
  */
 const ACTION_DEADLINE = '2h';
-/** How many attempts the action gets: one fails only when it has nothing to push. */
+/**
+ * How many attempts the action gets in each round of its pull request (ADR 0219): one fails only
+ * when it has nothing to push.
+ */
 const ACTION_ATTEMPTS = 3;
 
 /** The deadline of a check step without one of its own (ADR 0069). */
@@ -510,8 +516,9 @@ function lineRecipe(
       return rounds < route.maxRounds ? route.goto : undefined;
     },
     rounds: roundsOf,
-    routesTo: () => {
-      throw new Error('not implemented');
+    routesTo: (id, why) => {
+      const { route } = at(id);
+      return route?.why === why ? route.goto : undefined;
     },
   };
 }
@@ -613,7 +620,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           ? step.onFail?.goto
           : 'onBlocked' in step
             ? step.onBlocked?.findings.goto
-            : undefined;
+            : 'onPullRequestFail' in step
+              ? step.onPullRequestFail?.goto
+              : undefined;
       if (goto !== undefined && groupIds.has(goto)) {
         problems.push(
           `${path}: step "${stepId(step)}" routes back to the parallel group "${goto}": route to one of the steps before it (ADR 0168)`,
@@ -675,8 +684,18 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
             deadline: ACTION_DEADLINE,
             // An action makes no progress the runner could see; its deadline covers it.
             stall: undefined,
-            mayRetry: (attempts) => attempts.length < ACTION_ATTEMPTS,
-            route: undefined,
+            // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
+            mayRetry: (attempts) =>
+              attempts.length -
+                (attempts.findLastIndex(
+                  (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+                ) +
+                  1) <
+              ACTION_ATTEMPTS,
+            route:
+              runnable.onPullRequestFail === undefined
+                ? undefined
+                : { why: 'pull_request', ...runnable.onPullRequestFail },
             action: 'openPullRequest',
           };
           return [{ line }];
