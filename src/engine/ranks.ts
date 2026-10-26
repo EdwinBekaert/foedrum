@@ -12,6 +12,11 @@ export interface QueuedOrder {
   created: string;
   /** 0 for a Brewery issue, else 1 + the place of its repository in foedrum.jsonc. */
   source: number;
+  /**
+   * A ready sub-order of `order`, started under `parentBatchId` (ADR 0211): it sorts at its order's
+   * place, ahead of a new order of the same place.
+   */
+  subOrder?: { issue: number; parentBatchId: string };
 }
 
 type Ranks = ReadonlyMap<string, Rank>;
