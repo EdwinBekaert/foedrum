@@ -14,7 +14,7 @@ import {
   type TargetTracker,
 } from '../../src/engine/intake.ts';
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
-import { type Limits, limitLines, limitsOf, openOrders } from '../../src/engine/limits.ts';
+import { type Limits, limitLines, limitsOf, mayHold, openOrders } from '../../src/engine/limits.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
@@ -351,6 +351,22 @@ describe('the limits of a pass (ADR 0217)', () => {
       decompose('1-1', [10, 11]);
       onTap('1-1');
       assert.deepStrictEqual(open(), ['#1']);
+    });
+
+    it('lets status read the limits while only such an order is open, with no batch live (review of #563)', () => {
+      brewing(1, 'half');
+      decompose('1-1', [10]);
+      onTap('1-1');
+      assert.equal(mayHold(log.state()), true);
+      assert.deepStrictEqual(limitLines(log.state(), { ...unlimited, openOrders: 1 }), [
+        'open orders: 1 of 1 (#1); new orders wait',
+      ]);
+    });
+
+    it('lets status skip the limits while no order is open', () => {
+      brewing(1, 'half');
+      onTap('1-1');
+      assert.equal(mayHold(log.state()), false);
     });
 
     it("counts a sub-order's batch as its order's, and a claimed batch by its target issue", () => {
