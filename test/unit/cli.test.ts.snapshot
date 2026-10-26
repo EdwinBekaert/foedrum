@@ -138,6 +138,7 @@ Commands:
   status [--watch]                                        List the batches and their lanes
   stuck                                                   List the Stuck batches with their options and questions
   brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
+  lenses                                                  Report each lens's findings, how they ended, and its tokens
   replay <batch>                                          Show a batch's events and its folded state
   resume <batch> [<step>]                                 Open a brewer attempt's Claude Code session in its worktree; take a running batch over
   retry <batch>                                           Give the step a Stuck batch stopped at another attempt
