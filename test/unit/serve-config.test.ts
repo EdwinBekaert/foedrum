@@ -345,6 +345,7 @@ describe('serveSetup', () => {
     assert.deepStrictEqual(ready(inputs()).intake, {
       users: ['ann'],
       capacity: 1,
+      openOrders: 3,
       pollEveryMs: 60_000,
       repositories: [],
     });
@@ -356,7 +357,7 @@ describe('serveSetup', () => {
         files: {
           ...inputs().files,
           config: config(
-            { users: ['ann', 'bob'], concurrency: 3, pollEvery: '5m' },
+            { users: ['ann', 'bob'], concurrency: 3, openOrders: 4, pollEvery: '5m' },
             { alias: 'web', intake: { labels: ['foedrum'], milestone: 'M1' } },
           ),
         },
@@ -365,6 +366,7 @@ describe('serveSetup', () => {
     assert.deepStrictEqual(setup.intake, {
       users: ['ann', 'bob'],
       capacity: 3,
+      openOrders: 4,
       pollEveryMs: 300_000,
       repositories: [
         { repo: 'acme/web', alias: 'web', filter: { labels: ['foedrum'], milestone: 'M1' } },
