@@ -382,6 +382,30 @@ describe('pause and continue (ADR 0202)', () => {
       );
     });
 
+    it("stopped on its last allowed attempt stays the pause's when a continue lands before its end", () => {
+      order(12);
+      start('b12');
+      const plan = { batchId: 'b12', stepId: 'plan' } as const;
+      accept({ kind: 'finish', ...plan, attempt: 1, ending: { kind: 'cancelled' } });
+      start('b12', 'plan', 2);
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(10), zone: 'UTC' } });
+      now = at(10);
+      // The driver stopped plan#2; a person continued before its end was recorded.
+      accept({ kind: 'continue', order: { issue: 12 }, ...who });
+      const events = accept({
+        kind: 'finish',
+        ...plan,
+        attempt: 2,
+        ending: { kind: 'cancelled' },
+        paused: true,
+      });
+      assert.deepStrictEqual(
+        events.map((event) => `${event.type} ${'attempt' in event ? event.attempt : ''}`),
+        ['step.finished 2', 'step.scheduled 3'],
+      );
+      assert.equal(batch('b12').lane.kind, 'brewing');
+    });
+
     it('is recorded as an ordinary cancelled end when its pause no longer stops it as the end comes', () => {
       order(12);
       start('b12');
