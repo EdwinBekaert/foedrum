@@ -112,14 +112,19 @@ const run = async (seed: number): Promise<void> => {
         .map(({ id }) => id),
     );
     assert.ok(stopped.size > 0, 'the stop made a batch Stuck');
-    if (random.chance(0.5)) {
+    const restarted = random.chance(0.5);
+    if (restarted) {
       // Its runs' ends are not recorded: the restarted driver loses them.
       driver.close();
       attempts = runner();
       driver = await open();
     }
     await tick();
-    assert.equal(attempts.runsOf(stopped), 0, 'the next tick stopped what ran of the order');
+    // A restarted driver's runner is new: only the one that ran them can show their runs stopped;
+    // after a restart, the check below that nothing stopped starts holds the line.
+    if (!restarted) {
+      assert.equal(attempts.runsOf(stopped), 0, 'the next tick stopped what ran of the order');
+    }
     for (let each = 0; each < 5; each++) {
       attempts.endSome(() => random.chance(0.3));
       await tick();
