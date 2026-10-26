@@ -551,6 +551,14 @@ describe('the foedrum command for Git Bash on Windows (ADR 0212)', () => {
     }
   });
 
+  it('knows again its script after an editor gave it CRLF line ends', async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const crlf = (files[SH] ?? '').replaceAll('\n', '\r\n');
+    const { lines, written } = await offer({ ...windows(FOLDER), files: { ...files, [SH]: crlf } });
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual(lines, [`${CMD} runs this Foedrum already`]);
+  });
+
   it('leaves a foedrum script there that init did not write, writing neither file', async () => {
     const { questions, lines, written } = await offer({
       ...windows(FOLDER),
