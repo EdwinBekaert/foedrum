@@ -24,7 +24,6 @@ import type { ExecProcess } from '../platform/processes.ts';
 import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
-import { mergeTreeSupported } from '../workspace/merge-tree-git.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
@@ -174,26 +173,15 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
 
 /**
  * The repositories whose open pull requests each intake pass checks against their base (ADR 0198):
- * every one, when the shell can merge-tree and git is 2.38 or later, read once here; else none,
- * and one line says why.
+ * every one when the shell can merge-tree, which every git Foedrum runs on can (ADR 0200); else none.
  */
-const baseChecks = async (
+const baseChecks = (
   setup: ServeSetup,
   shell: ServeShell,
   pushes: readonly PullRequestRepository[],
-  say: (line: string) => void,
-): Promise<BaseCheckRepository[]> => {
+): BaseCheckRepository[] => {
   const { mergeTree } = shell;
   if (mergeTree === undefined) return [];
-  const supported = await mergeTreeSupported(shell.git, setup.workRoot, shell.signal);
-  if (supported !== true) {
-    const why =
-      supported === undefined
-        ? "git's version could not be read"
-        : 'git is older than 2.38, which merge-tree --write-tree needs';
-    say(`${why}: open pull requests are not checked against a base that moved (ADR 0198)`);
-    return [];
-  }
   return pushes.flatMap(({ repo, base, push }) => {
     const repository = setup.repositories.find((each) => each.repo === repo);
     return repository === undefined
@@ -237,7 +225,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         report: (notice) => say(formatNotice(notice)),
       },
     );
-    const bases = await baseChecks(setup, shell, pushes, say);
+    const bases = baseChecks(setup, shell, pushes);
     // GitHub's rate limit holds requests until then: no pass starts before it (ADR 0052).
     let pausedUntil = 0;
     const intake = createIntake({

@@ -52,7 +52,8 @@ const NIP_TEST = 'greets a stranger when no name is given';
 /**
  * One scripted attempt: the files it writes, its commit, and its out doc's summary; a Taster
  * commits nothing and adds its verdict and findings (ADR 0161), and a Finer with nothing to
- * simplify commits nothing and says why (ADR 0166).
+ * simplify commits nothing and says why (ADR 0166). A brewer a findings route brought back says
+ * what it did with each finding (ADR 0191).
  */
 export interface Scripted {
   files: Record<string, string>;
@@ -60,6 +61,7 @@ export interface Scripted {
   summary: string;
   tasting?: { verdict: 'approve' | 'changes'; findings: readonly Record<string, unknown>[] };
   fining?: { unchanged: string };
+  dispositions?: readonly Record<string, unknown>[];
 }
 
 /**
@@ -134,8 +136,8 @@ export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
 };
 
 /** The out doc of a scripted attempt that is done. */
-export const scriptedOutDoc = ({ summary, tasting, fining }: Scripted): string =>
-  outDoc({ status: 'done', summary, ...tasting, ...fining });
+export const scriptedOutDoc = ({ summary, tasting, fining, dispositions }: Scripted): string =>
+  outDoc({ status: 'done', summary, ...tasting, ...fining, ...(dispositions && { dispositions }) });
 
 /**
  * The repository's checks and test report: only `test`, which writes TAP to stdout, as the red
