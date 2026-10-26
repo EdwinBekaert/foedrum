@@ -27,7 +27,7 @@ import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } from './fold.ts';
 import { claimStanding, same } from './issue-claims.ts';
-import { orderOfBatch, pauseOf, stopsNow } from './pauses.ts';
+import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 
@@ -1085,19 +1085,17 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
 
 /**
  * Whether the end of an attempt the driver stopped as its batch's pause reached its stopAt
- * (ADR 0202) is recorded as the pause's: it counts against no retry. A pause lifted or replaced
- * since the stop no longer stops the batch, and the end is an ordinary cancelled one. Only a
- * cancelled end can be the pause's.
+ * (ADR 0202) is recorded as the pause's: it counts against no retry. The driver's flag decides,
+ * not the pause's state when the end is recorded, so a continue or a new pause that lands between
+ * the stop and the end spends no retry either. Only a cancelled end can be the pause's.
  */
-function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish' }>): boolean {
+function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish' }>): true {
   const { batchId, stepId, attempt, ending } = command;
-  const batch = draft.batch(batchId);
   if (ending.kind !== 'cancelled') {
-    throw new Refusal(
-      `${attemptName(batch, stepId, attempt)} was not stopped by a pause: it ended ${ending.kind}`,
-    );
+    const name = attemptName(draft.batch(batchId), stepId, attempt);
+    throw new Refusal(`${name} was not stopped by a pause: it ended ${ending.kind}`);
   }
-  return stopsNow(draft.state, batch, draft.context.now);
+  return true;
 }
 
 /** `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202). */
