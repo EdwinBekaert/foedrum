@@ -28,11 +28,13 @@ Holding only the family of an Opus or Sonnet limit is #537, not this decision.
   A brewer that resumes ([ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)) continues the session the limit cut off.
 - **Unlike `stop`** ([ADR 0205](0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md)), whose stopped attempt is abandoned, counts toward `maxAttempts` and waits for a person's `retry`: a usage limit is the subscription's wait, which ends by itself.
 - `decide` refuses `usageLimited` on an end that is not blocked on the environment, as it refuses `paused` on one that is not cancelled.
+- An end that `finish` refuses because its batch left brewing meanwhile (a `stop`, a deadline) closes nothing: the next brewer meets the limit and closes the window, at the cost of that one attempt.
 - **A spend limit or a too-low credit balance** ([ADR 0129](0129-a-spend-limit-or-a-too-low-credit-balance-blocks-on-the-environment.md)) stays Stuck: nothing resets it by itself.
 
 ### The reset
 - The driver reads claude's reset text in the machine's time zone as the next moment that matches, only in the documented forms ([ADR 0091](0091-a-run-out-usage-window-blocks-on-the-environment.md)): `3:45pm` (an hour 1 to 12, two digits of minutes, `am` or `pm`) is today at 15:45, or tomorrow once that has passed; `Mon 12:00am` (a weekday, `Mon` to `Sun`, before it) is the coming Monday at midnight, or the Monday after when that moment has passed.
   Across a change of clocks the wall-clock time is kept, as `pause --by` reads a local time.
+- **A reset that matched within the last hour** is that reset, not tomorrow's or next week's: the driver may handle the end minutes after claude wrote it, and claude names the reset to the minute. The window then reopens after the margin, or at once when the margin has passed too, where a day or a week would hold every brewer for nothing.
 - **A margin of 5 minutes** is added, so the first attempt after the reopen does not meet a window that claude's clock has not reopened yet.
 - The event records the reopen as a UTC instant beside claude's text, so a reader on another machine sees both.
 - **A reset the engine cannot read** (another form, or a machine whose zone ICU cannot use) reopens the window an hour after the limit, with `read: false`: the next brewer attempt then tries, and a refusal closes it for another hour.
@@ -63,7 +65,7 @@ Holding only that family's brewers, by the model each brewer runs, is #537.
 - A run-out window costs each running brewer one attempt that counts against nothing, and no person's retry: the Brewery goes on after the reset by itself.
 - The other work of the Brewery goes on: a check, a pull request or a status comment never waits for the window.
 - An Opus or Sonnet limit holds brewers on the other family too, until #537.
-- The window is one fold field (`State.usageWindow`), two event types, one more `step.finished` flag, one engine command (`reopen`), a driver and a supervisor rule, and a reader of the reset; `serve` and its wiring gain the machine's zone.
+- The window is one fold field (`State.usageWindow`), two event types, one more `step.finished` flag, one engine command (`reopen`), a driver and a supervisor rule, and a reader of the reset; `openDriver` gains a `zone` option, the machine's by default, so `serve` and `brew` need no wiring of their own.
 - Size: about 700 lines with the tests, in one pull request.
 - Chaos case: a driver killed while the window is closed; after the restart no brewer starts until the reopen, and then the batch goes on to on tap.
 

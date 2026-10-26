@@ -11,7 +11,7 @@ flowchart LR
 ```
 
 - The runner reads the four documented limits (`session`, `weekly`, `Opus`, `Sonnet`) into the blocked ending's `usageLimit` ([how a brewer runs](../recipes/how-a-brewer-runs.md), [ADR 0091](../../adr/0091-a-run-out-usage-window-blocks-on-the-environment.md)).
-- The driver reads the reset in the machine's time zone (`zone`, the machine's by default) as the next moment that matches: `3:45pm` today, or tomorrow once past; `Mon 12:00am` the coming Monday, or the Monday after once past; the wall-clock time is kept across a change of clocks (`reopenOf`, `src/engine/usage-window.ts`).
+- The driver reads the reset in the machine's time zone (`zone`, the machine's by default) as the next moment that matches: `3:45pm` today, or tomorrow once it passed over an hour ago; `Mon 12:00am` the coming Monday, or the Monday after once it passed over an hour ago (a reset handled minutes late is still the one claude named); the wall-clock time is kept across a change of clocks (`reopenOf`, `src/engine/usage-window.ts`).
   It adds a margin of 5 minutes; a reset in another form, or a zone ICU cannot use, reopens the window an hour on, recorded with `read: false`.
 - `finish` records the attempt's `step.finished` with `usageLimited`, appends `usage.window_closed` with the limit, claude's reset text, the UTC `reopensAt` and `read`, and schedules the step again as a retry; the recipe counts its attempts without it, so even a step's last allowed attempt leaves the batch brewing.
   A usage limit on an end not blocked on the environment, or without the reopen, is refused.
@@ -23,4 +23,4 @@ flowchart LR
 - A spend limit or a too-low credit balance still makes the batch Stuck ([ADR 0129](../../adr/0129-a-spend-limit-or-a-too-low-credit-balance-blocks-on-the-environment.md)).
 - An Opus or Sonnet limit holds every brewer too, until #537 holds only that family.
 - The status comment of a brewing batch says `⏳ Usage window closed: claude hit its <limit> limit, which resets <reset>; brewers wait until <hh:mm> UTC, <day month>` (`try again at` for an unread reset); `foedrum status` prints the line above the board, and `foedrum replay` lists the window's events since the last reopen before the batch was ordered.
-- Both events name no batch, so they go to the state branch's top-level log.
+- Both events name no batch ([the state branch](state-branch.md)).
