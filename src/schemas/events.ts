@@ -32,6 +32,8 @@ export const PullRequestUrl = z
 export const MAX_HEAD_CHECKS = 100;
 /** The longest name of a check on a pull request's head that a record keeps (ADR 0213). */
 export const MAX_HEAD_CHECK_NAME_LENGTH = 200;
+/** The longest link of a check on a pull request's head that a record keeps (ADR 0213). */
+export const MAX_HEAD_CHECK_URL_LENGTH = 2000;
 
 /**
  * How a check on a pull request's head finished, as GitHub names it (ADR 0213): a check run's

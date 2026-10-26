@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { githubCheckReader } from '../../src/github/checks.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
+import { MAX_HEAD_CHECK_URL_LENGTH } from '../../src/schemas/events.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 
@@ -150,6 +151,19 @@ describe('githubCheckReader', () => {
         ['odd', 'unknown'],
       ],
     );
+  });
+
+  it(`leaves out a link longer than ${MAX_HEAD_CHECK_URL_LENGTH} characters`, async () => {
+    const at = 'https://ci.example/';
+    const longest = `${at}${'a'.repeat(MAX_HEAD_CHECK_URL_LENGTH - at.length)}`;
+    const { reader } = readerWith([
+      runsPage([]),
+      statusPage([status('kept', 'success', longest), status('long', 'success', `${longest}a`)]),
+    ]);
+    assert.deepStrictEqual(await reader.checks(pullRequest, head), [
+      { name: 'kept', kind: 'status', conclusion: 'success', url: longest },
+      { name: 'long', kind: 'status', conclusion: 'success' },
+    ]);
   });
 
   it('never keeps half a character when it cuts a name', async () => {

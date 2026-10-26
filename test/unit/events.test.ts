@@ -4,6 +4,7 @@ import { formatReplay } from '../../src/cli/replay.ts';
 import { fold } from '../../src/engine/fold.ts';
 import {
   Event,
+  MAX_HEAD_CHECK_URL_LENGTH,
   MAX_HEAD_CHECKS,
   SessionRef,
   StuckReason,
@@ -324,6 +325,9 @@ describe('Event', () => {
     rejects(Event, { ...finished, checks: [{ ...check, kind: 'suite' }] });
     rejects(Event, { ...finished, checks: [{ ...check, url: 'http://ci.example/1' }] });
     rejects(Event, { ...finished, checks: [{ ...check, url: 'https://u:p@ci.example/1' }] });
+    const url = `https://ci.example/${'a'.repeat(MAX_HEAD_CHECK_URL_LENGTH - 19)}`;
+    accepts(Event, { ...finished, checks: [{ ...check, url }] });
+    rejects(Event, { ...finished, checks: [{ ...check, url: `${url}a` }] });
     rejects(Event, { ...finished, more: 0 });
     rejects(Event, { ...finished, head: 'main' });
     rejects(Event, { ...valid['pull_request.checks_pending'], since: 'yesterday' });

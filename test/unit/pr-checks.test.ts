@@ -153,12 +153,13 @@ describe('recordChecks', () => {
       'pull_request.checks_pending',
       'pull_request.checks_finished',
     ]);
-    // A head recorded finished is not read again: only the head is.
+    // A head recorded finished is read again each pass, and what did not change records nothing.
     assert.deepStrictEqual(calls, [`head ${pullRequest}`, `checks ${pullRequest} a`]);
     assert.deepStrictEqual(finished.calls, [
       `head ${pullRequest}`,
       `checks ${pullRequest} a`,
       `head ${pullRequest}`,
+      `checks ${pullRequest} a`,
     ]);
     assert.deepStrictEqual(checkLines(batch()), [
       `- <${pullRequest}> passed its checks on \`aaaaaaaa\``,
@@ -392,7 +393,7 @@ describe('recordChecks', () => {
     assert.equal(record.more, 6);
   });
 
-  it('refuses a second record of the same head, so a head is recorded once', () => {
+  it('refuses a record of a head that says what its latest record says', () => {
     onTap();
     const finished = {
       type: 'pull_request.checks_finished',
@@ -412,7 +413,19 @@ describe('recordChecks', () => {
     assert.equal(log.issue({ kind: 'record', event: pending }, now).kind, 'refused');
     accept({ kind: 'record', event: finished });
     assert.equal(log.issue({ kind: 'record', event: finished }, now).kind, 'refused');
-    assert.equal(log.issue({ kind: 'record', event: pending }, now).kind, 'refused');
+    // The same checks in another order say the same.
+    const two = [passed('b'), passed('a')].map((check) => ({
+      ...check,
+      conclusion: 'success' as const,
+    }));
+    accept({ kind: 'record', event: { ...finished, checks: two } });
+    assert.equal(
+      log.issue({ kind: 'record', event: { ...finished, checks: [...two].reverse() } }, now).kind,
+      'refused',
+    );
+    // A check that came late, and a re-run that passed, are each recorded on the same head.
+    accept({ kind: 'record', event: pending });
+    accept({ kind: 'record', event: finished });
     // Nor a record of a pull request the batch did not open.
     const stranger = {
       ...finished,
@@ -420,6 +433,61 @@ describe('recordChecks', () => {
       pullRequest: 'https://github.com/acme/web/pull/99',
     };
     assert.equal(log.issue({ kind: 'record', event: stranger }, now).kind, 'refused');
+  });
+
+  it('records a re-run on the same head that passed after its checks failed', async () => {
+    onTap();
+    const url = 'https://github.com/acme/web/actions/runs/1/job/9';
+    await pass(fakeReader({ [head]: [failing('test', 'failure', url)] }).reader);
+    await pass(fakeReader({ [head]: [passed('test', url)] }).reader);
+    assert.deepStrictEqual(types(), [
+      'pull_request.checks_finished',
+      'pull_request.checks_finished',
+    ]);
+    assert.deepStrictEqual(checkLines(batch()), [
+      `- <${pullRequest}> passed its checks on \`aaaaaaaa\``,
+    ]);
+  });
+
+  it('waits again for a check that registers on a head after its checks finished', async () => {
+    onTap();
+    await pass(fakeReader({ [head]: [passed('build')] }).reader);
+    now = new Date('2026-10-26T09:01:00.000Z');
+    await pass(fakeReader({ [head]: [passed('build'), running('test')] }).reader);
+    assert.deepStrictEqual(batch().pullRequestChecks?.[pullRequest], {
+      kind: 'pending',
+      head,
+      since: '2026-10-26T09:01:00.000Z',
+    });
+    assert.deepStrictEqual(checkLines(batch()), [
+      `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:01:00.000Z`,
+    ]);
+    await pass(fakeReader({ [head]: [passed('build'), failing('test', 'failure')] }).reader);
+    assert.deepStrictEqual(types(), [
+      'pull_request.checks_finished',
+      'pull_request.checks_pending',
+      'pull_request.checks_finished',
+    ]);
+    assert.deepStrictEqual(checkLines(batch()), [
+      `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: test (failure)`,
+    ]);
+  });
+
+  it('shows no checks line once someone else pushed to the branch, since they are read no more', async () => {
+    onTap();
+    await pass(fakeReader({ [head]: [running('build')] }).reader);
+    accept({
+      kind: 'record',
+      event: {
+        type: 'pull_request.base_checked',
+        batchId: 'web-7',
+        pullRequest,
+        branch: 'main',
+        tip: 'c'.repeat(40),
+        branchMoved: moved,
+      },
+    });
+    assert.deepStrictEqual(checkLines(batch()), []);
   });
 
   it('shows its line in the status comment and its events in replay', async () => {
