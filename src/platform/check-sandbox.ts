@@ -218,13 +218,16 @@ export const borrowedStores = (repository: string): string[] => {
 };
 
 /**
- * Whether a repository's real path lies inside one of `roots`, each read by its real path:
- * the folders Foedrum alone writes, for `borrowsFrom` (ADR 0203).
+ * Whether a repository's real path is a `.git` directory directly in one of `roots`, each read by
+ * its real path, for `borrowsFrom` (ADR 0203): Foedrum's own git directories. Nothing deeper
+ * holds, since a merged tree's worktree, `<uuid>.tree` beside its directory, is its check's to
+ * write (review of #528).
  */
 export const insideFolders =
   (roots: readonly string[], realPath: (path: string) => string) =>
   (realRepository: string): boolean =>
-    roots.some((root) => pathInside(realPath(root), realRepository) !== undefined);
+    basename(realRepository).endsWith('.git') &&
+    roots.some((root) => samePath(dirname(realRepository), realPath(root)));
 
 export interface SandboxedChecksOptions {
   /** The process runner the sandbox is started through. */
