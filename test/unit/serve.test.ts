@@ -1906,6 +1906,29 @@ describe('runServe', () => {
       assert.deepStrictEqual([...state().batches.keys()], ['12-1', '13-1']);
     });
 
+    it("holds a new order past foedrum.jsonc's openOrders, and says so once (ADR 0217)", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 2, openOrders: 1 });
+      // A recipe the Brewery lacks: the batch stays Ordered, its order open.
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [12, 13].map((number) => ({
+            number,
+            labels: ['recipe:pint'],
+            author: 'ann',
+          })),
+        },
+      });
+      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      assert.deepStrictEqual([...state().batches.keys()], ['12-1']);
+      const waits = lines.filter((line) => line.includes('#13 waits'));
+      assert.deepStrictEqual(waits, [
+        "foedrum serve: Acme/Brewery#13 waits: 1 order is open, the Brewery's openOrders",
+      ]);
+    });
+
     it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
       store = empty();
       setup = intakeSetup();
@@ -2016,6 +2039,12 @@ describe('formatIntakeNotice', () => {
         formatIntakeNotice({ kind: 'ordered', repo: 'acme/web', issue: 7, batchId: 'web-7' }),
         formatIntakeNotice({ kind: 'routed', batchId: 'web-7', recipe: 'stout' }),
         formatIntakeNotice({ kind: 'unrouted', batchId: '12-1', reason: 'no recipe pint' }),
+        formatIntakeNotice({
+          kind: 'held',
+          repo: 'acme/web',
+          issue: 5,
+          reason: 'recipe pint is full',
+        }),
         formatIntakeNotice({ kind: 'taken', repo: 'acme/web', issue: 3, by: 'bob/brewery' }),
         formatIntakeNotice({ kind: 'taken', repo: 'acme/web', issue: 4, by: undefined }),
         formatIntakeNotice({ kind: 'refused', command, reason: 'batch 12-1 exists' }),
@@ -2025,6 +2054,7 @@ describe('formatIntakeNotice', () => {
         'ordered acme/web#7 as batch web-7',
         'routed batch web-7 to the recipe stout',
         'batch 12-1 is not routed: no recipe pint',
+        'acme/web#5 waits: recipe pint is full',
         'acme/web#3 is claimed by bob/brewery',
         'acme/web#4 is claimed by a ref whose record cannot be read',
         'order of batch 12-1 was refused: batch 12-1 exists',
