@@ -23,7 +23,7 @@ Claude Code's documentation, checked on 2026-10-26:
 ### The recipe
 - A brewer step may say **`"interactive": true`** with a **`"prompt"`**, the Brewery's first message to the session: `{ "id": "lauter", "brewer": "maltster", "interactive": true, "prompt": "…" }`.
   `interactive` is only the literal `true`, and `prompt` is non-empty text of at most 4 KiB; the schema refuses either without the other, and every other step kind refuses both (strict objects).
-- The loader refuses an interactive step in a parallel group (Tasters side by side, [ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md), and one terminal) and one with a `lens` (a lens step is a Taster's headless review).
+- The loader refuses an interactive step in a parallel group (Tasters side by side, [ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md), and one terminal) and one with a `lens` or `lenses` ([ADR 0220](0220-a-taster-s-step-can-run-several-lenses-together.md); a lens step is a Taster's headless review).
 - **The `session` step goes**: `SessionStep`, the `session` kind and the `fallback` brewer are removed, and the schema refuses a step with `session` with a message that names `"interactive": true` on a brewer step.
   An interactive step never runs headless, so there is nothing to fall back to.
 - The step keeps its brewer's (or its own) `deadline`, which holds until its session opens (below).

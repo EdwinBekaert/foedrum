@@ -16,7 +16,7 @@ flowchart LR
 ```
 
 - `interactive` is only `true`, and `prompt` is non-empty text of at most 4 KiB; each needs the other, and only a brewer step takes them.
-  The load refuses an interactive step in a parallel group or with a `lens`.
+  The load refuses an interactive step in a parallel group, or with a `lens` or `lenses`.
 - The session runs with the step's brewer: its model, effort, tools, settings, system prompt file and out doc, as every attempt.
   Its brewer still never calls `AskUserQuestion` ([ADR 0006](../../adr/0006-no-mid-run-questions.md)); its out doc may say `needs_input`.
 - The recipe's prompt follows the brewer file's body in the instructions, before the round texts and the out doc contract, with the inputs in their nonce tags after them.
