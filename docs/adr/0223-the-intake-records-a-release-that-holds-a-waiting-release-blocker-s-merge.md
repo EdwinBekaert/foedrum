@@ -24,8 +24,9 @@ And what GitHub answers is untrusted input ([ADR 0050](0050-the-intake-of-target
 ### What is read
 - Through a reader of its own (`ReleaseReader`, `IntakeOptions.releases`, `src/engine/releases.ts`; GitHub's is `githubReleaseReader`, `src/github/releases.ts`), optional as `checks` is ([ADR 0213](0213-an-open-pull-request-s-checks-on-its-head-are-recorded-once-they-finish.md)): `serve` gives it; a pass without one records no release.
 - **The latest release**: `GET /repos/{repo}/releases/latest`, GitHub's latest published release, never a draft or a prerelease, conditional on the answer before ([ADR 0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)): its tag's name and `published_at`.
-- **Else the latest tag**: on that read's 404, the newest tag by its commit's date through GraphQL (`refs(refPrefix: "refs/tags/", first: 1, orderBy: {field: TAG_COMMIT_DATE, direction: DESC})`), since REST's tag list promises no order: its name and its commit's `committedDate`. A repository with neither has no release.
+- **Else the latest tag**: on that read's 404, the newest tag by its commit's date through GraphQL (`refs(refPrefix: "refs/tags/", first: 1, orderBy: {field: TAG_COMMIT_DATE, direction: DESC})`), since REST's tag list promises no order: its name and its commit's `committedDate`. A repository with neither has no release; a newest tag that points at no commit (a tree, a blob, a tag of a tag) fails the read, which is reported, so the wait it holds up shows.
 - **Whether it holds a merge**: the pull request's `merged_at` and `merge_commit_sha` (`GET /repos/{repo}/pulls/{n}`, conditional), then, only when the release's date is not before `merged_at`, `GET /repos/{repo}/compare/{tag}...{merge}`, conditional: `behind` or `identical` holds it, `ahead` and `diverged` do not. A pull request of another repository than the blocker's, or with no merge commit, holds nothing.
+- **A tag's date is its commit's**, set where the commit was made, not when it reached GitHub: a merge made locally and pushed with a tagged commit after it has a `merged_at` later than the tag's commit. So a tag is not compared with `merged_at` but with the merge commit's own committer date (`GET /repos/{repo}/git/commits/{sha}`, conditional, which lists no files), and compared only when its date is not before that (review of #578).
 - Every field is checked; a tag whose name is no valid ref name (git's `check-ref-format` rules) or is longer than 255 characters is refused, and the report says why.
 
 ### When a release is recorded
@@ -47,7 +48,8 @@ And what GitHub answers is untrusted input ([ADR 0050](0050-the-intake-of-target
 - A repository with a waiting blocker costs one conditional read per pass, its pull requests' conditional reads, and one compare per new release; a repository without releases one GraphQL query per pass, which counts against the rate limit.
 - A release published before the merge, or cut from a commit that does not hold it, is never recorded: the sub-order waits for one that does.
 - Two blockers in one repository, one merged after the latest tag, both wait for a release that holds both: a released blocker's dependent waits for a release that also holds a later blocker's merge, the price of never starting a dependent without its blocker's change.
-- A tag whose commit date is set before the merge is never compared: its sub-order waits for the next release, never starts early.
+- A tag whose commit date is set before the merge commit's is never compared: its sub-order waits for the next release, never starts early.
+- A tag costs one more conditional read per waiting merge than a release: the merge commit's date.
 
 ## Alternatives considered
 - **A release signal configured per repository (ADR 0013).** A sub-order's repository need not be in the Brewery's configuration, and there is nothing to configure for GitHub's releases; registries stay later.
