@@ -34,7 +34,7 @@ import {
   same,
   type TargetIssue,
 } from './issue-claims.ts';
-import type { Limits } from './limits.ts';
+import { holdText, type Limits, routeHold, startTally } from './limits.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
@@ -119,6 +119,9 @@ export interface IntakeOptions {
    */
   checks?: PullRequestCheckReader;
 }
+
+/** No recipe's concurrency and no open-order limit: only the Brewery's free capacity holds. */
+const NO_LIMITS: Limits = { openOrders: Number.POSITIVE_INFINITY, recipe: () => undefined };
 
 export interface Intake {
   /** One pass; it reports what it could not do and never rejects for it. */
@@ -250,7 +253,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
     options;
   const most = defaultLeaseMs / 2;
-  const { deadlineMs = most, bases = [], checks } = options;
+  const { deadlineMs = most, bases = [], checks, limits = NO_LIMITS } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
     throw new RangeError(
       `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
@@ -328,10 +331,24 @@ export const createIntake = (options: IntakeOptions): Intake => {
     );
     const failed = new Set<IntakeRepository>();
     const now = clock().toISOString();
+    // What a limit holds is skipped, keeps its place, and the walk goes on (ADR 0217).
+    const tally = startTally(log.state(), breweryIssues, limits);
     let ordered = 0;
-    for (const { order, repository, subOrder } of queue) {
+    for (const entry of queue) {
+      const { order, repository, subOrder } = entry;
       // A pass given up at its deadline orders nothing: the next pass finds its claims as ours.
       if (ordered === free || signal.aborted) break;
+      if (repository !== undefined && failed.has(repository)) continue;
+      const hold = tally.hold(entry);
+      if (hold !== undefined) {
+        const reason = holdText(hold);
+        heldOnce({
+          repo: repository?.repo ?? brewery ?? '',
+          issue: subOrder?.issue ?? order.issue,
+          reason,
+        });
+        continue;
+      }
       if (repository === undefined) {
         // A ready sub-order is ordered under its order's batch (ADR 0211).
         const number = subOrder?.issue ?? order.issue;
@@ -339,11 +356,11 @@ export const createIntake = (options: IntakeOptions): Intake => {
         const parent = subOrder === undefined ? {} : { parentBatchId: subOrder.parentBatchId };
         if (issue({ kind: 'order', batchId, order: { issue: number }, ...parent })) {
           ordered++;
+          tally.start(entry);
           report({ kind: 'ordered', repo: brewery ?? '', issue: number, batchId });
         }
         continue;
       }
-      if (failed.has(repository)) continue;
       const { repo, alias } = repository;
       let outcome: ClaimOutcome;
       try {
@@ -367,6 +384,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
           const batchId = targetBatchId(log.state(), alias, order.issue);
           if (issue({ kind: 'order', batchId, order: { issue: order.issue, repo } })) {
             ordered++;
+            tally.start(entry);
             report({ kind: 'ordered', repo, issue: order.issue, batchId });
           }
           break;
@@ -378,6 +396,15 @@ export const createIntake = (options: IntakeOptions): Intake => {
           outcome satisfies never;
       }
     }
+  };
+
+  // The issues reported as held, with the reason: each once, not at every poll (ADR 0217).
+  const holding = new Set<string>();
+  const heldOnce = (held: { repo: string; issue: number; reason: string }): void => {
+    const key = `${held.repo}#${held.issue}\n${held.reason}`;
+    if (holding.has(key)) return;
+    holding.add(key);
+    report({ kind: 'held', ...held });
   };
 
   // The batches reported as not routable, with the reason: each once, not at every poll.
@@ -405,6 +432,12 @@ export const createIntake = (options: IntakeOptions): Intake => {
       if (names.length > 1 || recipe === undefined) {
         const all = names.map((name) => `recipe:${name}`).join(' and ');
         notRouted(batch.id, `its issue #${number} carries ${all}; give it one recipe label`);
+        continue;
+      }
+      // A claimed batch or a retry, whose recipe the walk could not see: it waits (ADR 0217).
+      const hold = routeHold(log.state(), recipe, limits);
+      if (hold !== undefined) {
+        notRouted(batch.id, holdText(hold));
         continue;
       }
       const command = {

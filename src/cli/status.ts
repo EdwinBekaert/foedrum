@@ -124,17 +124,19 @@ export const statusRow = (
 /**
  * What `foedrum status` prints: one line per batch, in the order they were ordered, with the
  * owner of an `interactive` driver that holds it (ADR 0123), then the `kept` lines of the
- * task-tree branches the cleanup keeps (ADR 0092).
+ * task-tree branches the cleanup keeps (ADR 0092); above the board, the `held` lines of the limits
+ * that hold (ADR 0217).
  */
 export const formatStatus = (
   state: State,
   kept: readonly string[] = [],
   interactive: ReadonlyMap<string, string> = new Map(),
-  _held: readonly string[] = [],
+  held: readonly string[] = [],
 ): string => {
   const batches = [...state.batches.values()];
-  // Above the board: each holds every batch's brewers, or those of its family (ADR 0206, ADR 0215).
-  const lines = usageWindowsText(state.usageWindows);
+  // Above the board: each holds every batch's brewers, or those of its family (ADR 0206, ADR 0215),
+  // then each limit that holds what the intake starts (ADR 0217).
+  const lines = [...usageWindowsText(state.usageWindows), ...held];
   const window = lines.length === 0 ? [] : [...lines, ''];
   if (batches.length === 0) return `${[...window, 'No batches.'].join('\n')}\n`;
   const rows = batches.map((batch) => statusRow(state, batch, interactive));
