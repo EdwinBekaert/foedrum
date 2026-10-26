@@ -16,6 +16,7 @@ const pullRequest = 'https://github.com/acme/lib-core/pull/12';
 const merge = 'b'.repeat(40);
 const latestUrl = `${api}/repos/acme/lib-core/releases/latest`;
 const pullUrl = `${api}/repos/acme/lib-core/pulls/12`;
+const commitUrl = `${api}/repos/acme/lib-core/git/commits/${merge}`;
 const compareUrl = (tag: string) =>
   `${api}/repos/acme/lib-core/compare/${encodeURIComponent(tag)}...${merge}?per_page=1`;
 
@@ -51,6 +52,11 @@ const pull = (fields: Record<string, unknown>): Answer => ({
   body: { state: 'closed', merged: true, ...fields },
 });
 const merged = pull({ merged_at: '2026-10-26T10:00:00Z', merge_commit_sha: merge });
+/** The merge commit as git's data API gives it: its committer's date. */
+const mergeCommit = (date: string): Answer => ({
+  status: 200,
+  body: { sha: merge, committer: { name: 'GitHub', date }, message: 'Merge pull request #12' },
+});
 const compared = (status: string): Answer => ({
   status: 200,
   body: { status, ahead_by: 0, behind_by: 3, commits: [], files: [] },
@@ -128,6 +134,13 @@ describe('githubReleaseReader', () => {
       assert.equal(
         (await readerWith([release('release/v1.0-rc.1+b')]).reader.latest(repo))?.version,
         'release/v1.0-rc.1+b',
+      );
+    });
+
+    it('fails on a newest tag that points at no commit, naming it (review of #578)', async () => {
+      await assert.rejects(
+        readerWith([notFound, tags([{ name: 'v9', target: {} }])]).reader.latest(repo),
+        /The latest tag of acme\/lib-core, "v9", points at no commit/,
       );
     });
 
@@ -214,6 +227,31 @@ describe('githubReleaseReader', () => {
       // The repository in another case is the same one.
       const cased = readerWith([merged, compared('behind')]);
       assert.equal(await cased.reader.holds('Acme/Lib-Core', v2, pullRequest), true);
+    });
+
+    it("compares a tag dated before the merge time but not before the merge commit's own date (review of #578)", async () => {
+      // Merged locally at 08:59, tagged at 09:00, both pushed at 10:00, when GitHub marked it merged.
+      const { reader, requests } = readerWith([
+        merged,
+        mergeCommit('2026-10-26T08:59:00Z'),
+        compared('behind'),
+      ]);
+      const tag = { version: 'v2.4.0', published: '2026-10-26T09:00:00.000Z', tag: true };
+      assert.equal(await reader.holds(repo, tag, pullRequest), true);
+      assert.deepStrictEqual(
+        requests.map(({ url }) => url),
+        [pullUrl, commitUrl, compareUrl('v2.4.0')],
+      );
+    });
+
+    it('never compares a tag whose commit is older than the merge commit (review of #578)', async () => {
+      const { reader, requests } = readerWith([merged, mergeCommit('2026-10-26T09:30:00Z')]);
+      const tag = { version: 'v2.3.0', published: '2026-10-26T09:00:00.000Z', tag: true };
+      assert.equal(await reader.holds(repo, tag, pullRequest), false);
+      assert.deepStrictEqual(
+        requests.map(({ url }) => url),
+        [pullUrl, commitUrl],
+      );
     });
 
     it('names a tag with a slash as one path segment', async () => {

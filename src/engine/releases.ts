@@ -13,6 +13,8 @@ export interface LatestRelease {
   version: string;
   /** When it was published, or for a tag its commit's date, in ISO 8601. */
   published: string;
+  /** A tag with no release: its date is its commit's, set where it was made (ADR 0223). */
+  tag?: boolean;
 }
 
 /** What the pass reads of a repository's releases; GitHub's is `githubReleaseReader`. */
