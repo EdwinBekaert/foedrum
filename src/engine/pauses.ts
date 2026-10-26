@@ -12,11 +12,20 @@ export const orderOfBatch = (state: State, batch: Batch): OrderRef => {
 
 /**
  * The pause that holds `batch`, if any: `--all`, else its order's (a sub-order's batch is held by
- * its order's). A batch that ended is held by none.
+ * its order's), with the earlier stopAt of the two. A batch that ended is held by none.
  */
 export const pauseOf = (state: State, batch: Batch): Pause | undefined => {
   if (batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled') return undefined;
-  return state.pauses.all ?? state.pauses.orders.get(orderKey(orderOfBatch(state, batch)));
+  const { all } = state.pauses;
+  const own = state.pauses.orders.get(orderKey(orderOfBatch(state, batch)));
+  if (all === undefined || own?.stopAt === undefined) return all ?? own;
+  // Under --all an order's own --by still stops it, when it comes first.
+  const { stopAt: _, ...rest } = all;
+  const earlier =
+    all.stopAt === undefined || Date.parse(own.stopAt.at) < Date.parse(all.stopAt.at)
+      ? own.stopAt
+      : all.stopAt;
+  return { ...rest, stopAt: earlier };
 };
 
 /** Whether the pause holding `batch` has reached its stopAt at `now`: what runs of it is stopped. */

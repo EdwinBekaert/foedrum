@@ -465,10 +465,6 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
   const { batchId, stepId, attempt, ending, usage, readings, claude, receipt, houseYeast, paused } =
     command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
-  if (paused === true) {
-    stoppedByPause(draft, command);
-    return;
-  }
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
     ending.kind === 'blocked'
@@ -478,6 +474,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
           reason: `${blockedBy(ending.blockerKind)}${ending.summary}`,
         }
       : ending;
+  const stopped = paused === true && stoppedByPause(draft, command);
   draft.push({
     type: 'step.finished',
     batchId,
@@ -489,8 +486,14 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
+    ...(stopped ? { paused: true } : {}),
   });
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
+  // A pause is a person's choice, no failure: the step runs again whatever attempts it has left.
+  if (stopped) {
+    schedule(draft, batchId, stepId, { retry: true });
+    return;
+  }
   const batch = draft.batch(batchId);
   switch (ending.kind) {
     case 'succeeded':
@@ -1081,31 +1084,20 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
 }
 
 /**
- * The end of an attempt the driver stopped as its batch's pause reached its stopAt (ADR 0202):
- * recorded as stopped by the pause, and its step scheduled again as a retry, whatever attempts it
- * has left, since a pause is a person's choice and no failure. The batch stays paused.
+ * Whether the end of an attempt the driver stopped as its batch's pause reached its stopAt
+ * (ADR 0202) is recorded as the pause's: it counts against no retry. A pause lifted or replaced
+ * since the stop no longer stops the batch, and the end is an ordinary cancelled one. Only a
+ * cancelled end can be the pause's.
  */
-function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, receipt, claude } = command;
+function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish' }>): boolean {
+  const { batchId, stepId, attempt, ending } = command;
   const batch = draft.batch(batchId);
-  if (ending.kind !== 'cancelled' || !stopsNow(draft.state, batch, draft.context.now)) {
+  if (ending.kind !== 'cancelled') {
     throw new Refusal(
-      `${attemptName(batch, stepId, attempt)} was not stopped by a pause: its batch has no pause whose stopAt has come`,
+      `${attemptName(batch, stepId, attempt)} was not stopped by a pause: it ended ${ending.kind}`,
     );
   }
-  draft.push({
-    type: 'step.finished',
-    batchId,
-    stepId,
-    attempt,
-    outcome: ending,
-    ...(usage === undefined ? {} : { usage }),
-    ...(claude === undefined ? {} : { claude }),
-    ...(receipt === undefined ? {} : { receipt }),
-    paused: true,
-  });
-  if (leftRecipe(draft, recipeOf(draft, batch), batchId, stepId)) return;
-  schedule(draft, batchId, stepId, { retry: true });
+  return stopsNow(draft.state, batch, draft.context.now);
 }
 
 /** `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202). */
