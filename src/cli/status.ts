@@ -5,6 +5,7 @@ import { orderName } from '../engine/claim-orders.ts';
 import type { Batch, Pause, State } from '../engine/fold.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
+import { sessionCommand } from '../engine/status-comment.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { columns } from './columns.ts';
@@ -24,7 +25,7 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-const stuckOn = (reason: StuckReason): string => {
+const stuckOn = (reason: StuckReason, batch: Batch): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `needs input at ${reason.stepId}`;
@@ -35,7 +36,7 @@ const stuckOn = (reason: StuckReason): string => {
     case 'deadline_passed':
       return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
     case 'waiting_for_session':
-      return `waiting for a session at ${reason.stepId}`;
+      return `waiting for a session at ${reason.stepId}: ${sessionCommand(batch)} opens it in a terminal`;
     case 'stalled':
       return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
     case 'routing':
@@ -71,7 +72,7 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
         detail: `waiting for ${waitingFor(lane.on)}; reminder ${lane.remindAt}`,
       };
     case 'stuck':
-      return { lane: 'stuck', detail: `${stuckOn(lane.reason)}; reminder ${lane.remindAt}` };
+      return { lane: 'stuck', detail: `${stuckOn(lane.reason, batch)}; reminder ${lane.remindAt}` };
     case 'on_tap':
       return { lane: 'on tap', detail: lane.pullRequests.join(' ') };
     case 'cancelled':

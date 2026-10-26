@@ -488,6 +488,9 @@ function apply(state: State, event: Event): State {
           phase: 'started',
           ...(event.session === undefined ? {} : { session: event.session }),
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
+          ...(event.interactiveSince === undefined
+            ? {}
+            : { interactiveSince: event.interactiveSince }),
         };
       });
       const { worktree, stepId, attempt } = event;

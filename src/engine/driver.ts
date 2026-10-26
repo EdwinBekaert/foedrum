@@ -285,6 +285,13 @@ const isOver = (attempt: ReturnType<typeof attemptOf>): boolean =>
   attempt?.phase === 'finished' || attempt?.abandoned === true;
 
 /** The action `ref`'s step is in its batch's recipe, or `undefined` for any other step. */
+/** Whether `ref` is an attempt of an interactive step, a person's session (ADR 0222). */
+const interactiveOf = (state: State, recipes: Recipes, ref: AttemptRef): boolean => {
+  const name = state.batches.get(ref.batchId)?.recipe?.name;
+  const recipe = name === undefined ? undefined : recipes.find(name);
+  return recipe?.has(ref.stepId) === true && recipe.interactive(ref.stepId);
+};
+
 const actionOf = (state: State, recipes: Recipes, ref: AttemptRef) => {
   const name = state.batches.get(ref.batchId)?.recipe?.name;
   const recipe = name === undefined ? undefined : recipes.find(name);
@@ -328,6 +335,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     sessionId = randomUUID,
     drivesOn = () => true,
     holds = () => true,
+    sessions = false,
     alsoCleans = [],
     effects,
     actions,
@@ -521,7 +529,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * the way stays, and the next attempt has names of its own (ADR 0029).
    */
   const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
-    const started = { type: 'step.started', ...ref } as const;
+    // An interactive step's session opens now: a person's wait, which the status shows (ADR 0222).
+    const since = interactiveOf(log.state(), recipes, ref)
+      ? { interactiveSince: clock().toISOString() }
+      : {};
+    const started = { type: 'step.started', ...ref, ...since } as const;
     if (worktrees.length === 0) {
       return recordStart(started, (tx) => leaseAttempt(tx, key));
     }
@@ -741,6 +753,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           }
           saidWaiting.delete(key);
           moved = true;
+          // A person runs an interactive step's session, in a driver that opens one (ADR 0222).
+          if (!sessions && interactiveOf(log.state(), recipes, ref)) {
+            // A refusal (the attempt moved on meanwhile) is not asked again this drive.
+            if (!issue({ kind: 'await_session', ...ref })) refused.add(key);
+            continue;
+          }
           const action = actionOf(log.state(), recipes, ref);
           if (action !== undefined) {
             if (!startAction(ref, action)) refused.add(key);
