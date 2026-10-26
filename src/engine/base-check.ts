@@ -258,11 +258,14 @@ const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseChec
     `The batch stays On tap. Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
 
-/** `text` in a fenced code block whose fence is longer than any run of backticks in it. */
+/**
+ * `text` in a fenced code block whose fence is longer than any run of backticks in it, each `<!--`
+ * opened as `<!- -`: a marker a check printed would let a later post be found as posted (ADR 0033).
+ */
 const fenced = (text: string): string => {
   const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map(([run]) => run.length));
   const fence = '`'.repeat(Math.max(3, longest + 1));
-  return `${fence}\n${text.replace(/\n$/, '')}\n${fence}`;
+  return `${fence}\n${text.replace(/\n$/, '').replaceAll('<!--', '<!- -')}\n${fence}`;
 };
 
 /**
