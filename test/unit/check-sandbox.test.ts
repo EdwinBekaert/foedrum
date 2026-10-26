@@ -427,7 +427,13 @@ const fakeSetup = ({
 }: {
   info?: readonly string[];
   stack?: 'up' | 'fails' | 'exits-before-up' | 'hangs';
-  bwrap?: 'line-ends' | 'line-runs-until-stopped' | 'times-out' | 'fails-at-once' | 'fails-late';
+  bwrap?:
+    | 'line-ends'
+    | 'line-runs-until-stopped'
+    | 'times-out'
+    | 'fails-at-once'
+    | 'fails-late'
+    | 'says-when-stopped';
   answer?: Partial<ExecResult>;
 } = {}) => {
   const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
@@ -491,7 +497,10 @@ const fakeSetup = ({
             if (bwrap === 'line-ends') done(ran(answer));
           }),
         ),
-        stopped(options.signal, 'bwrap stopped'),
+        // A bwrap that writes a line under its own name as it is stopped.
+        bwrap === 'says-when-stopped'
+          ? stopped(options.signal, 'bwrap stopped', { stderr: ownFailure, output: ownFailure })
+          : stopped(options.signal, 'bwrap stopped'),
       ]);
     }
     const tool = file === '/usr/bin/pasta' ? 'pasta' : 'slirp4netns';
@@ -694,6 +703,22 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(result.exitCode, null);
     assert.equal(result.killed, undefined);
     assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
+  });
+
+  // ADR 0218: a stack that fails to start reads with its own message; bwrap's only wins when it
+  // gave no pid (review of #564).
+  it("reads the stack's message when the stack fails, also when the stopped bwrap writes one of its own", async () => {
+    const { exec } = fakeSetup({ stack: 'fails', bwrap: 'says-when-stopped' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.exitCode, null);
+    assert.match(
+      result.output,
+      /^slirp4netns: Couldn't open user namespace \/proc\/4242\/ns\/user: Permission denied/,
+    );
   });
 
   // Review of #564: the stack Foedrum stops once bwrap has ended has not failed.
