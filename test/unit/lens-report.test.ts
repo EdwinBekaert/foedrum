@@ -427,6 +427,104 @@ describe('lensReport', () => {
       }),
     );
   });
+
+  it('counts two findings at one place of a round, and two about the change as a whole, each with its own disposition (review of #572)', () => {
+    const whole = (severity: TastingFinding['severity']): TastingFinding => ({
+      severity,
+      why: `the change as a whole: ${severity}`,
+      introduced: true,
+    });
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'correctness', 1, blocked, {
+        findings: kept(
+          finding('src/a.ts', 1),
+          finding('src/a.ts', 1),
+          whole('major'),
+          whole('minor'),
+        ),
+      }),
+      ...attempt(
+        'b1',
+        'implement',
+        2,
+        disposed(
+          { file: 'src/a.ts', line: 1, disposition: 'dismissed', why: 'see a.test.ts:2' },
+          { file: 'src/a.ts', line: 1, disposition: 'fixed' },
+          { disposition: 'fixed' },
+          { disposition: 'pre-existing', why: 'main has it at a.ts:9' },
+        ),
+        { from: 'correctness' },
+      ),
+    ];
+    assert.deepStrictEqual(
+      lens(report(events), 'diff/correctness'),
+      tally({
+        rounds: 1,
+        severity: { blocker: 0, major: 3, minor: 1 },
+        ends: { fixed: 2, dismissed: 1, 'pre-existing': 1, open: 0 },
+      }),
+    );
+  });
+
+  it('counts two open findings at one place of an advisory round as two (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'acceptance', 1, tasted([finding('src/a.ts', 1), finding('src/a.ts', 1)])),
+    ];
+    assert.deepStrictEqual(
+      lens(report(events), 'diff/acceptance'),
+      tally({
+        rounds: 1,
+        severity: { blocker: 0, major: 2, minor: 0 },
+        ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 2 },
+      }),
+    );
+  });
+
+  it('counts a round under the recipe its batch ran it in, not the one it brews now (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'correctness', 1, tasted([finding('src/a.ts', 1)])),
+      // A person chose another recipe, whose files no longer have the step.
+      {
+        type: 'batch.recipe_chosen',
+        batchId: 'b1',
+        recipe: 'old',
+        reason: 'retry',
+        source: 'label',
+      },
+      ...attempt('b1', 'correctness', 2, tasted([])),
+    ] satisfies Event[];
+    const made = report(events);
+    assert.deepStrictEqual(
+      lens(made, 'diff/correctness'),
+      tally({
+        rounds: 1,
+        severity: { blocker: 0, major: 1, minor: 0 },
+        ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 1 },
+      }),
+    );
+    assert.deepStrictEqual(made.gone, [
+      { recipe: 'old', stepId: 'correctness', ...tally({ rounds: 1 }) },
+    ]);
+  });
+
+  it('ends a finding raised again by its latest introduced: open once the Taster says the change made it (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'acceptance', 1, tasted([finding('src/a.ts', 1, 'minor', false)])),
+      ...attempt('b1', 'acceptance', 2, tasted([finding('src/a.ts', 1, 'minor', true)])),
+    ];
+    assert.deepStrictEqual(
+      lens(report(events), 'diff/acceptance'),
+      tally({
+        rounds: 2,
+        severity: { blocker: 0, major: 0, minor: 1 },
+        ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 1 },
+      }),
+    );
+  });
 });
 
 describe('formatLensReport', () => {
@@ -468,6 +566,28 @@ describe('formatLensReport', () => {
         '  1 round, 1 finding: 1 minor',
         '  ended: 1 open',
         '  tokens: none reported',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('prints the tokens of a lens whose attempts used some and never reviewed (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt(
+        'b1',
+        'acceptance',
+        1,
+        { kind: 'failed', retryable: true, reason: 'the out doc is missing' },
+        { usage: usage(5, 6, 7, 8) },
+      ),
+    ];
+    assert.equal(
+      formatLensReport(report(events, { ...source, lenses: [source.lenses[0] ?? assert.fail()] })),
+      [
+        'diff/acceptance  defaults/lenses/diff/acceptance.md',
+        '  no rounds',
+        '  tokens: 5 input, 6 output, 7 cache read, 8 cache write',
         '',
       ].join('\n'),
     );
