@@ -16,7 +16,7 @@ import type { GitHubReads } from './reads.ts';
 import { pullRequestOf } from './tracker.ts';
 
 /** The longest tag name a release record keeps. */
-export const MAX_TAG_LENGTH = 255;
+const MAX_TAG_LENGTH = 255;
 
 /** The newest tag by its commit's date: REST's tag list promises no order. */
 const LATEST_TAG = `query ($owner: String!, $name: String!) {

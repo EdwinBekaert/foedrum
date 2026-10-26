@@ -3,6 +3,7 @@
 // and records it once it holds a merge of every blocker that waits on it, so the sub-orders they
 // block start.
 
+import { releaseRecorded } from './admit.ts';
 import type { CommandLog } from './command-log.ts';
 import { releaseWaits } from './ready-set.ts';
 
@@ -37,14 +38,6 @@ export interface ReleaseReadOptions {
   failed: (what: string, error: unknown) => void;
 }
 
-/** Whether the fold holds `version` of `repo`, in any case. */
-const recorded = (log: CommandLog, repo: string, version: string): boolean =>
-  log
-    .state()
-    .releases.some(
-      (release) => release.repo.toLowerCase() === repo.toLowerCase() && release.version === version,
-    );
-
 /**
  * One pass: reads the latest release of each repository a blocker waits on, and records it when
  * it holds a merge of every blocker waiting on it (ADR 0223).
@@ -61,7 +54,7 @@ export const recordReleases = async (
     let latest: LatestRelease | undefined;
     try {
       latest = await reader.latest(repo, signal);
-      if (latest === undefined || recorded(log, repo, latest.version)) continue;
+      if (latest === undefined || releaseRecorded(log.state(), repo, latest.version)) continue;
       for (const merged of blockers) {
         let held = false;
         for (const pullRequest of merged) {
