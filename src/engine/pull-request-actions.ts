@@ -121,6 +121,22 @@ type ActionEffect =
       attempts: readonly AttemptRow[];
     };
 
+// A character no path git names holds, in place of a name's leading dot.
+const NO_DOT = String.fromCharCode(0);
+const undotted = (path: string): string =>
+  path
+    .split('/')
+    .map((name) => (name.startsWith('.') ? `${NO_DOT}${name.slice(1)}` : name))
+    .join('/');
+
+/**
+ * Whether `glob` matches `file` (ADR 0201), a wildcard also matching a name that starts with a dot,
+ * which `posix.matchesGlob` alone never does: `src/auth/**` covers `src/auth/.env`. A dot the glob
+ * writes at the start of a name still matches only that dot.
+ */
+const matchesWithDots = (file: string, glob: string): boolean =>
+  posix.matchesGlob(undotted(file), undotted(glob));
+
 /** Where the action pushes from and opens into, or why it cannot run. */
 type Plan =
   | { kind: 'run'; repository: PullRequestRepository; revision: string }
@@ -219,7 +235,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
           if (sensitive === undefined) return {};
           const { since, paths } = sensitive;
           const files = (await push.touchedFiles(since, commit, signal)).filter((file) =>
-            paths.some((glob) => posix.matchesGlob(file, glob)),
+            paths.some((glob) => matchesWithDots(file, glob)),
           );
           if (files.length === 0) return {};
           return { sensitive: { count: files.length, files: files.slice(0, MAX_SENSITIVE) } };

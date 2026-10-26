@@ -474,9 +474,9 @@ const sensitiveLine = (sensitive: SensitiveFiles): string => {
 
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
- * steps the batch has when the recipe is unknown) with the current one marked, the assumptions of
- * its out docs, on tap its pull requests, and the `sensitive` files its pushed change touches
- * (ADR 0201). Every text a brewer or an issue wrote is one escaped line.
+ * steps the batch has when the recipe is unknown) with the current one marked, the `sensitive`
+ * files its pushed change touches (ADR 0201), the assumptions of its out docs and, on tap, its pull
+ * requests. Every text a brewer or an issue wrote is one escaped line.
  */
 export const renderStatus = (
   batch: Batch,
@@ -500,6 +500,8 @@ export const renderStatus = (
       ...stepIds.map((stepId) => stepLine(batch, stepId, told)),
     ],
   ];
+  // Before the sections that grow with the out docs, so a comment cut to length keeps it.
+  if (sensitive !== undefined) sections.push([sensitiveLine(sensitive)]);
   const assumptions = assumptionLines(batch, stepIds, told);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);
@@ -521,7 +523,6 @@ export const renderStatus = (
           ],
     );
   }
-  if (sensitive !== undefined) sections.push([sensitiveLine(sensitive)]);
   const text = sections.map((lines) => lines.join('\n')).join('\n\n');
   if (text.length <= longestText) return text;
   // Whole lines only, so no escape or entity is cut in half.

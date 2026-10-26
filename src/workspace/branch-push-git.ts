@@ -304,7 +304,8 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         since,
         commit,
       ];
-      const listed = await gitOutput(local, clone, args, aborts(signal));
+      // As committed, as the scan reads them: no replace ref or graft of a brewer's names the files.
+      const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
       return listed.split('\0').filter((path) => path !== '');
     },
   };

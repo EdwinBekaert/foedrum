@@ -10,15 +10,17 @@ A repository names its sensitive paths, and a batch whose change touches one say
 Deeper tasting on sensitive paths, the spread and test signals, and the same treatment for `/brew-review` on Foedrum's own sensitive paths are issues of their own.
 
 ## Decision
-- **`sensitivePaths` in a repository's entry of `foedrum.jsonc`**: a list of path globs, relative to the repository's root with `/` between folders, as `posix.matchesGlob` reads them (the house-yeast rules' globs, [ADR 0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md)), such as `.github/workflows/**` or `src/auth/**`.
+- **`sensitivePaths` in a repository's entry of `foedrum.jsonc`**: a list of path globs, relative to the repository's root with `/` between folders, as `posix.matchesGlob` reads them (the house-yeast rules' globs, [ADR 0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md)), such as `.github/workflows/**` or `src/auth/**`, except that a wildcard also matches a name that starts with a dot: `src/auth/**` covers `src/auth/.env`, the kind of file the list is for.
   There are no defaults: without the field, or with an empty list, nothing is matched and nothing is shown.
   A glob that is blank, starts at `/` or `!`, holds a `\` or has a `.` or `..` segment is refused when the file is loaded, with one line: it would match nothing git names, or not what it seems to.
 - **Matched once, at the push of the batch's pull request** (the openPullRequest action, ADR 0071): the files of `git diff --name-only -z --no-renames` from where the batch's change starts to the commit pushed, as a diff Taster's change input starts it ([ADR 0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md), after a merge of the base at the base it merged, [ADR 0164](0164-a-batch-merges-its-base-before-its-last-check.md)).
   Every file the change adds, alters or deletes counts, and a rename counts at both paths: removing a workflow touches it too.
-  The git call runs only when the repository names a glob and the push carries commits; a batch with no recorded start matches nothing.
+  Git reads the objects as committed, with the secret scan's settings (ADR 0079), so no replace ref or graft a brewer left in the clone changes which files are named.
+  The git call runs only when the repository names a glob and the push carries commits that passed the scan; a batch with no recorded start matches nothing.
+  A failed read fails the push effect as any of its git calls does, and the driver tries it again: the line is never a block, but a push whose files could not be read is not recorded as one that touches none.
 - **The matches are recorded on the push's ledger result** (`PushResult.sensitive`, `src/schemas/store.ts`): how many files matched and the first 50 of them, as git named them.
   No event type changes: the result is the push effect's `effect.applied`, recorded once, so a restart, `foedrum replay` and a rewind read the same matches and never match again.
-- **The status comment shows one line** after the pull requests, when the push recorded matches: `Touches sensitive paths:` and the first 10 files, each escaped to one plain line and cut as every other text a committer wrote, with a count of the rest (`sensitiveLine`, `src/engine/status-comment.ts`).
+- **The status comment shows one line** after the steps, before the sections that grow with the out docs, so a comment cut to GitHub's length keeps it, when the push recorded matches, in any lane from then on: `Touches sensitive paths:` and the first 10 files, each escaped to one plain line and cut as every other text a committer wrote, with a count of the rest (`sensitiveLine`, `src/engine/status-comment.ts`).
   A batch whose change touches none, and a repository without the field, show nothing.
 - **Never an approval or a block.** No lane, route, label or tasting reads the matches; the recipe's tasting is unchanged.
 - **The merge brief (#274) will show the same line** once it exists, from the same record.
