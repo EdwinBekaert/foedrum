@@ -89,29 +89,49 @@ const managed = (segments: readonly string[]): boolean =>
  */
 export type ShimChoice =
   | { kind: 'said'; lines: string[] }
-  | { kind: 'repoint'; question: string; file: string }
+  | { kind: 'repoint'; question: string; files: ShimFile[] }
+  /** init's shim runs this checkout, but one of its files is missing: written without a question. */
+  | { kind: 'complete'; files: ShimFile[] }
   | {
       kind: 'folders';
       question: string;
       /** The numbered folders, said before the question. */
       lines: string[];
-      /** Reads an answer: the shim's file in the folder it picks, or `null` for none. */
-      parse: (answer: string) => Parsed<string | null>;
+      /** Reads an answer: the shim's files in the folder it picks, or `null` for none. */
+      parse: (answer: string) => Parsed<ShimFile[] | null>;
       /** Where the shim would go, said on a no. */
-      first: string;
+      first: ShimFile[];
     };
 
-/** The shim on the platform of `ports`: whether it is Windows, its paths, shell and text. */
+/** One file of the shim: where it goes, what it holds, and whether it is a runnable script. */
+export interface ShimFile {
+  file: string;
+  text: string;
+  executable: boolean;
+}
+
+/**
+ * The shim on the platform of `ports`: whether it is Windows, its paths, and its shells. On Windows
+ * a `foedrum` script for Git Bash goes beside `foedrum.cmd`, since the plugin's skills run `foedrum`
+ * through Git Bash, which runs no `.cmd` by its bare name (ADR 0212).
+ */
 const shimOf = (ports: ShimPorts) => {
   const windows = ports.platform === 'win32';
-  const shell = SHELLS[windows ? 'windows' : 'posix'];
-  return { windows, path: windows ? win32 : posix, shell, text: shell.text(ports.entry) };
+  const shells = windows ? [SHELLS.windows, SHELLS.posix] : [SHELLS.posix];
+  const path = windows ? win32 : posix;
+  const filesIn = (folder: string): ShimFile[] =>
+    shells.map((shell) => ({
+      file: path.join(folder, shell.name),
+      text: shell.text(ports.entry),
+      executable: shell === SHELLS.posix,
+    }));
+  return { windows, path, shells, filesIn };
 };
 
 /** What init does about the `foedrum` command, read from `ports` without writing anything. */
 export const shimChoice = (ports: ShimPorts): ShimChoice => {
   const { platform, env, home, entry } = ports;
-  const { windows, path, shell, text } = shimOf(ports);
+  const { windows, path, shells, filesIn } = shimOf(ports);
   if (windows && !pathExtensions(env, platform).includes('.cmd')) {
     return {
       kind: 'said',
@@ -161,7 +181,7 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
     if (rootHome) {
       lines.push(
         'A home that is a root folder holds every folder, so init names none; write it by hand into a folder of yours on the PATH:',
-        ...indented(text),
+        ...indented(shells[0]?.text(entry) ?? ''),
       );
       if (!windows) lines.push('and run chmod 755 on it');
       return { kind: 'said', lines };
@@ -185,37 +205,50 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
         '  export PATH="$HOME/.local/bin:$PATH"',
       );
     }
-    lines.push(...byHand(path.join(suggested, shell.name), text, windows));
+    lines.push(...byHand(filesIn(suggested), windows));
     return { kind: 'said', lines };
   }
 
-  // A foedrum there already decides: init's own shim is kept or pointed here, another file is left.
+  // A foedrum there already decides: init's own shim is kept, completed or pointed here, another
+  // file is left. On Windows its two files are kept and pointed together (ADR 0212).
   for (const folder of folders) {
-    const file = path.join(folder, shell.name);
-    let there: string | undefined;
-    try {
-      there = ports.read(file);
-    } catch (error) {
-      // A folder by that name, or a file it may not read: init goes on to doctor.
+    const files = filesIn(folder);
+    const there: (string | undefined)[] = [];
+    for (const { file } of files) {
+      try {
+        there.push(ports.read(file));
+      } catch (error) {
+        // A folder by that name, or a file it may not read: init goes on to doctor.
+        return {
+          kind: 'said',
+          lines: [`Could not read ${file}: ${messageOf(error)}`, ...byHand(files, windows)],
+        };
+      }
+    }
+    if (there.every((text) => text === undefined)) continue;
+    let other: { file: string; runs: string } | undefined;
+    for (const [at, text] of there.entries()) {
+      if (text === undefined) continue;
+      const file = (files[at] as ShimFile).file;
+      const runs = text.includes(MARK) ? shells[at]?.entryOf(text) : undefined;
+      if (runs === undefined) {
+        return {
+          kind: 'said',
+          lines: [`${file} is there and is not a foedrum command init wrote; it is left as it is`],
+        };
+      }
+      if (other === undefined && !same(runs, entry)) other = { file, runs };
+    }
+    if (other !== undefined) {
       return {
-        kind: 'said',
-        lines: [`Could not read ${file}: ${messageOf(error)}`, ...byHand(file, text, windows)],
+        kind: 'repoint',
+        files,
+        question: `${other.file} runs the Foedrum in ${checkout(other.runs)}. Point it at ${checkout(entry)}? [y/N]: `,
       };
     }
-    if (there === undefined) continue;
-    const runs = there.includes(MARK) ? shell.entryOf(there) : undefined;
-    if (runs === undefined) {
-      return {
-        kind: 'said',
-        lines: [`${file} is there and is not a foedrum command init wrote; it is left as it is`],
-      };
-    }
-    if (same(runs, entry)) return { kind: 'said', lines: [`${file} runs this Foedrum already`] };
-    return {
-      kind: 'repoint',
-      file,
-      question: `${file} runs the Foedrum in ${checkout(runs)}. Point it at ${checkout(entry)}? [y/N]: `,
-    };
+    const missing = files.filter((_, at) => there[at] === undefined);
+    if (missing.length > 0) return { kind: 'complete', files: missing };
+    return { kind: 'said', lines: [`${files[0]?.file} runs this Foedrum already`] };
   }
 
   return {
@@ -230,17 +263,17 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
       if (/^no?$/i.test(given)) return { value: null };
       const picked = given === '' ? 1 : /^\d+$/.test(given) ? Number(given) : 0;
       const folder = folders[picked - 1];
-      if (folder !== undefined) return { value: path.join(folder, shell.name) };
+      if (folder !== undefined) return { value: filesIn(folder) };
       return { refused: `Answer a number from 1 to ${folders.length}, or n` };
     },
-    first: path.join(folders[0] as string, shell.name),
+    first: filesIn(folders[0] as string),
   };
 };
 
 /** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */
 export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promise<void> => {
   const { say } = terminal;
-  const { windows, text } = shimOf(ports);
+  const { windows } = shimOf(ports);
   const choice = shimChoice(ports);
   switch (choice.kind) {
     case 'said':
@@ -248,14 +281,18 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
       return;
     case 'repoint':
       if (await terminal.confirm(choice.question, 'repoint', false)) {
-        write(ports, terminal, choice.file, text, windows);
-      } else say(`Kept ${choice.file}`);
+        write(ports, terminal, choice.files, windows);
+      } else for (const { file } of choice.files) say(`Kept ${file}`);
+      return;
+    case 'complete':
+      // The other file runs this checkout already, so the lookup says nothing new.
+      write(ports, terminal, choice.files, windows, false);
       return;
     case 'folders': {
       for (const line of choice.lines) say(line);
-      const file = await terminal.ask(choice.question, 'shim', choice.parse);
-      if (file === null) for (const line of byHand(choice.first, text, windows)) say(line);
-      else write(ports, terminal, file, text, windows);
+      const files = await terminal.ask(choice.question, 'shim', choice.parse);
+      if (files === null) for (const line of byHand(choice.first, windows)) say(line);
+      else write(ports, terminal, files, windows);
       return;
     }
     default: {
@@ -265,24 +302,28 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
   }
 };
 
-/** Writes the shim at `file`, then says what `foedrum` runs in this terminal. */
+/** Writes the shim's files, then, when `lookup`, says what `foedrum` runs in this terminal. */
 const write = (
   ports: ShimPorts,
   { say }: ShimTerminal,
-  file: string,
-  text: string,
+  files: readonly ShimFile[],
   windows: boolean,
+  lookup = true,
 ): void => {
-  try {
-    ports.write(file, text, !windows);
-  } catch (error) {
-    // Windows' ACLs can keep the user out of a folder that passes `writable`; init goes on.
-    say(`Could not write ${file}: ${messageOf(error)}`);
-    for (const line of byHand(file, text, windows)) say(line);
-    return;
+  for (const [at, { file, text, executable }] of files.entries()) {
+    try {
+      ports.write(file, text, executable);
+    } catch (error) {
+      // Windows' ACLs can keep the user out of a folder that passes `writable`; init goes on.
+      say(`Could not write ${file}: ${messageOf(error)}`);
+      for (const line of byHand(files.slice(at), windows)) say(line);
+      return;
+    }
+    say(`Wrote ${file}`);
   }
-  say(`Wrote ${file}`);
+  if (!lookup) return;
   // Every folder offered is on the PATH, so a new terminal finds it unless an earlier one wins.
+  const file = files[0]?.file ?? '';
   const runs = ports.resolve('foedrum');
   if (runs === undefined) say('Open a new terminal to run foedrum');
   else if (windows ? runs.toLowerCase() === file.toLowerCase() : runs === file) {
@@ -297,12 +338,13 @@ const indented = (text: string): string[] =>
     .slice(0, -1)
     .map((line) => `  ${line}`);
 
-/** Where the shim would go and what it would hold, for the user to write by hand. */
-const byHand = (file: string, text: string, windows: boolean): string[] => [
-  `Not written. To write it by hand, put these lines in ${file}:`,
-  ...indented(text),
-  ...(windows ? [] : [`and run: chmod 755 ${file}`]),
-];
+/** Where the shim's files would go and what they would hold, for the user to write by hand. */
+const byHand = (files: readonly ShimFile[], windows: boolean): string[] =>
+  files.flatMap(({ file, text, executable }) => [
+    `Not written. To write it by hand, put these lines in ${file}:`,
+    ...indented(text),
+    ...(executable && !windows ? [`and run: chmod 755 ${file}`] : []),
+  ]);
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
