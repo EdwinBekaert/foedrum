@@ -855,12 +855,12 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
       status: ALL_NEW,
       unpushed: 'abc1234 Local work\ndef5678 More local work\n',
     });
-    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'log')?.args, [
+    // Which remotes the log leaves out has a test of its own.
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'log')?.args.slice(0, 4), [
       'log',
       '--format=%h %s',
       'HEAD',
       '--not',
-      '--remotes',
     ]);
     const at = lines.indexOf('Also pushed, not on GitHub yet:');
     assert.ok(at > lines.indexOf('  .claude/settings.json'), lines.join('\n'));
