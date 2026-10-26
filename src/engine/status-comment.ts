@@ -4,7 +4,7 @@
 
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
-import type { RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
+import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { StatusRevision } from '../schemas/status-comment.ts';
 import { type BatchEffectKey, PushResult, type SensitiveFiles } from '../schemas/store.ts';
@@ -188,9 +188,56 @@ const baseCheckLine = (batch: Batch, url: string): string | undefined => {
     const files = latest.conflicts.map(plain).join(', ');
     return `- ${link(url)} conflicts with ${branch} at ${tip} in ${files}`;
   }
+  // The checks on the merged tree (ADR 0203); a reason may quote git's output.
+  const merged = `on the merged tree with ${branch}`;
+  if (latest.failed !== undefined) {
+    return `- ${link(url)} fails ${merged} at ${tip}: ${plain(readingText(latest.failed))}`;
+  }
+  if (latest.unchecked !== undefined) {
+    return `- ${link(url)} is not checked ${merged} at ${tip}: ${plain(latest.unchecked)}`;
+  }
+  if (checks.some((check) => check.failed !== undefined || check.unchecked !== undefined)) {
+    return `- ${link(url)} passes its checks ${merged} again at ${tip}`;
+  }
   return checks.some((check) => check.conflicts !== undefined)
     ? `- ${link(url)} merges cleanly with ${branch} again at ${tip}`
     : undefined;
+};
+
+/** A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140). */
+const readingText = (reading: GravityReading): string => {
+  if (reading.result === 'skipped') return `the check "${reading.check}" was skipped`;
+  const what =
+    reading.setup === true
+      ? `the setup "${reading.command}"`
+      : reading.check === undefined
+        ? `the check "${reading.command}"`
+        : `the check "${reading.check}" (${reading.command})`;
+  switch (reading.result) {
+    case 'exited':
+      return `${what} failed with exit code ${reading.exitCode}`;
+    case 'signaled':
+      return `${what} was ended by ${reading.signal}`;
+    case 'unstarted':
+      return `${what} could not start`;
+    case 'killed':
+      switch (reading.killed) {
+        case 'timed-out':
+          return `${what} did not finish by its deadline`;
+        case 'too-much-output':
+          return `${what} wrote more output than the process runner's limit`;
+        case 'stopped':
+          return `${what} was stopped`;
+        default: {
+          const unhandled: never = reading.killed;
+          throw new Error(`Unhandled kill ${JSON.stringify(unhandled)}`);
+        }
+      }
+    default: {
+      const unhandled: never = reading;
+      throw new Error(`Unhandled reading ${JSON.stringify(unhandled)}`);
+    }
+  }
 };
 
 /** The lines of the pull requests of a batch on tap that its base checks have something to say of. */

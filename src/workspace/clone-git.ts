@@ -73,6 +73,10 @@ export const gitOutput = async (
 export interface OwnGitDir {
   /** The URL Foedrum names. */
   url: string;
+  /** The directory itself. */
+  path: string;
+  /** The clone's object store, which git there writes into. */
+  objects: string;
   /** git in the directory; its output, or throws with git's reason. */
   run(args: readonly string[], options?: GitOptions): Promise<string>;
   /**
@@ -194,7 +198,7 @@ export const withOwnGitDir = async <T>(
       [...prefix, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
       aborts,
     );
-    return await use({ url, run, fetch, read });
+    return await use({ url, path: gitDir, objects: join(common, 'objects'), run, fetch, read });
   } finally {
     await removeTree(gitDir);
   }

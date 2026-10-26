@@ -543,13 +543,16 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'pull_request.base_checked': {
-      const { batchId, pullRequest, branch, tip, conflicts, branchMoved } = event;
+      const { batchId, pullRequest, branch, tip, conflicts, branchMoved, failed, unchecked } =
+        event;
       const check: BaseCheck = {
         pullRequest,
         branch,
         tip,
         ...(conflicts === undefined ? {} : { conflicts }),
         ...(branchMoved === undefined ? {} : { branchMoved }),
+        ...(failed === undefined ? {} : { failed }),
+        ...(unchecked === undefined ? {} : { unchecked }),
       };
       return updateBatch(state, batchId, (batch) => ({
         ...batch,

@@ -21,6 +21,11 @@ export interface CheckSandboxPaths {
   worktree: string;
   /** The repository the worktree's `.git` file names, read-only; undefined when it names none. */
   gitDir: string | undefined;
+  /**
+   * The object stores that repository borrows through its alternates, read-only: the clone's, for a
+   * worktree of Foedrum's own git directory (ADR 0203).
+   */
+  borrowed?: readonly string[];
 }
 
 /** What a sandbox keeps of the machine beyond a check's: the network, for a setup (ADR 0158). */
@@ -41,8 +46,9 @@ interface Borrowed {
  */
 export const seatbeltProfile = (
   parents: number,
-  { network = false }: SandboxKeeps & Borrowed = {},
+  { network = false, borrowed = 0 }: SandboxKeeps & Borrowed = {},
 ): string => {
+  const stores = Array.from({ length: borrowed }, (_, n) => ` (subpath (param "BORROWED_${n}"))`);
   const literals = Array.from({ length: parents }, (_, n) => `(literal (param "PARENT_${n}"))`);
   return [
     '(version 1)',
@@ -69,6 +75,7 @@ export const seatbeltProfile = (
     // A later rule wins: the worktree and its repository may sit in the home folder.
     ...(parents === 0 ? [] : [`(allow file-read-metadata ${literals.join(' ')})`]),
     '(allow file-read* (subpath (param "WORKTREE")) (subpath (param "GIT_DIR")))',
+    ...(borrowed === 0 ? [] : [`(allow file-read*${stores.join('')})`]),
     '',
   ].join('\n');
 };
@@ -108,7 +115,7 @@ const RESOLV_CONF = '/etc/resolv.conf';
  * hidden /run (systemd-resolved's stub), bound back read-only, the one file (ADR 0158).
  */
 export function bwrapArgs(
-  { home, worktree, gitDir }: CheckSandboxPaths,
+  { home, worktree, gitDir, borrowed = [] }: CheckSandboxPaths,
   line: string,
   { network = false, resolver }: SandboxKeeps & { resolver?: string | undefined } = {},
 ): string[] {
@@ -125,6 +132,7 @@ export function bwrapArgs(
     ...['--tmpfs', '/tmp', '--tmpfs', '/run', '--tmpfs', home],
     ...(network && resolver !== undefined ? ['--ro-bind', resolver, resolver] : []),
     ...(gitDir === undefined ? [] : ['--ro-bind', gitDir, gitDir]),
+    ...borrowed.flatMap((store) => ['--ro-bind', store, store]),
     ...['--bind', worktree, worktree, '--chdir', worktree],
     ...['--setenv', 'TMPDIR', '/tmp'],
     ...throughSh(line),
@@ -133,17 +141,22 @@ export function bwrapArgs(
 
 /** sandbox-exec's arguments that run `line` through `/bin/sh` under `seatbeltProfile`. */
 export function seatbeltArgs(
-  { home, worktree, gitDir, temp }: CheckSandboxPaths & { temp: string },
+  { home, worktree, gitDir, borrowed = [], temp }: CheckSandboxPaths & { temp: string },
   line: string,
   keeps: SandboxKeeps = {},
 ): string[] {
   // Parameters, never written into the profile, so no character in a path can change it.
   const parameters = { HOME: home, WORKTREE: worktree, GIT_DIR: gitDir ?? worktree, TEMP: temp };
-  const parents = foldersAbove(home, gitDir === undefined ? [worktree] : [worktree, gitDir]);
+  const parents = foldersAbove(home, [
+    worktree,
+    ...(gitDir === undefined ? [] : [gitDir]),
+    ...borrowed,
+  ]);
   return [
     ...Object.entries(parameters).flatMap(([key, value]) => ['-D', `${key}=${value}`]),
+    ...borrowed.flatMap((store, n) => ['-D', `BORROWED_${n}=${store}`]),
     ...parents.flatMap((folder, n) => ['-D', `PARENT_${n}=${folder}`]),
-    ...['-p', seatbeltProfile(parents.length, keeps)],
+    ...['-p', seatbeltProfile(parents.length, { ...keeps, borrowed: borrowed.length })],
     ...throughSh(line),
   ];
 }
@@ -188,8 +201,20 @@ export const worktreeGitDir = (worktree: string): string | undefined => {
  * The object stores a repository's `objects/info/alternates` names, a relative one against its
  * `objects` (ADR 0203); none without the file.
  */
-export const borrowedStores = (_repository: string): string[] => {
-  throw new Error('not implemented');
+export const borrowedStores = (repository: string): string[] => {
+  const objects = join(repository, 'objects');
+  let text: string;
+  try {
+    text = readFileSync(join(objects, 'info', 'alternates'), 'utf8');
+  } catch {
+    // None: the repository has its own objects only.
+    return [];
+  }
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'))
+    .map((line) => resolve(objects, line));
 };
 
 export interface SandboxedChecksOptions {
@@ -253,6 +278,7 @@ const sandboxRun = (tool: string, result: ExecResult): ExecResult =>
 export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const { exec, platform = process.platform, realPath = realPathOf } = options;
   const { gitDirOf = worktreeGitDir, temp = systemTemp, network = false } = options;
+  const { borrowedOf = borrowedStores } = options;
   const findBwrap = options.findBwrap ?? (() => resolveExecutable('bwrap', { platform }));
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
@@ -266,6 +292,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
         home: realPath(options.home ?? homedir()),
         worktree: realPath(call.cwd),
         gitDir: gitDir === undefined ? undefined : realPath(gitDir),
+        borrowed: gitDir === undefined ? [] : borrowedOf(gitDir).map((store) => realPath(store)),
       };
     } catch (error) {
       return unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`);

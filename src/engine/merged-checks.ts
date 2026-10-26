@@ -3,7 +3,7 @@
 // at a time in the Cellar, beside the ticks and the pass. Nothing is recorded until a run ends, so
 // a kill loses no run: the next pass finds the tip moved and hands it on again.
 
-import type { GravityReading } from '../schemas/events.ts';
+import { type GravityReading, MAX_UNCHECKED_LENGTH } from '../schemas/events.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 import type { CommandLog } from './command-log.ts';
 import type { Batch } from './fold.ts';
@@ -45,11 +45,17 @@ export const MOST_RUN_MS = 55 * 60_000;
  * merges the base before it runs (ADR 0164); `undefined` when it has none.
  */
 export const mergedCheckStep = (
-  _recipes: Recipes,
-  _checks: StepChecks,
-  _batch: Batch,
+  recipes: Recipes,
+  checks: StepChecks,
+  batch: Batch,
 ): MergedCheckStep | undefined => {
-  throw new Error('not implemented');
+  const name = batch.recipe?.name;
+  const recipe = name === undefined ? undefined : recipes.find(name);
+  const stepId = recipe?.steps.find((id) => recipe.mergesBase(id));
+  if (name === undefined || recipe === undefined || stepId === undefined) return undefined;
+  const refs = checks.find(name, stepId);
+  if (refs === undefined || refs.length === 0) return undefined;
+  return { stepId, refs, deadlineMs: Math.min(recipe.deadlineMs(stepId), MOST_RUN_MS) };
 };
 
 export interface MergedChecksOptions {
@@ -70,6 +76,91 @@ export interface MergedChecks {
   settled(): Promise<void>;
 }
 
-export const createMergedChecks = (_options: MergedChecksOptions): MergedChecks => {
-  throw new Error('not implemented');
+/** Whether `due` is still to run: its pull request open on tap, and no check recorded at its tip. */
+const stillDue = (log: CommandLog, due: MergedCheckDue): boolean => {
+  const batch = log.state().batches.get(due.batchId);
+  if (batch?.lane.kind !== 'on_tap' || !batch.lane.pullRequests.includes(due.pullRequest)) {
+    return false;
+  }
+  if (batch.pullRequestEnds?.[due.pullRequest] !== undefined) return false;
+  const latest = batch.baseChecks?.filter((check) => check.pullRequest === due.pullRequest).at(-1);
+  return latest?.tip !== due.tip;
+};
+
+/** A reason as the log keeps it: its first line, at most MAX_UNCHECKED_LENGTH characters. */
+const reasonOf = (why: string): string => {
+  const line = why.split(/\r?\n/).find((each) => each.trim() !== '') ?? 'the run failed';
+  return line.trim().slice(0, MAX_UNCHECKED_LENGTH);
+};
+
+export const createMergedChecks = (options: MergedChecksOptions): MergedChecks => {
+  const { log, clock, run, failed } = options;
+  // The due runs by pull request, in the order they came; each at its newest tip.
+  const queue = new Map<string, MergedCheckDue>();
+  let running: { due: MergedCheckDue; ended: Promise<void> } | undefined;
+
+  const record = (due: MergedCheckDue, found: { failed?: GravityReading; unchecked?: string }) => {
+    const event = {
+      type: 'pull_request.base_checked',
+      batchId: due.batchId,
+      pullRequest: due.pullRequest,
+      branch: due.branch,
+      tip: due.tip,
+      ...found,
+    } as const;
+    const decision = log.issue({ kind: 'record', event }, clock());
+    if (decision.kind === 'refused') {
+      failed(`recording the checks of ${due.pullRequest}`, new Error(decision.reason));
+    }
+  };
+
+  const runOne = async (due: MergedCheckDue, signal: AbortSignal): Promise<void> => {
+    let end: MergedCheckEnd;
+    try {
+      end = await run(due, signal);
+    } catch (error) {
+      if (signal.aborted) return;
+      failed(`checking the merged tree of ${due.pullRequest} at ${due.tip}`, error);
+      end = { kind: 'unchecked', why: error instanceof Error ? error.message : String(error) };
+    }
+    switch (end.kind) {
+      case 'stopped':
+        return;
+      case 'passed':
+        return record(due, {});
+      case 'failed':
+        return record(due, { failed: end.reading });
+      case 'unchecked':
+        return record(due, { unchecked: reasonOf(end.why) });
+      default: {
+        const unhandled: never = end;
+        throw new Error(`Unhandled end ${JSON.stringify(unhandled)}`);
+      }
+    }
+  };
+
+  return {
+    due: (due) => {
+      // The run underway reads this tip already.
+      if (running?.due.pullRequest === due.pullRequest && running.due.tip === due.tip) return;
+      queue.set(due.pullRequest, due);
+    },
+    poll: (signal) => {
+      if (running !== undefined || signal.aborted) return;
+      for (const [pullRequest, due] of queue) {
+        queue.delete(pullRequest);
+        if (!stillDue(log, due)) continue;
+        const ended = runOne(due, signal)
+          .catch((error: unknown) => failed(`checking the merged tree of ${pullRequest}`, error))
+          .finally(() => {
+            running = undefined;
+          });
+        running = { due, ended };
+        return;
+      }
+    },
+    settled: async () => {
+      await running?.ended;
+    },
+  };
 };

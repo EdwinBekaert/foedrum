@@ -171,6 +171,17 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     }
     // A pass given up at its deadline records nothing more.
     if (signal.aborted) return;
+    // A clean merge with checks to run is the merged-check run's to record (ADR 0203).
+    if (merged.kind === 'clean' && repository.checks?.wants(batch) === true) {
+      repository.checks.due({
+        batchId: batch.id,
+        pullRequest: open.url,
+        branch: repository.base,
+        tip,
+        head: open.head,
+      });
+      continue;
+    }
     const files = merged.kind === 'conflicts' ? merged.files.slice(0, MAX_CONFLICTS) : [];
     record(
       batch.id,
