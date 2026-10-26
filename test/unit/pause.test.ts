@@ -189,6 +189,34 @@ describe('pause and continue (ADR 0202)', () => {
     });
   });
 
+  describe('an order paused with --by under a pause of all', () => {
+    it('stops at the earlier of the two stopAts, and shows that one', () => {
+      order(12);
+      order(13);
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(20), zone: 'UTC' } });
+      accept({ kind: 'pause', ...who, stopAt: { at: at(60), zone: 'UTC' } });
+      assert.equal(stopsNow(log.state(), batch('b12'), at(20)), true);
+      assert.equal(stopsNow(log.state(), batch('b13'), at(20)), false);
+      assert.deepStrictEqual(pauseOf(log.state(), batch('b12'))?.stopAt, {
+        at: at(20).toISOString(),
+        zone: 'UTC',
+      });
+    });
+
+    it('keeps the order its own --by when the pause of all has none', () => {
+      order(12);
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(20), zone: 'UTC' } });
+      accept({ kind: 'pause', by: 'grace', via: 'plugin', why: 'release day' });
+      assert.equal(stopsNow(log.state(), batch('b12'), at(20)), true);
+      assert.deepStrictEqual(pauseOf(log.state(), batch('b12')), {
+        by: 'grace',
+        via: 'plugin',
+        why: 'release day',
+        stopAt: { at: at(20).toISOString(), zone: 'UTC' },
+      });
+    });
+  });
+
   describe('continue', () => {
     it("lifts an order's pause, recorded with who and from where", () => {
       order(12);
@@ -352,6 +380,35 @@ describe('pause and continue (ADR 0202)', () => {
         outcome: { kind: 'cancelled' },
       });
       assert.equal(events[1]?.type, 'step.scheduled');
+    });
+
+    it('keeps what the stopped attempt took and the house-yeast rules it was given', () => {
+      order(12);
+      start('b12');
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(10), zone: 'UTC' } });
+      now = at(10);
+      const usage = { inputTokens: 5, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1 };
+      const houseYeast = { selected: ['one-rule'], cut: [] };
+      const [finished] = accept({
+        kind: 'finish',
+        batchId: 'b12',
+        stepId: 'plan',
+        attempt: 1,
+        ending: { kind: 'cancelled' },
+        paused: true,
+        usage,
+        houseYeast,
+      });
+      assert.deepStrictEqual(finished, {
+        type: 'step.finished',
+        batchId: 'b12',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'cancelled' },
+        usage,
+        houseYeast,
+        paused: true,
+      });
     });
 
     it('leaves the attempt it stopped out of the count, so the next failure is retried', () => {
