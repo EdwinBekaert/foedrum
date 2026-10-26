@@ -65,6 +65,8 @@ export interface StepBrewer {
   together?: readonly string[];
   /** On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161). */
   blocking?: boolean;
+  /** On an interactive step: the recipe's first message to the session (ADR 0222). */
+  interactive?: { prompt: string };
 }
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
@@ -284,6 +286,8 @@ interface LineStep {
   passes?: true;
   /** The parallel group it is a child of (ADR 0168). */
   group?: string;
+  /** A brewer step whose attempts run as a person's session (ADR 0222). */
+  interactive?: true;
 }
 
 /**
@@ -508,6 +512,7 @@ function lineRecipe(
     has: (id) => byId.has(id) || groups.has(id),
     children: (id) => children.get(id),
     group: (id) => byId.get(id)?.group,
+    interactive: (id) => byId.get(id)?.interactive === true,
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),
@@ -750,17 +755,27 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           }
           return [];
         }
-        // No child writes the task tree beside its siblings (ADR 0168).
+        // No child writes the task tree beside its siblings (ADR 0168), nor holds the terminal
+        // while they run (ADR 0222).
         const ungrouped =
           group === undefined
             ? undefined
-            : !isTaster(brewer)
-              ? `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`
-              : brewer.produces === 'commits'
-                ? `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree (ADR 0168)`
-                : undefined;
+            : runnable.interactive === true
+              ? 'is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)'
+              : !isTaster(brewer)
+                ? `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`
+                : brewer.produces === 'commits'
+                  ? `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree (ADR 0168)`
+                  : undefined;
         if (ungrouped !== undefined) {
           problems.push(`${path}: step "${id}" in the parallel group "${group}" ${ungrouped}`);
+          return [];
+        }
+        if (runnable.interactive === true && (runnable.lens ?? runnable.lenses) !== undefined) {
+          const field = runnable.lens === undefined ? 'lenses' : 'lens';
+          problems.push(
+            `${path}: step "${id}" is interactive and has a "${field}": a lens step is a Taster's headless review (ADR 0222)`,
+          );
           return [];
         }
         const refusedLens = untasted(runnable, brewer);
@@ -791,9 +806,15 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
           route: findings === undefined ? undefined : { why: 'findings', ...findings },
           ...(group === undefined ? {} : { group }),
+          ...(runnable.interactive === true ? { interactive: true } : {}),
         };
         const [first] = stepLensFiles;
-        if (first === undefined) return [{ line, brewer: found }];
+        if (first === undefined) {
+          const { prompt } = runnable;
+          return [
+            { line, brewer: prompt === undefined ? found : { ...found, interactive: { prompt } } },
+          ];
+        }
         // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161), and a step's lenses
         // together as that one input, which names each (ADR 0220): no lens name holds a comma.
         const names = stepLensFiles.map(({ name }) => name);

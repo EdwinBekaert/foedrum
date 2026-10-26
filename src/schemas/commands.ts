@@ -198,6 +198,8 @@ export const BrewCommand = z.strictObject({
   ).optional(),
   /** `--take`: take the batch over from the driver that holds it (ADR 0124). */
   take: z.literal(true).optional(),
+  /** `--new-window`: run `foedrum brew <issue> --take` in a new terminal window (ADR 0222). */
+  'new-window': z.literal(true).optional(),
 });
 export type BrewCommand = z.infer<typeof BrewCommand>;
 

@@ -34,7 +34,7 @@ import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { githubClaimHost } from '../github/claims.ts';
-import { createGitHubClient } from '../github/client.ts';
+import { createGitHubClient, type GitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
 import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
@@ -81,6 +81,8 @@ export interface Wired {
   driver: Driver;
   /** One cache of conditional reads for every GitHub read (ADR 0052). */
   reads: GitHubReads;
+  /** The GitHub client under them, for GraphQL (ADR 0073). */
+  client: GitHubClient;
   /** The claim refs on GitHub (ADR 0043). */
   claims: ClaimHost;
   claimant: Claimant;
@@ -102,6 +104,8 @@ export interface WiringOptions {
   resumes?: (attempt: AttemptRef) => boolean;
   /** Whether the driver goes on with a batch it may hold; every one by default (ADR 0127). */
   holds?: (batchId: string) => boolean;
+  /** Whether it opens an interactive step's session: `foedrum brew` on a terminal (ADR 0222). */
+  sessions?: boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
   /** Reports a driver's notice. */
@@ -116,7 +120,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, resumes, holds, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, holds, sessions, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -299,6 +303,7 @@ export const wireDriver = async (
     takes,
     ...(drivesOn === undefined ? {} : { drivesOn }),
     ...(holds === undefined ? {} : { holds }),
+    ...(sessions === undefined ? {} : { sessions }),
     stateBranch,
     limits: plans.limits,
     outDoc: plans.outDoc,
@@ -311,16 +316,21 @@ export const wireDriver = async (
       const stepBrewer = brewerOf(batchId, stepId);
       return stepBrewer && familyOfBrewer(setup.models, stepBrewer);
     },
-    // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
+    // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118),
+    // but an interactive step's: its session opens anew, with the whole prompt (ADR 0222).
     resumes:
-      resumes ?? (({ batchId, stepId }) => brewerOf(batchId, stepId)?.retryMode === 'resume'),
+      resumes ??
+      (({ batchId, stepId }) => {
+        const stepBrewer = setup.brewers.find(recipeOf(batchId) ?? '', stepId);
+        return stepBrewer?.interactive === undefined && stepBrewer?.brewer.retryMode === 'resume';
+      }),
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,
     report,
   });
   opened.driver = driver;
-  return { store, driver, reads, claims, claimant, pushes, checkTree: checks.checkTree };
+  return { store, driver, reads, client, claims, claimant, pushes, checkTree: checks.checkTree };
 };
 
 /** Closes what `opened` holds: the driver, which stops its runs and lets the lock go, or the lock. */

@@ -61,6 +61,24 @@ export function resumeArgs(call: ResumeCall): string[] {
   ];
 }
 
+/** A new interactive session of an interactive step (ADR 0222): resume's guards, a first message. */
+export interface InteractiveCall extends ResumeCall {
+  /** The engine's fixed line that points the session at its prompt file. */
+  firstMessage: string;
+}
+
+/** The arguments of an interactive `claude` that opens an interactive step's new session. */
+export function interactiveArgs(call: InteractiveCall): string[] {
+  const { firstMessage, sessionId } = call;
+  // One line of the engine's own, never an option: it is the session's first message.
+  if (firstMessage === '' || firstMessage.startsWith('-') || /[\r\n]/.test(firstMessage)) {
+    refuse('first message', firstMessage);
+  }
+  const resumed = resumeArgs(call);
+  // First, so no option that takes several values reads it as one of them.
+  return [firstMessage, '--session-id', sessionId, ...resumed.slice(resumed.indexOf('--model'))];
+}
+
 // The checks every command line's values pass.
 const checkCall = (model: string, tools: readonly string[], sessionId: string): void => {
   if (!ModelId.safeParse(model).success) refuse('model', model);

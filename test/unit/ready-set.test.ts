@@ -1,7 +1,7 @@
 // The ready set (ADR 0211, ADR 0216): the intake starts the sub-orders whose blockers' pull requests
 // merged, and for a `release` blocker were released after, at their order's rank and in their plan's
 // order. Recorded `order.decomposed` and `release.observed` events and a fake tracker, no network
-// (ADR 0021): nothing produces sub-orders until mash (#388, #389), nor releases yet.
+// (ADR 0021): nothing produces sub-orders until mash (#388, #389).
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -15,7 +15,7 @@ import {
   type TargetTracker,
 } from '../../src/engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../../src/engine/issue-claims.ts';
-import { readySubOrders } from '../../src/engine/ready-set.ts';
+import { readySubOrders, releaseWaits } from '../../src/engine/ready-set.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
@@ -354,6 +354,106 @@ describe('readySubOrders', () => {
       }),
       [sub(1, 3), sub(5, 6)],
     );
+  });
+});
+
+describe('releaseWaits (ADR 0223)', () => {
+  const lib = 'acme/lib-core';
+  const waits = (...events: Event[]) => releaseWaits(fold(events));
+  /** #3 waits for a release of #2's repository, `acme/lib-core`; #2's batch is On tap. */
+  const start = [
+    ...started(1, [[2, lib], 3], [[3, 2, 'release']]),
+    ordered('2-1', 2, '1-1'),
+    onTap('2-1', pr(5)),
+  ];
+  const merged = ended('2-1', pr(5), 'merged');
+
+  it('gives the repository of a merged release blocker not yet released, with its merges', () => {
+    assert.deepStrictEqual(waits(...start, merged), [{ repo: lib, blockers: [[pr(5)]] }]);
+    // A release before the merge does not count, so it still waits.
+    assert.deepStrictEqual(waits(...start, released(lib), merged), [
+      { repo: lib, blockers: [[pr(5)]] },
+    ]);
+  });
+
+  it('gives nothing for a code blocker, a blocker not merged or closed, or one released', () => {
+    assert.deepStrictEqual(waits(...started(1, [[2, lib], 3], [[3, 2]])), []);
+    const code = [...started(1, [[2, lib], 3], [[3, 2]]), ordered('2-1', 2, '1-1')];
+    assert.deepStrictEqual(waits(...code, onTap('2-1', pr(5)), merged), []);
+    assert.deepStrictEqual(waits(...start), []);
+    assert.deepStrictEqual(waits(...start, ended('2-1', pr(5), 'closed')), []);
+    assert.deepStrictEqual(waits(...start, merged, released('Acme/Lib-Core')), []);
+  });
+
+  it('gives nothing once the sub-order it blocks has a batch', () => {
+    assert.deepStrictEqual(waits(...start, merged, ordered('3-1', 3, '1-1')), []);
+  });
+
+  it('passes over a cancelled order, and reads a paused one', () => {
+    const cancelled: Event = {
+      type: 'batch.cancelled',
+      batchId: '1-1',
+      by: 'ada',
+      via: 'terminal',
+    };
+    assert.deepStrictEqual(waits(...start, merged, cancelled), []);
+    const paused: Event = { type: 'order.paused', order: { issue: 1 }, by: 'ada', via: 'terminal' };
+    assert.deepStrictEqual(waits(...start, merged, paused), [{ repo: lib, blockers: [[pr(5)]] }]);
+  });
+
+  it('groups the blockers of one repository in any case, each once, spelled as first named', () => {
+    const events = [
+      ...started(
+        1,
+        [[2, 'Acme/Lib-Core'], [4, lib], 3, 5, [6, web], 7],
+        [
+          [3, 2, 'release'],
+          [5, 2, 'release'],
+          [5, 4, 'release'],
+          [7, 6, 'release'],
+        ],
+      ),
+      ordered('2-1', 2, '1-1'),
+      onTap('2-1', pr(5)),
+      merged,
+      ordered('4-1', 4, '1-1'),
+      onTap('4-1', pr(8)),
+      ended('4-1', pr(8), 'merged'),
+      ordered('6-1', 6, '1-1'),
+      onTap('6-1', pr(9)),
+      ended('6-1', pr(9), 'merged'),
+    ];
+    assert.deepStrictEqual(waits(...events), [
+      { repo: 'Acme/Lib-Core', blockers: [[pr(5)], [pr(8)]] },
+      { repo: web, blockers: [[pr(9)]] },
+    ]);
+  });
+
+  it('goes by order number, the repository spelled as the lowest order names it (review of #578)', () => {
+    const blocked = (order: number, repo: string, n: number): Event[] => [
+      ordered(`${order}-1`, order),
+      decomposed(`${order}-1`, [[order + 1, repo], order + 2], [[order + 2, order + 1, 'release']]),
+      onTap(`${order}-1`),
+      ordered(`${order + 1}-1`, order + 1, `${order}-1`),
+      onTap(`${order + 1}-1`, pr(n)),
+      ended(`${order + 1}-1`, pr(n), 'merged'),
+    ];
+    // Order #7 is folded first, and spells the repository otherwise.
+    assert.deepStrictEqual(waits(...blocked(7, 'Acme/Lib-Core', 9), ...blocked(1, lib, 5)), [
+      { repo: lib, blockers: [[pr(5)], [pr(9)]] },
+    ]);
+  });
+
+  it("gives a blocker's bottle by its pull request", () => {
+    const bottled = [
+      ...started(1, [[2, lib], [3, lib], 4], [[4, 2, 'release']]),
+      ordered('2-1', 2, '1-1'),
+      ordered('3-1', 3, '1-1'),
+      { type: 'bottle.opened', bottleId: 'b1', repo: lib, subOrders: [2, 3], pullRequest: pr(9) },
+      onTap('3-1', pr(9)),
+      ended('3-1', pr(9), 'merged'),
+    ] as const satisfies Event[];
+    assert.deepStrictEqual(waits(...bottled), [{ repo: lib, blockers: [[pr(9)]] }]);
   });
 });
 

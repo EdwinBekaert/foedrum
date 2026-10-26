@@ -125,6 +125,11 @@ const loaded = (exec: ExecProcess): ExecProcess => {
   };
 };
 
+// A tool's name in the report, padded to its column: on Linux the column fits slirp4netns, the
+// network stack's row (ADR 0218).
+const name = (tool: string) =>
+  `  ${tool.padEnd(process.platform === 'linux' ? 'slirp4netns'.length + 2 : 8)}`;
+
 const doctorWithStubs = async (
   dir: string,
   stubs: Record<string, CapturedAnswer>,
@@ -158,7 +163,7 @@ const doctorWithStubs = async (
   const gitRow = lines[git] ?? '';
   assert.ok(gitRow.endsWith(`  ${realGit}`), gitRow);
   assert.match(gitRow.slice(0, -realGit.length), /^ {2}git +\d+(?:\.\d+)+ +$/);
-  lines[git] = '  git     <real git>';
+  lines[git] = `${name('git')}<real git>`;
   return {
     exitCode,
     report: lines.join('\n'),
@@ -180,14 +185,22 @@ const keyring = (sandboxedLevel: string) =>
 const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
-// problem.
+// problems. The stubs have no user-mode network stack, which a Linux setup needs (ADR 0218).
+const NO_STACK =
+  "  slirp4netns or pasta (passt) not found: a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)";
+// The end of a report with no required problem: the optional ones, if any.
+const optional = (problems: readonly string[]) =>
+  problems.length === 0
+    ? ['Foedrum has everything it needs.']
+    : ['Problems:', ...problems, '', 'Foedrum can run; the problems above are optional.'];
 const sandbox = (at: (name: string) => string, bwrap: boolean) => {
   switch (process.platform) {
     case 'linux':
       return {
         rows: [
-          bwrap ? `  bwrap   0.9.0     ${at('bwrap')}` : '  bwrap   missing',
-          `  socat   1.7.4.4   ${at('socat')}`,
+          bwrap ? `${name('bwrap')}0.9.0     ${at('bwrap')}` : `${name('bwrap')}missing`,
+          `${name('socat')}1.7.4.4   ${at('socat')}`,
+          `${name('slirp4netns')}missing`,
         ],
         isolation: bwrap
           ? ['Isolation: sandboxed (bubblewrap and socat)', checkStepKeyring]
@@ -195,9 +208,12 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
               'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
               keyring('The sandboxed level (bubblewrap and socat)'),
             ],
-        problems: bwrap
-          ? []
-          : ['  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level'],
+        problems: [
+          ...(bwrap
+            ? []
+            : ['  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level']),
+          NO_STACK,
+        ],
       };
     case 'win32':
       return {
@@ -239,11 +255,11 @@ describe('foedrum doctor with stub tools', () => {
       [
         'Foedrum doctor',
         '',
-        `  node    ${process.versions.node}`,
-        `  npm     11.6.2    ${at('npm')}`,
-        '  git     <real git>',
-        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
-        `  claude  2.1.301   ${at('claude')}`,
+        `${name('node')}${process.versions.node}`,
+        `${name('npm')}11.6.2    ${at('npm')}`,
+        `${name('git')}<real git>`,
+        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
+        `${name('claude')}2.1.301   ${at('claude')}`,
         ...platform.rows,
         '',
         ...platform.isolation,
@@ -253,7 +269,7 @@ describe('foedrum doctor with stub tools', () => {
         KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
-        'Foedrum has everything it needs.',
+        ...optional(platform.problems),
         '',
       ].join('\n'),
     );
@@ -279,11 +295,11 @@ describe('foedrum doctor with stub tools', () => {
       [
         'Foedrum doctor',
         '',
-        `  node    ${process.versions.node}`,
-        '  npm     missing',
-        '  git     <real git>',
-        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
-        '  claude  missing',
+        `${name('node')}${process.versions.node}`,
+        `${name('npm')}missing`,
+        `${name('git')}<real git>`,
+        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
+        `${name('claude')}missing`,
         ...platform.rows,
         '',
         ...platform.isolation,
@@ -328,11 +344,11 @@ describe('foedrum doctor with stub tools', () => {
       [
         'Foedrum doctor',
         '',
-        `  node    ${process.versions.node}`,
-        `  npm     11.6.2    ${at('npm')}`,
-        '  git     <real git>',
-        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
-        `  claude  2.1.301   ${at('claude')}`,
+        `${name('node')}${process.versions.node}`,
+        `${name('npm')}11.6.2    ${at('npm')}`,
+        `${name('git')}<real git>`,
+        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
+        `${name('claude')}2.1.301   ${at('claude')}`,
         ...platform.rows,
         '',
         ...platform.isolation,
@@ -342,7 +358,7 @@ describe('foedrum doctor with stub tools', () => {
         KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
-        'Foedrum has everything it needs.',
+        ...optional(platform.problems),
         '',
       ].join('\n'),
     );

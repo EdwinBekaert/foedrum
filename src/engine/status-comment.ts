@@ -129,7 +129,15 @@ const waitText = (on: WaitCondition): string => {
   }
 };
 
-const stuckText = (reason: StuckReason, told: Told): string => {
+/**
+ * The command that opens the session a batch waits for (ADR 0222): `foedrum brew` of its issue in
+ * a terminal, taking the batch from the driver that parked it. A target issue's order is named by
+ * its repository's alias, which only foedrum.jsonc knows.
+ */
+export const sessionCommand = ({ issue, repo }: Pick<Batch, 'issue' | 'repo'>): string =>
+  `foedrum brew ${repo === undefined ? issue : `<alias of ${repo}>#${issue}`} --take`;
+
+const stuckText = (reason: StuckReason, told: Told, batch: Batch): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `${code(reason.stepId)} needs input`;
@@ -140,7 +148,7 @@ const stuckText = (reason: StuckReason, told: Told): string => {
     case 'deadline_passed':
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':
-      return `${code(reason.stepId)} waits for its session`;
+      return `${code(reason.stepId)} waits for its session: run ${code(sessionCommand(batch))} in a terminal (ADR 0222)`;
     case 'stalled':
       return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':
@@ -311,7 +319,8 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
-const laneText = (lane: Lane, told: Told): string[] => {
+const laneText = (batch: Batch, told: Told): string[] => {
+  const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
       return ['📥 **Ordered**: waiting for a recipe'];
@@ -334,7 +343,7 @@ const laneText = (lane: Lane, told: Told): string[] => {
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
       return [
-        `🔔 **Stuck**: ${stuckText(reason, told)}`,
+        `🔔 **Stuck**: ${stuckText(reason, told, batch)}`,
         ...questions,
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
@@ -399,6 +408,10 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
   }
   if (latest.phase !== 'finished') {
     if (latest.abandoned === true) return `- ⏹️ ${id}: attempt ${n} stopped`;
+    // A person's open session has no deadline: the comment says since when it waits (ADR 0222).
+    if (latest.phase === 'started' && latest.interactiveSince !== undefined) {
+      return `- ▶️ ${id}: session open since ${latest.interactiveSince}, attempt ${n}`;
+    }
     const resumed = resumedAfterOverrun(batch, { batchId: batch.id, stepId, attempt: n });
     return `- ▶️ ${id}: brewing, attempt ${n}${resumed ? `, ${afterTheBudget}` : ''}`;
   }
@@ -645,7 +658,7 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     [
-      ...laneText(batch.lane, told),
+      ...laneText(batch, told),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
     ],

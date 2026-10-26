@@ -37,10 +37,15 @@ describe('diagnose: tools', () => {
       { name: 'claude', version: '2.1.301', path: '/home/brewer/.local/bin/claude' },
       { name: 'bwrap', version: '0.9.0', path: '/usr/bin/bwrap' },
       { name: 'socat', version: '1.7.4.4', path: '/usr/bin/socat' },
+      { name: 'slirp4netns', version: '1.2.1', path: '/usr/bin/slirp4netns' },
     ]);
   });
 
-  it('lists bubblewrap and socat on Linux only', () => {
+  it('lists bubblewrap, socat and the network stack on Linux only', () => {
+    assert.deepEqual(
+      diagnose(linux()).tools.map((tool) => tool.name),
+      ['node', 'npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'slirp4netns'],
+    );
     assert.deepEqual(
       diagnose(windows).tools.map((tool) => tool.name),
       ['node', 'npm', 'git', 'gh', 'claude'],
@@ -49,6 +54,36 @@ describe('diagnose: tools', () => {
       diagnose(macos).tools.map((tool) => tool.name),
       ['node', 'npm', 'git', 'gh', 'claude'],
     );
+  });
+
+  // A Linux setup's network namespace gets the network from slirp4netns, or pasta (ADR 0218).
+  it('lists pasta where slirp4netns is not there, and slirp4netns as missing where neither is', () => {
+    const pasta = (said: string) =>
+      linux({ slirp4netns: undefined, pasta: ran('/usr/bin/pasta', said) });
+    assert.deepEqual(
+      diagnose(pasta('pasta 2024_09_06.6b38f07\nCopyright Red Hat\n')).tools.at(-1),
+      {
+        name: 'pasta',
+        version: '2024_09_06.6b38f07',
+        path: '/usr/bin/pasta',
+      },
+    );
+    // Ubuntu 24.04's pasta does not know its version.
+    assert.deepEqual(diagnose(pasta('pasta unknown version\n')).tools.at(-1), {
+      name: 'pasta',
+      version: undefined,
+      path: '/usr/bin/pasta',
+    });
+    assert.deepEqual(diagnose(linux({ slirp4netns: undefined })).tools.at(-1), {
+      name: 'slirp4netns',
+      version: undefined,
+      path: undefined,
+    });
+  });
+
+  it('lists slirp4netns when pasta is there too', () => {
+    const both = linux({ pasta: ran('/usr/bin/pasta', 'pasta 2024_09_06.6b38f07\n') });
+    assert.equal(diagnose(both).tools.at(-1)?.name, 'slirp4netns');
   });
 
   it('reads the version out of a Windows build string', () => {
@@ -450,6 +485,41 @@ describe('diagnose: isolation (ADR 0010)', () => {
       assert.equal(diagnosis.problems[0]?.required, false);
       assert.match(diagnosis.problems[0]?.what ?? '', new RegExp(`\\b${missing}\\b`));
     }
+  });
+
+  // A setup does not start without one, and a Brewery without one needs neither (ADR 0218).
+  it('reports a missing network stack on Linux as a problem that is not required, and keeps the level', () => {
+    const diagnosis = diagnose(linux({ slirp4netns: undefined }));
+    assert.equal(diagnosis.isolation.level, 'sandboxed');
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, [
+      {
+        required: false,
+        what: 'slirp4netns or pasta (passt) not found',
+        fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)",
+      },
+    ]);
+    const pasta = linux({
+      slirp4netns: undefined,
+      pasta: ran('/usr/bin/pasta', 'pasta unknown version\n'),
+    });
+    assert.deepEqual(diagnose(pasta).problems, []);
+    assert.deepEqual(diagnose(linux()).problems, []);
+    assert.deepEqual(diagnose(macos).problems, []);
+    assert.deepEqual(diagnose(windows).problems, []);
+  });
+
+  // pasta joins a setup's namespace on Ubuntu too, under passt's AppArmor profile: CI's run of
+  // #425 showed it once the namespace was joinable, so doctor says nothing against it (ADR 0218).
+  it('gives no advice against pasta where only pasta is there, also where AppArmor restricts user namespaces', () => {
+    const advised = (facts: DoctorFacts) =>
+      diagnose(facts).advice.filter((line) => /pasta/.test(line));
+    const onlyPasta = linux({
+      slirp4netns: undefined,
+      pasta: ran('/usr/bin/pasta', 'pasta unknown version\n'),
+    });
+    assert.deepEqual(advised({ ...onlyPasta, restrictsUserns: true }), []);
+    assert.deepEqual(advised({ ...onlyPasta, restrictsUserns: false }), []);
   });
 
   it('is permissions only on native Windows, and recommends WSL2', () => {

@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { win32 } from 'node:path';
 import { describe, it } from 'node:test';
-import { type ClaudeCall, claudeArgs, resumeArgs } from '../../src/brewers/claude-command.ts';
+import {
+  type ClaudeCall,
+  claudeArgs,
+  interactiveArgs,
+  resumeArgs,
+} from '../../src/brewers/claude-command.ts';
 import { jobObjectCommand, windowsArgument } from '../../src/platform/job-object.ts';
 import { spawnCommand } from '../../src/platform/processes.ts';
+import { windowsCommandLine } from '../../src/platform/shell.ts';
 
 const call: ClaudeCall = {
   model: 'claude-sonnet-5-5',
@@ -145,5 +151,47 @@ describe('resumeArgs', () => {
     assert.deepEqual(args.slice(-2), ['--append-system-prompt-file', file]);
     assert.deepEqual(args.slice(0, -2), resumeArgs(call));
     assert.ok(!resumeArgs(call).includes('--append-system-prompt-file'));
+  });
+});
+
+describe('interactiveArgs (ADR 0222)', () => {
+  const folder = win32.join('D:', 'work', 'attempt-settings', '12-1', 'lauter');
+  const call = {
+    model: 'claude-sonnet-5-5',
+    effort: 'high' as const,
+    settingsFile: win32.join(folder, '1.json'),
+    tools: ['Read', 'Edit'],
+    sessionId: '0f8fad5b-d9cb-469f-a165-70867728950e',
+    appendSystemPromptFile: win32.join(folder, '1.system.md'),
+    firstMessage: `Read ${win32.join(folder, '1.prompt.md')}: it is your task in this session.`,
+  };
+
+  it("opens a new session with the recorded id, the first message and resume's guards, without print mode", () => {
+    const args = interactiveArgs(call);
+    const resumed = resumeArgs(call);
+    assert.deepEqual(args, [
+      call.firstMessage,
+      '--session-id',
+      call.sessionId,
+      ...resumed.slice(resumed.indexOf('--model')),
+    ]);
+    for (const flag of ['--print', '--permission-mode', 'dontAsk', '--resume']) {
+      assert.ok(!args.includes(flag), flag);
+    }
+  });
+
+  it("passes as npm's claude.cmd line on Windows (ADR 0031)", () => {
+    const claude = win32.join('C:', 'npm', 'claude.cmd');
+    assert.doesNotThrow(() => windowsCommandLine(claude, interactiveArgs(call)));
+  });
+
+  it('refuses a first message of two lines, or one that reads as an option', () => {
+    const twoLines = ['Read it.', 'Then more.'].join(String.fromCodePoint(10));
+    for (const firstMessage of [twoLines, '--dangerously-skip-permissions', '']) {
+      assert.throws(
+        () => interactiveArgs({ ...call, firstMessage }),
+        /claude first message is not valid/,
+      );
+    }
   });
 });

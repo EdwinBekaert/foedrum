@@ -5,10 +5,12 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { type Duplex, PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import {
   borrowedStores,
   insideFolders,
+  type NetworkStackTool,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
@@ -48,6 +50,8 @@ const options = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {}) 
   home,
   findBwrap: () => '/usr/bin/bwrap',
   hasSandboxExec: () => true,
+  // No user-mode network stack unless a test gives one (ADR 0218).
+  findStackTool: () => undefined,
   realPath: (path: string) => path,
   gitDirOf: (path: string) => (path === worktree ? gitDir : undefined),
   ...more,
@@ -407,30 +411,368 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
   });
 });
 
-// A repository's setup installs, so its sandbox keeps the network and nothing else (ADR 0158).
+/**
+ * A fake runner for a setup's two processes on Linux (ADR 0218): bwrap writes its child's pid to
+ * fd 3 (in the chunks `info` gives) and runs the line once fd 4 has a byte; the stack is up,
+ * fails, exits without coming up, or hangs, as `stack` says. `bwrap` says how bwrap ends: when the
+ * line is done, when it is stopped mid-line, at its deadline once the stack has started, or under
+ * its own name before or after it would tell a pid. What it records: the calls, the order of
+ * events and the resolver's file bwrap was given on fd 5.
+ */
+const fakeSetup = ({
+  info = ['{\n    "child-pid": 4242\n}\n'],
+  stack = 'up',
+  bwrap = 'line-ends',
+  answer = {},
+}: {
+  info?: readonly string[];
+  stack?: 'up' | 'fails' | 'exits-before-up' | 'hangs';
+  bwrap?:
+    | 'line-ends'
+    | 'line-runs-until-stopped'
+    | 'times-out'
+    | 'fails-at-once'
+    | 'fails-late'
+    | 'says-when-stopped';
+  answer?: Partial<ExecResult>;
+} = {}) => {
+  const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
+  const events: string[] = [];
+  const resolver = { text: '' };
+  const handed: Duplex[][] = [];
+  const ran = (more: Partial<ExecResult> = {}): ExecResult => ({
+    exitCode: 0,
+    stdout: '',
+    stderr: '',
+    output: '',
+    ...more,
+  });
+  const ownFailure = 'bwrap: setting up uid map: Permission denied\n';
+  const stopped = (signal: AbortSignal | undefined, what: string, more: Partial<ExecResult> = {}) =>
+    new Promise<ExecResult>((done) => {
+      const stop = () => {
+        events.push(what);
+        done(ran({ exitCode: null, killed: 'stopped', ...more }));
+      };
+      if (signal?.aborted) stop();
+      else signal?.addEventListener('abort', stop, { once: true });
+    });
+  // Resolves once `event` is among the events, checked after each turn of the event loop.
+  const once = (event: string) =>
+    new Promise<void>((done) => {
+      const look = () => (events.includes(event) ? done() : setImmediate(look));
+      look();
+    });
+  const exec: ExecProcess = async (file, args, options) => {
+    calls.push({ file, args, options });
+    const pipes = Array.from({ length: options.pipes?.count ?? 0 }, () => new PassThrough());
+    handed.push(pipes);
+    options.pipes?.onPipes(pipes);
+    const [first, second, third] = pipes;
+    if (file === '/usr/bin/bwrap') {
+      if (first === undefined || second === undefined) return ran(answer);
+      if (bwrap === 'fails-at-once') {
+        first.end();
+        return ran({ exitCode: 1, stderr: ownFailure, output: ownFailure });
+      }
+      if (bwrap === 'fails-late') {
+        // Its info pipe closes first, and the runner sees it end only after Foedrum stopped it.
+        first.end();
+        return stopped(options.signal, 'bwrap stopped', { stderr: ownFailure, output: ownFailure });
+      }
+      for (const chunk of info.slice(0, -1)) first.write(chunk);
+      first.end(info.at(-1));
+      if (bwrap === 'times-out') {
+        return once(`${stack === 'up' ? 'the line runs' : 'slirp4netns starts'}`).then(() => {
+          events.push('bwrap timed out');
+          return ran({ exitCode: null, killed: 'timed-out' });
+        });
+      }
+      return Promise.race([
+        new Promise<ExecResult>((done) =>
+          second.once('data', () => {
+            // bwrap has read the resolver's file by the time the line runs.
+            resolver.text = String(third?.read() ?? '');
+            events.push('the line runs');
+            if (bwrap === 'line-ends') done(ran(answer));
+          }),
+        ),
+        // A bwrap that writes a line under its own name as it is stopped.
+        bwrap === 'says-when-stopped'
+          ? stopped(options.signal, 'bwrap stopped', { stderr: ownFailure, output: ownFailure })
+          : stopped(options.signal, 'bwrap stopped'),
+      ]);
+    }
+    const tool = file === '/usr/bin/pasta' ? 'pasta' : 'slirp4netns';
+    events.push(`${tool} starts`);
+    if (stack === 'fails') {
+      const said = `${tool}: Couldn't open user namespace /proc/4242/ns/user: Permission denied\n`;
+      return ran({ exitCode: 1, stderr: said, output: said });
+    }
+    // A slirp4netns that ends cleanly before it said it was up: never a namespace with a network.
+    if (stack === 'exits-before-up') return ran();
+    if (stack === 'hangs') return stopped(options.signal, `${tool} stopped`);
+    // pasta forks to the background once the namespace is up; slirp4netns says so on fd 3.
+    if (tool === 'pasta') return ran();
+    first?.write('1');
+    return stopped(options.signal, 'slirp4netns stopped');
+  };
+  return { calls, events, resolver, handed, exec };
+};
+
+const stackTools =
+  (...found: NetworkStackTool[]) =>
+  (name: NetworkStackTool) =>
+    found.includes(name) ? `/usr/bin/${name}` : undefined;
+
+const PASTA_ARGS = [
+  '--config-net',
+  '--quiet',
+  '-4',
+  '-a',
+  '10.0.2.100',
+  '-n',
+  '24',
+  '-g',
+  '10.0.2.2',
+  '--no-map-gw',
+  '-t',
+  'none',
+  '-u',
+  'none',
+  '-T',
+  'none',
+  '-U',
+  'none',
+  '--dns-forward',
+  '10.0.2.3',
+  '4242',
+];
+
+const SLIRP4NETNS_ARGS = [
+  '--configure',
+  '--mtu=65520',
+  '--disable-host-loopback',
+  '--ready-fd=3',
+  '--exit-fd=4',
+  '4242',
+  'tap0',
+];
+
+/**
+ * A setup's /dev, built without devpts: with `--dev /dev`, bwrap maps the user to root in one user
+ * namespace to mount devpts and makes a second inside it, and the network namespace belongs to
+ * the outer one, which no stack can join (ADR 0218, CI run of #425).
+ */
+const SETUP_DEV = [
+  ...['--tmpfs', '/dev'],
+  ...['--dev-bind', '/dev/null', '/dev/null'],
+  ...['--dev-bind', '/dev/zero', '/dev/zero'],
+  ...['--dev-bind', '/dev/full', '/dev/full'],
+  ...['--dev-bind', '/dev/random', '/dev/random'],
+  ...['--dev-bind', '/dev/urandom', '/dev/urandom'],
+  ...['--dev-bind', '/dev/tty', '/dev/tty'],
+  ...['--tmpfs', '/dev/shm'],
+  ...['--symlink', '/proc/self/fd', '/dev/fd'],
+  ...['--symlink', '/proc/self/fd/0', '/dev/stdin'],
+  ...['--symlink', '/proc/self/fd/1', '/dev/stdout'],
+  ...['--symlink', '/proc/self/fd/2', '/dev/stderr'],
+];
+
+const linuxSetup = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {}) =>
+  sandboxedChecks(
+    options(exec, {
+      platform: 'linux',
+      network: true,
+      findStackTool: stackTools('pasta', 'slirp4netns'),
+      ...more,
+    }),
+  );
+
+// A repository's setup installs, so its sandbox keeps the network and nothing else (ADR 0158),
+// through a network namespace of its own on Linux and WSL2 (ADR 0218).
 describe('sandboxedChecks with the network kept, for a setup', () => {
-  it('starts the line in bwrap without a network namespace of its own, everything else as a check', async () => {
+  it("starts the line in bwrap with a network namespace of its own, which pasta joins before the line runs where slirp4netns is not on PATH, everything else as a check's", async () => {
     const checked = fake();
     await sandboxedChecks(options(checked.exec, { platform: 'linux' }))(line, [], call);
-    const { calls, exec } = fake();
-    const run = sandboxedChecks(options(exec, { platform: 'linux', network: true }));
-    await run(line, [], call);
-    assert.deepEqual(calls, [
-      {
-        ...checked.calls[0],
-        args: checked.calls[0]?.args.filter((arg) => arg !== '--unshare-net'),
-      },
+    const checkArgs = checked.calls[0]?.args ?? [];
+    const { calls, events, resolver, exec } = fakeSetup({ answer: { exitCode: 3 } });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('pasta') })(line, [], call);
+    assert.equal(result.exitCode, 3);
+    const at = checkArgs.indexOf('--unshare-net') + 1;
+    const dev = checkArgs.indexOf('--dev');
+    const after = checkArgs.indexOf(home) + 1;
+    assert.deepEqual(calls[0]?.args, [
+      ...checkArgs.slice(0, at),
+      ...['--info-fd', '3', '--block-fd', '4'],
+      ...checkArgs.slice(at, dev),
+      ...SETUP_DEV,
+      ...checkArgs.slice(dev + 2, after),
+      ...['--ro-bind-data', '5', '/etc/resolv.conf'],
+      ...checkArgs.slice(after),
     ]);
+    assert.equal(calls[0]?.file, '/usr/bin/bwrap');
+    assert.equal(calls[0]?.options.pipes?.count, 3);
+    assert.equal(calls[0]?.options.shell, false);
+    assert.equal(calls[0]?.options.timeoutMs, call.timeoutMs);
+    // pasta attaches to bwrap's child, with the host's loopback and every forwarded port closed.
+    assert.deepEqual(
+      calls.slice(1).map(({ file, args }) => ({ file, args })),
+      [{ file: '/usr/bin/pasta', args: PASTA_ARGS }],
+    );
+    assert.equal(calls[1]?.options.cwd, worktree);
+    assert.equal(calls[1]?.options.timeoutMs, call.timeoutMs);
+    assert.equal(calls[1]?.options.shell, undefined);
+    assert.deepEqual(events, ['pasta starts', 'the line runs']);
+    // The stack's resolver, never the host's 127.0.0.53, which the namespace's own loopback is.
+    assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
   });
 
-  // Ubuntu's /etc/resolv.conf links into /run, which the sandbox hides: an install could not
-  // find its registry's address without the one file.
-  it("binds the resolver's file read-only where /etc/resolv.conf links into the hidden /run", async () => {
+  it('uses slirp4netns, and stops it once bwrap has ended', async () => {
+    const { calls, events, resolver, exec } = fakeSetup();
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(calls[1]?.file, '/usr/bin/slirp4netns');
+    assert.deepEqual(calls[1]?.args, SLIRP4NETNS_ARGS);
+    // Its --ready-fd and --exit-fd.
+    assert.equal(calls[1]?.options.pipes?.count, 2);
+    assert.deepEqual(events, ['slirp4netns starts', 'the line runs', 'slirp4netns stopped']);
+    assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
+  });
+
+  // Ubuntu confines pasta under passt's AppArmor profile, and lets slirp4netns into user
+  // namespaces (ADR 0218).
+  it('prefers slirp4netns when both are there', async () => {
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec)(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
+  });
+
+  it('does not start without slirp4netns or pasta, and says so', async () => {
+    const { calls, exec } = fakeSetup();
+    const result = await linuxSetup(exec, { findStackTool: stackTools() })(line, [], call);
+    assert.deepEqual(calls, []);
+    assert.equal(result.exitCode, null);
+    assert.match(
+      result.output,
+      /^neither slirp4netns nor pasta \(passt\) is on PATH: a repository's setup runs only in a network namespace of its own here; install slirp4netns \(ADR 0218\)\n$/,
+    );
+  });
+
+  it("reads as not started, with the stack's message, when the stack fails, and the line never runs", async () => {
+    for (const tool of ['pasta', 'slirp4netns'] as const) {
+      const { events, exec } = fakeSetup({ stack: 'fails' });
+      const result = await linuxSetup(exec, { findStackTool: stackTools(tool) })(line, [], call);
+      assert.equal(result.exitCode, null, tool);
+      assert.equal(result.killed, undefined, tool);
+      assert.match(
+        result.output,
+        new RegExp(`^${tool}: Couldn't open user namespace /proc/4242/ns/user: Permission denied`),
+      );
+      assert.deepEqual(events, [`${tool} starts`, 'bwrap stopped'], tool);
+    }
+  });
+
+  it('reads as not started, and starts no stack, when bwrap fails before it tells its pid', async () => {
+    const { calls, exec } = fakeSetup({ bwrap: 'fails-at-once' });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
+  });
+
+  it('stops bwrap, and reads as not started, when its pid cannot be read', async () => {
+    const { calls, events, exec } = fakeSetup({ info: ['{"child-pid": "x"}'] });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(events, ['bwrap stopped']);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /^bwrap gave no child pid on its --info-fd/);
+  });
+
+  // Review of #564: its info pipe can close before the runner sees it end, and Foedrum then stops
+  // it for want of a pid; what it said under its own name is still the reason.
+  it('reads as not started with what bwrap said, when it fails after its info pipe closed', async () => {
+    const { calls, exec } = fakeSetup({ bwrap: 'fails-late' });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
+  });
+
+  // ADR 0218: a stack that fails to start reads with its own message; bwrap's only wins when it
+  // gave no pid (review of #564).
+  it("reads the stack's message when the stack fails, also when the stopped bwrap writes one of its own", async () => {
+    const { exec } = fakeSetup({ stack: 'fails', bwrap: 'says-when-stopped' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.exitCode, null);
+    assert.match(
+      result.output,
+      /^slirp4netns: Couldn't open user namespace \/proc\/4242\/ns\/user: Permission denied/,
+    );
+  });
+
+  // Review of #564: the stack Foedrum stops once bwrap has ended has not failed.
+  it('reads as timed out when the deadline passes before the stack is up, and stops the stack', async () => {
+    const { events, exec } = fakeSetup({ stack: 'hangs', bwrap: 'times-out' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.killed, 'timed-out');
+    assert.equal(result.exitCode, null);
+    assert.doesNotMatch(result.output, /slirp4netns/);
+    assert.deepEqual(events, ['slirp4netns starts', 'bwrap timed out', 'slirp4netns stopped']);
+  });
+
+  it('reads no pid of 0, nor from JSON that ends before it is whole', async () => {
+    for (const info of [['{"child-pid": 0}'], ['{"child-']]) {
+      const { calls, events, exec } = fakeSetup({ info });
+      const result = await linuxSetup(exec)(line, [], call);
+      assert.equal(calls.length, 1, info[0]);
+      assert.deepEqual(events, ['bwrap stopped'], info[0]);
+      assert.match(result.output, /^bwrap gave no child pid on its --info-fd/, info[0]);
+    }
+  });
+
+  it('reads the pid bwrap writes in more than one piece', async () => {
+    const { calls, events, exec } = fakeSetup({ info: ['{\n    "child-', 'pid": 42', '42\n}\n'] });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(calls[1]?.args, SLIRP4NETNS_ARGS);
+    assert.deepEqual(events, ['slirp4netns starts', 'the line runs', 'slirp4netns stopped']);
+  });
+
+  // ADR 0218: a stack that exits before it is up fails, whatever its exit code.
+  it('reads as not started, and never runs the line, when slirp4netns ends cleanly before it is up', async () => {
+    const { events, exec } = fakeSetup({ stack: 'exits-before-up' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /^slirp4netns: exit code 0 \(ADR 0218\)/);
+    assert.deepEqual(events, ['slirp4netns starts', 'bwrap stopped']);
+  });
+
+  // Ubuntu's /etc/resolv.conf links into /run, which the sandbox hides: the stack's file goes
+  // where the link points, so the link finds it.
+  it("gives the resolver's file at the real path of /etc/resolv.conf, and a check none", async () => {
     const stub = '/run/systemd/resolve/stub-resolv.conf';
     const realPath = (path: string) => (path === '/etc/resolv.conf' ? stub : path);
-    const { calls, exec } = fake();
-    const run = sandboxedChecks(options(exec, { platform: 'linux', network: true, realPath }));
-    await run(line, [], call);
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec, { realPath })(line, [], call);
     const args = calls[0]?.args ?? [];
     const at = args.indexOf('/run');
     assert.deepEqual(args.slice(at - 1, at + 6), [
@@ -438,32 +780,51 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
       '/run',
       '--tmpfs',
       home,
-      '--ro-bind',
-      stub,
+      '--ro-bind-data',
+      '5',
       stub,
     ]);
-    // A check has no network, so it gets no resolver.
-    const checked = fake();
-    await sandboxedChecks(options(checked.exec, { platform: 'linux', realPath }))(line, [], call);
-    assert.ok(!checked.calls[0]?.args.includes(stub));
-  });
-
-  it("binds no resolver's file when /etc/resolv.conf is outside /run or cannot be resolved", async () => {
-    for (const realPath of [
-      (path: string) => (path === '/etc/resolv.conf' ? '/mnt/wsl/resolv.conf' : path),
-      // Near misses: a folder whose name only starts with run, and /run itself.
-      (path: string) => (path === '/etc/resolv.conf' ? '/runner/resolv.conf' : path),
-      (path: string) => (path === '/etc/resolv.conf' ? '/run' : path),
-      (path: string) => {
-        if (path === '/etc/resolv.conf') throw new Error('ENOENT: no such file');
+    const unresolved = fakeSetup();
+    await linuxSetup(unresolved.exec, {
+      realPath: (path: string) => {
+        if (path === '/etc/resolv.conf') throw new Error('ELOOP: too many links');
         return path;
       },
-    ]) {
-      const { calls, exec } = fake();
-      const run = sandboxedChecks(options(exec, { platform: 'linux', network: true, realPath }));
-      await run(line, [], call);
-      assert.equal(calls[0]?.args.filter((arg) => arg === '--ro-bind').length, 2);
-    }
+    })(line, [], call);
+    const given = unresolved.calls[0]?.args ?? [];
+    assert.equal(given[given.indexOf('--ro-bind-data') + 2], '/etc/resolv.conf');
+    // A check has no network, so it gets no resolver, no pipes and no stack.
+    const checked = fake();
+    const check = sandboxedChecks(
+      options(checked.exec, { platform: 'linux', realPath, findStackTool: stackTools('pasta') }),
+    );
+    await check(line, [], call);
+    assert.equal(checked.calls.length, 1);
+    assert.ok(!checked.calls[0]?.args.includes('--ro-bind-data'));
+    assert.ok(!checked.calls[0]?.args.includes('--info-fd'));
+    assert.equal(checked.calls[0]?.options.pipes, undefined);
+  });
+
+  it('ends the run as stopped, the stack after it, when the caller stops it while the line runs', async () => {
+    const stop = new AbortController();
+    const { events, exec } = fakeSetup({ bwrap: 'line-runs-until-stopped' });
+    const running = linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(line, [], {
+      ...call,
+      signal: stop.signal,
+    });
+    await new Promise<void>((done) => {
+      const look = () => (events.includes('the line runs') ? done() : setImmediate(look));
+      look();
+    });
+    stop.abort();
+    const result = await running;
+    assert.equal(result.killed, 'stopped');
+    assert.deepEqual(events, [
+      'slirp4netns starts',
+      'the line runs',
+      'bwrap stopped',
+      'slirp4netns stopped',
+    ]);
   });
 
   // Seatbelt's network* also covers Unix sockets, such as launchd's ssh-agent under /private/tmp

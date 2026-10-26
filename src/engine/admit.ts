@@ -72,13 +72,23 @@ export function notAllowed(batch: Batch, what: string, allowed: readonly Lane['k
 
 export const nonTerminal: readonly Lane['kind'][] = ['ordered', 'brewing', 'conditioning', 'stuck'];
 
+/** Whether the fold holds `version` of `repo`, in any case (ADR 0223). */
+export const releaseRecorded = (state: State, repo: string, version: string): boolean =>
+  state.releases.some(
+    (release) => release.repo.toLowerCase() === repo.toLowerCase() && release.version === version,
+  );
+
 /** Why `event` is not allowed in `state`, beyond what the fold checks; `undefined` when it is. */
 function rule(state: State, event: Event): string | undefined {
   switch (event.type) {
     case 'batch.ordered':
-    case 'release.observed':
     case 'effect.applied':
       return undefined;
+    case 'release.observed':
+      // Once per version, so two writers record a release once (ADR 0223).
+      return releaseRecorded(state, event.repo, event.version)
+        ? `the release ${event.version} of ${event.repo} is already recorded`
+        : undefined;
     case 'batch.recipe_chosen':
       return lanes(state, event, ['ordered', 'conditioning', 'stuck']);
     case 'step.scheduled':

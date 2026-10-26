@@ -1,13 +1,16 @@
 // The ready set (ADR 0211, ADR 0216) over generated breakdowns: one intake pass never orders a
 // sub-order whose blocker has not merged, or for a `release` blocker was not released after its merge,
-// never more than the free capacity, and every ready sub-order while a slot is free. The oracle below
-// reads the generated plan, not the fold.
+// never more than the free capacity, and every ready sub-order while a slot is free. A release is in
+// the log before the pass, or read by the pass, which records it only when it holds a merge of every
+// blocker waiting on its repository, and reads only the repositories one waits on (ADR 0223). The
+// oracle below reads the generated plan, not the fold.
 
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { createIntake, type TargetTracker } from '../../src/engine/intake.ts';
 import type { TargetIssue } from '../../src/engine/issue-claims.ts';
+import type { LatestRelease, ReleaseReader } from '../../src/engine/releases.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Dependency, Event } from '../../src/schemas/events.ts';
 import { seededRandom } from '../helpers/event-sequences.ts';
@@ -36,6 +39,8 @@ interface Plan {
   dependencies: Dependency[];
   /** The batches Ordered or Brewing before the pass. */
   busy: number;
+  /** What the pass reads of each repository: its latest release and the pull requests it holds. */
+  latest: Map<string, { release: LatestRelease; holds: Set<string> }>;
 }
 
 const generate = (seed: number): Plan => {
@@ -51,8 +56,11 @@ const generate = (seed: number): Plan => {
   const release = (repo: string): void => {
     const written = random.pick([repo, repo.toUpperCase()]);
     releases.push({ at: events.length, repo: written });
-    events.push({ type: 'release.observed', repo: written, package: 'lib', version: '1.0.0' });
+    const version = `1.${releases.length}.0`;
+    events.push({ type: 'release.observed', repo: written, package: 'lib', version });
   };
+  /** The merged pull requests of each repository, which a release the pass reads may hold. */
+  const mergedIn = new Map<string, string[]>(repos.map((repo) => [repo, []]));
   let busy = 0;
   let number = 1;
   const issue = (n: number): TargetIssue => ({
@@ -123,12 +131,22 @@ const generate = (seed: number): Plan => {
       if (standing === 'open') continue;
       // A release before the merge never counts for it; one after, of its repository, does.
       if (random.chance(0.3)) release(repo);
-      if (standing === 'merged') merges.set(subOrder, events.length);
+      if (standing === 'merged') {
+        merges.set(subOrder, events.length);
+        mergedIn.get(repo)?.push(url);
+      }
       events.push({ type: 'pull_request.ended', batchId: id, pullRequest: url, state: standing });
       if (random.chance(0.5)) release(random.pick(repos));
     }
   }
+  const latest = new Map<string, { release: LatestRelease; holds: Set<string> }>();
+  for (const repo of repos) {
+    if (random.chance(0.3)) continue;
+    const holds = new Set((mergedIn.get(repo) ?? []).filter(() => random.chance(0.7)));
+    latest.set(repo, { release: { version: '9.0.0', published: now.toISOString() }, holds });
+  }
   return {
+    latest,
     events,
     listed,
     capacity: random.int(8),
@@ -140,19 +158,53 @@ const generate = (seed: number): Plan => {
   };
 };
 
+/** Whether a release in the log before the pass counts for the merged `blockedBy`. */
+const releasedBefore = (plan: Plan, blockedBy: number): boolean => {
+  const merged = plan.merges.get(blockedBy);
+  const repo = plan.subOrders.get(blockedBy)?.repo;
+  return (
+    merged !== undefined &&
+    plan.releases.some((release) => release.at > merged && release.repo.toLowerCase() === repo)
+  );
+};
+
+/**
+ * The merged blockers each repository's release is waited for by, before the pass: of a `release`
+ * dependency whose sub-order has no batch, not released after its merge (ADR 0223).
+ */
+const waitsOf = (plan: Plan): Map<string, Set<number>> => {
+  const waits = new Map<string, Set<number>>();
+  for (const { subOrder, blockedBy, kind } of plan.dependencies) {
+    if (kind !== 'release' || plan.subOrders.get(subOrder)?.standing !== 'none') continue;
+    if (!plan.merges.has(blockedBy) || releasedBefore(plan, blockedBy)) continue;
+    const repo = plan.subOrders.get(blockedBy)?.repo as string;
+    waits.set(repo, (waits.get(repo) ?? new Set()).add(blockedBy));
+  }
+  return waits;
+};
+
+/** Whether the pass records the release it reads of `repo`: it holds every waiting blocker's merge. */
+const releasedInPass = (plan: Plan, repo: string): boolean => {
+  const read = plan.latest.get(repo);
+  const waiting = waitsOf(plan).get(repo);
+  return (
+    read !== undefined &&
+    waiting !== undefined &&
+    [...waiting].every((blocker) => read.holds.has(`https://github.com/${repo}/pull/${blocker}`))
+  );
+};
+
 /** Whether `blockedBy` is done for a dependency of `kind`, by the generated plan alone. */
 const isDone = (plan: Plan, { blockedBy, kind }: Dependency): boolean => {
-  const merged = plan.merges.get(blockedBy);
-  if (merged === undefined) return false;
+  if (!plan.merges.has(blockedBy)) return false;
   switch (kind) {
     case 'code':
       return true;
-    case 'release': {
-      const repo = plan.subOrders.get(blockedBy)?.repo;
-      return plan.releases.some(
-        (release) => release.at > merged && release.repo.toLowerCase() === repo,
+    case 'release':
+      return (
+        releasedBefore(plan, blockedBy) ||
+        releasedInPass(plan, plan.subOrders.get(blockedBy)?.repo as string)
       );
-    }
     default:
       return kind satisfies never;
   }
@@ -179,6 +231,14 @@ it('one pass orders only ready sub-orders, within the free capacity, and all of 
         issues: async (repo) => (repo === brewery ? plan.listed : []),
         pullRequest: async () => 'open',
       };
+      const read: string[] = [];
+      const releases: ReleaseReader = {
+        latest: async (repo) => {
+          read.push(repo);
+          return plan.latest.get(repo)?.release;
+        },
+        holds: async (repo, _release, url) => plan.latest.get(repo)?.holds.has(url) ?? false,
+      };
       await createIntake({
         log,
         brewery,
@@ -189,7 +249,10 @@ it('one pass orders only ready sub-orders, within the free capacity, and all of 
         repositories: [],
         capacity: plan.capacity,
         clock: () => now,
+        releases,
       }).poll();
+      // Only the repositories a blocker waits on are read, each once.
+      assert.deepStrictEqual([...read].sort(), [...waitsOf(plan).keys()].sort());
       const started = [...log.state().batches.values()]
         .filter(({ id }) => !before.has(id))
         .map(({ issue }) => issue);

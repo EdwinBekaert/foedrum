@@ -1,15 +1,17 @@
 // The OS sandbox a check step's command line runs in (ADR 0076): bwrap on Linux and WSL2,
 // sandbox-exec on macOS, with no network, the home folder hidden and writes only in the worktree
 // and a temporary folder. A repository's setup runs in the same sandbox with the network kept
-// (ADR 0158). Native Windows has none (ADR 0010). A process runner that wraps another, so the
+// (ADR 0158), on Linux through a network namespace of its own that slirp4netns or pasta joins
+// (ADR 0218). Native Windows has none (ADR 0010). A process runner that wraps another, so the
 // deadline, the stop and the output limit stay the process runner's (ADR 0035).
 
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve } from 'node:path';
+import type { Duplex } from 'node:stream';
 import { resolveExecutable } from './executables.ts';
 import { pathInside, samePath } from './paths.ts';
-import type { ExecProcess, ExecResult } from './processes.ts';
+import type { ExecOptions, ExecProcess, ExecResult } from './processes.ts';
 import { realPath as realPathOf } from './real-path.ts';
 import { removeTree } from './remove.ts';
 
@@ -110,27 +112,70 @@ const throughSh = (line: string) => ['/bin/sh', '-c', line];
 const RESOLV_CONF = '/etc/resolv.conf';
 
 /**
- * bwrap's arguments that run `line` through `/bin/sh` in the sandbox. With the network kept, no
- * namespace of its own, and `resolver`, the real path of /etc/resolv.conf when it is under the
- * hidden /run (systemd-resolved's stub), bound back read-only, the one file (ADR 0158).
+ * The descriptors a setup's bwrap gets (ADR 0218): it writes its child's pid to the first, its
+ * child waits for a byte on the second, and it reads the resolver's file from the third.
+ */
+const INFO_FD = 3;
+const BLOCK_FD = 4;
+const RESOLVER_FD = 5;
+
+/**
+ * The setup namespace's addresses under either stack (ADR 0218): its own, never the host's, the
+ * stack's gateway, and the stack's resolver, which slirp4netns answers and pasta forwards to the
+ * host's.
+ */
+const NAMESPACE_ADDRESS = '10.0.2.100';
+const NAMESPACE_GATEWAY = '10.0.2.2';
+const NAMESPACE_DNS = '10.0.2.3';
+
+/**
+ * A setup's /dev, without devpts (ADR 0218). For `--dev /dev`, bwrap maps the user to root in one
+ * user namespace to mount devpts and nests a second one to map back, and the network namespace
+ * belongs to the outer one, which no stack can join. So a setup has no pseudo-terminal.
+ */
+const SETUP_DEV = [
+  ...['--tmpfs', '/dev'],
+  ...['null', 'zero', 'full', 'random', 'urandom', 'tty'].flatMap((node) => [
+    '--dev-bind',
+    `/dev/${node}`,
+    `/dev/${node}`,
+  ]),
+  ...['--tmpfs', '/dev/shm'],
+  ...['--symlink', '/proc/self/fd', '/dev/fd'],
+  ...['stdin', 'stdout', 'stderr'].flatMap((name, fd) => [
+    '--symlink',
+    `/proc/self/fd/${fd}`,
+    `/dev/${name}`,
+  ]),
+];
+
+/**
+ * bwrap's arguments that run `line` through `/bin/sh` in the sandbox. With the network kept, a
+ * network namespace of its own that a user-mode network stack joins once bwrap has told its
+ * child's pid, the line waiting for it, a /dev without devpts, and the stack's resolver's file at
+ * `resolver`, the real path of /etc/resolv.conf, read-only (ADR 0218).
  */
 export function bwrapArgs(
   { home, worktree, gitDir, borrowed = [] }: CheckSandboxPaths,
   line: string,
-  { network = false, resolver }: SandboxKeeps & { resolver?: string | undefined } = {},
+  { network = false, resolver = RESOLV_CONF }: SandboxKeeps & { resolver?: string } = {},
 ): string[] {
+  const fd = String;
   // In this order: bwrap applies its filesystem options as given, so the worktree goes over the
   // hidden home it may sit in.
   return [
     '--die-with-parent',
     '--unshare-pid',
     '--new-session',
-    ...(network ? [] : ['--unshare-net']),
+    '--unshare-net',
+    ...(network ? ['--info-fd', fd(INFO_FD), '--block-fd', fd(BLOCK_FD)] : []),
     ...['--ro-bind', '/', '/'],
-    ...['--dev', '/dev', '--proc', '/proc'],
+    ...(network ? SETUP_DEV : ['--dev', '/dev']),
+    ...['--proc', '/proc'],
     // /run holds the user's D-Bus socket, through which the Secret Service hands out logins.
     ...['--tmpfs', '/tmp', '--tmpfs', '/run', '--tmpfs', home],
-    ...(network && resolver !== undefined ? ['--ro-bind', resolver, resolver] : []),
+    // After /run is hidden, so a link into it finds the file.
+    ...(network ? ['--ro-bind-data', fd(RESOLVER_FD), resolver] : []),
     ...(gitDir === undefined ? [] : ['--ro-bind', gitDir, gitDir]),
     ...borrowed.flatMap((store) => ['--ro-bind', store, store]),
     ...['--bind', worktree, worktree, '--chdir', worktree],
@@ -255,23 +300,198 @@ export interface SandboxedChecksOptions {
   temp?: TempFolders;
   /** Whether the sandbox keeps the network, as a repository's setup needs (ADR 0158). */
   network?: boolean;
+  /**
+   * Where a user-mode network stack is on the Cellar's PATH, or undefined (ADR 0218); default
+   * `resolveExecutable`.
+   */
+  findStackTool?: (name: NetworkStackTool) => string | undefined;
 }
 
-/** The real path of /etc/resolv.conf when it lies under /run, which the sandbox hides. */
-const resolverIn = (realPath: (path: string) => string): string | undefined => {
+/** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
+export type NetworkStackTool = 'pasta' | 'slirp4netns';
+
+/** In the order they are looked for: slirp4netns first, whose resolver works where pasta's has none. */
+const stackTools: readonly NetworkStackTool[] = ['slirp4netns', 'pasta'];
+
+/**
+ * Where the setup's resolver's file goes: the real path of /etc/resolv.conf, which may link into
+ * the hidden /run (systemd-resolved's stub), or the path itself when it cannot be resolved.
+ */
+const resolverIn = (realPath: (path: string) => string): string => {
   try {
-    const real = realPath(RESOLV_CONF);
-    return real.startsWith('/run/') ? real : undefined;
+    return realPath(RESOLV_CONF);
   } catch {
-    // No resolver's file: the install finds no address, and says so.
-    return undefined;
+    // bwrap says so under its own name when it cannot put the file there.
+    return RESOLV_CONF;
   }
 };
 
 /** What a check that could not start reads: no exit code, and why (ADR 0069's `unstarted`). */
-const unstarted = (why: string): ExecResult => {
-  const output = `${why} (ADR 0076)\n`;
+const unstarted = (why: string, adr = '0076'): ExecResult => {
+  const output = `${why} (ADR ${adr})\n`;
   return { exitCode: null, stdout: '', stderr: output, output };
+};
+
+/** The arguments that attach a stack to the namespace of `pid`, closed to the host (ADR 0218). */
+const stackArgs = (tool: NetworkStackTool, pid: number): string[] => {
+  switch (tool) {
+    case 'pasta':
+      // No gateway mapped to the host's loopback, and no port forwarded either way.
+      return [
+        ...['--config-net', '--quiet', '-4'],
+        ...['-a', NAMESPACE_ADDRESS, '-n', '24', '-g', NAMESPACE_GATEWAY, '--no-map-gw'],
+        ...['-t', 'none', '-u', 'none', '-T', 'none', '-U', 'none'],
+        ...['--dns-forward', NAMESPACE_DNS],
+        String(pid),
+      ];
+    case 'slirp4netns':
+      return [
+        ...['--configure', '--mtu=65520', '--disable-host-loopback'],
+        ...['--ready-fd=3', '--exit-fd=4'],
+        ...[String(pid), 'tap0'],
+      ];
+    default: {
+      const never: never = tool;
+      throw new Error(`no network stack ${String(never)}`);
+    }
+  }
+};
+
+/** The pid bwrap writes on its `--info-fd`, or undefined when it writes none it can be read by. */
+const childPid = (info: Duplex): Promise<number | undefined> =>
+  new Promise((done) => {
+    let text = '';
+    const answer = (pid: number | undefined) => {
+      info.destroy();
+      done(pid);
+    };
+    info.setEncoding('utf8').on('data', (chunk: string) => {
+      text += chunk;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // Not all of it yet.
+        return;
+      }
+      const pid = (parsed as { 'child-pid'?: unknown } | null)?.['child-pid'];
+      answer(Number.isSafeInteger(pid) && (pid as number) > 0 ? (pid as number) : undefined);
+    });
+    info.once('end', () => answer(undefined));
+    info.once('close', () => answer(undefined));
+  });
+
+/** What a stack that failed before it was up said, under its name. */
+const stackFailure = (tool: NetworkStackTool, result: ExecResult): string => {
+  const said = result.output.trim();
+  const why =
+    said !== ''
+      ? said
+      : result.killed !== undefined
+        ? result.killed
+        : `exit code ${result.exitCode}`;
+  return why.startsWith(`${tool}: `) ? why : `${tool}: ${why}`;
+};
+
+/**
+ * Starts the stack against `pid` and answers when it is up, with undefined, or with how it ended
+ * when it ended first; `ended` answers when it has ended (ADR 0218). pasta forks to the
+ * background once the namespace is configured; slirp4netns stays and says so on its ready pipe.
+ */
+const startStack = (
+  exec: ExecProcess,
+  stack: { tool: NetworkStackTool; path: string },
+  pid: number,
+  call: ExecOptions,
+): { up: Promise<ExecResult | undefined>; ended: Promise<ExecResult> } => {
+  const args = stackArgs(stack.tool, pid);
+  const options: ExecOptions = {
+    cwd: call.cwd,
+    env: call.env,
+    timeoutMs: call.timeoutMs,
+    signal: call.signal,
+  };
+  if (stack.tool === 'pasta') {
+    const ended = exec(stack.path, args, options);
+    return { up: ended.then((result) => (result.exitCode === 0 ? undefined : result)), ended };
+  }
+  let ready: () => void = () => {};
+  const isUp = new Promise<undefined>((done) => {
+    ready = () => done(undefined);
+  });
+  // Its exit pipe stays open, and closes when the runner stops it or Foedrum ends.
+  const pipes = {
+    count: 2,
+    onPipes: ([readyPipe]: readonly Duplex[]) => readyPipe?.once('data', ready),
+  };
+  const ended = exec(stack.path, args, { ...options, pipes });
+  return { up: Promise.race([isUp, ended]), ended };
+};
+
+/** Why a setup did not start when bwrap told no pid it could be read by. */
+const NO_PID = 'bwrap gave no child pid on its --info-fd';
+
+/**
+ * A setup's line in bwrap with a network namespace of its own, which the stack joins before the
+ * line runs, and which ends with bwrap (ADR 0218). A stack that fails before it is up stops bwrap
+ * before the line runs, and the run reads `unstarted` with what it said.
+ */
+const inOwnNamespace = async (
+  exec: ExecProcess,
+  bwrap: string,
+  stack: { tool: NetworkStackTool; path: string },
+  args: string[],
+  call: ExecOptions,
+): Promise<ExecResult> => {
+  const stopBwrap = new AbortController();
+  const stopStack = new AbortController();
+  const stoppedBy = (own: AbortSignal) =>
+    call.signal === undefined ? own : AbortSignal.any([call.signal, own]);
+  let failure: string | undefined;
+  let attaching: Promise<unknown> = Promise.resolve();
+  // Only while bwrap runs: a stack Foedrum stops once bwrap has ended, at its deadline too, did
+  // not fail (review of #564).
+  let bwrapEnded = false;
+  const fail = (why: string) => {
+    if (bwrapEnded) return;
+    failure = why;
+    stopBwrap.abort();
+  };
+  const attach = async ([info, block, data]: readonly Duplex[]) => {
+    data?.end(`nameserver ${NAMESPACE_DNS}\n`);
+    const pid = info === undefined ? undefined : await childPid(info);
+    if (pid === undefined) {
+      fail(NO_PID);
+      return;
+    }
+    const run = startStack(exec, stack, pid, { ...call, signal: stoppedBy(stopStack.signal) });
+    const failed = await run.up;
+    if (failed === undefined) block?.end('1');
+    else fail(stackFailure(stack.tool, failed));
+    await run.ended;
+  };
+  const result = await exec(bwrap, args, {
+    ...call,
+    shell: false,
+    signal: stoppedBy(stopBwrap.signal),
+    pipes: {
+      count: 3,
+      onPipes: (pipes) => {
+        attaching = attach(pipes);
+      },
+    },
+  });
+  bwrapEnded = true;
+  stopStack.abort();
+  await attaching;
+  const own = sandboxRun('bwrap', result);
+  if (own !== result || call.signal?.aborted === true) return own;
+  if (failure === undefined) return result;
+  // bwrap that failed under its own name says why, also when Foedrum stopped it for want of a
+  // pid before the runner saw it end (review of #564).
+  return failure === NO_PID && result.stderr.startsWith('bwrap: ')
+    ? unstarted(result.stderr.trim())
+    : unstarted(failure, '0218');
 };
 
 /**
@@ -297,6 +517,8 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const { gitDirOf = worktreeGitDir, temp = systemTemp, network = false } = options;
   const { borrowedOf = borrowedStores, borrowsFrom = () => false } = options;
   const findBwrap = options.findBwrap ?? (() => resolveExecutable('bwrap', { platform }));
+  const findStackTool =
+    options.findStackTool ?? ((tool: NetworkStackTool) => resolveExecutable(tool, { platform }));
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
   return async (file, args, call) => {
@@ -327,10 +549,30 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
           'bubblewrap (bwrap) is not on PATH: check steps run only in its sandbox here; install bubblewrap',
         );
       }
-      const resolver = network ? resolverIn(realPath) : undefined;
-      return sandboxRun(
-        'bwrap',
-        await exec(bwrap, bwrapArgs(paths, file, { network, resolver }), { ...call, shell: false }),
+      if (!network) {
+        return sandboxRun(
+          'bwrap',
+          await exec(bwrap, bwrapArgs(paths, file), { ...call, shell: false }),
+        );
+      }
+      const stack = stackTools
+        .map((tool) => ({ tool, path: findStackTool(tool) }))
+        .find(
+          (found): found is { tool: NetworkStackTool; path: string } => found.path !== undefined,
+        );
+      if (stack === undefined) {
+        return unstarted(
+          "neither slirp4netns nor pasta (passt) is on PATH: a repository's setup runs only in a network namespace of its own here; install slirp4netns",
+          '0218',
+        );
+      }
+      const resolver = resolverIn(realPath);
+      return inOwnNamespace(
+        exec,
+        bwrap,
+        stack,
+        bwrapArgs(paths, file, { network, resolver }),
+        call,
       );
     }
     if (!hasSandboxExec()) {
