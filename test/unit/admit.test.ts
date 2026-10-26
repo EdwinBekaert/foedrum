@@ -644,7 +644,7 @@ describe('admit bottles only finished sub-orders of its repository (ADR 0013)', 
   });
 });
 
-const scheduledPlan = (number: number): Event => ({
+const scheduledPlan = (number: number): Extract<Event, { type: 'step.scheduled' }> => ({
   type: 'step.scheduled',
   batchId: 'b1',
   stepId: 'plan',

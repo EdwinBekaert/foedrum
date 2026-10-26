@@ -18,6 +18,7 @@ import {
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -305,13 +306,13 @@ const fixRun = async (kills: readonly KillPoint[]) => {
       }
       if (!failed && driver.state().batches.get('12-1')?.lane.kind === 'on_tap') {
         // The intake reads the pull request's checks: the first round's head failed.
-        const event = {
+        const event: Extract<Event, { type: 'pull_request.checks_finished' }> = {
           type: 'pull_request.checks_finished',
           batchId: '12-1',
           pullRequest: 'https://github.com/acme/app/pull/1',
           head: FAKE_COMMIT,
           checks: [{ name: 'ci / test', kind: 'check_run', conclusion: 'failure' }],
-        } as const;
+        };
         assert.equal(
           createCommandLog({ store, recipes: fixing }).issue({ kind: 'record', event }, t0).kind,
           'accepted',
