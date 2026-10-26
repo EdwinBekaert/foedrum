@@ -41,6 +41,7 @@ import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
+import type { ReleaseReader } from './releases.ts';
 
 /**
  * What the intake reads: the open issues of a target repository (architecture §3.1's `Tracker`,
@@ -81,6 +82,8 @@ export type IntakeNotice =
   | { kind: 'unrouted'; batchId: string; reason: string }
   /** An issue of the queue a limit holds (ADR 0217); reported once per issue and reason. */
   | { kind: 'held'; repo: string; issue: number; reason: string }
+  /** A release of a repository a `release` blocker waits on, recorded (ADR 0223). */
+  | { kind: 'released'; repo: string; version: string }
   /** A repository it could not list or claim in, or a pull request it could not read. */
   | { kind: 'failed'; what: string; error: unknown };
 
@@ -121,6 +124,11 @@ export interface IntakeOptions {
    * finish (ADR 0213); none by default.
    */
   checks?: PullRequestCheckReader;
+  /**
+   * What reads the latest release of each repository a `release` blocker waits on, which each pass
+   * records once it holds the blockers' merges (ADR 0223); none by default.
+   */
+  releases?: ReleaseReader;
 }
 
 /** No recipe's concurrency and no open-order limit: only the Brewery's free capacity holds. */

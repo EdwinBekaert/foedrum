@@ -84,3 +84,20 @@ export const readySubOrders = (state: State): ReadySubOrder[] => {
   }
   return ready;
 };
+
+/** A repository a `release` blocker waits on, and the merges a release of it must hold. */
+export interface ReleaseWait {
+  /** The repository as the first breakdown that names it spells it. */
+  repo: string;
+  /** Each waiting blocker's merged pull requests, by URL: a release must hold one of each. */
+  blockers: readonly (readonly string[])[];
+}
+
+/**
+ * The repositories whose release a sub-order waits for (ADR 0223): of each order not cancelled,
+ * every `release` blocker of a sub-order with no batch that merged and is not done, by repository
+ * in lower case, in the order the orders and their breakdowns name them.
+ */
+export const releaseWaits = (_state: State): ReleaseWait[] => {
+  throw new Error('not implemented');
+};
