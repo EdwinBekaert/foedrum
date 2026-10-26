@@ -244,6 +244,53 @@ describe('recordChecks', () => {
     ]);
   });
 
+  for (const [what, checks] of [
+    ['no checks', []],
+    ['a running check', [running('build')]],
+  ] as const) {
+    it(`waits again for a head that moved while the one before it waited, with ${what} on it`, async () => {
+      onTap();
+      const { reader, state } = fakeReader({ [head]: [running('build')], [moved]: checks });
+      await pass(reader);
+      state.head = moved;
+      now = new Date('2026-10-26T11:00:00.000Z');
+      await pass(reader);
+      // The pending record of the head before never counts for this one.
+      assert.deepStrictEqual(batch().pullRequestChecks?.[pullRequest], {
+        kind: 'pending',
+        head: moved,
+        since: '2026-10-26T11:00:00.000Z',
+      });
+      assert.deepStrictEqual(types(), [
+        'pull_request.checks_pending',
+        'pull_request.checks_pending',
+      ]);
+    });
+  }
+
+  it('names the first failing check when none has a link, and counts the rest', async () => {
+    onTap();
+    const checks: ReadCheck[] = [
+      passed('build'),
+      failing('test', 'failure'),
+      { name: 'ci/coverage', kind: 'status', conclusion: 'error' },
+    ];
+    await pass(fakeReader({ [head]: checks }).reader);
+    assert.deepStrictEqual(checkLines(batch()), [
+      `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: test (failure), and 1 more`,
+    ]);
+  });
+
+  it('shows no checks line once the pull request ended', async () => {
+    onTap();
+    await pass(fakeReader({ [head]: [running('build')] }).reader);
+    accept({
+      kind: 'record',
+      event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'merged' },
+    });
+    assert.deepStrictEqual(checkLines(batch()), []);
+  });
+
   it('reads a head that moved from the start, and an old record never counts for it', async () => {
     onTap();
     const { reader, state } = fakeReader({

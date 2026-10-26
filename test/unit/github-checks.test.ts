@@ -152,6 +152,21 @@ describe('githubCheckReader', () => {
     );
   });
 
+  it('never keeps half a character when it cuts a name', async () => {
+    const smile = String.fromCodePoint(0x1f600);
+    const { reader } = readerWith([
+      runsPage([
+        run(`${'x'.repeat(199)}${smile}y`, 'completed', 'success', 1),
+        run(`${'x'.repeat(198)}${smile}y`, 'completed', 'success', 2),
+      ]),
+      statusPage([]),
+    ]);
+    assert.deepStrictEqual(
+      (await reader.checks(pullRequest, head)).map(({ name }) => name),
+      ['x'.repeat(199), `${'x'.repeat(198)}${smile}`],
+    );
+  });
+
   it('cuts a long name, and leaves out a link that is not https or holds credentials', async () => {
     const { reader } = readerWith([
       runsPage([{ ...run('x'.repeat(300), 'completed', 'success'), html_url: 'javascript:1' }]),
