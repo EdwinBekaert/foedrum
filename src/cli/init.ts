@@ -534,7 +534,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       if (optionValue(option) === undefined && !noInput) continue;
       // A label it cannot read is said where init would ask.
       const has = await labelled(repo).catch(() => true);
-      if (!has) await early(option, [], () => confirm(labelQuestion(repo), true, option));
+      if (!has) await confirm(labelQuestion(repo), true, option);
     }
     await early({ name: 'push' }, [], () => confirm(PUSH_QUESTION, true, { name: 'push' }));
     const shim = shimChoice(ports.shim);
