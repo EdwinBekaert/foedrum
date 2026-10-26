@@ -2,38 +2,73 @@
 // Brewery's repository is there, creating it under the login or an organization, and the intake
 // label of a target repository.
 
+import { GitHubValidationError } from '../schemas/github.ts';
+import { refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 
+/** The colour Foedrum's marks give a label they create. */
+const LABEL_COLOR = 'ededed';
+
 /** Whether GitHub has `repo`. */
-export const repositoryExists = async (_client: GitHubClient, _repo: string): Promise<boolean> => {
-  throw new Error('not implemented');
+export const repositoryExists = async (client: GitHubClient, repo: string): Promise<boolean> => {
+  const answer = await client.rest('GET', `/repos/${repoPath(repo)}`);
+  if (answer.status === 404) return false;
+  if (answer.status !== 200) throw refused(answer.status, answer.body, `the repository ${repo}`);
+  return true;
 };
 
 /** Creates `repo`, empty: under the login when it is the owner, else under the organization. */
 export const createRepository = async (
-  _client: GitHubClient,
-  _repo: string,
-  _login: string,
-  _isPrivate: boolean,
+  client: GitHubClient,
+  repo: string,
+  login: string,
+  isPrivate: boolean,
 ): Promise<void> => {
-  throw new Error('not implemented');
+  const [owner = '', name = ''] = repoPath(repo).split('/');
+  const path = owner.toLowerCase() === login.toLowerCase() ? '/user/repos' : `/orgs/${owner}/repos`;
+  const answer = await client.rest('POST', path, {
+    name,
+    private: isPrivate,
+  });
+  if (answer.status !== 201) {
+    throw refused(answer.status, answer.body, `creating the repository ${repo}`);
+  }
 };
 
 /** Whether `repo` has the label `label`. */
 export const labelExists = async (
-  _client: GitHubClient,
-  _repo: string,
-  _label: string,
+  client: GitHubClient,
+  repo: string,
+  label: string,
 ): Promise<boolean> => {
-  throw new Error('not implemented');
+  const path = `/repos/${repoPath(repo)}/labels/${encodeURIComponent(label)}`;
+  const answer = await client.rest('GET', path);
+  if (answer.status === 404) return false;
+  if (answer.status !== 200)
+    throw refused(answer.status, answer.body, `the label ${label} of ${repo}`);
+  return true;
 };
 
 /** Creates the label `label` in `repo`; one made in the meantime counts as made. */
 export const createLabel = async (
-  _client: GitHubClient,
-  _repo: string,
-  _label: string,
-  _description: string,
+  client: GitHubClient,
+  repo: string,
+  label: string,
+  description: string,
 ): Promise<void> => {
-  throw new Error('not implemented');
+  const answer = await client.rest('POST', `/repos/${repoPath(repo)}/labels`, {
+    name: label,
+    description,
+    color: LABEL_COLOR,
+  });
+  if (answer.status === 201) return;
+  const error = GitHubValidationError.safeParse(answer.body);
+  if (
+    answer.status === 422 &&
+    error.success &&
+    error.data.errors.some(({ code }) => code === 'already_exists')
+  ) {
+    return;
+  }
+  throw refused(answer.status, answer.body, `creating the label ${label} in ${repo}`);
 };

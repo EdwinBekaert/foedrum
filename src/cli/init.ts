@@ -1,7 +1,9 @@
-// `foedrum init` (ADR 0199): asks a few questions on the terminal, builds a Brewery's files from
-// the answers and from what GitHub says of each target repository, checks each against its schema,
-// writes the new ones and asks before changing one that is there, then runs doctor. The ports are
-// the terminal, the clone's files, GitHub through gh and doctor; init-main.ts gives the real ones.
+// `foedrum init` (ADR 0199, ADR 0207): asks a few questions on the terminal, builds a Brewery's
+// files from the answers and from what GitHub says of each target repository, checks each against
+// its schema, and, outside a clone, creates the Brewery's repository and clones it. It writes the
+// new files and asks before changing one that is there, offers the intake label in each target
+// repository, commits and pushes after asking, then runs doctor. The ports are the terminal, the
+// files, GitHub through gh, git and doctor; init-main.ts gives the real ones.
 
 import { parseJsonc } from '../formats/jsonc.ts';
 import type { RepositoryFacts } from '../github/repository-facts.ts';
@@ -13,6 +15,7 @@ import { ModelsConfig } from '../schemas/models.ts';
 import { CheckName, Command } from '../schemas/primitives.ts';
 import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
+import { firstLine } from '../workspace/clone-git.ts';
 import type { GitResult } from '../workspace/git.ts';
 import type { CliResult } from './run.ts';
 
@@ -53,6 +56,9 @@ const PLUGIN_COMMANDS = [
 ];
 /** The label the intake claims a target repository's issues by (ADR 0068). */
 const INTAKE_LABEL = 'foedrum:brew';
+const LABEL_DESCRIPTION = 'Foedrum brews an issue with this label into a pull request';
+const COMMIT_MESSAGE = 'Set up the Brewery with foedrum init';
+const PUSH = ['push', '-u', 'origin', 'HEAD'];
 const IGNORED = '.foedrum/';
 /** No aliases of its own: every alias is Foedrum's default (ADR 0153). */
 const MODELS = `// Model aliases over Foedrum's defaults (ADR 0153), such as { "builder": "opus" }.
@@ -198,11 +204,11 @@ const suggestedAlias = (repo: string): string =>
 /** Runs `foedrum init` through `ports`. */
 export const runInit = async (ports: InitPorts): Promise<CliResult> => {
   const { say, files } = ports;
-  if (!files.exists('.git')) {
-    return refuse(
-      "run it in a clone of the Brewery's repository; init does not create the repository yet",
-    );
-  }
+  // Outside a clone, init creates the repository and clones it into a folder of its name (ADR 0207).
+  const inClone = files.exists('.git');
+  // The clone's folder from the working directory, `''` inside one; known once the name is asked.
+  let folder = '';
+  const at = (path: string): string => (folder === '' ? path : `${folder}/${path}`);
 
   // Asks until an answer passes `parse`, which says why it does not.
   const ask = async <T>(
@@ -230,8 +236,10 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
 
   // The files written or changed, said before doctor's report.
   const written: string[] = [];
+  // Whether a git call of the commit and push failed, which ends init in 1.
+  let pushFailed = false;
   // A foedrum.jsonc that reads but does not pass is the user's to fix, before any question.
-  const config = readObject(files.read('foedrum.jsonc'));
+  const config: Existing = inClone ? readObject(files.read('foedrum.jsonc')) : { kind: 'missing' };
   if (config.kind === 'read') {
     const checked = readJsonc(files.read('foedrum.jsonc') ?? '', BreweryConfig);
     if (!checked.valid) {
@@ -251,6 +259,24 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       named.success ? named.data : `${login}/foedrum-brewery`,
       schemaOf(Repo),
     );
+    let isPrivate = true;
+    if (!inClone) {
+      // init creates a repository, never takes one over.
+      if (await ports.github.exists(brewery)) {
+        return refuse(
+          `${brewery} is on GitHub already; run init in its clone (git clone https://github.com/${brewery}.git)`,
+        );
+      }
+      const name = brewery.split('/')[1] ?? '';
+      if (files.exists(name)) {
+        return refuse(`the folder ${name} is there already; run init where it is not`);
+      }
+      folder = name;
+      isPrivate = await ask('Private or public', 'private', (answer): Parsed<boolean> => {
+        if (answer === 'private' || answer === 'public') return { value: answer === 'private' };
+        return { refused: 'Answer private or public' };
+      });
+    }
 
     // The repositories foedrum.jsonc has keep their entries as they are.
     const kept: Json = isRecord(base.repositories) ? base.repositories : {};
@@ -370,22 +396,38 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       repositories,
     };
     const configFile = planObject('foedrum.jsonc', config, brewed);
-    const settings = planSettings(readObject(files.read('.claude/settings.json')));
+    const settings = planSettings(readObject(files.read(at('.claude/settings.json'))));
     passes(configFile.path, configFile.text, BreweryConfig);
     passes('models.jsonc', MODELS, ModelsConfig);
     passes(settings.path, settings.text, BreweryClaudeSettings);
     const plans: Planned[] = [
       { ...configFile, question: 'Change foedrum.jsonc (its comments are not kept)? [y/N]: ' },
       // init writes no key of models.jsonc, so one that is there is kept whatever it holds.
-      files.exists('models.jsonc')
+      files.exists(at('models.jsonc'))
         ? { path: 'models.jsonc', text: MODELS, changes: [], kept: true }
         : { path: 'models.jsonc', text: MODELS, changes: undefined },
-      planIgnore(files.read('.gitignore')),
+      planIgnore(files.read(at('.gitignore'))),
       settings,
     ];
+
+    // Every question about the files is answered: the repository is created only now, so input
+    // that ended early leaves none behind (ADR 0207).
+    if (!inClone) {
+      try {
+        await ports.github.create(brewery, login, isPrivate);
+      } catch (error) {
+        return refuse(error instanceof Error ? error.message : String(error));
+      }
+      say(`Created ${isPrivate ? 'the private' : 'the public'} repository ${brewery}`);
+      const url = `https://github.com/${brewery}.git`;
+      const cloned = await ports.git('', ['clone', '--', url, folder]);
+      if (cloned.code !== 0) return refuse(`git clone failed: ${firstLine(cloned)}`);
+      say(`Cloned it into ${folder}`);
+    }
+
     for (const plan of plans) {
       if (plan.changes === undefined) {
-        files.write(plan.path, plan.text);
+        files.write(at(plan.path), plan.text);
         written.push(plan.path);
         say(`Wrote ${plan.path}`);
         continue;
@@ -397,13 +439,17 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       say(`${plan.path} would change:`);
       for (const change of plan.changes) say(`  ${change}`);
       if (await confirm(plan.question ?? `Change ${plan.path}? [y/N]: `, false)) {
-        files.write(plan.path, plan.text);
+        files.write(at(plan.path), plan.text);
         written.push(plan.path);
         say(`Changed ${plan.path}`);
       } else {
         say(`Kept ${plan.path}`);
       }
     }
+    say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
+
+    for (const repo of targets) await intakeLabel(ports, confirm, repo);
+    pushFailed = !(await commitAndPush(ports, confirm, folder));
   } catch (error) {
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written`);
@@ -411,13 +457,97 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     throw error;
   }
 
-  say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
-  const { ok, report } = await ports.doctor('');
+  const { ok, report } = await ports.doctor(folder);
   say(report.trimEnd());
   say('');
   say('Each machine runs these once, in the Brewery, for the plugin:');
   for (const command of PLUGIN_COMMANDS) say(command);
-  return { exitCode: ok ? 0 : 1, stdout: '', stderr: '' };
+  if (folder !== '') say(`The Brewery is in the folder ${folder}`);
+  return { exitCode: ok && !pushFailed ? 0 : 1, stdout: '', stderr: '' };
+};
+
+type Confirm = (question: string, byDefault: boolean) => Promise<boolean>;
+
+/** The one command that creates the intake label in `repo` later. */
+const labelCommand = (repo: string): string =>
+  `gh label create ${INTAKE_LABEL} --repo ${repo} --description "${LABEL_DESCRIPTION}" --color ededed`;
+
+/**
+ * The intake label in `repo`, after asking (ADR 0207): one that is there is left alone; a no, or a
+ * label it cannot read or create, prints the command that creates it, and init goes on.
+ */
+const intakeLabel = async (ports: InitPorts, confirm: Confirm, repo: string): Promise<void> => {
+  const { say } = ports;
+  try {
+    if (await ports.github.hasLabel(repo, INTAKE_LABEL)) {
+      say(`${repo} has the label ${INTAKE_LABEL}`);
+      return;
+    }
+    if (await confirm(`Create the label ${INTAKE_LABEL} in ${repo}? [Y/n]: `, true)) {
+      await ports.github.createLabel(repo, INTAKE_LABEL, LABEL_DESCRIPTION);
+      say(`Created the label ${INTAKE_LABEL} in ${repo}`);
+      return;
+    }
+    say('To create it later:');
+  } catch (error) {
+    if (error instanceof NoAnswer) throw error;
+    say(error instanceof Error ? error.message : String(error));
+  }
+  say(labelCommand(repo));
+};
+
+/**
+ * Commits and pushes the Brewery's files git lists as new or changed, after asking (ADR 0207). A no
+ * leaves them written and says how; false when a git call failed.
+ */
+const commitAndPush = async (
+  ports: InitPorts,
+  confirm: Confirm,
+  folder: string,
+): Promise<boolean> => {
+  const { say } = ports;
+  const files = ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json'];
+  const status = await ports.git(folder, [
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all',
+    '--',
+    ...files,
+  ]);
+  let listed = files;
+  let ok = status.code === 0;
+  if (ok) {
+    const entries = status.stdout.split('\0').map((entry) => entry.slice(3));
+    listed = files.filter((file) => entries.includes(file));
+    if (listed.length === 0) {
+      say('Nothing to commit');
+      return true;
+    }
+    say('To commit and push:');
+    for (const file of listed) say(`  ${file}`);
+    if (await confirm('Commit and push these? [Y/n]: ', true)) {
+      for (const args of [['add', '--', ...listed], ['commit', '-m', COMMIT_MESSAGE], PUSH]) {
+        const done = await ports.git(folder, args);
+        if (done.code !== 0) {
+          say(`git ${args[0]} failed: ${firstLine(done)}`);
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        say('Committed and pushed');
+        return true;
+      }
+    }
+  } else {
+    say(`git status failed: ${firstLine(status)}`);
+  }
+  say(`To commit and push them${folder === '' ? '' : `, in ${folder}`}:`);
+  say(`git add -- ${listed.join(' ')}`);
+  say(`git commit -m "${COMMIT_MESSAGE}"`);
+  say(`git ${PUSH.join(' ')}`);
+  return ok;
 };
 
 const refuse = (message: string): CliResult => ({
