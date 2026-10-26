@@ -304,6 +304,8 @@ describe('the foedrum command init writes (ADR 0210)', () => {
       const shim = first.written[0] ?? assert.fail('not written');
       const again = await offer({ ...machine, files: { [shim.path]: shim.text } });
       assert.deepStrictEqual(again.questions, [], machine.platform);
+      assert.deepStrictEqual(again.written, [], machine.platform);
+      assert.deepStrictEqual(again.lines, [`${shim.path} runs this Foedrum already`]);
     }
   });
 
