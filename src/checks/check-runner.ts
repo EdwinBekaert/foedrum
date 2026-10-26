@@ -22,6 +22,7 @@ import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
+import type { CheckRef } from '../schemas/recipe.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   type PlannedCheck,
@@ -103,7 +104,21 @@ const NO_CHECKS: RepositoryChecks = {
   test: null,
 };
 
-export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
+/**
+ * The checks of a tree in a worktree, the repository's setup first: what a check step's attempt
+ * runs, and the run on an open pull request's merged tree (ADR 0203).
+ */
+export type CheckTree = (
+  refs: readonly CheckRef[],
+  worktree: WorktreeRef,
+  deadlineAt: string,
+  signal: AbortSignal,
+) => Promise<AttemptEnd>;
+
+/** The check runner, and the checks of a tree it runs a check step's through. */
+export type CheckRunner = BrewerRunner & { checkTree: CheckTree };
+
+export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   const { state, checks, exec, git, clone, clock, platform = process.platform } = options;
   const reports = options.reports ?? fileReports;
   const env = checksEnv(options.env, platform);
@@ -249,6 +264,44 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
     return { ending: { kind: 'succeeded', output: null }, readings };
   };
 
+  /**
+   * The checks `refs` of the tree in `worktree`, the repository's setup first: a check step's
+   * attempt's, and the merged tree of an open pull request (ADR 0203).
+   */
+  const checkTree: CheckTree = async (refs, worktree, deadlineAt, signal) => {
+    let repository = NO_CHECKS;
+    const named = refs.find((check) => typeof check === 'string');
+    if (named !== undefined) {
+      const found = options.repositoryChecks(worktree.repo);
+      if (found === undefined) {
+        return blocked(
+          'environment',
+          `foedrum.jsonc lists no checks of ${worktree.repo} for the check "${named}"`,
+        );
+      }
+      repository = found;
+    }
+    const planned = planChecks(refs, repository, platform);
+    // The repository's setup once nothing else blocks the step and a check will run, so the
+    // checks find what it installed (ADR 0140).
+    const preparing = planned.some((check) => check.kind === 'run')
+      ? prepare(worktree, deadlineAt, signal)
+      : undefined;
+    const before = preparing === undefined ? [] : await preparing;
+    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+    const readings: GravityReading[] = [...before];
+    for (const check of planned) {
+      if (check.kind === 'skip') {
+        readings.push({ result: 'skipped', check: check.check });
+        continue;
+      }
+      const reading = readingIn(check, await runCheck(check, worktree, deadlineAt, signal));
+      readings.push(reading);
+      if (!passed(reading)) break;
+    }
+    return { ending: settleReadings(readings), readings };
+  };
+
   const run = async (ref: AttemptRef, signal: AbortSignal): Promise<AttemptEnd> => {
     const { batchId, stepId, attempt } = ref;
     const batch = state().batches.get(batchId);
@@ -266,37 +319,7 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
     const of = checks.proves(recipe, stepId);
     if (of !== undefined) return proveRed(batch, ref, worktree, current.deadlineAt, of, signal);
-    let repository = NO_CHECKS;
-    const named = refs.find((check) => typeof check === 'string');
-    if (named !== undefined) {
-      const found = options.repositoryChecks(worktree.repo);
-      if (found === undefined) {
-        return blocked(
-          'environment',
-          `foedrum.jsonc lists no checks of ${worktree.repo} for the check "${named}"`,
-        );
-      }
-      repository = found;
-    }
-    const planned = planChecks(refs, repository, platform);
-    // The repository's setup once nothing else blocks the step and a check will run, so the
-    // checks find what it installed (ADR 0140).
-    const preparing = planned.some((check) => check.kind === 'run')
-      ? prepare(worktree, current.deadlineAt, signal)
-      : undefined;
-    const before = preparing === undefined ? [] : await preparing;
-    if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
-    const readings: GravityReading[] = [...before];
-    for (const check of planned) {
-      if (check.kind === 'skip') {
-        readings.push({ result: 'skipped', check: check.check });
-        continue;
-      }
-      const reading = readingIn(check, await runCheck(check, worktree, current.deadlineAt, signal));
-      readings.push(reading);
-      if (!passed(reading)) break;
-    }
-    return { ending: settleReadings(readings), readings };
+    return checkTree(refs, worktree, current.deadlineAt, signal);
   };
 
   return {
@@ -308,5 +331,6 @@ export function createCheckRunner(options: CheckRunnerOptions): BrewerRunner {
       return { ended, stop: () => stop.abort() };
     },
     progress: (ref) => running.get(attemptKey.encode(ref)),
+    checkTree,
   };
 }
