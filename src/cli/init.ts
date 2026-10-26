@@ -233,11 +233,16 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
     }
   };
 
-  // A yes or no, `byDefault` for an empty answer.
-  const confirm = async (question: string, byDefault: boolean): Promise<boolean> => {
+  // The answer to `question`; init stops when standard input has ended.
+  const answerTo = async (question: string): Promise<string> => {
     const answer = await ports.ask(question);
     if (answer === undefined) throw new NoAnswer(question.replace(/ \[.*$/, ''));
-    const given = answer.trim();
+    return answer;
+  };
+
+  // A yes or no, `byDefault` for an empty answer.
+  const confirm = async (question: string, byDefault: boolean): Promise<boolean> => {
+    const given = (await answerTo(question)).trim();
     return given === '' ? byDefault : /^y(?:es)?$/i.test(given);
   };
 
@@ -470,14 +475,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       plans.map(({ path }) => path),
     ));
     // The foedrum command on the PATH, before doctor's report (ADR 0210).
-    await offerShim(ports.shim, {
-      say,
-      answer: async (question) => {
-        const answer = await ports.ask(question);
-        if (answer === undefined) throw new NoAnswer(question.replace(/ \[.*$/, ''));
-        return answer;
-      },
-    });
+    await offerShim(ports.shim, { say, answer: answerTo });
   } catch (error) {
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written${created}`);
