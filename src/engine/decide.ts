@@ -1063,7 +1063,7 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
     const batch = draft.batch(id);
     if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') continue;
     const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
-    for (const [stepId, step] of batch.steps) {
+    for (const stepId of batch.steps.keys()) {
       const latest = latestOf(batch, stepId);
       // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
       if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
@@ -1072,7 +1072,7 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
       draft.push({
         type: 'step.rescheduled',
         batchId: id,
-        stepId: step.id,
+        stepId,
         attempt: latest.attempt,
         deadlineAt: draft.after(recipe.deadlineMs(stepId)),
       });
