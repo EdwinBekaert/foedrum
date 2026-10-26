@@ -147,6 +147,9 @@ export type PauseOrContinue =
     }
   | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
 
+/** A person's stop of an order (ADR 0205): each of its brewing batches goes Stuck at once. */
+export type Stop = { kind: 'stop'; order: OrderRef; by: string; via: Surface; why?: string };
+
 /**
  * A person's rank of an order of the intake's queue (ADR 0208); later the Innkeeper's (#227).
  * `place`: marked "finish first", or a position kept as the arrival of the order that was there.
@@ -160,7 +163,7 @@ export interface RankOrder {
   why?: string;
 }
 
-export type Command = HumanCommand | PauseOrContinue | RankOrder | EngineCommand;
+export type Command = HumanCommand | PauseOrContinue | Stop | RankOrder | EngineCommand;
 
 export interface Context {
   now: Date;
@@ -181,6 +184,7 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'deadline_passed':
     case 'waiting_for_session':
     case 'stalled':
+    case 'stopped':
       return [...withoutAnswer];
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
@@ -408,6 +412,9 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'continue':
       lift(draft, command);
+      break;
+    case 'stop':
+      stop(draft, command);
       break;
     default: {
       const unhandled: never = command;
@@ -917,6 +924,12 @@ const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
   return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
 };
 
+/** Whether the latest attempt of `stepId` is unfinished and not abandoned by Stuck. */
+const unfinished = (batch: Batch, stepId: string): boolean => {
+  const latest = latestOf(batch, stepId);
+  return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
+};
+
 /**
  * The step the child `stepId` of a parallel group goes back to once its group ended: its latest
  * attempt was blocked by findings with its route's rounds not used up (ADR 0168).
@@ -948,11 +961,7 @@ function settle(draft: Draft, batchId: string, group: string): void {
   const children = recipe.children(group) ?? [];
   // Never past the group while an attempt of the batch runs: a sibling, or a child its recipe
   // dropped, whose finish then makes the batch Stuck (`leftRecipe`).
-  const inFlight = [...batch.steps.keys()].some((stepId) => {
-    const latest = latestOf(batch, stepId);
-    return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
-  });
-  if (inFlight) return;
+  if ([...batch.steps.keys()].some((stepId) => unfinished(batch, stepId))) return;
   // A child the batch never scheduled joined the group after the batch entered it: its file
   // changed under the batch, and the group would wait for it with nothing in flight.
   const added = children.find((child) => !batch.steps.has(child));
@@ -1045,21 +1054,8 @@ const orderName = ({ issue, repo }: OrderRef): string => `${repo ?? ''}#${issue}
 function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void {
   const { order, by, via, why, stopAt } = command;
   if (order !== undefined) {
-    // A sub-order's batches and a claimed issue's are held by the pause of their order.
-    const name = orderName(order);
-    const subOrder = order.repo === undefined ? draft.state.subOrders.get(order.issue) : undefined;
-    if (subOrder !== undefined) {
-      throw new Refusal(`${name} is a sub-order of #${subOrder.order}; pause #${subOrder.order}`);
-    }
-    const claimed = order.repo === undefined ? claimOfOrder(draft.state, order.issue) : undefined;
-    if (claimed?.repo !== undefined) {
-      const target = claimedName(claimed);
-      throw new Refusal(`${name} is the order of ${target}; pause ${target}`);
-    }
-    const key = orderKey(order);
-    const live = [...draft.state.batches.values()].some(
-      (batch) =>
-        nonTerminal.includes(batch.lane.kind) && orderKey(orderOfBatch(draft.state, batch)) === key,
+    const live = batchesOf(draft, order, 'pause').some((batch) =>
+      nonTerminal.includes(batch.lane.kind),
     );
     if (!live) {
       throw new Refusal(`there is no batch of ${orderName(order)} that has not ended to pause`);
@@ -1073,6 +1069,55 @@ function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void
     ...(why === undefined ? {} : { why }),
     ...(stopAt === undefined ? {} : { stopAt: stopAt.at.toISOString(), zone: stopAt.zone }),
   });
+}
+
+/**
+ * The batches of `order` that a person's pause or stop (`verb`) names: its own and its
+ * sub-orders'. A sub-order, or the Brewery issue that is a claimed target issue's order, is
+ * refused with the order to name instead, since its batches are that order's.
+ */
+function batchesOf(draft: Draft, order: OrderRef, verb: 'pause' | 'stop'): Batch[] {
+  const { state } = draft;
+  const name = orderName(order);
+  const subOrder = order.repo === undefined ? state.subOrders.get(order.issue) : undefined;
+  if (subOrder !== undefined) {
+    throw new Refusal(`${name} is a sub-order of #${subOrder.order}; ${verb} #${subOrder.order}`);
+  }
+  const claimed = order.repo === undefined ? claimOfOrder(state, order.issue) : undefined;
+  if (claimed?.repo !== undefined) {
+    const target = claimedName(claimed);
+    throw new Refusal(`${name} is the order of ${target}; ${verb} ${target}`);
+  }
+  const key = orderKey(order);
+  return [...state.batches.values()].filter(
+    (batch) => orderKey(orderOfBatch(state, batch)) === key,
+  );
+}
+
+/**
+ * A person's stop of an order (ADR 0205): each of its brewing batches goes Stuck at the first step
+ * whose latest attempt had not finished, so its attempts are abandoned and the driver stops their
+ * runs, and a retry schedules that step again; in a parallel group it resumes the other children.
+ */
+function stop(draft: Draft, command: Stop): void {
+  const { order, by, via, why } = command;
+  const stops = batchesOf(draft, order, 'stop').flatMap((batch) => {
+    if (batch.lane.kind !== 'brewing') return [];
+    const stepId = [...batch.steps.keys()].find((id) => unfinished(batch, id));
+    return stepId === undefined ? [] : [{ batchId: batch.id, stepId }];
+  });
+  if (stops.length === 0) {
+    throw new Refusal(`there is no brewing batch of ${orderName(order)} to stop`);
+  }
+  for (const { batchId, stepId } of stops) {
+    stick(draft, batchId, {
+      kind: 'stopped',
+      stepId,
+      by,
+      via,
+      ...(why === undefined ? {} : { why }),
+    });
+  }
 }
 
 /**

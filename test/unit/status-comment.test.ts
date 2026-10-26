@@ -566,6 +566,14 @@ describe('renderStatus', () => {
         { kind: 'routing', deadlineAt: at },
         /no recipe was chosen by its routing deadline, 2026-10-18T09:00:00\.000Z/,
       ],
+      [
+        { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: '@bob <b>lunch</b>' },
+        /`brew` was stopped by ada \(terminal\): &#64;bob &lt;b&gt;lunch&lt;\/b&gt;$/,
+      ],
+      [
+        { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'plugin' },
+        /`brew` was stopped by ada \(plugin\)$/,
+      ],
     ];
     for (const [reason, said] of cases) {
       const text = renderStatus(batch({ lane: stuck(reason) }), steps);

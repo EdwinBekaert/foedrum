@@ -248,6 +248,14 @@ export const StuckReason = z.discriminatedUnion('kind', [
   }),
   // An Ordered batch that nothing routed by its routing deadline (ADR 0032).
   z.strictObject({ kind: z.literal('routing'), deadlineAt: Timestamp }),
+  // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
+  z.strictObject({
+    kind: z.literal('stopped'),
+    stepId: StepId,
+    by: NonEmpty,
+    via: Surface,
+    why: NonEmpty.optional(),
+  }),
 ]);
 export type StuckReason = z.infer<typeof StuckReason>;
 

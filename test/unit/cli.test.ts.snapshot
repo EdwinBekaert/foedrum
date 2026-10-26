@@ -146,6 +146,7 @@ Commands:
   cancel <batch>                                          Cancel a batch
   pause [<order>] [--by <time>] [--why <reason>] [--all]  Pause an order, or all with --all: nothing new starts; --by stops what runs
   continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
+  stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches are Stuck until retry
   order <issue>                                           Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
   brew <issue> [--as <name>] [--take]                     Brew an issue's batch here until it is on tap, Stuck or needs input
   rank <order> [<place>] [--why <reason>]                 Move an order in the intake's queue to place <n>, or mark it to finish first
