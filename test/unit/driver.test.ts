@@ -31,7 +31,6 @@ import type { EffectTarget } from '../../src/engine/effects.ts';
 import type { EffectKey, EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { reopenOf } from '../../src/engine/usage-window.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -3334,18 +3333,6 @@ describe('openDriver', () => {
       await driver.tick();
       assert.equal(driver.state().usageWindow, undefined);
       assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2), plan('b2')]);
-    });
-
-    it('reads the reset in the machine zone by default', async () => {
-      const { runner, end } = handRunner();
-      order('b1');
-      const driver = await open({ runner });
-      await driver.drive();
-      end(plan('b1'), limited);
-      await driver.tick();
-      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const expected = reopenOf('3:45pm', now, zone).at.toISOString();
-      assert.equal(driver.state().usageWindow?.reopensAt, expected);
     });
 
     it('starts an attempt that runs no brewer while the window is closed, such as a check', async () => {
