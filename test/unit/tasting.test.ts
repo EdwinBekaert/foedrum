@@ -568,7 +568,10 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     ] as const) {
       const { outDoc, ...rest } = (await planTaster(answers, files)).limits;
       assert.equal(outDoc.file, 'taste.md');
-      assert.equal(outDoc.schema, TastingOutDoc);
+      // A Taster's out doc, read with its findings and verdict.
+      const done = { status: 'done', summary: 'Tasted', verdict: 'approve' };
+      assert.deepEqual(outDoc.schema.safeParse(done).data, TastingOutDoc.parse(done));
+      assert.equal(outDoc.schema.safeParse({ ...done, verdict: 'changes' }).success, false);
       assert.deepEqual(rest, { maxTurns: 60, ...expected });
     }
   });
