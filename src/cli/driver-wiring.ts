@@ -235,8 +235,9 @@ export const wireDriver = async (
     clock,
   });
   const recipeOf = (batchId: string) => state().batches.get(batchId)?.recipe?.name;
-  const guardsOf = (batchId: string, stepId: string) =>
-    setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.guards ?? [];
+  const brewerOf = (batchId: string, stepId: string) =>
+    setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer;
+  const guardsOf = (batchId: string, stepId: string) => brewerOf(batchId, stepId)?.guards ?? [];
   // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078).
   const brewer = guardTests({
     runner: shell.runner(setup.claude, plans.plan),
@@ -304,14 +305,12 @@ export const wireDriver = async (
     // The family of the model the brewer runs on, a blind-tasting swap included, says which
     // closed usage window holds it (ADR 0215).
     family: ({ batchId, stepId }) => {
-      const found = setup.brewers.find(recipeOf(batchId) ?? '', stepId);
-      return found && familyOfBrewer(setup.models, found.brewer);
+      const stepBrewer = brewerOf(batchId, stepId);
+      return stepBrewer && familyOfBrewer(setup.models, stepBrewer);
     },
     // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
     resumes:
-      resumes ??
-      (({ batchId, stepId }) =>
-        setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer.retryMode === 'resume'),
+      resumes ?? (({ batchId, stepId }) => brewerOf(batchId, stepId)?.retryMode === 'resume'),
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,
