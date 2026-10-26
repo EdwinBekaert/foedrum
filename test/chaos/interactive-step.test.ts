@@ -2,8 +2,8 @@
 // sessions, which retries a batch waiting for one at its start) and `foedrum serve` (one that opens
 // none and parks the step) on one store, with brew killed while the session is open, after claude
 // exited but before its end was recorded, and between serve's park and brew's retry, once and twice,
-// then brewed to its end. In every run the step never runs headless, no attempt finishes twice, and
-// the batch ends on tap after one success of the step, or waits for a session.
+// then brewed again until it no longer waits for a session. In every run the step never runs
+// headless, no attempt finishes twice, and the batch ends on tap after exactly one success of the step.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -136,7 +136,7 @@ const scenarios: Kill[][] = [
 
 describe('an interactive step under kills (ADR 0222)', () => {
   for (const kills of scenarios) {
-    it(`never runs headless and ends on tap or waiting for a session: brew killed ${kills.join(', then ')}`, async () => {
+    it(`never runs headless and ends on tap after one success: brew killed ${kills.join(', then ')}`, async () => {
       const store = openSqliteEventStore(':memory:');
       const starts: Started[] = [];
       try {
@@ -155,8 +155,13 @@ describe('an interactive step under kills (ADR 0222)', () => {
           if (kill === 'parked') await process(store, starts, false);
           await process(store, starts, true, kill);
         }
-        // A last brew, as a person runs it again.
-        await process(store, starts, true);
+        // The person runs brew again until the batch no longer waits for a session: a brew after a
+        // kill may first lose the killed attempt and park the batch, and the next one opens it.
+        for (let brews = 0; brews < 3; brews++) {
+          await process(store, starts, true);
+          const now = lane(store);
+          if (now?.kind !== 'stuck' || now.reason.kind !== 'waiting_for_session') break;
+        }
 
         const refine = starts.filter(({ key }) => attemptKey.decode(key)?.stepId === 'refine');
         assert.ok(refine.length > 0, 'the step never opened');
@@ -176,12 +181,8 @@ describe('an interactive step under kills (ADR 0222)', () => {
         const successes = [...(batch?.steps.get('refine')?.attempts.values() ?? [])].filter(
           (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
         );
-        const ended = batch?.lane;
-        if (ended?.kind === 'on_tap') assert.equal(successes.length, 1);
-        else {
-          assert.equal(ended?.kind, 'stuck', JSON.stringify(ended));
-          assert.equal(ended?.kind === 'stuck' && ended.reason.kind, 'waiting_for_session');
-        }
+        assert.equal(batch?.lane.kind, 'on_tap', JSON.stringify(batch?.lane));
+        assert.equal(successes.length, 1);
       } finally {
         store.close();
       }
