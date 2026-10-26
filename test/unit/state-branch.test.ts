@@ -161,6 +161,21 @@ describe('logPathOf', () => {
       },
       'batches/b1/events.jsonl',
     ],
+    'order.paused': [{ type: 'order.paused', by: 'ada', via: 'terminal' }, 'events.jsonl'],
+    'order.continued': [
+      { type: 'order.continued', order: { issue: 12 }, by: 'ada', via: 'terminal' },
+      'events.jsonl',
+    ],
+    'step.rescheduled': [
+      {
+        type: 'step.rescheduled',
+        batchId: 'b1',
+        stepId: 'plan',
+        attempt: 1,
+        deadlineAt: '2026-10-15T13:00:00.000Z',
+      },
+      'batches/b1/events.jsonl',
+    ],
     'batch.rewound': [
       {
         type: 'batch.rewound',

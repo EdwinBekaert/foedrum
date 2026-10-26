@@ -7,6 +7,7 @@ import type {
   Dependency,
   Event,
   GravityReading,
+  OrderRef,
   Receipt,
   ScheduleRoute,
   SessionRef,
@@ -79,6 +80,8 @@ export type Attempt =
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
       receipt?: Receipt;
+      /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
+      paused?: true;
     };
 
 export interface Input {
@@ -225,6 +228,21 @@ export interface Release {
   version: string;
 }
 
+/** A person's pause of an order or of the whole Brewery (ADR 0202). */
+export interface Pause {
+  by: string;
+  via: Surface;
+  why?: string;
+  /** When what still runs is stopped, and the zone it was given in. */
+  stopAt?: { at: string; zone: string };
+}
+
+/** The pauses in force: of the whole Brewery (`--all`), and of each order by `orderKey`. */
+export interface Pauses {
+  all?: Pause;
+  orders: ReadonlyMap<string, Pause>;
+}
+
 export interface State {
   orders: ReadonlyMap<number, Order>;
   subOrders: ReadonlyMap<number, SubOrder>;
@@ -233,6 +251,7 @@ export interface State {
   releases: readonly Release[];
   /** The idempotency ledger: result by effect key (invariant I4). */
   effects: ReadonlyMap<string, unknown>;
+  pauses: Pauses;
 }
 
 export const emptyState: State = {
@@ -242,7 +261,12 @@ export const emptyState: State = {
   bottles: new Map(),
   releases: [],
   effects: new Map(),
+  pauses: { orders: new Map() },
 };
+
+/** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
+export const orderKey = ({ issue, repo }: OrderRef): string =>
+  `${repo?.toLowerCase() ?? ''}#${issue}`;
 
 /**
  * A log the fold cannot replay, and where it broke. The command layer refuses such events
@@ -552,6 +576,10 @@ function apply(state: State, event: Event): State {
         baseChecks: [...(batch.baseChecks ?? []), check],
       }));
     }
+    case 'order.paused':
+    case 'order.continued':
+    case 'step.rescheduled':
+      throw new Error('not implemented');
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

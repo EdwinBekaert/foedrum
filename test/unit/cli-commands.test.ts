@@ -104,6 +104,8 @@ describe('foedrum: commands that change state', () => {
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
+    // 14:00 there at t0.
+    zone: () => 'Europe/Brussels',
     readKeptBranches: async () => assert.fail('no kept branch to read'),
     config: () => assert.fail('no foedrum.jsonc to read'),
     claims: () => assert.fail('no claim host to reach'),
@@ -301,6 +303,115 @@ describe('foedrum: commands that change state', () => {
           'batch 23-1 is cancelled; cancel needs it ordered, brewing, conditioning or stuck',
         ),
       );
+    });
+  });
+
+  describe('pause and continue (ADR 0202)', () => {
+    const paused = (fields: Record<string, unknown> = {}): Event =>
+      ({ type: 'order.paused', by: 'ada', via: 'terminal', ...fields }) as Event;
+
+    it('pauses an order, recorded with who, from where and why', async () => {
+      const result = await run(['pause', '#23', '--why', 'lunch']);
+      assert.deepStrictEqual(
+        result,
+        ok(
+          '#23 paused: nothing new of it starts, and what runs ends at its next convenient point\n',
+        ),
+      );
+      assert.deepStrictEqual(appended(1), [paused({ order: { issue: 23 }, why: 'lunch' })]);
+    });
+
+    it('takes --by as a local time in the zone of the machine, recorded in UTC with that zone', async () => {
+      const result = await run(['pause', '23', '--by', '17:30']);
+      assert.deepStrictEqual(
+        result,
+        ok(
+          '#23 paused: nothing new of it starts, and what runs ends at its next convenient point; what still runs at 15:30 UTC (17:30 Europe/Brussels, 15 October) is stopped\n',
+        ),
+      );
+      assert.deepStrictEqual(appended(1), [
+        paused({
+          order: { issue: 23 },
+          stopAt: '2026-10-15T15:30:00.000Z',
+          zone: 'Europe/Brussels',
+        }),
+      ]);
+    });
+
+    it('pauses the whole Brewery and its intake with --all, and takes --by as a duration', async () => {
+      const result = await run(['pause', '--all', '--by', '20m'], { surface: 'plugin' });
+      assert.deepStrictEqual(
+        result,
+        ok(
+          'The Brewery is paused: nothing new starts and nothing is ordered, and what runs ends at its next convenient point; what still runs at 12:20 UTC (14:20 Europe/Brussels, 15 October) is stopped\n',
+        ),
+      );
+      assert.deepStrictEqual(appended(1), [
+        paused({ via: 'plugin', stopAt: iso(20), zone: 'Europe/Brussels' }),
+      ]);
+    });
+
+    it('refuses neither or both of an order and --all, and a --by it cannot read, appending nothing', async () => {
+      const before = lastId();
+      for (const argv of [
+        ['pause'],
+        ['pause', '23', '--all'],
+        ['continue'],
+        ['continue', '23', '--all'],
+        ['pause', '23', '--by', 'tonight'],
+      ]) {
+        const result = await run(argv);
+        assert.equal(result.exitCode, 2, argv.join(' '));
+        assert.match(result.stderr, /^foedrum (pause|continue): invalid </, argv.join(' '));
+      }
+      assert.equal(lastId(), before);
+    });
+
+    it('refuses an order with no batch that has not ended', async () => {
+      assert.deepStrictEqual(
+        await run(['pause', '#40']),
+        refused('pause', 'there is no batch of #40 that has not ended to pause'),
+      );
+    });
+
+    it('continues an order, and the whole Brewery with --all', async () => {
+      await run(['pause', '23']);
+      assert.deepStrictEqual(
+        await run(['continue', '#23'], { user: () => 'grace' }),
+        ok('#23 continues\n'),
+      );
+      assert.deepStrictEqual(appended(1), [
+        { type: 'order.continued', order: { issue: 23 }, by: 'grace', via: 'terminal' },
+      ]);
+      await run(['pause', '--all']);
+      assert.deepStrictEqual(await run(['continue', '--all']), ok('The Brewery continues\n'));
+    });
+
+    it('refuses to continue an order that is not paused', async () => {
+      assert.deepStrictEqual(
+        await run(['continue', '23']),
+        refused('continue', '#23 is not paused'),
+      );
+    });
+
+    it('shows a pause in status and replay, with the pause and continue events that held the batch', async () => {
+      await run(['pause', '23', '--why', 'lunch']);
+      await run(['pause', '21']);
+      assert.match(
+        (await run(['status'])).stdout,
+        /23-1 +#23 +brewing +plan #1 started; paused by ada: lunch/,
+      );
+      const replay = (await run(['replay', '23-1'])).stdout;
+      assert.match(
+        replay,
+        /order\.paused +\{"order":\{"issue":23\},"by":"ada","via":"terminal","why":"lunch"\}/,
+      );
+      assert.doesNotMatch(replay, /"issue":21/);
+      assert.match(replay, / {2}paused {2}by ada via terminal: lunch\n/);
+      await run(['continue', '23']);
+      const after = (await run(['replay', '23-1'])).stdout;
+      assert.match(after, /order\.continued/);
+      assert.doesNotMatch(after, / {2}paused {2}/);
     });
   });
 
@@ -573,6 +684,7 @@ describe('foedrum stuck', () => {
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
+      zone: () => 'UTC',
       readKeptBranches: async () => assert.fail('no kept branch to read'),
       config: () => assert.fail('no foedrum.jsonc to read'),
       claims: () => assert.fail('no claim host to reach'),
@@ -803,6 +915,7 @@ describe('foedrum brewers', () => {
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
+      zone: () => 'UTC',
       readKeptBranches: async () => assert.fail('no kept branch to read'),
       config: () => assert.fail('no foedrum.jsonc to read'),
       claims: () => assert.fail('no claim host to reach'),
@@ -946,6 +1059,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
+    zone: () => 'UTC',
     readKeptBranches: async () => assert.fail('no kept branch to read'),
     config: () => config,
     claims: (given) => {

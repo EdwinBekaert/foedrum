@@ -1014,6 +1014,23 @@ describe('runBrew', () => {
     );
   });
 
+  it('refuses a paused order, and any issue while the Brewery is paused, ordering nothing: exit 5 (ADR 0202)', async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
+    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 5);
+    assert.equal(lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    log().issue({ kind: 'continue', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
+    log().issue({ kind: 'pause', by: 'ann', via: 'terminal' }, t0);
+    const other = { ...request, target: { issue: 13 } };
+    assert.equal(await runBrew(setup, shell(behave.succeed()), other), 5);
+    assert.equal(
+      lines.at(-1),
+      'foedrum brew: the Brewery is paused; foedrum continue --all lets it brew',
+    );
+    assert.equal(log().state().batches.size, 1);
+    assert.deepStrictEqual(started, []);
+  });
+
   it('refuses an issue whose latest batch ended: ordering it again is foedrum order: exit 5', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'cancel', batchId: '12-1', by: 'ann', via: 'terminal' }, t0);

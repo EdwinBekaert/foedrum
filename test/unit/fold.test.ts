@@ -50,6 +50,7 @@ describe('fold', () => {
       bottles: new Map(),
       releases: [],
       effects: new Map(),
+      pauses: { orders: new Map() },
     };
     assert.deepStrictEqual(fold([]), empty);
     assert.deepStrictEqual(emptyState, empty);

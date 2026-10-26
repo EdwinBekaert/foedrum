@@ -317,6 +317,10 @@ export const openSqliteEventStore = (
       case 'pull_request.ended':
       case 'pull_request.base_checked':
         return;
+      case 'order.paused':
+      case 'order.continued':
+      case 'step.rescheduled':
+        throw new Error('not implemented');
       default: {
         const unhandled: never = event;
         throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

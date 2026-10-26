@@ -60,6 +60,7 @@ const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   user: () => 'ada',
   surface: 'terminal',
   now: () => new Date(D1),
+  zone: () => 'UTC',
   readKeptBranches: async () => assert.fail('no kept branch to read'),
   config: () => assert.fail('no foedrum.jsonc to read'),
   claims: () => assert.fail('no claim host to reach'),

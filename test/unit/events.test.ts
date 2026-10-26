@@ -152,6 +152,23 @@ const valid: Record<Event['type'], Event> = {
     key: '["b1","brew",1,"pull_request"]',
     result: { number: 7 },
   },
+  'order.paused': {
+    type: 'order.paused',
+    order: { issue: 12 },
+    by: 'ada',
+    via: 'terminal',
+    why: 'end of the day',
+    stopAt: '2026-12-31T16:30:00.000Z',
+    zone: 'Europe/Brussels',
+  },
+  'order.continued': { type: 'order.continued', by: 'ada', via: 'plugin' },
+  'step.rescheduled': {
+    type: 'step.rescheduled',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt: 2,
+    deadlineAt: '2026-12-31T17:30:00.000Z',
+  },
 };
 
 const accepts = (

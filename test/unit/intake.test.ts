@@ -523,6 +523,34 @@ describe('createIntake', () => {
       );
     });
 
+    it('orders and claims nothing while pause --all holds the Brewery, and still routes (ADR 0202)', async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'pause', by: 'alice', via: 'terminal' });
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(12), labelled(13)],
+        [web]: [issue(7)],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      assert.equal(github.refs.size, 0);
+      accept({ kind: 'continue', by: 'alice', via: 'terminal' });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing', 'web-7 ordered']);
+    });
+
+    it('orders as before while only one order is paused (ADR 0202)', async () => {
+      accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+      accept({ kind: 'pause', order: { issue: 12 }, by: 'alice', via: 'terminal' });
+      const { tracker } = fakeTracker({
+        [brewery]: [labelled(12), labelled(13)],
+        [web]: [issue(7)],
+        [api]: [],
+      });
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing', 'web-7 ordered']);
+    });
+
     it('routes an Ordered batch it did not order in this pass: a killed pass left it, or a retry', async () => {
       accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
       accept({ kind: 'order', batchId: '13-1', order: { issue: 13 } });

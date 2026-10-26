@@ -107,6 +107,8 @@ export type EngineCommand =
       receipt?: Receipt;
       /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
       houseYeast?: HouseYeastSelection;
+      /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
+      paused?: true;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -127,7 +129,22 @@ export type EngineCommand =
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string };
 
-export type Command = HumanCommand | EngineCommand;
+/**
+ * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
+ * lifting (ADR 0202). `stopAt`: when what still runs is stopped, and the zone it was given in.
+ */
+export type PauseCommand =
+  | {
+      kind: 'pause';
+      order?: OrderRef;
+      by: string;
+      via: Surface;
+      why?: string;
+      stopAt?: { at: Date; zone: string };
+    }
+  | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
+
+export type Command = HumanCommand | PauseCommand | EngineCommand;
 
 export interface Context {
   now: Date;
@@ -352,6 +369,9 @@ function run(draft: Draft, command: Command): Event[] {
       draft.push(resumes === undefined ? event : { ...event, resumes });
       break;
     }
+    case 'pause':
+    case 'continue':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);

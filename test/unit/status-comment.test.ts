@@ -76,6 +76,36 @@ const lineOf = (text: string, id: string): string =>
   text.split('\n').find((line) => line.includes(`\`${id}\``)) ?? '';
 
 describe('renderStatus', () => {
+  it('says a paused batch is Paused, with who, from where, why and when what runs is stopped (ADR 0202)', () => {
+    const pause = {
+      by: 'ada',
+      via: 'terminal',
+      why: 'end of the day',
+      stopAt: { at: '2026-10-18T16:30:00.000Z', zone: 'Europe/Brussels' },
+    } as const;
+    const lines = renderStatus(batch(), steps, undefined, pause).split('\n');
+    assert.equal(lines[1], '🍺 **Brewing**');
+    assert.equal(
+      lines[2],
+      '⏸️ **Paused** by ada (terminal): end of the day. Nothing new starts; what runs ends at its next convenient point, and what still runs at 16:30 UTC (17:30 Europe/Brussels, 18 October) is stopped.',
+    );
+    const plain = renderStatus(batch(), steps, undefined, { by: 'ada', via: 'plugin' });
+    assert.match(
+      plain,
+      /⏸️ \*\*Paused\*\* by ada \(plugin\)\. Nothing new starts; what runs ends at its next convenient point\.\n/,
+    );
+    assert.doesNotMatch(renderStatus(batch(), steps), /Paused/);
+  });
+
+  it("escapes a pause's reason as any text an issue wrote (ADR 0202)", () => {
+    const text = renderStatus(batch(), steps, undefined, {
+      by: 'ada',
+      via: 'terminal',
+      why: '@team <b>stop</b>\nnow',
+    });
+    assert.match(text, /: &#64;team &lt;b&gt;stop&lt;\/b&gt; now\. Nothing new starts/);
+  });
+
   it('names the batch, and says an Ordered batch has no recipe chosen yet', () => {
     const text = renderStatus(ordered(), undefined);
     assert.match(text, /`7-1`/);
@@ -1112,6 +1142,23 @@ describe('statusEffects', () => {
     assert.match(only().body, /Port 8080 is free/);
     assert.deepEqual(driver.held(), []);
     assert.deepEqual(notices, []);
+  });
+
+  it('edits the comment to say Paused when its order is paused, and again when it continues (ADR 0202)', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    later(minute);
+    await driver.tick();
+    issue({ kind: 'pause', order: { issue: 7 }, by: 'ada', via: 'terminal', why: 'lunch' });
+    later(minute);
+    await driver.tick();
+    assert.match(only().body, /Paused\*\* by ada \(terminal\): lunch\./);
+    issue({ kind: 'continue', order: { issue: 7 }, by: 'ada', via: 'terminal' });
+    later(minute);
+    await driver.tick();
+    assert.doesNotMatch(only().body, /Paused/);
   });
 
   it('edits nothing while the text stays the same', async () => {
