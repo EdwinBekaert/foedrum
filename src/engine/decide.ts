@@ -1016,6 +1016,17 @@ const orderName = ({ issue, repo }: OrderRef): string => `${repo ?? ''}#${issue}
 function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void {
   const { order, by, via, why, stopAt } = command;
   if (order !== undefined) {
+    // A sub-order's batches and a claimed issue's are held by the pause of their order.
+    const name = orderName(order);
+    const subOrder = order.repo === undefined ? draft.state.subOrders.get(order.issue) : undefined;
+    if (subOrder !== undefined) {
+      throw new Refusal(`${name} is a sub-order of #${subOrder.order}; pause #${subOrder.order}`);
+    }
+    const claimed = order.repo === undefined ? claimOfOrder(draft.state, order.issue) : undefined;
+    if (claimed?.repo !== undefined) {
+      const target = claimedName(claimed);
+      throw new Refusal(`${name} is the order of ${target}; pause ${target}`);
+    }
     const key = orderKey(order);
     const live = [...draft.state.batches.values()].some(
       (batch) =>

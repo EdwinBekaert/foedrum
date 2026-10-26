@@ -10,7 +10,7 @@ import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
-import type { Batch } from '../engine/fold.ts';
+import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { pauseOf } from '../engine/pauses.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -268,11 +268,15 @@ export const runBrew = async (
       );
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
-    if (log.state().pauses.all !== undefined) {
-      return refuse('the Brewery is paused; foedrum continue --all lets it brew');
-    }
-    if (latest !== undefined && pauseOf(log.state(), latest) !== undefined) {
-      return refuse(`${named} is paused; foedrum continue ${asGiven} lets it brew`);
+    const pausedLine = (state: State): string =>
+      state.pauses.all === undefined
+        ? `${named} is paused; foedrum continue ${asGiven} lets it brew`
+        : 'the Brewery is paused; foedrum continue --all lets it brew';
+    if (
+      log.state().pauses.all !== undefined ||
+      (latest !== undefined && pauseOf(log.state(), latest) !== undefined)
+    ) {
+      return refuse(pausedLine(log.state()));
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
@@ -431,8 +435,14 @@ export const runBrew = async (
           say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}`);
           return BREW_EXIT.stuck;
         }
-        case 'ordered':
         case 'brewing':
+          // A pause that came while it brews: once nothing of the batch runs, nothing will
+          // until a person continues it (ADR 0202).
+          if (pauseOf(driver.state(), now) !== undefined && runningAttempts(now).length === 0) {
+            return refuse(pausedLine(driver.state()));
+          }
+          break;
+        case 'ordered':
         case 'conditioning':
           break;
         default: {
