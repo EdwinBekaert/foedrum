@@ -1,6 +1,6 @@
 # 0202. `pause` and `continue` hold an order, or the whole Brewery, at its next convenient point
 
-Date: 2026-10-26 · Status: Accepted · Amends [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (a paused batch's attempt that has not started waits without its deadline), [0030](0030-only-commands-that-change-state-are-recorded.md) (two more recorded commands), [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (a driver starts nothing paused), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (`pause --all` holds the intake) and [0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) (a group under a pause)
+Date: 2026-10-26 · Status: Accepted · Amends [0019](0019-interactive-sessions-and-one-command-layer.md) (`pause` given its meaning, and `continue` added), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) (a paused batch's attempt that has not started waits without its deadline), [0027](0027-supervisor-lost-and-stalled-attempts.md) (the supervisor expires no such attempt: an exception to I5), [0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) (a waiting attempt's deadline does not run while a person's pause holds it), [0030](0030-only-commands-that-change-state-are-recorded.md) (two more recorded commands), [0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md) (a driver starts nothing paused), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (`pause --all` holds the intake) and [0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md) (a group under a pause)
 
 ## Context
 An engineer needs to halt work: one order now, or everything at the end of the day, and go on later (#241).
@@ -18,6 +18,7 @@ Messaging a running brewer to finish early is left to an issue of its own: the e
 - `<order>` is written as `order` takes an issue: `<alias>#<n>` of a target repository, `#<n>` or `<n>` of the Brewery; exactly one of `<order>` and `--all` is given.
 - A pause of an order holds every batch of its issue, and a sub-order's batch with its order's; `--all` holds every batch of the Brewery, those ordered later included.
 - A pause is refused for an order with no batch that has not ended; a second pause of the same order, or a second `--all`, replaces the first, so `--by` can be added or moved.
+  Under `--all` an order's own `--by` still holds when it comes first: a batch is stopped at the earlier of the two.
 - `continue <order>` lifts that order's pause, and is refused when the order is not paused or while `--all` holds the Brewery (`continue --all` lifts it); `continue --all` lifts `--all` and every order's pause.
 
 ### What a pause holds
@@ -27,11 +28,12 @@ Messaging a running brewer to finish early is left to an issue of its own: the e
   Effects go on (status comments, labels, claims), since they record what already happened; so do the supervisor's deadlines of running attempts, stalls and reminders.
 - **A parallel group** ([ADR 0168](0168-a-parallel-group-runs-its-lens-steps-side-by-side.md)): each running child ends at its own point; a child scheduled but not started waits, and the group waits for it.
 - **A scheduled attempt that has not started has no deadline while its batch is paused**: the supervisor does not expire it, since the wait is a person's, not the step's.
+  This is the one exception to "every wait has a deadline" and to invariant I5, and to what [ADR 0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md) rejected: a pause is a wait the person chose, shown in the status comment with who, why and `--by`, and only a person continues it until the Innkeeper (#227). It has no reminder.
   `continue` gives each such attempt of the batches it lifts a new deadline from its step (`step.rescheduled`), as if it had just been scheduled, so a long pause never makes a batch Stuck on its deadline.
 - **At `--by`, what still runs of a paused batch is stopped** by the driver that runs it, at its next tick.
   Its end is the runner's for a stopped run (cancelled), recorded with `paused` on its `step.finished`: the pause is the person's choice, not a failure, so that attempt counts against none of the step's retries.
   The step is scheduled again at once, as a retry, so a brewer that resumes continues its session, whatever attempts it has left; that attempt waits for `continue`, and the batch stays paused, never Stuck on `attempts_exhausted`.
-  `decide` refuses such an end of a batch whose pause has not reached its `stopAt`.
+  An end that comes after the pause was lifted or replaced, so that it no longer stops the batch, is an ordinary cancelled end, retried as any is; `decide` refuses `paused` on an end that is not cancelled.
 - **`pause --all` holds the intake**: no Brewery issue is ordered and no target issue claimed until `continue --all`; the engine's `order` command is refused while it holds.
   The intake still records pull request ends, checks bases and routes Ordered batches, which starts nothing, so an Ordered batch does not go Stuck on routing because of a pause.
   A pause of one order leaves the intake alone, and `foedrum order`, a person's own decision, is not held.
