@@ -615,11 +615,12 @@ describe('launchProcess with a real process (ADR 0222)', () => {
   afterEach(() => removeTree(dir.path));
 
   it('answers once the launcher exits, while the window it started still holds its output', async () => {
-    // As a terminal a launcher starts: it inherits the launcher's output and outlives it.
+    // As a terminal a launcher starts: it inherits the launcher's output and outlives it, out of
+    // the launcher's group and job, as cmd.exe's start and setsid leave it.
     const window = "setTimeout(() => require('node:fs').writeFileSync('closed', ''), 60000)";
     const launcher = [
       "const { spawn } = require('node:child_process');",
-      `const window = spawn(process.execPath, ['-e', ${JSON.stringify(window)}], { stdio: 'inherit' });`,
+      `const window = spawn(process.execPath, ['-e', ${JSON.stringify(window)}], { stdio: 'inherit', detached: true });`,
       "require('node:fs').writeFileSync('window.pid', String(window.pid));",
       'window.unref();',
     ].join(' ');

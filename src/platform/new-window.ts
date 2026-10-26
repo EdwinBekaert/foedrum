@@ -3,6 +3,8 @@
 // terminal over (ADR 0126). One command line per platform, with argument arrays: Windows Terminal or
 // cmd.exe's start, Terminal through osascript, or the desktop's terminal with -e.
 
+import { win32 } from 'node:path';
+import { environmentVariable } from './executables.ts';
 import type { ExecProcess } from './processes.ts';
 import { windowsCommandLine } from './shell.ts';
 
@@ -19,10 +21,13 @@ export interface WindowLine {
   cwd: string;
   program: string;
   args: readonly string[];
+  /** The environment the launcher, and through it the window, gets; this process's by default. */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 export type WindowLaunch =
-  | { kind: 'launch'; program: string; args: string[] }
+  /** `env`: variables the launcher needs besides the line's. */
+  | { kind: 'launch'; program: string; args: string[]; env?: Record<string, string> }
   | { kind: 'none'; why: string };
 
 const none = (why: string): WindowLaunch => ({ kind: 'none', why });
@@ -53,12 +58,13 @@ export function newWindowCommand(facts: WindowFacts, line: WindowLine): WindowLa
       if (terminal !== undefined) {
         return { kind: 'launch', program: terminal, args: ['new-tab', '-d', line.cwd, ...command] };
       }
-      const cmd = env.ComSpec ?? env.COMSPEC;
-      if (cmd === undefined) return none('neither wt.exe nor ComSpec names a console to open');
+      // cmd.exe by its full path, never the working directory's programs, as the runner starts it.
+      const root = environmentVariable(env, 'SYSTEMROOT', 'win32') ?? 'C:\\Windows';
       return {
         kind: 'launch',
-        program: cmd,
+        program: win32.join(root, 'System32', 'cmd.exe'),
         args: ['/d', '/c', 'start', 'foedrum brew', '/d', line.cwd, ...command],
+        env: { NoDefaultCurrentDirectoryInExePath: '1' },
       };
     }
     case 'darwin': {
@@ -107,7 +113,12 @@ export async function openInNewWindow(
 ): Promise<{ kind: 'opened' } | { kind: 'none'; why: string }> {
   const launch = newWindowCommand(facts, line);
   if (launch.kind === 'none') return launch;
-  const result = await exec(launch.program, launch.args, { cwd: line.cwd, timeoutMs: LAUNCH_MS });
+  const env =
+    line.env === undefined && launch.env === undefined
+      ? {}
+      : { env: { ...line.env, ...launch.env } };
+  const options = { cwd: line.cwd, timeoutMs: LAUNCH_MS, ...env };
+  const result = await exec(launch.program, launch.args, options);
   if (result.exitCode === 0) return { kind: 'opened' };
   const name = launch.program.split(/[\\/]/).at(-1) ?? launch.program;
   const said = result.stderr.trim();

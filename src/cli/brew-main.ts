@@ -7,7 +7,7 @@ import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import type { BrewerRunner } from '../engine/brewer-runner.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
 import { openInNewWindow, type WindowFacts } from '../platform/new-window.ts';
-import { type ExecProcess, execProcess, foregroundProcess } from '../platform/processes.ts';
+import { type ExecProcess, foregroundProcess, launchProcess } from '../platform/processes.ts';
 import type { BrewCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
@@ -74,6 +74,9 @@ export interface NewWindowDeps extends WindowFacts {
   exec: ExecProcess;
 }
 
+/** The variables that tell a brew it runs inside a Claude Code session (noSessionsOf, brewOwner). */
+const SESSION_VARIABLES = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID'];
+
 /** The real machine's: this process's node, program and platform, and its PATH. */
 const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWindowDeps => {
   const { platform } = process;
@@ -83,7 +86,7 @@ const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWind
     find: (name) => resolveExecutable(name, { env, platform }),
     execPath: process.execPath,
     script: process.argv[1] ?? '',
-    exec: execProcess,
+    exec: launchProcess,
   };
 };
 
@@ -95,17 +98,24 @@ const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWind
 export const brewInNewWindow = async (
   cwd: string,
   input: BrewCommand,
-  _owner: string,
+  owner: string,
   deps: NewWindowDeps,
 ): Promise<CliResult> => {
   const { alias, issue } = input.issue;
   const target = `${alias === undefined ? '' : `${alias}#`}${issue}`;
-  const words = ['brew', target, '--take', ...(input.as === undefined ? [] : ['--as', input.as])];
+  // As this brew's owner: a window may start with none of this session's variables (macOS).
+  const words = ['brew', target, '--take', '--as', owner];
   const shown = `foedrum ${words.join(' ')}`;
-  const line = { cwd, program: deps.execPath, args: [deps.script, ...words] };
+  // Without the Claude Code session's variables, so the window's brew opens the session.
+  const named = (name: string) => (deps.platform === 'win32' ? name.toUpperCase() : name);
+  const env = Object.fromEntries(
+    Object.entries(deps.env).filter(([name]) => !SESSION_VARIABLES.includes(named(name))),
+  );
+  const line = { cwd, program: deps.execPath, args: [deps.script, ...words], env };
   const opened = await openInNewWindow(deps, line, deps.exec);
   if (opened.kind === 'opened') {
-    const said = `foedrum brew: opened ${shown} in a new window; exit its claude session there when the step is done, then check the batch with foedrum status`;
+    // The launcher returned: the window shows whether it opened.
+    const said = `foedrum brew: asked for a new window that runs ${shown}; exit its claude session there when the step is done, then check the batch with foedrum status. If no window opened, run that command in a terminal`;
     return { exitCode: 0, stdout: `${said}\n`, stderr: '' };
   }
   const said = `foedrum brew: no new window can open here (${opened.why}); run ${shown} in a terminal`;
