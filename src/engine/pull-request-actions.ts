@@ -132,10 +132,11 @@ const undotted = (path: string): string =>
 /**
  * Whether `glob` matches `file` (ADR 0201), a wildcard also matching a name that starts with a dot,
  * which `posix.matchesGlob` alone never does: `src/auth/**` covers `src/auth/.env`. A dot the glob
- * writes at the start of a name still matches only that dot.
+ * writes still matches only a dot, also inside braces or a class (`{.env,.npmrc}`), which the plain
+ * match reads.
  */
 const matchesWithDots = (file: string, glob: string): boolean =>
-  posix.matchesGlob(undotted(file), undotted(glob));
+  posix.matchesGlob(file, glob) || posix.matchesGlob(undotted(file), undotted(glob));
 
 /** Where the action pushes from and opens into, or why it cannot run. */
 type Plan =
