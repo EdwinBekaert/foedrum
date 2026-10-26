@@ -170,8 +170,9 @@ const shortSha = (sha: string): string => sha.slice(0, 8);
 
 /**
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
- * tip and the files of a conflict, or that it merges cleanly again after an earlier conflict;
- * `undefined` when every check was clean or none ran.
+ * tip and the files of a conflict, or that it merges cleanly again after an earlier conflict; on
+ * the merged tree (ADR 0203), the check that failed and how, why the checks did not run, or that
+ * they pass again after either; `undefined` when every check was clean or none ran.
  */
 const baseCheckLine = (batch: Batch, url: string): string | undefined => {
   const checks = (batch.baseChecks ?? []).filter((check) => check.pullRequest === url);
