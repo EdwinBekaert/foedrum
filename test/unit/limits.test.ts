@@ -206,6 +206,22 @@ describe('the limits of a pass (ADR 0217)', () => {
       assert.deepStrictEqual(lanes(), ['12-1 on_tap nip', 'web-7 brewing nip']);
     });
 
+    it("never holds a person's recipe for a Stuck batch: they mean it now", async () => {
+      brewing(12, 'nip');
+      accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      accept({ kind: 'unrouted', batchId: 'web-7' }, new Date('2026-10-26T10:00:00.000Z'));
+      accept({
+        kind: 'recipe',
+        batchId: 'web-7',
+        recipe: 'nip',
+        reason: 'needed today',
+        by: 'alice',
+        via: 'terminal',
+      });
+      await intake({ [brewery]: [issue(12, ['recipe:nip'])], [web]: [] }).poll();
+      assert.deepStrictEqual(lanes(), ['12-1 brewing nip', 'web-7 brewing nip']);
+    });
+
     it('holds a ready sub-order of a recipe at its limit', async () => {
       brewing(12, 'nip');
       brewing(1, 'half');
