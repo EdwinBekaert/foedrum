@@ -183,6 +183,16 @@ describe('readySubOrders', () => {
       assert.deepStrictEqual(ready(...start, merged, released('Acme/Lib-Core')), [sub(1, 3)]);
     });
 
+    it('counts a release of a repository the breakdown names in another case', () => {
+      const named = [
+        ordered('1-1', 1),
+        decomposed('1-1', [[2, 'Acme/Lib-Core'], 3], [[3, 2, 'release']]),
+        ordered('2-1', 2, '1-1'),
+        onTap('2-1', pr(5)),
+      ];
+      assert.deepStrictEqual(ready(...named, merged, released(lib)), [sub(1, 3)]);
+    });
+
     it('never holds the sub-order once its blocker closed its pull request, released or not', () => {
       assert.deepStrictEqual(ready(...start, ended('2-1', pr(5), 'closed'), released(lib)), []);
     });
@@ -200,6 +210,49 @@ describe('readySubOrders', () => {
       assert.deepStrictEqual(ready(...bottled, ended('3-1', pr(9), 'merged'), released(lib)), [
         sub(1, 4),
       ]);
+    });
+
+    it("counts a bottle's first recorded merge, when each batch it bottles records it", () => {
+      const bottled = [
+        ordered('1-1', 1),
+        decomposed('1-1', [[2, lib], [3, lib], 4], [[4, 2, 'release']]),
+        ordered('2-1', 2, '1-1'),
+        ordered('3-1', 3, '1-1'),
+        { type: 'bottle.opened', bottleId: 'b1', repo: lib, subOrders: [2, 3], pullRequest: pr(9) },
+        onTap('2-1', pr(9)),
+        onTap('3-1', pr(9)),
+      ] as const satisfies Event[];
+      // The release came after the bottle's merge, though one batch recorded that merge later.
+      assert.deepStrictEqual(
+        ready(
+          ...bottled,
+          ended('3-1', pr(9), 'merged'),
+          released(lib),
+          ended('2-1', pr(9), 'merged'),
+        ),
+        [sub(1, 4)],
+      );
+    });
+
+    it('never holds a sub-order whose blocker is in a bottle whose pull request closed, released or not', () => {
+      const bottled = (kind: 'code' | 'release'): Event[] => [
+        ordered('1-1', 1),
+        decomposed('1-1', [[2, lib], [3, lib], 4], [[4, 2, kind]]),
+        ordered('2-1', 2, '1-1'),
+        ordered('3-1', 3, '1-1'),
+        {
+          type: 'bottle.opened',
+          bottleId: 'b1',
+          repo: lib,
+          subOrders: [2, 3],
+          pullRequest: pr(9),
+        },
+        onTap('3-1', pr(9)),
+        ended('3-1', pr(9), 'closed'),
+        released(lib),
+      ];
+      assert.deepStrictEqual(ready(...bottled('code')), []);
+      assert.deepStrictEqual(ready(...bottled('release')), []);
     });
 
     it('holds a sub-order blocked by a code and a release blocker only once both are done', () => {
