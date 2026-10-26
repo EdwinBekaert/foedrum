@@ -162,6 +162,15 @@ describe('loadRecipes: a recipe of brewer steps in a line', () => {
     assert.equal(loaded(loadRecipes({ recipes: [], brewers: [] })).find('pale'), undefined);
   });
 
+  it('gives a recipe its own concurrency, or none (ADR 0217)', () => {
+    const files = brewery({
+      recipes: [pale, recipe('amber', [{ brewer: 'brewmaster' }], { concurrency: 2 })],
+    });
+    const recipes = loaded(loadRecipes(files));
+    assert.equal(recipes.find('amber')?.concurrency, 2);
+    assert.equal(recipes.find('pale')?.concurrency, undefined);
+  });
+
   it('ignores the recipe settings the engine has no use for yet', () => {
     const fields = { match: { labels: ['feature'] }, testFirst: false };
     const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });

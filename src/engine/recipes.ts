@@ -31,6 +31,8 @@ export interface Stall {
 }
 
 export interface Recipe {
+  /** How many of its batches may brew at once (ADR 0217); absent when it has no limit of its own. */
+  readonly concurrency?: number;
   /** The step a batch starts with. */
   readonly firstStep: string;
   /**

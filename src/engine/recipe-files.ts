@@ -451,6 +451,7 @@ function lineRecipe(
   steps: readonly LineStep[],
   settings: Settings,
   groups: ReadonlyMap<string, string | undefined>,
+  concurrency: number | undefined,
 ): Recipe {
   const byId = new Map(steps.map((entry, index) => [entry.id, { ...entry, index }]));
   const children = new Map(
@@ -486,6 +487,7 @@ function lineRecipe(
     ).length;
   };
   return {
+    ...(concurrency === undefined ? {} : { concurrency }),
     // A recipe has at least one step (its schema).
     firstStep: steps[0] === undefined ? '' : named(steps[0]),
     steps: steps.map(({ id }) => id),
@@ -854,6 +856,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         steps.map(({ line }) => line),
         { testFirst },
         groups,
+        value.concurrency,
       ),
     );
     stepBrewers.set(
