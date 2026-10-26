@@ -39,6 +39,15 @@ const clockOf = (at: Date, zone: string): string =>
  */
 export const stopAtText = ({ at, zone }: NonNullable<Pause['stopAt']>): string => {
   const instant = new Date(at);
-  const day = new Intl.DateTimeFormat('en-GB', { timeZone: zone, day: 'numeric', month: 'long' });
-  return `${clockOf(instant, 'UTC')} UTC (${clockOf(instant, zone)} ${zone}, ${day.format(instant)})`;
+  const utc = `${clockOf(instant, 'UTC')} UTC`;
+  // The zone was recorded on the machine that paused: the one folding the log may not know it.
+  let local: string;
+  try {
+    const day = new Intl.DateTimeFormat('en-GB', { timeZone: zone, day: 'numeric', month: 'long' });
+    local = `${clockOf(instant, zone)} ${zone}, ${day.format(instant)}`;
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    local = zone;
+  }
+  return `${utc} (${local})`;
 };
