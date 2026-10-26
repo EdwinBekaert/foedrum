@@ -132,7 +132,8 @@ describe('pause and continue (ADR 0202)', () => {
     it('holds every batch with --all, those ordered after it too', () => {
       order(12);
       accept({ kind: 'pause', ...who });
-      order(13);
+      // The intake orders nothing under --all; a person's own order is not held.
+      accept({ kind: 'order_again', batchId: 'b13', order: { issue: 13 }, ...who });
       assert.notEqual(pauseOf(log.state(), batch('b12')), undefined);
       assert.notEqual(pauseOf(log.state(), batch('b13')), undefined);
     });
