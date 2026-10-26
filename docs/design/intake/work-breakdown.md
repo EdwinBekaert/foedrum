@@ -12,7 +12,7 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   A brewer *writes* in exactly one repository and may *read* sibling repositories for context.
 - **Each sub-order gets its own batch** and recipe, once it is **ready**: in its order's latest breakdown, without a batch, and every sub-order it is blocked by done, its pull request merged ([ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)).
   The ready set is a pure function of the fold (`readySubOrders`, `src/engine/ready-set.ts`); the intake orders the ready sub-orders of all orders at their order's rank, in their plan's order ([ranking](ranking.md)).
-  A sub-order of a paused order, or of an order whose latest batch was cancelled, is not ordered; a cancelled sub-order never is.
+  A sub-order of a paused order, of an order stopped while a batch of it is still Stuck `stopped`, or of an order whose latest batch was cancelled, is not ordered; a cancelled sub-order never is.
   A bottle's pull request counts as merged when a batch it bottles records it `merged`: whoever opens bottles lists it in each bottled batch's `batch.on_tap`.
 - **Bottling: choosing what goes into a pull request.** A **bottle** is a pull request.
   It bundles one or more finished sub-orders of the same repository: their branches are merged into a bottle branch by plain git (conflicts go to the Blender).

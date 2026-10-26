@@ -45,6 +45,7 @@ The limits on what runs side by side (a recipe's `concurrency`, the open-order l
 ### Holds
 - `pause --all` orders nothing, as before ([ADR 0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md)).
 - A ready sub-order of a paused order is not ordered: it would only take a slot and wait.
+- Nor is one of an order a person stopped, while a batch of it, its own or a sub-order's, is still Stuck `stopped` ([ADR 0205](0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md)): the order's sub-orders go on once `retry` moves that batch on.
 - A ready sub-order of an order whose latest batch is cancelled is not ordered: the order was cancelled.
 
 ### Nothing changes for orders without sub-orders
@@ -54,6 +55,7 @@ The limits on what runs side by side (a recipe's `concurrency`, the open-order l
 - The free slots go to the highest-ranked ready work across every order: when order A has ten sub-orders and one is ready, order B's ready ones take the other slots.
 - A dependency costs a merge: a blocked sub-order waits for a person or the ruleset to merge its blocker's pull request.
 - `rank` moves a started order's remaining sub-orders, so the Innkeeper (#227) can later set them through the same command.
+- A sub-order whose blocker's pull request closed waits until a person orders the blocker again and that pull request merges.
 - Whoever opens bottles has to list the bottle's pull request in each bottled batch's `batch.on_tap`.
 
 ## Alternatives considered
