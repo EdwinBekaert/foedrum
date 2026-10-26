@@ -41,6 +41,7 @@ This table says what each one records.
 | `effect.applied` | The idempotency ledger for external side effects ([the event store](event-store.md)) |
 | `order.paused` | A person's pause of an order, or with no `order` of the whole Brewery and its intake, with `by`, `via`, the reason (`why`) and when what still runs is stopped (`stopAt`, with the `zone` it was given in) ([pause and continue](../humans/pause.md)) |
 | `order.continued` | A person lifted an order's pause, or with no `order` every pause, with `by` and `via` |
+| `order.ranked` | A person moved an order of the intake's queue to a position, kept as an arrival and a tie, or marked it to finish first, with `by`, `via` and `why` ([ranking](../intake/ranking.md)) |
 | `step.rescheduled` | The new deadline of a scheduled attempt that had not started when its batch was paused, as its pause is lifted |
 
 `Surface` is `plugin`, `terminal`, `comment` or `dashboard`.

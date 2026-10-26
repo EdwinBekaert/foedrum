@@ -1,6 +1,6 @@
 # 0208. Orders are claimed in rank order: by arrival, unless a person moved one with `foedrum rank`
 
-Date: 2026-10-26 · Status: Accepted · Amends [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (the order of a pass: Brewery issues first, then each repository's) and [0030](0030-only-commands-that-change-state-are-recorded.md) (one more recorded command)
+Date: 2026-10-26 · Status: Accepted · Amends [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (the order of a pass: Brewery issues first, then each repository's), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (the order a pass claims in), [0050](0050-the-intake-of-target-repository-issues.md) (`claimCandidates` and its `ClaimPass` give way to the pass's walk of its queue) and [0030](0030-only-commands-that-change-state-are-recorded.md) (one more recorded command)
 
 ## Context
 A pass of the intake orders the Brewery's own issues first, by number, then claims each target repository's candidates in the order `foedrum.jsonc` lists the repositories, each by number, within the free capacity ([ADR 0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).
@@ -28,12 +28,14 @@ The ready set of sub-orders (#531) and the limits (#532) are the next parts, not
   So the order moves up as the orders ahead of it are ordered, taken or closed, and an order that arrives later goes behind it; an older issue that passes the filter only later (a label added) goes where its arrival puts it.
   The places count only the orders without the mark: a marked order is ahead of every one of them.
 - **`first`** puts the order ahead of every order without the mark; the marked ones go by when they were marked.
-- A ranked order goes ahead of an unranked one that shares its arrival, and of two ranked ones the later rank goes ahead, so `rank X 1` after `rank Y 1` puts X ahead of Y.
+- **A tie orders the ranked orders that share an arrival**, the lower ahead, and they all go ahead of the unranked ones of that arrival.
+  `rank <order> <n>` chooses it so the order goes just ahead of the order at place `n` and behind a ranked order of the same arrival ahead of that one: below the tie of the order at `n`, between the two ties, or one above the tie of the ranked order ahead when the order at `n` is unranked.
+  So `rank X 1` after `rank Y 1` puts X ahead of Y, and `rank Y 3` after `rank X 2`, with the order at place 3 sharing X's arrival, puts Y between X and it.
 - **A later rank of the same order replaces the earlier one**, so marking a marked order again moves it behind the other marked ones.
 - `rank` is refused with one line for an alias `foedrum.jsonc` does not name, for an order that has a batch in any lane (it has left the queue), for a sub-order (its plan ranks it, part 2), for the Brewery issue that is a claimed issue's order (rank the target issue), and for an order that is not in the queue now (closed, filtered out, opened by someone not allow-listed, assigned to someone else); also when the queue cannot be read.
 
 ### The event
-- `order.ranked` `{ order, place, by, via, why? }`, with `place` either `{ kind: 'first' }` or `{ kind: 'position', position, arrival }`: `position` is the `n` the person gave, kept for `replay`, and `arrival` is what the queue sorts by.
+- `order.ranked` `{ order, place, by, via, why? }`, with `place` either `{ kind: 'first' }` or `{ kind: 'position', position, arrival, tie }`: `position` is the `n` the person gave, kept for `replay`, and `arrival` and `tie` are what the queue sorts by.
   It names no batch, so it goes to the state branch's top-level log, as a pause does ([ADR 0024](0024-state-branch-layout-outbox-and-divergence.md)).
 - The fold keeps the ranks in `State.ranks`, by order (`orderKey`), each with a sequence number that says which rank came later; a restart folds the same ranks.
 - The queue's order is one pure function over the listed candidates and `State.ranks` (`rankQueue`, `src/engine/ranks.ts`); the intake and `rank` both call it.
@@ -47,7 +49,7 @@ The ready set of sub-orders (#531) and the limits (#532) are the next parts, not
 
 ### Where it shows
 - `foedrum replay` lists `order.ranked` with who, from where, why and the place.
-- `foedrum rank <order>` prints the order's place in the queue as read now, and its rank; the board (#240) shows the whole queue later.
+- `foedrum rank <order>` prints the order's place in the queue as read now, and its rank, and appends nothing, though `rank` is a command that changes state; the board (#240) shows the whole queue later.
 
 ### What the next parts add
 - **Part 2 (#531):** the ready set of sub-orders, which start in their plan's order within their order's rank; `rank` of an order with sub-orders that are not all done is accepted then, and orders its sub-orders against other orders' (the refusal of an order with a batch is narrowed to that).
