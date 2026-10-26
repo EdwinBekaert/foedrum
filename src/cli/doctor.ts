@@ -239,19 +239,17 @@ const toolLine = (name: ToolName, run: ToolRun | undefined): ToolLine => ({
 });
 
 /**
- * The user-mode network stack a Linux setup's namespace gets the network from (ADR 0218): pasta,
- * else slirp4netns, else pasta as missing. pasta prints its package's version as its first line's
- * second word (`pasta 0.0~git20240220.1e6f92b-1`), which is not a dotted number.
+ * The user-mode network stack a Linux setup's namespace gets the network from (ADR 0218):
+ * slirp4netns, else pasta, else slirp4netns as missing. pasta prints its version as its first
+ * line's second word (`pasta 2024_09_06.6b38f07`), not a dotted number; Ubuntu 24.04's says
+ * `pasta unknown version`.
  */
 const stackLine = (tools: DoctorFacts['tools']): ToolLine => {
-  if (tools.pasta !== undefined) {
-    const version =
-      tools.pasta.exitCode === 0 ? firstLine(tools.pasta)?.split(/\s+/)[1] : undefined;
-    return { name: 'pasta', version, path: tools.pasta.path };
+  if (tools.slirp4netns !== undefined || tools.pasta === undefined) {
+    return toolLine('slirp4netns', tools.slirp4netns);
   }
-  return tools.slirp4netns === undefined
-    ? toolLine('pasta', undefined)
-    : toolLine('slirp4netns', tools.slirp4netns);
+  const said = tools.pasta.exitCode === 0 ? firstLine(tools.pasta)?.split(/\s+/)[1] : undefined;
+  return { name: 'pasta', version: said === 'unknown' ? undefined : said, path: tools.pasta.path };
 };
 
 /** A setup does not start on Linux without a stack; a Brewery without one needs neither. */
@@ -260,11 +258,19 @@ const stackProblems = ({ platform, tools }: DoctorFacts): Problem[] =>
     ? [
         {
           required: false,
-          what: 'pasta (passt) or slirp4netns not found',
-          fix: "install passt or slirp4netns: a repository's setup does not start without one (ADR 0218)",
+          what: 'slirp4netns or pasta (passt) not found',
+          fix: "install slirp4netns: a repository's setup does not start without it (ADR 0218)",
         },
       ]
     : [];
+
+/**
+ * Ubuntu runs pasta under passt's AppArmor profile, which keeps it out of the network namespace
+ * a setup's bwrap makes; its own profile for slirp4netns lets that in (ADR 0218). Doctor reads
+ * Ubuntu from AppArmor's limit on user namespaces.
+ */
+const PASTA_CONFINED_ADVICE =
+  "AppArmor runs pasta under passt's profile here, which keeps it out of the network namespace bwrap makes for a repository's setup, so a repository's setup does not start: install slirp4netns (ADR 0218).";
 
 /** Whether the dotted version `version` comes before `least`. */
 const isBefore = (version: string, least: readonly number[]): boolean => {
@@ -656,10 +662,13 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
 export const diagnose = (facts: DoctorFacts): Diagnosis => {
   const { tools } = facts;
   const { isolation, advice: levelAdvice, problems: sandboxProblems } = isolationOf(facts);
-  const advice =
-    facts.platform === 'linux' && facts.restrictsUserns === true
-      ? [...levelAdvice, USERNS_ADVICE]
-      : levelAdvice;
+  const restricted = facts.platform === 'linux' && facts.restrictsUserns === true;
+  const pastaOnly = facts.tools.pasta !== undefined && facts.tools.slirp4netns === undefined;
+  const advice = [
+    ...levelAdvice,
+    ...(restricted ? [USERNS_ADVICE] : []),
+    ...(restricted && pastaOnly ? [PASTA_CONFINED_ADVICE] : []),
+  ];
   const recipes = recipesOf(facts);
   const problems: Problem[] = [
     ...(isTooOld(facts.node)

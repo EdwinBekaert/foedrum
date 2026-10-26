@@ -1,7 +1,7 @@
 // The OS sandbox a check step's command line runs in (ADR 0076): bwrap on Linux and WSL2,
 // sandbox-exec on macOS, with no network, the home folder hidden and writes only in the worktree
 // and a temporary folder. A repository's setup runs in the same sandbox with the network kept
-// (ADR 0158), on Linux through a network namespace of its own that pasta or slirp4netns joins
+// (ADR 0158), on Linux through a network namespace of its own that slirp4netns or pasta joins
 // (ADR 0218). Native Windows has none (ADR 0010). A process runner that wraps another, so the
 // deadline, the stop and the output limit stay the process runner's (ADR 0035).
 
@@ -288,8 +288,8 @@ export interface SandboxedChecksOptions {
 /** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
 export type NetworkStackTool = 'pasta' | 'slirp4netns';
 
-/** In the order they are looked for: pasta first. */
-const stackTools: readonly NetworkStackTool[] = ['pasta', 'slirp4netns'];
+/** In the order they are looked for: slirp4netns first, which Ubuntu lets into user namespaces. */
+const stackTools: readonly NetworkStackTool[] = ['slirp4netns', 'pasta'];
 
 /**
  * Where the setup's resolver's file goes: the real path of /etc/resolv.conf, which may link into
@@ -527,7 +527,7 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
         );
       if (stack === undefined) {
         return unstarted(
-          "neither pasta (passt) nor slirp4netns is on PATH: a repository's setup runs only in a network namespace of its own here; install passt or slirp4netns",
+          "neither slirp4netns nor pasta (passt) is on PATH: a repository's setup runs only in a network namespace of its own here; install slirp4netns",
           '0218',
         );
       }
