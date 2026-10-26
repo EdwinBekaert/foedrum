@@ -559,6 +559,29 @@ describe('the foedrum command for Git Bash on Windows (ADR 0212)', () => {
     assert.deepStrictEqual(lines, [`${CMD} runs this Foedrum already`]);
   });
 
+  it('says to save the script by hand with LF line ends, and no chmod, on Windows', async () => {
+    const { lines } = await offer(windows(FOLDER), ['n']);
+    assert.equal(
+      lines.at(-1),
+      'Save it with LF line ends, not CRLF: Git Bash reads a CR as part of the line',
+    );
+    assert.ok(!lines.some((line) => line.startsWith('and run: chmod')), lines.join('\n'));
+  });
+
+  it('prints both files by hand for a home that is a root folder', async () => {
+    const { lines } = await offer({ ...windows('C:\\Tools'), home: 'C:\\' });
+    assert.ok(lines.includes('  @echo off'), lines.join('\n'));
+    assert.ok(lines.includes('  #!/bin/sh'), lines.join('\n'));
+  });
+
+  it('says it kept only the file that is there on a no to the re-point', async () => {
+    const files = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const { lines } = await offer({ ...windows(FOLDER), files: { [CMD]: files[CMD] ?? '' } }, [
+      'n',
+    ]);
+    assert.deepStrictEqual(lines, [`Kept ${CMD}`]);
+  });
+
   it('leaves a foedrum script there that init did not write, writing neither file', async () => {
     const { questions, lines, written } = await offer({
       ...windows(FOLDER),
