@@ -52,9 +52,17 @@ const SHELLS: Readonly<Record<'posix' | 'windows', Shell>> = {
   },
   windows: {
     name: 'foedrum.cmd',
-    // A Windows path holds no `"`; cmd reads `%` as a variable unless it is doubled.
+    // A Windows path holds no `"`; cmd reads `%` as a variable unless it is doubled. cmd looks for
+    // `node` in the working directory first unless told not to, as Foedrum's runner does (ADR 0031).
     text: (entry) =>
-      ['@echo off', `rem ${MARK}`, `node "${entry.replaceAll('%', '%%')}" %*`, ''].join('\r\n'),
+      [
+        '@echo off',
+        `rem ${MARK}`,
+        'setlocal',
+        'set "NoDefaultCurrentDirectoryInExePath=1"',
+        `node "${entry.replaceAll('%', '%%')}" %*`,
+        '',
+      ].join('\r\n'),
     entryOf: (text) => WINDOWS_RUN.exec(text)?.[1]?.replaceAll('%%', '%'),
   },
 };
@@ -83,14 +91,20 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
   }
   const text = shell.text(entry);
   const same = (a: string, b: string): boolean =>
-    windows ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : a === b;
+    windows
+      ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
+      : path.resolve(a) === path.resolve(b);
   const checkout = (main: string): string => path.dirname(path.dirname(path.dirname(main)));
 
   // The PATH's folders inside the home that are there and writable, each once, in the order
   // offered: the user's own bin folders, the others, then the ones a tool manages.
-  const inside = pathFolders(env, platform).filter((folder, at, all) => {
+  // A home that is a root folder (`/`, `C:\`) would hold every folder, system ones too.
+  const rootHome = path.dirname(path.resolve(home)) === path.resolve(home);
+  const onPath = pathFolders(env, platform);
+  const inside = onPath.filter((folder, at, all) => {
     const relative = path.relative(home, folder);
-    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+    if (rootHome || relative === '' || path.isAbsolute(relative)) return false;
+    if (relative === '..' || relative.startsWith(`..${path.sep}`)) return false;
     if (all.findIndex((other) => same(other, folder)) !== at) return false;
     // Windows keeps its app execution aliases there.
     if (windows && path.basename(path.resolve(folder)).toLowerCase() === 'windowsapps') {
@@ -112,12 +126,18 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
   const folders = inside.toSorted((a, b) => rank(a) - rank(b));
 
   if (folders.length === 0) {
-    const suggested = preferred[0] as string;
+    // A bin folder of the user's that is on the PATH but not made yet only needs making.
+    const listed = preferred.find((own) => onPath.some((folder) => same(folder, own)));
+    const suggested = listed ?? (preferred[0] as string);
     say(`No folder on the PATH is inside ${home} to write the foedrum command into.`);
-    if (windows) {
+    if (listed !== undefined) {
+      say(`Create ${suggested}: it is on the PATH already.`);
+    } else if (windows) {
+      // PowerShell's single-quoted strings write a `'` as `''`.
+      const quoted = suggested.replaceAll("'", "''");
       say(`Create ${suggested} and add it to your PATH, in PowerShell:`);
       say(
-        `  New-Item -ItemType Directory -Force '${suggested}'; [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';${suggested}', 'User')`,
+        `  New-Item -ItemType Directory -Force '${quoted}'; [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';${quoted}', 'User')`,
       );
     } else {
       say(
@@ -132,7 +152,15 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
   // A foedrum there already decides: init's own shim is kept or pointed here, another file is left.
   for (const folder of folders) {
     const file = path.join(folder, shell.name);
-    const there = ports.read(file);
+    let there: string | undefined;
+    try {
+      there = ports.read(file);
+    } catch (error) {
+      // A folder by that name, or a file it may not read: init goes on to doctor.
+      say(`Could not read ${file}: ${messageOf(error)}`);
+      byHand(say, file, text, windows);
+      return;
+    }
     if (there === undefined) continue;
     const runs = there.includes(MARK) ? shell.entryOf(there) : undefined;
     if (runs === undefined) {
@@ -179,7 +207,14 @@ const write = (
   text: string,
   windows: boolean,
 ): void => {
-  ports.write(file, text, !windows);
+  try {
+    ports.write(file, text, !windows);
+  } catch (error) {
+    // Windows' ACLs can keep the user out of a folder that passes `writable`; init goes on.
+    say(`Could not write ${file}: ${messageOf(error)}`);
+    byHand(say, file, text, windows);
+    return;
+  }
   say(`Wrote ${file}`);
   // Every folder offered is on the PATH, so a new terminal finds it unless an earlier one wins.
   const runs = ports.resolve('foedrum');
@@ -195,3 +230,6 @@ const byHand = (say: ShimTerminal['say'], file: string, text: string, windows: b
   for (const line of text.split(/\r?\n/).slice(0, -1)) say(`  ${line}`);
   if (!windows) say(`and run: chmod 755 ${file}`);
 };
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
