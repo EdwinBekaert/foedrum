@@ -15,6 +15,7 @@ import { effectKey } from '../engine/effect-key.ts';
 import type { EventStore } from '../engine/event-store.ts';
 import type { Batch } from '../engine/fold.ts';
 import { createIntake, type IntakeNotice } from '../engine/intake.ts';
+import { limitsOf } from '../engine/limits.ts';
 import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -169,7 +170,7 @@ export const formatIntakeNotice = (notice: IntakeNotice): string => {
     case 'unrouted':
       return `batch ${notice.batchId} is not routed: ${notice.reason}`;
     case 'held':
-      throw new Error('not implemented');
+      return `${notice.repo}#${notice.issue} waits: ${notice.reason}`;
     case 'taken':
       return `${notice.repo}#${notice.issue} is claimed by ${notice.by ?? 'a ref whose record cannot be read'}`;
     case 'refused':
@@ -278,6 +279,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       authors: setup.intake.users,
       repositories: setup.intake.repositories,
       capacity: setup.intake.capacity,
+      limits: limitsOf(setup.intake.openOrders, setup.recipes),
       clock,
       report: (notice) => {
         if (notice.kind === 'failed' && notice.error instanceof GitHubRateLimited) {
