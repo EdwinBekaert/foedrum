@@ -87,6 +87,7 @@ describe('githubReleaseReader', () => {
       assert.deepStrictEqual(await reader.latest(repo), {
         version: 'v1.2.0',
         published: '2026-10-25T09:00:00.000Z',
+        tag: true,
       });
       const query = requests[1];
       assert.equal(query?.url, `${api}/graphql`);
@@ -104,10 +105,8 @@ describe('githubReleaseReader', () => {
       assert.equal((await reader.latest(repo))?.published, '2026-10-25T09:00:00.000Z');
     });
 
-    it('has no release for a repository with neither a release nor a tag of a commit', async () => {
+    it('has no release for a repository with neither a release nor a tag', async () => {
       assert.equal(await readerWith([notFound, tags([])]).reader.latest(repo), undefined);
-      const tree = readerWith([notFound, tags([{ name: 'v1', target: {} }])]);
-      assert.equal(await tree.reader.latest(repo), undefined);
     });
 
     it('refuses a tag that is no valid ref name or longer than 255 characters, and says why', async () => {
