@@ -93,6 +93,22 @@ const PollEvery = Duration.refine((duration) => {
   return ms >= 30_000 && ms <= 3_600_000;
 }, 'Must be from "30s" to "1h"');
 
+/**
+ * A glob of paths as git names them, relative to the repository with `/` between folders, read by
+ * `posix.matchesGlob` (ADR 0201): one that starts at `/` or `!`, holds a `\` or has a `.` or `..`
+ * segment would match nothing git names, or not what it seems to.
+ */
+const SensitivePath = z
+  .string()
+  .refine(
+    (glob) =>
+      glob.trim() !== '' &&
+      !/^[/!]/.test(glob) &&
+      !glob.includes('\\') &&
+      !glob.split('/').some((segment) => segment === '.' || segment === '..'),
+    'Must be a path glob relative to the repository, with / between folders, such as "src/auth/**"',
+  );
+
 /** What runs in a check step's worktree before its checks (ADR 0140). */
 const RepositorySetup = z.strictObject({ command: Command, timeout: Duration });
 export type RepositorySetup = z.infer<typeof RepositorySetup>;
@@ -122,6 +138,12 @@ const RepositoryConfig = z
     base: BranchName.optional().describe(
       'The branch attempts start from, at origin/<base> after a fetch; default main (ADR 0063)',
     ),
+    sensitivePaths: z
+      .array(SensitivePath)
+      .optional()
+      .describe(
+        "Path globs whose files a batch's status comment names when its change touches them; never an approval or a block (ADR 0201)",
+      ),
   })
   .refine((repository) => repository.intake === undefined || repository.alias !== undefined, {
     message: 'An intake needs an alias, for the batch ids of the issues it claims',

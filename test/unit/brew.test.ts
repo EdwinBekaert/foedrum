@@ -262,6 +262,7 @@ describe('runBrew', () => {
         remoteTip: async () => undefined,
         push: async () => {},
         secretScan: async () => [],
+        touchedFiles: async () => [],
       }),
       runner: () => runner,
       exec: () => Promise.reject(new Error('no check step runs here')),

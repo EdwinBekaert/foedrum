@@ -472,3 +472,58 @@ describe('BreweryConfig for the intake in foedrum serve (ADR 0068)', () => {
     }
   });
 });
+
+describe('BreweryConfig: sensitive paths (ADR 0201)', () => {
+  it('takes a list of path globs in a repository, kept as written', () => {
+    const sensitivePaths = [
+      '.github/workflows/**',
+      'src/auth/**',
+      'db/migrations/*.sql',
+      'a b/[ab]*',
+      // Near-misses of the refusals: two dots inside a name, a ! past the start.
+      'a..b/**',
+      'src/[!x]*.ts',
+    ];
+    const parsed = BreweryConfig.parse(config({ sensitivePaths }));
+    assert.deepEqual(parsed.repositories['acme/web']?.sensitivePaths, sensitivePaths);
+  });
+
+  it('has no default: a repository without the field names none', () => {
+    const parsed = BreweryConfig.parse(config({}));
+    assert.equal(parsed.repositories['acme/web']?.sensitivePaths, undefined);
+    assert.equal(accepted(config({ sensitivePaths: [] })), true);
+  });
+
+  it('refuses a glob that would match nothing git names, or not what it seems to, with one line', () => {
+    for (const glob of [
+      '',
+      ' ',
+      '/src/**',
+      '!src/auth/**',
+      'src\\auth\\**',
+      '../x',
+      'src/./a',
+      'src/../a',
+      'src/..',
+    ]) {
+      const result = BreweryConfig.safeParse(config({ sensitivePaths: ['ok/**', glob] }));
+      assert.equal(result.success, false, glob);
+      assert.deepEqual(
+        result.error?.issues.map(({ path, message }) => ({ path, message })),
+        [
+          {
+            path: ['repositories', 'acme/web', 'sensitivePaths', 1],
+            message:
+              'Must be a path glob relative to the repository, with / between folders, such as "src/auth/**"',
+          },
+        ],
+        glob,
+      );
+    }
+  });
+
+  it('refuses a list that is not one of strings', () => {
+    assert.equal(accepted(config({ sensitivePaths: 'src/**' })), false);
+    assert.equal(accepted(config({ sensitivePaths: [1] })), false);
+  });
+});
