@@ -456,6 +456,32 @@ describe('foedrum: commands that change state', () => {
     });
   });
 
+  describe('status: the limits that hold (ADR 0217)', () => {
+    const config =
+      (fields = {}) =>
+      () =>
+        BreweryConfig.parse({
+          brewery: 'acme/brewery',
+          users: ['ada'],
+          repositories: {},
+          ...fields,
+        });
+    const limited = () =>
+      fakeRecipes({ pint: { ...fakeRecipe({ steps: ['plan', 'implement'] }), concurrency: 1 } });
+
+    it('reads neither foedrum.jsonc nor the recipes while no batch is Ordered, Brewing, Conditioning or Stuck', async () => {
+      for (const id of ['21-1', '22-1', '23-1', '24-1', '25-1', '26-1']) {
+        assert.equal((await run(['cancel', id])).exitCode, 0, id);
+      }
+      const recipes = () => {
+        throw new Error('the recipes were loaded');
+      };
+      const result = await run(['status'], { recipes });
+      assert.equal(result.exitCode, 0);
+      assert.match(result.stdout, /^6 batches\n/);
+    });
+  });
+
   describe('the usage window (ADR 0206)', () => {
     /** 23-1's plan hits claude's session limit; the window reopens at 14:50 UTC. */
     const hitLimit = (): void => {
