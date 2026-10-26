@@ -345,17 +345,10 @@ describe('runServe', () => {
     return { code, merged, pull, baseChecks, conflictComments, asked };
   };
 
-  it('checks an open pull request against its base without asking git its version (ADR 0200)', async () => {
-    const { code, merged, baseChecks, asked } = await brewWithMovedBase();
-    assert.equal(code, 0);
-    assert.deepStrictEqual(merged, [`${FAKE_COMMIT} ${'b'.repeat(40)}`]);
-    assert.equal(baseChecks?.length, 1);
-    assert.deepStrictEqual(asked, []);
-  });
-
   it("checks an open pull request against its base's moved tip and comments the conflict on it (ADR 0198)", async () => {
-    const { code, merged, pull, baseChecks, conflictComments } = await brewWithMovedBase();
+    const { code, merged, pull, baseChecks, conflictComments, asked } = await brewWithMovedBase();
     assert.equal(code, 0);
+    assert.deepStrictEqual(asked, []);
     assert.deepStrictEqual(merged, [`${FAKE_COMMIT} ${'b'.repeat(40)}`]);
     const url = `https://github.com/acme/web/pull/${pull?.number}`;
     assert.deepStrictEqual(baseChecks, [
