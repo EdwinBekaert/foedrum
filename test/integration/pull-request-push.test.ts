@@ -202,6 +202,30 @@ describe('the openPullRequest push with real git', () => {
     });
   });
 
+  it('records the files as committed, whatever replace ref a brewer planted in the clone (review of #523)', async () => {
+    const { state } = await brew(
+      (path) => {
+        const start = git(path, ['rev-parse', 'HEAD']).trim();
+        mkdirSync(join(path, '.github', 'workflows'), { recursive: true });
+        writeFileSync(join(path, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+        git(path, ['add', '.github']);
+        git(path, ['commit', '-q', '-m', 'Change CI']);
+        // A commit with the start's tree stands in for the real one: a plain diff shows nothing.
+        const tree = git(path, ['rev-parse', `${start}^{tree}`]).trim();
+        const fake = git(path, ['commit-tree', tree, '-p', start, '-m', 'Nothing']).trim();
+        git(path, ['replace', 'HEAD', fake]);
+        assert.equal(git(path, ['diff', '--name-only', start, 'HEAD']), '');
+      },
+      ['.github/workflows/**'],
+    );
+    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
+    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' });
+    assert.deepEqual(PushResult.parse(pushed?.result).sensitive, {
+      count: 1,
+      files: ['.github/workflows/ci.yml'],
+    });
+  });
+
   it('never forces: a bottle branch the origin has at another commit stops the push', async () => {
     // Someone pushed an unrelated commit to the bottle branch's name first.
     const other = join(dir.path, `other-${runs}`);

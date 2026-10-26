@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
 import { withoutSecrets } from '../../src/engine/out-doc-text.ts';
@@ -764,5 +765,71 @@ describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)'
     keysOf(unstarted, actions);
     assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
     assert.deepEqual(diffs, []);
+  });
+});
+
+describe('pullRequestActions: where the sensitive-path diff starts, and when it fails (review of #523)', () => {
+  const sensitivePaths = ['src/auth/**'];
+  const touched = ['src/auth/login.ts'];
+
+  it('diffs from the base the batch merged, not from where it started (ADR 0164)', async () => {
+    const merged = 'e'.repeat(40);
+    const mergeKey = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const state = fold([
+      ordered({ issue: 12 }),
+      ...brewed,
+      ...opening,
+      applied(mergeKey, { base: merged, merged: 'f'.repeat(40) }),
+    ]);
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched });
+    keysOf(state, actions);
+    await actions.target.apply(push);
+    assert.deepEqual(diffs, [`${merged}..${tip}`]);
+  });
+
+  it('finds the start of a repository the Brewery names in another case', async () => {
+    const pushed = fakePush({}, base, [], [], base, touched);
+    const actions = pullRequestActions({
+      brewery: 'acme/brewery',
+      repositories: [{ repo: 'Acme/API', base: 'main', push: pushed.target, sensitivePaths }],
+      host: fakeHost().host,
+      orderTitle: async () => 'Add a --json flag',
+    });
+    keysOf(brewing(), actions);
+    const result = await actions.target.apply(push);
+    assert.deepEqual(pushed.diffs, [`${other}..${tip}`]);
+    assert.deepEqual((result as { sensitive?: unknown }).sensitive, {
+      count: 1,
+      files: touched,
+    });
+  });
+
+  it('fails the push effect, pushing nothing, when the files cannot be read', async () => {
+    const pushed = fakePush();
+    const actions = pullRequestActions({
+      brewery: 'acme/brewery',
+      repositories: [
+        {
+          repo: 'acme/api',
+          base: 'main',
+          sensitivePaths,
+          push: {
+            ...pushed.target,
+            touchedFiles: async () => {
+              throw new Error('git diff failed: fatal: bad object');
+            },
+          },
+        },
+      ],
+      host: fakeHost().host,
+      orderTitle: async () => 'Add a --json flag',
+    });
+    keysOf(brewing(), actions);
+    await assert.rejects(actions.target.apply(push), {
+      message: 'git diff failed: fatal: bad object',
+    });
+    assert.deepEqual(pushed.pushes, []);
   });
 });

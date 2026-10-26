@@ -255,6 +255,65 @@ describe('runServe', () => {
     );
   });
 
+  it("records the sensitive files the push of a repository's pull request touches (ADR 0201)", async () => {
+    const porter = JSON.stringify({
+      name: 'porter',
+      description: 'Brews an order in one step and opens its pull request.',
+      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          config: config({}, { sensitivePaths: ['src/auth/**'] }),
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [
+              { path: 'recipes/stout.jsonc', text: recipe },
+              { path: 'recipes/porter.jsonc', text: porter },
+            ],
+            brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      t0,
+    );
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [
+          { number: 12, labels: [], author: 'ann', title: 'Add a --json flag', body: 'Please.' },
+        ],
+      },
+    });
+    const push = (repository: { repo: string }) => ({
+      commit: async () => FAKE_COMMIT,
+      baseTip: async () => 'b'.repeat(40),
+      isAncestor: async (commit: string, of: string) => commit === of,
+      remoteTip: async () => undefined,
+      push: async (commit: string, branch: string) => {
+        pushes.push(`${repository.repo} ${commit} ${branch}`);
+      },
+      secretScan: async () => [],
+      touchedFiles: async () => ['README.md', 'src/auth/login.ts'],
+    });
+    assert.equal(await runServe(setup, shell({ fetch: github.fetch, push })), 0);
+    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
+    assert.deepStrictEqual((pushed.result as { sensitive?: unknown }).sensitive, {
+      count: 1,
+      files: ['src/auth/login.ts'],
+    });
+  });
+
   /**
    * Brews 12-1 with the porter recipe until its pull request is open, on a git that answers
    * `version`, with a base that moved and a merge-tree that conflicts (ADR 0198).
