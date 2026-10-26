@@ -9,7 +9,7 @@ Date: 2026-10-26 · Status: Accepted · Amends [0199](0199-foedrum-init-writes-a
 
 ### Outside a clone, init creates the repository and clones it
 - In a folder without `.git`, init no longer refuses. It asks the Brewery's name (`owner/name`, default `<login>/foedrum-brewery`, the login gh uses), then `Private or public`, default private.
-- A name GitHub already has is refused with one line, which says to run init in its clone: init creates a repository, never takes one over. A folder named after the repository already there is refused too, before anything is created.
+- A name GitHub already has is refused with one line, which says to run init in its clone: init creates a repository, never takes one over. A folder named after the repository already there is refused too, before anything is created, and so is a name no folder can have on Windows (a device name such as `CON`, `NUL` or `COM1` before any dot, or a trailing dot), on every platform, since the Brewery's other machines clone it too.
 - After the remaining questions (the target repositories, as ADR 0199 asks them), it creates the repository through gh's own login ([ADR 0073](0073-github-only-through-gh-s-own-login.md)): `POST /user/repos` when the owner is the login (compared without case), else `POST /orgs/<owner>/repos`, with `private` as answered and nothing in it.
 - It clones `https://github.com/<owner>/<name>.git` into the folder `<name>` in the working directory, through the git Foedrum runs ([`gitEnv`](../../src/workspace/git.ts)): no token in the URL, an argument or the environment, and gh answers git as its credential helper, as for every clone and push of Foedrum's.
 - The files are then written in that folder, and doctor runs there; init's last lines say which folder the Brewery is in.
@@ -25,13 +25,13 @@ In a folder with `.git`, init works as ADR 0199 says: it asks the name, creates 
 - A label that cannot be read or created is named with GitHub's line, followed by that command, and init goes on: the label is the target's, not the Brewery's.
 
 ### Commit and push, after asking
-- Then it lists the Brewery's files that git sees as new or changed (`git status --porcelain` on the four files init writes), and asks `Commit and push these? [Y/n]`, default yes. Nothing listed is said as such, and nothing is asked.
-- A yes adds those files, commits them with the message `Set up the Brewery with foedrum init`, and pushes the branch with `git push -u origin HEAD`, through the same git as the clone.
+- Then it lists the Brewery's files that git sees as new or changed (`git status --porcelain` on the four files init writes), then the commits on the branch that no remote has (`git log HEAD --not --remotes`, none on a branch without a commit yet), which the push sends too, and asks `Commit and push these? [Y/n]`, default yes. Nothing listed is said as such, and nothing is asked.
+- A yes adds those files, commits only them (`git commit -- <files>`, so nothing else the user staged goes with them) with the message `Set up the Brewery with foedrum init`, and pushes the branch with `git push -u origin HEAD`, through the same git as the clone.
 - A no leaves the files written and uncommitted, and prints the three git commands that commit and push them.
-- A git call that fails is named with git's first line and the same three commands, and ends init in 1 after doctor; the files stay written.
+- A git call that fails, also one that cannot tell which commits the remotes lack, is named with git's first line and the same three commands, and ends init in 1 after doctor; the files stay written.
 
 ### The order
-Questions, then the repository and the clone, then the files (ADR 0199), then the labels, then the commit and push, then doctor and the plugin's commands. The repository is created only after every question about the files is answered, so standard input that ends early creates nothing.
+Questions, then the repository and the clone, then the files (ADR 0199), then the labels, then the commit and push, then doctor and the plugin's commands. The repository is created only after every question about the files is answered, so standard input that ends early creates nothing; input that ends at a label or the push question stops init with a line that names the repository it created and the folder it cloned it into.
 
 ## Consequences
 - On a machine where gh is logged in and set up as git's credential helper, `foedrum init` in an empty folder ends with a pushed private Brewery and the intake label in each target repository the user allowed.
