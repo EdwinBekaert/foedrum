@@ -1757,6 +1757,24 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     );
   });
 
+  it("refuses the pull request's route back to a group too (ADR 0219)", () => {
+    const steps = [
+      { brewer: 'cellarman' },
+      { id: 'tasting', parallel: [security] },
+      { action: 'openPullRequest', onPullRequestFail: { goto: 'tasting', maxRounds: 1 } },
+    ];
+    assert.deepEqual(
+      problemsOf({
+        recipes: [recipe('amber', steps, { testFirst: false })],
+        brewers: [committer, taster],
+        defaults: { lenses },
+      }),
+      [
+        'recipes/amber.jsonc: step "open-pull-request" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+      ],
+    );
+  });
+
   it('refuses a route from a child to a sibling, which would run alone', () => {
     const back = { ...correctness, onBlocked: { findings: { goto: 'security', maxRounds: 1 } } };
     assert.deepEqual(problemsOf(grouped([security, back])), [
@@ -1861,20 +1879,5 @@ describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
     });
     assert.equal(recipe.mayRetry(actionWith([succeeded, failed, failed]), open), true);
     assert.equal(recipe.mayRetry(actionWith([succeeded, failed, failed, failed]), open), false);
-  });
-
-  it('refuses a route back to a parallel group', () => {
-    const files = brewery({
-      recipes: [
-        recipe('pale', [
-          { id: 'implement', brewer: 'maltster' },
-          { id: 'taste', parallel: [{ id: 'look', brewer: 'maltster' }] },
-          { action: 'openPullRequest', onPullRequestFail: { goto: 'taste', maxRounds: 1 } },
-        ]),
-      ],
-    });
-    assert.deepEqual(problemsOf(files), [
-      'recipes/pale.jsonc: step "open-pull-request" routes back to the parallel group "taste": route to one of the steps before it (ADR 0168)',
-    ]);
   });
 });
