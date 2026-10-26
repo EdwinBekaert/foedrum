@@ -37,6 +37,8 @@ export interface ShimTerminal {
 /** The comment line by which init knows a shim it wrote. */
 const MARK = 'The foedrum command, written by foedrum init (ADR 0210)';
 const QUESTION = 'Write the foedrum command into which folder? [1, or n for none]: ';
+/** Said after a script to write by hand on Windows, where editors save CRLF (ADR 0212). */
+const LF_NOTE = 'Save it with LF line ends, not CRLF: Git Bash reads a CR as part of the line';
 
 /** The shim for `entry` on a platform: its file name, its text, and how its line names `entry`. */
 interface Shell {
@@ -89,7 +91,7 @@ const managed = (segments: readonly string[]): boolean =>
  */
 export type ShimChoice =
   | { kind: 'said'; lines: string[] }
-  | { kind: 'repoint'; question: string; files: ShimFile[] }
+  | { kind: 'repoint'; question: string; files: ShimFile[]; there: string[] }
   /** init's shim runs this checkout, but one of its files is missing: written without a question. */
   | { kind: 'complete'; files: ShimFile[] }
   | {
@@ -181,9 +183,12 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
     if (rootHome) {
       lines.push(
         'A home that is a root folder holds every folder, so init names none; write it by hand into a folder of yours on the PATH:',
-        ...indented(shells[0]?.text(entry) ?? ''),
       );
-      if (!windows) lines.push('and run chmod 755 on it');
+      for (const shell of shells) {
+        if (shells.length > 1) lines.push(`${shell.name}:`);
+        lines.push(...indented(shell.text(entry)));
+      }
+      lines.push(windows ? LF_NOTE : 'and run chmod 755 on it');
       return { kind: 'said', lines };
     }
     // A bin folder of the user's on the PATH only needs making, or making writable.
@@ -243,6 +248,7 @@ export const shimChoice = (ports: ShimPorts): ShimChoice => {
       return {
         kind: 'repoint',
         files,
+        there: files.filter((_, at) => there[at] !== undefined).map(({ file }) => file),
         question: `${other.file} runs the Foedrum in ${checkout(other.runs)}. Point it at ${checkout(entry)}? [y/N]: `,
       };
     }
@@ -282,7 +288,7 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
     case 'repoint':
       if (await terminal.confirm(choice.question, 'repoint', false)) {
         write(ports, terminal, choice.files, windows);
-      } else for (const { file } of choice.files) say(`Kept ${file}`);
+      } else for (const file of choice.there) say(`Kept ${file}`);
       return;
     case 'complete':
       // The other file runs this checkout already, so the lookup says nothing new.
@@ -343,7 +349,7 @@ const byHand = (files: readonly ShimFile[], windows: boolean): string[] =>
   files.flatMap(({ file, text, executable }) => [
     `Not written. To write it by hand, put these lines in ${file}:`,
     ...indented(text),
-    ...(executable && !windows ? [`and run: chmod 755 ${file}`] : []),
+    ...(executable ? [windows ? LF_NOTE : `and run: chmod 755 ${file}`] : []),
   ]);
 
 const messageOf = (error: unknown): string =>
