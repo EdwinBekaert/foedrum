@@ -369,7 +369,7 @@ export const commands: readonly RegisteredCommand[] = [
       'Asks its questions on the terminal until /foedrum:init asks them in a session (#530)',
     schema: InitCommand,
     // Questions and lines on the terminal, run by it as brew is (ADR 0199).
-    handler: async (_input, context) => context.init(),
+    handler: async (input, context) => context.init(input),
   }),
   define({
     name: 'status',

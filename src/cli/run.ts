@@ -9,7 +9,7 @@ import type { TargetTracker } from '../engine/intake.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { BrewCommand, ResumeCommand } from '../schemas/commands.ts';
+import type { BrewCommand, InitCommand, ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import type { BrewerSource } from './brewer-report.ts';
@@ -101,9 +101,10 @@ export interface CliContext {
   /**
    * Asks for and writes a Brewery's files, creating and cloning its repository outside a clone,
    * offers the intake labels, commits and pushes, then runs doctor (ADR 0199, ADR 0207); its
-   * questions and lines go straight to the terminal.
+   * questions and lines go straight to the terminal, the answers its options give not asked (ADR
+   * 0212).
    */
-  init: () => Promise<CliResult>;
+  init: (input: InitCommand) => Promise<CliResult>;
 }
 
 export interface CliResult {

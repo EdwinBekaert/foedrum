@@ -11,6 +11,7 @@ import { LABEL_COLOR } from '../github/brewery-repository.ts';
 import type { RepositoryFacts } from '../github/repository-facts.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { BreweryClaudeSettings } from '../schemas/brewery-settings.ts';
+import type { InitCommand } from '../schemas/commands.ts';
 import { Repo } from '../schemas/events.ts';
 import { RepositoryAlias } from '../schemas/ids.ts';
 import { ModelsConfig } from '../schemas/models.ts';
@@ -208,8 +209,11 @@ const suggestedAlias = (repo: string): string =>
     .replace(/^[0-9]+/, '')
     .slice(0, 20);
 
-/** Runs `foedrum init` through `ports`. */
-export const runInit = async (ports: InitPorts): Promise<CliResult> => {
+/** The answers given as options, each as it would be typed (ADR 0212). */
+export type InitAnswers = Omit<InitCommand, 'command'>;
+
+/** Runs `foedrum init` through `ports`, with the answers `given` as options. */
+export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promise<CliResult> => {
   const { say, files } = ports;
   // Outside a clone, init creates the repository and clones it into a folder of its name (ADR 0207).
   const inClone = files.exists('.git');
