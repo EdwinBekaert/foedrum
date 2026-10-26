@@ -46,12 +46,13 @@ And what GitHub answers is untrusted input ([ADR 0050](0050-the-intake-of-target
 - A sub-order with a `release` blocker starts in the first pass after its repository publishes a release that holds the blocker's merge.
 - A repository with a waiting blocker costs one conditional read per pass, its pull requests' conditional reads, and one compare per new release; a repository without releases one GraphQL query per pass, which counts against the rate limit.
 - A release published before the merge, or cut from a commit that does not hold it, is never recorded: the sub-order waits for one that does.
-- Two blockers in one repository, one merged after the latest tag, both wait for a release that holds both.
+- Two blockers in one repository, one merged after the latest tag, both wait for a release that holds both: a released blocker's dependent waits for a release that also holds a later blocker's merge, the price of never starting a dependent without its blocker's change.
 - A tag whose commit date is set before the merge is never compared: its sub-order waits for the next release, never starts early.
 
 ## Alternatives considered
 - **A release signal configured per repository (ADR 0013).** A sub-order's repository need not be in the Brewery's configuration, and there is nothing to configure for GitHub's releases; registries stay later.
 - **Record the release when it holds one waiting blocker's merge.** It would count for every blocker of the repository merged before it, one whose change it does not hold too, and start its dependent against a version without the change.
+- **Record which merges a release holds** (the pull requests it was compared with, in the event or beside it). Each blocker's dependent would start as soon as its own merge is released, but the fold and the ready set would change (ADR 0216 counts a release by its position, for every merge before it), and an old log's releases would hold nothing; the wait it saves is one release.
 - **The times alone.** A release cut from an older commit after the merge would count.
 - **The compare alone.** One more read per pass for every release older than the merge, and the compare of an old release lists every commit since: over the client's 4 MiB, it would fail the read.
 - **REST's tag list for a repository without releases.** It promises no order, so its first tag need not be the newest.
