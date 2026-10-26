@@ -1099,6 +1099,24 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
   const reached = (): number => [...github.calls.values()].reduce((sum, n) => sum + n, 0);
   const ordered = `ordered: to be routed by ${iso(60)}`;
 
+  it('pauses and continues a target issue by its alias, and refuses an alias foedrum.jsonc lacks (ADR 0202)', async () => {
+    assert.equal((await run(['pause', 'web#9'])).exitCode, 0);
+    assert.deepStrictEqual(last(), {
+      type: 'order.paused',
+      order: { issue: 9, repo: 'acme/web' },
+      by: 'ada',
+      via: 'terminal',
+    });
+    assert.deepStrictEqual(await run(['continue', 'web#9']), ok('web#9 continues\n'));
+    const before = lastId();
+    assert.deepStrictEqual(await run(['pause', 'nope#9']), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum pause: foedrum.jsonc names no repository with the alias nope\n',
+    });
+    assert.equal(lastId(), before);
+  });
+
   describe('a target-repository issue', () => {
     it('claims it again and orders it as <alias>-<n>-<k>, recorded with who and from where', async () => {
       assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web-7-2 ${ordered}\n`));

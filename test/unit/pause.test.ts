@@ -203,6 +203,17 @@ describe('pause and continue (ADR 0202)', () => {
       });
     });
 
+    it("stops at the pause of all's stopAt when it comes before the order's own", () => {
+      order(12);
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(60), zone: 'UTC' } });
+      accept({ kind: 'pause', ...who, stopAt: { at: at(20), zone: 'Europe/Brussels' } });
+      assert.equal(stopsNow(log.state(), batch('b12'), at(20)), true);
+      assert.deepStrictEqual(pauseOf(log.state(), batch('b12'))?.stopAt, {
+        at: at(20).toISOString(),
+        zone: 'Europe/Brussels',
+      });
+    });
+
     it('keeps the order its own --by when the pause of all has none', () => {
       order(12);
       accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(20), zone: 'UTC' } });
@@ -478,6 +489,16 @@ describe('pause and continue (ADR 0202)', () => {
         },
         /not stopped by a pause/,
       );
+    });
+
+    it('is expired by the engine past its deadline while paused once it has started', () => {
+      order(12);
+      start('b12');
+      accept({ kind: 'pause', order: { issue: 12 }, ...who });
+      now = at(2 * 60);
+      const events = accept({ kind: 'expire', batchId: 'b12', stepId: 'plan', attempt: 1 });
+      const stuck = events.at(-1);
+      assert.equal(stuck?.type === 'batch.stuck' && stuck.reason.kind, 'deadline_passed');
     });
 
     it('is not expired by the engine while its batch is paused, though its deadline passed', () => {
