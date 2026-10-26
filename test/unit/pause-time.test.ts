@@ -36,6 +36,11 @@ describe('stopInstant (ADR 0202)', () => {
     // Brussels goes from UTC+2 to UTC+1 at 03:00 on 25 October 2026.
     const before = new Date('2026-10-24T20:00:00.000Z');
     assert.equal(instant('17:30', 'Europe/Brussels', before), '2026-10-25T16:30:00.000Z');
+    // Before the change that night, still on summer time.
+    assert.equal(instant('01:30', 'Europe/Brussels', before), '2026-10-24T23:30:00.000Z');
+    // 02:30 on 29 March 2026 never shows on a clock there: it is read as 03:30 summer time.
+    const spring = new Date('2026-03-28T20:00:00.000Z');
+    assert.equal(instant('02:30', 'Europe/Brussels', spring), '2026-03-29T01:30:00.000Z');
   });
 
   it('takes a duration from now', () => {

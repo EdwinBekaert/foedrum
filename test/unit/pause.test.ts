@@ -345,6 +345,90 @@ describe('pause and continue (ADR 0202)', () => {
         /not stopped by a pause/,
       );
     });
+
+    it('leaves the attempt it stopped out of the count, so the next failure is retried', () => {
+      order(12);
+      start('b12');
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(10), zone: 'UTC' } });
+      now = at(10);
+      const plan = { batchId: 'b12', stepId: 'plan' } as const;
+      accept({ kind: 'finish', ...plan, attempt: 1, ending: { kind: 'cancelled' }, paused: true });
+      accept({ kind: 'continue', order: { issue: 12 }, ...who });
+      start('b12', 'plan', 2);
+      // Two attempts of two allowed, but the first was the pause's: attempt 3 is a retry.
+      const retried = accept({
+        kind: 'finish',
+        ...plan,
+        attempt: 2,
+        ending: { kind: 'cancelled' },
+      });
+      assert.deepStrictEqual(
+        retried.map((event) => `${event.type} ${'attempt' in event ? event.attempt : ''}`),
+        ['step.finished 2', 'step.scheduled 3'],
+      );
+      start('b12', 'plan', 3);
+      const exhausted = accept({
+        kind: 'finish',
+        ...plan,
+        attempt: 3,
+        ending: { kind: 'cancelled' },
+      });
+      const stuck = exhausted.at(-1);
+      assert.equal(stuck?.type, 'batch.stuck');
+      assert.deepStrictEqual(stuck?.type === 'batch.stuck' && stuck.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'plan',
+        attempts: 2,
+        lastReason: 'the attempt was cancelled',
+      });
+    });
+
+    it('is refused as stopped by a pause when it did not end cancelled, even after the stopAt', () => {
+      order(12);
+      start('b12');
+      accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(10), zone: 'UTC' } });
+      now = at(10);
+      refuse(
+        {
+          kind: 'finish',
+          batchId: 'b12',
+          stepId: 'plan',
+          attempt: 1,
+          ending: succeeded,
+          paused: true,
+        },
+        /not stopped by a pause/,
+      );
+    });
+
+    it('is not expired by the engine while its batch is paused, though its deadline passed', () => {
+      order(12);
+      accept({ kind: 'pause', order: { issue: 12 }, ...who });
+      now = at(2 * 60);
+      refuse(
+        { kind: 'expire', batchId: 'b12', stepId: 'plan', attempt: 1 },
+        /waits for its batch's pause/,
+      );
+      accept({ kind: 'continue', order: { issue: 12 }, ...who });
+      // Its new deadline runs from the continue.
+      refuse({ kind: 'expire', batchId: 'b12', stepId: 'plan', attempt: 1 }, /is not due until/);
+    });
+
+    it('keeps the deadline of a waiting step its recipe file dropped: the recipe gives it no other', () => {
+      order(12);
+      accept({ kind: 'pause', order: { issue: 12 }, ...who });
+      // The recipe file changed under the batch: plan is no step of pint any more.
+      const changed = createCommandLog({
+        store,
+        recipes: fakeRecipes({ pint: fakeRecipe({ steps: ['implement'] }) }),
+      });
+      const decision = changed.issue({ kind: 'continue', order: { issue: 12 }, ...who }, now);
+      assert.equal(decision.kind, 'accepted');
+      assert.deepStrictEqual(
+        decision.kind === 'accepted' && decision.events.map((event) => event.type),
+        ['order.continued'],
+      );
+    });
   });
 
   describe('a parallel group', () => {
