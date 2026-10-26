@@ -23,7 +23,7 @@ import {
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { TastingOutDoc } from '../../src/schemas/out-doc.ts';
+import { MAX_RISK_LEFT, MOST_RISKS_LEFT, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
@@ -281,6 +281,18 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.match(section, /could not verify/);
     assert.match(section, /not a finding/);
     assert.match(section, /nothing to say, leave it out/);
+  });
+
+  it('gives the Taster the bounds of riskLeft its schema holds it to (ADR 0214)', () => {
+    const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
+    assert.ok(found !== undefined);
+    assert.ok(
+      found.instructions.includes(
+        `at most ${MOST_RISKS_LEFT} lines of at most ${MAX_RISK_LEFT} characters each`,
+      ),
+      found.instructions,
+    );
+    assert.deepEqual([MOST_RISKS_LEFT, MAX_RISK_LEFT], [10, 300]);
   });
 
   const base = 'a'.repeat(40);
