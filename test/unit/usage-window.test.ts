@@ -581,6 +581,19 @@ describe('the usage window (ADR 0206)', () => {
         scope: 'Sonnet',
       });
     });
+
+    it('expires no attempt that has not started while only a family window is closed', () => {
+      order(12);
+      order(13);
+      start('b12');
+      hitBy('b12', 'Sonnet', at(5 * 60));
+      now = at(2 * 60);
+      refuse(
+        { kind: 'expire', batchId: 'b13', stepId: 'plan', attempt: 1 },
+        /waits for the usage window/,
+      );
+      assert.deepStrictEqual(tick().commands, []);
+    });
   });
 });
 

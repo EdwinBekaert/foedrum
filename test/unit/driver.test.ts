@@ -3445,6 +3445,19 @@ describe('openDriver', () => {
         assert.deepStrictEqual(started, [plan('b2'), plan('b1')]);
       });
 
+      it('holds every brewer at a session limit', async () => {
+        const { runner, started, end } = handRunner();
+        order('b3');
+        const driver = await open({ runner, zone: () => 'UTC', family });
+        await driver.drive();
+        end(plan('b3'), limitedBy('session'));
+        await driver.tick();
+        order('b1');
+        order('b2');
+        await driver.tick();
+        assert.deepStrictEqual(started, [plan('b3')]);
+      });
+
       it('holds every brewer at a weekly limit while the Opus window is closed, until each reopens', async () => {
         const { runner, started, end } = handRunner();
         order('b1');
@@ -3480,6 +3493,25 @@ describe('openDriver', () => {
         now = later;
         await driver.tick();
         assert.deepStrictEqual(started, [plan('b1'), plan('b2'), plan('b1', 2), plan('b2', 2)]);
+      });
+
+      it('holds a brewer whose family cannot be told at an Opus limit, also without a family given', async () => {
+        const { runner, started, end } = handRunner();
+        order('b1');
+        const driver = await open({ runner, zone: () => 'UTC', family });
+        await driver.drive();
+        end(plan('b1'), limitedBy('Opus'));
+        await driver.tick();
+        order('b3');
+        await driver.tick();
+        assert.deepStrictEqual(started, [plan('b1')]);
+        driver.close();
+        drivers.splice(drivers.indexOf(driver), 1);
+        const second = handRunner();
+        order('b2');
+        const again = await open({ runner: second.runner, zone: () => 'UTC' });
+        await again.tick();
+        assert.deepStrictEqual(second.started, []);
       });
     });
   });
