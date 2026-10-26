@@ -478,6 +478,14 @@ describe('foedrum: commands that change state', () => {
       );
     });
 
+    it('holds at 3 open orders when foedrum.jsonc names no openOrders', async () => {
+      const result = await run(['status'], { config: config(), recipes: () => recipes });
+      assert.match(
+        result.stdout,
+        /^open orders: 6 of 3 \(#21, #22, #23, #24, #25, #26\); new orders wait\n\n6 batches\n/,
+      );
+    });
+
     it('prints the board and one line when foedrum.jsonc or the recipes do not load', async () => {
       const broken = () => {
         throw new Error('foedrum.jsonc: "openOrders" must be at most 20\nand more');

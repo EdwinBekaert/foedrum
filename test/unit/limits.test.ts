@@ -266,8 +266,14 @@ describe('the limits of a pass (ADR 0217)', () => {
       await intake(listed).poll();
       assert.deepStrictEqual(lanes(), ['web-7 brewing nip', 'web-8 ordered']);
       assert.deepStrictEqual(
-        notices.filter((notice) => notice.kind === 'unrouted').map(({ kind }) => kind),
-        ['unrouted'],
+        notices.filter((notice) => notice.kind === 'unrouted'),
+        [
+          {
+            kind: 'unrouted',
+            batchId: 'web-8',
+            reason: 'recipe nip brews its 1 at once (concurrency)',
+          },
+        ],
       );
     });
   });
