@@ -61,6 +61,17 @@ export function resumeArgs(call: ResumeCall): string[] {
   ];
 }
 
+/** A new interactive session of an interactive step (ADR 0222): resume's guards, a first message. */
+export interface InteractiveCall extends ResumeCall {
+  /** The engine's fixed line that points the session at its prompt file. */
+  firstMessage: string;
+}
+
+/** The arguments of an interactive `claude` that opens an interactive step's new session. */
+export function interactiveArgs(_call: InteractiveCall): string[] {
+  throw new Error('not implemented');
+}
+
 // The checks every command line's values pass.
 const checkCall = (model: string, tools: readonly string[], sessionId: string): void => {
   if (!ModelId.safeParse(model).success) refuse('model', model);

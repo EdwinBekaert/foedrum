@@ -96,6 +96,8 @@ export interface PlanFacts {
   earlierFindings?: true;
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
+  /** An interactive step's: the recipe's first message to its session (ADR 0222). */
+  interactive?: { prompt: string };
 }
 
 /**
@@ -726,6 +728,16 @@ export function settingsFileOf(workRoot: string, ref: AttemptRef): string {
 /** The attempt's system prompt file, beside its settings file: `<attempt>.system.md` (ADR 0183). */
 export function systemPromptFileOf(settingsFile: string): string {
   return join(dirname(settingsFile), `${basename(settingsFile, '.json')}.system.md`);
+}
+
+/** An interactive step's prompt file, beside its settings file: `<attempt>.prompt.md` (ADR 0222). */
+export function promptFileOf(_settingsFile: string): string {
+  throw new Error('not implemented');
+}
+
+/** A Read rule for the one file at the absolute `path`, as Claude Code matches it (ADR 0222). */
+export function absoluteReadRule(_path: string): string {
+  throw new Error('not implemented');
 }
 
 /**

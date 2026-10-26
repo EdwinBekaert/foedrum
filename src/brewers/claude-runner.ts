@@ -98,6 +98,11 @@ export interface ClaudeAttemptPlan {
    * runner keeps the out doc in the worktree, or puts this copy back there (ADR 0175).
    */
   outDocFrom?: string;
+  /**
+   * An interactive step's (ADR 0222): the file the runner writes the prompt to, and claude's first
+   * message, which points the session at it.
+   */
+  interactive?: { file: string; firstMessage: string };
 }
 
 /** An out doc as the runner found it. */
