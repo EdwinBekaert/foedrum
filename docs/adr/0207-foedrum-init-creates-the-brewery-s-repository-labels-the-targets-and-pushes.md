@@ -25,10 +25,10 @@ In a folder with `.git`, init works as ADR 0199 says: it asks the name, creates 
 - A label that cannot be read or created is named with GitHub's line, followed by that command, and init goes on: the label is the target's, not the Brewery's.
 
 ### Commit and push, after asking
-- Then it lists the Brewery's files that git sees as new or changed (`git status --porcelain` on the four files init writes), then the commits on the branch that no remote has (`git log HEAD --not --remotes`, none on a branch without a commit yet), which the push sends too, and asks `Commit and push these? [Y/n]`, default yes. Nothing listed is said as such, and nothing is asked.
+- Then it lists the Brewery's files that git sees as new or changed (`git status --porcelain` on the four files init writes), then the commits on the branch that origin, the remote the push goes to, does not have (`git log HEAD --not --remotes=origin`, none on a branch without a commit yet), which the push sends too, and asks `Commit and push these? [Y/n]`, default yes. Nothing listed is said as such, and nothing is asked.
 - A yes adds those files, commits only them (`git commit -- <files>`, so nothing else the user staged goes with them) with the message `Set up the Brewery with foedrum init`, and pushes the branch with `git push -u origin HEAD`, through the same git as the clone.
 - A no leaves the files written and uncommitted, and prints the three git commands that commit and push them.
-- A git call that fails, also one that cannot tell which commits the remotes lack, is named with git's first line and the same three commands, and ends init in 1 after doctor; the files stay written.
+- A git call that fails, also one that cannot tell which commits origin lacks, is named with git's first line and the same three commands, and ends init in 1 after doctor; the files stay written.
 
 ### The order
 Questions, then the repository and the clone, then the files (ADR 0199), then the labels, then the commit and push, then doctor and the plugin's commands. The repository is created only after every question about the files is answered, so standard input that ends early creates nothing; input that ends at a label or the push question stops init with a line that names the repository it created and the folder it cloned it into.
