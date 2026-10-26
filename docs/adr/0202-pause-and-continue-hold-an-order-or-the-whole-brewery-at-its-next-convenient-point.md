@@ -38,7 +38,7 @@ Messaging a running brewer to finish early is left to an issue of its own: the e
   The intake still records pull request ends, checks bases and routes Ordered batches, which starts nothing, so an Ordered batch does not go Stuck on routing because of a pause.
   A pause of one order leaves the intake alone, and `foedrum order`, a person's own decision, is not held.
 - **`serve` and `brew` start nothing paused**, also after a restart: the pause is in the event log, which every driver folds.
-  `brew` of a paused order is refused with a line that says to continue it first, rather than waiting with nothing to do.
+  `brew` of a paused order is refused with a line that says to continue it first, rather than waiting with nothing to do; a `brew` underway ends with that line once a pause that came holds its batch and nothing of it runs.
 
 ### `--by`
 - `--by` takes a local time, `HH:MM` (`17:30`: today in the machine's time zone, tomorrow if that is already past), or a `Duration` (`20m`, `2h`) from now.
