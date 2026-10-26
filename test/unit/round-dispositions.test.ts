@@ -342,6 +342,11 @@ describe('a later tasting round gets the earlier findings with their disposition
     // The engine's fixed text, before the out doc contract.
     assert.match(prompt, NEVER_AGAIN);
     assert.match(prompt, /raise it once as a new finding that names the old one and says why/i);
+    // A dismissal stands on its evidence, which the round checks (#521, ADR 0204).
+    assert.match(
+      prompt,
+      /a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong/i,
+    );
     assert.ok(prompt.search(NEVER_AGAIN) < prompt.indexOf('When you finish, write taste.md'));
   });
 
