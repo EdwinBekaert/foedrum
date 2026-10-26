@@ -406,7 +406,7 @@ describe('pause and continue (ADR 0202)', () => {
       assert.equal(batch('b12').lane.kind, 'brewing');
     });
 
-    it('is recorded as an ordinary cancelled end when its pause no longer stops it as the end comes', () => {
+    it("is recorded as the pause's when its pause no longer stops it as the end comes", () => {
       order(12);
       start('b12');
       accept({ kind: 'pause', order: { issue: 12 }, ...who, stopAt: { at: at(10), zone: 'UTC' } });
@@ -427,6 +427,7 @@ describe('pause and continue (ADR 0202)', () => {
         stepId: 'plan',
         attempt: 1,
         outcome: { kind: 'cancelled' },
+        paused: true,
       });
       assert.equal(events[1]?.type, 'step.scheduled');
     });
