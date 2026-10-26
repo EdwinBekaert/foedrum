@@ -1,4 +1,9 @@
-# Foedrum
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/foedrum-logo-white.png">
+    <img src="docs/images/foedrum-logo.png" alt="Foedrum: Your issues brewed into PRs" width="600">
+  </picture>
+</h1>
 
 [![CI](https://github.com/EdwinBekaert/foedrum/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EdwinBekaert/foedrum/actions/workflows/ci.yml)
 
