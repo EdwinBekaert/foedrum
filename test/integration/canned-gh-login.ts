@@ -96,6 +96,7 @@ export const doctorHere = async (
     user: () => 'doctor-test',
     surface: 'terminal',
     now: () => new Date(),
+    zone: () => 'UTC',
     readKeptBranches: notForDoctor('kept branches'),
     config: notForDoctor('foedrum.jsonc'),
     claims: notForDoctor('claims'),

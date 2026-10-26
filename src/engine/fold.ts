@@ -7,6 +7,7 @@ import type {
   Dependency,
   Event,
   GravityReading,
+  OrderRef,
   Receipt,
   ScheduleRoute,
   SessionRef,
@@ -79,6 +80,8 @@ export type Attempt =
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
       receipt?: Receipt;
+      /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
+      paused?: true;
     };
 
 export interface Input {
@@ -229,6 +232,21 @@ export interface Release {
   version: string;
 }
 
+/** A person's pause of an order or of the whole Brewery (ADR 0202). */
+export interface Pause {
+  by: string;
+  via: Surface;
+  why?: string;
+  /** When what still runs is stopped, and the zone it was given in. */
+  stopAt?: { at: string; zone: string };
+}
+
+/** The pauses in force: of the whole Brewery (`--all`), and of each order by `orderKey`. */
+export interface Pauses {
+  all?: Pause;
+  orders: ReadonlyMap<string, Pause>;
+}
+
 export interface State {
   orders: ReadonlyMap<number, Order>;
   subOrders: ReadonlyMap<number, SubOrder>;
@@ -237,6 +255,7 @@ export interface State {
   releases: readonly Release[];
   /** The idempotency ledger: result by effect key (invariant I4). */
   effects: ReadonlyMap<string, unknown>;
+  pauses: Pauses;
 }
 
 export const emptyState: State = {
@@ -246,7 +265,12 @@ export const emptyState: State = {
   bottles: new Map(),
   releases: [],
   effects: new Map(),
+  pauses: { orders: new Map() },
 };
+
+/** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
+export const orderKey = ({ issue, repo }: OrderRef): string =>
+  `${repo?.toLowerCase() ?? ''}#${issue}`;
 
 /**
  * A log the fold cannot replay, and where it broke. The command layer refuses such events
@@ -407,6 +431,7 @@ function apply(state: State, event: Event): State {
           ...(event.readings === undefined ? {} : { readings: event.readings }),
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
+          ...(event.paused === undefined ? {} : { paused: event.paused }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;
@@ -558,6 +583,56 @@ function apply(state: State, event: Event): State {
         ...batch,
         baseChecks: [...(batch.baseChecks ?? []), check],
       }));
+    }
+    case 'order.paused': {
+      const { order, by, via, why, stopAt, zone } = event;
+      const pause: Pause = {
+        by,
+        via,
+        ...(why === undefined ? {} : { why }),
+        ...(stopAt === undefined || zone === undefined ? {} : { stopAt: { at: stopAt, zone } }),
+      };
+      const { pauses } = state;
+      // A later pause of the same order, or a later --all, replaces the earlier one (ADR 0202).
+      return {
+        ...state,
+        pauses:
+          order === undefined
+            ? { ...pauses, all: pause }
+            : { ...pauses, orders: put(pauses.orders, orderKey(order), pause) },
+      };
+    }
+    case 'order.continued': {
+      const { order } = event;
+      const { pauses } = state;
+      // --all lifts every pause (ADR 0202).
+      if (order === undefined) {
+        if (pauses.all === undefined && pauses.orders.size === 0) throw reject('nothing is paused');
+        return { ...state, pauses: { orders: new Map() } };
+      }
+      const key = orderKey(order);
+      if (!pauses.orders.has(key)) throw reject(`order ${key} is not paused`);
+      const orders = new Map(pauses.orders);
+      orders.delete(key);
+      return { ...state, pauses: { ...pauses, orders } };
+    }
+    case 'step.rescheduled': {
+      const { batchId, stepId, attempt, deadlineAt } = event;
+      return updateBatch(state, batchId, (batch) => {
+        const step = stepOf(batch, stepId);
+        const current = step.attempts.get(attempt);
+        if (current === undefined) throw attemptError(event, 'was never scheduled');
+        if (current.phase !== 'scheduled' || current.abandoned === true) {
+          throw attemptError(event, 'is not waiting to start');
+        }
+        return {
+          ...batch,
+          steps: put(batch.steps, stepId, {
+            ...step,
+            attempts: put(step.attempts, attempt, { ...current, deadlineAt }),
+          }),
+        };
+      });
     }
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and

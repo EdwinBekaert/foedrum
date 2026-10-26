@@ -4,6 +4,7 @@
 
 import { Repo } from './events.ts';
 import { PathSafeId, RepositoryAlias } from './ids.ts';
+import { Duration } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { CommitSha } from './store.ts';
 import { z } from './zod.ts';
@@ -151,3 +152,47 @@ export const BrewCommand = z.strictObject({
   take: z.literal(true).optional(),
 });
 export type BrewCommand = z.infer<typeof BrewCommand>;
+
+/** A local time `HH:MM` on a 24-hour clock, such as `17:30` (ADR 0202). */
+export const LocalTime = z.string().regex(/^([01][0-9]|2[0-3]):([0-5][0-9])$/);
+
+/** What `pause --by` takes, as its refusal says it (ADR 0202). */
+export const STOP_TIME_HELP =
+  'Must be a local time HH:MM, such as 17:30, or a duration, such as 20m';
+
+/** `--by`: a local time today (tomorrow once past), or a duration from now (ADR 0202). */
+export const StopTime = z
+  .string()
+  .refine(
+    (text) => LocalTime.safeParse(text).success || Duration.safeParse(text).success,
+    STOP_TIME_HELP,
+  );
+
+const oneOrAll = ({ order, all }: { order?: OrderTarget | undefined; all?: true | undefined }) =>
+  (order === undefined) !== (all === undefined);
+const ONE_OR_ALL = 'Name one order (<alias>#<n> or #<n>), or --all, and not both';
+
+/**
+ * `foedrum pause [<order> | --all] [--by <time>] [--why <reason>]` (ADR 0202): an order as
+ * `order` takes an issue, or the whole Brewery and its intake.
+ */
+export const PauseCommand = z
+  .strictObject({
+    command: z.literal('pause'),
+    order: IssueTarget.optional(),
+    all: z.literal(true).optional(),
+    by: StopTime.optional(),
+    why: NonEmpty.optional(),
+  })
+  .refine(oneOrAll, { message: ONE_OR_ALL, path: ['order'] });
+export type PauseCommand = z.infer<typeof PauseCommand>;
+
+/** `foedrum continue [<order> | --all]` (ADR 0202): lifts an order's pause, or every one. */
+export const ContinueCommand = z
+  .strictObject({
+    command: z.literal('continue'),
+    order: IssueTarget.optional(),
+    all: z.literal(true).optional(),
+  })
+  .refine(oneOrAll, { message: ONE_OR_ALL, path: ['order'] });
+export type ContinueCommand = z.infer<typeof ContinueCommand>;

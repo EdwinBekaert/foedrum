@@ -23,6 +23,7 @@ import { effectKey } from './effect-key.ts';
 import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
 import type { Batch, State } from './fold.ts';
+import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { afterOverrun, resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
@@ -230,7 +231,7 @@ const rejectionSummary = (error: unknown): string => {
  * reported in its init goes on its step.finished, when the event can hold it: a blank version or
  * model is left out rather than refusing the ending with it (ADR 0116).
  */
-const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
+const finishOf = (ref: AttemptRef, end: AttemptEnd, paused: boolean): EngineCommand => {
   const { session, receipt, ...rest } = end;
   const report = ClaudeReport.safeParse({ version: session?.claudeVersion, model: session?.model });
   // Read from a stream the runner does not trust: one the event cannot hold is left out (ADR 0172).
@@ -241,6 +242,8 @@ const finishOf = (ref: AttemptRef, end: AttemptEnd): EngineCommand => {
     ...rest,
     ...(report.success ? { claude: report.data } : {}),
     ...(took.success ? { receipt: took.data } : {}),
+    // Stopped as its batch's pause reached its stopAt: no retry is spent on it (ADR 0202).
+    ...(paused && end.ending.kind === 'cancelled' ? { paused: true as const } : {}),
   };
 };
 
@@ -363,6 +366,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   });
 
   const runs = new Map<string, { ref: AttemptRef; run: RunningAttempt }>();
+  // The runs it stopped as their batch's pause reached its stopAt, by key, until they end (ADR 0202).
+  const stoppedByPause = new Set<string>();
   // The runs that ended, with the error of each whose end rejected.
   const ended: { ref: AttemptRef; end: AttemptEnd; rejected?: { error: unknown } }[] = [];
   // Ended batches whose worktrees drive() cleans next.
@@ -687,7 +692,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         return ref === undefined ? [] : [{ ref, ...lease }];
       });
       for (const batch of log.state().batches.values()) {
-        if (batch.lane.kind !== 'brewing') continue;
+        // A paused batch starts nothing until it continues (ADR 0202).
+        if (batch.lane.kind !== 'brewing' || pauseOf(log.state(), batch) !== undefined) continue;
         for (const [stepId, step] of batch.steps) {
           const latest = step.attempts.get(Math.max(...step.attempts.keys()));
           if (latest?.phase !== 'scheduled' || latest.abandoned === true) continue;
@@ -746,7 +752,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         // refused (I2). An end whose record throws keeps its lease until it expires, and the
         // supervisor loses the attempt; a throw from the read after it is reported the same way.
         // Either way the other ends of the pass go on (#278, #289).
-        const command = finishOf(ref, end);
+        const command = finishOf(ref, end, stoppedByPause.delete(key));
         try {
           if (!issue(command, (tx) => tx.releaseLease(key))) releaseAttempt(key);
           // An attempt of an ended batch held its worktree until now.
@@ -937,6 +943,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       const attempt = attemptOf(current, ref);
       if (attempt === undefined) continue;
       if (isOver(attempt) || batchIsOver(current, ref.batchId) || resumedElsewhere(current, ref)) {
+        run.stop();
+        continue;
+      }
+      // What still runs of a paused batch at its pause's stopAt (ADR 0202).
+      const batch = current.batches.get(ref.batchId);
+      const key = attemptKey.encode(ref);
+      if (batch !== undefined && !stoppedByPause.has(key) && stopsNow(current, batch, now)) {
+        stoppedByPause.add(key);
         run.stop();
       }
     }

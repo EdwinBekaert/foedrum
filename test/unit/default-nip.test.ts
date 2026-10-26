@@ -14,7 +14,8 @@ import { fold } from '../../src/engine/fold.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event, GravityReading } from '../../src/schemas/events.ts';
-import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { Disposition, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { z } from '../../src/schemas/zod.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
@@ -366,6 +367,26 @@ describe('the default Cellarman', () => {
       .filter((line) => /wrong test/i.test(line));
     assert.match(wrongTest, /"blockerKind": "findings"/);
     assert.match(wrongTest, /out doc's text/);
+  });
+
+  it('asks a dismissed and a pre-existing why to name its evidence, and its example shows one (#521, ADR 0204)', () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    const lines = found.instructions.split('\n');
+    const evidence = /names the evidence that shows it/;
+    for (const disposition of ['dismissed', 'pre-existing']) {
+      const [line = ''] = lines.filter((each) => each.startsWith(`- \`"${disposition}"\``));
+      assert.match(line, evidence, disposition);
+    }
+    const [example = ''] = lines.filter((line) => line.startsWith('For example: '));
+    const listed = /`"dispositions": (\[.*?\])`/.exec(example)?.[1];
+    assert.ok(listed !== undefined, example);
+    const dismissed = z
+      .array(Disposition)
+      .parse(JSON.parse(listed))
+      .find(({ disposition }) => disposition === 'dismissed');
+    // A place, a test or a sentence of the order: here the order's sentence, quoted by its place.
+    assert.match(dismissed?.why ?? '', /the order's .* sentence/i);
   });
 
   it('sends a Cellarman out doc with a wrong test in its text back to the Gauger, whose input names the test (#470)', async () => {

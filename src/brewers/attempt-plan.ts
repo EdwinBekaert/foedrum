@@ -515,7 +515,7 @@ export function earlierFindingsInput(stepId: string, rounds: readonly EarlierRou
   };
 }
 
-/** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191). */
+/** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191, ADR 0204). */
 const EARLIER_FINDINGS_TEXT = [
   "## The earlier rounds' findings",
   '',
@@ -523,6 +523,7 @@ const EARLIER_FINDINGS_TEXT = [
   '',
   '- Never raise a fixed, dismissed or pre-existing finding again as it was.',
   '- When a fix did not fix a finding, or you hold a dismissal wrong, raise it once as a new finding that names the old one and says why.',
+  "- Check the evidence a dismissed or pre-existing finding's why names: a file and line, a test, or a sentence of the order or of a decision record. Treat a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way.",
   '- Judge an open finding again, as you judge the rest of the change.',
 ].join('\n');
 

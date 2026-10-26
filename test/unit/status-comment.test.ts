@@ -76,6 +76,37 @@ const lineOf = (text: string, id: string): string =>
   text.split('\n').find((line) => line.includes(`\`${id}\``)) ?? '';
 
 describe('renderStatus', () => {
+  it('says a paused batch is Paused, with who, from where, why and when what runs is stopped (ADR 0202)', () => {
+    const pause = {
+      by: 'ada',
+      via: 'terminal',
+      why: 'end of the day',
+      stopAt: { at: '2026-10-18T15:30:00.000Z', zone: 'Europe/Brussels' },
+    } as const;
+    const lines = renderStatus(batch(), steps, undefined, pause).split('\n');
+    const lane = lines.indexOf('🍺 **Brewing**');
+    assert.ok(lane > 0);
+    assert.equal(
+      lines[lane + 1],
+      '⏸️ **Paused** by ada (terminal): end of the day. Nothing new starts; what runs ends at its next convenient point, and what still runs at 15:30 UTC (17:30 Europe/Brussels, 18 October) is stopped.',
+    );
+    const plain = renderStatus(batch(), steps, undefined, { by: 'ada', via: 'plugin' });
+    assert.match(
+      plain,
+      /⏸️ \*\*Paused\*\* by ada \(plugin\)\. Nothing new starts; what runs ends at its next convenient point\.\n/,
+    );
+    assert.doesNotMatch(renderStatus(batch(), steps), /Paused/);
+  });
+
+  it("escapes a pause's reason as any text an issue wrote (ADR 0202)", () => {
+    const text = renderStatus(batch(), steps, undefined, {
+      by: 'ada',
+      via: 'terminal',
+      why: '@team <b>stop</b>\nnow',
+    });
+    assert.match(text, /: &#64;team &lt;b&gt;stop&lt;\/b&gt; now\. Nothing new starts/);
+  });
+
   it('names the batch, and says an Ordered batch has no recipe chosen yet', () => {
     const text = renderStatus(ordered(), undefined);
     assert.match(text, /`7-1`/);
@@ -1114,6 +1145,23 @@ describe('statusEffects', () => {
     assert.deepEqual(notices, []);
   });
 
+  it('edits the comment to say Paused when its order is paused, and again when it continues (ADR 0202)', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    later(minute);
+    await driver.tick();
+    issue({ kind: 'pause', order: { issue: 7 }, by: 'ada', via: 'terminal', why: 'lunch' });
+    later(minute);
+    await driver.tick();
+    assert.match(only().body, /Paused\*\* by ada \(terminal\): lunch\./);
+    issue({ kind: 'continue', order: { issue: 7 }, by: 'ada', via: 'terminal' });
+    later(minute);
+    await driver.tick();
+    assert.doesNotMatch(only().body, /Paused/);
+  });
+
   it('edits nothing while the text stays the same', async () => {
     order();
     const driver = await open();
@@ -1362,7 +1410,7 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
       lane: { kind: 'on_tap', pullRequests: [pr] },
       steps: new Map([step('plan', done(1, ['Kept the flag']))]),
     });
-    const text = renderStatus(withAssumptions, steps, undefined, {
+    const text = renderStatus(withAssumptions, steps, undefined, undefined, {
       count: 2,
       files: ['src/auth/login.ts', '.github/workflows/ci.yml'],
     });
@@ -1382,6 +1430,7 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
       batch({ lane: { kind: 'on_tap', pullRequests: [pr] }, steps: new Map(many) }),
       undefined,
       undefined,
+      undefined,
       { count: 1, files: ['.github/workflows/ci.yml'] },
     );
     assert.match(text, /the rest is cut/);
@@ -1395,7 +1444,9 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
 
   it('names the first ten and counts the rest, the ones the ledger left out too', () => {
     const files = Array.from({ length: 50 }, (_, n) => `src/auth/f${n}.ts`);
-    const line = sensitiveLine(renderStatus(onTap, steps, undefined, { count: 60, files }));
+    const line = sensitiveLine(
+      renderStatus(onTap, steps, undefined, undefined, { count: 60, files }),
+    );
     assert.equal(line, `Touches sensitive paths: ${files.slice(0, 10).join(', ')} and 50 more`);
   });
 
@@ -1403,7 +1454,7 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
     const long = `src/auth/${'a'.repeat(300)}.ts`;
     const line =
       sensitiveLine(
-        renderStatus(onTap, steps, undefined, {
+        renderStatus(onTap, steps, undefined, undefined, {
           count: 2,
           files: ['src/auth/<b>@alice_*x*.ts', long],
         }),

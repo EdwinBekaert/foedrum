@@ -130,23 +130,25 @@ exports[`foedrum: the command line > lists the commands for --help and -h 1`] = 
 Usage: foedrum <command> [arguments]
 
 Commands:
-  serve                                Run the Cellar: brew the Brewery's batches until Ctrl+C
-  doctor                               Check the tools Foedrum needs and the isolation level
-  init                                 Write a Brewery's files in its clone from a few questions, then run doctor
-  status [--watch]                     List the batches and their lanes
-  stuck                                List the Stuck batches with their options and questions
-  brewers                              Report each brewer's attempts, outcomes, Stuck batches and tokens
-  replay <batch>                       Show a batch's events and its folded state
-  resume <batch> [<step>]              Open a brewer attempt's Claude Code session in its worktree; take a running batch over
-  retry <batch>                        Give the step a Stuck batch stopped at another attempt
-  skip <batch>                         Go on after the step a Stuck batch stopped at
-  answer <batch> <answers>...          Answer a Stuck batch's questions, one answer each, in order
-  recipe <batch> <recipe> <reason>     Brew a batch with another recipe, from its first step
-  rewind <batch> <step> <commits>...   Take a Stuck batch back to a step, each repository at its commit
-  cancel <batch>                       Cancel a batch
-  order <issue>                        Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
-  brew <issue> [--as <name>] [--take]  Brew an issue's batch here until it is on tap, Stuck or needs input
-  takeover <batch> [--as <name>]       Hand a batch from the driver that holds it to another: --as, else this session
+  serve                                                   Run the Cellar: brew the Brewery's batches until Ctrl+C
+  doctor                                                  Check the tools Foedrum needs and the isolation level
+  init                                                    Write a Brewery's files in its clone from a few questions, then run doctor
+  status [--watch]                                        List the batches and their lanes
+  stuck                                                   List the Stuck batches with their options and questions
+  brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
+  replay <batch>                                          Show a batch's events and its folded state
+  resume <batch> [<step>]                                 Open a brewer attempt's Claude Code session in its worktree; take a running batch over
+  retry <batch>                                           Give the step a Stuck batch stopped at another attempt
+  skip <batch>                                            Go on after the step a Stuck batch stopped at
+  answer <batch> <answers>...                             Answer a Stuck batch's questions, one answer each, in order
+  recipe <batch> <recipe> <reason>                        Brew a batch with another recipe, from its first step
+  rewind <batch> <step> <commits>...                      Take a Stuck batch back to a step, each repository at its commit
+  cancel <batch>                                          Cancel a batch
+  pause [<order>] [--by <time>] [--why <reason>] [--all]  Pause an order, or all with --all: nothing new starts; --by stops what runs
+  continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
+  order <issue>                                           Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
+  brew <issue> [--as <name>] [--take]                     Brew an issue's batch here until it is on tap, Stuck or needs input
+  takeover <batch> [--as <name>]                          Hand a batch from the driver that holds it to another: --as, else this session
 
 Every command takes --via <plugin|terminal> but serve: the surface its events record.
 

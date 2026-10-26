@@ -388,6 +388,8 @@ export const Event = z.discriminatedUnion('type', [
     receipt: Receipt.optional(),
     // The house-yeast rules a brewer's plan selected for it (ADR 0169).
     houseYeast: HouseYeastSelection.optional(),
+    // Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202).
+    paused: z.literal(true).optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),
@@ -495,5 +497,32 @@ export const Event = z.discriminatedUnion('type', [
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),
+  // A person paused an order, or with no `order` the whole Brewery and its intake (ADR 0202): no
+  // new attempt of it starts. `stopAt`: when what still runs of it is stopped, with the IANA zone
+  // of the machine it was given on.
+  z
+    .strictObject({
+      type: z.literal('order.paused'),
+      order: OrderRef.optional(),
+      by: NonEmpty,
+      via: Surface,
+      why: NonEmpty.optional(),
+      stopAt: Timestamp.optional(),
+      zone: NonEmpty.optional(),
+    })
+    .refine(
+      ({ stopAt, zone }) => (stopAt === undefined) === (zone === undefined),
+      'Must name both when what runs is stopped (stopAt) and the zone it was given in, or neither',
+    ),
+  // A person lifted the pause of an order, or with no `order` every pause (ADR 0202).
+  z.strictObject({
+    type: z.literal('order.continued'),
+    order: OrderRef.optional(),
+    by: NonEmpty,
+    via: Surface,
+  }),
+  // A scheduled attempt that had not started when its batch was paused gets a new deadline as
+  // its pause is lifted (ADR 0202).
+  z.strictObject({ type: z.literal('step.rescheduled'), ...step, deadlineAt: Timestamp }),
 ]);
 export type Event = z.infer<typeof Event>;

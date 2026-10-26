@@ -314,6 +314,9 @@ const inputText = (prompt: string, name: string): string => {
 };
 
 const NEVER_AGAIN = /never raise a fixed, dismissed or pre-existing finding again as it was/i;
+// A dismissal stands on its evidence, which a later round checks (#521, ADR 0204).
+const EVIDENCE_CHECK =
+  /check the evidence a dismissed or pre-existing finding's why names: a file and line, a test, or a sentence of the order or of a decision record\. Treat a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way\./i;
 
 describe('a later tasting round gets the earlier findings with their dispositions (#501, ADR 0191)', () => {
   it('gives round 3 both earlier rounds, read from their worktrees, in order, with the dispositions implement wrote', async () => {
@@ -342,6 +345,7 @@ describe('a later tasting round gets the earlier findings with their disposition
     // The engine's fixed text, before the out doc contract.
     assert.match(prompt, NEVER_AGAIN);
     assert.match(prompt, /raise it once as a new finding that names the old one and says why/i);
+    assert.match(prompt, EVIDENCE_CHECK);
     assert.ok(prompt.search(NEVER_AGAIN) < prompt.indexOf('When you finish, write taste.md'));
   });
 
@@ -349,6 +353,7 @@ describe('a later tasting round gets the earlier findings with their disposition
     const { prompt } = await planRound(ROUND_ONE, 1);
     assert.doesNotMatch(prompt, /name="earlierFindings"/);
     assert.doesNotMatch(prompt, NEVER_AGAIN);
+    assert.doesNotMatch(prompt, EVIDENCE_CHECK);
   });
 
   it("takes an approving round's findings from its event, and the dispositions of a retry of the routed attempt", async () => {

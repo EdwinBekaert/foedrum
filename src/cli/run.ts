@@ -44,6 +44,8 @@ export interface CliContext {
   /** Where the command comes from: the surface its events record. */
   surface: Surface;
   now: () => Date;
+  /** The IANA time zone of the machine, which `pause --by` reads a local time in (ADR 0202). */
+  zone: () => string;
   /**
    * What git says of the task-tree branches the cleanup keeps (`Claims.unpushed`, ADR 0084), for
    * `foedrum status` (ADR 0092). Called only when there are any.

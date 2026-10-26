@@ -6,6 +6,7 @@ import { type AttemptRef, attemptKey } from './attempt-key.ts';
 import type { EngineCommand } from './decide.ts';
 import type { DueBatch, Lease } from './event-store.ts';
 import type { Batch, State } from './fold.ts';
+import { pauseOf } from './pauses.ts';
 import type { Recipes, Stall } from './recipes.ts';
 import type { FlushResult } from './state-branch-git.ts';
 
@@ -62,7 +63,7 @@ export const planTick = (input: TickInput): TickPlan => {
   };
   for (const { batchId } of due) {
     const batch = state.batches.get(batchId);
-    if (batch !== undefined) issue(dueCommand(batch, now));
+    if (batch !== undefined) issue(dueCommand(state, batch, now));
   }
   // The expired leases of lost attempts this tick leaves to the next: a batch's other children
   // of a parallel group, which would otherwise wait out their deadline with no lease (ADR 0168).
@@ -107,13 +108,17 @@ export const planTick = (input: TickInput): TickPlan => {
 };
 
 /** What a due deadline asks of `batch`: expire, remind (ADR 0025) or `unrouted` (ADR 0032). */
-function dueCommand(batch: Batch, now: Date): BatchCommand | undefined {
+function dueCommand(state: State, batch: Batch, now: Date): BatchCommand | undefined {
   const { lane } = batch;
   const isDue = (at: string): boolean => Date.parse(at) <= now.getTime();
   switch (lane.kind) {
     case 'brewing': {
+      // A paused batch's attempt that has not started waits for continue, not its step (ADR 0202).
+      const paused = pauseOf(state, batch) !== undefined;
       const [late] = running(batch)
-        .filter((attempt) => isDue(attempt.deadlineAt))
+        .filter(
+          (attempt) => isDue(attempt.deadlineAt) && !(paused && attempt.phase === 'scheduled'),
+        )
         .sort((a, b) => Date.parse(a.deadlineAt) - Date.parse(b.deadlineAt));
       return (
         late && { kind: 'expire', batchId: batch.id, stepId: late.stepId, attempt: late.attempt }

@@ -1,10 +1,10 @@
 // `foedrum replay <batch>`: the batch's events as stored, and the state the fold makes of them.
 
 import type { StoredEvent } from '../engine/event-store.ts';
-import type { Attempt, Batch } from '../engine/fold.ts';
+import type { Attempt, Batch, Pause } from '../engine/fold.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { columns } from './columns.ts';
-import { describeLane, issueOf } from './status.ts';
+import { describeLane, issueOf, pauseLine } from './status.ts';
 
 const outcomeOf = (outcome: StepOutcome): string => {
   switch (outcome.kind) {
@@ -47,7 +47,11 @@ const fieldsOf = (event: StoredEvent['event']): string =>
   );
 
 /** What `foedrum replay` prints for a batch and the stored events that belong to it. */
-export const formatReplay = (batch: Batch, events: readonly StoredEvent[]): string => {
+export const formatReplay = (
+  batch: Batch,
+  events: readonly StoredEvent[],
+  pause?: Pause,
+): string => {
   const idWidth = Math.max(...events.map(({ id }) => String(id).length));
   const { lane, detail } = describeLane(batch);
   const { recipe } = batch;
@@ -62,6 +66,10 @@ export const formatReplay = (batch: Batch, events: readonly StoredEvent[]): stri
     'State',
     `  lane    ${lane}${detail === '' ? '' : `: ${detail}`}`,
   ];
+  // The pause that holds it now, with the surface it came from (ADR 0202).
+  if (pause !== undefined) {
+    lines.push(`  paused  ${pauseLine(pause, true)}`);
+  }
   if (batch.parentBatchId !== undefined) lines.push(`  parent  ${batch.parentBatchId}`);
   if (recipe !== undefined) {
     const chooser = recipe.source === 'human' ? `${recipe.by} via ${recipe.via}` : recipe.source;

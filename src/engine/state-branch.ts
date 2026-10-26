@@ -33,6 +33,8 @@ export const batchOf = (event: Event): string | undefined => {
       return effectKey.decode(event.key).batchId;
     case 'bottle.opened':
     case 'release.observed':
+    case 'order.paused':
+    case 'order.continued':
       return undefined;
     case 'batch.ordered':
     case 'batch.recipe_chosen':
@@ -51,6 +53,7 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.taken_over':
     case 'pull_request.ended':
     case 'pull_request.base_checked':
+    case 'step.rescheduled':
       return event.batchId;
     default: {
       const unhandled: never = event;

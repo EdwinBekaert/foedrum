@@ -516,6 +516,7 @@ describe('foedrum status --watch: the command layer', () => {
     user: () => 'ada',
     surface: 'terminal',
     now: () => new Date(T0),
+    zone: () => 'UTC',
     readKeptBranches: async () => assert.fail('no kept branch to read'),
     config: () => assert.fail('no foedrum.jsonc to read'),
     claims: () => assert.fail('no claim host to reach'),
