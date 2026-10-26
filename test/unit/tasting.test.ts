@@ -613,6 +613,30 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.ok(text.indexOf('When you finish, write taste.md') > 0);
     });
 
+    it("holds a one-lens step's finding that names a lens to the step's lens (review of #571)", async () => {
+      const { outDoc } = (await planTaster(answers)).limits;
+      const finding = { file: 'src/a.ts', severity: 'minor', why: 'x', introduced: true };
+      const doc = (findings: readonly unknown[]) => ({
+        status: 'done',
+        summary: 'Tasted',
+        verdict: 'approve',
+        findings,
+      });
+      assert.equal(outDoc.schema.safeParse(doc([finding])).success, true);
+      const own = doc([{ ...finding, lens: 'diff/correctness' }]);
+      assert.equal(outDoc.schema.safeParse(own).success, true);
+      const other = outDoc.schema.safeParse(doc([{ ...finding, lens: 'diff/security' }]));
+      assert.deepEqual(
+        other.error?.issues.map(({ path, message }) => ({ path, message })),
+        [
+          {
+            path: ['findings', 0, 'lens'],
+            message: "Must be the step's lens, diff/correctness, or left out",
+          },
+        ],
+      );
+    });
+
     it('gives a one-lens step no text for lenses together', async () => {
       const { prompt } = await (await planTaster(answers)).plan;
       assert.doesNotMatch(prompt, /Several lenses together/);
@@ -916,5 +940,49 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
     assert.equal(lines.filter((line) => line.includes('diff/correctness, minor')).length, 10);
     assert.ok(status.includes('- `taste`: and 2 more of diff/correctness\n'), status);
     assert.equal(lines.filter((line) => line.includes('diff/security, major')).length, 1);
+  });
+
+  it('caps each lens at ten in the status comment whatever the order of its findings (regression test, review of #571)', async () => {
+    const files = porter();
+    const many = Array.from({ length: 12 }, (_, at) => ({ ...correctness, line: at + 1 }));
+    // A security finding after every fourth correctness finding.
+    const mixed = many.flatMap((finding, at) =>
+      at % 4 === 3 ? [finding, { ...security, line: at }] : [finding],
+    );
+    const { batch } = await brew(files, 'porter', ({ stepId }) =>
+      stepId === 'taste' ? tasted('changes', mixed, 'Two lenses') : behave.succeed(),
+    );
+    const status = renderStatus(batch, valid(loadRecipes(files)).recipes.find('porter')?.steps);
+    const lines = status.split('\n').filter((line) => line.startsWith('- `taste`: '));
+    assert.equal(lines.filter((line) => line.includes('diff/correctness, minor')).length, 10);
+    assert.equal(lines.filter((line) => line.includes('diff/security, major')).length, 3);
+    assert.deepEqual(
+      lines.filter((line) => line.includes(' more')),
+      ['- `taste`: and 2 more of diff/correctness'],
+    );
+  });
+
+  it('shows ten findings of a one-lens step in all, also when some name its lens (review of #571)', async () => {
+    const files = withRecipe('porter', [
+      { id: 'implement', brewer: 'cellarman' },
+      { id: 'taste', brewer: 'taster', lens: 'diff/correctness' },
+      { action: 'openPullRequest' },
+    ]);
+    const unnamed = { ...PLANTED.correctness, severity: 'minor' };
+    const findings = Array.from({ length: 15 }, (_, at) =>
+      at % 5 === 0
+        ? { ...unnamed, line: at + 1, lens: 'diff/correctness' }
+        : { ...unnamed, line: at + 1 },
+    );
+    const { batch } = await brew(files, 'porter', ({ stepId }) =>
+      stepId === 'taste' ? tasted('approve', findings) : behave.succeed(),
+    );
+    const status = renderStatus(batch, valid(loadRecipes(files)).recipes.find('porter')?.steps);
+    const lines = status.split('\n').filter((line) => line.startsWith('- `taste`: '));
+    assert.equal(lines.filter((line) => line.includes('minor in ')).length, 10, status);
+    assert.deepEqual(
+      lines.filter((line) => line.includes(' more')),
+      ['- `taste`: and 5 more'],
+    );
   });
 });
