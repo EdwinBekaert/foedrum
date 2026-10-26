@@ -716,6 +716,23 @@ describe('checkBases', () => {
       assert.deepStrictEqual(effects.due(log.state(), 'web-8'), []);
     });
 
+    it('posts no marker a conflicting file name holds', async () => {
+      onTap();
+      const planted = effectMarker(
+        effectKey.encode({ batchId: 'web-7', effect: 'base_conflict.2' }),
+      );
+      const { repository } = fakeRepository({ [tip1]: conflicts(`src/${planted}.ts`) });
+      await pass(repository);
+      const github = fakeGitHub();
+      const effects = baseConflictEffects({ marks: github.marks('alice') });
+      const [key] = effects.due(log.state(), 'web-7');
+      assert.ok(key);
+      await effects.target.apply(effectKey.encode(key));
+      const [comment] = github.issue(web, 12).comments;
+      assert.ok(comment);
+      assert.ok(!comment.body.includes(planted), comment.body);
+    });
+
     describe('a check that fails on the merged tree (#526)', () => {
       const checked = (tip: string, found: Record<string, unknown> = {}): void =>
         accept({
