@@ -111,7 +111,6 @@ describe('step kinds', () => {
   // Typed as a record so that adding a step kind fails the typecheck until this list follows.
   const examples: Record<StepKind, unknown[]> = {
     brewer: [{ brewer: 'cellarman' }, { id: 'review', brewer: 'taster', lens: 'diff/security' }],
-    session: [{ id: 'refine', session: 'refine', deadline: '2d', fallback: 'brewmaster' }],
     check: [
       { id: 'green', check: ['typecheck', 'lint', 'test'] },
       { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
@@ -554,6 +553,6 @@ describe('an interactive brewer step (ADR 0222)', () => {
   it('refuses a session step, naming the interactive brewer step that replaced it', () => {
     const result = Step.safeParse({ id: 'refine', session: 'refine', deadline: '2d' });
     assert.equal(result.success, false);
-    assert.match(String(result.error), /"interactive": true/);
+    assert.match(result.error?.issues[0]?.message ?? '', /"interactive": true/);
   });
 });

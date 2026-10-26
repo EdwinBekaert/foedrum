@@ -119,48 +119,21 @@
               "description": "Overrides the brewer's deadline",
               "type": "string",
               "pattern": "^[1-9][0-9]*[smhd]$"
+            },
+            "interactive": {
+              "description": "Runs as a person's session in `foedrum brew`'s terminal; needs a prompt (ADR 0222)",
+              "type": "boolean",
+              "const": true
+            },
+            "prompt": {
+              "description": "An interactive step's first message to its session (ADR 0222)",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
             }
           },
           "required": [
             "brewer"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
-            },
-            "session": {
-              "type": "string",
-              "enum": [
-                "refine",
-                "triage",
-                "review"
-              ]
-            },
-            "when": {
-              "description": "Run the step only when this expression is true",
-              "type": "string",
-              "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
-            },
-            "deadline": {
-              "type": "string",
-              "pattern": "^[1-9][0-9]*[smhd]$",
-              "description": "A positive whole number of seconds, minutes, hours or days: \"90s\", \"30m\", \"2h\", \"3d\""
-            },
-            "fallback": {
-              "description": "A brewer that runs when the deadline passes",
-              "type": "string",
-              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
-            }
-          },
-          "required": [
-            "id",
-            "session",
-            "deadline"
           ],
           "additionalProperties": false
         },
@@ -480,6 +453,17 @@
                     "description": "Overrides the brewer's deadline",
                     "type": "string",
                     "pattern": "^[1-9][0-9]*[smhd]$"
+                  },
+                  "interactive": {
+                    "description": "Runs as a person's session in `foedrum brew`'s terminal; needs a prompt (ADR 0222)",
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "prompt": {
+                    "description": "An interactive step's first message to its session (ADR 0222)",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
                   }
                 },
                 "required": [
@@ -654,7 +638,7 @@
           "additionalProperties": false
         }
       ],
-      "description": "Exactly one of brewer, session, check, parallel, loop, gate, action or fanOut"
+      "description": "Exactly one of brewer, check, parallel, loop, gate, action or fanOut"
     }
   }
 }
