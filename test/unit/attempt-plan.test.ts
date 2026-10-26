@@ -687,6 +687,21 @@ describe('inputsOf', () => {
     );
   });
 
+  it("throws when a step's lenses together name one the brewer has no text of (ADR 0220)", () => {
+    const security = { name: 'diff/security', path: 'lenses/diff/security.md', text: 'x' };
+    assert.throws(
+      () =>
+        inputsOf(
+          [{ name: 'lens', from: 'lens:diff/security,diff/glitter', trusted: false }],
+          batch(),
+          stepBrewer,
+          brewWorktree,
+          new Map([[security.name, security]]),
+        ),
+      /^Error: the input "lens" has no lens:diff\/security,diff\/glitter$/,
+    );
+  });
+
   it('leaves out the input of a step the batch skipped (ADR 0064)', () => {
     const inputs = brewer({
       inputs: [
