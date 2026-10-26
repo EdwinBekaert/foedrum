@@ -3296,9 +3296,10 @@ describe('openDriver', () => {
       order('b1');
       const driver = await open({ runner, zone: () => 'UTC' });
       await driver.drive();
-      order('b2');
       end(plan('b1'), limited);
       await driver.tick();
+      // Ordered once the window is closed: a pass starts what is due before it records the ends.
+      order('b2');
       assert.deepStrictEqual(driver.state().usageWindow, {
         limit: 'session',
         resets: '3:45pm',
@@ -3335,10 +3336,11 @@ describe('openDriver', () => {
         brews: (ref) => ref.batchId !== 'b2',
       });
       await driver.drive();
-      order('b2');
       end(plan('b1'), limited);
       await driver.tick();
       assert.ok(driver.state().usageWindow, 'the window is closed');
+      order('b2');
+      await driver.tick();
       assert.deepStrictEqual(started, [plan('b1'), plan('b2')]);
     });
 
