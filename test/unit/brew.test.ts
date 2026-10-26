@@ -1014,6 +1014,28 @@ describe('runBrew', () => {
     );
   });
 
+  it('ends with the refusal once a pause that came while it brews holds the batch and nothing runs: exit 5 (ADR 0202)', async () => {
+    let paused = false;
+    let ticks = 0;
+    const pausing = shell(behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 }), {
+      wait: async () => {
+        ticks++;
+        if (ticks > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (paused) return;
+        paused = true;
+        // Paused with --by now: the next tick stops brew#1, and its retry waits.
+        const stopAt = { at: t0, zone: 'UTC' };
+        log().issue(
+          { kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal', stopAt },
+          t0,
+        );
+      },
+    });
+    assert.equal(await runBrew(setup, pausing, request), 5);
+    assert.equal(lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.deepStrictEqual(started, ['brew#1']);
+  });
+
   it('refuses a paused order, ordering nothing: exit 5 (ADR 0202)', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);

@@ -121,6 +121,34 @@ describe('pause and continue (ADR 0202)', () => {
       assert.equal(pauseOf(log.state(), batch('b13')), undefined);
     });
 
+    it('is refused for a sub-order, or the order of a claimed issue, naming the order to pause', () => {
+      order(12);
+      accept({
+        kind: 'record',
+        event: {
+          type: 'order.decomposed',
+          batchId: 'b12',
+          subOrders: [{ issue: 30, repo: 'acme/api' }],
+          dependencies: [],
+        },
+      });
+      accept({ kind: 'order', batchId: 'b30', order: { issue: 30 }, parentBatchId: 'b12' });
+      refuse(
+        { kind: 'pause', order: { issue: 30 }, ...who },
+        /^#30 is a sub-order of #12; pause #12$/,
+      );
+      // web-7-1's Brewery issue, the order its driver opened, is #40 (ADR 0144).
+      const batchId = order(7, 'pint', 'acme/web');
+      accept({
+        kind: 'record',
+        event: { type: 'effect.applied', key: `["${batchId}","order.issue"]`, result: 40 },
+      });
+      refuse(
+        { kind: 'pause', order: { issue: 40 }, ...who },
+        /^#40 is the order of web#7; pause web#7$/,
+      );
+    });
+
     it("holds a claimed target issue's batches by their repository, in any case", () => {
       const batchId = order(7, 'pint', 'acme/web');
       order(7);
