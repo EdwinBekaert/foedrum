@@ -15,7 +15,7 @@ interface Machine {
   writable: readonly string[];
   /** The files there, by path. */
   files?: Record<string, string>;
-  /** What `foedrum` resolves to after the run; default the file written. */
+  /** What `foedrum` resolves to after the run; default the first file written. */
   resolves?: string | null;
   /** Reading or writing a file throws this. */
   readFails?: string;
@@ -75,7 +75,7 @@ const offer = async (machine: Machine, answers: readonly string[] = []): Promise
     resolve: (name) => {
       assert.equal(name, 'foedrum');
       if (machine.resolves !== undefined) return machine.resolves ?? undefined;
-      return run.written.at(-1)?.path;
+      return run.written[0]?.path;
     },
   };
   const answer = (question: string): string => {
@@ -402,10 +402,8 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     ]);
     assert.equal(lines.at(-1), 'foedrum runs it in this terminal');
     const shim = written[0] ?? assert.fail('not written');
-    const again = await offer(
-      { ...machine, entry: WIN_ENTRY.toUpperCase(), files: { [shim.path]: shim.text } },
-      [],
-    );
+    const files = Object.fromEntries(written.map(({ path, text }) => [path, text]));
+    const again = await offer({ ...machine, entry: WIN_ENTRY.toUpperCase(), files }, []);
     assert.deepStrictEqual(again.lines, [`${shim.path} runs this Foedrum already`]);
   });
 
@@ -432,6 +430,92 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     assert.deepStrictEqual(lines, [
       '/home/ada/.local/bin/foedrum is there and is not a foedrum command init wrote; it is left as it is',
     ]);
+  });
+});
+
+describe('the foedrum command for Git Bash on Windows (ADR 0212)', () => {
+  const FOLDER = 'C:\\Users\\ada\\.local\\bin';
+  const CMD = `${FOLDER}\\foedrum.cmd`;
+  const SH = `${FOLDER}\\foedrum`;
+  const OLD_ENTRY = 'C:\\Users\\ada\\old\\foedrum\\src\\cli\\main.ts';
+  const filesOf = (run: Run): Record<string, string> =>
+    Object.fromEntries(run.written.map(({ path, text }) => [path, text]));
+
+  it('writes a foedrum script beside foedrum.cmd, with LF line ends, running the same main.ts', async () => {
+    const { written, lines } = await offer(windows(FOLDER), ['']);
+    assert.deepStrictEqual(
+      written.map(({ path }) => path),
+      [CMD, SH],
+    );
+    const script = written[1] ?? assert.fail('no script');
+    assert.equal(script.executable, true);
+    assert.ok(script.text.startsWith('#!/bin/sh\n'), script.text);
+    assert.ok(script.text.includes(`\nexec node '${WIN_ENTRY}' "$@"\n`), script.text);
+    assert.ok(!script.text.includes('\r'), 'LF line ends');
+    assert.ok(lines.includes(`Wrote ${SH}`), lines.join('\n'));
+  });
+
+  it("keeps both when both run this checkout, and writes the script beside an init's foedrum.cmd alone", async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const again = await offer({ ...windows(FOLDER), files });
+    assert.deepStrictEqual(again.questions, []);
+    assert.deepStrictEqual(again.written, []);
+    const alone = await offer({ ...windows(FOLDER), files: { [CMD]: files[CMD] ?? '' } });
+    assert.deepStrictEqual(alone.questions, []);
+    assert.deepStrictEqual(
+      alone.written.map(({ path }) => path),
+      [SH],
+    );
+  });
+
+  it('re-points both together after a yes, and keeps both on a no', async () => {
+    const files = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const question = `${CMD} runs the Foedrum in C:\\Users\\ada\\old\\foedrum. Point it at C:\\Users\\ada\\code\\foedrum? [y/N]: `;
+    const no = await offer({ ...windows(FOLDER), files }, ['n']);
+    assert.deepStrictEqual(no.questions, [question]);
+    assert.deepStrictEqual(no.written, []);
+    const yes = await offer({ ...windows(FOLDER), files }, ['y']);
+    assert.deepStrictEqual(yes.questions, [question]);
+    assert.deepStrictEqual(
+      yes.written.map(({ path }) => path),
+      [CMD, SH],
+    );
+    for (const { text } of yes.written) assert.ok(text.includes(WIN_ENTRY), text);
+  });
+
+  it('asks to re-point both when only the script runs another checkout', async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const old = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const { questions } = await offer(
+      { ...windows(FOLDER), files: { ...files, [SH]: old[SH] ?? '' } },
+      ['n'],
+    );
+    assert.deepStrictEqual(questions, [
+      `${SH} runs the Foedrum in C:\\Users\\ada\\old\\foedrum. Point it at C:\\Users\\ada\\code\\foedrum? [y/N]: `,
+    ]);
+  });
+
+  it('leaves a foedrum script there that init did not write, writing neither file', async () => {
+    const { questions, lines, written } = await offer({
+      ...windows(FOLDER),
+      files: { [SH]: '#!/bin/sh\necho mine\n' },
+    });
+    assert.deepStrictEqual(questions, []);
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual(lines, [
+      `${SH} is there and is not a foedrum command init wrote; it is left as it is`,
+    ]);
+  });
+
+  it('on a no, prints both files to write by hand', async () => {
+    const { lines } = await offer(windows(FOLDER), ['n']);
+    for (const file of [CMD, SH]) {
+      assert.ok(
+        lines.includes(`Not written. To write it by hand, put these lines in ${file}:`),
+        lines.join('\n'),
+      );
+    }
+    assert.ok(lines.includes(`  exec node '${WIN_ENTRY}' "$@"`), lines.join('\n'));
   });
 });
 
