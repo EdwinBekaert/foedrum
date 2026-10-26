@@ -539,17 +539,28 @@ const mostFindings = 10;
 
 /**
  * The findings of each Taster's step whose latest finished attempt succeeded (ADR 0161): a blocking
- * verdict ends its attempt blocked, and an earlier round's findings are no longer current.
+ * verdict ends its attempt blocked, and an earlier round's findings are no longer current. A step of
+ * several lenses together shows `mostFindings` of each lens, as its lenses apart would (ADR 0220):
+ * its schema has every finding name one of the step's lenses, which bounds the groups. Any other
+ * step shows `mostFindings` in all.
  */
 const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
-  stepIds.flatMap((stepId) =>
-    capped(
-      stepId,
-      tastingOf(latestOutput(batch, stepId))?.findings ?? [],
-      mostFindings,
-      (finding) => `${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
-    ),
-  );
+  stepIds.flatMap((stepId) => {
+    const findings = tastingOf(latestOutput(batch, stepId))?.findings ?? [];
+    const named = findings.every(({ lens }) => lens !== undefined);
+    const byLens = named
+      ? Map.groupBy(findings, ({ lens }) => lens)
+      : new Map([[undefined, findings]]);
+    return [...byLens].flatMap(([lens, findings]) =>
+      capped(
+        stepId,
+        findings,
+        mostFindings,
+        (finding) => `${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+        lens === undefined ? '' : ` of ${lens}`,
+      ),
+    );
+  });
 
 /** How many items of one Taster's risk left the comment shows. */
 const mostRisksLeft = 5;

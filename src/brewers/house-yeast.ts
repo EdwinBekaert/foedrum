@@ -296,14 +296,26 @@ const readLayer = (files: readonly RuleSource[]): Rules => {
  */
 export const pickRules = (
   layers: { repository: readonly RuleSource[]; brewery: readonly RuleSource[] },
-  change: { files: readonly string[]; lens?: string },
+  change: { files: readonly string[]; lens?: string; lenses?: readonly string[] },
   budget: number = defaultBudget,
 ): PickedRules => {
   const repository = readLayer(layers.repository);
   const brewery = readLayer(layers.brewery);
   const own = new Set(repository.rules.map(({ rule }) => rule.id));
   const rules = [...repository.rules, ...brewery.rules.filter(({ rule }) => !own.has(rule.id))];
-  const { selected, cut } = selectRules(rules, change, budget);
+  // A step's lenses together get the rules each would get apart, each once, in their order, and
+  // a rule one lens cut and another selected counts as selected (ADR 0220).
+  const each = (change.lenses ?? [change.lens]).map((lens) =>
+    selectRules(rules, { files: change.files, ...(lens === undefined ? {} : { lens }) }, budget),
+  );
+  const once = (priced: readonly Priced[]): Priced[] => [
+    ...new Map(priced.map((found) => [found.rule.rule.id, found])).values(),
+  ];
+  const selected = once(each.flatMap((selection) => selection.selected));
+  const taken = new Set(selected.map(({ rule }) => rule.rule.id));
+  const cut = once(each.flatMap((selection) => selection.cut)).filter(
+    ({ rule }) => !taken.has(rule.rule.id),
+  );
   const invalid = [...repository.invalid, ...brewery.invalid].map(({ path }) => path);
   const idsOf = (priced: readonly Priced[]): string[] => priced.map(({ rule }) => rule.rule.id);
   return {

@@ -52,8 +52,16 @@ const BrewerStep = z
     brewer: PathSafeId,
     when,
     lens: LensName.optional().describe(
-      'Taster only (out doc schema tasting), and required there: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)',
+      'Taster only (out doc schema tasting), and required there unless lenses names several: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)',
     ),
+    lenses: z
+      .array(LensName)
+      .min(2)
+      .refine((lenses) => new Set(lenses).size === lenses.length, 'Each lens may be named once')
+      .optional()
+      .describe(
+        'Taster only, instead of lens: two or more lenses of one folder that one Taster reviews through together, in one attempt and one out doc whose findings each name their lens (ADR 0220)',
+      ),
     blocking: z
       .boolean()
       .optional()
@@ -75,6 +83,10 @@ const BrewerStep = z
       .max(MAX_PROMPT_LENGTH)
       .optional()
       .describe("An interactive step's first message to its session (ADR 0222)"),
+  })
+  .refine(({ lens, lenses }) => lens === undefined || lenses === undefined, {
+    message: 'Name "lens" or "lenses", not both (ADR 0220)',
+    path: ['lenses'],
   })
   .refine(
     (step) => (step.interactive === undefined) === (step.prompt === undefined),

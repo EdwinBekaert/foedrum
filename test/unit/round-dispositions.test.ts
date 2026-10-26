@@ -636,3 +636,31 @@ describe('which attempts give a round its findings and dispositions (review of #
     );
   });
 });
+
+describe('earlierFindingsInput: a step of several lenses together (#560, ADR 0220)', () => {
+  it("shows each finding's lens, and gives two lenses' findings at one place a disposition each, in order", () => {
+    const { text } = earlierFindingsInput('taste', [
+      {
+        step: 'taste#1',
+        findings: [
+          { ...deadline, lens: 'diff/correctness' },
+          { ...deadline, severity: 'minor', why: 'The wait is not logged', lens: 'diff/security' },
+        ],
+        dispositions: [
+          fixed,
+          { ...fixed, disposition: 'dismissed', why: 'The log is in run.ts:4' },
+        ],
+      },
+    ]);
+    assert.equal(
+      text,
+      [
+        'Round taste#1:',
+        '- diff/correctness, major in src/wait.ts:12: The poll has no deadline',
+        '  fixed',
+        '- diff/security, minor in src/wait.ts:12: The wait is not logged',
+        '  dismissed: The log is in run.ts:4',
+      ].join('\n'),
+    );
+  });
+});

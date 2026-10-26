@@ -58,7 +58,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | Gauger | Failing tests first |
 | Cellarman | Implementation |
 | Finer | Simplifying the change before the checks and reviews |
-| Taster | Review, one lens at a time |
+| Taster | Review through its step's lens, or several lenses together |
 | Brett | Mutation check |
 | Cooper | Fixing review findings |
 | Blender | Merge conflicts |
