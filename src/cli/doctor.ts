@@ -259,18 +259,10 @@ const stackProblems = ({ platform, tools }: DoctorFacts): Problem[] =>
         {
           required: false,
           what: 'slirp4netns or pasta (passt) not found',
-          fix: "install slirp4netns: a repository's setup does not start without it (ADR 0218)",
+          fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)",
         },
       ]
     : [];
-
-/**
- * Ubuntu runs pasta under passt's AppArmor profile, which keeps it out of the network namespace
- * a setup's bwrap makes; its own profile for slirp4netns lets that in (ADR 0218). Doctor reads
- * Ubuntu from AppArmor's limit on user namespaces.
- */
-const PASTA_CONFINED_ADVICE =
-  "AppArmor runs pasta under passt's profile here, which keeps it out of the network namespace bwrap makes for a repository's setup, so a repository's setup does not start: install slirp4netns (ADR 0218).";
 
 /** Whether the dotted version `version` comes before `least`. */
 const isBefore = (version: string, least: readonly number[]): boolean => {
@@ -662,13 +654,10 @@ const isolationOf = ({ platform, kernelRelease, tools }: DoctorFacts) => {
 export const diagnose = (facts: DoctorFacts): Diagnosis => {
   const { tools } = facts;
   const { isolation, advice: levelAdvice, problems: sandboxProblems } = isolationOf(facts);
-  const restricted = facts.platform === 'linux' && facts.restrictsUserns === true;
-  const pastaOnly = facts.tools.pasta !== undefined && facts.tools.slirp4netns === undefined;
-  const advice = [
-    ...levelAdvice,
-    ...(restricted ? [USERNS_ADVICE] : []),
-    ...(restricted && pastaOnly ? [PASTA_CONFINED_ADVICE] : []),
-  ];
+  const advice =
+    facts.platform === 'linux' && facts.restrictsUserns === true
+      ? [...levelAdvice, USERNS_ADVICE]
+      : levelAdvice;
   const recipes = recipesOf(facts);
   const problems: Problem[] = [
     ...(isTooOld(facts.node)

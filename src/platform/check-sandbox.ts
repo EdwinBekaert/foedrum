@@ -129,10 +129,31 @@ const NAMESPACE_GATEWAY = '10.0.2.2';
 const NAMESPACE_DNS = '10.0.2.3';
 
 /**
+ * A setup's /dev, without devpts (ADR 0218). For `--dev /dev`, bwrap maps the user to root in one
+ * user namespace to mount devpts and nests a second one to map back, and the network namespace
+ * belongs to the outer one, which no stack can join. So a setup has no pseudo-terminal.
+ */
+const SETUP_DEV = [
+  ...['--tmpfs', '/dev'],
+  ...['null', 'zero', 'full', 'random', 'urandom', 'tty'].flatMap((node) => [
+    '--dev-bind',
+    `/dev/${node}`,
+    `/dev/${node}`,
+  ]),
+  ...['--tmpfs', '/dev/shm'],
+  ...['--symlink', '/proc/self/fd', '/dev/fd'],
+  ...['stdin', 'stdout', 'stderr'].flatMap((name, fd) => [
+    '--symlink',
+    `/proc/self/fd/${fd}`,
+    `/dev/${name}`,
+  ]),
+];
+
+/**
  * bwrap's arguments that run `line` through `/bin/sh` in the sandbox. With the network kept, a
  * network namespace of its own that a user-mode network stack joins once bwrap has told its
- * child's pid, the line waiting for it, and the stack's resolver's file at `resolver`, the real
- * path of /etc/resolv.conf, read-only (ADR 0218).
+ * child's pid, the line waiting for it, a /dev without devpts, and the stack's resolver's file at
+ * `resolver`, the real path of /etc/resolv.conf, read-only (ADR 0218).
  */
 export function bwrapArgs(
   { home, worktree, gitDir, borrowed = [] }: CheckSandboxPaths,
@@ -149,7 +170,8 @@ export function bwrapArgs(
     '--unshare-net',
     ...(network ? ['--info-fd', fd(INFO_FD), '--block-fd', fd(BLOCK_FD)] : []),
     ...['--ro-bind', '/', '/'],
-    ...['--dev', '/dev', '--proc', '/proc'],
+    ...(network ? SETUP_DEV : ['--dev', '/dev']),
+    ...['--proc', '/proc'],
     // /run holds the user's D-Bus socket, through which the Secret Service hands out logins.
     ...['--tmpfs', '/tmp', '--tmpfs', '/run', '--tmpfs', home],
     // After /run is hidden, so a link into it finds the file.
