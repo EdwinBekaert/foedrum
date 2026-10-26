@@ -706,6 +706,75 @@ describe('the merge brief (ADR 0225)', () => {
         '### Merge? Fix &#64;ann &lt;\\!-- x --&gt; \\*\\*now\\*\\* @ `aaaaaaaa`',
       );
     });
+
+    it('names the lens of the finding each disposition answered, from the blocked round', async () => {
+      order('lined');
+      run('implement');
+      run('taste', {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'Changes asked',
+        findings: [
+          {
+            severity: 'major',
+            why: 'Breaks the flag',
+            introduced: true,
+            file: 'src/a.ts',
+            line: 3,
+            lens: 'diff/correctness',
+          },
+          { severity: 'minor', why: 'Odd name', introduced: true, lens: 'diff/acceptance' },
+        ],
+      });
+      run('implement', {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Fixed',
+          assumptions: [],
+          dispositions: [
+            { disposition: 'dismissed', why: 'The name follows ADR 0123' },
+            { file: 'src/a.ts', line: 3, disposition: 'fixed' },
+          ],
+        },
+      });
+      run('taste', tasting(), { commit: head });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(body, /- `taste`: diff\/correctness, fixed at src\/a\.ts:3/);
+      assert.match(
+        body,
+        /- `taste`: diff\/acceptance, dismissed at the change as a whole: The name follows ADR 0123/,
+      );
+    });
+
+    it('lists each finding a skip left open, as its blocked round recorded it', async () => {
+      order('strict');
+      run('implement');
+      run('taste', {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'A change is asked',
+        findings: [
+          {
+            severity: 'major',
+            why: 'Breaks the flag for @ann',
+            introduced: true,
+            file: 'src/a.ts',
+            line: 7,
+            lens: 'diff/correctness',
+          },
+        ],
+      });
+      accept({ kind: 'skip', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      open();
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /- `taste`: left open by a skip: diff\/correctness, major in src\/a\.ts:7: Breaks the flag for ann/,
+      );
+    });
   });
 
   describe('found by its marker', () => {
