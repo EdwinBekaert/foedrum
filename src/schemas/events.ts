@@ -567,7 +567,8 @@ export const Event = z.discriminatedUnion('type', [
     unchecked: z.string().min(1).max(MAX_UNCHECKED_LENGTH).optional(),
   }),
   // A check on an open pull request's head still runs, or none is there yet, as the first pass
-  // that saw it found (ADR 0213): when it began to wait, recorded once per head.
+  // that saw it found (ADR 0213): when it began to wait; again on a head recorded finished once
+  // a check on it runs again.
   z.strictObject({
     type: z.literal('pull_request.checks_pending'),
     batchId: BatchId,
@@ -576,7 +577,7 @@ export const Event = z.discriminatedUnion('type', [
     since: Timestamp,
   }),
   // Every check on an open pull request's head finished (ADR 0213): each with its conclusion,
-  // failed first, and how many more there were; recorded once per head.
+  // failed first, and how many more there were; again on the same head when its checks changed.
   z.strictObject({
     type: z.literal('pull_request.checks_finished'),
     batchId: BatchId,
