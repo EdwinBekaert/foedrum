@@ -13,6 +13,7 @@ const onPath: Record<string, string> = {
   git: '/usr/bin/git',
   claude: '/home/brewer/.local/bin/claude',
   socat: '/usr/bin/socat',
+  slirp4netns: '/usr/bin/slirp4netns',
 };
 
 const answers: Record<string, ExecResult> = {
@@ -35,6 +36,12 @@ const answers: Record<string, ExecResult> = {
     stdout: 'socat version 1.7.4.4\n',
     stderr: '',
     output: 'socat version 1.7.4.4\n',
+  },
+  '/usr/bin/slirp4netns': {
+    exitCode: 0,
+    stdout: 'slirp4netns version 1.2.1\n',
+    stderr: '',
+    output: 'slirp4netns version 1.2.1\n',
   },
   // git config exits 1 when no setting matches.
   '/usr/bin/git config --null --get-regexp ^credential\\.': {
@@ -98,6 +105,7 @@ describe('gatherDoctorFacts', () => {
         ['/usr/bin/npm', ['--version']],
         // socat has no --version.
         ['/usr/bin/socat', ['-V']],
+        ['/usr/bin/slirp4netns', ['--version']],
       ].sort(),
     );
   });
@@ -125,6 +133,12 @@ describe('gatherDoctorFacts', () => {
       },
       bwrap: undefined,
       socat: { path: '/usr/bin/socat', exitCode: 0, output: 'socat version 1.7.4.4\n' },
+      pasta: undefined,
+      slirp4netns: {
+        path: '/usr/bin/slirp4netns',
+        exitCode: 0,
+        output: 'slirp4netns version 1.2.1\n',
+      },
       podman: undefined,
       docker: undefined,
     });

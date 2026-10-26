@@ -448,6 +448,34 @@ describe('watchFlush (ADR 0024)', () => {
   }
 });
 
+describe("planTick: an interactive step's open session has no deadline (ADR 0222)", () => {
+  const recipes = fakeRecipes({ lauter: fakeRecipe({ steps: ['plan'], interactive: ['plan'] }) });
+  // Far past any deadline: a session left open for a year.
+  const later = new Date('2027-10-15T12:00:00.000Z');
+
+  it('does not expire a started attempt of an interactive step, however late', () => {
+    const events = brewing('b1', past, 'lauter');
+    const tick = planTick({ ...input(events, { due: [dueAt('b1')] }), recipes, now: later });
+    assert.deepStrictEqual(tick.commands, []);
+  });
+
+  it('still expires a scheduled attempt of an interactive step that no driver started', () => {
+    const events = [ordered('b1'), chosen('b1', 'lauter'), scheduled('b1', past)];
+    const tick = planTick({ ...input(events, { due: [dueAt('b1')] }), recipes, now: later });
+    assert.deepStrictEqual(tick.commands, [expire('b1')]);
+  });
+
+  it('still loses a started attempt of an interactive step whose lease expired', () => {
+    const events = brewing('b1', past, 'lauter');
+    const tick = planTick({
+      ...input(events, { due: [dueAt('b1')], expiredLeases: [leaseOf(plan('b1'))] }),
+      recipes,
+      now: later,
+    });
+    assert.deepStrictEqual(tick.commands, [lose('b1')]);
+  });
+});
+
 describe('planTick: a failing check on an open pull request (ADR 0219)', () => {
   const recipes = fakeRecipes({
     ale: fakeRecipe({

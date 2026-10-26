@@ -2,7 +2,7 @@
 
 import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
-import { BlockerKind, TastingFinding } from './out-doc.ts';
+import { BlockerKind, MOST_DISPOSITIONS, TastingFinding } from './out-doc.ts';
 import { CheckName } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
@@ -268,6 +268,19 @@ export const RoundsOut = z.strictObject({
 });
 export type RoundsOut = z.infer<typeof RoundsOut>;
 
+/** The most findings `step.finished` keeps of an attempt blocked by findings: one per disposition. */
+export const MOST_RECORDED_FINDINGS = MOST_DISPOSITIONS;
+
+/**
+ * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
+ * first of them, cut as a Stuck reason's open findings are, and how many more there were.
+ */
+export const RecordedFindings = z.strictObject({
+  kept: z.array(OpenFinding).max(MOST_RECORDED_FINDINGS),
+  more: Count,
+});
+export type RecordedFindings = z.infer<typeof RecordedFindings>;
+
 export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('needs_input'),
@@ -475,7 +488,7 @@ export const Event = z.discriminatedUnion('type', [
     stepId: StepId,
     when: NonEmpty,
   }),
-  // `session` is required for brewer and session steps; the schema cannot tell the step kind.
+  // `session` is required for brewer steps; the schema cannot tell the step kind.
   // `worktree` is the one this attempt was given; a resumed session's attempt runs in the
   // worktree of the attempt it continues, named by `session.worktree`, and has none (ADR 0029).
   z.strictObject({
@@ -483,6 +496,8 @@ export const Event = z.discriminatedUnion('type', [
     ...step,
     session: SessionRef.optional(),
     worktree: WorktreeRef.optional(),
+    // An interactive step's: when its session opened, a person's wait (ADR 0222).
+    interactiveSince: Timestamp.optional(),
   }),
   // `readings`: a check step's, one per check it read, in order (ADR 0069), or a brewer's, its
   // repository's setup's (ADR 0163). `claude`: a brewer's, once claude's init came (ADR 0116).
@@ -502,6 +517,8 @@ export const Event = z.discriminatedUnion('type', [
     // Ended as claude hit a usage limit: it counts against no retry, and its step runs again once
     // the usage window reopens (ADR 0206).
     usageLimited: z.literal(true).optional(),
+    // A blocking Taster's findings, when it asked for changes (ADR 0221).
+    findings: RecordedFindings.optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

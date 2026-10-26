@@ -206,6 +206,10 @@ await next();
 await foedrum(brewery, ['status']);
 
 await next();
+// What each lens found, how its findings ended and what it cost (ADR 0221).
+await foedrum(brewery, ['lenses']);
+
+await next();
 // The label of the Cellar's order, so the second order is routed to the same recipe.
 const { labels } = ORDER;
 say(

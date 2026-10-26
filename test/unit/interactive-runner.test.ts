@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
-import { resumeArgs } from '../../src/brewers/claude-command.ts';
+import { interactiveArgs, resumeArgs } from '../../src/brewers/claude-command.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from '../../src/brewers/claude-runner.ts';
 import {
   headlessRunner,
@@ -104,6 +104,9 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         },
         writeSystemPrompt: (file, text) => {
           calls.push(`system prompt ${file} ${JSON.stringify(text)}`);
+        },
+        writePrompt: (file, text) => {
+          calls.push(`prompt ${file} ${JSON.stringify(text)}`);
         },
         readOutDoc: (file, _max, root) => {
           calls.push(`read ${file} in ${root}`);
@@ -227,6 +230,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         throw new Error('EACCES');
       },
       writeSystemPrompt: () => {},
+      writePrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
     };
@@ -247,6 +251,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       writeSystemPrompt: () => {
         throw new Error('EACCES');
       },
+      writePrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
     };
@@ -371,6 +376,85 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
     assert.deepEqual(ending, { kind: 'failed', retryable: true, reason: 'headless' });
     assert.deepEqual(headlessPlans, [plan('new')]);
     assert.deepEqual(foreground, []);
+  });
+
+  describe("an interactive step's session (ADR 0222)", () => {
+    const promptFile = resolve('work', 'settings.prompt.md');
+    const systemPrompt = { file: resolve('work', 'settings.system.md'), text: '- Do not push.\n' };
+    const firstMessage = `Read ${promptFile}: it is your task in this session.`;
+    const interactive = (): ClaudeAttemptPlan => ({
+      ...plan('new'),
+      systemPrompt,
+      interactive: { file: promptFile, firstMessage },
+    });
+    const opened = (overrides: Partial<InteractiveRunnerDeps> = {}) =>
+      runner('new', { plan: async () => interactive(), ...overrides });
+
+    it('opens a new session in the foreground with the recorded id, its guards and the first message that points at its prompt file', async () => {
+      const { ending } = await opened().start(attempt).ended;
+      const planned = interactive();
+      const outFile = resolve(planned.cwd, 'brew.md');
+      assert.deepEqual(calls, [
+        `settings ${planned.settingsFile} ${JSON.stringify(attemptSettings(planned.permissions))}`,
+        `system prompt ${systemPrompt.file} ${JSON.stringify(systemPrompt.text)}`,
+        `prompt ${promptFile} ${JSON.stringify(planned.prompt)}`,
+        `clear ${outFile} in ${planned.cwd}`,
+        `say foedrum brew: opening session ${id} of 12-1 brew#2 in ${planned.cwd}: work the step through with the session, have it write brew.md as the brewer's instructions say, then exit claude; the batch goes on from its next step`,
+        'claude',
+        `read ${outFile} in ${planned.cwd}`,
+      ]);
+      assert.deepEqual(
+        foreground.map(({ args }) => args),
+        [
+          interactiveArgs({
+            model: 'claude-haiku-5-5',
+            effort: 'low',
+            settingsFile: planned.settingsFile,
+            tools: ['Read', 'Write'],
+            sessionId: id,
+            appendSystemPromptFile: systemPrompt.file,
+            firstMessage,
+          }),
+        ],
+      );
+      assert.deepEqual(headlessPlans, []);
+      assert.equal(ending.kind, 'succeeded');
+    });
+
+    it('fails retryably when the session closes without an out doc', async () => {
+      written = { kind: 'missing' };
+      const { ending } = await opened().start(attempt).ended;
+      assert.deepEqual(ending, {
+        kind: 'failed',
+        retryable: true,
+        reason: 'the out doc brew.md is missing',
+      });
+    });
+
+    it('does not start claude when the prompt file cannot be written', async () => {
+      const failing = opened({
+        files: {
+          writeSettings: () => {},
+          writeSystemPrompt: () => {},
+          writePrompt: () => {
+            throw new Error('disk full');
+          },
+          readOutDoc: () => written,
+          clearOutDoc: () => {},
+        },
+      });
+      const { ending } = await failing.start(attempt).ended;
+      assert.deepEqual(foreground, []);
+      assert.equal(ending.kind, 'failed');
+    });
+
+    it("runs a resumed attempt of any other step headless in brew's runner, which opens only interactive steps", async () => {
+      const brews = runner('resume', { opensResumed: false });
+      const { ending } = await brews.start(attempt).ended;
+      assert.deepEqual(foreground, []);
+      assert.deepEqual(headlessPlans, [plan('resume')]);
+      assert.deepEqual(ending, { kind: 'failed', retryable: true, reason: 'headless' });
+    });
   });
 
   // The worktree of a resumed session may have been re-added without its install (review of #440).

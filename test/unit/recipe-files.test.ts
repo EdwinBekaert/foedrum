@@ -247,13 +247,12 @@ describe('loadRecipes: fails closed', () => {
           steps: [{ id: 'taste', brewer: 'brewmaster' }],
         },
       },
-      { id: 'refine', session: 'refine', deadline: '1d' },
       { id: 'approve', gate: 'human', deadline: '1d' },
       { action: 'comment' },
       { id: 'split', fanOut: {} },
     ];
-    const kinds = ['loop', 'session', 'gate', 'action', 'fanOut'];
-    const ids = ['review', 'refine', 'approve', 'comment', 'split'];
+    const kinds = ['loop', 'gate', 'action', 'fanOut'];
+    const ids = ['review', 'approve', 'comment', 'split'];
     assert.deepEqual(
       problemsOf(brewery({ recipes: [recipe('pale', steps)] })),
       ids.map(
@@ -530,23 +529,20 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
     ]);
   });
 
-  it("names a loop's step or a session step's fallback that commits before the red proof", () => {
+  it("names a loop's step that commits before the red proof", () => {
     const steps = [
       { id: 'gauge', brewer: 'gauger' },
       {
         id: 'review',
         loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'cellarman' }] },
       },
-      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' },
       red,
     ];
     const before = (id: string) =>
       `recipes/pale.jsonc: step "${id}" commits before the red proof "red" of step "gauge" (ADR 0064)`;
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
-      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
       before('fix'),
-      before('refine'),
     ]);
   });
 
@@ -556,11 +552,9 @@ describe('loadRecipes: a test-first recipe needs a red proof (ADR 0028, ADR 0064
         id: 'review',
         loop: { maxRounds: 1, until: 'fix.status', steps: [{ id: 'fix', brewer: 'nobody' }] },
       },
-      { id: 'refine', session: 'refine', deadline: '1d', fallback: 'ghost' },
     ];
     assert.deepEqual(problemsOf(withWriters(opened('pale', steps))), [
       'recipes/pale.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
-      'recipes/pale.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
     ]);
   });
 
@@ -1072,14 +1066,17 @@ describe('loadRecipes: commits end in a pull request (ADR 0084)', () => {
       brewers: [maltster, cellarman],
     });
 
-  it("counts a nested step's brewer that commits, such as a session's fallback (review of #230)", () => {
+  it("counts a nested step's brewer that commits, such as a loop's (review of #230)", () => {
+    const fix = { id: 'fix', brewer: 'cellarman' };
     assert.deepEqual(
       problemsOf(
-        withCellarman([{ id: 'refine', session: 'refine', deadline: '1d', fallback: 'cellarman' }]),
+        withCellarman([
+          { id: 'review', loop: { maxRounds: 1, until: 'fix.status', steps: [fix] } },
+        ]),
       ),
       [
-        'recipes/stout.jsonc: step "refine" is a session step, which the engine does not brew yet (ADR 0053)',
-        'recipes/stout.jsonc: step "refine" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
+        'recipes/stout.jsonc: step "review" is a loop step, which the engine does not brew yet (ADR 0053)',
+        'recipes/stout.jsonc: step "fix" has the brewer "cellarman", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)',
       ],
     );
   });
@@ -1792,97 +1789,62 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
   });
 });
 
-describe('loadRecipes: a Taster step that names several lenses together (#560, ADR 0220)', () => {
+describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
+  const lauter = {
+    id: 'lauter',
+    brewer: 'maltster',
+    interactive: true,
+    prompt: 'Plan it with me.',
+  };
+  const files = brewery({
+    recipes: [recipe('pale', [lauter, { id: 'plan', brewer: 'brewmaster' }])],
+  });
+
+  it('loads it: the recipe says which step is interactive, and its brewer carries the prompt', () => {
+    const result = loadRecipes(files);
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale');
+    assert.equal(pale?.interactive('lauter'), true);
+    assert.equal(pale?.interactive('plan'), false);
+    assert.deepEqual(result.brewers.find('pale', 'lauter')?.interactive, {
+      prompt: 'Plan it with me.',
+    });
+    assert.equal(result.brewers.find('pale', 'plan')?.interactive, undefined);
+  });
+
   const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const security = { path: 'defaults/lenses/diff/security.md', text: 'Look for secrets.' };
   const committer = brewer('cellarman', {
     access: 'write',
     git: { commit: true },
     produces: 'commits',
   });
-  const lensFiles = ['correctness', 'security', 'acceptance'].map((name) => ({
-    path: `defaults/lenses/diff/${name}.md`,
-    text: `Look at ${name}.`,
-  }));
-  const together = { id: 'taste', brewer: 'taster', lenses: ['diff/security', 'diff/correctness'] };
-  const tasting = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
+  const tasting = (steps: readonly unknown[]): BreweryFiles => ({
     recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
-    brewers,
-    defaults: { lenses: lensFiles },
+    brewers: [committer, taster],
+    defaults: { lenses: [security] },
   });
-  const valid = (files: BreweryFiles) => {
-    const result = loadRecipes(files);
-    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
-    return result;
-  };
+  const talking = { interactive: true, prompt: 'Talk it through.' };
 
-  it("gives the step's Taster every lens, in the step's order, as its one input lens", () => {
-    const result = valid(tasting([together]));
-    const found = result.brewers.find('amber', 'taste');
-    assert.deepEqual(found?.brewer.inputs, [
-      { name: 'lens', from: 'lens:diff/security,diff/correctness', trusted: false },
-    ]);
-    assert.deepEqual([...(found?.lenses?.keys() ?? [])], ['diff/security', 'diff/correctness']);
-    assert.deepEqual(found?.together, ['diff/security', 'diff/correctness']);
-    assert.equal(found?.lens, undefined);
-    assert.equal(found?.blocking, false);
-    // Each lens is in use, so doctor does not report it as unused (ADR 0141).
-    assert.ok(result.catalog.named.lenses.has('diff/security'));
-    assert.ok(result.catalog.named.lenses.has('diff/correctness'));
-    assert.ok(!result.catalog.named.lenses.has('diff/acceptance'));
-  });
-
-  it('follows blocking on a lenses step, and its findings route', () => {
-    const blocking = {
-      ...together,
-      blocking: true,
-      onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
-    };
-    const result = valid(tasting([blocking]));
-    assert.equal(result.brewers.find('amber', 'taste')?.blocking, true);
-    const amber = result.recipes.find('amber');
-    assert.equal(
-      amber?.loopBack({ steps: new Map() } as unknown as Batch, 'taste', 'findings'),
-      'cellarman',
-    );
-  });
-
-  it('loads a lenses step as a child of a parallel group, beside a lens step apart', () => {
-    const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
-    const rest = { id: 'rest', brewer: 'taster', lenses: ['diff/correctness', 'diff/acceptance'] };
-    const result = valid(tasting([{ id: 'tasting', parallel: [security, rest] }]));
-    const amber = result.recipes.find('amber');
-    assert.deepEqual(amber?.children('tasting'), ['security', 'rest']);
-    assert.equal(amber?.group('rest'), 'tasting');
-    assert.deepEqual(result.brewers.find('amber', 'rest')?.together, [
-      'diff/correctness',
-      'diff/acceptance',
-    ]);
-    assert.equal(result.brewers.find('amber', 'security')?.lens, 'diff/security');
-  });
-
-  it('refuses lenses on a brewer that is no Taster, as it refuses a lens', () => {
-    assert.deepEqual(problemsOf(tasting([{ ...together, brewer: 'cellarman' }])), [
-      'recipes/amber.jsonc: step "taste" has "lenses", but its brewer "cellarman" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting" (ADR 0161, ADR 0220)',
+  it('refuses one in a parallel group: its children run side by side, and a session needs the terminal', () => {
+    const child = { id: 'security', brewer: 'taster', lens: 'diff/security', ...talking };
+    assert.deepEqual(problemsOf(tasting([{ id: 'taste', parallel: [child] }])), [
+      'recipes/amber.jsonc: step "security" in the parallel group "taste" is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)',
     ]);
   });
 
-  it('refuses each lens of the list that neither the Brewery nor the defaults have, naming it', () => {
-    const unknown = { ...together, lenses: ['diff/sparkle', 'diff/security', 'diff/glitter'] };
-    assert.deepEqual(problemsOf(tasting([unknown])), [
-      'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
-      'recipes/amber.jsonc: step "taste" names the lens "diff/glitter", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
+  it("refuses one with a lens: a lens step is a Taster's headless review", () => {
+    const step = { id: 'taste', brewer: 'taster', lens: 'diff/security', ...talking };
+    assert.deepEqual(problemsOf(tasting([step])), [
+      'recipes/amber.jsonc: step "taste" is interactive and has a "lens": a lens step is a Taster\'s headless review (ADR 0222)',
     ]);
   });
 
-  it('refuses a lens of the list from the folder the step does not review', () => {
-    const mixed = { ...together, lenses: ['diff/security', 'plan/coverage'] };
-    const files = tasting([mixed]);
-    const problems = problemsOf({
-      ...files,
-      defaults: { lenses: [...lensFiles, { path: 'defaults/lenses/plan/coverage.md', text: 'x' }] },
-    });
-    assert.deepEqual(problems, [
-      'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+  it('refuses one with lenses together, as with one lens (ADR 0220)', () => {
+    const lenses = ['diff/security', 'diff/correctness'];
+    const step = { id: 'taste', brewer: 'taster', lenses, ...talking };
+    assert.deepEqual(problemsOf(tasting([step])), [
+      'recipes/amber.jsonc: step "taste" is interactive and has a "lenses": a lens step is a Taster\'s headless review (ADR 0222)',
     ]);
   });
 });
@@ -1983,5 +1945,100 @@ describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
     });
     assert.equal(recipe.mayRetry(actionWith([succeeded, failed, failed]), open), true);
     assert.equal(recipe.mayRetry(actionWith([succeeded, failed, failed, failed]), open), false);
+  });
+});
+
+describe('loadRecipes: a Taster step that names several lenses together (#560, ADR 0220)', () => {
+  const taster = brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } });
+  const committer = brewer('cellarman', {
+    access: 'write',
+    git: { commit: true },
+    produces: 'commits',
+  });
+  const lensFiles = ['correctness', 'security', 'acceptance'].map((name) => ({
+    path: `defaults/lenses/diff/${name}.md`,
+    text: `Look at ${name}.`,
+  }));
+  const together = { id: 'taste', brewer: 'taster', lenses: ['diff/security', 'diff/correctness'] };
+  const tasting = (steps: readonly unknown[], brewers = [committer, taster]): BreweryFiles => ({
+    recipes: [opened('amber', [{ brewer: 'cellarman' }, ...steps], { testFirst: false })],
+    brewers,
+    defaults: { lenses: lensFiles },
+  });
+  const valid = (files: BreweryFiles) => {
+    const result = loadRecipes(files);
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    return result;
+  };
+
+  it("gives the step's Taster every lens, in the step's order, as its one input lens", () => {
+    const result = valid(tasting([together]));
+    const found = result.brewers.find('amber', 'taste');
+    assert.deepEqual(found?.brewer.inputs, [
+      { name: 'lens', from: 'lens:diff/security,diff/correctness', trusted: false },
+    ]);
+    assert.deepEqual([...(found?.lenses?.keys() ?? [])], ['diff/security', 'diff/correctness']);
+    assert.deepEqual(found?.together, ['diff/security', 'diff/correctness']);
+    assert.equal(found?.lens, undefined);
+    assert.equal(found?.blocking, false);
+    // Each lens is in use, so doctor does not report it as unused (ADR 0141).
+    assert.ok(result.catalog.named.lenses.has('diff/security'));
+    assert.ok(result.catalog.named.lenses.has('diff/correctness'));
+    assert.ok(!result.catalog.named.lenses.has('diff/acceptance'));
+  });
+
+  it('follows blocking on a lenses step, and its findings route', () => {
+    const blocking = {
+      ...together,
+      blocking: true,
+      onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
+    };
+    const result = valid(tasting([blocking]));
+    assert.equal(result.brewers.find('amber', 'taste')?.blocking, true);
+    const amber = result.recipes.find('amber');
+    assert.equal(
+      amber?.loopBack({ steps: new Map() } as unknown as Batch, 'taste', 'findings'),
+      'cellarman',
+    );
+  });
+
+  it('loads a lenses step as a child of a parallel group, beside a lens step apart', () => {
+    const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+    const rest = { id: 'rest', brewer: 'taster', lenses: ['diff/correctness', 'diff/acceptance'] };
+    const result = valid(tasting([{ id: 'tasting', parallel: [security, rest] }]));
+    const amber = result.recipes.find('amber');
+    assert.deepEqual(amber?.children('tasting'), ['security', 'rest']);
+    assert.equal(amber?.group('rest'), 'tasting');
+    assert.deepEqual(result.brewers.find('amber', 'rest')?.together, [
+      'diff/correctness',
+      'diff/acceptance',
+    ]);
+    assert.equal(result.brewers.find('amber', 'security')?.lens, 'diff/security');
+  });
+
+  it('refuses lenses on a brewer that is no Taster, as it refuses a lens', () => {
+    assert.deepEqual(problemsOf(tasting([{ ...together, brewer: 'cellarman' }])), [
+      'recipes/amber.jsonc: step "taste" has "lenses", but its brewer "cellarman" is no Taster: a lens step\'s brewer answers with the out doc schema "tasting" (ADR 0161, ADR 0220)',
+    ]);
+  });
+
+  it('refuses each lens of the list that neither the Brewery nor the defaults have, naming it', () => {
+    const unknown = { ...together, lenses: ['diff/sparkle', 'diff/security', 'diff/glitter'] };
+    assert.deepEqual(problemsOf(tasting([unknown])), [
+      'recipes/amber.jsonc: step "taste" names the lens "diff/sparkle", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
+      'recipes/amber.jsonc: step "taste" names the lens "diff/glitter", which neither the Brewery\'s lenses/ nor Foedrum\'s defaults have (ADR 0161)',
+    ]);
+  });
+
+  it('refuses a lens of the list from the folder the step does not review', () => {
+    const mixed = { ...together, lenses: ['diff/security', 'plan/coverage'] };
+    const files = tasting([mixed]);
+    const problems = problemsOf({
+      ...files,
+      defaults: { lenses: [...lensFiles, { path: 'defaults/lenses/plan/coverage.md', text: 'x' }] },
+    });
+    assert.deepEqual(problems, [
+      'recipes/amber.jsonc: step "taste" reviews a diff, since step "cellarman" before it commits, and names the lens "plan/coverage", which reviews a plan: name a lens of lenses/diff/ (ADR 0143)',
+    ]);
   });
 });

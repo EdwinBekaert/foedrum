@@ -11,6 +11,7 @@ import type {
   OrderRef,
   RankPlace,
   Receipt,
+  RecordedFindings,
   ScheduleRoute,
   SessionRef,
   StuckOption,
@@ -64,6 +65,8 @@ export type Attempt =
       answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
+      /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
+      interactiveSince?: string;
       abandoned?: true;
     }
   | {
@@ -89,6 +92,8 @@ export type Attempt =
       paused?: true;
       /** Ended as claude hit a usage limit: it counts against no retry (ADR 0206). */
       usageLimited?: true;
+      /** A blocking Taster's findings, when it asked for changes (ADR 0221). */
+      findings?: RecordedFindings;
     };
 
 export interface Input {
@@ -491,6 +496,9 @@ function apply(state: State, event: Event): State {
           phase: 'started',
           ...(event.session === undefined ? {} : { session: event.session }),
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
+          ...(event.interactiveSince === undefined
+            ? {}
+            : { interactiveSince: event.interactiveSince }),
         };
       });
       const { worktree, stepId, attempt } = event;
@@ -517,6 +525,7 @@ function apply(state: State, event: Event): State {
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
+          ...(event.findings === undefined ? {} : { findings: event.findings }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;

@@ -7,8 +7,8 @@ import { checkName, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
-import { onFindings } from '../engine/decide.ts';
 import type { Batch } from '../engine/fold.ts';
+import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
@@ -19,7 +19,6 @@ import type { GravityReading, ScheduleRoute } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
   type Disposition,
-  dispositionsOf,
   FINING,
   FiningOutDoc,
   GAUGE,
@@ -36,7 +35,6 @@ import {
   tastingOutDocOf,
 } from '../schemas/out-doc.ts';
 import { parseRule } from '../schemas/primitives.ts';
-import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
@@ -101,6 +99,8 @@ export interface PlanFacts {
   together?: readonly string[];
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
   random?: RandomBytes;
+  /** An interactive step's: the recipe's first message to its session (ADR 0222). */
+  interactive?: { prompt: string };
 }
 
 /**
@@ -388,32 +388,6 @@ type RoundBefore =
   | { kind: 'unfound'; attempt: number };
 
 /**
- * An outcome of a review (ADR 0196): a success with a Taster's verdict, or blocked by findings
- * (`onFindings`).
- */
-const reviewed = (outcome: StepOutcome): boolean => {
-  switch (outcome.kind) {
-    case 'succeeded': {
-      const { output } = outcome;
-      const verdict =
-        typeof output === 'object' && output !== null && !Array.isArray(output)
-          ? output.verdict
-          : undefined;
-      return verdict === 'approve' || verdict === 'changes';
-    }
-    case 'failed':
-      return onFindings(outcome);
-    case 'needs_input':
-    case 'cancelled':
-      return false;
-    default: {
-      const unhandled: never = outcome;
-      throw new Error(`Unhandled outcome ${JSON.stringify(unhandled)}`);
-    }
-  }
-};
-
-/**
  * What a later round of a lens step that reviews a diff is told (ADR 0190): with the change since
  * the round before, to review only that; without it, why, and to review the whole change.
  */
@@ -473,43 +447,18 @@ export function earlierRoundsOf(
   ref: AttemptRef,
   outDoc: string | undefined,
 ): PlannedRound[] {
-  const rounds: PlannedRound[] = [];
-  // The round each other step's latest attempt answers, while a retry or an answer continues it.
-  const answering = new Map<string, PlannedRound>();
-  for (const { stepId, attempt } of batch.path ?? []) {
-    if (stepId === ref.stepId && attempt === ref.attempt) break;
-    const ran = batch.steps.get(stepId)?.attempts.get(attempt);
-    if (ran === undefined) continue;
-    if (stepId === ref.stepId) {
-      if (ran.phase !== 'finished' || !reviewed(ran.outcome)) continue;
-      const step = `${stepId}#${attempt}`;
-      if (ran.outcome.kind === 'succeeded') {
-        const findings = tastingOf(ran.outcome.output)?.findings ?? [];
-        rounds.push({ step, dispositions: [], findings });
-        continue;
-      }
-      // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
-      const root = ran.worktree?.path ?? ran.session?.worktree;
-      rounds.push(
-        root === undefined || outDoc === undefined
-          ? { step, dispositions: [], unread: 'no worktree of it is recorded' }
-          : { step, dispositions: [], outDoc: { path: join(root, outDoc), root } },
-      );
-      continue;
+  return lensRounds(batch, ref.stepId, ref.attempt).map(({ attempt, ran, dispositions }) => {
+    const step = `${ref.stepId}#${attempt}`;
+    if (ran.outcome.kind === 'succeeded') {
+      const findings = tastingOf(ran.outcome.output)?.findings ?? [];
+      return { step, dispositions, findings };
     }
-    const { route } = ran;
-    const latest = rounds.at(-1);
-    if (route?.from === ref.stepId && route.why === 'findings' && latest !== undefined) {
-      answering.set(stepId, latest);
-    } else if (ran.retry !== true && ran.answered !== true) {
-      answering.delete(stepId);
-    }
-    const answered = answering.get(stepId);
-    if (answered !== undefined && ran.phase === 'finished' && ran.outcome.kind === 'succeeded') {
-      answered.dispositions = dispositionsOf(ran.outcome.output);
-    }
-  }
-  return rounds;
+    // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
+    const root = ran.worktree?.path ?? ran.session?.worktree;
+    return root === undefined || outDoc === undefined
+      ? { step, dispositions, unread: 'no worktree of it is recorded' }
+      : { step, dispositions, outDoc: { path: join(root, outDoc), root } };
+  });
 }
 
 /** The most of the earlier findings input a prompt holds, in UTF-8 bytes (ADR 0191). */
@@ -808,6 +757,20 @@ export function systemPromptFileOf(settingsFile: string): string {
   return join(dirname(settingsFile), `${basename(settingsFile, '.json')}.system.md`);
 }
 
+/** An interactive step's prompt file, beside its settings file: `<attempt>.prompt.md` (ADR 0222). */
+export function promptFileOf(settingsFile: string): string {
+  return join(dirname(settingsFile), `${basename(settingsFile, '.json')}.prompt.md`);
+}
+
+/** A Read rule for the one file at the absolute `path`, as Claude Code matches it (ADR 0222). */
+export function absoluteReadRule(path: string): string {
+  // Claude Code matches a Windows path in POSIX form, `C:\x` as `/c/x`; `//` makes it absolute.
+  const posixPath = path
+    .replaceAll('\\', '/')
+    .replace(/^([A-Za-z]):/, (_, drive: string) => `/${drive.toLowerCase()}`);
+  return `Read(/${posixPath})`;
+}
+
 /**
  * Where the runner keeps a copy of the out doc of an attempt that ran out of turns, beside its
  * settings file: `<attempt>.out.md` (ADR 0175).
@@ -928,13 +891,20 @@ export function goOn(doc: string, why: Resumed): string {
 /** The plan of one attempt; throws when its prompt cannot be assembled. */
 export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const { brewer, worktree, models, env, sessionId, resumes, outDocFrom } = facts;
-  const permissions = attemptPermissions(
+  const granted = attemptPermissions(
     brewer,
     facts.repoTools,
     facts.sandbox,
     facts.configDirs,
     env.base,
   );
+  // An interactive session reads its prompt from its file beside the settings, and no other file
+  // outside the worktree (ADR 0222).
+  const promptFile = facts.interactive && promptFileOf(facts.settingsFile);
+  const permissions =
+    promptFile === undefined
+      ? granted
+      : { ...granted, allow: [...granted.allow, absoluteReadRule(promptFile)] };
   const { allow } = permissions;
   const contract = outDocContract(brewer.output.doc, commits(brewer));
   // The engine's text for a later round, for every lens alike, never one lens's file (ADR 0190).
@@ -943,9 +913,11 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     ...(facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)]),
     ...(facts.earlierFindings === true ? [EARLIER_FINDINGS_TEXT] : []),
   ];
+  // The Brewery's first message to an interactive step's session follows the brewer's own.
+  const recipePrompt = facts.interactive === undefined ? [] : [facts.interactive.prompt.trimEnd()];
   const instructions =
     resumes === undefined
-      ? [facts.instructions.trimEnd(), ...round, contract].join('\n\n')
+      ? [facts.instructions.trimEnd(), ...recipePrompt, ...round, contract].join('\n\n')
       : goOn(brewer.output.doc, resumes);
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
@@ -971,5 +943,13 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
     // A resumed session has them recorded until it is compacted; then claude reads the file again.
     systemPrompt: attemptSystemPrompt(brewer, allow, facts.settingsFile),
     ...(outDocFrom === undefined ? {} : { outDocFrom }),
+    ...(promptFile === undefined
+      ? {}
+      : {
+          interactive: {
+            file: promptFile,
+            firstMessage: `Read ${promptFile}: it is your task in this session.`,
+          },
+        }),
   };
 }

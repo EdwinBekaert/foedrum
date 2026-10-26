@@ -10,4 +10,4 @@ Analysis and decomposition are where a human adds the most value, so Foedrum off
 - Re-running `/foedrum:refine` on an order that already has sub-orders shows the current breakdown and lets you deepen, add or cancel sub-orders (never silently delete).
 - The plugin is Markdown commands and skills only — no npm packages — and talks to the Brewery through the `foedrum` CLI.
 
-Since [ADR 0019](../../adr/0019-interactive-sessions-and-one-command-layer.md), refinement is one of several interactive steps (refine, triage, review) that run in the engineer's session, with or without the Cellar running.
+Since [ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md), a recipe asks for a person in the conversation with an interactive brewer step, which runs as that brewer's session in `foedrum brew`'s terminal ([interactive steps](../recipes/interactive-steps.md)); ADR 0019's fixed `session` kinds (refine, triage, review) are gone.

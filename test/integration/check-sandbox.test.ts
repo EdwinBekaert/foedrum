@@ -2,12 +2,14 @@
 // cannot write outside its worktree, read a file in the home folder or open a connection to a
 // server on 127.0.0.1. It tests our arguments and profile with the real tools, not the tools
 // themselves; it runs where the sandbox runs (macOS, Linux with a working bwrap) and skips elsewhere.
-// A setup's sandbox keeps the network and nothing else (ADR 0158).
+// A setup's sandbox keeps the network and nothing else (ADR 0158): on Linux through a network
+// namespace of its own that pasta or slirp4netns joins, which must be there on CI (ADR 0218).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { createServer, type Server } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import { join, relative } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { bwrapArgs, SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/check-sandbox.ts';
@@ -47,6 +49,55 @@ const unavailable = (): string | undefined => {
 };
 
 const skip = unavailable();
+
+const inCi = process.env.CI !== undefined && process.env.CI !== '';
+
+/**
+ * Why a setup cannot run here besides the sandbox: on Linux it needs a user-mode network stack
+ * (ADR 0218). On CI's Linux leg that is a failure, not a skip, so the leg proves the isolation.
+ */
+const setupUnavailable = (): string | undefined => {
+  if (skip !== undefined) return skip;
+  if (process.platform !== 'linux' || inCi) return undefined;
+  const found = ['slirp4netns', 'pasta'].some((tool) => resolveExecutable(tool) !== undefined);
+  return found ? undefined : 'neither slirp4netns nor pasta (passt) is on PATH';
+};
+
+/** A server that counts its connections, listening where it is told. */
+const counting = async (listen: (server: Server, done: () => void) => void) => {
+  let connections = 0;
+  const server = createServer((socket) => {
+    connections++;
+    socket.destroy();
+  });
+  await new Promise<void>((done, fail) => {
+    server.once('error', fail);
+    listen(server, done);
+  });
+  const address = server.address();
+  return {
+    port: typeof address === 'object' && address !== null ? address.port : 0,
+    connections: () => connections,
+    close: () => new Promise((done) => server.close(done)),
+  };
+};
+
+/**
+ * node connecting to `target` (its connect arguments): exit 0 when it connected, 3 when not. With
+ * `unansweredAfterMs`, also 3 when nothing answers by then, as an unmapped gateway may not: a hang
+ * guard for a refusal only, never a limit on a connection that should be made (ADR 0070).
+ */
+const connectLine = (target: string, unansweredAfterMs?: number) => {
+  const guard =
+    unansweredAfterMs === undefined ? '' : `.setTimeout(${unansweredAfterMs},()=>process.exit(3))`;
+  return `"${process.execPath}" -e "require('net').connect(${target}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))${guard}"`;
+};
+
+/** An IPv4 address of this machine that is not the loopback, or undefined. */
+const outsideAddress = (): string | undefined =>
+  Object.values(networkInterfaces())
+    .flat()
+    .find((found) => found !== undefined && found.family === 'IPv4' && !found.internal)?.address;
 
 describe('a check in the real sandbox', { skip: skip ?? false }, () => {
   let dir: TempDir;
@@ -158,7 +209,9 @@ const resolverFolder = (): string | undefined => {
 
 // A repository's setup in the same sandbox with the network kept (ADR 0158): it reaches a server,
 // as an install reaches its registry, and still cannot read the home folder or write outside.
-describe('a setup in the real sandbox, the network kept', { skip: skip ?? false }, () => {
+describe('a setup in the real sandbox, the network kept', {
+  skip: setupUnavailable() ?? false,
+}, () => {
   let dir: TempDir;
   let home: string;
   let worktree: string;
@@ -180,25 +233,82 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
   });
   after(() => dir.remove());
 
-  it('opens a connection to a server on 127.0.0.1', async () => {
-    let connections = 0;
-    const server = createServer((socket) => {
-      connections++;
-      socket.destroy();
-    });
-    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  it('opens a connection to a server on 127.0.0.1 on macOS, whose profile keeps IP', {
+    skip: process.platform !== 'darwin' && 'Linux gives a setup a network namespace of its own',
+  }, async () => {
+    const server = await counting((it, done) => it.listen(0, '127.0.0.1', done));
     try {
-      const address = server.address();
-      const port = typeof address === 'object' && address !== null ? address.port : 0;
-      const connect = `require('net').connect(${port},'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(3))`;
-      const result = await setup(`"${process.execPath}" -e "${connect}"`);
+      const result = await setup(connectLine(`${server.port},'127.0.0.1'`));
       assert.equal(result.exitCode, 0, result.output);
-      await waitUntil('the server saw the connection', () => connections === 1);
+      await waitUntil('the server saw the connection', () => server.connections() === 1);
     } finally {
-      await new Promise((done) => server.close(done));
+      await server.close();
     }
   });
 
+  // An install reaches its registry through the stack: here a server on an address of this
+  // machine that is not the loopback, so nothing leaves the machine (CLAUDE.md).
+  it('opens a connection through the stack on Linux, to an address that is not the loopback', {
+    skip: process.platform !== 'linux' && 'the network stack is Linux only',
+  }, async () => {
+    const address = outsideAddress();
+    if (address === undefined) {
+      assert.ok(!inCi, 'CI has an address that is not the loopback');
+      return;
+    }
+    const server = await counting((it, done) => it.listen(0, address, done));
+    try {
+      const result = await setup(connectLine(`${server.port},'${address}'`));
+      assert.equal(result.exitCode, 0, result.output);
+      await waitUntil('the server saw the connection', () => server.connections() === 1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // The namespace is the setup's own: 127.0.0.1 is its own loopback, and the stack maps no
+  // address to the host's (ADR 0218).
+  it("cannot open a connection to a server on the host's 127.0.0.1 on Linux", {
+    skip: process.platform !== 'linux' && 'the network namespace is Linux only',
+  }, async () => {
+    const server = await counting((it, done) => it.listen(0, '127.0.0.1', done));
+    try {
+      // The same line outside the sandbox reaches the server: the refusal is the sandbox's.
+      const line = connectLine(`${server.port},'127.0.0.1'`);
+      const open = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
+      assert.equal(open.exitCode, 0, open.output);
+      await waitUntil('the server saw the connection', () => server.connections() === 1);
+      for (const host of ['127.0.0.1', '10.0.2.2']) {
+        const result = await setup(connectLine(`${server.port},'${host}'`, 30_000));
+        assert.equal(result.exitCode, 3, `${host}: ${result.output}`);
+      }
+      assert.equal(server.connections(), 1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // An abstract socket belongs to the network namespace: an X server's, a D-Bus bus's (#425).
+  it("cannot connect to the host's abstract Unix socket on Linux", {
+    skip: process.platform !== 'linux' && 'abstract sockets are Linux only',
+  }, async () => {
+    const name = `foedrum-425-${process.pid}-${Date.now()}`;
+    // node takes a path that starts with a NUL byte as an abstract name.
+    const server = await counting((it, done) => it.listen(`\0${name}`, done));
+    try {
+      // The line's JavaScript writes the NUL as an escape, so no NUL byte is in the command line.
+      const line = connectLine(`'\\\\0${name}'`);
+      // The same line outside the sandbox reaches the socket: the refusal is the sandbox's.
+      const open = await execProcess(line, [], { cwd: worktree, shell: true, timeoutMs: 60_000 });
+      assert.equal(open.exitCode, 0, open.output);
+      await waitUntil('the server saw the connection', () => server.connections() === 1);
+      const result = await setup(line);
+      assert.equal(result.exitCode, 3, result.output);
+      assert.equal(server.connections(), 1);
+    } finally {
+      await server.close();
+    }
+  });
   it('cannot read a file in the home folder', async () => {
     writeFileSync(join(worktree, 'package.json'), '{}\n');
     const result = await setup(`cat package.json && cat "${home}/secret.txt"`);
@@ -248,14 +358,14 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
     assert.equal(result.exitCode, 0, result.output);
   });
 
-  // An install looks its registry up by name: the resolver's list must be there to read.
-  it('reads /etc/resolv.conf on Linux, also where it links into the hidden /run', {
-    skip:
-      (process.platform !== 'linux' && 'the resolver bind is a Linux path') ||
-      (resolverFolder() === undefined && '/etc/resolv.conf does not link into /run here'),
+  // An install looks its registry up by name, through the stack's resolver: the host's may be
+  // systemd-resolved's 127.0.0.53, which in the namespace is its own loopback (ADR 0218).
+  it("reads the stack's resolver at /etc/resolv.conf on Linux, also where it links into the hidden /run", {
+    skip: process.platform !== 'linux' && 'the resolver file is a Linux path',
   }, async () => {
-    const result = await setup('cat /etc/resolv.conf > /dev/null');
+    const result = await setup('cat /etc/resolv.conf');
     assert.equal(result.exitCode, 0, result.output);
+    assert.equal(result.stdout, 'nameserver 10.0.2.3\n');
   });
 
   it('sees no user folder under /run on Linux, where the D-Bus socket was', {
@@ -263,8 +373,8 @@ describe('a setup in the real sandbox, the network kept', { skip: skip ?? false 
   }, async () => {
     const result = await setup('ls -A /run');
     assert.equal(result.exitCode, 0, result.output);
-    // Only the resolver's folder, bound back for the network where /etc/resolv.conf links into
-    // /run (ADR 0158): systemd-resolved, resolvconf or NetworkManager, as the machine has it.
+    // Only the folder of the stack's resolver file, where /etc/resolv.conf links into /run
+    // (ADR 0218): systemd-resolved, resolvconf or NetworkManager, as the machine has it.
     assert.equal(result.output.trim(), resolverFolder() ?? '');
   });
 });

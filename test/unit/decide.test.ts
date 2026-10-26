@@ -14,6 +14,7 @@ import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type {
   Event,
   OrderRef,
+  RecordedFindings,
   StuckOption,
   StuckReason,
   WaitCondition,
@@ -387,12 +388,18 @@ describe('decide finish', () => {
     attempt,
     ending,
   });
-  const finished = (outcome: StepOutcome, stepId = 'plan', attempt = 1): Event => ({
+  const finished = (
+    outcome: StepOutcome,
+    stepId = 'plan',
+    attempt = 1,
+    findings?: RecordedFindings,
+  ): Event => ({
     type: 'step.finished',
     batchId: 'b1',
     stepId,
     attempt,
     outcome,
+    ...(findings === undefined ? {} : { findings }),
   });
   const succeeded = { kind: 'succeeded', output: { plan: 'ok' } } as const;
   const retryable = { kind: 'failed', retryable: true, reason: 'out doc missing' } as const;
@@ -547,7 +554,8 @@ describe('decide finish', () => {
         findings: [{ severity: 'major', why: 'no deadline', introduced: true }],
       } as const;
       accepts(brewing(), finish(withFindings), [
-        finished(recorded('findings')),
+        // With its findings (ADR 0221).
+        finished(recorded('findings'), 'plan', 1, { kept: [...withFindings.findings], more: 0 }),
         stuckOn({
           kind: 'blocked',
           stepId: 'plan',
@@ -1794,12 +1802,14 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     attempt,
     ending,
   });
+  // With the Taster's findings, which a later report counts (ADR 0221).
   const recorded = (attempt: number): Event => ({
     type: 'step.finished',
     batchId: 'b1',
     stepId: 'implement',
     attempt,
     outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): the test is wrong' },
+    findings: { kept: blocked.findings.map((each) => ({ ...each })), more: 0 },
   });
   const findings = { from: 'implement', why: 'findings' } as const;
   const inHalfAnHour = '2026-10-15T12:30:00.000Z';
@@ -1946,6 +1956,44 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
       ],
       more: 2,
     });
+  });
+
+  /** The step.finished the batch's first round records when it ends with `ending`. */
+  const finishedOf = (ending: Ending) => {
+    const firstRound = [
+      ordered,
+      routed,
+      ...done('gauge'),
+      scheduled('implement'),
+      started('implement'),
+    ];
+    const decision = decide(fold(firstRound), finish(1, ending), withRoute());
+    assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    const finished = decision.kind === 'accepted' ? decision.events[0] : undefined;
+    assert.ok(finished?.type === 'step.finished', JSON.stringify(finished));
+    return finished;
+  };
+
+  it("records a blocked Taster's findings on its step.finished, the first 100 cut as a Stuck reason's, and counts the rest (ADR 0221)", () => {
+    const long = { ...finding(1), file: ` src/${'a'.repeat(2_000)}.ts`, why: 'x\n'.repeat(1_000) };
+    const many = [long, ...Array.from({ length: 100 }, (_, n) => finding(n + 2))];
+    assert.deepStrictEqual(finishedOf({ ...blocked, findings: many }).findings, {
+      kept: [
+        { ...long, file: long.file.trim().slice(0, 1_000), why: 'x '.repeat(500) },
+        ...many.slice(1, 100),
+      ],
+      more: 1,
+    });
+  });
+
+  it('records no findings for a blocked brewer that wrote none, nor for a failure (ADR 0221)', () => {
+    const { findings: _, ...none } = blocked;
+    assert.equal('findings' in finishedOf(none), false);
+    assert.equal(
+      'findings' in
+        finishedOf({ kind: 'failed', retryable: false, reason: 'the check green failed' }),
+      false,
+    );
   });
 
   it('makes the batch Stuck on a divergence when the route goes back to a skipped step', () => {
@@ -2179,6 +2227,123 @@ describe('decide: on tap with the pull request of the openPullRequest step (ADR 
       kind: 'refused',
       reason: `batch b1 goes on tap only with the pull request of its step ${open}, and the ledger has none`,
     });
+  });
+});
+
+describe('decide: an interactive step waits for a session (ADR 0222)', () => {
+  const sessions: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      lauter: fakeRecipe({ steps: ['lauter', 'plan'], interactive: ['lauter'] }),
+      pint: fakeRecipe({ steps: ['plan', 'implement'] }),
+    }),
+  };
+  const routed: Event[] = [ordered, chosen('lauter')];
+  const awaitSession = (stepId = 'lauter', attempt = 1): Command => ({
+    kind: 'await_session',
+    batchId: 'b1',
+    stepId,
+    attempt,
+  });
+  const waiting = stuckOn({ kind: 'waiting_for_session', stepId: 'lauter' });
+  const decided = (events: Event[], command: Command) => decide(fold(events), command, sessions);
+  const accepted = (events: Event[], command: Command, expected: Event[]) =>
+    assert.deepStrictEqual(decided(events, command), { kind: 'accepted', events: expected });
+  const refused = (events: Event[], command: Command, reason: RegExp) => {
+    const decision = decided(events, command);
+    assert.equal(decision.kind, 'refused', JSON.stringify(decision));
+    assert.match(decision.kind === 'refused' ? decision.reason : '', reason);
+  };
+
+  it('parks the scheduled attempt of an interactive step Stuck, waiting for a session, with a reminder', () => {
+    accepted([...routed, scheduled('lauter')], awaitSession(), [waiting]);
+  });
+
+  it('refuses it for a step that is not interactive', () => {
+    const events = [ordered, chosen('lauter'), scheduled('plan')];
+    refused(events, awaitSession('plan'), /step plan of batch b1 is not interactive/);
+  });
+
+  it('refuses it for an attempt that started, or one that is not the latest', () => {
+    refused([...routed, scheduled('lauter'), started('lauter')], awaitSession(), /has started/);
+    refused([...routed, scheduled('lauter')], awaitSession('lauter', 2), /not the latest/);
+  });
+
+  it('makes the batch wait for a session again, never retrying by itself, when the session closes without an out doc', () => {
+    const events = [...routed, scheduled('lauter'), started('lauter')];
+    const ending: Ending = { kind: 'failed', retryable: true, reason: 'no out doc' };
+    accepted(events, { kind: 'finish', batchId: 'b1', stepId: 'lauter', attempt: 1, ending }, [
+      {
+        type: 'step.finished',
+        batchId: 'b1',
+        stepId: 'lauter',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'no out doc' },
+      },
+      waiting,
+    ]);
+  });
+
+  it('makes a lost attempt of an interactive step wait for a session too', () => {
+    const events = [...routed, scheduled('lauter'), started('lauter')];
+    const lose: Command = {
+      kind: 'lose',
+      batchId: 'b1',
+      stepId: 'lauter',
+      attempt: 1,
+      reason: 'x',
+    };
+    const decision = decided(events, lose);
+    assert.equal(decision.kind, 'accepted');
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), waiting);
+  });
+
+  it('counts an attempt that a wait for a session abandoned before it started against no retry', () => {
+    // Attempt 1 was parked, a person retried it, and attempt 2's session closed without an out doc.
+    const events = [
+      ...routed,
+      scheduled('lauter'),
+      waiting,
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' } as Event,
+      retried('lauter', 2),
+      started('lauter', 2),
+    ];
+    const ending: Ending = { kind: 'failed', retryable: true, reason: 'no out doc' };
+    const decision = decided(events, {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'lauter',
+      attempt: 2,
+      ending,
+    });
+    assert.equal(decision.kind, 'accepted');
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), waiting);
+  });
+
+  it('counts no never-started attempt that any Stuck abandoned against a retry', () => {
+    const stopped = stuckOn({ kind: 'stopped', stepId: 'plan', ...by });
+    const events = [
+      ordered,
+      chosen('pint'),
+      scheduled('plan'),
+      stopped,
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' } as Event,
+      retried('plan', 2),
+      started('plan', 2),
+    ];
+    const ending: Ending = { kind: 'failed', retryable: true, reason: 'tests fail' };
+    const decision = decided(events, {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 2,
+      ending,
+    });
+    assert.equal(decision.kind, 'accepted');
+    assert.deepStrictEqual(
+      decision.kind === 'accepted' && decision.events.at(-1),
+      retried('plan', 3),
+    );
   });
 });
 

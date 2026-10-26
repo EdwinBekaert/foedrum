@@ -10,6 +10,7 @@ import {
   MAX_OPEN_FINDING_TEXT,
   MOST_FAILED_CHECKS,
   MOST_OPEN_FINDINGS,
+  MOST_RECORDED_FINDINGS,
   type OrderRef,
   type RankPlace,
   type Receipt,
@@ -153,6 +154,11 @@ export type EngineCommand =
   | { kind: 'unrouted'; batchId: string }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string }
+  /**
+   * A driver that opens no session met the scheduled attempt of an interactive step: the batch
+   * waits for a person to run it (ADR 0222).
+   */
+  | { kind: 'await_session'; batchId: string; stepId: string; attempt: number }
   /** The supervisor found the closed usage window's reopen due (ADR 0206). */
   | { kind: 'reopen' }
   /**
@@ -389,6 +395,9 @@ function run(draft: Draft, command: Command): Event[] {
     case 'remind':
       remind(draft, command.batchId);
       break;
+    case 'await_session':
+      awaitSession(draft, command);
+      break;
     case 'fix_pull_request':
       fixPullRequest(draft, command);
       break;
@@ -595,6 +604,10 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(houseYeast === undefined ? {} : { houseYeast }),
     ...(stopped ? { paused: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
+    // A blocking Taster's findings, which no other event keeps unless its rounds run out (ADR 0221).
+    ...(ending.kind === 'blocked' && ending.findings !== undefined
+      ? { findings: cutFindings(ending.findings, MOST_RECORDED_FINDINGS) }
+      : {}),
   });
   // The window is the subscription's, whatever becomes of this step. An end refused because its
   // batch left brewing closes nothing: the next brewer meets the limit and closes it (ADR 0206).
@@ -691,7 +704,9 @@ function retryOrStick(
   // An attempt a pause stopped counts against no retry (ADR 0202).
   const counted = withoutPaused(batch, stepId);
   if (retryable && recipe.mayRetry(counted, stepId)) {
-    schedule(draft, batchId, stepId, { retry: true });
+    // An interactive step waits for a person to open its session again, never at once (ADR 0222).
+    if (recipe.interactive(stepId)) stick(draft, batchId, { kind: 'waiting_for_session', stepId });
+    else schedule(draft, batchId, stepId, { retry: true });
     return;
   }
   const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
@@ -852,6 +867,26 @@ function started(batch: Batch, stepId: string, attempt: number): void {
   if (running(batch, stepId, attempt).phase !== 'started') {
     throw new Refusal(`${attemptName(batch, stepId, attempt)} has not started`);
   }
+}
+
+/**
+ * Makes a batch wait for a person to run its interactive step (ADR 0222): only the latest attempt,
+ * scheduled and not started, of an interactive step, which a driver that opens no session met.
+ */
+function awaitSession(draft: Draft, command: Extract<Command, { kind: 'await_session' }>): void {
+  const { batchId, stepId, attempt } = command;
+  const batch = requireLane(draft.batch(batchId), 'await_session', ['brewing']);
+  if (!recipeOf(draft, batch).interactive(stepId)) {
+    throw new Refusal(`step ${stepId} of batch ${batchId} is not interactive`);
+  }
+  const attempts = batch.steps.get(stepId)?.attempts;
+  const name = attemptName(batch, stepId, attempt);
+  if (attempt !== Math.max(...(attempts?.keys() ?? []))) {
+    throw new Refusal(`${name} is not the latest of its step`);
+  }
+  if (running(batch, stepId, attempt).phase !== 'scheduled')
+    throw new Refusal(`${name} has started`);
+  stick(draft, batchId, { kind: 'waiting_for_session', stepId });
 }
 
 /** The next reminder of a Conditioning or Stuck batch, once the current one is due (ADR 0025). */
@@ -1026,21 +1061,33 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
   }
 }
 
+/** A finding's text on one line, cut to what the status comment reads of it (ADR 0192). */
+export const cutFindingText = (text: string): string =>
+  text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
+
+/**
+ * The first `most` of `findings`, on one line and cut to what the status comment reads of them, and
+ * a count of the rest. A text the schema took has a character that is not blank, so it is never
+ * blank once cut.
+ */
+const cutFindings = (findings: readonly TastingFinding[], most: number) => {
+  const kept = findings.slice(0, most).map(({ file, why, ...finding }) => ({
+    ...finding,
+    ...(file === undefined ? {} : { file: cutFindingText(file) }),
+    why: cutFindingText(why),
+  }));
+  return { kept, more: findings.length - kept.length };
+};
+
 /**
  * What a findings route that used its `rounds` leaves open (ADR 0192): the first findings of its
- * last round, on one line and cut to what the status comment reads of them, and a count of the
- * rest. A text the schema took has a character that is not blank, so it is never blank once cut.
- * Every finding of the last round is open: no brewer has disposed of it yet, and a Taster never
- * raises a disposed finding again as it was, only a contest of it, which stays open (ADR 0191).
+ * last round, cut, and a count of the rest. Every finding of the last round is open: no brewer has
+ * disposed of it yet, and a Taster never raises a disposed finding again as it was, only a contest
+ * of it, which stays open (ADR 0191).
  */
 const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsOut => {
-  const cut = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
-  const open = findings.slice(0, MOST_OPEN_FINDINGS).map(({ file, why, ...finding }) => ({
-    ...finding,
-    ...(file === undefined ? {} : { file: cut(file) }),
-    why: cut(why),
-  }));
-  return { rounds, open, more: findings.length - open.length };
+  const { kept, more } = cutFindings(findings, MOST_OPEN_FINDINGS);
+  return { rounds, open: kept, more };
 };
 
 /** How a blocked out doc's failure reason starts, by its blocker kind. */
@@ -1324,15 +1371,17 @@ function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish'
 }
 
 /**
- * `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202)
- * and those a usage limit ended (ADR 0206).
+ * `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202),
+ * those a usage limit ended (ADR 0206), and those a Stuck abandoned before they started (ADR 0222).
  */
 function withoutPaused(batch: Batch, stepId: string): Batch {
   const step = batch.steps.get(stepId);
   if (step === undefined) return batch;
-  const attempts = [...step.attempts].filter(
-    ([, attempt]) =>
-      attempt.phase !== 'finished' || (attempt.paused !== true && attempt.usageLimited !== true),
+  // Nor does one a Stuck abandoned before it started, a wait for a session's too (ADR 0222).
+  const attempts = [...step.attempts].filter(([, attempt]) =>
+    attempt.phase === 'finished'
+      ? attempt.paused !== true && attempt.usageLimited !== true
+      : attempt.phase !== 'scheduled' || attempt.abandoned !== true,
   );
   if (attempts.length === step.attempts.size) return batch;
   const counted: Step = { ...step, attempts: new Map(attempts) };

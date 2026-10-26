@@ -1,13 +1,14 @@
 exports[`foedrum doctor > reports every tool, a sandbox and a container runtime on Linux, and exits 0 1`] = `
 Foedrum doctor
 
-  node    24.20.0
-  npm     11.6.2   /usr/bin/npm
-  git     2.47.1   /usr/bin/git
-  gh      2.102.0  /usr/bin/gh
-  claude  2.1.301  /home/brewer/.local/bin/claude
-  bwrap   0.9.0    /usr/bin/bwrap
-  socat   1.7.4.4  /usr/bin/socat
+  node         24.20.0
+  npm          11.6.2   /usr/bin/npm
+  git          2.47.1   /usr/bin/git
+  gh           2.102.0  /usr/bin/gh
+  claude       2.1.301  /home/brewer/.local/bin/claude
+  bwrap        0.9.0    /usr/bin/bwrap
+  socat        1.7.4.4  /usr/bin/socat
+  slirp4netns  1.2.1    /usr/bin/slirp4netns
 
 Isolation: sandboxed (bubblewrap and socat)
   The sandbox hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).
@@ -38,13 +39,14 @@ Foedrum has everything it needs.
 exports[`foedrum doctor > reports what is missing, and exits 1 when a required tool is 1`] = `
 Foedrum doctor
 
-  node    24.20.0
-  npm     11.6.2   /usr/bin/npm
-  git     2.47.1   /usr/bin/git
-  gh      2.102.0  /usr/bin/gh
-  claude  missing
-  bwrap   missing
-  socat   1.7.4.4  /usr/bin/socat
+  node         24.20.0
+  npm          11.6.2   /usr/bin/npm
+  git          2.47.1   /usr/bin/git
+  gh           2.102.0  /usr/bin/gh
+  claude       missing
+  bwrap        missing
+  socat        1.7.4.4  /usr/bin/socat
+  slirp4netns  1.2.1    /usr/bin/slirp4netns
 
 Isolation: permissions only (the sandbox needs bubblewrap and socat)
   A brewer runs as you here, so it can still read gh's login from the OS keyring or its hosts file. The sandboxed level (bubblewrap and socat) hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. For brewers, the container level mounts only the worktree, which closes both. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).
@@ -119,7 +121,7 @@ exports[`foedrum status > lists every batch with its issue, lane and what it wai
   19-1  #19  conditioning  waiting for batch 13-1; reminder 2026-10-17T09:00:00.000Z
   20-1  #20  stuck         blocked at review (environment): denied Bash(curl); reminder 2026-10-17T09:00:00.000Z
   21-1  #21  stuck         attempts exhausted at test after 3: tests fail; reminder 2026-10-17T09:00:00.000Z
-  22-1  #22  stuck         waiting for a session at analyze; reminder 2026-10-17T09:00:00.000Z
+  22-1  #22  stuck         waiting for a session at analyze: foedrum brew 22 --take opens it in a terminal; reminder 2026-10-17T09:00:00.000Z
   23-1  #23  stuck         stalled at implement since 2026-10-15T11:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
   24-1  #24  stuck         deadline passed at plan (2026-10-15T10:00:00.000Z); reminder 2026-10-17T09:00:00.000Z
   25-1  #25  stuck         not routed by 2026-10-15T10:00:00.000Z; reminder 2026-10-17T09:00:00.000Z
@@ -136,6 +138,7 @@ Commands:
   status [--watch]                                        List the batches and their lanes
   stuck                                                   List the Stuck batches with their options and questions
   brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
+  lenses                                                  Report each lens's findings, how they ended, and its tokens
   replay <batch>                                          Show a batch's events and its folded state
   resume <batch> [<step>]                                 Open a brewer attempt's Claude Code session in its worktree; take a running batch over
   retry <batch>                                           Give the step a Stuck batch stopped at another attempt
@@ -148,7 +151,7 @@ Commands:
   continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
   stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches are Stuck until retry
   order <issue>                                           Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
-  brew <issue> [--as <name>] [--take]                     Brew an issue's batch here until it is on tap, Stuck or needs input
+  brew <issue> [--as <name>] [--take] [--new-window]      Brew an issue's batch here until it is on tap, Stuck or needs input
   rank <order> [<place>] [--why <reason>]                 Move an order in the intake's queue to place <n>, or mark it to finish first
   takeover <batch> [--as <name>]                          Hand a batch from the driver that holds it to another: --as, else this session
 

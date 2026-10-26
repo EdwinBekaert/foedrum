@@ -111,7 +111,6 @@ describe('step kinds', () => {
   // Typed as a record so that adding a step kind fails the typecheck until this list follows.
   const examples: Record<StepKind, unknown[]> = {
     brewer: [{ brewer: 'cellarman' }, { id: 'review', brewer: 'taster', lens: 'diff/security' }],
-    session: [{ id: 'refine', session: 'refine', deadline: '2d', fallback: 'brewmaster' }],
     check: [
       { id: 'green', check: ['typecheck', 'lint', 'test'] },
       { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
@@ -533,52 +532,44 @@ describe('step references', () => {
   }
 });
 
-describe('a Taster step that names several lenses together (#560, ADR 0220)', () => {
-  const together = {
-    id: 'taste',
-    brewer: 'taster',
-    lenses: ['diff/correctness', 'diff/acceptance'],
+describe('an interactive brewer step (ADR 0222)', () => {
+  const lauter = {
+    id: 'lauter',
+    brewer: 'maltster',
+    interactive: true,
+    prompt: 'Plan it with me.',
   };
 
-  /** The issues the schema gives a step of `brewer`, the step's own option of the union. */
-  const brewerIssues = (value: unknown) => {
-    const read = Step.safeParse(value);
-    assert.equal(read.success, false, 'the step should be refused');
-    const [union] = read.error?.issues ?? [];
-    const options = union?.code === 'invalid_union' ? union.errors : [];
-    return (options[0] ?? []).map(({ path, message }) => ({ path, message }));
-  };
-
-  it('accepts a lenses step, in a line and as a child of a parallel group', () => {
-    assert.deepEqual(Step.safeParse(together).data, together);
-    const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
-    const group = { id: 'tasting', parallel: [together, security] };
-    assert.equal(Step.safeParse(group).success, true);
-    assert.equal(accepted(recipe([plan, together])), true);
+  it('accepts a brewer step that says interactive with a prompt, as a brewer step', () => {
+    assert.equal(stepKind(Step.parse(lauter)), 'brewer');
+    assert.equal(accepted(recipe([lauter])), true);
   });
 
-  it('refuses a lens named twice, at its path', () => {
-    assert.deepEqual(
-      brewerIssues({ ...together, lenses: ['diff/correctness', 'diff/correctness'] }),
-      [{ path: ['lenses'], message: 'Each lens may be named once' }],
-    );
+  it('accepts a prompt of 4 KiB', () => {
+    assert.equal(Step.safeParse({ ...lauter, prompt: 'x'.repeat(4096) }).success, true);
   });
 
-  it('refuses a list of one lens, at its path', () => {
-    const [issue] = brewerIssues({ ...together, lenses: ['diff/correctness'] });
-    assert.deepEqual(issue?.path, ['lenses']);
-    assert.match(issue?.message ?? '', />=2/);
-  });
+  const invalid: [string, unknown][] = [
+    ['interactive without a prompt', { brewer: 'maltster', interactive: true }],
+    ['a prompt without interactive', { brewer: 'maltster', prompt: 'Plan it.' }],
+    ['interactive false', { ...lauter, interactive: false }],
+    ['an empty prompt', { ...lauter, prompt: '' }],
+    ['a prompt over 4 KiB', { ...lauter, prompt: 'x'.repeat(4097) }],
+    ['interactive on a check', { id: 'green', check: 'test', interactive: true, prompt: 'p' }],
+    ['interactive on a gate', { id: 'g', gate: 'human', deadline: '1d', interactive: true }],
+    ['a prompt on an action', { action: 'openPullRequest', prompt: 'p' }],
+    ['interactive on a parallel group', { ...tasting, interactive: true, prompt: 'p' }],
+  ];
+  for (const [what, value] of invalid) {
+    it(`rejects ${what}`, () => {
+      assert.equal(Step.safeParse(value).success, false);
+    });
+  }
 
-  it('refuses lenses beside lens, at its path', () => {
-    assert.deepEqual(brewerIssues({ ...together, lens: 'diff/security' }), [
-      { path: ['lenses'], message: 'Name "lens" or "lenses", not both (ADR 0220)' },
-    ]);
-  });
-
-  it('refuses a lenses entry that is no lens name, at its path', () => {
-    const [issue] = brewerIssues({ ...together, lenses: ['diff/correctness', 'security'] });
-    assert.deepEqual(issue?.path, ['lenses', 1]);
+  it('refuses a session step, naming the interactive brewer step that replaced it', () => {
+    const result = Step.safeParse({ id: 'refine', session: 'refine', deadline: '2d' });
+    assert.equal(result.success, false);
+    assert.match(result.error?.issues[0]?.message ?? '', /"interactive": true/);
   });
 });
 
@@ -627,5 +618,54 @@ describe('Recipe: onPullRequestFail (ADR 0219)', () => {
       action: 'openPullRequest',
       onPullRequestFail: { goto: 'implement', maxRounds: 2 },
     });
+  });
+});
+
+describe('a Taster step that names several lenses together (#560, ADR 0220)', () => {
+  const together = {
+    id: 'taste',
+    brewer: 'taster',
+    lenses: ['diff/correctness', 'diff/acceptance'],
+  };
+
+  /** The issues the schema gives a step of `brewer`, the step's own option of the union. */
+  const brewerIssues = (value: unknown) => {
+    const read = Step.safeParse(value);
+    assert.equal(read.success, false, 'the step should be refused');
+    const [union] = read.error?.issues ?? [];
+    const options = union?.code === 'invalid_union' ? union.errors : [];
+    return (options[0] ?? []).map(({ path, message }) => ({ path, message }));
+  };
+
+  it('accepts a lenses step, in a line and as a child of a parallel group', () => {
+    assert.deepEqual(Step.safeParse(together).data, together);
+    const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+    const group = { id: 'tasting', parallel: [together, security] };
+    assert.equal(Step.safeParse(group).success, true);
+    assert.equal(accepted(recipe([plan, together])), true);
+  });
+
+  it('refuses a lens named twice, at its path', () => {
+    assert.deepEqual(
+      brewerIssues({ ...together, lenses: ['diff/correctness', 'diff/correctness'] }),
+      [{ path: ['lenses'], message: 'Each lens may be named once' }],
+    );
+  });
+
+  it('refuses a list of one lens, at its path', () => {
+    const [issue] = brewerIssues({ ...together, lenses: ['diff/correctness'] });
+    assert.deepEqual(issue?.path, ['lenses']);
+    assert.match(issue?.message ?? '', />=2/);
+  });
+
+  it('refuses lenses beside lens, at its path', () => {
+    assert.deepEqual(brewerIssues({ ...together, lens: 'diff/security' }), [
+      { path: ['lenses'], message: 'Name "lens" or "lenses", not both (ADR 0220)' },
+    ]);
+  });
+
+  it('refuses a lenses entry that is no lens name, at its path', () => {
+    const [issue] = brewerIssues({ ...together, lenses: ['diff/correctness', 'security'] });
+    assert.deepEqual(issue?.path, ['lenses', 1]);
   });
 });

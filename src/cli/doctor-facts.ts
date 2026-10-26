@@ -26,6 +26,8 @@ const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
   claude: ['--version'],
   bwrap: ['--version'],
   socat: ['-V'],
+  pasta: ['--version'],
+  slirp4netns: ['--version'],
   podman: ['--version'],
   docker: ['--version'],
 };
@@ -126,17 +128,31 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ),
     run('git', ['config', '--null', '--get-regexp', '^credential\\.']),
   ]);
-  const [jobObject, npm, git, gh, claude, bwrap, socat, podman, docker] = await Promise.all([
-    shell.platform === 'win32' ? holdInJob() : undefined,
-    ...(['npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'podman', 'docker'] as const).map(ask),
-  ]);
+  const [jobObject, npm, git, gh, claude, bwrap, socat, pasta, slirp4netns, podman, docker] =
+    await Promise.all([
+      shell.platform === 'win32' ? holdInJob() : undefined,
+      ...(
+        [
+          'npm',
+          'git',
+          'gh',
+          'claude',
+          'bwrap',
+          'socat',
+          'pasta',
+          'slirp4netns',
+          'podman',
+          'docker',
+        ] as const
+      ).map(ask),
+    ]);
   const [login, credentials] = await asking;
   const restrictsUserns = shell.restrictsUserns?.();
   return {
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
-    tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
+    tools: { npm, git, gh, claude, bwrap, socat, pasta, slirp4netns, podman, docker },
     github: { host, login, credentials },
     // Found on PATH, never run: starting it would hold the machine awake (ADR 0195).
     keepAwake: awakeMechanism({

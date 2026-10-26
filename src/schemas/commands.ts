@@ -49,6 +49,9 @@ export type StuckCommand = z.infer<typeof StuckCommand>;
 export const BrewersCommand = z.strictObject({ command: z.literal('brewers') });
 export type BrewersCommand = z.infer<typeof BrewersCommand>;
 
+export const LensesCommand = z.strictObject({ command: z.literal('lenses') });
+export type LensesCommand = z.infer<typeof LensesCommand>;
+
 export const ReplayCommand = z.strictObject({ command: z.literal('replay'), batch: PathSafeId });
 export type ReplayCommand = z.infer<typeof ReplayCommand>;
 
@@ -195,6 +198,8 @@ export const BrewCommand = z.strictObject({
   ).optional(),
   /** `--take`: take the batch over from the driver that holds it (ADR 0124). */
   take: z.literal(true).optional(),
+  /** `--new-window`: run `foedrum brew <issue> --take` in a new terminal window (ADR 0222). */
+  'new-window': z.literal(true).optional(),
 });
 export type BrewCommand = z.infer<typeof BrewCommand>;
 
