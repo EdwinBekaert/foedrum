@@ -12,6 +12,7 @@ import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
+import { type MergeBriefHost, mergeBriefEffects } from '../../src/engine/merge-brief-post.ts';
 import {
   type BranchPush,
   type PullRequestHost,
@@ -362,4 +363,152 @@ describe('chaos: a fix round of a failing pull request killed around its push (A
       ]);
     });
   }
+});
+
+// The merge brief of a ready pull request (ADR 0225), killed on both sides of its post, once or
+// twice, and once with the record changing while no driver runs. The batch brews to On tap
+// without kills, then its checks pass on the pushed head.
+const briefPoints = ['before the brief was posted', 'after the brief was posted'] as const;
+type BriefPoint = (typeof briefPoints)[number];
+
+const briefRun = async (kills: readonly BriefPoint[], late = false) => {
+  const path = join(dir.path, `run-${++runs}.sqlite`);
+  let store = openSqliteEventStore(path);
+  const code = codeHost([]);
+  const comments: { id: number; body: string }[] = [];
+  const left = [...kills];
+  let dead = false;
+  let killed = 0;
+  const point = (at: BriefPoint): void => {
+    if (dead) throw new Killed('dead');
+    if (left[0] !== at) return;
+    left.shift();
+    dead = true;
+    killed++;
+    throw new Killed(at);
+  };
+  const host: MergeBriefHost = {
+    find: async (_repo, _number, marker) => {
+      if (dead) throw new Killed('dead');
+      return comments.find(({ body }) => body.endsWith(marker));
+    },
+    create: async (_repo, _number, body) => {
+      point('before the brief was posted');
+      comments.push({ id: comments.length + 1, body });
+      point('after the brief was posted');
+      return comments.length;
+    },
+    title: async () => 'Add a --json flag',
+  };
+  const worktrees = fakeWorktrees();
+  const record = (checks: Extract<Event, { type: 'pull_request.checks_finished' }>['checks']) => {
+    const event: Extract<Event, { type: 'pull_request.checks_finished' }> = {
+      type: 'pull_request.checks_finished',
+      batchId: '12-1',
+      pullRequest: 'https://github.com/acme/app/pull/1',
+      head: FAKE_COMMIT,
+      checks,
+    };
+    assert.equal(
+      createCommandLog({ store, recipes }).issue({ kind: 'record', event }, t0).kind,
+      'accepted',
+    );
+  };
+  const log = createCommandLog({ store, recipes });
+  log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+  log.issue(
+    { kind: 'route', batchId: '12-1', recipe: 'ale', reason: 'label', source: 'label' },
+    t0,
+  );
+  let starts = 0;
+  let driver: Driver | undefined;
+  let checked = false;
+  const briefKey = JSON.stringify(['12-1', 'brief.1']);
+  try {
+    for (let ticks = 0; ticks < 40; ticks++) {
+      if (driver === undefined) {
+        dead = false;
+        starts++;
+        driver = await openDriver({
+          store,
+          runner,
+          recipes,
+          clock: () => t0,
+          lock: () => fakeLock('cellar'),
+          takes: () => true,
+          stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+          limits: () => defaultLimits,
+          worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: worktrees }],
+          effects: mergeBriefEffects({ host, recipes }),
+          actions: pullRequestActions({
+            brewery: 'acme/brewery',
+            repositories: [{ repo: 'acme/app', base: 'main', push: code.push }],
+            host: code.host,
+            orderTitle: async () => 'Add a --json flag',
+          }),
+        });
+      }
+      await driver.tick();
+      if (killed >= starts) {
+        driver.close();
+        driver = undefined;
+        store.close();
+        store = openSqliteEventStore(path);
+        // While no driver runs, a check registers late and passes: another ready record.
+        if (late && killed === 1)
+          record([
+            { name: 'ci / test', kind: 'check_run', conclusion: 'success' },
+            { name: 'ci / late', kind: 'check_run', conclusion: 'success' },
+          ]);
+        continue;
+      }
+      if (!checked && driver.state().batches.get('12-1')?.lane.kind === 'on_tap') {
+        record([{ name: 'ci / test', kind: 'check_run', conclusion: 'success' }]);
+        checked = true;
+        continue;
+      }
+      if (driver.state().effects.has(briefKey)) break;
+    }
+    const state = createCommandLog({ store, recipes }).state();
+    return { state, comments, starts };
+  } finally {
+    driver?.close();
+    store.close();
+  }
+};
+
+describe('chaos: the merge brief killed around its post (ADR 0225)', () => {
+  const runsOf: (readonly BriefPoint[])[] = [
+    [],
+    ...briefPoints.map((point) => [point]),
+    [briefPoints[0], briefPoints[0]],
+    [briefPoints[0], briefPoints[1]],
+  ];
+
+  for (const kills of runsOf) {
+    it(`posts one brief for the ready record: ${kills.join(', then ') || 'no kill'}`, async () => {
+      const { state, comments, starts } = await briefRun(kills);
+      assert.equal(starts, kills.length + 1, 'a new driver after each kill');
+      assert.equal(comments.length, 1);
+      assert.match(comments[0]?.body ?? '', /^### Merge\? Add a --json flag @ /);
+      assert.deepEqual(
+        [...state.effects.keys()].filter((key) => key.includes('brief')),
+        [JSON.stringify(['12-1', 'brief.1'])],
+      );
+      assert.equal(
+        (state.effects.get(JSON.stringify(['12-1', 'brief.1'])) as { comment: number }).comment,
+        1,
+      );
+    });
+  }
+
+  it('posts the changed record its own brief when a kill left an older one', async () => {
+    const { state, comments } = await briefRun([briefPoints[1]], true);
+    assert.equal(comments.length, 2);
+    assert.match(comments[1]?.body ?? '', /ci \/ late/);
+    assert.equal(
+      (state.effects.get(JSON.stringify(['12-1', 'brief.1'])) as { comment: number }).comment,
+      2,
+    );
+  });
 });
