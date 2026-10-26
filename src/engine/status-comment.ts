@@ -16,6 +16,7 @@ import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, Pause, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
+import { checkPassed } from './pr-checks.ts';
 import { changeText, findingText, knownCommits, pushKey } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
@@ -265,8 +266,28 @@ export const baseCheckLines = (batch: Batch): string[] =>
  * The lines of the open pull requests of a batch on tap whose checks on their head were recorded
  * (ADR 0213): waiting for them since when, passed, failed with a link to a failing one, or none.
  */
-export const checkLines = (_batch: Batch): string[] => {
-  throw new Error('not implemented');
+export const checkLines = (batch: Batch): string[] =>
+  batch.lane.kind === 'on_tap'
+    ? batch.lane.pullRequests.flatMap((url) => checkLine(batch, url) ?? [])
+    : [];
+
+/** What the latest record of the checks on the head of the pull request `url` says (ADR 0213). */
+const checkLine = (batch: Batch, url: string): string | undefined => {
+  const record = batch.pullRequestChecks?.[url];
+  // An ended pull request is read no more: its last record says nothing now.
+  if (record === undefined || batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  const head = code(shortSha(record.head));
+  if (record.kind === 'pending') {
+    return `- ${link(url)} waits for its checks on ${head} since ${record.since}`;
+  }
+  if (record.checks.length === 0) return `- ${link(url)} has no checks on ${head}`;
+  const failed = record.checks.filter(({ conclusion }) => !checkPassed(conclusion));
+  // The first failing check with a link, else the first; its name comes from whoever runs CI.
+  const named = failed.find((check) => check.url !== undefined) ?? failed[0];
+  if (named === undefined) return `- ${link(url)} passed its checks on ${head}`;
+  const at = named.url === undefined ? '' : ` ${link(named.url)}`;
+  const more = failed.length > 1 ? `, and ${failed.length - 1} more` : '';
+  return `- ${link(url)} failed its checks on ${head}: ${plain(named.name)} (${named.conclusion})${at}${more}`;
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
@@ -599,6 +620,7 @@ export const renderStatus = (
         : [
             '**Pull requests**',
             ...pullRequests.map((url) => baseCheckLine(batch, url) ?? `- ${link(url)}`),
+            ...checkLines(batch),
           ],
     );
   }

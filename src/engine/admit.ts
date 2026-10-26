@@ -124,7 +124,7 @@ function rule(state: State, event: Event): string | undefined {
       return checkable(state, event);
     case 'pull_request.checks_pending':
     case 'pull_request.checks_finished':
-      throw new Error('not implemented');
+      return checkable(state, event) ?? unrecorded(state, event);
     // The fold refuses a continue of what is not paused; a pause holds any order (ADR 0202).
     case 'order.paused':
     case 'order.continued':
@@ -237,10 +237,21 @@ function endable(
     : `batch ${event.batchId} neither opened nor waits for ${event.pullRequest}`;
 }
 
-/** A batch records how an open pull request it opened merges with its base (ADR 0198). */
+/**
+ * A batch records how an open pull request it opened merges with its base (ADR 0198), and the
+ * checks on its head (ADR 0213).
+ */
 function checkable(
   state: State,
-  event: Extract<Event, { type: 'pull_request.base_checked' }>,
+  event: Extract<
+    Event,
+    {
+      type:
+        | 'pull_request.base_checked'
+        | 'pull_request.checks_pending'
+        | 'pull_request.checks_finished';
+    }
+  >,
 ): string | undefined {
   const batch = state.batches.get(event.batchId);
   if (batch === undefined) return undefined;
@@ -251,6 +262,21 @@ function checkable(
   return batch.pullRequestEnds?.[event.pullRequest] === undefined
     ? undefined
     : `pull request ${event.pullRequest} of batch ${event.batchId} has ended`;
+}
+
+/**
+ * The checks on a pull request's head are recorded once (ADR 0213): pending before they finish,
+ * then finished; a head that moved starts again.
+ */
+function unrecorded(
+  state: State,
+  event: Extract<Event, { type: 'pull_request.checks_pending' | 'pull_request.checks_finished' }>,
+): string | undefined {
+  const latest = state.batches.get(event.batchId)?.pullRequestChecks?.[event.pullRequest];
+  if (latest?.head !== event.head) return undefined;
+  return latest.kind === 'finished' || event.type === 'pull_request.checks_pending'
+    ? `the checks on ${event.head} of ${event.pullRequest} are already recorded`
+    : undefined;
 }
 
 /** A sub-order keeps its repository once it has batches: they, and their branches, live there. */

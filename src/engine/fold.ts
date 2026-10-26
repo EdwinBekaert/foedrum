@@ -619,9 +619,31 @@ function apply(state: State, event: Event): State {
         baseChecks: [...(batch.baseChecks ?? []), check],
       }));
     }
-    case 'pull_request.checks_pending':
-    case 'pull_request.checks_finished':
-      throw new Error('not implemented');
+    case 'pull_request.checks_pending': {
+      const { batchId, pullRequest, head, since } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pullRequestChecks: {
+          ...batch.pullRequestChecks,
+          [pullRequest]: { kind: 'pending', head, since },
+        },
+      }));
+    }
+    case 'pull_request.checks_finished': {
+      const { batchId, pullRequest, head, checks, more } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pullRequestChecks: {
+          ...batch.pullRequestChecks,
+          [pullRequest]: {
+            kind: 'finished',
+            head,
+            checks,
+            ...(more === undefined ? {} : { more }),
+          },
+        },
+      }));
+    }
     case 'order.paused': {
       const { order, by, via, why, stopAt, zone } = event;
       const pause: Pause = {

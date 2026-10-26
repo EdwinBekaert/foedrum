@@ -30,7 +30,7 @@ import {
   same,
   type TargetIssue,
 } from './issue-claims.ts';
-import type { PullRequestCheckReader } from './pr-checks.ts';
+import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { type QueuedOrder, rankQueue } from './ranks.ts';
 
 /**
@@ -211,7 +211,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
     options;
   const most = defaultLeaseMs / 2;
-  const { deadlineMs = most, bases = [] } = options;
+  const { deadlineMs = most, bases = [], checks } = options;
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > most) {
     throw new RangeError(
       `The deadline of an intake pass must be a whole number of milliseconds up to ${most}, got ${deadlineMs}`,
@@ -388,9 +388,11 @@ export const createIntake = (options: IntakeOptions): Intake => {
 
   const work = async (signal: AbortSignal): Promise<void> => {
     await recordEnds(signal);
+    const failed = (what: string, error: unknown): void => report({ kind: 'failed', what, error });
+    if (checks !== undefined && !signal.aborted) {
+      await recordChecks({ log, reader: checks, clock, failed }, signal);
+    }
     if (bases.length > 0 && !signal.aborted) {
-      const failed = (what: string, error: unknown): void =>
-        report({ kind: 'failed', what, error });
       await checkBases({ log, repositories: bases, clock, failed }, signal);
     }
     // pause --all holds the intake: it orders and claims nothing, and still routes (ADR 0202).

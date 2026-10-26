@@ -16,6 +16,9 @@ export const GitRef = z.object({
 /** One page of a REST list: its items are checked by whoever reads them. */
 export const GitHubPage = z.array(z.unknown());
 
+/** One page of a REST list GitHub wraps in an object, such as `{ check_runs: [...] }`. */
+export const GitHubWrappedPage = z.record(z.string(), z.unknown());
+
 /** A REST error's body. */
 export const GitHubError = z.object({ message: z.string() });
 
@@ -56,6 +59,24 @@ export const GitHubPullRequest = z.object({
   state: z.enum(['open', 'closed']),
   merged: z.boolean().optional(),
   merged_at: z.string().nullable().optional(),
+});
+
+/** The head of `GET /repos/{owner}/{repo}/pulls/{n}` (ADR 0213). */
+export const GitHubPullRequestHead = z.object({ head: z.object({ sha: CommitSha }) });
+
+/** One item of `GET /repos/{owner}/{repo}/commits/{sha}/check-runs` (ADR 0213). */
+export const GitHubCheckRun = z.object({
+  name: z.string(),
+  status: z.string(),
+  conclusion: z.string().nullable().optional(),
+  html_url: z.string().nullable().optional(),
+});
+
+/** One item of the `statuses` of `GET /repos/{owner}/{repo}/commits/{sha}/status` (ADR 0213). */
+export const GitHubCommitStatus = z.object({
+  context: z.string(),
+  state: z.string(),
+  target_url: z.string().nullable().optional(),
 });
 
 /** One item of `GET /repos/{owner}/{repo}/pulls`, or the answer to `POST` there (ADR 0071). */
