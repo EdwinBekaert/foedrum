@@ -19,7 +19,7 @@ import {
 import type { Event } from '../../src/schemas/events.ts';
 
 describe('the walkthrough steps', () => {
-  it('go from the diagnosis to the replay, in the order a batch lives them, with brew and resume after on tap', () => {
+  it('go from the diagnosis to the replay, in the order a batch lives them, with the lenses, brew and resume after on tap', () => {
     assert.deepStrictEqual(
       STEPS.map(({ id }) => id),
       [
@@ -30,6 +30,7 @@ describe('the walkthrough steps', () => {
         'checks',
         'pull-request',
         'on-tap',
+        'lenses',
         'brew',
         'resume',
         'replay',
@@ -39,6 +40,7 @@ describe('the walkthrough steps', () => {
 
   it("name the commands of brew and resume, the latter with the Cellarman's second attempt", () => {
     const title = (id: string) => STEPS.find((step) => step.id === id)?.title;
+    assert.equal(title('lenses'), 'foedrum lenses');
     assert.equal(title('brew'), 'foedrum brew 2 --as ann');
     assert.equal(title('resume'), `foedrum resume 1-1 ${RESUMED}`);
     assert.equal(RESUMED, 'implement#2');
@@ -54,7 +56,7 @@ describe('the walkthrough steps', () => {
   });
 
   it('are numbered in their headings, each heading its own', () => {
-    assert.equal(headingOf(2), `Step 3 of 10: ${STEPS[2]?.title}`);
+    assert.equal(headingOf(2), `Step 3 of 11: ${STEPS[2]?.title}`);
     assert.equal(new Set(STEPS.map((_, index) => headingOf(index))).size, STEPS.length);
   });
 

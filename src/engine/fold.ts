@@ -11,6 +11,7 @@ import type {
   OrderRef,
   RankPlace,
   Receipt,
+  RecordedFindings,
   ScheduleRoute,
   SessionRef,
   StuckOption,
@@ -89,6 +90,8 @@ export type Attempt =
       paused?: true;
       /** Ended as claude hit a usage limit: it counts against no retry (ADR 0206). */
       usageLimited?: true;
+      /** A blocking Taster's findings, when it asked for changes (ADR 0221). */
+      findings?: RecordedFindings;
     };
 
 export interface Input {
@@ -523,6 +526,7 @@ function apply(state: State, event: Event): State {
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
+          ...(event.findings === undefined ? {} : { findings: event.findings }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;

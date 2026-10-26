@@ -97,6 +97,18 @@ describe('npm run demo', () => {
       part('on-tap'),
       /\$ foedrum status\n.*on tap +https:\/\/github\.com\/demo\/web\/pull\/\d+/s,
     );
+    // foedrum lenses, through the real loader: correctness's finding the round it blocked
+    // recorded, fixed; a lens of Nip's the demo's recipe never runs, with no rounds (ADR 0221).
+    const report = part('lenses');
+    assert.match(
+      report,
+      /\$ foedrum lenses\n.*diff\/acceptance +defaults\/lenses\/diff\/acceptance\.md\n +no rounds\n/s,
+    );
+    assert.match(
+      report,
+      /diff\/correctness +defaults\/lenses\/diff\/correctness\.md\n +2 rounds, 1 finding: 1 major\n +ended: 1 fixed\n/,
+    );
+    assert.match(report, /diff\/security .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 open\n/);
     // foedrum brew orders the second issue, routes it by its label, and drives it to on tap.
     const brew = part('brew');
     assert.ok(brew.includes(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}\n`), brew);

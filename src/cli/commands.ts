@@ -1,6 +1,6 @@
 // The command registry (ADR 0019): one schema and one handler per command. Surfaces turn their
 // input into a command's input and run it; run.ts is the terminal's. doctor, status, stuck,
-// brewers and replay only read, and init writes only the Brewery's files, so they append nothing
+// brewers, lenses and replay only read, and init writes only the Brewery's files, so they append nothing
 // (ADR 0030, ADR 0199). The others turn their input into one of the engine's human commands and
 // append its events through the command log, recorded with who issued it and from where
 // (ADR 0025).
@@ -49,6 +49,7 @@ import {
   ContinueCommand,
   DoctorCommand,
   InitCommand,
+  LensesCommand,
   OrderCommand,
   type OrderTarget,
   PauseCommand,
@@ -70,6 +71,7 @@ import { brewerReport, formatBrewerReport, recipesRun } from './brewer-report.ts
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import { brewOwner } from './driver-owner.ts';
 import { keptBranchLines } from './kept-branches.ts';
+import { formatLensReport, lensReport } from './lens-report.ts';
 import { stopInstant } from './pause-time.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
@@ -483,6 +485,28 @@ export const commands: readonly RegisteredCommand[] = [
       // A fresh Brewery: every brewer, none with an attempt yet.
       return readBrewery(
         'brewers',
+        context,
+        (events, state) => show(state, events),
+        show(emptyState, []),
+      );
+    },
+  }),
+  define({
+    name: 'lenses',
+    summary: "Report each lens's findings, how they ended, and its tokens",
+    changesState: false,
+    positionals: [],
+    schema: LensesCommand,
+    handler: async (_input, context) => {
+      // Files that do not load refuse it with doctor's line, before the store is opened.
+      const source = context.lenses();
+      const show = (state: State, events: readonly StoredEvent[]) =>
+        done(
+          formatLensReport(lensReport(state, source, recipesRun(events.map(({ event }) => event)))),
+        );
+      // A fresh Brewery: every lens, none with a round yet.
+      return readBrewery(
+        'lenses',
         context,
         (events, state) => show(state, events),
         show(emptyState, []),

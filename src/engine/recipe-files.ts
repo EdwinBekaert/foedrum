@@ -71,8 +71,15 @@ export interface StepBrewer {
 export interface Catalog {
   brewers: readonly (StepBrewer & { name: string; path: string })[];
   lenses: readonly Lens[];
-  /** The brewers the recipes' steps name, and the lenses those brewers' inputs and steps name. */
-  named: { brewers: ReadonlySet<string>; lenses: ReadonlySet<string> };
+  /**
+   * The brewers the recipes' steps name, the lenses those brewers' inputs and steps name, and of
+   * those the lenses a lens step reviews through (ADR 0221).
+   */
+  named: {
+    brewers: ReadonlySet<string>;
+    lenses: ReadonlySet<string>;
+    reviewLenses: ReadonlySet<string>;
+  };
 }
 
 /** The brewers of the loaded recipes' steps. */
@@ -905,6 +912,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
             .flatMap(([, { lenses: named }]) => [...(named?.keys() ?? [])]),
           ...stepLenses,
         ]),
+        reviewLenses: stepLenses,
       },
     },
     recipes: { find: (name) => recipes.get(name) },
