@@ -6,7 +6,7 @@ import { GitHubValidationError } from '../schemas/github.ts';
 import { refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 
-/** The colour Foedrum's marks give a label they create. */
+/** The colour of every label Foedrum creates: the marks' (ADR 0068) and init's (ADR 0207). */
 export const LABEL_COLOR = 'ededed';
 
 /** Whether GitHub has what `path` names: 404 is no, 200 yes, any other answer refuses `what`. */

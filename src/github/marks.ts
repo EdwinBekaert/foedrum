@@ -12,6 +12,7 @@ import {
   GitHubValidationError,
 } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
+import { LABEL_COLOR } from './brewery-repository.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 
@@ -72,7 +73,7 @@ export const githubIssueMarks = (
     },
     createLabel: async (repo, label, signal) => {
       const path = `/repos/${repoPath(repo)}/labels`;
-      const answer = await client.rest('POST', path, { name: label, color: 'ededed' }, signal);
+      const answer = await client.rest('POST', path, { name: label, color: LABEL_COLOR }, signal);
       // There already: made by a run before, or by hand.
       const error = GitHubValidationError.safeParse(answer.body);
       if (answer.status === 422 && error.success && error.data.errors.some(alreadyExists)) return;
