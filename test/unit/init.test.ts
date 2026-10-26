@@ -1271,4 +1271,49 @@ describe('foedrum init with its answers as options (ADR 0212)', () => {
       assert.equal(events.includes(`shim ${SHIM_FOLDER}/foedrum`), pointed, answer);
     }
   });
+
+  it('with --no-input and every answer, runs through, asking nothing about a label a target has', async () => {
+    const all = await init([], outside(), { ...FIRST, given: { ...ALL, 'no-input': true } });
+    assert.equal(all.result.exitCode, 0, all.result.stderr);
+    const { result, questions, events, lines } = await init([], outside(), {
+      ...FIRST,
+      unlabelled: ['acme/api'],
+      given: { ...without(ALL, 'label'), label: ['acme/api=n'], 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, []);
+    assert.ok(!events.some((event) => event.startsWith('label acme/web')), events.join('\n'));
+    assert.ok(lines.includes('acme/web has the label foedrum:brew'), lines.join('\n'));
+  });
+
+  it('with --no-input, says a label it cannot read where it would ask, reading it once', async () => {
+    const { result, lines, events } = await init([], outside(), {
+      ...FIRST,
+      labelReadFails: 'GitHub answered 500 to the label foedrum:brew of acme/web',
+      given: { ...without(ALL, 'label'), targets: 'acme/web', 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const at = lines.indexOf('GitHub answered 500 to the label foedrum:brew of acme/web');
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^gh label create foedrum:brew --repo acme\/web /);
+    assert.equal(events.filter((event) => event === 'has acme/web foedrum:brew').length, 1);
+  });
+
+  it('asks the folder again after a typed number it does not list, saying why', async () => {
+    const { questions, lines, events } = await init(['7', '1'], outside(), {
+      ...FIRST,
+      given: without(ALL, 'shim'),
+    });
+    assert.deepStrictEqual(questions, [
+      'Write the foedrum command into which folder? [1, or n for none]: ',
+      'Write the foedrum command into which folder? [1, or n for none]: ',
+    ]);
+    assert.ok(lines.includes('  Answer a number from 1 to 1, or n'), lines.join('\n'));
+    assert.ok(events.includes(`shim ${SHIM_FOLDER}/foedrum`), events.join('\n'));
+  });
+
+  it('refuses a keyed option with an empty key', async () => {
+    const { result } = await init([], outside(), { given: { ...ALL, alias: ['=web'] } });
+    assert.equal(result.stderr, 'foedrum init: --alias =web: Give it as <key>=<answer>\n');
+  });
 });
