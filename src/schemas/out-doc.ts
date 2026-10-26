@@ -100,8 +100,8 @@ export type TastingFinding = z.infer<typeof TastingFinding>;
 export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
-/** One item of a Taster's `riskLeft`: a risk its review leaves, or what it could not verify. */
-const RiskLeft = NonEmpty.max(MAX_RISK_LEFT).regex(/^[^\r\n]*$/, 'Must be one line');
+/** One line of at most `max` characters. */
+const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
 /**
  * A Taster's out doc: the contract's, with its findings, a verdict when it is done, and the risk
@@ -110,7 +110,7 @@ const RiskLeft = NonEmpty.max(MAX_RISK_LEFT).regex(/^[^\r\n]*$/, 'Must be one li
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
-  riskLeft: z.array(RiskLeft).max(MOST_RISKS_LEFT).exactOptional(),
+  riskLeft: z.array(lineOf(MAX_RISK_LEFT)).max(MOST_RISKS_LEFT).exactOptional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done') return;
   if (doc.verdict === undefined) {
@@ -184,9 +184,6 @@ export const OutDocAssumptions = z.object({ assumptions: z.array(z.string()) });
  * (`output.schema`, ADR 0167): the default Cellarman's.
  */
 export const PULL_REQUEST = 'pullRequest';
-
-/** One line of at most `max` characters. */
-const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
 /** One row of the pull request's before/after table (ADR 0167). */
 const BeforeAfterRow = z.strictObject({
