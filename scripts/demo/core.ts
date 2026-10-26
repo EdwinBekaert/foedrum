@@ -70,7 +70,7 @@ export const recipeText = (): string =>
           onFail: { goto: 'implement', maxRounds: 1 },
         },
         { id: 'taste', parallel: LENS_STEPS },
-        { action: 'openPullRequest' },
+        { action: 'openPullRequest', onPullRequestFail: { goto: 'implement', maxRounds: 2 } },
       ],
     },
     null,

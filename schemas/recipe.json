@@ -602,6 +602,26 @@
               "description": "Run the step only when this expression is true",
               "type": "string",
               "pattern": "^([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\\.([A-Za-z][A-Za-z0-9]*)(?:\\s*(==|!=)\\s*'([^'\\r\\n]*)')?$"
+            },
+            "onPullRequestFail": {
+              "description": "openPullRequest only: where a failing check on the open pull request sends the batch, and how often (ADR 0219)",
+              "type": "object",
+              "properties": {
+                "goto": {
+                  "type": "string",
+                  "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+                },
+                "maxRounds": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "goto",
+                "maxRounds"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [

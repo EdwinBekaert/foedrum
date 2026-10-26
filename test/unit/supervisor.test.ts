@@ -14,6 +14,19 @@ import {
 import type { Event } from '../../src/schemas/events.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import {
+  checksFinished,
+  checksPending,
+  failedCheck,
+  firstHead,
+  fixPullRequest,
+  fixRound,
+  OPEN,
+  openedOnTap,
+  passedCheck,
+  pushed,
+  secondHead,
+} from '../helpers/open-pull-request.ts';
 
 const minute = 60_000;
 const now = new Date('2026-10-15T12:00:00.000Z');
@@ -433,4 +446,160 @@ describe('watchFlush (ADR 0024)', () => {
       assert.deepStrictEqual(watchFlush(watch, outcome, at(30), deadline), { watch: undefined });
     });
   }
+});
+
+describe('planTick: a failing check on an open pull request (ADR 0219)', () => {
+  const recipes = fakeRecipes({
+    ale: fakeRecipe({
+      steps: ['plan', OPEN],
+      actions: { [OPEN]: 'openPullRequest' },
+      routes: { [OPEN]: { pull_request: 'plan' } },
+      pullRequests: [],
+    }),
+    bare: fakeRecipe({
+      steps: ['plan', OPEN],
+      actions: { [OPEN]: 'openPullRequest' },
+      pullRequests: [],
+    }),
+  });
+  const tick = (events: Event[]) => planTick(input(events, { recipes })).commands;
+  const fix = (batchId: string, head = firstHead) =>
+    ({
+      kind: 'fix_pull_request',
+      batchId,
+      pullRequest: fixPullRequest,
+      head,
+      cause: { kind: 'checks' },
+    }) as const;
+
+  it("sends a batch back whose latest record failed on its push's head", () => {
+    assert.deepStrictEqual(tick([...openedOnTap(), checksFinished('b1', firstHead)]), [fix('b1')]);
+  });
+
+  it('sends nothing for a record that passed, is pending, or a re-run turned green', () => {
+    const green = { ...failedCheck, conclusion: 'success' } as const;
+    for (const events of [
+      [...openedOnTap(), checksFinished('b1', firstHead, [passedCheck])],
+      [...openedOnTap(), checksPending('b1', firstHead)],
+      [
+        ...openedOnTap(),
+        checksFinished('b1', firstHead),
+        checksFinished('b1', firstHead, [green, passedCheck]),
+      ],
+      [...openedOnTap()],
+    ]) {
+      assert.deepStrictEqual(tick(events), []);
+    }
+  });
+
+  it("sends nothing for a head that is not the batch's push: a person's", () => {
+    assert.deepStrictEqual(tick([...openedOnTap(), checksFinished('b1', secondHead)]), []);
+  });
+
+  it('sends nothing for a recipe without onPullRequestFail', () => {
+    assert.deepStrictEqual(
+      tick([...openedOnTap('b1', 'bare'), checksFinished('b1', firstHead)]),
+      [],
+    );
+  });
+
+  it('sends nothing for an ended pull request, or a paused order until it is continued', () => {
+    const failed = [...openedOnTap(), checksFinished('b1', firstHead)];
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      state: 'closed',
+    };
+    const paused: Event = {
+      type: 'order.paused',
+      order: { issue: 100 },
+      by: 'ada',
+      via: 'terminal',
+    };
+    const continued: Event = {
+      type: 'order.continued',
+      order: { issue: 100 },
+      by: 'ada',
+      via: 'terminal',
+    };
+    assert.deepStrictEqual(tick([...failed, ended]), []);
+    assert.deepStrictEqual(tick([...failed, paused]), []);
+    assert.deepStrictEqual(tick([...failed, paused, continued]), [fix('b1')]);
+  });
+
+  it('sends a round back from its new head only when that head failed', () => {
+    const round = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead),
+    ];
+    assert.deepStrictEqual(tick(round), []);
+    assert.deepStrictEqual(tick([...round, checksFinished('b1', secondHead, [passedCheck])]), []);
+    assert.deepStrictEqual(tick([...round, checksFinished('b1', secondHead)]), [
+      fix('b1', secondHead),
+    ]);
+  });
+
+  it('sends nothing once a round found the branch moved', () => {
+    const moved = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead).map((event) =>
+        event.type === 'effect.applied'
+          ? pushed('b1', secondHead, 2, { moved: 'e'.repeat(40) })
+          : event,
+      ),
+      checksFinished('b1', secondHead),
+    ];
+    assert.deepStrictEqual(tick(moved), []);
+  });
+
+  it('sends nothing once a round found the branch gone', () => {
+    const gone = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead).map((event) =>
+        event.type === 'effect.applied' ? pushed('b1', secondHead, 2, { gone: true }) : event,
+      ),
+      checksFinished('b1', secondHead),
+    ];
+    assert.deepStrictEqual(tick(gone), []);
+  });
+
+  it('sends nothing while the whole Brewery is paused, and sends it once continued', () => {
+    const failed = [...openedOnTap(), checksFinished('b1', firstHead)];
+    const all: Event = { type: 'order.paused', by: 'ada', via: 'terminal' };
+    const continued: Event = { type: 'order.continued', by: 'ada', via: 'terminal' };
+    assert.deepStrictEqual(tick([...failed, all]), []);
+    assert.deepStrictEqual(tick([...failed, all, continued]), [fix('b1')]);
+  });
+
+  it("sends nothing once a person's skip left the failed head as it is, nor for a person's head after it", () => {
+    const skipped: Event[] = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead),
+      checksFinished('b1', secondHead),
+      {
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason: {
+          kind: 'pull_request_failed',
+          stepId: OPEN,
+          pullRequest: fixPullRequest,
+          head: secondHead,
+          rounds: 1,
+          failed: [{ name: failedCheck.name, conclusion: 'failure' }],
+          more: 0,
+        },
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt: ahead,
+      },
+      { type: 'batch.resumed', batchId: 'b1', by: 'ada', via: 'terminal', action: 'skip' },
+      { type: 'batch.on_tap', batchId: 'b1', pullRequests: [fixPullRequest] },
+    ];
+    assert.deepStrictEqual(tick(skipped), []);
+    assert.deepStrictEqual(tick([...skipped, checksFinished('b1', 'f'.repeat(40))]), []);
+  });
 });

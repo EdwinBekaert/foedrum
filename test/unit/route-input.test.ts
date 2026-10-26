@@ -365,3 +365,78 @@ describe('routeInput', () => {
     });
   });
 });
+
+describe('routeOf: a pull request that failed its checks (ADR 0219)', () => {
+  const pullRequest = 'https://github.com/acme/api/pull/12';
+  const head = 'c'.repeat(40);
+  const open = 'open-pull-request';
+  const failed = {
+    name: 'ci / test',
+    kind: 'check_run',
+    conclusion: 'failure',
+    url: 'https://github.com/acme/api/actions/runs/1/job/2',
+  } as const;
+  const status = { name: 'deploy', kind: 'status', conclusion: 'error' } as const;
+  const passed = { name: 'ci / lint', kind: 'check_run', conclusion: 'success' } as const;
+  const record = (checks: readonly unknown[], more?: number, of = head): Event =>
+    ({
+      type: 'pull_request.checks_finished',
+      batchId: '12-1',
+      pullRequest,
+      head: of,
+      checks,
+      ...(more === undefined ? {} : { more }),
+    }) as Event;
+  const sentBack: Event = {
+    type: 'step.scheduled',
+    batchId: '12-1',
+    stepId: 'implement',
+    attempt: 2,
+    deadlineAt,
+    route: { from: open, why: 'pull_request', pullRequest, head },
+  };
+  const opened = [...attempt('implement', 1), ...attempt(open, 1)];
+  const told =
+    "You cannot open these links. The recipe's own checks run on your change after this step.";
+
+  it('names each failed check of the record the route names, and none that passed', () => {
+    const route = planned([...opened, record([failed, status, passed]), sentBack], 'implement', 2);
+    assert.deepEqual(route, {
+      source: { kind: 'route', step: 'implement', from: open, why: 'pull_request', pullRequest },
+      text: [
+        `Pull request ${pullRequest} failed its checks on ${head}:`,
+        `- ci / test (check run): failure, ${failed.url}`,
+        '- deploy (commit status): error',
+        told,
+      ].join('\n'),
+    });
+  });
+
+  it('says how many checks the record left out', () => {
+    const route = planned([...opened, record([failed], 3), sentBack], 'implement', 2);
+    assert.match(route?.text ?? '', /\n- and 3 more checks the record left out\n/);
+  });
+
+  it('says so when the record of that head is no longer the latest', () => {
+    const route = planned(
+      [...opened, record([failed]), record([failed], undefined, 'd'.repeat(40)), sentBack],
+      'implement',
+      2,
+    );
+    assert.equal(
+      route?.text,
+      `Pull request ${pullRequest} failed its checks on ${head}; the record of them is no longer the latest.`,
+    );
+  });
+
+  it('holds the input to its limit', () => {
+    const long = Array.from({ length: 100 }, (_, i) => ({
+      ...failed,
+      name: `${'x'.repeat(190)} ${i}`,
+      url: `https://github.com/acme/api/actions/runs/1/job/${'9'.repeat(1900)}${i}`,
+    }));
+    const route = planned([...opened, record(long), sentBack], 'implement', 2);
+    assert.ok(route !== undefined);
+    assert.ok(Buffer.byteLength(routeInput(route).text, 'utf8') <= MAX_ROUTE_INPUT_BYTES);
+  });
+});

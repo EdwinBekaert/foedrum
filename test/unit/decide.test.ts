@@ -21,6 +21,18 @@ import type {
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
+import {
+  checksFinished,
+  checksPending,
+  failedCheck,
+  firstHead,
+  fixPullRequest,
+  fixRound,
+  OPEN,
+  openedOnTap,
+  passedCheck,
+  secondHead,
+} from '../helpers/open-pull-request.ts';
 
 const day = 24 * hour;
 const now = new Date('2026-10-15T12:00:00.000Z');
@@ -2166,6 +2178,273 @@ describe('decide: on tap with the pull request of the openPullRequest step (ADR 
     assert.deepStrictEqual(decide(fold(events), { kind: 'skip', batchId: 'b1', ...by }, ale()), {
       kind: 'refused',
       reason: `batch b1 goes on tap only with the pull request of its step ${open}, and the ledger has none`,
+    });
+  });
+});
+
+describe('decide: a failing check on the open pull request sends the batch back (ADR 0219)', () => {
+  const ale = (maxRounds = 2) => ({
+    ...context,
+    recipes: fakeRecipes({
+      ale: fakeRecipe({
+        steps: ['plan', OPEN],
+        actions: { [OPEN]: 'openPullRequest' },
+        routes: { [OPEN]: { pull_request: 'plan' } },
+        maxRounds,
+        pullRequests: [],
+      }),
+      bare: fakeRecipe({
+        steps: ['plan', OPEN],
+        actions: { [OPEN]: 'openPullRequest' },
+        pullRequests: [],
+      }),
+    }),
+  });
+  const fix = (head = firstHead) =>
+    ({
+      kind: 'fix_pull_request',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      head,
+      cause: { kind: 'checks' },
+    }) as const;
+  const failedOnTap = [...openedOnTap(), checksFinished('b1', firstHead)];
+  const route = (head = firstHead) =>
+    ({ from: OPEN, why: 'pull_request', pullRequest: fixPullRequest, head }) as const;
+
+  it('schedules the route goto with the pull request and the head it failed on', () => {
+    assert.deepStrictEqual(decide(fold(failedOnTap), fix(), ale()), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt: inAnHour,
+          route: route(),
+        },
+      ],
+    });
+  });
+
+  it('refuses a second command once the batch went back', () => {
+    const decided = decide(fold(failedOnTap), fix(), ale());
+    assert.equal(decided.kind, 'accepted');
+    const sent = decided.kind === 'accepted' ? decided.events : [];
+    assert.equal(decide(fold([...failedOnTap, ...sent]), fix(), ale()).kind, 'refused');
+  });
+
+  it('refuses a head whose checks passed, a re-run that turned green, and a pending one', () => {
+    const green = { ...failedCheck, conclusion: 'success' } as const;
+    for (const events of [
+      [...openedOnTap(), checksFinished('b1', firstHead, [passedCheck])],
+      [...failedOnTap, checksFinished('b1', firstHead, [green, passedCheck])],
+      [...failedOnTap, checksPending('b1', firstHead)],
+    ]) {
+      assert.equal(decide(fold(events), fix(), ale()).kind, 'refused');
+    }
+  });
+
+  it("refuses a head that is not the batch's push: a person pushed it", () => {
+    const events = [...openedOnTap(), checksFinished('b1', secondHead)];
+    assert.equal(decide(fold(events), fix(secondHead), ale()).kind, 'refused');
+  });
+
+  it('refuses a recipe without onPullRequestFail', () => {
+    const events = [...openedOnTap('b1', 'bare'), checksFinished('b1', firstHead)];
+    assert.equal(decide(fold(events), fix(), ale()).kind, 'refused');
+  });
+
+  it('refuses a pull request that ended, and an order a person paused', () => {
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      state: 'merged',
+    };
+    const paused: Event = {
+      type: 'order.paused',
+      order: { issue: 100 },
+      by: 'ada',
+      via: 'terminal',
+    };
+    for (const event of [ended, paused]) {
+      assert.equal(decide(fold([...failedOnTap, event]), fix(), ale()).kind, 'refused');
+    }
+  });
+
+  it('refuses while the whole Brewery is paused', () => {
+    const all: Event = { type: 'order.paused', by: 'ada', via: 'terminal' };
+    assert.deepStrictEqual(decide(fold([...failedOnTap, all]), fix(), ale()), {
+      kind: 'refused',
+      reason: 'batch b1 is paused: its pull request goes back once it is continued',
+    });
+  });
+
+  const secondFailed = [
+    ...failedOnTap,
+    ...fixRound('b1', firstHead, secondHead),
+    checksFinished('b1', secondHead),
+  ];
+
+  it("sends the next round back from the new head, the round's push", () => {
+    assert.equal(decide(fold(secondFailed), fix(firstHead), ale()).kind, 'refused');
+    assert.deepStrictEqual(decide(fold(secondFailed), fix(secondHead), ale()), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 3,
+          deadlineAt: inAnHour,
+          route: route(secondHead),
+        },
+      ],
+    });
+  });
+
+  const stuckOnChecks: StuckReason = {
+    kind: 'pull_request_failed',
+    stepId: OPEN,
+    pullRequest: fixPullRequest,
+    head: secondHead,
+    rounds: 1,
+    failed: [{ name: failedCheck.name, conclusion: 'failure', url: failedCheck.url }],
+    more: 0,
+  };
+
+  it('makes the batch Stuck with the failed checks once the rounds are used', () => {
+    assert.deepStrictEqual(decide(fold(secondFailed), fix(secondHead), ale(1)), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'batch.stuck',
+          batchId: 'b1',
+          reason: stuckOnChecks,
+          options: [...withoutAnswer],
+          remindAt: inTwoDays,
+        },
+      ],
+    });
+  });
+
+  it('names the first five failed checks and counts the rest', () => {
+    const checks = Array.from({ length: 7 }, (_, i) => ({ ...failedCheck, name: `check ${i}` }));
+    const events = [...secondFailed, checksFinished('b1', secondHead, checks)];
+    const decided = decide(fold(events), fix(secondHead), ale(1));
+    const [first] = decided.kind === 'accepted' ? decided.events : [];
+    const reason = first?.type === 'batch.stuck' ? first.reason : undefined;
+    assert.deepStrictEqual(
+      reason?.kind === 'pull_request_failed'
+        ? [reason.failed.map(({ name }) => name), reason.more]
+        : decided,
+      [['check 0', 'check 1', 'check 2', 'check 3', 'check 4'], 2],
+    );
+  });
+
+  it('offers retry, skip, recipe, rewind and cancel', () => {
+    assert.deepStrictEqual(stuckOptions(stuckOnChecks), [...withoutAnswer]);
+  });
+
+  const stuckEvents: Event[] = [
+    ...secondFailed,
+    {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: stuckOnChecks,
+      options: [...withoutAnswer],
+      remindAt: inTwoDays,
+    },
+  ];
+
+  it('retries along the route once more, a round past its rounds', () => {
+    const retry = { kind: 'retry', batchId: 'b1', ...by } as const;
+    assert.deepStrictEqual(decide(fold(stuckEvents), retry, ale(1)), {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 3,
+          deadlineAt: inAnHour,
+          route: route(secondHead),
+        },
+      ],
+    });
+  });
+
+  it('skips the action step: the batch goes on tap with its pull request as it is', () => {
+    const skip = { kind: 'skip', batchId: 'b1', ...by } as const;
+    assert.deepStrictEqual(decide(fold(stuckEvents), skip, ale(1)), {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'skip' },
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [fixPullRequest] },
+      ],
+    });
+  });
+
+  it('cancels', () => {
+    const cancel = { kind: 'cancel', batchId: 'b1', ...by } as const;
+    assert.deepStrictEqual(decide(fold(stuckEvents), cancel, ale(1)), {
+      kind: 'accepted',
+      events: [{ type: 'batch.cancelled', batchId: 'b1', ...by }],
+    });
+  });
+
+  it("refuses the same head again once a person's skip left it as it is", () => {
+    const skip = { kind: 'skip', batchId: 'b1', ...by } as const;
+    const skipped = decide(fold(stuckEvents), skip, ale(1));
+    assert.equal(skipped.kind, 'accepted');
+    const events = skipped.kind === 'accepted' ? skipped.events : [];
+    assert.deepStrictEqual(decide(fold([...stuckEvents, ...events]), fix(secondHead), ale(1)), {
+      kind: 'refused',
+      reason: `pull request ${fixPullRequest} of batch b1 has no failed checks on ${secondHead}, the head of the batch's latest push`,
+    });
+  });
+
+  it("makes the batch Stuck on its pull request when its route's step was skipped by its when", () => {
+    const skipper = {
+      ...context,
+      recipes: fakeRecipes({
+        ale: fakeRecipe({
+          steps: ['gauge', 'plan', OPEN],
+          actions: { [OPEN]: 'openPullRequest' },
+          routes: { [OPEN]: { pull_request: 'gauge' } },
+          pullRequests: [],
+        }),
+      }),
+    };
+    const [orderedEvent, chosenEvent, ...rest] = failedOnTap;
+    const events: Event[] = [
+      orderedEvent as Event,
+      chosenEvent as Event,
+      { type: 'step.skipped', batchId: 'b1', stepId: 'gauge', when: 'recipe.testFirst' },
+      ...rest,
+    ];
+    assert.deepStrictEqual(decide(fold(events), fix(), skipper), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'batch.stuck',
+          batchId: 'b1',
+          reason: {
+            kind: 'pull_request_failed',
+            stepId: OPEN,
+            pullRequest: fixPullRequest,
+            head: firstHead,
+            rounds: 0,
+            failed: [{ name: failedCheck.name, conclusion: 'failure', url: failedCheck.url }],
+            more: 0,
+          },
+          options: [...withoutAnswer],
+          remindAt: inTwoDays,
+        },
+      ],
     });
   });
 });

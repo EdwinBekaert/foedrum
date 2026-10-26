@@ -1,7 +1,9 @@
 // The openPullRequest action as the driver runs it (ADR 0071): two effects of the batch in the
 // ledger, the push of its task tree to the bottle branch and then the pull request on the code
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
-// pushes twice or opens two pull requests (I4). The attempt ends once both are recorded.
+// pushes twice or opens two pull requests (I4). The attempt ends once both are recorded. A later
+// round of the pull request, after a failure on it sent the batch back, pushes again under a key of
+// its own onto the round before, and opens nothing (ADR 0219).
 
 import { posix } from 'node:path';
 import type { IsCommit } from '../formats/secrets.ts';
@@ -23,6 +25,7 @@ import {
   knownCommits,
   openedPullRequest,
   pullRequestKey,
+  pullRequestRound,
   pullRequestText,
   pushKey,
   type StepReport,
@@ -109,6 +112,8 @@ type ActionEffect =
       branch: string;
       /** Where the batch's change starts, and the globs its files are matched against (ADR 0201). */
       sensitive?: { since: string; paths: readonly string[] };
+      /** A later round's: the commit the round before pushed, where it expects the branch (ADR 0219). */
+      previous?: string;
     }
   | {
       kind: 'open';
@@ -140,7 +145,17 @@ const matchesWithDots = (file: string, glob: string): boolean =>
 
 /** Where the action pushes from and opens into, or why it cannot run. */
 type Plan =
-  | { kind: 'run'; repository: PullRequestRepository; revision: string }
+  | {
+      kind: 'run';
+      repository: PullRequestRepository;
+      revision: string;
+      /** The round of the pull request this push is (ADR 0219). */
+      round: number;
+      /** A later round's: the commit the round before pushed, where it expects the branch. */
+      previous?: string;
+      /** A later round's: the pull request ended while the fix ran, so nothing is pushed. */
+      ended?: true;
+    }
   | { kind: 'fail'; reason: string }
   /** The secret scan stopped the push: the batch waits on a human (ADR 0079). */
   | { kind: 'blocked'; summary: string };
@@ -187,7 +202,9 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       }
       // The base is never the start here: the task tree has moved (ADR 0066).
       const revision = taskTreeStart(batch, { repo: repository.repo, base: repository.base });
-      const recorded = state.effects.get(effectKey.encode(pushKey(batchId)));
+      // One push per round of the pull request (ADR 0219).
+      const round = pullRequestRound(batch);
+      const recorded = state.effects.get(effectKey.encode(pushKey(batchId, round)));
       const pushed = recorded === undefined ? undefined : PushResult.safeParse(recorded);
       if (pushed?.success === false) {
         return {
@@ -213,7 +230,27 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
           reason: `batch ${batchId} pushed ${why.from} for its pull request, and its task tree has moved to ${revision} since: updating an open bottle is not supported yet (ADR 0071)`,
         };
       }
-      return { kind: 'run', repository, revision };
+      if (round === 1) return { kind: 'run', repository, revision, round };
+      // A later round pushes on top of the round before, to the same pull request (ADR 0219).
+      const before = PushResult.safeParse(
+        state.effects.get(effectKey.encode(pushKey(batchId, round - 1))),
+      );
+      if (!before.success) {
+        return {
+          kind: 'fail',
+          reason: `batch ${batchId} has no push of round ${round - 1} of its pull request to push round ${round} on`,
+        };
+      }
+      const url = openedPullRequest(state, batchId);
+      const ended = url !== undefined && batch.pullRequestEnds?.[url] !== undefined;
+      return {
+        kind: 'run',
+        repository,
+        revision,
+        round,
+        previous: before.data.commit,
+        ...(ended ? { ended } : {}),
+      };
     } catch (error) {
       return { kind: 'fail', reason: (error as Error).message };
     }
@@ -230,7 +267,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   const targetOf = (effect: ActionEffect): EffectTarget => {
     switch (effect.kind) {
       case 'push': {
-        const { push, revision, base, branch, sensitive } = effect;
+        const { push, revision, base, branch, sensitive, previous } = effect;
         // The files of the change that match a sensitive path, read once for commits that go.
         const touched = async (commit: string, signal?: AbortSignal) => {
           if (sensitive === undefined) return {};
@@ -271,6 +308,13 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
           apply: async (_key, signal): Promise<PushResult> => {
             const { result, base: start } = await resolve(signal);
             if (result.empty === true) return result;
+            // A later round pushes only onto the round before: a branch someone else pushed to,
+            // or deleted, is left alone, and the pull request with it (ADR 0219).
+            if (previous !== undefined) {
+              const tip = await push.remoteTip(branch, signal);
+              if (tip === undefined) return { ...result, gone: true };
+              if (tip !== previous) return { ...result, moved: tip };
+            }
             const found = await push.secretScan(start, result.commit, signal);
             if (found.length > 0) return { ...result, refused: found.slice(0, MAX_REFUSED) };
             const matched = await touched(result.commit, signal);
@@ -309,9 +353,14 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       const planned = plan(state, batchId);
       const batch = state.batches.get(batchId);
       if (planned.kind !== 'run' || batch === undefined) return [];
-      const { repository, revision } = planned;
+      const { repository, revision, round, previous, ended } = planned;
       const { repo } = repository;
       const branch = remoteBranch(brewery, bottleBranch(batchId, repo));
+      const pushed = pushKey(batchId, round);
+      // A pull request that ended while its fix ran gets no push: the action ends with it.
+      if (ended === true && !state.effects.has(effectKey.encode(pushed))) {
+        return [pullRequestKey(batchId)];
+      }
       const order =
         batch.repo === undefined
           ? { issue: batch.issue }
@@ -319,13 +368,14 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       // The change starts where a diff Taster's does (ADR 0161, ADR 0164); none before a start.
       const since = mergedBase(state, batchId) ?? batch.starts?.[repo.toLowerCase()]?.commit;
       const paths = repository.sensitivePaths ?? [];
-      effects.set(effectKey.encode(pushKey(batchId)), {
+      effects.set(effectKey.encode(pushed), {
         kind: 'push',
         push: repository.push,
         revision,
         base: repository.base,
         branch,
         ...(since === undefined || paths.length === 0 ? {} : { sensitive: { since, paths } }),
+        ...(previous === undefined ? {} : { previous }),
       });
       effects.set(effectKey.encode(pullRequestKey(batchId)), {
         kind: 'open',
@@ -337,7 +387,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         ...(batch.recipe === undefined ? {} : { recipe: batch.recipe.name }),
         attempts: brewLog(batch),
       });
-      return [pushKey(batchId), pullRequestKey(batchId)];
+      return [pushed, pullRequestKey(batchId)];
     },
     target: {
       find: async (key, signal) => targetOf(effectOf(key)).find(key, signal),
