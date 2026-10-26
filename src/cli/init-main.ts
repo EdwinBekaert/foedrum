@@ -31,7 +31,7 @@ import { runGitWith } from '../workspace/git.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
-import { runInit } from './init.ts';
+import { type InitAnswers, runInit } from './init.ts';
 import type { ShimPorts } from './init-shim.ts';
 import { type CliResult, printable } from './run.ts';
 
@@ -74,7 +74,8 @@ const linesOf = (input: NodeJS.ReadableStream) => {
 
 /**
  * Runs `foedrum init` in `cwd`: gh and doctor's tools run through `exec` and `resolve`, default the
- * real runner and PATH, and the questions on `terminal`, default standard input and output.
+ * real runner and PATH, the questions `given` does not answer on `terminal`, default standard input
+ * and output (ADR 0212).
  */
 export const initFromCheckout = async (
   cwd: string,
@@ -83,6 +84,7 @@ export const initFromCheckout = async (
     /** The environment and home the foedrum command is written for; default this process's. */
     shim?: Partial<Pick<ShimPorts, 'env' | 'home'>>;
   },
+  given: InitAnswers = {},
 ): Promise<CliResult> => {
   const { input, output } = options?.terminal ?? { input: process.stdin, output: process.stdout };
   const at = (path: string) => join(cwd, ...path.split('/'));
@@ -94,38 +96,41 @@ export const initFromCheckout = async (
   const git = runGitWith(options?.exec ?? execProcess);
   const answers = linesOf(input);
   try {
-    return await runInit({
-      ask: async (question) => {
-        output.write(printable(question));
-        return answers.next();
-      },
-      say: (line) => {
-        output.write(`${printable(line)}\n`);
-      },
-      files: {
-        exists: (path) => existsSync(at(path)),
-        read: (path) => (existsSync(at(path)) ? readFileSync(at(path), 'utf8') : undefined),
-        write: (path, text) => {
-          mkdirSync(dirname(at(path)), { recursive: true });
-          writeFileSync(at(path), text);
+    return await runInit(
+      {
+        ask: async (question) => {
+          output.write(printable(question));
+          return answers.next();
         },
+        say: (line) => {
+          output.write(`${printable(line)}\n`);
+        },
+        files: {
+          exists: (path) => existsSync(at(path)),
+          read: (path) => (existsSync(at(path)) ? readFileSync(at(path), 'utf8') : undefined),
+          write: (path, text) => {
+            mkdirSync(dirname(at(path)), { recursive: true });
+            writeFileSync(at(path), text);
+          },
+        },
+        login: () => githubLogin(github),
+        repository: (repo) => repositoryFacts(github, repo),
+        github: {
+          exists: (repo) => repositoryExists(github, repo),
+          create: (repo, login, isPrivate) => createRepository(github, repo, login, isPrivate),
+          hasLabel: (repo, label) => labelExists(github, repo, label),
+          createLabel: (repo, label, description) => createLabel(github, repo, label, description),
+        },
+        // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073).
+        git: (folder, args) => git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS }),
+        doctor: async (folder) => {
+          const diagnosis = diagnose(await doctorFromCheckout(at(folder), options));
+          return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };
+        },
+        shim: machineShim(options?.shim),
       },
-      login: () => githubLogin(github),
-      repository: (repo) => repositoryFacts(github, repo),
-      github: {
-        exists: (repo) => repositoryExists(github, repo),
-        create: (repo, login, isPrivate) => createRepository(github, repo, login, isPrivate),
-        hasLabel: (repo, label) => labelExists(github, repo, label),
-        createLabel: (repo, label, description) => createLabel(github, repo, label, description),
-      },
-      // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073).
-      git: (folder, args) => git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS }),
-      doctor: async (folder) => {
-        const diagnosis = diagnose(await doctorFromCheckout(at(folder), options));
-        return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };
-      },
-      shim: machineShim(options?.shim),
-    });
+      given,
+    );
   } finally {
     answers.close();
   }

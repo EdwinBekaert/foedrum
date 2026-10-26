@@ -86,8 +86,12 @@ export interface RegisteredCommand {
   rest?: string;
   /** The options it takes, each with a value and a field of its own: the value's name, by option. */
   options?: Readonly<Record<string, string>>;
+  /** The options that may be given more than once, their field a list of the values in order. */
+  repeated?: readonly string[];
   /** The options it takes without a value, each a field of its own that is true when given. */
   flags?: readonly string[];
+  /** What `--help`'s row shows for its options and flags, which it then lists below the table. */
+  synopsis?: string;
   /** Why the plugin does not carry it, when it does not (ADR 0125); the parity test reads it. */
   terminalOnly?: string;
   /** Validates the input against the command's schema, then runs its handler. */
@@ -102,7 +106,9 @@ interface CommandDefinition<S extends z.ZodType> {
   optional?: readonly string[];
   rest?: string;
   options?: Readonly<Record<string, string>>;
+  repeated?: readonly string[];
   flags?: readonly string[];
+  synopsis?: string;
   terminalOnly?: string;
   schema: S;
   handler: (input: z.output<S>, context: CliContext) => Promise<CliResult>;
@@ -362,14 +368,30 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'init',
-    summary: "Write a Brewery's files in its clone from a few questions, then run doctor",
+    summary:
+      'Set up a Brewery from a few questions, each answerable by its option, then run doctor',
     changesState: false,
     positionals: [],
-    terminalOnly:
-      'Asks its questions on the terminal until /foedrum:init asks them in a session (#530)',
+    // Each the answer to one question, as typed (ADR 0212).
+    options: {
+      brewery: 'owner/name',
+      visibility: 'private|public',
+      targets: 'owner/name ...',
+      alias: 'repo=alias',
+      'use-checks': 'repo=y|n',
+      check: 'repo:check=command',
+      change: 'file=y|n',
+      label: 'repo=y|n',
+      push: 'y|n',
+      shim: 'n|number',
+      repoint: 'y|n',
+    },
+    repeated: ['alias', 'use-checks', 'check', 'change', 'label'],
+    flags: ['no-input'],
+    synopsis: '[--<question> <answer>]... [--no-input]',
     schema: InitCommand,
     // Questions and lines on the terminal, run by it as brew is (ADR 0199).
-    handler: async (_input, context) => context.init(),
+    handler: async (input, context) => context.init(input),
   }),
   define({
     name: 'status',

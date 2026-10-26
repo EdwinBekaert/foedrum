@@ -12,8 +12,27 @@ import { z } from './zod.ts';
 export const DoctorCommand = z.strictObject({ command: z.literal('doctor') });
 export type DoctorCommand = z.infer<typeof DoctorCommand>;
 
-/** `foedrum init`: a Brewery's files, and outside a clone its repository, from a few questions (ADR 0199, ADR 0207). */
-export const InitCommand = z.strictObject({ command: z.literal('init') });
+/**
+ * `foedrum init`: a Brewery's files, and outside a clone its repository, from a few questions (ADR
+ * 0199, ADR 0207). Each option is the answer to one question as it would be typed, the repeated ones
+ * keyed `<repository or file>=<answer>`; init reads them as it reads a typed answer (ADR 0212).
+ */
+export const InitCommand = z.strictObject({
+  command: z.literal('init'),
+  brewery: z.string().optional(),
+  visibility: z.string().optional(),
+  targets: z.string().optional(),
+  alias: z.array(z.string()).optional(),
+  'use-checks': z.array(z.string()).optional(),
+  check: z.array(z.string()).optional(),
+  change: z.array(z.string()).optional(),
+  label: z.array(z.string()).optional(),
+  push: z.string().optional(),
+  shim: z.string().optional(),
+  repoint: z.string().optional(),
+  /** `--no-input`: refuse a question no option answers instead of asking it. */
+  'no-input': z.literal(true).optional(),
+});
 export type InitCommand = z.infer<typeof InitCommand>;
 
 export const StatusCommand = z.strictObject({

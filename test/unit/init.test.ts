@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { type InitPorts, runInit } from '../../src/cli/init.ts';
+import { type InitAnswers, type InitPorts, runInit } from '../../src/cli/init.ts';
 import type { CliResult } from '../../src/cli/run.ts';
 import type { RepositoryFacts } from '../../src/github/repository-facts.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
@@ -76,6 +76,10 @@ interface Options {
   gitCodes?: Readonly<Record<string, number>>;
   /** A writable folder on the PATH inside the home, for the foedrum command; default none. */
   shimFolder?: string;
+  /** The files on the machine the foedrum command goes on, by path; default none. */
+  shimFiles?: Readonly<Record<string, string>>;
+  /** The answers given as options (ADR 0212); default none. */
+  given?: InitAnswers;
 }
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
@@ -163,14 +167,14 @@ const init = async (
       home: '/home/ada',
       entry: '/home/ada/code/foedrum/src/cli/main.ts',
       writable: (folder) => folder === options.shimFolder,
-      read: () => undefined,
+      read: (path) => options.shimFiles?.[path],
       write: (path) => {
         run.events.push(`shim ${path}`);
       },
       resolve: () => undefined,
     },
   };
-  const result = await runInit(ports);
+  const result = await runInit(ports, options.given ?? {});
   return { result, ...run };
 };
 
@@ -999,5 +1003,317 @@ describe('foedrum init writes the foedrum command (ADR 0210)', () => {
     });
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /no answer to "Write the foedrum command into which folder\?"/);
+  });
+});
+
+/** Every answer of a first Brewery as an option: acme/web is a Node target, acme/api is not. */
+const ALL: InitAnswers = {
+  brewery: 'acme/brewery',
+  visibility: 'public',
+  targets: 'acme/web acme/api',
+  alias: ['acme/web=web', 'acme/api=api'],
+  'use-checks': ['acme/web=y'],
+  check: [
+    'acme/api:build=make',
+    'acme/api:typecheck=',
+    'acme/api:lint=',
+    'acme/api:format=',
+    'acme/api:test=make test',
+  ],
+  label: ['acme/web=y', 'acme/api=n'],
+  push: 'y',
+  shim: '1',
+};
+const SHIM_FOLDER = '/home/ada/.local/bin';
+/** A first Brewery made outside a clone, both targets without the label, a folder for the shim. */
+const FIRST: Options = {
+  status: ALL_NEW,
+  unlabelled: ['acme/web', 'acme/api'],
+  shimFolder: SHIM_FOLDER,
+};
+/** init's own shim, running another checkout's Foedrum. */
+const OTHER_SHIM = {
+  [`${SHIM_FOLDER}/foedrum`]: `#!/bin/sh\n# The foedrum command, written by foedrum init (ADR 0210)\nexec node '/home/ada/old/foedrum/src/cli/main.ts' "$@"\n`,
+};
+const without = (answers: InitAnswers, option: keyof InitAnswers): InitAnswers =>
+  Object.fromEntries(Object.entries(answers).filter(([key]) => key !== option));
+
+describe('foedrum init with its answers as options (ADR 0212)', () => {
+  it('asks no question an option answers, and does what each answer says', async () => {
+    const clone = outside();
+    const { result, questions, events } = await init([], clone, { ...FIRST, given: ALL });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, []);
+    assert.ok(events.includes('create acme/brewery octocat public'), events.join('\n'));
+    assert.ok(
+      events.includes(`label acme/web foedrum:brew ${LABEL_DESCRIPTION}`),
+      events.join('\n'),
+    );
+    assert.ok(!events.some((event) => event.startsWith('label acme/api')), events.join('\n'));
+    assert.ok(events.includes('git push'), events.join('\n'));
+    assert.ok(events.includes(`shim ${SHIM_FOLDER}/foedrum`), events.join('\n'));
+    const config = parsed(clone, 'brewery/foedrum.jsonc', BreweryConfig);
+    assert.equal(config.repositories['acme/web']?.alias, 'web');
+    assert.equal(config.repositories['acme/web']?.checks.lint, 'npm run lint');
+    assert.deepStrictEqual(config.repositories['acme/api']?.checks, {
+      build: 'make',
+      typecheck: null,
+      lint: null,
+      format: null,
+      test: 'make test',
+    });
+  });
+
+  it('asks on the terminal what no option answers, without --no-input', async () => {
+    const { questions } = await init(['', ''], outside(), { given: { brewery: 'acme/brewery' } });
+    assert.deepStrictEqual(questions, [
+      'Private or public [private]: ',
+      'Target repositories (owner/name, separated by spaces): ',
+    ]);
+  });
+
+  it('with --no-input, refuses a question without its option in one line naming it, creating and writing nothing', async () => {
+    const cases: [keyof InitAnswers, string][] = [
+      [
+        'brewery',
+        '"Brewery repository (owner/name)" [octocat/foedrum-brewery]; add --brewery <answer>',
+      ],
+      ['visibility', '"Private or public" [private]; add --visibility <answer>'],
+      [
+        'targets',
+        '"Target repositories (owner/name, separated by spaces)"; add --targets <answer>',
+      ],
+      ['alias', '"Alias of acme/web" [web]; add --alias acme/web=<answer>'],
+      ['use-checks', '"Use these for acme/web?" [Y/n]; add --use-checks acme/web=<answer>'],
+      [
+        'check',
+        '"build check of acme/api (a command, empty for none)"; add --check acme/api:build=<answer>',
+      ],
+      [
+        'label',
+        '"Create the label foedrum:brew in acme/web?" [Y/n]; add --label acme/web=<answer>',
+      ],
+      ['push', '"Commit and push these?" [Y/n]; add --push <answer>'],
+      [
+        'shim',
+        '"Write the foedrum command into which folder?" [1, or n for none]; add --shim <answer>',
+      ],
+    ];
+    for (const [option, line] of cases) {
+      const given = { ...without(ALL, option), 'no-input': true } as const;
+      const { result, questions, events, written } = await init([], outside(), {
+        ...FIRST,
+        given,
+      });
+      assert.deepStrictEqual(
+        result,
+        { exitCode: 2, stdout: '', stderr: `foedrum init: no answer to ${line}\n` },
+        option,
+      );
+      assert.deepStrictEqual(questions, [], option);
+      assert.deepStrictEqual(written, [], option);
+      assert.ok(
+        !events.some((event) => /^(create|git|label|shim|write)/.test(event)),
+        `${option}: ${events.join('\n')}`,
+      );
+    }
+  });
+
+  it('with --no-input, shows what a later question shows before refusing it', async () => {
+    const shim = await init([], outside(), {
+      ...FIRST,
+      given: { ...without(ALL, 'shim'), 'no-input': true },
+    });
+    assert.ok(shim.lines.includes(`  1. ${SHIM_FOLDER}`), shim.lines.join('\n'));
+    const clone: Clone = { files: new Map([['.gitignore', 'dist/\n']]) };
+    const change = await init([], clone, {
+      given: { brewery: '', targets: '', push: 'y', 'no-input': true },
+    });
+    assert.equal(
+      change.result.stderr,
+      'foedrum init: no answer to "Change .gitignore?" [y/N]; add --change .gitignore=<answer>\n',
+    );
+    assert.ok(change.lines.includes('.gitignore would change:'), change.lines.join('\n'));
+    assert.deepStrictEqual(change.written, []);
+    const repoint = await init([], outside(), {
+      ...FIRST,
+      shimFiles: OTHER_SHIM,
+      given: { ...without(ALL, 'shim'), 'no-input': true },
+    });
+    assert.match(
+      repoint.result.stderr,
+      /Point it at \/home\/ada\/code\/foedrum\?" \[y\/N\]; add --repoint <answer>\n$/,
+    );
+    assert.deepStrictEqual(repoint.written, []);
+  });
+
+  it('with --no-input, needs --push even when git would list nothing', async () => {
+    const { result } = await init([], undefined, {
+      given: { brewery: '', targets: '', 'no-input': true },
+    });
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /add --push <answer>/);
+  });
+
+  it('checks a value given as an option as it checks a typed one', async () => {
+    const refused = async (given: InitAnswers, options: Options = {}): Promise<string> => {
+      const { result, questions, events } = await init([], outside(), { ...options, given });
+      assert.deepStrictEqual(questions, []);
+      assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
+      return `${result.exitCode} ${result.stderr}`;
+    };
+    assert.equal(
+      await refused({ ...ALL, brewery: 'acme/NUL' }),
+      '1 foedrum init: NUL cannot be a folder on Windows; choose another name\n',
+    );
+    assert.match(
+      await refused(ALL, { repositories: ['acme/brewery'] }),
+      /^1 foedrum init: acme\/brewery is on GitHub already; /,
+    );
+    assert.match(
+      await refused({ ...ALL, brewery: 'brewery' }),
+      /^2 foedrum init: --brewery brewery: /,
+    );
+    assert.equal(
+      await refused({ ...ALL, visibility: 'secret' }),
+      '2 foedrum init: --visibility secret: Answer private or public\n',
+    );
+    assert.equal(
+      await refused({ ...ALL, targets: 'gone/repo' }),
+      '2 foedrum init: --targets gone/repo: GitHub answered 404 to the repository gone/repo\n',
+    );
+    assert.equal(
+      await refused({ ...ALL, alias: ['acme/web=web', 'acme/api=web'] }),
+      '2 foedrum init: --alias acme/api=web: The alias web is taken\n',
+    );
+    assert.match(
+      await refused({ ...ALL, alias: ['acme/web=Web!', 'acme/api=api'] }),
+      /^2 foedrum init: --alias acme\/web=Web!: Must be/,
+    );
+    assert.equal(
+      await refused({ ...ALL, push: 'maybe' }, FIRST),
+      '2 foedrum init: --push maybe: Answer y or n\n',
+    );
+    assert.equal(
+      await refused({ ...ALL, shim: '7' }, FIRST),
+      '2 foedrum init: --shim 7: Answer a number from 1 to 1, or n\n',
+    );
+    assert.equal(
+      await refused({ ...ALL, alias: ['acme/web'] }),
+      '2 foedrum init: --alias acme/web: Give it as <key>=<answer>\n',
+    );
+    assert.equal(
+      await refused({ ...ALL, label: ['acme/web=y', 'acme/web=n'] }),
+      '2 foedrum init: --label acme/web is given twice\n',
+    );
+  });
+
+  it('takes each yes or no option both ways', async () => {
+    const labels = await init([], outside(), {
+      ...FIRST,
+      given: { ...ALL, label: ['acme/web=n', 'acme/api=yes'] },
+    });
+    assert.ok(
+      !labels.events.some((event) => event.startsWith('label acme/web')),
+      labels.events.join('\n'),
+    );
+    assert.ok(
+      labels.events.some((event) => event.startsWith('label acme/api')),
+      labels.events.join('\n'),
+    );
+    const kept = await init([], outside(), { ...FIRST, given: { ...ALL, push: 'n' } });
+    assert.ok(!kept.events.includes('git push'), kept.events.join('\n'));
+    assert.ok(kept.lines.includes('git push -u origin HEAD'), kept.lines.join('\n'));
+    const noShim = await init([], outside(), { ...FIRST, given: { ...ALL, shim: 'n' } });
+    assert.ok(!noShim.events.some((event) => event.startsWith('shim')), noShim.events.join('\n'));
+    const typed = await init([], outside(), {
+      ...FIRST,
+      given: {
+        ...ALL,
+        'use-checks': ['acme/web=n'],
+        check: [
+          ...(ALL.check ?? []),
+          'acme/web:build=',
+          'acme/web:typecheck=',
+          'acme/web:lint=',
+          'acme/web:format=',
+          'acme/web:test=npm test',
+        ],
+      },
+    });
+    assert.equal(typed.result.exitCode, 0, typed.result.stderr);
+    assert.deepStrictEqual(typed.questions, []);
+    for (const [answer, changed] of [
+      ['y', true],
+      ['n', false],
+    ] as const) {
+      const clone: Clone = { files: new Map([['.gitignore', 'dist/\n']]) };
+      const { written } = await init([], clone, {
+        given: {
+          brewery: '',
+          targets: '',
+          push: 'n',
+          change: [`.gitignore=${answer}`],
+          'no-input': true,
+        },
+      });
+      assert.equal(written.includes('.gitignore'), changed, answer);
+    }
+    for (const [answer, pointed] of [
+      ['y', true],
+      ['n', false],
+    ] as const) {
+      const { events } = await init([], outside(), {
+        ...FIRST,
+        shimFiles: OTHER_SHIM,
+        given: { ...without(ALL, 'shim'), repoint: answer },
+      });
+      assert.equal(events.includes(`shim ${SHIM_FOLDER}/foedrum`), pointed, answer);
+    }
+  });
+
+  it('with --no-input and every answer, runs through, asking nothing about a label a target has', async () => {
+    const all = await init([], outside(), { ...FIRST, given: { ...ALL, 'no-input': true } });
+    assert.equal(all.result.exitCode, 0, all.result.stderr);
+    const { result, questions, events, lines } = await init([], outside(), {
+      ...FIRST,
+      unlabelled: ['acme/api'],
+      given: { ...without(ALL, 'label'), label: ['acme/api=n'], 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, []);
+    assert.ok(!events.some((event) => event.startsWith('label acme/web')), events.join('\n'));
+    assert.ok(lines.includes('acme/web has the label foedrum:brew'), lines.join('\n'));
+  });
+
+  it('with --no-input, says a label it cannot read where it would ask, reading it once', async () => {
+    const { result, lines, events } = await init([], outside(), {
+      ...FIRST,
+      labelReadFails: 'GitHub answered 500 to the label foedrum:brew of acme/web',
+      given: { ...without(ALL, 'label'), targets: 'acme/web', 'no-input': true },
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const at = lines.indexOf('GitHub answered 500 to the label foedrum:brew of acme/web');
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^gh label create foedrum:brew --repo acme\/web /);
+    assert.equal(events.filter((event) => event === 'has acme/web foedrum:brew').length, 1);
+  });
+
+  it('asks the folder again after a typed number it does not list, saying why', async () => {
+    const { questions, lines, events } = await init(['7', '1'], outside(), {
+      ...FIRST,
+      given: without(ALL, 'shim'),
+    });
+    assert.deepStrictEqual(questions, [
+      'Write the foedrum command into which folder? [1, or n for none]: ',
+      'Write the foedrum command into which folder? [1, or n for none]: ',
+    ]);
+    assert.ok(lines.includes('  Answer a number from 1 to 1, or n'), lines.join('\n'));
+    assert.ok(events.includes(`shim ${SHIM_FOLDER}/foedrum`), events.join('\n'));
+  });
+
+  it('refuses a keyed option with an empty key', async () => {
+    const { result } = await init([], outside(), { given: { ...ALL, alias: ['=web'] } });
+    assert.equal(result.stderr, 'foedrum init: --alias =web: Give it as <key>=<answer>\n');
   });
 });
