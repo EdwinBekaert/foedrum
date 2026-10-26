@@ -8,7 +8,12 @@ import { cutFindingText } from '../engine/decide.ts';
 import type { Attempt, Batch, State } from '../engine/fold.ts';
 import { lensRounds } from '../engine/lens-rounds.ts';
 import type { Usage } from '../schemas/events.ts';
-import { type Disposition, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
+import {
+  type Disposition,
+  lensOfFinding,
+  type TastingFinding,
+  tastingOf,
+} from '../schemas/out-doc.ts';
 import { addUsage, byName, type LoadedBrewers, number, tokensLine } from './brewer-report.ts';
 
 /** The lenses in use and what each recipe's step reviews through now, from the loaded files. */
@@ -107,7 +112,20 @@ const findingsOf = (
 };
 
 /**
- * Adds the rounds of `stepId` in `batch` to the tallies `tallyOf` gives each attempt. Each finding
+ * Where an attempt of a lens step counts: the tallies of the lenses it reviewed through, which each
+ * of its rounds counts in, the tally a finding goes to, and the usage its tokens add to. A step of
+ * lenses together gives each finding to the lens it names and its tokens to a shared row, never to a
+ * lens (ADR 0220).
+ */
+interface Target {
+  tallies: readonly LensTally[];
+  of: (finding: TastingFinding) => LensTally | undefined;
+  usage: Usage;
+  shared?: SharedTally;
+}
+
+/**
+ * Adds the rounds of `stepId` in `batch` to the tallies `targetOf` gives each attempt. Each finding
  * counts once (ADR 0221): one at the place of a finding still open is the same finding raised
  * again, with its latest severity; one at the place of a disposed finding is a contest of it
  * (ADR 0191), a new finding. A finding ends with the disposition paired to it as the next round is
@@ -117,24 +135,30 @@ const findingsOf = (
 const addRounds = (
   batch: Batch,
   stepId: string,
-  tallyOf: (attempt: number) => LensTally | undefined,
+  targetOf: (attempt: number) => Target | undefined,
 ): void => {
   const tracked = new Map<LensTally, Tracked[]>();
   for (const { attempt, ran, dispositions } of lensRounds(batch, stepId)) {
-    const tally = tallyOf(attempt);
-    if (tally === undefined) continue;
-    tally.rounds += 1;
+    const target = targetOf(attempt);
+    if (target === undefined) continue;
+    if (target.shared !== undefined) target.shared.rounds += 1;
     const found = findingsOf(ran);
-    if (found === undefined) {
-      tally.notRecorded.rounds += 1;
-      continue;
+    for (const tally of target.tallies) {
+      tally.rounds += 1;
+      if (found === undefined) tally.notRecorded.rounds += 1;
+      // Findings past the kept ones name no lens an event kept: each lens of the step counts them.
+      else tally.notRecorded.findings += found.more;
     }
-    tally.notRecorded.findings += found.more;
-    const known = tracked.get(tally) ?? [];
-    tracked.set(tally, known);
+    if (found === undefined) continue;
     const raised = new Set<Tracked>();
     const left = [...dispositions];
-    for (const { file, line, severity, introduced } of found.findings) {
+    for (const finding of found.findings) {
+      // Its lens is one of the step's: the out doc's schema refuses another (ADR 0220).
+      const tally = target.of(finding);
+      if (tally === undefined) continue;
+      const known = tracked.get(tally) ?? [];
+      tracked.set(tally, known);
+      const { file, line, severity, introduced } = finding;
       const at = { file, line };
       let same = known.find(
         (each) => !raised.has(each) && each.end === undefined && samePlace(each, at),
@@ -171,6 +195,12 @@ export const lensReport = (
 ): LensReport => {
   const lenses = new Map(source.lenses.map(({ name, path }) => [name, { ...counts(), path }]));
   const gone = new Map<string, LensTally & { recipe: string; stepId: string }>();
+  const shared = new Map<string, SharedTally>();
+  const lensTally = (lens: string): LensTally => {
+    const found = lenses.get(lens) ?? { ...counts(), path: '' };
+    lenses.set(lens, found);
+    return found;
+  };
   for (const batch of state.batches.values()) {
     // A batch has steps only once a recipe was chosen.
     const recipe = batch.recipe?.name;
@@ -181,31 +211,46 @@ export const lensReport = (
       const tasted = lensRounds(batch, step.id).some(
         ({ ran }) => ran.outcome.kind === 'succeeded' || ran.findings !== undefined,
       );
-      // The tally of an attempt: its lens's, or, for a Taster's step, its step's apart when
-      // the files no longer give it a lens; none for a step that is no lens step.
-      const tallyOf = (attempt: number): LensTally | undefined => {
+      // Where an attempt counts: its lens's tally, its lenses' together, or, for a Taster's step,
+      // its step's apart when the files no longer give it a lens; nowhere for no lens step.
+      const targetOf = (attempt: number): Target | undefined => {
         const key = attemptKey.encode({ batchId: batch.id, stepId: step.id, attempt });
         const ranIn = ran.get(key) ?? recipe;
         const inFiles = source.step(ranIn, step.id);
-        if (inFiles?.together !== undefined) throw new Error('not implemented');
-        const lens = inFiles?.lens;
-        if (lens !== undefined) {
-          const found = lenses.get(lens) ?? { ...counts(), path: '' };
-          lenses.set(lens, found);
-          return found;
+        if (inFiles?.together !== undefined) {
+          const names = inFiles.together;
+          const byLens = new Map(names.map((name) => [name, lensTally(name)]));
+          const row = shared.get(names.join(',')) ?? {
+            lenses: names,
+            rounds: 0,
+            usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          };
+          shared.set(names.join(','), row);
+          return {
+            tallies: [...byLens.values()],
+            of: (finding) => byLens.get(lensOfFinding(finding, undefined) ?? ''),
+            usage: row.usage,
+            shared: row,
+          };
         }
+        const one = (tally: LensTally): Target => ({
+          tallies: [tally],
+          of: () => tally,
+          usage: tally.usage,
+        });
+        if (inFiles?.lens !== undefined) return one(lensTally(inFiles.lens));
         if (!tasted) return undefined;
         const apart = JSON.stringify([ranIn, step.id]);
         const found = gone.get(apart) ?? { ...counts(), recipe: ranIn, stepId: step.id };
         gone.set(apart, found);
-        return found;
+        return one(found);
       };
       for (const attempt of step.attempts.values()) {
         if (attempt.phase !== 'finished') continue;
-        const tally = tallyOf(attempt.attempt);
-        if (tally !== undefined) addUsage(tally.usage, attempt.usage);
+        const target = targetOf(attempt.attempt);
+        if (target !== undefined) addUsage(target.usage, attempt.usage);
       }
-      addRounds(batch, step.id, tallyOf);
+      addRounds(batch, step.id, targetOf);
     }
   }
   return {
@@ -215,8 +260,7 @@ export const lensReport = (
     gone: [...gone.values()].sort(
       (a, b) => byName(a.recipe, b.recipe) || byName(a.stepId, b.stepId),
     ),
-    // Lenses together: not implemented yet (ADR 0220).
-    shared: [],
+    shared: [...shared].sort(([a], [b]) => byName(a, b)).map(([, row]) => row),
   };
 };
 
@@ -256,10 +300,21 @@ const tallyLines = ({ rounds, severity, ends, notRecorded, usage }: LensTally): 
 };
 
 /** What `foedrum lenses` prints. */
-export const formatLensReport = ({ lenses, gone }: LensReport): string => {
+export const formatLensReport = ({ lenses, gone, shared }: LensReport): string => {
   if (lenses.length === 0 && gone.length === 0) return 'No lenses.\n';
   const lines = [
     ...lenses.flatMap((lens) => [`${lens.name}  ${lens.path}`, ...tallyLines(lens)]),
+    ...(shared.length === 0
+      ? []
+      : [
+          '',
+          'Lenses together, their tokens not split (ADR 0220):',
+          ...shared.flatMap(({ lenses: names, rounds, usage }) => [
+            names.join(' + '),
+            `  ${counted(rounds, 'round', 'rounds')}`,
+            tokensLine(usage),
+          ]),
+        ]),
     ...(gone.length === 0
       ? []
       : [
@@ -271,13 +326,19 @@ export const formatLensReport = ({ lenses, gone }: LensReport): string => {
   return `${lines.join('\n')}\n`;
 };
 
+/** A step's lens, or its lenses together (ADR 0220). */
+const together = (
+  found: { lens?: string; together?: readonly string[] } | undefined,
+): { lens: string | undefined; together?: readonly string[] } =>
+  found?.together === undefined
+    ? { lens: found?.lens }
+    : { lens: undefined, together: found.together };
+
 /** The lenses in use and each recipe's lens steps, from the loaded files. */
 export const lensSource = ({ recipes, brewers, catalog }: LoadedBrewers): LensSource => ({
   lenses: catalog.lenses
     .filter(({ name }) => catalog.named.reviewLenses.has(name))
     .map(({ name, path }) => ({ name, path })),
   step: (recipe, stepId) =>
-    recipes.find(recipe)?.has(stepId) === true
-      ? { lens: brewers.find(recipe, stepId)?.lens }
-      : undefined,
+    recipes.find(recipe)?.has(stepId) === true ? together(brewers.find(recipe, stepId)) : undefined,
 });
