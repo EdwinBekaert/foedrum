@@ -450,6 +450,52 @@ describe('createIntake', () => {
       assert.deepStrictEqual(ends(), { [pullRequest]: 'merged' });
       assert.deepStrictEqual(calls, ['tip', 'merge-tree']);
     });
+
+    it('reads the checks on the open pull requests after it records the ends, and reports a failed read (ADR 0213)', async () => {
+      onTap();
+      for (const [key, result] of [
+        [pushKey('web-7'), { branch: 'foedrum/x/acme.web', commit: 'a'.repeat(40), from: 'start' }],
+        [pullRequestKey('web-7'), pullRequest],
+      ] as const) {
+        accept({
+          kind: 'record',
+          event: { type: 'effect.applied', key: effectKey.encode(key), result },
+        });
+      }
+      const calls: string[] = [];
+      let checks: Error | undefined = new Error('502 reading checks');
+      const reader: IntakeOptions['checks'] = {
+        head: async () => {
+          calls.push('head');
+          return 'a'.repeat(40);
+        },
+        checks: async () => {
+          calls.push('checks');
+          if (checks !== undefined) throw checks;
+          return [{ name: 'test', kind: 'check_run' }];
+        },
+      };
+      const { tracker, pullRequests } = fakeTracker(
+        { [web]: [], [api]: [] },
+        { [pullRequest]: 'open' },
+      );
+      const polling = intake(tracker, { checks: reader });
+      await polling.poll();
+      assert.deepStrictEqual(
+        notices.filter(({ kind }) => kind === 'failed'),
+        [{ kind: 'failed', what: `reading the checks of ${pullRequest}`, error: checks }],
+      );
+      checks = undefined;
+      await polling.poll();
+      assert.equal(
+        log.state().batches.get('web-7')?.pullRequestChecks?.[pullRequest]?.kind,
+        'pending',
+      );
+      // Merged in the next pass: the end is recorded first, so its checks are read no more.
+      pullRequests[pullRequest] = 'merged';
+      await polling.poll();
+      assert.deepStrictEqual(calls, ['head', 'checks', 'head', 'checks']);
+    });
   });
 
   describe('Brewery issues and routing (ADR 0068)', () => {
