@@ -384,6 +384,49 @@ describe('lensReport', () => {
       [0, 0, 0],
     );
   });
+
+  it('lists no step that blocked by findings without a Taster, as any brewer may (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      // A brewer's own blocked out doc on findings records none: it is no lens's round.
+      ...attempt('b1', 'implement', 1, blocked, { usage: usage(9, 9, 9, 9) }),
+      ...ordered('b2', 2, 'old'),
+      ...attempt('b2', 'gauge', 1, blocked, { usage: usage(1, 1, 1, 1) }),
+    ];
+    const made = report(events);
+    assert.deepStrictEqual(made.gone, []);
+    assert.deepStrictEqual(
+      made.lenses.map(({ name: _, path: __, ...each }) => each),
+      [tally(), tally(), tally()],
+    );
+  });
+
+  it('pairs a disposition with a finding whose recorded file was cut to one spaced line (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      // step.finished keeps the file as decide cuts it: its runs of whitespace as one space.
+      ...attempt('b1', 'correctness', 1, blocked, {
+        findings: kept(finding('docs/my notes.md', 1)),
+      }),
+      ...attempt(
+        'b1',
+        'implement',
+        2,
+        // The Cellarman read the Taster's own out doc, with the file as the Taster wrote it.
+        disposed({ file: 'docs/my  notes.md', line: 1, disposition: 'fixed' }),
+        { from: 'correctness' },
+      ),
+      ...attempt('b1', 'correctness', 2, tasted([])),
+    ];
+    assert.deepStrictEqual(
+      lens(report(events), 'diff/correctness'),
+      tally({
+        rounds: 2,
+        severity: { blocker: 0, major: 1, minor: 0 },
+        ends: { fixed: 1, dismissed: 0, 'pre-existing': 0, open: 0 },
+      }),
+    );
+  });
 });
 
 describe('formatLensReport', () => {
