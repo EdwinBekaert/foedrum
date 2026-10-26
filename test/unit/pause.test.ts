@@ -273,6 +273,20 @@ describe('pause and continue (ADR 0202)', () => {
       );
     });
 
+    it('reschedules no attempt that Stuck abandoned, which a skip left behind', () => {
+      order(12);
+      // plan#1 never started: past its deadline the batch is Stuck, and the skip goes on to implement.
+      now = at(2 * 60);
+      accept({ kind: 'expire', batchId: 'b12', stepId: 'plan', attempt: 1 });
+      accept({ kind: 'skip', batchId: 'b12', ...who });
+      accept({ kind: 'pause', order: { issue: 12 }, ...who });
+      const events = accept({ kind: 'continue', order: { issue: 12 }, ...who });
+      assert.deepStrictEqual(
+        events.map((event) => ('stepId' in event ? `${event.type} ${event.stepId}` : event.type)),
+        ['order.continued', 'step.rescheduled implement'],
+      );
+    });
+
     it('reschedules only the batches whose pause it lifts', () => {
       order(12);
       order(13);
