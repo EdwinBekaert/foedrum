@@ -222,10 +222,9 @@ export const borrowedStores = (repository: string): string[] => {
  * the folders Foedrum alone writes, for `borrowsFrom` (ADR 0203).
  */
 export const insideFolders =
-  (_roots: readonly string[], _realPath: (path: string) => string) =>
-  (_realRepository: string): boolean => {
-    throw new Error('not implemented');
-  };
+  (roots: readonly string[], realPath: (path: string) => string) =>
+  (realRepository: string): boolean =>
+    roots.some((root) => pathInside(realPath(root), realRepository) !== undefined);
 
 export interface SandboxedChecksOptions {
   /** The process runner the sandbox is started through. */
@@ -293,7 +292,7 @@ const sandboxRun = (tool: string, result: ExecResult): ExecResult =>
 export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
   const { exec, platform = process.platform, realPath = realPathOf } = options;
   const { gitDirOf = worktreeGitDir, temp = systemTemp, network = false } = options;
-  const { borrowedOf = borrowedStores } = options;
+  const { borrowedOf = borrowedStores, borrowsFrom = () => false } = options;
   const findBwrap = options.findBwrap ?? (() => resolveExecutable('bwrap', { platform }));
   const hasSandboxExec =
     options.hasSandboxExec ?? (() => resolveExecutable(SANDBOX_EXEC, { platform }) !== undefined);
@@ -305,17 +304,15 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
       const gitDir = gitDirOf(call.cwd);
       const worktree = realPath(call.cwd);
       const repository = gitDir === undefined ? undefined : realPath(gitDir);
-      // Only a repository outside the worktree, where no check writes, names what it borrows: a
-      // check could plant a record and an alternates file in its worktree (review of #528).
-      const outside =
-        repository !== undefined &&
-        !samePath(repository, worktree) &&
-        pathInside(worktree, repository) === undefined;
+      // Only a repository in a folder Foedrum alone writes names what it borrows: a brewer or a
+      // check writes its worktree, and could plant a record and an alternates file there or in a
+      // sibling attempt's (review of #528).
+      const borrows = repository !== undefined && borrowsFrom(repository);
       paths = {
         home: realPath(options.home ?? homedir()),
         worktree,
         gitDir: repository,
-        borrowed: outside ? borrowedOf(repository).map((store) => realPath(store)) : [],
+        borrowed: borrows ? borrowedOf(repository).map((store) => realPath(store)) : [],
       };
     } catch (error) {
       return unstarted(`the check's sandbox cannot be set up: ${messageOf(error)}`);

@@ -340,10 +340,10 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     say(messageOf(error));
     return 1;
   } finally {
-    // The pass underway, and the run on a merged tree once stopped, write to the store until they
-    // settle.
-    await polling;
+    // The run on a merged tree is stopped first; it and the pass underway write to the store until
+    // they settle.
     stopRuns?.abort();
+    await polling;
     await merged?.settled();
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
     try {

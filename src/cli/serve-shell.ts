@@ -9,7 +9,11 @@ import { claudeBrewerRunner } from '../brewers/claude-runner.ts';
 import { lockDriver } from '../engine/driver-lock.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { openStateBranch } from '../engine/state-branch-git.ts';
-import { type SandboxedChecksOptions, sandboxedChecks } from '../platform/check-sandbox.ts';
+import {
+  insideFolders,
+  type SandboxedChecksOptions,
+  sandboxedChecks,
+} from '../platform/check-sandbox.ts';
 import { type AwakeMechanism, awakeCommand, keepAwake } from '../platform/keep-awake.ts';
 import {
   type ExecProcess,
@@ -17,6 +21,7 @@ import {
   type ListenForSignal,
   stopOnSignals,
 } from '../platform/processes.ts';
+import { realPath } from '../platform/real-path.ts';
 import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import {
   ensureManagedClone,
@@ -79,8 +84,17 @@ export const listenWhileServing = (
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
   const { root, git, out, listen, checks, keepAwake: awake, command = 'serve' } = options;
   const { workRoot } = setup;
+  // A check reads the clone's objects only through a worktree of Foedrum's own git directories,
+  // which Foedrum alone writes (ADR 0203).
+  const sandbox = {
+    ...checks,
+    borrowsFrom: insideFolders(
+      setup.repositories.map(({ repo }) => ownGitDirsRoot(workRoot, repo)),
+      realPath,
+    ),
+  };
   // A repository's setup installs, so its sandbox keeps the network (ADR 0158).
-  const setupExec = sandboxedChecks({ exec: execProcess, ...checks, network: true });
+  const setupExec = sandboxedChecks({ exec: execProcess, ...sandbox, network: true });
   // The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
   // it by this URL, never through the clone's configuration (ADR 0090, ADR 0096).
   const ownRemote = (repo: string): OwnRemote => ({
@@ -154,7 +168,7 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     // A brewer attempt's setup runs before claude, in the setup's sandbox (ADR 0163).
     runner: (claude, plan) => claudeBrewerRunner({ claude, plan, setup: setupExec }),
     // A check's command line runs in the OS sandbox (ADR 0076).
-    exec: sandboxedChecks({ exec: execProcess, ...checks }),
+    exec: sandboxedChecks({ exec: execProcess, ...sandbox }),
     setup: setupExec,
     gh: execProcess,
     git,
