@@ -494,7 +494,7 @@ describe('brewing with the fake brewer runner', () => {
       const unpushed = new Map([['foedrum/b1/implement/1', FAKE_COMMIT]]);
       assert.deepStrictEqual(worktrees.cleans(), [
         {
-          claims: { batches: new Map([['b1', 'ended']]), leased: [], unpushed },
+          claims: { batches: new Map([['b1', 'ended']]), leased: [], unpushed, open: new Set() },
           scope: { batchId: 'b1' },
         },
       ]);
@@ -618,7 +618,12 @@ describe('brewing with the fake brewer runner', () => {
       const { repair } = await restarted.start();
       assert.deepStrictEqual(worktrees.cleans(), [
         {
-          claims: { batches: new Map([['b1', 'live']]), leased: [], unpushed: new Map() },
+          claims: {
+            batches: new Map([['b1', 'live']]),
+            leased: [],
+            unpushed: new Map(),
+            open: new Set(),
+          },
           scope: {},
         },
       ]);

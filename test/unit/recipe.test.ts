@@ -388,6 +388,11 @@ describe('step references', () => {
       ['steps', 0, 'onBlocked', 'findings', 'goto'],
     ],
     [
+      'an onPullRequestFail route to an unknown step (ADR 0219)',
+      [plan, { action: 'openPullRequest', onPullRequestFail: { goto: 'ghost', maxRounds: 2 } }],
+      ['steps', 1, 'onPullRequestFail', 'goto'],
+    ],
+    [
       'a when that reads an unknown step',
       [{ ...plan, when: 'ghost.verdict' }],
       ['steps', 0, 'when'],
@@ -454,6 +459,17 @@ describe('step references', () => {
         { id: 'build', brewer: 'cellarman' },
       ],
       ['steps', 0, 'onFail', 'goto'],
+    ],
+    [
+      'an onPullRequestFail route to its own step (ADR 0219)',
+      [
+        plan,
+        {
+          action: 'openPullRequest',
+          onPullRequestFail: { goto: 'open-pull-request', maxRounds: 2 },
+        },
+      ],
+      ['steps', 1, 'onPullRequestFail', 'goto'],
     ],
     [
       'a goto to its own step',
@@ -554,5 +570,53 @@ describe('an interactive brewer step (ADR 0222)', () => {
     const result = Step.safeParse({ id: 'refine', session: 'refine', deadline: '2d' });
     assert.equal(result.success, false);
     assert.match(result.error?.issues[0]?.message ?? '', /"interactive": true/);
+  });
+});
+
+describe('Recipe: onPullRequestFail (ADR 0219)', () => {
+  const route = { goto: 'plan', maxRounds: 2 };
+
+  it('accepts it on the openPullRequest action', () => {
+    const result = Recipe.safeParse(
+      recipe([plan, { action: 'openPullRequest', onPullRequestFail: route }]),
+    );
+    assert.equal(result.success, true, result.error?.message);
+  });
+
+  it('refuses it on another action, pointing at it', () => {
+    const result = Recipe.safeParse(
+      recipe([plan, { action: 'comment', onPullRequestFail: route }]),
+    );
+    assert.equal(result.success, false);
+    assert.deepEqual(
+      result.error?.issues.map(({ path, message }) => [path, message]),
+      [
+        [
+          ['steps', 1, 'onPullRequestFail'],
+          'Only the openPullRequest action has onPullRequestFail (ADR 0219)',
+        ],
+      ],
+    );
+  });
+
+  it('refuses one without maxRounds', () => {
+    const steps = [plan, { action: 'openPullRequest', onPullRequestFail: { goto: 'plan' } }];
+    assert.equal(accepted(recipe(steps)), false);
+  });
+
+  it("is on Nip's action, back to implement for two rounds", () => {
+    const nip = readJsonc(
+      readFileSync(
+        join(import.meta.dirname, '..', '..', 'defaults', 'recipes', 'nip.jsonc'),
+        'utf8',
+      ),
+      DefaultRecipe,
+    );
+    assert.equal(nip.valid, true);
+    const steps = nip.valid ? nip.value.steps : [];
+    assert.deepEqual(steps.at(-1), {
+      action: 'openPullRequest',
+      onPullRequestFail: { goto: 'implement', maxRounds: 2 },
+    });
   });
 });

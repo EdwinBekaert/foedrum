@@ -821,6 +821,15 @@ describe('StuckReason', () => {
     },
     routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
     stopped: { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: 'lunch' },
+    pull_request_failed: {
+      kind: 'pull_request_failed',
+      stepId: 'open-pull-request',
+      pullRequest: 'https://github.com/acme/api/pull/12',
+      head: 'c'.repeat(40),
+      rounds: 2,
+      failed: [{ name: 'ci / test', conclusion: 'failure' }],
+      more: 0,
+    },
   };
   for (const [kind, reason] of Object.entries(reasons)) {
     it(`accepts ${kind}`, () => accepts(StuckReason, reason));

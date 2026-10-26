@@ -7,6 +7,7 @@ import type { EngineCommand } from './decide.ts';
 import type { DueBatch, Lease } from './event-store.ts';
 import type { Batch, State } from './fold.ts';
 import { pauseOf } from './pauses.ts';
+import { failedPullRequest, fixHeld, pullRequestRoute } from './pull-request-fix.ts';
 import type { Recipes, Stall } from './recipes.ts';
 import type { FlushResult } from './state-branch-git.ts';
 
@@ -103,6 +104,10 @@ export const planTick = (input: TickInput): TickPlan => {
       }
     }
   }
+  // A batch on tap whose pull request failed on the head it pushed goes back (ADR 0219).
+  for (const batch of state.batches.values()) {
+    if (!commands.has(batch.id)) issue(fixCommand(state, batch, recipes));
+  }
   // A window is every batch's: whichever supervisor ticks first reopens it (ADR 0206), and each
   // reopens at its own reset (ADR 0215).
   const reopen = Object.values(state.usageWindows).some(
@@ -161,6 +166,29 @@ function dueCommand(
       throw new Error(`Unhandled lane ${JSON.stringify(unhandled)}`);
     }
   }
+}
+
+/**
+ * The command that sends `batch` back from its open pull request (ADR 0219): on tap, its latest
+ * record of the checks failed on the head of its latest push, its recipe has an onPullRequestFail
+ * route, and no pause holds it (ADR 0202). Derived from the folded state alone, so the next tick
+ * after a kill issues it again, and decide refuses it once the batch has left on tap.
+ */
+function fixCommand(state: State, batch: Batch, recipes: Recipes): BatchCommand | undefined {
+  if (batch.lane.kind !== 'on_tap' || batch.recipe === undefined) return undefined;
+  const recipe = recipes.find(batch.recipe.name);
+  if (recipe === undefined || pullRequestRoute(recipe) === undefined) return undefined;
+  if (fixHeld(state, batch)) return undefined;
+  const failed = failedPullRequest(state, batch);
+  if (failed === undefined) return undefined;
+  const { pullRequest, head } = failed;
+  return {
+    kind: 'fix_pull_request',
+    batchId: batch.id,
+    pullRequest,
+    head,
+    cause: { kind: 'checks' },
+  };
 }
 
 type Running = AttemptRef & { phase: 'scheduled' | 'started'; deadlineAt: string };

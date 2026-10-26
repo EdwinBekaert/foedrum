@@ -5,12 +5,12 @@
 import assert from 'node:assert/strict';
 import { win32 } from 'node:path';
 import { describe, it } from 'node:test';
-import type { ExecProcess } from '../../src/platform/processes.ts';
 import {
   newWindowCommand,
   openInNewWindow,
   type WindowFacts,
 } from '../../src/platform/new-window.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 
 const unixLine = {
   cwd: '/home/ann/brewery',

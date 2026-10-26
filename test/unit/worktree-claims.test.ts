@@ -199,6 +199,41 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     }
   });
 
+  it("reads a later round's push, which leaves the task tree out unless it found the branch moved or gone (ADR 0219)", () => {
+    const tree = 'refs/heads/foedrum/12-1/brew/2';
+    const rounds = (second: Record<string, unknown>): ReadonlyMap<string, unknown> =>
+      new Map([
+        ...pushedFrom('refs/heads/foedrum/12-1/brew/1'),
+        [
+          effectKey.encode({ batchId: '12-1', effect: 'push.2' }),
+          { branch: 'foedrum/acme.app/12-1/brew/2', commit: TIP, from: tree, ...second },
+        ],
+      ]);
+    const unpushed = (second: Record<string, unknown>) =>
+      claims(brewed(lanes['on-tap'] as Lane, rounds(second)), []).unpushed;
+    assert.deepEqual(unpushed({}), new Map());
+    for (const nothing of [{ moved: 'd'.repeat(40) }, { gone: true }]) {
+      assert.deepEqual(unpushed(nothing), new Map([['foedrum/12-1/brew/2', BASE]]));
+    }
+  });
+
+  it('names the pushed task tree of a batch on tap whose pull request is open, for a fix round (ADR 0219)', () => {
+    const url = 'https://github.com/acme/app/pull/1';
+    const effects = new Map([
+      ...pushedFrom('refs/heads/foedrum/12-1/brew/2'),
+      [effectKey.encode({ batchId: '12-1', effect: 'pull_request' }), url],
+    ]);
+    const onTap = brewed(lanes['on-tap'] as Lane, effects);
+    assert.deepEqual(claims(onTap, []).open, new Set(['foedrum/12-1/brew/2']));
+    const batch = onTap.batches.get('12-1') as Batch;
+    const ended = {
+      ...onTap,
+      batches: new Map([['12-1', { ...batch, pullRequestEnds: { [url]: 'merged' as const } }]]),
+    };
+    assert.deepEqual(claims(ended, []).open, new Set());
+    assert.deepEqual(claims(brewed(lanes.cancelled as Lane, effects), []).open, new Set());
+  });
+
   it('leaves it out once a push recorded it', () => {
     const state = brewed(lanes['on-tap'] as Lane, pushedFrom('refs/heads/foedrum/12-1/brew/2'));
     assert.deepEqual(claims(state, []).unpushed, new Map());
