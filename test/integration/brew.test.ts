@@ -29,7 +29,7 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { type Git, runGit } from '../../src/workspace/git.ts';
 import { hangGuardMs } from '../helpers/load.ts';
-import { NIP_SCRIPT, NIP_TARGET_FILES, scriptedNip } from '../helpers/nip-fixture.ts';
+import { NIP_TARGET_FILES, scriptedNip } from '../helpers/nip-fixture.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 describe('foedrum brew', () => {
@@ -137,7 +137,8 @@ describe('foedrum brew', () => {
       '--format=%s',
       branch,
     ]);
-    assert.equal(tip.stdout.trim(), NIP_SCRIPT.implement?.[1]?.message);
+    // The Cellarman's third fix, after the blocking lens's finding (ADR 0193).
+    assert.equal(tip.stdout.trim(), DEMO_SCRIPT.implement?.[2]?.message);
     const [pull] = host.pulls();
     assert.equal(
       lines.at(-1),

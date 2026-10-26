@@ -27,7 +27,7 @@ import { runGit } from '../../src/workspace/git.ts';
 import { demoBrewers } from './brewer.ts';
 import { codeHost, fileJournal } from './code-host.ts';
 import { BREW_ORDER, CRASH_LINE, DIAGNOSIS, lifeEndOf, ON_TAP_LINE, USER } from './core.ts';
-import { lostAttemptLine, routeLines, STATUS_LINE } from './walkthrough.ts';
+import { laterRoundLines, lostAttemptLine, routeLines, STATUS_LINE } from './walkthrough.ts';
 
 /** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
 const INTERVAL_MS = 100;
@@ -152,7 +152,8 @@ const shell: ServeShell = {
         }
       },
       brewed: (ref, prompt) => {
-        if (life !== 'brew') for (const line of routeLines(ref, prompt)) out(line);
+        if (life === 'brew') return;
+        for (const line of [...routeLines(ref, prompt), ...laterRoundLines(ref, prompt)]) out(line);
       },
     }),
   gh: host.exec,

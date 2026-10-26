@@ -59,13 +59,13 @@ export const STEPS: readonly Step[] = [
     id: 'checks',
     title: 'The red proof and the failed check',
     lookFor:
-      "red #1 must see the Gauger's test fail before implement #1 may start; green #1 fails the Cellarman's first fix, so implement #2 starts, told why, with the failed test's own line; once green #2 passes, foedrum status shows the Tasters' correctness #1, security #1 and test-design #1 brewing at once.",
+      "red #1 must see the Gauger's test fail before implement #1 may start; green #1 fails the Cellarman's first fix, so implement #2 starts, told why, with the failed test's own line; once green #2 passes, foedrum status shows the Tasters' correctness #1, security #1 and test-design #1 brewing at once. correctness #1 blocks with one finding, so once all three have ended the batch goes back to implement #3, told that finding; then correctness #2, security #2 and test-design #2 are told the change since round 1 and round 1's findings, the Cellarman's marked fixed, and correctness #2 approves.",
   },
   {
     id: 'pull-request',
     title: 'The pull request and the status comment',
     lookFor:
-      "one pull request and one status comment on the fake code host, though the Cellar lived twice; its path line has the three lens attempts side by side, and its Findings each one's findings under its own step.",
+      "one pull request and one status comment on the fake code host, though the Cellar lived twice; its path line has both rounds, the three lens attempts side by side in each with implement #3 between them, and its Findings each one's findings under its own step.",
   },
   {
     id: 'on-tap',
@@ -181,6 +181,36 @@ export const routeLines = (ref: { stepId: string; attempt: number }, prompt: str
   return [
     `demo: ${ref.stepId} #${ref.attempt} is told ${source}`,
     ...failed.map((line) => `  ${line.trim()}`),
+  ];
+};
+
+/**
+ * What a later round of a lens step was told, from its prompt: the change since the round before,
+ * and the earlier rounds' findings with what was done with them (ADR 0190, ADR 0191); nothing for
+ * a first round.
+ */
+export const laterRoundLines = (
+  ref: { stepId: string; attempt: number },
+  prompt: string,
+): string[] => {
+  const lines = prompt.split(/\r?\n/);
+  /** The source and the lines of the prompt's input named `name`, or undefined without one. */
+  const input = (name: string) => {
+    const opening = new RegExp(`^<(untrusted-input-\\w+) source="([^"]*)" name="${name}">$`);
+    const open = lines.findIndex((line) => opening.test(line));
+    if (open === -1) return undefined;
+    const [, tag = '', source = ''] = opening.exec(lines[open] ?? '') ?? [];
+    const close = lines.indexOf(`</${tag}>`, open);
+    return { source, text: lines.slice(open + 1, close === -1 ? undefined : close) };
+  };
+  const change = input('roundChange');
+  if (change === undefined) return [];
+  const findings = input('earlierFindings');
+  const told = `demo: ${ref.stepId} #${ref.attempt} is told ${change.source}, as {roundChange}`;
+  if (findings === undefined) return [told];
+  return [
+    `${told}, and the earlier findings, as {earlierFindings}:`,
+    ...findings.text.map((line) => `  ${line}`),
   ];
 };
 

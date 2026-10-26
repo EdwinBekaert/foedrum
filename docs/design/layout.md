@@ -17,7 +17,7 @@ src/
   formats/      JSONC and frontmatter readers (limits for untrusted input: 64 levels, 1 MiB; ADR 0020), TAP, JUnit XML and git diff readers
 schemas/        JSON Schema files generated from src/schemas (npm run schemas)
 defaults/       default brewers, recipes and tasting lenses, and models.jsonc, which maps the aliases the default brewers name and merges by alias under the Brewery's (ADR 0153)
-scripts/        development scripts: the check, the gate, the review's tools, npm run demo (a scratch Brewery brewed with Nip's steps and a parallel group of three lenses through serve's seams with the tests' fakes, and foedrum brew and resume; ADR 0097, ADR 0139, ADR 0185); never shipped
+scripts/        development scripts: the check, the gate, the review's tools, npm run demo (a scratch Brewery brewed with Nip's steps and a parallel group of three lenses, one blocking once, through serve's seams with the tests' fakes, and foedrum brew and resume; ADR 0097, ADR 0139, ADR 0185, ADR 0193); never shipped
 plugin/         companion Claude Code plugin (Markdown commands and skills)
 test/           unit, property, chaos, integration; helpers/ holds the fakes, never shipped (the package's files are src/, defaults/ and schemas/)
 docs/
