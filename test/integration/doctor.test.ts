@@ -125,6 +125,11 @@ const loaded = (exec: ExecProcess): ExecProcess => {
   };
 };
 
+// A tool's name in the report, padded to its column: on Linux the column fits slirp4netns, the
+// network stack's row (ADR 0218).
+const name = (tool: string) =>
+  `  ${tool.padEnd(process.platform === 'linux' ? 'slirp4netns'.length + 2 : 8)}`;
+
 const doctorWithStubs = async (
   dir: string,
   stubs: Record<string, CapturedAnswer>,
@@ -158,7 +163,7 @@ const doctorWithStubs = async (
   const gitRow = lines[git] ?? '';
   assert.ok(gitRow.endsWith(`  ${realGit}`), gitRow);
   assert.match(gitRow.slice(0, -realGit.length), /^ {2}git +\d+(?:\.\d+)+ +$/);
-  lines[git] = '  git     <real git>';
+  lines[git] = `${name('git')}<real git>`;
   return {
     exitCode,
     report: lines.join('\n'),
@@ -182,7 +187,7 @@ const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check ste
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
 // problems. The stubs have no user-mode network stack, which a Linux setup needs (ADR 0218).
 const NO_STACK =
-  "  pasta (passt) or slirp4netns not found: install passt or slirp4netns: a repository's setup does not start without one (ADR 0218)";
+  "  slirp4netns or pasta (passt) not found: install slirp4netns: a repository's setup does not start without it (ADR 0218)";
 // The end of a report with no required problem: the optional ones, if any.
 const optional = (problems: readonly string[]) =>
   problems.length === 0
@@ -193,9 +198,9 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
     case 'linux':
       return {
         rows: [
-          bwrap ? `  bwrap   0.9.0     ${at('bwrap')}` : '  bwrap   missing',
-          `  socat   1.7.4.4   ${at('socat')}`,
-          '  pasta   missing',
+          bwrap ? `${name('bwrap')}0.9.0     ${at('bwrap')}` : `${name('bwrap')}missing`,
+          `${name('socat')}1.7.4.4   ${at('socat')}`,
+          `${name('slirp4netns')}missing`,
         ],
         isolation: bwrap
           ? ['Isolation: sandboxed (bubblewrap and socat)', checkStepKeyring]
@@ -250,11 +255,11 @@ describe('foedrum doctor with stub tools', () => {
       [
         'Foedrum doctor',
         '',
-        `  node    ${process.versions.node}`,
-        `  npm     11.6.2    ${at('npm')}`,
-        '  git     <real git>',
-        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
-        `  claude  2.1.301   ${at('claude')}`,
+        `${name('node')}${process.versions.node}`,
+        `${name('npm')}11.6.2    ${at('npm')}`,
+        `${name('git')}<real git>`,
+        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
+        `${name('claude')}2.1.301   ${at('claude')}`,
         ...platform.rows,
         '',
         ...platform.isolation,
@@ -290,11 +295,11 @@ describe('foedrum doctor with stub tools', () => {
       [
         'Foedrum doctor',
         '',
-        `  node    ${process.versions.node}`,
-        '  npm     missing',
-        '  git     <real git>',
-        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
-        '  claude  missing',
+        `${name('node')}${process.versions.node}`,
+        `${name('npm')}missing`,
+        `${name('git')}<real git>`,
+        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
+        `${name('claude')}missing`,
         ...platform.rows,
         '',
         ...platform.isolation,
@@ -339,11 +344,11 @@ describe('foedrum doctor with stub tools', () => {
       [
         'Foedrum doctor',
         '',
-        `  node    ${process.versions.node}`,
-        `  npm     11.6.2    ${at('npm')}`,
-        '  git     <real git>',
-        `  gh      ${CANNED_GH_VERSION}  ${at('gh')}`,
-        `  claude  2.1.301   ${at('claude')}`,
+        `${name('node')}${process.versions.node}`,
+        `${name('npm')}11.6.2    ${at('npm')}`,
+        `${name('git')}<real git>`,
+        `${name('gh')}${CANNED_GH_VERSION}  ${at('gh')}`,
+        `${name('claude')}2.1.301   ${at('claude')}`,
         ...platform.rows,
         '',
         ...platform.isolation,

@@ -59,8 +59,8 @@ const inCi = process.env.CI !== undefined && process.env.CI !== '';
 const setupUnavailable = (): string | undefined => {
   if (skip !== undefined) return skip;
   if (process.platform !== 'linux' || inCi) return undefined;
-  const found = ['pasta', 'slirp4netns'].some((tool) => resolveExecutable(tool) !== undefined);
-  return found ? undefined : 'neither pasta (passt) nor slirp4netns is on PATH';
+  const found = ['slirp4netns', 'pasta'].some((tool) => resolveExecutable(tool) !== undefined);
+  return found ? undefined : 'neither slirp4netns nor pasta (passt) is on PATH';
 };
 
 /** A server that counts its connections, listening where it is told. */

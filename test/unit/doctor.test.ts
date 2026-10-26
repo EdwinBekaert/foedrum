@@ -37,11 +37,15 @@ describe('diagnose: tools', () => {
       { name: 'claude', version: '2.1.301', path: '/home/brewer/.local/bin/claude' },
       { name: 'bwrap', version: '0.9.0', path: '/usr/bin/bwrap' },
       { name: 'socat', version: '1.7.4.4', path: '/usr/bin/socat' },
-      { name: 'pasta', version: '0.0~git20240220.1e6f92b-1', path: '/usr/bin/pasta' },
+      { name: 'slirp4netns', version: '1.2.1', path: '/usr/bin/slirp4netns' },
     ]);
   });
 
   it('lists bubblewrap, socat and the network stack on Linux only', () => {
+    assert.deepEqual(
+      diagnose(linux()).tools.map((tool) => tool.name),
+      ['node', 'npm', 'git', 'gh', 'claude', 'bwrap', 'socat', 'slirp4netns'],
+    );
     assert.deepEqual(
       diagnose(windows).tools.map((tool) => tool.name),
       ['node', 'npm', 'git', 'gh', 'claude'],
@@ -52,25 +56,34 @@ describe('diagnose: tools', () => {
     );
   });
 
-  // A Linux setup's network namespace gets the network from pasta, or slirp4netns (ADR 0218).
-  it('lists slirp4netns where pasta is not there, and pasta as missing where neither is', () => {
-    const slirp = linux({
-      pasta: undefined,
-      slirp4netns: ran(
-        '/usr/bin/slirp4netns',
-        'slirp4netns version 1.2.1\ncommit: 09e31e92fa3d2a1d3ca261adaf7a2c1d3a1b4c5d\nlibslirp: 4.7.0\n',
-      ),
-    });
-    assert.deepEqual(diagnose(slirp).tools.at(-1), {
-      name: 'slirp4netns',
-      version: '1.2.1',
-      path: '/usr/bin/slirp4netns',
-    });
-    assert.deepEqual(diagnose(linux({ pasta: undefined })).tools.at(-1), {
+  // A Linux setup's network namespace gets the network from slirp4netns, or pasta (ADR 0218).
+  it('lists pasta where slirp4netns is not there, and slirp4netns as missing where neither is', () => {
+    const pasta = (said: string) =>
+      linux({ slirp4netns: undefined, pasta: ran('/usr/bin/pasta', said) });
+    assert.deepEqual(
+      diagnose(pasta('pasta 2024_09_06.6b38f07\nCopyright Red Hat\n')).tools.at(-1),
+      {
+        name: 'pasta',
+        version: '2024_09_06.6b38f07',
+        path: '/usr/bin/pasta',
+      },
+    );
+    // Ubuntu 24.04's pasta does not know its version.
+    assert.deepEqual(diagnose(pasta('pasta unknown version\n')).tools.at(-1), {
       name: 'pasta',
+      version: undefined,
+      path: '/usr/bin/pasta',
+    });
+    assert.deepEqual(diagnose(linux({ slirp4netns: undefined })).tools.at(-1), {
+      name: 'slirp4netns',
       version: undefined,
       path: undefined,
     });
+  });
+
+  it('lists slirp4netns when pasta is there too', () => {
+    const both = linux({ pasta: ran('/usr/bin/pasta', 'pasta 2024_09_06.6b38f07\n') });
+    assert.equal(diagnose(both).tools.at(-1)?.name, 'slirp4netns');
   });
 
   it('reads the version out of a Windows build string', () => {
@@ -476,24 +489,43 @@ describe('diagnose: isolation (ADR 0010)', () => {
 
   // A setup does not start without one, and a Brewery without one needs neither (ADR 0218).
   it('reports a missing network stack on Linux as a problem that is not required, and keeps the level', () => {
-    const diagnosis = diagnose(linux({ pasta: undefined }));
+    const diagnosis = diagnose(linux({ slirp4netns: undefined }));
     assert.equal(diagnosis.isolation.level, 'sandboxed');
     assert.equal(diagnosis.ok, true);
     assert.deepEqual(diagnosis.problems, [
       {
         required: false,
-        what: 'pasta (passt) or slirp4netns not found',
-        fix: "install passt or slirp4netns: a repository's setup does not start without one (ADR 0218)",
+        what: 'slirp4netns or pasta (passt) not found',
+        fix: "install slirp4netns: a repository's setup does not start without it (ADR 0218)",
       },
     ]);
-    const slirp = linux({
-      pasta: undefined,
-      slirp4netns: ran('/usr/bin/slirp4netns', 'slirp4netns version 1.2.1\n'),
+    const pasta = linux({
+      slirp4netns: undefined,
+      pasta: ran('/usr/bin/pasta', 'pasta unknown version\n'),
     });
-    assert.deepEqual(diagnose(slirp).problems, []);
+    assert.deepEqual(diagnose(pasta).problems, []);
     assert.deepEqual(diagnose(linux()).problems, []);
     assert.deepEqual(diagnose(macos).problems, []);
     assert.deepEqual(diagnose(windows).problems, []);
+  });
+
+  // Ubuntu confines pasta under passt's AppArmor profile, which keeps it out of the namespace a
+  // setup's bwrap makes; Ubuntu's own profile lets slirp4netns in (ADR 0218).
+  it('advises slirp4netns where only pasta is there and AppArmor restricts user namespaces', () => {
+    const advised = (facts: DoctorFacts) =>
+      diagnose(facts).advice.filter((line) => /pasta/.test(line));
+    const onlyPasta = linux({
+      slirp4netns: undefined,
+      pasta: ran('/usr/bin/pasta', 'pasta unknown version\n'),
+    });
+    const [line = '', ...more] = advised({ ...onlyPasta, restrictsUserns: true });
+    assert.deepEqual(more, []);
+    assert.match(line, /AppArmor runs pasta under passt's profile here/);
+    assert.match(line, /a repository's setup does not start/);
+    assert.match(line, /install slirp4netns \(ADR 0218\)/);
+    assert.deepEqual(advised({ ...onlyPasta, restrictsUserns: false }), []);
+    assert.deepEqual(advised(onlyPasta), []);
+    assert.deepEqual(advised({ ...linux(), restrictsUserns: true }), []);
   });
 
   it('is permissions only on native Windows, and recommends WSL2', () => {

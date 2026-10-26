@@ -534,12 +534,12 @@ const linuxSetup = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {
 // A repository's setup installs, so its sandbox keeps the network and nothing else (ADR 0158),
 // through a network namespace of its own on Linux and WSL2 (ADR 0218).
 describe('sandboxedChecks with the network kept, for a setup', () => {
-  it("starts the line in bwrap with a network namespace of its own, which pasta joins before the line runs, everything else as a check's", async () => {
+  it("starts the line in bwrap with a network namespace of its own, which pasta joins before the line runs where slirp4netns is not on PATH, everything else as a check's", async () => {
     const checked = fake();
     await sandboxedChecks(options(checked.exec, { platform: 'linux' }))(line, [], call);
     const checkArgs = checked.calls[0]?.args ?? [];
     const { calls, events, resolver, exec } = fakeSetup({ answer: { exitCode: 3 } });
-    const result = await linuxSetup(exec)(line, [], call);
+    const result = await linuxSetup(exec, { findStackTool: stackTools('pasta') })(line, [], call);
     assert.equal(result.exitCode, 3);
     const at = checkArgs.indexOf('--unshare-net') + 1;
     const after = checkArgs.indexOf(home) + 1;
@@ -567,7 +567,7 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
   });
 
-  it('uses slirp4netns where pasta is not on PATH, and stops it once bwrap has ended', async () => {
+  it('uses slirp4netns, and stops it once bwrap has ended', async () => {
     const { calls, events, resolver, exec } = fakeSetup();
     const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
       line,
@@ -583,20 +583,22 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
   });
 
-  it('prefers pasta when both are there', async () => {
+  // Ubuntu confines pasta under passt's AppArmor profile, and lets slirp4netns into user
+  // namespaces (ADR 0218).
+  it('prefers slirp4netns when both are there', async () => {
     const { calls, exec } = fakeSetup();
     await linuxSetup(exec)(line, [], call);
-    assert.equal(calls[1]?.file, '/usr/bin/pasta');
+    assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
   });
 
-  it('does not start without pasta or slirp4netns, and says so', async () => {
+  it('does not start without slirp4netns or pasta, and says so', async () => {
     const { calls, exec } = fakeSetup();
     const result = await linuxSetup(exec, { findStackTool: stackTools() })(line, [], call);
     assert.deepEqual(calls, []);
     assert.equal(result.exitCode, null);
     assert.match(
       result.output,
-      /^neither pasta \(passt\) nor slirp4netns is on PATH: a repository's setup runs only in a network namespace of its own here; install passt or slirp4netns \(ADR 0218\)\n$/,
+      /^neither slirp4netns nor pasta \(passt\) is on PATH: a repository's setup runs only in a network namespace of its own here; install slirp4netns \(ADR 0218\)\n$/,
     );
   });
 
