@@ -141,7 +141,8 @@ const run = async (seed: number): Promise<void> => {
     assert.deepStrictEqual(startedWhilePaused, [], 'nothing held started while paused');
     for (const batchId of held) {
       const lane = log.state().batches.get(batchId)?.lane.kind;
-      assert.equal(lane, 'brewing', `${batchId} waits paused, neither Stuck nor ended`);
+      // A batch whose last step ended at its own point during the pause is on tap.
+      assert.ok(lane === 'brewing' || lane === 'on_tap', `${batchId} is ${lane} while paused`);
     }
 
     accept({ kind: 'continue', ...order, ...who });
