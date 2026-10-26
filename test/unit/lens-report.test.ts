@@ -625,6 +625,40 @@ describe('lensReport: lenses together (ADR 0220)', () => {
       );
     }
   });
+
+  it('counts a finding that names none of the lenses the files now give its step as not recorded, and still takes its disposition (review of #572)', () => {
+    // The step ran with one lens, so its finding names none; the files now give it two together.
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'together', 1, blocked, {
+        findings: kept(finding('src/a.ts', 1), through('diff/security', finding('src/a.ts', 1))),
+      }),
+      ...attempt(
+        'b1',
+        'implement',
+        2,
+        disposed(
+          { file: 'src/a.ts', line: 1, disposition: 'fixed' },
+          { file: 'src/a.ts', line: 1, disposition: 'dismissed', why: 'see a.test.ts:3' },
+        ),
+        { from: 'together' },
+      ),
+    ];
+    const made = report(events);
+    assert.deepStrictEqual(
+      lens(made, 'diff/correctness'),
+      tally({ rounds: 1, notRecorded: { rounds: 0, findings: 1 } }),
+    );
+    assert.deepStrictEqual(
+      lens(made, 'diff/security'),
+      tally({
+        rounds: 1,
+        severity: { blocker: 0, major: 1, minor: 0 },
+        ends: { fixed: 0, dismissed: 1, 'pre-existing': 0, open: 0 },
+        notRecorded: { rounds: 0, findings: 1 },
+      }),
+    );
+  });
 });
 
 describe('formatLensReport', () => {
