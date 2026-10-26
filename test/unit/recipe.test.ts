@@ -504,3 +504,52 @@ describe('step references', () => {
     });
   }
 });
+
+describe('a Taster step that names several lenses together (#560, ADR 0220)', () => {
+  const together = {
+    id: 'taste',
+    brewer: 'taster',
+    lenses: ['diff/correctness', 'diff/acceptance'],
+  };
+
+  /** The issues the schema gives a step of `brewer`, the step's own option of the union. */
+  const brewerIssues = (value: unknown) => {
+    const read = Step.safeParse(value);
+    assert.equal(read.success, false, 'the step should be refused');
+    const [union] = read.error?.issues ?? [];
+    const options = union?.code === 'invalid_union' ? union.errors : [];
+    return (options[0] ?? []).map(({ path, message }) => ({ path, message }));
+  };
+
+  it('accepts a lenses step, in a line and as a child of a parallel group', () => {
+    assert.deepEqual(Step.safeParse(together).data, together);
+    const security = { id: 'security', brewer: 'taster', lens: 'diff/security' };
+    const group = { id: 'tasting', parallel: [together, security] };
+    assert.equal(Step.safeParse(group).success, true);
+    assert.equal(accepted(recipe([plan, together])), true);
+  });
+
+  it('refuses a lens named twice, at its path', () => {
+    assert.deepEqual(
+      brewerIssues({ ...together, lenses: ['diff/correctness', 'diff/correctness'] }),
+      [{ path: ['lenses'], message: 'Each lens may be named once' }],
+    );
+  });
+
+  it('refuses a list of one lens, at its path', () => {
+    const [issue] = brewerIssues({ ...together, lenses: ['diff/correctness'] });
+    assert.deepEqual(issue?.path, ['lenses']);
+    assert.match(issue?.message ?? '', />=2/);
+  });
+
+  it('refuses lenses beside lens, at its path', () => {
+    assert.deepEqual(brewerIssues({ ...together, lens: 'diff/security' }), [
+      { path: ['lenses'], message: 'Name "lens" or "lenses", not both (ADR 0220)' },
+    ]);
+  });
+
+  it('refuses a lenses entry that is no lens name, at its path', () => {
+    const [issue] = brewerIssues({ ...together, lenses: ['diff/correctness', 'security'] });
+    assert.deepEqual(issue?.path, ['lenses', 1]);
+  });
+});

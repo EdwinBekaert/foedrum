@@ -132,6 +132,19 @@ export const TastingOutDoc = outDocFrontmatter({
   }
 });
 
+/** The out doc of a Taster's step that runs `lenses` together (ADR 0220). */
+export const tastingOutDocOf = (_lenses: readonly string[]): typeof TastingOutDoc => {
+  throw new Error('not implemented');
+};
+
+/** The lens a finding was found through: its own, or its step's (ADR 0220). */
+export const lensOfFinding = (
+  _finding: TastingFinding,
+  _stepLens: string | undefined,
+): string | undefined => {
+  throw new Error('not implemented');
+};
+
 /** What a Taster reported in the out doc of an attempt that succeeded. */
 export interface TastingReport {
   verdict: z.infer<typeof Verdict>;
