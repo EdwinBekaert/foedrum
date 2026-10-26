@@ -139,28 +139,6 @@ export const startTally = (
   };
 };
 
-/**
- * The entries of `queue` a walk starts, in rank order: up to `free`, each a limit does not hold
- * once those before it started, the held ones skipped.
- */
-export const chooseStarts = <T extends QueuedOrder>(
-  state: State,
-  listed: readonly TargetIssue[],
-  queue: readonly T[],
-  free: number,
-  limits: Limits,
-): T[] => {
-  const tally = startTally(state, listed, limits);
-  const started: T[] = [];
-  for (const entry of queue) {
-    if (started.length >= free) break;
-    if (tally.hold(entry) !== undefined) continue;
-    tally.start(entry);
-    started.push(entry);
-  }
-  return started;
-};
-
 /** What holds the route of an Ordered batch to `recipe`: its batches Brewing at its limit. */
 export const routeHold = (state: State, recipe: string, limits: Limits): Hold | undefined => {
   const limit = limits.recipe(recipe);
