@@ -1147,24 +1147,30 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
     by,
     via,
   });
-  for (const { id } of held) {
-    const batch = draft.batch(id);
-    if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') continue;
-    const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
-    for (const stepId of batch.steps.keys()) {
-      const latest = latestOf(batch, stepId);
-      // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
-      if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
-        continue;
-      }
-      draft.push({
-        type: 'step.rescheduled',
-        batchId: id,
-        stepId,
-        attempt: latest.attempt,
-        deadlineAt: draft.after(recipe.deadlineMs(stepId)),
-      });
+  for (const { id } of held) rescheduleWaiting(draft, id);
+}
+
+/**
+ * Gives each scheduled attempt of `batchId` that has not started a new deadline from its step, as
+ * if just scheduled, when the batch is brewing and no pause holds it (ADR 0202).
+ */
+function rescheduleWaiting(draft: Draft, batchId: string): void {
+  const batch = draft.batch(batchId);
+  if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') return;
+  const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
+  for (const stepId of batch.steps.keys()) {
+    const latest = latestOf(batch, stepId);
+    // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
+    if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
+      continue;
     }
+    draft.push({
+      type: 'step.rescheduled',
+      batchId,
+      stepId,
+      attempt: latest.attempt,
+      deadlineAt: draft.after(recipe.deadlineMs(stepId)),
+    });
   }
 }
 
