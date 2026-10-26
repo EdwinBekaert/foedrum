@@ -196,3 +196,14 @@ export const ContinueCommand = z
   })
   .refine(oneOrAll, { message: ONE_OR_ALL, path: ['order'] });
 export type ContinueCommand = z.infer<typeof ContinueCommand>;
+
+/**
+ * `foedrum stop <order> [--why <reason>]` (ADR 0205): the order's brewing batches go Stuck at once.
+ * No `--all`: `pause --all --by` stops everything that runs.
+ */
+export const StopCommand = z.strictObject({
+  command: z.literal('stop'),
+  order: IssueTarget,
+  why: NonEmpty.optional(),
+});
+export type StopCommand = z.infer<typeof StopCommand>;
