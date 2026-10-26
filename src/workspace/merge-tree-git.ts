@@ -85,13 +85,21 @@ export const openMergeTree =
     return conflicts.length === 0 ? { kind: 'clean' } : { kind: 'conflicts', files: conflicts };
   };
 
+/** A worktree of the merged tree of `head` and `tip` for `use`, removed after (ADR 0203). */
+export type MergedTree = <T>(
+  head: string,
+  tip: string,
+  use: (worktree: string) => Promise<T>,
+  signal?: AbortSignal,
+) => Promise<T>;
+
 /**
  * Runs `use` with a worktree of the merged tree of `head` and `tip` (ADR 0203): a commit of it on
  * both, checked out from a git directory of Foedrum's own that borrows the clone's objects and
  * holds a copy of its tags and remote-tracking refs. Both go when `use` ends, also when it fails.
  */
 export const openMergedTree =
-  ({ git, clone, own }: MergeTreeOptions) =>
+  ({ git, clone, own }: MergeTreeOptions): MergedTree =>
   async <T>(
     head: string,
     tip: string,

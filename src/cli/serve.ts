@@ -24,6 +24,7 @@ import type { ExecProcess } from '../platform/processes.ts';
 import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
+import type { MergedTree } from '../workspace/merge-tree-git.ts';
 import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
@@ -75,6 +76,11 @@ export interface ServeShell {
    * repository's worktrees are added to; absent, no open pull request is checked.
    */
   mergeTree?: (repository: ServeRepository) => BaseCheckRepository['mergeTree'];
+  /**
+   * A worktree of an open pull request's merged tree, for the checks on it (ADR 0203), in a git
+   * directory of Foedrum's own with the clone's objects; absent, no checks run on one.
+   */
+  mergedTree?: (repository: ServeRepository) => MergedTree;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,

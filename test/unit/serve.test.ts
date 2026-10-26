@@ -960,6 +960,78 @@ describe('runServe', () => {
       );
     });
 
+    it("runs the checks on an open pull request's merged tree once its base moves, and records the failing one (ADR 0203)", async () => {
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
+      const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
+      log.issue({ ...route, source: 'label' }, t0);
+      const mergedRoot = join(dir.path, 'merged', 'one.tree');
+      const ran: string[] = [];
+      // green passes on the batch's own tree; the merged tree fails it.
+      const exec: ExecProcess = async (file, _args, options) => {
+        ran.push(`${file} in ${options.cwd}`);
+        const code = options.cwd === mergedRoot ? 1 : 0;
+        const output = code === 0 ? 'ok 1\n' : 'not ok 1 - adds\n';
+        return { exitCode: code, stdout: output, stderr: '', output };
+      };
+      const succeeding: BrewerRunner = {
+        start: () => ({
+          ended: Promise.resolve({
+            ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          }),
+          stop: () => {},
+        }),
+        progress: () => undefined,
+      };
+      const trees: string[] = [];
+      const checked = () => log.state().batches.get('13-1')?.baseChecks ?? [];
+      const code = await runServe(
+        { ...setup, intake: { ...setup.intake, pollEveryMs: 0 } },
+        shell({
+          runner: () => succeeding,
+          exec,
+          push: (repository) => ({
+            commit: async () => FAKE_COMMIT,
+            // green merged the base at 'b…'; once the pull request is open it moves to 'e…'.
+            baseTip: async () => (pushes.length > 0 ? 'e' : 'b').repeat(40),
+            isAncestor: async (commit, of) => commit === of,
+            // The bottle branch holds what was pushed.
+            remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+            push: async (commit, branch) => {
+              pushes.push(`${repository.repo} ${commit} ${branch}`);
+            },
+            secretScan: async () => [],
+            touchedFiles: async () => [],
+          }),
+          mergeTree: () => async () => ({ kind: 'clean' }),
+          mergedTree: () => async (head, tip, use) => {
+            trees.push(`${head} ${tip}`);
+            return use(mergedRoot);
+          },
+          wait: async () => {
+            calls.push('wait');
+            if (checked().length > 0 || calls.length > 60) controller.abort();
+          },
+        }),
+      );
+      assert.equal(code, 0);
+      assert.deepStrictEqual(trees, [`${FAKE_COMMIT} ${'e'.repeat(40)}`]);
+      assert.deepStrictEqual(
+        ran.filter((line) => line.endsWith(mergedRoot)),
+        [`npm test in ${mergedRoot}`],
+      );
+      const [check] = checked();
+      assert.equal(check?.tip, 'e'.repeat(40));
+      assert.deepStrictEqual(check?.failed, {
+        result: 'exited',
+        check: 'test',
+        command: 'npm test',
+        ...(process.platform === 'win32' ? { unsandboxed: true } : {}),
+        exitCode: 1,
+        tail: 'not ok 1 - adds\n',
+      });
+    });
+
     it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {
       const { checks, events, batch } = await brewWithChecks(0);
       assert.equal(batch?.lane.kind, 'on_tap');
