@@ -14,6 +14,7 @@ import {
   loadRecipes,
 } from '../../src/engine/recipe-files.ts';
 import type { Recipe } from '../../src/engine/recipes.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 
 const recipe = (name: string, steps: readonly unknown[], fields = {}): BreweryFile => ({
@@ -1765,10 +1766,127 @@ describe('loadRecipes: a parallel group of lens steps (ADR 0168)', () => {
     );
   });
 
+  it("refuses the pull request's route back to a group too (ADR 0219)", () => {
+    const steps = [
+      { brewer: 'cellarman' },
+      { id: 'tasting', parallel: [security] },
+      { action: 'openPullRequest', onPullRequestFail: { goto: 'tasting', maxRounds: 1 } },
+    ];
+    assert.deepEqual(
+      problemsOf({
+        recipes: [recipe('amber', steps, { testFirst: false })],
+        brewers: [committer, taster],
+        defaults: { lenses },
+      }),
+      [
+        'recipes/amber.jsonc: step "open-pull-request" routes back to the parallel group "tasting": route to one of the steps before it (ADR 0168)',
+      ],
+    );
+  });
+
   it('refuses a route from a child to a sibling, which would run alone', () => {
     const back = { ...correctness, onBlocked: { findings: { goto: 'security', maxRounds: 1 } } };
     assert.deepEqual(problemsOf(grouped([security, back])), [
       'recipes/amber.jsonc: step "correctness" in the parallel group "tasting" routes back to "security" in its own group: route to a step before the group (ADR 0168)',
     ]);
+  });
+});
+
+describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
+  const open = 'open-pull-request';
+  const fixing = (onPullRequestFail?: unknown) =>
+    loadRecipes(
+      brewery({
+        recipes: [
+          recipe('pale', [
+            { id: 'implement', brewer: 'maltster' },
+            {
+              action: 'openPullRequest',
+              ...(onPullRequestFail === undefined ? {} : { onPullRequestFail }),
+            },
+          ]),
+        ],
+      }),
+    );
+  const pale = (onPullRequestFail?: unknown): Recipe => {
+    const found = loaded(fixing(onPullRequestFail)).find('pale');
+    assert.ok(found !== undefined);
+    return found;
+  };
+  const head = 'c'.repeat(40);
+  const pullRequest = 'https://github.com/acme/api/pull/12';
+  // `implement` scheduled first, then `rounds` times along the pull request's route.
+  const sentBack = (rounds: number): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        'implement',
+        {
+          id: 'implement',
+          inputs: [],
+          attempts: new Map(
+            Array.from({ length: rounds + 1 }, (_, i): [number, Attempt] => [
+              i + 1,
+              {
+                phase: 'finished',
+                attempt: i + 1,
+                deadlineAt: D,
+                outcome: { kind: 'succeeded', output: null },
+                ...(i === 0
+                  ? {}
+                  : { route: { from: open, why: 'pull_request', pullRequest, head } }),
+              },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  });
+
+  it('goes back to its goto until its rounds are used, and counts them', () => {
+    const recipe = pale({ goto: 'implement', maxRounds: 2 });
+    assert.equal(recipe.routesTo(open, 'pull_request'), 'implement');
+    assert.deepEqual(
+      [0, 1, 2].map((rounds) => recipe.rounds(sentBack(rounds), open, 'pull_request')),
+      [0, 1, 2],
+    );
+    assert.deepEqual(
+      [0, 1, 2].map((rounds) => recipe.loopBack(sentBack(rounds), open, 'pull_request')),
+      ['implement', 'implement', undefined],
+    );
+    assert.equal(recipe.loopBack(sentBack(0), open, 'failed'), undefined);
+  });
+
+  it('has no route without it', () => {
+    const recipe = pale();
+    assert.equal(recipe.routesTo(open, 'pull_request'), undefined);
+    assert.equal(recipe.rounds(sentBack(0), open, 'pull_request'), undefined);
+    assert.equal(recipe.loopBack(sentBack(0), open, 'pull_request'), undefined);
+  });
+
+  it('gives the action three attempts in each round, counted after its latest that succeeded', () => {
+    const recipe = pale({ goto: 'implement', maxRounds: 2 });
+    const succeeded = { kind: 'succeeded', output: null } as const;
+    const failed = { kind: 'failed', retryable: true, reason: 'GitHub is down' } as const;
+    const actionWith = (outcomes: readonly StepOutcome[]): Batch => ({
+      ...batch({}),
+      steps: new Map([
+        [
+          open,
+          {
+            id: open,
+            inputs: [],
+            attempts: new Map(
+              outcomes.map((outcome, i): [number, Attempt] => [
+                i + 1,
+                { phase: 'finished', attempt: i + 1, deadlineAt: D, outcome },
+              ]),
+            ),
+          },
+        ],
+      ]),
+    });
+    assert.equal(recipe.mayRetry(actionWith([succeeded, failed, failed]), open), true);
+    assert.equal(recipe.mayRetry(actionWith([succeeded, failed, failed, failed]), open), false);
   });
 });

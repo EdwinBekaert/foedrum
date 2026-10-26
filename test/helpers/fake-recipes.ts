@@ -1,6 +1,6 @@
 // A fake of the Brewery's recipes for state machine tests: steps in a line, with optional loops back.
 
-import type { Recipe, RecipeAction, Recipes, Stall } from '../../src/engine/recipes.ts';
+import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from '../../src/engine/recipes.ts';
 
 export interface FakeRecipe {
   steps: readonly string[];
@@ -10,8 +10,13 @@ export interface FakeRecipe {
   maxAttempts?: number;
   /** The `when` that is false for each step the batch skips, by step id; default none. */
   skips?: Readonly<Record<string, string>>;
-  /** Where a failed check or a step blocked by findings goes back to, by step id. */
-  routes?: Readonly<Record<string, { failed?: string; findings?: string }>>;
+  /**
+   * Where a failed check, a step blocked by findings or an open pull request that failed (ADR 0219)
+   * goes back to, by step id.
+   */
+  routes?: Readonly<Record<string, Partial<Record<RouteWhy, string>>>>;
+  /** The rounds of every route; default no limit. */
+  maxRounds?: number;
   /** The steps that are actions the engine runs itself, by step id; default none (ADR 0071). */
   actions?: Readonly<Record<string, RecipeAction>>;
   pullRequests?: readonly string[];
@@ -33,6 +38,7 @@ export const fakeRecipe = ({
   pullRequests = ['https://github.com/acme/api/pull/7'],
   merges = [],
   groups = {},
+  maxRounds = Number.POSITIVE_INFINITY,
 }: FakeRecipe): Recipe => {
   const [firstStep] = steps;
   if (firstStep === undefined) throw new Error('A recipe needs a step');
@@ -71,7 +77,9 @@ export const fakeRecipe = ({
     },
     mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
     rounds: roundsOf,
-    loopBack: (_batch, stepId, why) => routes[stepId]?.[why],
+    loopBack: (batch, stepId, why) =>
+      (roundsOf(batch, stepId, why) ?? 0) < maxRounds ? routes[stepId]?.[why] : undefined,
+    routesTo: (stepId, why) => routes[stepId]?.[why],
   };
 };
 

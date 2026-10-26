@@ -209,6 +209,11 @@ export interface Claims {
    * to its commits, kept while it holds any (ADR 0084).
    */
   unpushed?: ReadonlyMap<string, string>;
+  /**
+   * The branch of the task tree of each batch on tap whose pull request is open: a fix round
+   * starts from it (ADR 0219).
+   */
+  open?: ReadonlySet<string>;
 }
 
 /**
@@ -278,6 +283,9 @@ export const planClean = (
     const start = claims.unpushed?.get(name);
     return start !== undefined && tips.get(name)?.tip !== start;
   };
+  // The task tree of a batch on tap whose pull request is open: a fix round starts there (ADR 0219).
+  const holdsOpen = (name: string | undefined): boolean =>
+    name !== undefined && claims.open?.has(name) === true;
   const inRoot = facts.worktrees.filter(
     (worktree): worktree is ListedFact & { inside: string } => worktree.inside !== undefined,
   );
@@ -327,7 +335,10 @@ export const planClean = (
       // have committed work nobody pushed (a store rebuilt without its last events, two
       // Breweries on one work root): its branch stays for the branch pass to report, as does
       // an unpushed task tree's.
-      const goes = claims.batches.has(batchId) && !holdsTaskTree(worktree.branch);
+      const goes =
+        claims.batches.has(batchId) &&
+        !holdsTaskTree(worktree.branch) &&
+        !holdsOpen(worktree.branch);
       if (!goes && worktree.branch !== undefined) branchesDone.delete(worktree.branch);
       const branch = worktree.branch === undefined || !goes ? undefined : tips.get(worktree.branch);
       const outDoc =
@@ -400,9 +411,11 @@ export const planClean = (
           ? `no batch ${batchId} in this Brewery`
           : holdsTaskTree(branch.name)
             ? `it holds the task tree of batch ${batchId}, which no push recorded (ADR 0084)`
-            : at === undefined
-              ? undefined
-              : `checked out in ${at}`;
+            : holdsOpen(branch.name)
+              ? `it holds the task tree of batch ${batchId}, whose pull request is open (ADR 0219)`
+              : at === undefined
+                ? undefined
+                : `checked out in ${at}`;
     if (reason === undefined) {
       actions.push({ kind: 'delete-branch', branch: branch.name, tip: branch.tip });
     } else kept.push(`kept branch ${branch.name}: ${reason}`);

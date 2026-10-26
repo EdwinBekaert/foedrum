@@ -5,7 +5,7 @@
 // check that fails on the merged tree when it first fails (ADR 0209); the batch stays On tap.
 
 import type { GravityReading } from '../schemas/events.ts';
-import { EffectKeyParts, MAX_CONFLICTS, MergeResult, PushResult } from '../schemas/store.ts';
+import { EffectKeyParts, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
 import { effectMarker, type IssueMarks } from './claim-effects.ts';
 import type { CommandLog } from './command-log.ts';
 import { type DriverEffects, repositoryOf } from './driver.ts';
@@ -13,7 +13,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { BaseCheck, Batch, State } from './fold.ts';
 import type { MergedCheckDue } from './merged-checks.ts';
-import { openedPullRequest, pushKey } from './pull-request.ts';
+import { openOf } from './pull-request.ts';
 import { checkOf, plain, readingText } from './status-comment.ts';
 
 /** What a merge-tree of a pull request's head and its base's tip came to. */
@@ -68,31 +68,6 @@ const lastTip = (state: State, batch: Batch, url: string): string | undefined =>
     if (merge.success) merged = merge.data.base;
   }
   return merged;
-};
-
-/**
- * The open pull request of `batch` that its ledger opened, with the commit and the bottle branch
- * its push recorded; `undefined` also once someone else pushed to that branch (ADR 0198).
- */
-export const openOf = (
-  state: State,
-  batch: Batch,
-): { url: string; head: string; branch: string } | undefined => {
-  const { lane } = batch;
-  const url = openedPullRequest(state, batch.id);
-  if (lane.kind !== 'on_tap' || url === undefined || !lane.pullRequests.includes(url)) {
-    return undefined;
-  }
-  if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
-  const moved = batch.baseChecks?.some(
-    (check) => check.pullRequest === url && check.branchMoved !== undefined,
-  );
-  if (moved === true) return undefined;
-  const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
-  if (!pushed.success || pushed.data.empty === true || pushed.data.refused !== undefined) {
-    return undefined;
-  }
-  return { url, head: pushed.data.commit, branch: pushed.data.branch };
 };
 
 /** One pass: checks every open pull request whose base moved, and records each check. */

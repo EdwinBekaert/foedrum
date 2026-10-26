@@ -96,6 +96,26 @@ describe('knownCommits', () => {
     for (const sha of [started, pushed, refused]) assert.equal(isCommit(sha), true, sha);
   });
 
+  it("knows a later round's commit and the commit it found the branch moved to (ADR 0219)", () => {
+    const fixed = '1'.repeat(40);
+    const moved = '2'.repeat(40);
+    const later = fold([
+      ...events('12-1', started),
+      {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: '12-1', effect: 'push' }),
+        result: { branch: 'foedrum/acme.brewery/12-1/acme.api', commit: pushed, from: 'start' },
+      },
+      {
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: '12-1', effect: 'push.2' }),
+        result: { branch: 'foedrum/acme.brewery/12-1/acme.api', commit: fixed, from: 'fix', moved },
+      },
+    ]);
+    const isCommit = knownCommits(later, '12-1');
+    for (const sha of [pushed, fixed, moved]) assert.equal(isCommit(sha), true, sha);
+  });
+
   it("knows the commits of the batch's rewinds", () => {
     assert.equal(knownCommits(withRewind, '12-1')(rewound), true);
   });

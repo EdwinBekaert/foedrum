@@ -40,6 +40,7 @@ const fakePush = (
   found: ScanFinding[] = [],
   fetched = main,
   touched: string[] = [],
+  commits: Record<string, string> = {},
 ) => {
   const asked: string[] = [];
   const pushes: string[] = [];
@@ -48,7 +49,7 @@ const fakePush = (
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
-      return revision === 'origin/main' ? main : tip;
+      return commits[revision] ?? (revision === 'origin/main' ? main : tip);
     },
     baseTip: async (name) => {
       asked.push(`fetch ${name}`);
@@ -148,6 +149,7 @@ const actionsWith = (
     fetched?: string;
     touched?: string[];
     sensitivePaths?: string[];
+    commits?: Record<string, string>;
   } = {},
 ) => {
   const pushed = fakePush(
@@ -157,6 +159,7 @@ const actionsWith = (
     options.found,
     options.fetched,
     options.touched,
+    options.commits,
   );
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
@@ -856,5 +859,170 @@ describe('pullRequestActions: where the sensitive-path diff starts, and when it 
       message: 'git diff failed: fatal: bad object',
     });
     assert.deepEqual(pushed.pushes, []);
+  });
+});
+
+describe('pullRequestActions: a later round pushes to the same pull request (ADR 0219)', () => {
+  const fixed = 'e'.repeat(40);
+  const person = 'f'.repeat(40);
+  const push2 = effectKey.encode({ batchId: '12-1', effect: 'push.2' });
+  const from2 = 'refs/heads/foedrum/12-1/implement/2';
+  const action2 = { ...action, attempt: 2 };
+  const onTap: Event[] = [
+    ordered({ issue: 12 }),
+    ...brewed,
+    ...opening,
+    applied(push, { branch, commit: tip, from }),
+    applied(open, url),
+    {
+      type: 'step.finished',
+      batchId: '12-1',
+      stepId: 'open-pull-request',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: { pullRequest: url } },
+    },
+    { type: 'batch.on_tap', batchId: '12-1', pullRequests: [url] },
+  ];
+  const round: Event[] = [
+    {
+      type: 'step.scheduled',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 2,
+      deadlineAt: '2026-10-15T15:00:00.000Z',
+      route: { from: 'open-pull-request', why: 'pull_request', pullRequest: url, head: tip },
+    },
+    {
+      type: 'step.started',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 2,
+      worktree: {
+        repo: 'acme/api',
+        path: '/work/acme.api/12-1/implement/2',
+        branch: 'foedrum/12-1/implement/2',
+        commit: tip,
+      },
+    },
+    {
+      type: 'step.finished',
+      batchId: '12-1',
+      stepId: 'implement',
+      attempt: 2,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Fixed the test', assumptions: [] },
+      },
+    },
+    {
+      type: 'step.scheduled',
+      batchId: '12-1',
+      stepId: 'open-pull-request',
+      attempt: 2,
+      deadlineAt: '2026-10-15T16:00:00.000Z',
+    },
+    { type: 'step.started', batchId: '12-1', stepId: 'open-pull-request', attempt: 2 },
+  ];
+  const second = fold([...onTap, ...round]);
+  const withRemote = (remote: Record<string, string>) =>
+    actionsWith({ remote, commits: { [from2]: fixed } });
+
+  it("pushes the round's task tree under the round's key, and opens nothing again", async () => {
+    const { actions, pushes, requests } = withRemote({ [branch]: tip });
+    assert.deepEqual(keysOf(second, actions), [push2, open]);
+    assert.deepEqual(await actions.target.apply(push2), { branch, commit: fixed, from: from2 });
+    assert.deepEqual(pushes, [`${fixed} ${branch}`]);
+    assert.deepEqual(requests, []);
+  });
+
+  it('finds the push a kill left unrecorded, when the branch is at the new commit', async () => {
+    const { actions } = withRemote({ [branch]: fixed });
+    keysOf(second, actions);
+    assert.deepEqual(await actions.target.find(push2), {
+      result: { branch, commit: fixed, from: from2 },
+    });
+  });
+
+  it('pushes nothing when someone else pushed to the branch since, and says so', async () => {
+    const { actions, pushes } = withRemote({ [branch]: person });
+    keysOf(second, actions);
+    assert.equal(await actions.target.find(push2), undefined);
+    assert.deepEqual(await actions.target.apply(push2), {
+      branch,
+      commit: fixed,
+      from: from2,
+      moved: person,
+    });
+    assert.deepEqual(pushes, []);
+  });
+
+  it('pushes nothing when the branch is gone, and says so', async () => {
+    const { actions, pushes } = withRemote({});
+    keysOf(second, actions);
+    assert.deepEqual(await actions.target.apply(push2), {
+      branch,
+      commit: fixed,
+      from: from2,
+      gone: true,
+    });
+    assert.deepEqual(pushes, []);
+  });
+
+  it('ends with the same pull request once the round is pushed, or found moved', () => {
+    const { actions } = withRemote({ [branch]: tip });
+    for (const result of [
+      { branch, commit: fixed, from: from2 },
+      { branch, commit: fixed, from: from2, moved: person },
+    ]) {
+      const state = fold([...onTap, ...round, applied(push2, result)]);
+      assert.deepEqual(actions.due(state, action2).map(effectKey.encode), [push2, open]);
+      assert.deepEqual(actions.ending(state, action2), {
+        kind: 'succeeded',
+        output: { pullRequest: url },
+      });
+    }
+  });
+
+  it('pushes nothing once the pull request ended during the fix, and ends with it', () => {
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: '12-1',
+      pullRequest: url,
+      state: 'merged',
+    };
+    const { actions } = withRemote({ [branch]: tip });
+    const state = fold([...onTap, round[0] as Event, ended, ...round.slice(1)]);
+    assert.deepEqual(keysOf(state, actions), [open]);
+    assert.deepEqual(actions.ending(state, action2), {
+      kind: 'succeeded',
+      output: { pullRequest: url },
+    });
+  });
+
+  it("keeps the round's push it recorded before the pull request ended", () => {
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: '12-1',
+      pullRequest: url,
+      state: 'merged',
+    };
+    const { actions } = withRemote({ [branch]: fixed });
+    const recorded = applied(push2, { branch, commit: fixed, from: from2 });
+    const state = fold([...onTap, ...round, recorded, ended]);
+    assert.deepEqual(keysOf(state, actions), [push2, open]);
+  });
+
+  it('fails for good when the round before recorded no push', () => {
+    const { actions } = withRemote({ [branch]: tip });
+    const withoutFirst = onTap.filter(
+      (event) => event.type !== 'effect.applied' || event.key !== push,
+    );
+    const state = fold([...withoutFirst, ...round]);
+    assert.deepEqual(actions.due(state, action2), []);
+    assert.deepEqual(actions.ending(state, action2), {
+      kind: 'failed',
+      retryable: false,
+      reason: 'batch 12-1 has no push of round 1 of its pull request to push round 2 on',
+    });
   });
 });

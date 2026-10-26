@@ -1,13 +1,11 @@
 // What the engine's state claims of the attempt worktrees (ADR 0029): which batches may still
 // brew, and which attempts hold a live lease. The worktree manager removes nothing they claim.
 
-import { PushResult } from '../schemas/store.ts';
 import { type AttemptRef, attemptBranch, type Claims } from '../workspace/attempt-worktrees.ts';
 import { attemptKey } from './attempt-key.ts';
-import { effectKey } from './effect-key.ts';
 import type { Lease } from './event-store.ts';
 import type { Batch, Lane, State, TaskTree } from './fold.ts';
-import { pushKey } from './pull-request.ts';
+import { latestPush, openOf } from './pull-request.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
 
 /**
@@ -113,10 +111,16 @@ const unpushedOf = (state: State): Map<string, string> => {
     if (laneStatus(batch.lane) !== 'ended' || taskTree === undefined) continue;
     const held = taskTreeBranchesOf(batch, taskTree);
     if (held === undefined) continue;
-    const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batch.id))));
-    // The revision the push of the openPullRequest action records (ADR 0071). A push the secret
-    // scan refused left nothing on the remote (ADR 0079).
-    if (pushed.success && pushed.data.from === held.revision && pushed.data.refused === undefined) {
+    const pushed = latestPush(state, batch.id);
+    // The revision the latest push of the openPullRequest action records (ADR 0071, ADR 0219). A
+    // push the secret scan refused left nothing on the remote (ADR 0079), nor did a round that
+    // found the branch moved or gone (ADR 0219).
+    if (
+      pushed?.from === held.revision &&
+      pushed.refused === undefined &&
+      pushed.moved === undefined &&
+      pushed.gone === undefined
+    ) {
       continue;
     }
     // In the order of the events, which the steps do not follow after a recipe change (#309).
@@ -163,6 +167,18 @@ const continuedBy = (state: State, ref: AttemptRef): AttemptRef[] => {
   return [...claimed.values()];
 };
 
+// The branch of the task tree of every batch on tap whose pull request is open: a fix round of
+// it starts from there (ADR 0219).
+const openOfState = (state: State): Set<string> => {
+  const open = new Set<string>();
+  for (const batch of state.batches.values()) {
+    const { taskTree } = batch;
+    if (taskTree === undefined || openOf(state, batch) === undefined) continue;
+    for (const branch of taskTreeBranchesOf(batch, taskTree)?.branches ?? []) open.add(branch);
+  }
+  return open;
+};
+
 /** The claims of the folded state and the leases alive now (`EventStore.currentLeases`). */
 export const worktreeClaims = (
   state: State,
@@ -177,4 +193,5 @@ export const worktreeClaims = (
   }),
   ...(outDoc === undefined ? {} : { outDocs: outDocsOf(state, outDoc) }),
   unpushed: unpushedOf(state),
+  open: openOfState(state),
 });
