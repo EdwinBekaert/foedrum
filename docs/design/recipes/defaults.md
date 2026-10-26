@@ -27,7 +27,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | builder (sonnet) | high |
 | Cellarman | Makes the Gauger's tests pass without changing them | builder (sonnet) | high |
 | Finer | Simplifies the change without changing what it does, and commits it ([fining](fining.md)) | builder (sonnet) | high |
-| Taster | Reviews a diff or a plan through one lens (read-only; [tasting](tasting.md)) | builder (sonnet) | medium |
+| Taster | Reviews a diff or a plan through its step's lens, or several together (read-only; [tasting](tasting.md)) | builder (sonnet) | medium |
 | Brett | Mutation check: proposes plausible bugs; the engine confirms which ones the tests miss (advisory by default) | sonnet | medium |
 | Cooper | Fixes review findings | sonnet | high |
 | Blender | Resolves merge conflicts (bounded) | opus | medium |

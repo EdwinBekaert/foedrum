@@ -61,6 +61,8 @@ export interface StepBrewer {
   lenses?: ReadonlyMap<string, Lens>;
   /** On a Taster's step: the lens it reviews through, `diff/<name>` or `plan/<name>` (ADR 0161). */
   lens?: string;
+  /** On a Taster's step of several lenses: each, in the step's order, reviewed together (ADR 0220). */
+  together?: readonly string[];
   /** On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161). */
   blocking?: boolean;
 }
@@ -377,12 +379,17 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
         : [
             `step "${id}" has a "lens", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}" (ADR 0161)`,
           ]),
+      ...(step.lenses === undefined
+        ? []
+        : [
+            `step "${id}" has "lenses", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}" (ADR 0161, ADR 0220)`,
+          ]),
       ...(step.blocking === undefined
         ? []
         : [`step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`]),
     ];
   }
-  if (step.lens === undefined) {
+  if (step.lens === undefined && step.lenses === undefined) {
     return [
       `step "${id}" has the Taster "${brewer.name}" and no "lens": name the lens it reviews through (ADR 0161)`,
     ];
@@ -757,19 +764,21 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           return [];
         }
         const refusedLens = untasted(runnable, brewer);
-        const lens = runnable.lens === undefined ? undefined : lenses.get(runnable.lens);
+        // The step's one lens, or its lenses together (ADR 0220).
+        const named = runnable.lenses ?? (runnable.lens === undefined ? [] : [runnable.lens]);
         // A lens whose file or folder has a problem of its own is reported once, as that.
-        const unreported =
-          runnable.lens !== undefined && !lensFolderUnread && !brokenLenses.has(runnable.lens);
-        if (refusedLens.length === 0 && lens === undefined && unreported) {
-          refusedLens.push(
-            `step "${id}" names the lens "${runnable.lens}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
-          );
+        const unreported = (name: string) => !lensFolderUnread && !brokenLenses.has(name);
+        if (refusedLens.length === 0) {
+          for (const name of named) {
+            if (lenses.has(name) || !unreported(name)) continue;
+            refusedLens.push(
+              `step "${id}" names the lens "${name}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
+            );
+          }
         }
         for (const line of refusedLens) problems.push(`${path}: ${line}`);
-        if (refusedLens.length > 0 || (runnable.lens !== undefined && lens === undefined)) {
-          return [];
-        }
+        const stepLensFiles = named.flatMap((name) => lenses.get(name) ?? []);
+        if (refusedLens.length > 0 || stepLensFiles.length < named.length) return [];
         const deadline = runnable.deadline ?? brewer.deadline;
         if (tooLong(id, deadline)) return [];
         const findings = runnable.onBlocked?.findings;
@@ -783,15 +792,22 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           route: findings === undefined ? undefined : { why: 'findings', ...findings },
           ...(group === undefined ? {} : { group }),
         };
-        if (lens === undefined) return [{ line, brewer: found }];
-        // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161).
-        stepLenses.add(lens.name);
-        const input = { name: LENS_INPUT, from: `lens:${lens.name}`, trusted: false } as const;
+        const [first] = stepLensFiles;
+        if (first === undefined) return [{ line, brewer: found }];
+        // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161), and a step's lenses
+        // together as that one input, which names each (ADR 0220): no lens name holds a comma.
+        const names = stepLensFiles.map(({ name }) => name);
+        for (const name of names) stepLenses.add(name);
+        const from = `lens:${names.join(',')}`;
+        const input = { name: LENS_INPUT, from, trusted: false } as const;
         const tasting: StepBrewer = {
           ...found,
           brewer: { ...brewer, inputs: [...brewer.inputs, input] },
-          lenses: new Map([...(found.lenses ?? []), [lens.name, lens]]),
-          lens: lens.name,
+          lenses: new Map([
+            ...(found.lenses ?? []),
+            ...stepLensFiles.map((lens): [string, Lens] => [lens.name, lens]),
+          ]),
+          ...(runnable.lenses === undefined ? { lens: first.name } : { together: names }),
           blocking: runnable.blocking ?? false,
         };
         return [{ line, brewer: tasting }];
@@ -812,19 +828,23 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
     // A step with a lens reviews a diff once a step before it commits, else a plan; its lens's
     // folder must say the same (ADR 0143).
+    // Each lens of a step that names several (ADR 0220).
     const misfolded = order.flatMap((step, at) => {
-      if (!('lens' in step) || step.lens === undefined) return [];
+      if (!('brewer' in step)) return [];
+      const named = step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
       const committed = order.slice(0, at).find(commits);
       const reviews = committed === undefined ? 'plan' : 'diff';
-      if (step.lens.startsWith(`${reviews}/`)) return [];
       const since =
         committed === undefined
           ? 'no step before it commits'
           : `step "${stepId(committed)}" before it commits`;
       const other = reviews === 'plan' ? 'diff' : 'plan';
-      return [
-        `${path}: step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${step.lens}", which reviews a ${other}: name a lens of lenses/${reviews}/ (ADR 0143)`,
-      ];
+      return named
+        .filter((lens) => !lens.startsWith(`${reviews}/`))
+        .map(
+          (lens) =>
+            `${path}: step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${lens}", which reviews a ${other}: name a lens of lenses/${reviews}/ (ADR 0143)`,
+        );
     });
     for (const line of misfolded) problems.push(line);
     // A red proof finds the tests in what its step committed (ADR 0078).

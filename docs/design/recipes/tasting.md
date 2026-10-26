@@ -1,7 +1,7 @@
 # Tasting
 
-**Tasting through lenses:** the Taster reviews through one lens per session (the default ones are listed below), in lens steps one after another or side by side in a parallel group.
-A lens step is a Taster's step with a `lens`: a Taster is a brewer whose out doc schema is `tasting`, and the default one is `defaults/brewers/taster.md`, read-only ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)).
+**Tasting through lenses:** the Taster reviews through the lens its step names (the default ones are listed below), in lens steps one after another or side by side in a parallel group, or through several lenses its step names together ([lenses together](#lenses-together)).
+A lens step is a Taster's step with a `lens`, or with `lenses` ([lenses together](#lenses-together)): a Taster is a brewer whose out doc schema is `tasting`, and the default one is `defaults/brewers/taster.md`, read-only ([ADR 0161](../../adr/0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md)).
 The step's lens reaches the Taster as its input `lens`, and a Taster that reviews a diff also gets the input `change`: the commits and the diff from the commit its batch started at to HEAD, or from the base a merge before its last check brought in ([ADR 0164](../../adr/0164-a-batch-merges-its-base-before-its-last-check.md)), the log by first parents only, which the engine reads with git in the repository's clone, with no diff driver, and holds to 256 KiB, so the Taster runs no shell; between the log and the diff, it lists the regression tests each step of the batch named in its latest success ([ADR 0170](../../adr/0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md)).
 A Finer gets the same input ([fining](fining.md)).
 A later round of a lens step that reviews a diff, one after an earlier attempt of it in the batch that reviewed, by a verdict or blocked by findings, whatever sent the batch back (not a failed or cancelled attempt, which reviewed nothing, and not a retry or an attempt after an answer, which reviews what the round it follows reviews), also gets the input `roundChange`: the change from the commit the latest such round's worktree started at to HEAD, read as `change` is, and the engine's fixed text for every `diff/` lens tells it to review only that, name a defect a fix brought in as such and leave alone what the earlier round reviewed; when that commit is not recorded, is in another repository, is not on the line to HEAD (as after a rewind), a merge of the base came after it, or git cannot tell, the round gets no `roundChange` and its prompt says why and to review the whole change ([ADR 0190](../../adr/0190-a-later-tasting-round-reviews-the-change-since-the-round-before.md), [ADR 0196](../../adr/0196-a-later-tasting-round-follows-any-earlier-round-that-reviewed.md)).
@@ -19,7 +19,7 @@ The engine's fixed text then says never to raise a fixed, dismissed or pre-exist
 It also says to check the evidence a dismissed or pre-existing finding's `why` names, and to hold one that names none, or whose evidence does not show what it claims, as wrong ([ADR 0204](../../adr/0204-a-dismissal-names-the-evidence-that-shows-it.md)).
 The pull request lists the `pre-existing` ones for a person to file ([open the pull request](open-pull-request.md)).
 A findings blocker on a step with no route is Stuck as any other blocker, with its summary only.
-A `lens` on a brewer that is no Taster, a Taster's step without one, and a lens no folder has fail the load with a line each.
+A `lens` or `lenses` on a brewer that is no Taster, a Taster's step with neither, and a lens no folder has fail the load with a line each.
 Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
 
 Lenses live in two folders, by what they review ([ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md)): `lenses/diff/` for a diff (code) and `lenses/plan/` for a plan (an order's breakdown, #391), in the Brewery and in `defaults/lenses/`.
@@ -39,6 +39,24 @@ A `retry` or `answer` of a child also schedules every child of its group that ha
 The batch leaves a group only while no attempt of it runs.
 A group whose recipe file gained a child while the batch was in it makes the batch Stuck on a divergence, naming that child.
 A kill mid-group retries only the children that had not ended: the supervisor loses one attempt of a batch per tick and keeps the expired leases of the others for the ticks after.
+A child may be a step of several lenses together, beside lens steps apart.
+
+## Lenses together
+
+A Taster's step may name `lenses` instead of `lens`: two or more lenses of one folder, each once, that one Taster reviews through together ([ADR 0220](../../adr/0220-a-taster-s-step-can-run-several-lenses-together.md)).
+The schema refuses `lenses` beside `lens`, with one lens or with a lens named twice; the load refuses it where it refuses `lens`, names each lens no folder has, and checks each against what the step reviews.
+It is one step, with one attempt at a time, one lease, deadline, out doc and status comment line, so a retry, a skip, a rewind, a stall or a kill takes every lens of it at once.
+Its model, effort, turns and stall limit are its brewer's; a recipe that wants a lens on another model runs it apart, on a Taster that names another alias.
+Its Taster gets the change once, and the lenses as its one input `lens`: every lens file in the step's order, under a source that names each lens and its file.
+The engine adds a fixed text, only on such a step: review through each lens in turn, give every finding the `lens` it was found through, read a lens file's "stay inside this one" as "report under this lens only what it asks", and start each `riskLeft` item with its lens; a one-lens prompt stays as it is.
+Its house yeast is the rules each of its lenses would get apart, each once, in the order of its lenses.
+Each finding of its out doc names one of the step's lenses, or the out doc is invalid and the attempt fails, as on any schema error; on a one-lens step a finding may leave its lens out, and one that names a lens names the step's.
+A finding without a `lens` is its step's lens's: `lensOfFinding` gives that to a reader that counts by lens (#561).
+The out doc has one `verdict`, from the findings of every lens, so `"blocking": true` blocks on any lens; a recipe that wants one lens to block and the others to advise runs that lens apart, beside the step in a group.
+A findings route from it carries its whole out doc, every lens's findings at once, where a group of lenses apart carries the first blocking child's.
+Its findings show their lens before their severity (`diff/security, major in src/a.ts:3`) in a later round's `earlierFindings`, the status comment, the pull request body and the Stuck reason.
+The status comment shows ten findings per lens when every finding of the step names one, and ten per step otherwise.
+Which recipes run lenses together is #567's to measure: the default recipes run them apart until then.
 
 **Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 The engine checks each edit (an existing file under `src/` or `scripts/`, a line whose text is `original`, no new identifier or string), applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading.

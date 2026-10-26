@@ -43,23 +43,36 @@ const Route = z.strictObject({ goto: StepId, maxRounds: z.int().positive() });
 
 const when = Expression.optional().describe('Run the step only when this expression is true');
 
-const BrewerStep = z.strictObject({
-  id: StepId.optional().describe('Defaults to the brewer name'),
-  brewer: PathSafeId,
-  when,
-  lens: LensName.optional().describe(
-    'Taster only (out doc schema tasting), and required there: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)',
-  ),
-  blocking: z
-    .boolean()
-    .optional()
-    .describe(
-      'Taster: a changes verdict blocks the step (ADR 0161); Brett: surviving mutants block the verdict',
+const BrewerStep = z
+  .strictObject({
+    id: StepId.optional().describe('Defaults to the brewer name'),
+    brewer: PathSafeId,
+    when,
+    lens: LensName.optional().describe(
+      'Taster only (out doc schema tasting), and required there unless lenses names several: the lens that sets the review focus, diff/<name> or plan/<name> (ADR 0143, ADR 0161)',
     ),
-  // Only findings are routed: an environment or divergence blocker always makes the batch Stuck.
-  onBlocked: z.strictObject({ findings: Route }).optional(),
-  deadline: Duration.optional().describe("Overrides the brewer's deadline"),
-});
+    lenses: z
+      .array(LensName)
+      .min(2)
+      .refine((lenses) => new Set(lenses).size === lenses.length, 'Each lens may be named once')
+      .optional()
+      .describe(
+        'Taster only, instead of lens: two or more lenses of one folder that one Taster reviews through together, in one attempt and one out doc whose findings each name their lens (ADR 0220)',
+      ),
+    blocking: z
+      .boolean()
+      .optional()
+      .describe(
+        'Taster: a changes verdict blocks the step (ADR 0161); Brett: surviving mutants block the verdict',
+      ),
+    // Only findings are routed: an environment or divergence blocker always makes the batch Stuck.
+    onBlocked: z.strictObject({ findings: Route }).optional(),
+    deadline: Duration.optional().describe("Overrides the brewer's deadline"),
+  })
+  .refine(({ lens, lenses }) => lens === undefined || lenses === undefined, {
+    message: 'Name "lens" or "lenses", not both (ADR 0220)',
+    path: ['lenses'],
+  });
 
 const SessionStep = z.strictObject({
   id: StepId,
