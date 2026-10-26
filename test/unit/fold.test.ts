@@ -109,6 +109,7 @@ describe('fold', () => {
       batches: new Map(),
       bottles: new Map(),
       releases: [],
+      merges: new Map(),
       effects: new Map(),
       pauses: { orders: new Map() },
       ranks: new Map(),
@@ -766,7 +767,7 @@ describe('fold', () => {
       state.bottles,
       new Map([['k1', { id: 'k1', repo: 'acme/api', subOrders: [101, 102], pullRequest }]]),
     );
-    assert.deepStrictEqual(state.releases, [release]);
+    assert.deepStrictEqual(state.releases, [{ ...release, seq: 1 }]);
     assert.deepStrictEqual(state.effects, new Map([[prKey, { number: 7 }]]));
   });
 

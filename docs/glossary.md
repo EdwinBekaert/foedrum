@@ -12,7 +12,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Sub-order** | A sub-issue of an order, targeting exactly one repository |
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
-| **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)) |
+| **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges, and a `release` blocker's release after its merge, without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
 | **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
 | **Rewind** | Continuing a batch from an earlier step; branches reset to that step's commits |
