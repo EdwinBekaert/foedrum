@@ -251,6 +251,23 @@ describe('laterRoundLines', () => {
     ]);
   });
 
+  it('lists the earlier findings to the end of the prompt when their input is not closed', () => {
+    const unclosed = prompt.split('\r\n').slice(0, -1).join('\n');
+    assert.deepStrictEqual(laterRoundLines(ref, unclosed).slice(-1), [
+      '    fixed: greet trims the name',
+    ]);
+  });
+
+  it('reads only a whole opening tag: one with more text after it is no input of its name', () => {
+    const trailing = prompt.replace('name="roundChange">', 'name="roundChange"> and more');
+    assert.deepStrictEqual(laterRoundLines(ref, trailing), []);
+    const leading = prompt.replace(
+      '<untrusted-input-abc source="the change since commit 4567def"',
+      'x <untrusted-input-abc source="the change since commit 4567def"',
+    );
+    assert.deepStrictEqual(laterRoundLines(ref, leading), []);
+  });
+
   it('says nothing for a first round', () => {
     const first = prompt.split('\r\n').slice(0, 4).join('\n');
     assert.deepStrictEqual(laterRoundLines(ref, first), []);
