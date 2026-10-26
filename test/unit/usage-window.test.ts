@@ -433,6 +433,19 @@ describe('reopenOf (ADR 0206)', () => {
     }
   });
 
+  // Review of #543: the hour before may be yesterday's, or last week's weekday.
+  it('reads 11:58pm read just after midnight as yesterday, not tonight', () => {
+    // 00:02 on Monday 26 October there.
+    assert.deepStrictEqual(read('11:58pm', '2026-10-25T23:02:00.000Z'), {
+      at: '2026-10-25T23:03:00.000Z',
+      read: true,
+    });
+  });
+
+  it('reads Sun 11:30pm read on Monday at 00:10 as the Sunday just gone, not next Sunday', () => {
+    assert.equal(read('Sun 11:30pm', '2026-10-25T23:10:00.000Z').at, '2026-10-25T22:35:00.000Z');
+  });
+
   it('reads Mon 12:00am as this Monday when it passed within the hour, not next week', () => {
     // 00:10 on Monday 26 October there.
     assert.equal(read('Mon 12:00am', '2026-10-25T23:10:00.000Z').at, '2026-10-25T23:05:00.000Z');
