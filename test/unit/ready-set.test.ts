@@ -183,6 +183,42 @@ describe('readySubOrders', () => {
     };
     assert.deepStrictEqual(ready(...base, cancelled), [sub(1, 2)]);
   });
+
+  it('leaves out the sub-orders of an order stopped while a batch of it is still Stuck (ADR 0205)', () => {
+    const stuck = (batchId: string, kind: 'stopped' | 'routing'): Event => ({
+      type: 'batch.stuck',
+      batchId,
+      reason:
+        kind === 'stopped'
+          ? { kind, stepId: 'plan', by: 'ada', via: 'terminal' }
+          : { kind, deadlineAt: routeBy },
+      options: ['retry'],
+      remindAt: routeBy,
+    });
+    const base = [
+      ordered('1-1', 1),
+      decomposed('1-1', [2, 3]),
+      ordered('2-1', 2, '1-1'),
+      ordered('5-1', 5),
+      decomposed('5-1', [6]),
+    ];
+    // A sub-order's batch stopped holds its order; Stuck for another reason does not.
+    assert.deepStrictEqual(ready(...base, stuck('2-1', 'stopped')), [sub(5, 6)]);
+    assert.deepStrictEqual(ready(...base, stuck('2-1', 'routing')), [sub(1, 3), sub(5, 6)]);
+    // The order's own batch stopped holds it too, until a retry moves it on.
+    assert.deepStrictEqual(ready(...base, stuck('5-1', 'stopped')), [sub(1, 3)]);
+    assert.deepStrictEqual(
+      ready(...base, stuck('5-1', 'stopped'), {
+        type: 'step.scheduled',
+        batchId: '5-1',
+        stepId: 'plan',
+        attempt: 1,
+        deadlineAt: routeBy,
+        retry: true,
+      }),
+      [sub(1, 3), sub(5, 6)],
+    );
+  });
 });
 
 describe('the intake starts ready sub-orders (ADR 0211)', () => {
