@@ -44,6 +44,9 @@ const source: LensSource = {
     if (stepId === 'together') {
       return { lens: undefined, together: ['diff/correctness', 'diff/security'] };
     }
+    if (stepId === 'advised') {
+      return { lens: undefined, together: ['diff/acceptance', 'diff/security'] };
+    }
     return undefined;
   },
 };
@@ -624,6 +627,74 @@ describe('lensReport: lenses together (ADR 0220)', () => {
         name,
       );
     }
+  });
+
+  it('counts the findings a round of lenses together did not keep as not recorded on each of its lenses (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'together', 1, blocked, {
+        findings: { kept: [through('diff/security', finding('src/a.ts', 1))], more: 3 },
+      }),
+    ];
+    const made = report(events);
+    for (const name of pair) {
+      assert.deepStrictEqual(lens(made, name)?.notRecorded, { rounds: 0, findings: 3 }, name);
+    }
+  });
+
+  it("tracks each lens's findings at one place apart, each taking one disposition in order (review of #572)", () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'together', 1, blocked, {
+        findings: kept(
+          through('diff/correctness', finding('src/a.ts', 1)),
+          through('diff/security', finding('src/a.ts', 1)),
+        ),
+      }),
+      ...attempt(
+        'b1',
+        'implement',
+        2,
+        disposed(
+          { file: 'src/a.ts', line: 1, disposition: 'fixed' },
+          { file: 'src/a.ts', line: 1, disposition: 'dismissed', why: 'see a.test.ts:3' },
+        ),
+        { from: 'together' },
+      ),
+      // Security contests its dismissal: a new finding of its own, open.
+      ...attempt('b1', 'together', 2, tasted([through('diff/security', finding('src/a.ts', 1))])),
+    ];
+    const made = report(events);
+    assert.deepStrictEqual(
+      lens(made, 'diff/correctness'),
+      tally({
+        rounds: 2,
+        severity: { blocker: 0, major: 1, minor: 0 },
+        ends: { fixed: 1, dismissed: 0, 'pre-existing': 0, open: 0 },
+      }),
+    );
+    assert.deepStrictEqual(
+      lens(made, 'diff/security'),
+      tally({
+        rounds: 2,
+        severity: { blocker: 0, major: 2, minor: 0 },
+        ends: { fixed: 0, dismissed: 1, 'pre-existing': 0, open: 1 },
+      }),
+    );
+  });
+
+  it('keeps a shared row per set of lenses together, in the order of their names (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'together', 1, tasted([]), { usage: usage(1, 1, 1, 1) }),
+      ...ordered('b2', 2),
+      ...attempt('b2', 'advised', 1, tasted([]), { usage: usage(2, 2, 2, 2) }),
+      ...attempt('b2', 'together', 1, tasted([]), { usage: usage(4, 4, 4, 4) }),
+    ];
+    assert.deepStrictEqual(report(events).shared, [
+      { lenses: ['diff/acceptance', 'diff/security'], rounds: 1, usage: usage(2, 2, 2, 2) },
+      { lenses: pair, rounds: 2, usage: usage(5, 5, 5, 5) },
+    ]);
   });
 
   it('counts a finding that names none of the lenses the files now give its step as not recorded, and still takes its disposition (review of #572)', () => {
