@@ -521,6 +521,26 @@ const SLIRP4NETNS_ARGS = [
   'tap0',
 ];
 
+/**
+ * A setup's /dev, built without devpts: with `--dev /dev`, bwrap maps the user to root in one user
+ * namespace to mount devpts and makes a second inside it, and the network namespace belongs to
+ * the outer one, which no stack can join (ADR 0218, CI run of #425).
+ */
+const SETUP_DEV = [
+  ...['--tmpfs', '/dev'],
+  ...['--dev-bind', '/dev/null', '/dev/null'],
+  ...['--dev-bind', '/dev/zero', '/dev/zero'],
+  ...['--dev-bind', '/dev/full', '/dev/full'],
+  ...['--dev-bind', '/dev/random', '/dev/random'],
+  ...['--dev-bind', '/dev/urandom', '/dev/urandom'],
+  ...['--dev-bind', '/dev/tty', '/dev/tty'],
+  ...['--tmpfs', '/dev/shm'],
+  ...['--symlink', '/proc/self/fd', '/dev/fd'],
+  ...['--symlink', '/proc/self/fd/0', '/dev/stdin'],
+  ...['--symlink', '/proc/self/fd/1', '/dev/stdout'],
+  ...['--symlink', '/proc/self/fd/2', '/dev/stderr'],
+];
+
 const linuxSetup = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {}) =>
   sandboxedChecks(
     options(exec, {
@@ -542,11 +562,14 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     const result = await linuxSetup(exec, { findStackTool: stackTools('pasta') })(line, [], call);
     assert.equal(result.exitCode, 3);
     const at = checkArgs.indexOf('--unshare-net') + 1;
+    const dev = checkArgs.indexOf('--dev');
     const after = checkArgs.indexOf(home) + 1;
     assert.deepEqual(calls[0]?.args, [
       ...checkArgs.slice(0, at),
       ...['--info-fd', '3', '--block-fd', '4'],
-      ...checkArgs.slice(at, after),
+      ...checkArgs.slice(at, dev),
+      ...SETUP_DEV,
+      ...checkArgs.slice(dev + 2, after),
       ...['--ro-bind-data', '5', '/etc/resolv.conf'],
       ...checkArgs.slice(after),
     ]);

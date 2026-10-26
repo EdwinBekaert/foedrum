@@ -496,7 +496,7 @@ describe('diagnose: isolation (ADR 0010)', () => {
       {
         required: false,
         what: 'slirp4netns or pasta (passt) not found',
-        fix: "install slirp4netns: a repository's setup does not start without it (ADR 0218)",
+        fix: "a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)",
       },
     ]);
     const pasta = linux({
@@ -509,23 +509,17 @@ describe('diagnose: isolation (ADR 0010)', () => {
     assert.deepEqual(diagnose(windows).problems, []);
   });
 
-  // Ubuntu confines pasta under passt's AppArmor profile, which keeps it out of the namespace a
-  // setup's bwrap makes; Ubuntu's own profile lets slirp4netns in (ADR 0218).
-  it('advises slirp4netns where only pasta is there and AppArmor restricts user namespaces', () => {
+  // pasta joins a setup's namespace on Ubuntu too, under passt's AppArmor profile: CI's run of
+  // #425 showed it once the namespace was joinable, so doctor says nothing against it (ADR 0218).
+  it('gives no advice against pasta where only pasta is there, also where AppArmor restricts user namespaces', () => {
     const advised = (facts: DoctorFacts) =>
       diagnose(facts).advice.filter((line) => /pasta/.test(line));
     const onlyPasta = linux({
       slirp4netns: undefined,
       pasta: ran('/usr/bin/pasta', 'pasta unknown version\n'),
     });
-    const [line = '', ...more] = advised({ ...onlyPasta, restrictsUserns: true });
-    assert.deepEqual(more, []);
-    assert.match(line, /AppArmor runs pasta under passt's profile here/);
-    assert.match(line, /a repository's setup does not start/);
-    assert.match(line, /install slirp4netns \(ADR 0218\)/);
+    assert.deepEqual(advised({ ...onlyPasta, restrictsUserns: true }), []);
     assert.deepEqual(advised({ ...onlyPasta, restrictsUserns: false }), []);
-    assert.deepEqual(advised(onlyPasta), []);
-    assert.deepEqual(advised({ ...linux(), restrictsUserns: true }), []);
   });
 
   it('is permissions only on native Windows, and recommends WSL2', () => {

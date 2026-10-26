@@ -187,7 +187,7 @@ const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check ste
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
 // problems. The stubs have no user-mode network stack, which a Linux setup needs (ADR 0218).
 const NO_STACK =
-  "  slirp4netns or pasta (passt) not found: install slirp4netns: a repository's setup does not start without it (ADR 0218)";
+  "  slirp4netns or pasta (passt) not found: a repository's setup does not start without it; install slirp4netns (Debian and Ubuntu: sudo apt install slirp4netns; Fedora and Arch usually have slirp4netns or passt with Podman) (ADR 0218)";
 // The end of a report with no required problem: the optional ones, if any.
 const optional = (problems: readonly string[]) =>
   problems.length === 0
