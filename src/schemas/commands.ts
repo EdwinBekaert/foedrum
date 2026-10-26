@@ -49,6 +49,9 @@ export type StuckCommand = z.infer<typeof StuckCommand>;
 export const BrewersCommand = z.strictObject({ command: z.literal('brewers') });
 export type BrewersCommand = z.infer<typeof BrewersCommand>;
 
+export const LensesCommand = z.strictObject({ command: z.literal('lenses') });
+export type LensesCommand = z.infer<typeof LensesCommand>;
+
 export const ReplayCommand = z.strictObject({ command: z.literal('replay'), batch: PathSafeId });
 export type ReplayCommand = z.infer<typeof ReplayCommand>;
 

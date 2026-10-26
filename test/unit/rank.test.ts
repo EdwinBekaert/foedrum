@@ -402,6 +402,7 @@ describe('foedrum rank (ADR 0208)', () => {
     openWritableStore: () => kept(),
     recipes: () => recipes,
     brewers: () => assert.fail('no brewer files to read'),
+    lenses: () => assert.fail('no lens files to read'),
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,

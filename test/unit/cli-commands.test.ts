@@ -7,6 +7,7 @@ import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { BrewerSource } from '../../src/cli/brewer-report.ts';
 import { commands } from '../../src/cli/commands.ts';
+import type { LensSource } from '../../src/cli/lens-report.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -101,6 +102,10 @@ describe('foedrum: commands that change state', () => {
       brewers: [{ name: 'planner', path: 'brewers/planner.md' }],
       step: () => undefined,
     }),
+    lenses: () => ({
+      lenses: [{ name: 'diff/correctness', path: 'defaults/lenses/diff/correctness.md' }],
+      step: () => undefined,
+    }),
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
@@ -135,7 +140,14 @@ describe('foedrum: commands that change state', () => {
 
   it('opens only the read-only store for a read-only command, and appends nothing', async () => {
     const before = lastId();
-    for (const argv of [['status'], ['stuck'], ['replay', '21-1'], ['doctor'], ['brewers']]) {
+    for (const argv of [
+      ['status'],
+      ['stuck'],
+      ['replay', '21-1'],
+      ['doctor'],
+      ['brewers'],
+      ['lenses'],
+    ]) {
       assert.equal((await run(argv)).exitCode, 0, argv.join(' '));
     }
     assert.deepStrictEqual(opened.writable, []);
@@ -147,7 +159,7 @@ describe('foedrum: commands that change state', () => {
       throw new Error('the recipes were loaded');
     };
     // status loads them while a limit can hold (ADR 0217): see "status: the limits that hold".
-    for (const argv of [['stuck'], ['replay', '21-1'], ['doctor'], ['brewers']]) {
+    for (const argv of [['stuck'], ['replay', '21-1'], ['doctor'], ['brewers'], ['lenses']]) {
       assert.equal((await run(argv, { recipes })).exitCode, 0, argv.join(' '));
     }
   });
@@ -1007,6 +1019,7 @@ describe('foedrum stuck', () => {
       openWritableStore: () => undefined,
       recipes: () => recipes,
       brewers: () => assert.fail('no brewer files to read'),
+      lenses: () => assert.fail('no lens files to read'),
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
@@ -1239,6 +1252,7 @@ describe('foedrum brewers', () => {
       openWritableStore: () => assert.fail('brewers only reads (ADR 0030)'),
       recipes: () => assert.fail('brewers needs no Recipes'),
       brewers: () => source,
+      lenses: () => assert.fail('brewers reads no lenses'),
       user: () => 'ada',
       surface: 'terminal',
       now: () => t0,
@@ -1329,6 +1343,137 @@ describe('foedrum brewers', () => {
   });
 });
 
+describe('foedrum lenses (ADR 0221)', () => {
+  let store: EventStore;
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+  });
+  afterEach(() => store.close());
+
+  const source: LensSource = {
+    lenses: [
+      { name: 'diff/acceptance', path: 'defaults/lenses/diff/acceptance.md' },
+      { name: 'diff/correctness', path: 'defaults/lenses/diff/correctness.md' },
+    ],
+    step: (recipe, stepId) =>
+      recipe === 'pint' && stepId === 'correctness' ? { lens: 'diff/correctness' } : undefined,
+  };
+  const run = (argv: string[], overrides: Partial<CliContext> = {}): Promise<CliResult> =>
+    runCli(argv, {
+      cwd,
+      gatherDoctorFacts: async () => linux(),
+      openStore: () => ({ ...store, close: () => {} }),
+      openWritableStore: () => assert.fail('lenses only reads (ADR 0030)'),
+      recipes: () => assert.fail('lenses needs no Recipes'),
+      brewers: () => assert.fail('lenses reads no brewers'),
+      lenses: () => source,
+      user: () => 'ada',
+      surface: 'terminal',
+      now: () => t0,
+      zone: () => 'UTC',
+      readKeptBranches: async () => assert.fail('no kept branch to read'),
+      config: () => assert.fail('no foedrum.jsonc to read'),
+      claims: () => assert.fail('no claim host to reach'),
+      queue: () => assert.fail('no queue to read'),
+      serve: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      brew: async () => assert.fail('no brew here'),
+      watch: async () => assert.fail('no watch here'),
+      resume: async () => assert.fail('no session to resume'),
+      init: async () => assert.fail('no init here'),
+      env: {},
+      ...overrides,
+    });
+
+  it("reports each lens from the store's rounds, and appends nothing", async () => {
+    store.withTransaction((tx) => {
+      for (const event of [
+        { type: 'batch.ordered', batchId: '11-1', order: { issue: 11 }, routeBy: iso(60) },
+        {
+          type: 'batch.recipe_chosen',
+          batchId: '11-1',
+          recipe: 'pint',
+          reason: 'label',
+          source: 'label',
+        },
+        {
+          type: 'step.scheduled',
+          batchId: '11-1',
+          stepId: 'correctness',
+          attempt: 1,
+          deadlineAt: iso(60),
+        },
+        { type: 'step.started', batchId: '11-1', stepId: 'correctness', attempt: 1 },
+        {
+          type: 'step.finished',
+          batchId: '11-1',
+          stepId: 'correctness',
+          attempt: 1,
+          outcome: {
+            kind: 'failed',
+            retryable: false,
+            reason: 'blocked (findings): the Taster asks for changes: no deadline',
+          },
+          usage: { inputTokens: 40, outputTokens: 30, cacheReadTokens: 20, cacheWriteTokens: 10 },
+          findings: {
+            kept: [
+              {
+                file: 'src/poll.ts',
+                line: 3,
+                severity: 'major',
+                why: 'no deadline',
+                introduced: true,
+              },
+            ],
+            more: 0,
+          },
+        },
+      ] satisfies Event[])
+        tx.append(event);
+    });
+    const before = store.eventsAfter(0).length;
+    assert.deepStrictEqual(await run(['lenses']), {
+      exitCode: 0,
+      stdout: [
+        'diff/acceptance  defaults/lenses/diff/acceptance.md',
+        '  no rounds',
+        'diff/correctness  defaults/lenses/diff/correctness.md',
+        '  1 round, 1 finding: 1 major',
+        '  ended: 1 open',
+        '  tokens: 40 input, 30 output, 20 cache read, 10 cache write',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+    assert.equal(store.eventsAfter(0).length, before);
+  });
+
+  it('lists the lenses with no rounds when there is no store yet', async () => {
+    assert.deepStrictEqual(await run(['lenses'], { openStore: () => undefined }), {
+      exitCode: 0,
+      stdout: [
+        'diff/acceptance  defaults/lenses/diff/acceptance.md',
+        '  no rounds',
+        'diff/correctness  defaults/lenses/diff/correctness.md',
+        '  no rounds',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+  });
+
+  it("refuses with doctor's line when the files do not load", async () => {
+    const line = invalidRecipes(['lenses/diff/security.md: EACCES']);
+    const lenses = () => {
+      throw new Error(line);
+    };
+    assert.deepStrictEqual(await run(['lenses'], { lenses }), {
+      exitCode: 1,
+      stdout: '',
+      stderr: `foedrum lenses: ${line}\n`,
+    });
+  });
+});
+
 describe('foedrum order: order an issue again (ADR 0105)', () => {
   let store: EventStore;
   let github: FakeGitHub;
@@ -1384,6 +1529,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     openWritableStore: () => ({ ...store, close: () => {} }),
     recipes: () => recipes,
     brewers: () => assert.fail('no brewer files to read'),
+    lenses: () => assert.fail('no lens files to read'),
     user: () => 'ada',
     surface: 'terminal',
     now: () => t0,
