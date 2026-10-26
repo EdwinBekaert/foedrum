@@ -3,32 +3,18 @@
 // conditional reads (ADR 0052). Everything it reads is untrusted input, checked field by field.
 
 import type { PullRequestCheckReader, ReadCheck } from '../engine/pr-checks.ts';
-import {
-  type CheckConclusion,
-  MAX_HEAD_CHECK_NAME_LENGTH,
-  PullRequestUrl,
-} from '../schemas/events.ts';
+import { CheckConclusion, MAX_HEAD_CHECK_NAME_LENGTH, PullRequestUrl } from '../schemas/events.ts';
 import { GitHubCheckRun, GitHubCommitStatus, GitHubPullRequestHead } from '../schemas/github.ts';
 import { CommitSha } from '../schemas/store.ts';
 import { checked, refused, repoPath } from './answers.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 import { pullRequestOf } from './tracker.ts';
 
-/** The conclusions of a check run and the states of a commit status that Foedrum names. */
-const known: ReadonlySet<string> = new Set<CheckConclusion>([
-  'success',
-  'neutral',
-  'skipped',
-  'failure',
-  'cancelled',
-  'timed_out',
-  'action_required',
-  'stale',
-  'startup_failure',
-  'error',
-]);
-const conclusionOf = (text: string | null | undefined): CheckConclusion =>
-  text !== null && text !== undefined && known.has(text) ? (text as CheckConclusion) : 'unknown';
+/** A check run's conclusion or a commit status's state as Foedrum names it; `unknown` otherwise. */
+const conclusionOf = (text: string | null | undefined): CheckConclusion => {
+  const parsed = CheckConclusion.safeParse(text);
+  return parsed.success ? parsed.data : 'unknown';
+};
 
 /** A check as the record keeps it: its name cut, empty named by its kind; a link only when https. */
 const readCheck = (

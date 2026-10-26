@@ -107,11 +107,10 @@ export const recordChecks = async (
     // No check at all is finished only on a pass after the one that saw none: the repository's
     // workflows may not have registered theirs yet.
     if (finished.length === read.length && (read.length > 0 || waited)) {
-      const pullRequest = open.url;
       record({
         type: 'pull_request.checks_finished',
         batchId,
-        pullRequest,
+        pullRequest: open.url,
         head,
         ...kept(finished),
       });
