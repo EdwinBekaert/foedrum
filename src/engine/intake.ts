@@ -3,15 +3,17 @@
 //   (`pull_request.ended`), the fact a claimed batch's release waits for (ADR 0198);
 // - checks each open pull request whose base's tip moved against that tip (ADR 0198);
 // - walks one queue, in rank order (ADR 0208) and only up to the Brewery's free capacity: the
-//   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, and
-//   the candidates of each repository with an intake filter, which it claims and orders as
-//   `<alias>-<issue>`, each Ordered until it is routed by its deadline (ADR 0032);
+//   Brewery's own issues that carry a `recipe:<name>` label, which it orders as `<issue>-1`, the
+//   ready sub-orders of its orders, which it orders as `<issue>-1` under their order's batch
+//   (ADR 0211), and the candidates of each repository with an intake filter, which it claims and
+//   orders as `<alias>-<issue>`, each Ordered until it is routed by its deadline (ADR 0032);
 // - routes every Ordered batch whose Brewery issue it read by that issue's one `recipe:<name>`
 //   label, whoever ordered it: this pass, a pass killed before it routed, or a retry. A claimed
 //   batch's Brewery issue is its order (ADR 0144, ADR 0156), never the target issue.
 // Everything it reads from the tracker is untrusted input; it decides nothing by asking a model.
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
+import type { OrderRef } from '../schemas/events.ts';
 import { type BaseCheckRepository, checkBases } from './base-check.ts';
 import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
@@ -30,7 +32,8 @@ import {
   same,
   type TargetIssue,
 } from './issue-claims.ts';
-import { type QueuedOrder, rankQueue } from './ranks.ts';
+import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
+import { readySubOrders } from './ready-set.ts';
 
 /**
  * What the intake reads: the open issues of a target repository (architecture §3.1's `Tracker`,
@@ -165,18 +168,47 @@ export interface QueuedIssue extends QueuedOrder {
 }
 
 /**
- * The queue of one pass in rank order (ADR 0208): the Brewery's issues the intake would order and
- * the target issues it would claim, of `repositories` in the order foedrum.jsonc lists them.
+ * The ready sub-orders the intake would order (ADR 0211), each at its order's arrival and in its
+ * plan's order: only while `listed` shows the order's issue and its own open, since a person who
+ * closed either has dropped it.
+ */
+const subOrdersQueued = (state: State, listed: readonly TargetIssue[]): QueuedIssue[] => {
+  const open = new Map(
+    listed
+      .filter((found) => found.state === 'open' && !found.pullRequest)
+      .map((found) => [found.number, found]),
+  );
+  return readySubOrders(state).flatMap(({ order, issue, parentBatchId }) => {
+    const created = open.get(order)?.created;
+    if (created === undefined || !open.has(issue)) return [];
+    return [{ order: { issue: order }, created, source: 0, subOrder: { issue, parentBatchId } }];
+  });
+};
+
+/**
+ * The queue of one pass in rank order (ADR 0208): the Brewery's issues the intake would order, the
+ * ready sub-orders of its orders (ADR 0211) and the target issues it would claim, of
+ * `repositories` in the order foedrum.jsonc lists them. `placed`: an order with sub-orders left
+ * but none ready, which `rank` places at its arrival though no pass would order it now.
  */
 export const intakeQueue = (
   state: State,
   listed: { brewery: readonly TargetIssue[]; repositories: readonly Listing[] },
   who: { authors: readonly string[]; claimant: Claimant },
+  placed?: OrderRef,
 ): QueuedIssue[] => {
   const { authors, claimant } = who;
   const orders: QueuedIssue[] = listed.brewery
     .filter((found) => isBreweryOrder(found, state, authors))
     .map((found) => ({ order: { issue: found.number }, created: found.created, source: 0 }));
+  orders.push(...subOrdersQueued(state, listed.brewery));
+  if (placed !== undefined && hasSubOrdersLeft(state, placed)) {
+    const found = listed.brewery.find((each) => each.number === placed.issue);
+    const queued = orders.some(({ order }) => orderKey(order) === orderKey(placed));
+    if (found?.state === 'open' && !queued) {
+      orders.push({ order: { issue: placed.issue }, created: found.created, source: 0 });
+    }
+  }
   listed.repositories.forEach(({ repository, issues }, index) => {
     const { repo, filter } = repository;
     const brewed = new Set(
@@ -192,8 +224,8 @@ export const intakeQueue = (
   });
   // Once each: a listing whose pages shift while it is read can return an issue twice.
   const seen = new Set<string>();
-  const once = orders.filter(({ order }) => {
-    const key = orderKey(order);
+  const once = orders.filter(({ order, subOrder }) => {
+    const key = `${orderKey(order)} ${subOrder?.issue ?? ''}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -284,14 +316,17 @@ export const createIntake = (options: IntakeOptions): Intake => {
     const failed = new Set<IntakeRepository>();
     const now = clock().toISOString();
     let ordered = 0;
-    for (const { order, repository } of queue) {
+    for (const { order, repository, subOrder } of queue) {
       // A pass given up at its deadline orders nothing: the next pass finds its claims as ours.
       if (ordered === free || signal.aborted) break;
       if (repository === undefined) {
-        const batchId = nextBatchId(log.state(), order.issue);
-        if (issue({ kind: 'order', batchId, order: { issue: order.issue } })) {
+        // A ready sub-order is ordered under its order's batch (ADR 0211).
+        const number = subOrder?.issue ?? order.issue;
+        const batchId = nextBatchId(log.state(), number);
+        const parent = subOrder === undefined ? {} : { parentBatchId: subOrder.parentBatchId };
+        if (issue({ kind: 'order', batchId, order: { issue: number }, ...parent })) {
           ordered++;
-          report({ kind: 'ordered', repo: brewery ?? '', issue: order.issue, batchId });
+          report({ kind: 'ordered', repo: brewery ?? '', issue: number, batchId });
         }
         continue;
       }

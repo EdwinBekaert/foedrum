@@ -221,6 +221,19 @@ describe('rankQueue', () => {
       ]);
     });
 
+    it('counts an order whose ready sub-orders fill several entries as one place (ADR 0211)', () => {
+      const subOrder = (issue: number): QueuedOrder => ({
+        order: { issue: 20 },
+        created: at(0),
+        source: 0,
+        subOrder: { issue, parentBatchId: '20-1' },
+      });
+      // #20's sub-orders #21 and #22, then api#1, then #12 and the rest.
+      const sorted = rankQueue([...queue, subOrder(21), subOrder(22)], ranksOf());
+      assert.deepStrictEqual(placeAt(sorted, ranksOf(), order, 2, t0), { arrival: at(0), tie: 0 });
+      assert.deepStrictEqual(placeAt(sorted, ranksOf(), order, 3, t0), { arrival: at(1), tie: 0 });
+    });
+
     it('puts an order halfway between two ranked orders that share an arrival', () => {
       // api#2 and web#1 ranked at 10:01 with ties 0 and 1: api#1, api#2, web#1, #12, web#3.
       const neighbours = [
@@ -533,6 +546,112 @@ describe('foedrum rank (ADR 0208)', () => {
       refused('#12 is the order of web#7; rank web#7'),
     );
     assert.equal(lastId(), before);
+  });
+
+  describe('an order with sub-orders (ADR 0211)', () => {
+    const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
+      assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+    // #30 arrived last; its sub-orders #31 and #32, #32 blocked by #31.
+    const withOrder = (): Record<string, TargetIssue[]> => {
+      const listed = listings();
+      listed[brewery] = [
+        ...(listed[brewery] ?? []),
+        labelled(30, at(6)),
+        labelled(31, at(7)),
+        labelled(32, at(8)),
+      ];
+      return listed;
+    };
+    const queue: Partial<CliContext> = {
+      queue: () => ({ tracker: fakeTracker(withOrder()), login: async () => 'alice' }),
+    };
+    beforeEach(() => {
+      accept({ kind: 'order', batchId: '30-1', order: { issue: 30 } });
+      accept({
+        kind: 'record',
+        event: {
+          type: 'order.decomposed',
+          batchId: '30-1',
+          subOrders: [
+            { issue: 31, repo: web },
+            { issue: 32, repo: web },
+          ],
+          dependencies: [{ subOrder: 32, blockedBy: 31, kind: 'code' }],
+        },
+      });
+    });
+
+    it('accepts a rank of a started order with a ready sub-order, which moves it', async () => {
+      assert.deepStrictEqual(
+        await run(['rank', '#30', '1'], queue),
+        ok('#30 ranked 1: place 1 of 6 in the queue\n'),
+      );
+      assert.deepStrictEqual(last(), ranked({ issue: 30 }, position(1, at(1))));
+    });
+
+    it('accepts one whose sub-orders left wait for a blocker, placed at its arrival', async () => {
+      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
+      assert.deepStrictEqual(
+        await run(['rank', '#30'], queue),
+        ok('#30: place 6 of 6 in the queue, by its arrival\n'),
+      );
+      assert.deepStrictEqual(
+        await run(['rank', '#30', '2'], queue),
+        ok('#30 ranked 2: place 2 of 6 in the queue\n'),
+      );
+    });
+
+    it('refuses it once every sub-order has a batch', async () => {
+      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
+      accept({ kind: 'order', batchId: '32-1', order: { issue: 32 }, parentBatchId: '30-1' });
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['rank', '#30', '1'], queue),
+        refused('#30 was ordered as batch 30-1: a rank orders only the queue'),
+      );
+      assert.equal(lastId(), before);
+    });
+
+    it('counts an order whose two sub-orders are ready as one place of the queue', async () => {
+      accept({
+        kind: 'record',
+        event: {
+          type: 'order.decomposed',
+          batchId: '30-1',
+          subOrders: [
+            { issue: 31, repo: web },
+            { issue: 32, repo: web },
+          ],
+          dependencies: [],
+        },
+      });
+      assert.deepStrictEqual(
+        await run(['rank', '#30'], queue),
+        ok('#30: place 6 of 6 in the queue, by its arrival\n'),
+      );
+      assert.deepStrictEqual(
+        await run(['rank', '#30', '2'], queue),
+        ok('#30 ranked 2: place 2 of 6 in the queue\n'),
+      );
+    });
+
+    it('refuses one whose issue is closed, though sub-orders of it are left', async () => {
+      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
+      const closed: Partial<CliContext> = {
+        queue: () => {
+          const listed = withOrder();
+          listed[brewery] = (listed[brewery] ?? []).map((found) =>
+            found.number === 30 ? { ...found, state: 'closed' as const } : found,
+          );
+          return { tracker: fakeTracker(listed), login: async () => 'alice' };
+        },
+      };
+      const before = lastId();
+      const result = await run(['rank', '#30', '1'], closed);
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /^foedrum rank: #30 is not in the intake's queue/);
+      assert.equal(lastId(), before);
+    });
   });
 
   it('refuses when the queue cannot be read, or the Brewery is not named', async () => {
