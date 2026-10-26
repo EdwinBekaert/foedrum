@@ -350,6 +350,24 @@ describe('lensReport', () => {
     );
   });
 
+  it('lists apart a step the files no longer have whose only round a Taster blocked, by its recorded findings (review of #572)', () => {
+    const events = [
+      ...ordered('b1', 1, 'old'),
+      ...attempt('b1', 'review', 1, blocked, { findings: kept(finding('src/a.ts', 1)) }),
+    ];
+    assert.deepStrictEqual(report(events).gone, [
+      {
+        recipe: 'old',
+        stepId: 'review',
+        ...tally({
+          rounds: 1,
+          severity: { blocker: 0, major: 1, minor: 0 },
+          ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 1 },
+        }),
+      },
+    ]);
+  });
+
   it('lists apart a lens step the recipe files no longer have, by recipe and step', () => {
     const events = [
       ...ordered('b1', 1, 'old'),
