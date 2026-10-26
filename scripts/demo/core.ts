@@ -20,20 +20,31 @@ export const LOGIN = 'cellar-bot';
 /** The demo Brewery's own recipe, which its orders are labelled for. */
 export const RECIPE = 'nip-parallel';
 
-/** The Tasters' lens steps of the recipe's parallel group, which run side by side (ADR 0168). */
+/**
+ * The Tasters' lens steps of the recipe's parallel group, which run side by side (ADR 0168). The
+ * correctness lens blocks: its changes send the batch back to implement once, so the demo shows a
+ * tasting loop (ADR 0193); the others are advisory.
+ */
 const LENS_STEPS = [
-  { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+  {
+    id: 'correctness',
+    brewer: 'taster',
+    lens: 'diff/correctness',
+    blocking: true,
+    onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
+  },
   { id: 'security', brewer: 'taster', lens: 'diff/security' },
   { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
 ] as const;
 
 /**
  * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of two lens
- * steps, correctness and acceptance (ADR 0197), swapped for a group of three. Nip itself keeps
- * its two, so no Nip batch pays for three Taster runs (#448).
+ * steps, correctness and acceptance (ADR 0197), swapped for a group of three, one of which blocks
+ * (ADR 0193). Nip itself keeps its two, so no Nip batch pays for three Taster runs (#448), nor for
+ * a second round.
  */
 export const recipeText = (): string =>
-  `// Nip's steps, tasted through three lenses side by side (ADR 0168).\n${JSON.stringify(
+  `// Nip's steps, tasted through three lenses side by side (ADR 0168), one of them blocking (ADR 0193).\n${JSON.stringify(
     {
       name: RECIPE,
       description: 'Quick fix in one repository, test-first, tasted through three lenses at once',
