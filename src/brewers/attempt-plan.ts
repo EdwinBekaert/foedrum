@@ -11,7 +11,7 @@ import { onFindings } from '../engine/decide.ts';
 import type { Batch } from '../engine/fold.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
-import type { ModelFamily } from '../engine/usage-window.ts';
+import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -154,10 +154,17 @@ export function modelOf(models: ModelsConfig, brewer: BrewerFrontmatter): string
  * undefined when it cannot be told, also when models.jsonc has no model for its alias (ADR 0215).
  */
 export function familyOfBrewer(
-  _models: ModelsConfig,
-  _brewer: BrewerFrontmatter,
+  models: ModelsConfig,
+  brewer: BrewerFrontmatter,
 ): ModelFamily | undefined {
-  throw new Error('not implemented');
+  let model: string;
+  try {
+    model = modelOf(models, brewer);
+  } catch {
+    // Its plan fails the attempt with the reason; until then every limit holds it.
+    return undefined;
+  }
+  return familyOf(model);
 }
 
 /**

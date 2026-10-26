@@ -4,6 +4,7 @@
 // claim effects, the attempt plans, the check runner and the guards, and the driver with the real
 // runner. Each caller says which batches its driver takes.
 
+import { familyOfBrewer } from '../brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
@@ -300,6 +301,12 @@ export const wireDriver = async (
     worktrees,
     // A check step runs no claude, so it has no session (ADR 0116).
     brews: (ref) => !isCheck(ref),
+    // The family of the model the brewer runs on, a blind-tasting swap included, says which
+    // closed usage window holds it (ADR 0215).
+    family: ({ batchId, stepId }) => {
+      const found = setup.brewers.find(recipeOf(batchId) ?? '', stepId);
+      return found && familyOfBrewer(setup.models, found.brewer);
+    },
     // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
     resumes:
       resumes ??

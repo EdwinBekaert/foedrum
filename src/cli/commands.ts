@@ -30,6 +30,7 @@ import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
+import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
@@ -56,7 +57,7 @@ import {
   StuckCommand,
   TakeoverCommand,
 } from '../schemas/commands.ts';
-import type { Event, OrderRef, Surface } from '../schemas/events.ts';
+import type { Event, OrderRef, Surface, UsageScope } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import { brewerReport, formatBrewerReport, recipesRun } from './brewer-report.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
@@ -487,14 +488,21 @@ export const commands: readonly RegisteredCommand[] = [
         // And the ranks of its order, which it had in the intake's queue (ADR 0208).
         const ranked = (event: Event): boolean =>
           event.type === 'order.ranked' && orderKey(event.order) === order;
-        // And the usage window, which holds every batch's brewers, since the last time it opened
-        // before the batch was ordered (ADR 0206).
+        // And the usage windows, which hold the brewers of every batch, since every one was last
+        // open before the batch was ordered (ADR 0206, ADR 0215).
         const windowed = (event: Event): boolean =>
           event.type === 'usage.window_closed' || event.type === 'usage.window_opened';
-        const opened =
-          events
-            .filter(({ id: at, event }) => at < ordered && event.type === 'usage.window_opened')
-            .at(-1)?.id ?? 0;
+        const closed = new Set<UsageScope>();
+        let opened = 0;
+        for (const { id: at, event } of events) {
+          if (at >= ordered) break;
+          if (event.type === 'usage.window_closed') closed.add(scopeOf(event.limit));
+          if (event.type !== 'usage.window_opened') continue;
+          // Without a scope, as #543 wrote it, every closed window opened.
+          if (event.scope === undefined) closed.clear();
+          else closed.delete(event.scope);
+          if (closed.size === 0) opened = at;
+        }
         return done(
           formatReplay(
             batch,
