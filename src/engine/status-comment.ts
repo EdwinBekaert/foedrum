@@ -292,7 +292,10 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
   const named = failed.find((check) => check.url !== undefined) ?? failed[0];
   if (named === undefined) return `- ${link(url)} passed its checks on ${head}`;
   const at = named.url === undefined ? '' : ` ${link(named.url)}`;
-  const more = failed.length > 1 ? `, and ${failed.length - 1} more` : '';
+  // Failed checks are kept first: when every kept one failed, some left out may have failed too.
+  const atLeast = failed.length === record.checks.length && record.more !== undefined;
+  const more =
+    failed.length > 1 ? `, and ${atLeast ? 'at least ' : ''}${failed.length - 1} more` : '';
   return `- ${link(url)} failed its checks on ${head}: ${plain(named.name)} (${named.conclusion})${at}${more}`;
 };
 
