@@ -200,6 +200,26 @@ describe('the usage window (ADR 0206)', () => {
       );
     });
 
+    // Review of #543: the runner cuts claude's text to 200 characters and an ellipsis.
+    it('takes a reset as long as the runner cuts it', () => {
+      order(12);
+      start('b12');
+      const resets = `${'x'.repeat(200)}…`;
+      const events = accept({
+        kind: 'finish',
+        batchId: 'b12',
+        stepId: 'plan',
+        attempt: 1,
+        ending: { ...limited, usageLimit: { limit: 'session', resets } },
+        reopensAt: { at: at(60), read: false },
+      });
+      assert.deepStrictEqual(types(events), [
+        'step.finished',
+        'usage.window_closed',
+        'step.scheduled',
+      ]);
+    });
+
     it('is kept by a new command log on the same store, as after a restart', () => {
       order(12);
       start('b12');
@@ -396,11 +416,26 @@ describe('reopenOf (ADR 0206)', () => {
     });
   });
 
-  it('reads 3:45pm as tomorrow at 15:45 there, plus 5 minutes, once it has passed', () => {
-    assert.deepStrictEqual(read('3:45pm', '2026-10-26T15:00:00.000Z'), {
+  it('reads 3:45pm as tomorrow at 15:45 there, plus 5 minutes, once it passed over an hour ago', () => {
+    // 16:46 there.
+    assert.deepStrictEqual(read('3:45pm', '2026-10-26T15:46:00.000Z'), {
       at: '2026-10-27T14:50:00.000Z',
       read: true,
     });
+  });
+
+  // Review of #543: the end may be handled minutes after claude wrote it, or claude may round the
+  // reset to the minute; a day's hold would be wrong, and no person could lift it.
+  it('reads 3:45pm as today when it passed within the hour, so the window reopens after the margin', () => {
+    // 15:47 and 16:45 there.
+    for (const now of ['2026-10-26T14:47:00.000Z', '2026-10-26T15:45:00.000Z']) {
+      assert.deepStrictEqual(read('3:45pm', now), { at: '2026-10-26T14:50:00.000Z', read: true });
+    }
+  });
+
+  it('reads Mon 12:00am as this Monday when it passed within the hour, not next week', () => {
+    // 00:10 on Monday 26 October there.
+    assert.equal(read('Mon 12:00am', '2026-10-25T23:10:00.000Z').at, '2026-10-25T23:05:00.000Z');
   });
 
   it('keeps the wall-clock time across a change of clocks', () => {
