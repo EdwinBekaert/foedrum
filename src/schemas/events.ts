@@ -360,6 +360,12 @@ const recipeChosen = z.discriminatedUnion('source', [
   z.strictObject({ ...chosen, source: z.literal('human'), by: NonEmpty, via: Surface }),
 ]);
 
+/** The usage windows of a Claude subscription that claude names when one runs out (ADR 0091). */
+export const UsageLimitName = z.enum(['session', 'weekly', 'Opus', 'Sonnet']);
+export type UsageLimitName = z.infer<typeof UsageLimitName>;
+/** claude's reset text is cut to 200 characters, as any text its stream gives (ADR 0091). */
+const MAX_RESETS_LENGTH = 200;
+
 export const Event = z.discriminatedUnion('type', [
   z
     .strictObject({
@@ -425,6 +431,9 @@ export const Event = z.discriminatedUnion('type', [
     houseYeast: HouseYeastSelection.optional(),
     // Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202).
     paused: z.literal(true).optional(),
+    // Ended as claude hit a usage limit: it counts against no retry, and its step runs again once
+    // the usage window reopens (ADR 0206).
+    usageLimited: z.literal(true).optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),
@@ -560,5 +569,17 @@ export const Event = z.discriminatedUnion('type', [
   // A scheduled attempt that had not started when its batch was paused gets a new deadline as
   // its pause is lifted (ADR 0202).
   z.strictObject({ type: z.literal('step.rescheduled'), ...step, deadlineAt: Timestamp }),
+  // A brewer's attempt ended as claude hit a usage limit (ADR 0206): no brewer attempt starts
+  // until `reopensAt`, the reset claude wrote (`resets`) read in the machine's zone with a margin,
+  // or an hour on when it could not be `read`.
+  z.strictObject({
+    type: z.literal('usage.window_closed'),
+    limit: UsageLimitName,
+    resets: z.string().min(1).max(MAX_RESETS_LENGTH),
+    reopensAt: Timestamp,
+    read: z.boolean(),
+  }),
+  // The usage window reopened at `at`: brewer attempts start again (ADR 0206).
+  z.strictObject({ type: z.literal('usage.window_opened'), at: Timestamp }),
 ]);
 export type Event = z.infer<typeof Event>;

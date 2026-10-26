@@ -49,6 +49,8 @@ export interface TickPlan {
   commands: BatchCommand[];
   /** Every expired lease but those of lost attempts it leaves to the next tick (ADR 0168). */
   releaseLeases: string[];
+  /** The closed usage window's reopen is due, before the batches' commands (ADR 0206). */
+  reopen?: true;
 }
 
 /** The commands one tick issues: deadlines first (invariant I5), then lost, then stalled attempts. */

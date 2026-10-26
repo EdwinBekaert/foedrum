@@ -126,6 +126,10 @@ export interface DriverOptions {
    * `foedrum brew` ask the brewer of the attempt's step.
    */
   resumes?: (attempt: AttemptRef) => boolean;
+  /**
+   * The IANA time zone claude's usage-limit reset is read in (ADR 0206); default the machine's.
+   */
+  zone?: () => string;
   /** The id of a new session; default `randomUUID`. */
   sessionId?: () => string;
   /**

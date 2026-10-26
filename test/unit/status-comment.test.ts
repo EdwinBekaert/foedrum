@@ -98,6 +98,36 @@ describe('renderStatus', () => {
     assert.doesNotMatch(renderStatus(batch(), steps), /Paused/);
   });
 
+  it('says the usage window is closed, which limit, its reset and when brewers start again (ADR 0206)', () => {
+    const closed = {
+      limit: 'weekly',
+      resets: 'Mon 12:00am',
+      reopensAt: '2026-10-25T23:05:00.000Z',
+      read: true,
+    } as const;
+    const lines = renderStatus(batch(), steps, undefined, undefined, undefined, closed).split('\n');
+    const lane = lines.indexOf('🍺 **Brewing**');
+    assert.ok(lane > 0);
+    assert.equal(
+      lines[lane + 1],
+      '⏳ Usage window closed: claude hit its weekly limit, which resets Mon 12:00am; brewers wait until 23:05 UTC, 25 October.',
+    );
+    const unread = renderStatus(batch(), steps, undefined, undefined, undefined, {
+      ...closed,
+      resets: 'soon <b>',
+      read: false,
+    });
+    assert.match(
+      unread,
+      /⏳ Usage window closed: claude hit its weekly limit, which resets soon &lt;b&gt;; brewers try again at 23:05 UTC, 25 October\./,
+    );
+    assert.doesNotMatch(
+      renderStatus(ordered(), undefined, undefined, undefined, undefined, closed),
+      /Usage window/,
+    );
+    assert.doesNotMatch(renderStatus(batch(), steps), /Usage window/);
+  });
+
   it("escapes a pause's reason as any text an issue wrote (ADR 0202)", () => {
     const text = renderStatus(batch(), steps, undefined, {
       by: 'ada',
@@ -1168,6 +1198,33 @@ describe('statusEffects', () => {
     later(minute);
     await driver.tick();
     assert.doesNotMatch(only().body, /Paused/);
+  });
+
+  it('edits the comment of a brewing batch to say the usage window is closed (ADR 0206)', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    issue({
+      kind: 'finish',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'claude hit its session limit, which resets 3:45pm',
+        usageLimit: { limit: 'session', resets: '3:45pm' },
+      },
+      reopensAt: { at: new Date('2026-10-18T14:50:00.000Z'), read: true },
+    });
+    later(minute);
+    // The retry of plan waits for the reopen: the runner starts nothing.
+    await driver.tick();
+    assert.match(
+      only().body,
+      /Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 18 October\./,
+    );
   });
 
   it('edits nothing while the text stays the same', async () => {

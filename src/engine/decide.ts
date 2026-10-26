@@ -24,6 +24,7 @@ import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind, TastingFinding } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
+import type { UsageLimit } from './brewer-runner.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } from './fold.ts';
@@ -72,6 +73,8 @@ export type Ending =
       blockerKind: BlockerKind;
       summary: string;
       findings?: readonly TastingFinding[];
+      /** The usage window claude said ran out, on an end blocked on the environment (ADR 0206). */
+      usageLimit?: UsageLimit;
     };
 
 /** Events the engine records as they happen; they decide nothing about a batch's lane. */
@@ -112,6 +115,11 @@ export type EngineCommand =
       houseYeast?: HouseYeastSelection;
       /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
       paused?: true;
+      /**
+       * When the usage window its `usageLimit` names reopens, as the driver read the reset, and
+       * whether it could (ADR 0206).
+       */
+      reopensAt?: { at: Date; read: boolean };
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -130,7 +138,9 @@ export type EngineCommand =
   /** The supervisor found an Ordered batch past its routing deadline (ADR 0032). */
   | { kind: 'unrouted'; batchId: string }
   /** The supervisor found a Conditioning or Stuck reminder due. */
-  | { kind: 'remind'; batchId: string };
+  | { kind: 'remind'; batchId: string }
+  /** The supervisor found the closed usage window's reopen due (ADR 0206). */
+  | { kind: 'reopen' };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
@@ -416,6 +426,8 @@ function run(draft: Draft, command: Command): Event[] {
     case 'stop':
       stop(draft, command);
       break;
+    case 'reopen':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);

@@ -13,7 +13,7 @@ import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Attempt, Batch, Lane, Pause, State } from './fold.ts';
+import type { Attempt, Batch, Lane, Pause, State, UsageWindow } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { changeText, findingText, knownCommits, pushKey } from './pull-request.ts';
@@ -546,6 +546,7 @@ export const renderStatus = (
   isCommit: IsCommit = () => false,
   paused?: Pause,
   sensitive?: SensitiveFiles,
+  usageWindow?: UsageWindow,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {

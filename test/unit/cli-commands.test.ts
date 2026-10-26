@@ -455,6 +455,46 @@ describe('foedrum: commands that change state', () => {
     });
   });
 
+  describe('the usage window (ADR 0206)', () => {
+    /** 23-1's plan hits claude's session limit; the window reopens at 14:50 UTC. */
+    const hitLimit = (): void => {
+      const decision = createCommandLog({ store, recipes }).issue(
+        {
+          kind: 'finish',
+          batchId: '23-1',
+          stepId: 'plan',
+          attempt: 1,
+          ending: {
+            kind: 'blocked',
+            blockerKind: 'environment',
+            summary: 'claude hit its session limit, which resets 3:45pm',
+            usageLimit: { limit: 'session', resets: '3:45pm' },
+          },
+          reopensAt: { at: new Date('2026-10-18T14:50:00.000Z'), read: true },
+        },
+        t0,
+      );
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    };
+
+    it('shows a closed usage window above the board in status', async () => {
+      hitLimit();
+      assert.match(
+        (await run(['status'])).stdout,
+        /^Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 18 October\n\n6 batches\n/,
+      );
+    });
+
+    it('lists the window events in replay beside the batch events', async () => {
+      hitLimit();
+      const replay = (await run(['replay', '23-1'])).stdout;
+      assert.match(
+        replay,
+        /usage\.window_closed +\{"limit":"session","resets":"3:45pm","reopensAt":"2026-10-18T14:50:00\.000Z","read":true\}/,
+      );
+    });
+  });
+
   describe('stop (ADR 0205)', () => {
     it('makes the brewing batch of an order Stuck stopped, recorded with who, from where and why', async () => {
       assert.deepStrictEqual(

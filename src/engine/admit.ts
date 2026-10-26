@@ -130,6 +130,9 @@ function rule(state: State, event: Event): string | undefined {
       return undefined;
     case 'step.rescheduled':
       return lanes(state, event, ['brewing']);
+    case 'usage.window_closed':
+    case 'usage.window_opened':
+      throw new Error('not implemented');
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);
