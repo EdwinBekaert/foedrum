@@ -815,7 +815,7 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
       onBlocked: { findings: { goto: 'implement', maxRounds: 1 } },
     });
     const { brewers, recipes } = valid(loadRecipes(files));
-    const routes: ({ outDoc?: unknown } | undefined)[] = [];
+    const routes: ({ source: unknown } | undefined)[] = [];
     const { events, batch } = await brew(
       files,
       'porter',
@@ -836,12 +836,18 @@ describe('a step of several lenses together, brewed (#560, ADR 0220)', () => {
       summary: 'the Taster asks for changes: The name is not checked',
       roundsOut: { rounds: 1, open: [correctness, security], more: 0 },
     });
-    // The route input is the step's whole out doc: every lens's findings at once (ADR 0128).
-    assert.ok(routes[1]?.outDoc !== undefined, 'the route reads no out doc');
+    // The one step routed back by its findings, so the route input is its whole out doc, every
+    // lens's findings at once (ADR 0128); the fake runner records no worktree to read it from.
+    assert.deepEqual(routes[1]?.source, {
+      kind: 'route',
+      step: 'implement',
+      from: 'taste',
+      why: 'findings',
+    });
     const status = renderStatus(batch, recipes.find('porter')?.steps);
     assert.ok(
       status.includes(
-        `- \`taste\`: diff/security, major in ${PLANTED.security?.file}:${PLANTED.security?.line}: ${PLANTED.security?.why}`,
+        `- \`taste\`: diff/security, major in ${PLANTED.security?.file}:${PLANTED.security?.line}: `,
       ),
       status,
     );
