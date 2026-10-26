@@ -691,12 +691,22 @@ export const foregroundProcess = (
  * window (ADR 0222): stdio ignored, so what it starts holds none of this process's pipes, and its
  * exit code once it exits, or killed at its deadline.
  */
-export const launchProcess: ExecProcess = (file, args, { cwd, env, timeoutMs }) =>
+export type LaunchProcess = (
+  file: string,
+  args: readonly string[],
+  /** `timeoutMs`: the launcher is killed past it; a launch always has one. */
+  options: { cwd: string; env?: NodeJS.ProcessEnv | undefined; timeoutMs: number },
+) => Promise<Pick<ExecResult, 'exitCode' | 'stderr' | 'killed'>>;
+
+export const launchProcess: LaunchProcess = (file, args, { cwd, env, timeoutMs }) =>
   new Promise((resolve) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const done = (exitCode: number | null, more: Partial<ExecResult> = {}): void => {
+    const done = (
+      exitCode: number | null,
+      more: { stderr?: string; killed?: Killed } = {},
+    ): void => {
       clearTimeout(timer);
-      resolve({ exitCode, stdout: '', stderr: '', output: '', ...more });
+      resolve({ exitCode, stderr: '', ...more });
     };
     const command = spawnCommand(file, args, process.platform, env);
     const child = spawn(command.file, command.args, {
@@ -712,12 +722,10 @@ export const launchProcess: ExecProcess = (file, args, { cwd, env, timeoutMs }) 
     child.once('error', (error) => done(null, { stderr: error.message }));
     // Its exit, not the close of its stdio, which what it started may share.
     child.once('exit', (code) => done(code));
-    if (timeoutMs !== undefined) {
-      timer = setTimeout(() => {
-        if (child.pid !== undefined) killProcessTree(child.pid);
-        done(null, { killed: 'timed-out' });
-      }, timeoutMs);
-    }
+    timer = setTimeout(() => {
+      if (child.pid !== undefined) killProcessTree(child.pid);
+      done(null, { killed: 'timed-out' });
+    }, timeoutMs);
   });
 
 // A byte count as a person would write it: 4 MiB, 64 KiB, 1500 bytes.

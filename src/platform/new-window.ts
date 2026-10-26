@@ -5,7 +5,7 @@
 
 import { win32 } from 'node:path';
 import { environmentVariable } from './executables.ts';
-import type { ExecProcess } from './processes.ts';
+import type { LaunchProcess } from './processes.ts';
 import { windowsCommandLine } from './shell.ts';
 
 /** What the launcher is chosen from: the platform, its variables, and the programs on the PATH. */
@@ -109,7 +109,7 @@ const LAUNCH_MS = 30_000;
 export async function openInNewWindow(
   facts: WindowFacts,
   line: WindowLine,
-  exec: ExecProcess,
+  exec: LaunchProcess,
 ): Promise<{ kind: 'opened' } | { kind: 'none'; why: string }> {
   const launch = newWindowCommand(facts, line);
   if (launch.kind === 'none') return launch;

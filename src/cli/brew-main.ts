@@ -7,7 +7,7 @@ import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import type { BrewerRunner } from '../engine/brewer-runner.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
 import { openInNewWindow, type WindowFacts } from '../platform/new-window.ts';
-import { type ExecProcess, foregroundProcess, launchProcess } from '../platform/processes.ts';
+import { foregroundProcess, type LaunchProcess, launchProcess } from '../platform/processes.ts';
 import type { BrewCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
@@ -71,14 +71,14 @@ export interface NewWindowDeps extends WindowFacts {
   execPath: string;
   /** The `foedrum` program this node runs. */
   script: string;
-  exec: ExecProcess;
+  exec: LaunchProcess;
 }
 
 /** The variables that tell a brew it runs inside a Claude Code session (noSessionsOf, brewOwner). */
 const SESSION_VARIABLES = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID'];
 
 /** The real machine's: this process's node, program and platform, and its PATH. */
-const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWindowDeps => {
+export const thisMachine = (env: Readonly<Record<string, string | undefined>>): NewWindowDeps => {
   const { platform } = process;
   return {
     platform,
