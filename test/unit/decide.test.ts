@@ -2169,3 +2169,120 @@ describe('decide: on tap with the pull request of the openPullRequest step (ADR 
     });
   });
 });
+
+describe('decide: an interactive step waits for a session (ADR 0222)', () => {
+  const sessions: Context = {
+    ...context,
+    recipes: fakeRecipes({
+      lauter: fakeRecipe({ steps: ['lauter', 'plan'], interactive: ['lauter'] }),
+      pint: fakeRecipe({ steps: ['plan', 'implement'] }),
+    }),
+  };
+  const routed: Event[] = [ordered, chosen('lauter')];
+  const awaitSession = (stepId = 'lauter', attempt = 1): Command => ({
+    kind: 'await_session',
+    batchId: 'b1',
+    stepId,
+    attempt,
+  });
+  const waiting = stuckOn({ kind: 'waiting_for_session', stepId: 'lauter' });
+  const decided = (events: Event[], command: Command) => decide(fold(events), command, sessions);
+  const accepted = (events: Event[], command: Command, expected: Event[]) =>
+    assert.deepStrictEqual(decided(events, command), { kind: 'accepted', events: expected });
+  const refused = (events: Event[], command: Command, reason: RegExp) => {
+    const decision = decided(events, command);
+    assert.equal(decision.kind, 'refused', JSON.stringify(decision));
+    assert.match(decision.kind === 'refused' ? decision.reason : '', reason);
+  };
+
+  it('parks the scheduled attempt of an interactive step Stuck, waiting for a session, with a reminder', () => {
+    accepted([...routed, scheduled('lauter')], awaitSession(), [waiting]);
+  });
+
+  it('refuses it for a step that is not interactive', () => {
+    const events = [ordered, chosen('lauter'), scheduled('plan')];
+    refused(events, awaitSession('plan'), /step plan of batch b1 is not interactive/);
+  });
+
+  it('refuses it for an attempt that started, or one that is not the latest', () => {
+    refused([...routed, scheduled('lauter'), started('lauter')], awaitSession(), /has started/);
+    refused([...routed, scheduled('lauter')], awaitSession('lauter', 2), /not the latest/);
+  });
+
+  it('makes the batch wait for a session again, never retrying by itself, when the session closes without an out doc', () => {
+    const events = [...routed, scheduled('lauter'), started('lauter')];
+    const ending: Ending = { kind: 'failed', retryable: true, reason: 'no out doc' };
+    accepted(events, { kind: 'finish', batchId: 'b1', stepId: 'lauter', attempt: 1, ending }, [
+      {
+        type: 'step.finished',
+        batchId: 'b1',
+        stepId: 'lauter',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'no out doc' },
+      },
+      waiting,
+    ]);
+  });
+
+  it('makes a lost attempt of an interactive step wait for a session too', () => {
+    const events = [...routed, scheduled('lauter'), started('lauter')];
+    const lose: Command = {
+      kind: 'lose',
+      batchId: 'b1',
+      stepId: 'lauter',
+      attempt: 1,
+      reason: 'x',
+    };
+    const decision = decided(events, lose);
+    assert.equal(decision.kind, 'accepted');
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), waiting);
+  });
+
+  it('counts an attempt that a wait for a session abandoned before it started against no retry', () => {
+    // Attempt 1 was parked, a person retried it, and attempt 2's session closed without an out doc.
+    const events = [
+      ...routed,
+      scheduled('lauter'),
+      waiting,
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' } as Event,
+      retried('lauter', 2),
+      started('lauter', 2),
+    ];
+    const ending: Ending = { kind: 'failed', retryable: true, reason: 'no out doc' };
+    const decision = decided(events, {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'lauter',
+      attempt: 2,
+      ending,
+    });
+    assert.equal(decision.kind, 'accepted');
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), waiting);
+  });
+
+  it('counts no never-started attempt that any Stuck abandoned against a retry', () => {
+    const stopped = stuckOn({ kind: 'stopped', stepId: 'plan', ...by });
+    const events = [
+      ordered,
+      chosen('pint'),
+      scheduled('plan'),
+      stopped,
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' } as Event,
+      retried('plan', 2),
+      started('plan', 2),
+    ];
+    const ending: Ending = { kind: 'failed', retryable: true, reason: 'tests fail' };
+    const decision = decided(events, {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 2,
+      ending,
+    });
+    assert.equal(decision.kind, 'accepted');
+    assert.deepStrictEqual(
+      decision.kind === 'accepted' && decision.events.at(-1),
+      retried('plan', 3),
+    );
+  });
+});

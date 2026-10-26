@@ -150,6 +150,11 @@ export interface DriverOptions {
    * the attempt that continues the session has ended, for the driver that takes it next (ADR 0127).
    */
   holds?: (batchId: string) => boolean;
+  /**
+   * Whether it opens an interactive step's session (ADR 0222): `foedrum brew` on a terminal. A
+   * driver that opens none, by default, parks such a step's attempt Stuck, waiting for a session.
+   */
+  sessions?: boolean;
   /** What else goes with an ended batch's worktrees: its attempt settings (ADR 0063). */
   alsoCleans?: readonly Pick<AttemptWorktrees, 'root' | 'clean'>[];
   effects?: DriverEffects;

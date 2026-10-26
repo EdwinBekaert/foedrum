@@ -151,6 +151,11 @@ export type EngineCommand =
   | { kind: 'unrouted'; batchId: string }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string }
+  /**
+   * A driver that opens no session met the scheduled attempt of an interactive step: the batch
+   * waits for a person to run it (ADR 0222).
+   */
+  | { kind: 'await_session'; batchId: string; stepId: string; attempt: number }
   /** The supervisor found the closed usage window's reopen due (ADR 0206). */
   | { kind: 'reopen' };
 
@@ -372,6 +377,8 @@ function run(draft: Draft, command: Command): Event[] {
     case 'remind':
       remind(draft, command.batchId);
       break;
+    case 'await_session':
+      throw new Error('not implemented');
     case 'retry': {
       const { batchId, by, via } = command;
       const { reason } = stuckLane(draft.batch(batchId), 'retry');

@@ -64,6 +64,8 @@ export type Attempt =
       answered?: true;
       session?: SessionRef;
       worktree?: WorktreeRef;
+      /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
+      interactiveSince?: string;
       abandoned?: true;
     }
   | {

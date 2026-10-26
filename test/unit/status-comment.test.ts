@@ -209,6 +209,23 @@ describe('renderStatus', () => {
     assert.equal(lineOf(crashed, 'brew'), '- ▶️ `brew`: brewing, attempt 2');
   });
 
+  it("says since when an interactive step's session is open, as the wait it is (ADR 0222)", () => {
+    const open: Attempt = {
+      phase: 'started',
+      attempt: 2,
+      deadlineAt: at,
+      interactiveSince: '2026-10-18T09:30:00.000Z',
+    };
+    const text = renderStatus(
+      batch({ steps: new Map([step('brew', failed(1, 'closed'), open)]) }),
+      steps,
+    );
+    assert.equal(
+      lineOf(text, 'brew'),
+      '- ▶️ `brew`: session open since 2026-10-18T09:30:00.000Z, attempt 2',
+    );
+  });
+
   it('marks a skipped step and a failed one', () => {
     const text = renderStatus(
       batch({
@@ -602,7 +619,10 @@ describe('renderStatus', () => {
         { kind: 'deadline_passed', stepId: 'brew', deadlineAt: at },
         /`brew` passed its deadline of 2026-10-18T09:00:00\.000Z/,
       ],
-      [{ kind: 'waiting_for_session', stepId: 'brew' }, /`brew` waits for its session/],
+      [
+        { kind: 'waiting_for_session', stepId: 'brew' },
+        /`brew` waits for its session: run `foedrum brew 7 --take` in a terminal \(ADR 0222\)$/,
+      ],
       [
         { kind: 'stalled', stepId: 'brew', lastProgressAt: at, turnsWithoutProgress: 30 },
         /`brew` stalled: .* since 2026-10-18T09:00:00\.000Z, for 30 turns/,
