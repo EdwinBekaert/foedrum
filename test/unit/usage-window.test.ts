@@ -181,6 +181,26 @@ describe('the usage window (ADR 0206)', () => {
     });
   });
 
+  describe('a spend limit', () => {
+    it('still makes the batch Stuck, blocked on the environment (ADR 0129)', () => {
+      order(12);
+      start('b12');
+      const events = accept({
+        kind: 'finish',
+        batchId: 'b12',
+        stepId: 'plan',
+        attempt: 1,
+        ending: {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: 'claude hit its monthly spend limit',
+        },
+      });
+      assert.deepStrictEqual(types(events), ['step.finished', 'batch.stuck']);
+      assert.equal(log.state().usageWindow, undefined);
+    });
+  });
+
   describe('a second limit', () => {
     it('while closed keeps the later reopen', () => {
       order(12);
