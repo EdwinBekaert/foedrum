@@ -146,6 +146,8 @@ describe('recordChecks', () => {
     const finished = fakeReader({ [head]: checks });
     await pass(finished.reader);
     await pass(finished.reader);
+    // The pass itself skips what did not change: nothing is refused and reported.
+    assert.deepStrictEqual(failures, []);
     assert.deepStrictEqual(batch().pullRequestChecks, {
       [pullRequest]: { kind: 'finished', head, checks },
     });
@@ -235,6 +237,7 @@ describe('recordChecks', () => {
       'pull_request.checks_pending',
       'pull_request.checks_finished',
     ]);
+    assert.deepStrictEqual(failures, []);
     assert.deepStrictEqual(batch().pullRequestChecks?.[pullRequest], {
       kind: 'finished',
       head,
@@ -391,6 +394,25 @@ describe('recordChecks', () => {
     assert.equal(record.checks[0]?.name, 'late');
     assert.equal(record.checks[1]?.name, 'job 0');
     assert.equal(record.more, 6);
+  });
+
+  it(`records exactly ${MAX_HEAD_CHECKS} checks with no count of more, and one more again`, async () => {
+    onTap();
+    const checks = Array.from({ length: MAX_HEAD_CHECKS }, (_, n) => passed(`job ${n}`));
+    await pass(fakeReader({ [head]: checks }).reader);
+    const record = batch().pullRequestChecks?.[pullRequest];
+    assert.equal(record?.kind, 'finished');
+    assert.equal(record.more, undefined);
+    // Only the count of the rest differs: still a change of what GitHub says.
+    await pass(fakeReader({ [head]: [...checks, passed('one more')] }).reader);
+    const again = batch().pullRequestChecks?.[pullRequest];
+    assert.equal(again?.kind, 'finished');
+    assert.equal(again.more, 1);
+    assert.deepStrictEqual(types(), [
+      'pull_request.checks_finished',
+      'pull_request.checks_finished',
+    ]);
+    assert.deepStrictEqual(failures, []);
   });
 
   it('refuses a record of a head that says what its latest record says', () => {
