@@ -140,6 +140,10 @@ function rule(state: State, event: Event): string | undefined {
       return undefined;
     case 'step.rescheduled':
       return lanes(state, event, ['brewing']);
+    // The fold refuses an open of a window that is not closed (ADR 0206).
+    case 'usage.window_closed':
+    case 'usage.window_opened':
+      return undefined;
     default: {
       const unhandled: never = event;
       throw new Error(`Unhandled event ${JSON.stringify(unhandled)}`);

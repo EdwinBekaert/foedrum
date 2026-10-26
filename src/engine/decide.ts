@@ -24,6 +24,7 @@ import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind, TastingFinding } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
+import type { UsageLimit } from './brewer-runner.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import { type Attempt, type Batch, type Lane, orderKey, type State, type Step } from './fold.ts';
@@ -32,6 +33,7 @@ import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
+import type { Reopen } from './usage-window.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
 interface Issuer {
@@ -72,6 +74,8 @@ export type Ending =
       blockerKind: BlockerKind;
       summary: string;
       findings?: readonly TastingFinding[];
+      /** The usage window claude said ran out, on an end blocked on the environment (ADR 0206). */
+      usageLimit?: UsageLimit;
     };
 
 /** Events the engine records as they happen; they decide nothing about a batch's lane. */
@@ -114,6 +118,11 @@ export type EngineCommand =
       houseYeast?: HouseYeastSelection;
       /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
       paused?: true;
+      /**
+       * When the usage window its `usageLimit` names reopens, as the driver read the reset, and
+       * whether it could (ADR 0206).
+       */
+      reopensAt?: Reopen;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -132,7 +141,9 @@ export type EngineCommand =
   /** The supervisor found an Ordered batch past its routing deadline (ADR 0032). */
   | { kind: 'unrouted'; batchId: string }
   /** The supervisor found a Conditioning or Stuck reminder due. */
-  | { kind: 'remind'; batchId: string };
+  | { kind: 'remind'; batchId: string }
+  /** The supervisor found the closed usage window's reopen due (ADR 0206). */
+  | { kind: 'reopen' };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
@@ -418,6 +429,9 @@ function run(draft: Draft, command: Command): Event[] {
     case 'stop':
       stop(draft, command);
       break;
+    case 'reopen':
+      reopen(draft);
+      break;
     default: {
       const unhandled: never = command;
       throw new Error(`Unhandled command ${JSON.stringify(unhandled)}`);
@@ -500,8 +514,19 @@ function refuseOrder(
 
 /** Records how the attempt ended, and moves the batch on as its recipe routes the ending. */
 function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): void {
-  const { batchId, stepId, attempt, ending, usage, readings, claude, receipt, houseYeast, paused } =
-    command;
+  const {
+    batchId,
+    stepId,
+    attempt,
+    ending,
+    usage,
+    readings,
+    claude,
+    receipt,
+    houseYeast,
+    paused,
+    reopensAt,
+  } = command;
   const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
@@ -513,6 +538,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
         }
       : ending;
   const stopped = paused === true && stoppedByPause(draft, command);
+  const limited = usageLimitOf(draft, command);
   draft.push({
     type: 'step.finished',
     batchId,
@@ -525,10 +551,15 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
     ...(stopped ? { paused: true } : {}),
+    ...(limited === undefined ? {} : { usageLimited: true }),
   });
+  // The window is the subscription's, whatever becomes of this step. An end refused because its
+  // batch left brewing closes nothing: the next brewer meets the limit and closes it (ADR 0206).
+  if (limited !== undefined && reopensAt !== undefined) close(draft, limited, reopensAt);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
-  // A pause is a person's choice, no failure: the step runs again whatever attempts it has left.
-  if (stopped) {
+  // A pause is a person's choice and a usage limit the subscription's wait, no failure: the step
+  // runs again whatever attempts it has left, after the reopen for a usage limit.
+  if (stopped || limited !== undefined) {
     schedule(draft, batchId, stepId, { retry: true });
     return;
   }
@@ -666,6 +697,13 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
   // Its wait is the pause's, not the step's: continue gives it a new deadline (ADR 0202).
   if (current.phase === 'scheduled' && pauseOf(draft.state, batch) !== undefined) {
     throw new Refusal(`${attemptName(batch, stepId, attempt)} waits for its batch's pause`);
+  }
+  // Its wait is the usage window's, which gives it a new deadline as it reopens (ADR 0206).
+  const window = draft.state.usageWindow;
+  if (current.phase === 'scheduled' && window !== undefined) {
+    throw new Refusal(
+      `${attemptName(batch, stepId, attempt)} waits for the usage window, which reopens at ${window.reopensAt}`,
+    );
   }
   if (draft.context.now.getTime() < Date.parse(current.deadlineAt)) {
     throw new Refusal(
@@ -1149,24 +1187,30 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
     by,
     via,
   });
-  for (const { id } of held) {
-    const batch = draft.batch(id);
-    if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') continue;
-    const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
-    for (const stepId of batch.steps.keys()) {
-      const latest = latestOf(batch, stepId);
-      // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
-      if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
-        continue;
-      }
-      draft.push({
-        type: 'step.rescheduled',
-        batchId: id,
-        stepId,
-        attempt: latest.attempt,
-        deadlineAt: draft.after(recipe.deadlineMs(stepId)),
-      });
+  for (const { id } of held) rescheduleWaiting(draft, id);
+}
+
+/**
+ * Gives each scheduled attempt of `batchId` that has not started a new deadline from its step, as
+ * if just scheduled, when the batch is brewing and no pause holds it (ADR 0202).
+ */
+function rescheduleWaiting(draft: Draft, batchId: string): void {
+  const batch = draft.batch(batchId);
+  if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') return;
+  const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
+  for (const stepId of batch.steps.keys()) {
+    const latest = latestOf(batch, stepId);
+    // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
+    if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
+      continue;
     }
+    draft.push({
+      type: 'step.rescheduled',
+      batchId,
+      stepId,
+      attempt: latest.attempt,
+      deadlineAt: draft.after(recipe.deadlineMs(stepId)),
+    });
   }
 }
 
@@ -1185,14 +1229,68 @@ function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish'
   return true;
 }
 
-/** `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202). */
+/**
+ * `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202)
+ * and those a usage limit ended (ADR 0206).
+ */
 function withoutPaused(batch: Batch, stepId: string): Batch {
   const step = batch.steps.get(stepId);
   if (step === undefined) return batch;
   const attempts = [...step.attempts].filter(
-    ([, attempt]) => attempt.phase !== 'finished' || attempt.paused !== true,
+    ([, attempt]) =>
+      attempt.phase !== 'finished' || (attempt.paused !== true && attempt.usageLimited !== true),
   );
   if (attempts.length === step.attempts.size) return batch;
   const counted: Step = { ...step, attempts: new Map(attempts) };
   return { ...batch, steps: new Map(batch.steps).set(stepId, counted) };
+}
+
+/**
+ * The usage limit a finish names (ADR 0206), checked: only on an end blocked on the environment,
+ * and with the reopen the driver read from its reset.
+ */
+function usageLimitOf(
+  draft: Draft,
+  command: Extract<Command, { kind: 'finish' }>,
+): UsageLimit | undefined {
+  const { batchId, stepId, attempt, ending, reopensAt } = command;
+  if (ending.kind !== 'blocked' || ending.usageLimit === undefined) return undefined;
+  const name = attemptName(draft.batch(batchId), stepId, attempt);
+  if (ending.blockerKind !== 'environment') {
+    throw new Refusal(`${name} ended at a usage limit but is not blocked on the environment`);
+  }
+  if (reopensAt === undefined) {
+    throw new Refusal(`${name} ended at a usage limit without the instant its window reopens`);
+  }
+  return ending.usageLimit;
+}
+
+/**
+ * Closes the usage window (ADR 0206), or keeps it closed until the later of its reopen and this
+ * one: the window reopens at the latest reset claude named.
+ */
+function close(draft: Draft, { limit, resets }: UsageLimit, reopensAt: Reopen) {
+  const current = draft.state.usageWindow;
+  if (current !== undefined && Date.parse(current.reopensAt) >= reopensAt.at.getTime()) return;
+  draft.push({
+    type: 'usage.window_closed',
+    limit,
+    resets,
+    reopensAt: reopensAt.at.toISOString(),
+    read: reopensAt.read,
+  });
+}
+
+/**
+ * Opens the usage window once its reopen has come (ADR 0206): each scheduled attempt that has not
+ * started, in a batch no pause holds, gets a new deadline from its step, as on continue.
+ */
+function reopen(draft: Draft): void {
+  const window = draft.state.usageWindow;
+  if (window === undefined) throw new Refusal('the usage window is open');
+  if (draft.context.now.getTime() < Date.parse(window.reopensAt)) {
+    throw new Refusal(`the usage window reopens at ${window.reopensAt}`);
+  }
+  draft.push({ type: 'usage.window_opened', at: draft.context.now.toISOString() });
+  for (const batchId of draft.state.batches.keys()) rescheduleWaiting(draft, batchId);
 }

@@ -483,9 +483,9 @@ const fakeLocks = () => {
 
 /** The batch an engine command is about, if any. */
 const batchOf = (command: EngineCommand): string | undefined =>
-  command.kind !== 'record'
+  'batchId' in command
     ? command.batchId
-    : 'batchId' in command.event
+    : 'event' in command && 'batchId' in command.event
       ? command.event.batchId
       : undefined;
 

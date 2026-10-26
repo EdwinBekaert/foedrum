@@ -890,6 +890,10 @@
         "paused": {
           "type": "boolean",
           "const": true
+        },
+        "usageLimited": {
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [
@@ -2430,6 +2434,64 @@
         "stepId",
         "attempt",
         "deadlineAt"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "usage.window_closed"
+        },
+        "limit": {
+          "type": "string",
+          "enum": [
+            "session",
+            "weekly",
+            "Opus",
+            "Sonnet"
+          ]
+        },
+        "resets": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 201
+        },
+        "reopensAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "read": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "limit",
+        "resets",
+        "reopensAt",
+        "read"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "usage.window_opened"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "type",
+        "at"
       ],
       "additionalProperties": false
     }

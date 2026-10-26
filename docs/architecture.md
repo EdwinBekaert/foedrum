@@ -31,7 +31,7 @@ Hosted or multi-tenant service · public webhook server (1.0 polls) · trackers 
 | Issue in the Brewery | **Order** |
 | Single-repository part of an order (sub-issue) | **Sub-order** |
 | Pull request bundling one or more sub-orders | **Bottle** |
-| Waiting for a merge or release | **Conditioning** ⏳ |
+| A batch waiting for a merge or release | **Conditioning** ⏳ |
 | Agent role (prompt, inputs, output, model, tools, permissions, budget) | **Brewer** |
 | Pipeline: brewers and checks in order, with loops | **Recipe** |
 | One execution of a recipe for an order | **Batch** |
@@ -82,7 +82,7 @@ flowchart LR
 
 **[The engine](design/engine/README.md).**
 State is an append-only event log; every change is a command decided against the folded state, and state is a pure fold over the events.
-The pages cover the [events](design/engine/events.md), [leases](design/engine/leases.md), the [event store](design/engine/event-store.md), the [fold and the guard](design/engine/fold.md), the [step outcome](design/engine/step-outcome.md), the [batch lifecycle](design/engine/lifecycle.md), the [invariants](design/engine/invariants.md), the [failure modes designed out](design/engine/failure-modes.md), the [state branch](design/engine/state-branch.md), [worktrees](design/engine/worktrees.md) and [drivers](design/engine/drivers.md).
+The pages cover the [events](design/engine/events.md), [leases](design/engine/leases.md), the [event store](design/engine/event-store.md), the [fold and the guard](design/engine/fold.md), the [step outcome](design/engine/step-outcome.md), the [batch lifecycle](design/engine/lifecycle.md), the [invariants](design/engine/invariants.md), the [failure modes designed out](design/engine/failure-modes.md), the [state branch](design/engine/state-branch.md), [worktrees](design/engine/worktrees.md), [drivers](design/engine/drivers.md) and the [usage window](design/engine/usage-window.md).
 
 **[Intake](design/intake/README.md).**
 Orders come from Brewery issues and from issues claimed in target repositories, are broken down into single-repository sub-orders, and get their recipe by label or router: [trackers and code hosts](design/intake/trackers.md), [polling](design/intake/polling.md), [work breakdown](design/intake/work-breakdown.md), [target-repository issues](design/intake/target-issues.md), [ranking](design/intake/ranking.md), [open pull requests](design/intake/open-pull-requests.md), [triage](design/intake/triage.md), [routing](design/intake/routing.md).

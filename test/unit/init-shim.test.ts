@@ -15,11 +15,13 @@ interface Machine {
   writable: readonly string[];
   /** The files there, by path. */
   files?: Record<string, string>;
-  /** What `foedrum` resolves to after the run; default the file written. */
+  /** What `foedrum` resolves to after the run; default the first file written. */
   resolves?: string | null;
   /** Reading or writing a file throws this. */
   readFails?: string;
   writeFails?: string;
+  /** The one path whose read or write fails; default every path. */
+  failsOn?: string;
 }
 
 interface Run {
@@ -64,25 +66,38 @@ const offer = async (machine: Machine, answers: readonly string[] = []): Promise
     entry: machine.entry,
     writable: (folder) => machine.writable.includes(folder),
     read: (path) => {
-      if (machine.readFails !== undefined) throw new Error(machine.readFails);
+      if (machine.readFails !== undefined && (machine.failsOn ?? path) === path) {
+        throw new Error(machine.readFails);
+      }
       return files.get(path);
     },
     write: (path, text, executable) => {
-      if (machine.writeFails !== undefined) throw new Error(machine.writeFails);
+      if (machine.writeFails !== undefined && (machine.failsOn ?? path) === path) {
+        throw new Error(machine.writeFails);
+      }
       run.written.push({ path, text, executable });
       files.set(path, text);
     },
     resolve: (name) => {
       assert.equal(name, 'foedrum');
       if (machine.resolves !== undefined) return machine.resolves ?? undefined;
-      return run.written.at(-1)?.path;
+      return run.written[0]?.path;
     },
   };
+  const answer = (question: string): string => {
+    run.questions.push(question);
+    return queue.shift() ?? assert.fail(`no answer to ${question}`);
+  };
+  // As init asks: again after an answer that does not pass, saying why; anything but a yes is a no.
   await offerShim(ports, {
-    answer: async (question) => {
-      run.questions.push(question);
-      return queue.shift() ?? assert.fail(`no answer to ${question}`);
+    ask: async (question, _option, parse) => {
+      for (;;) {
+        const parsed = parse(answer(question).trim());
+        if ('value' in parsed) return parsed.value;
+        run.lines.push(`  ${parsed.refused}`);
+      }
     },
+    confirm: async (question) => /^y(?:es)?$/i.test(answer(question).trim()),
     say: (line) => {
       run.lines.push(line);
     },
@@ -318,7 +333,8 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     ]) {
       const first = await offer(machine, ['']);
       const shim = first.written[0] ?? assert.fail('not written');
-      const again = await offer({ ...machine, files: { [shim.path]: shim.text } });
+      const files = Object.fromEntries(first.written.map(({ path, text }) => [path, text]));
+      const again = await offer({ ...machine, files });
       assert.deepStrictEqual(again.questions, [], machine.platform);
       assert.deepStrictEqual(again.written, [], machine.platform);
       assert.deepStrictEqual(again.lines, [`${shim.path} runs this Foedrum already`]);
@@ -393,10 +409,8 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     ]);
     assert.equal(lines.at(-1), 'foedrum runs it in this terminal');
     const shim = written[0] ?? assert.fail('not written');
-    const again = await offer(
-      { ...machine, entry: WIN_ENTRY.toUpperCase(), files: { [shim.path]: shim.text } },
-      [],
-    );
+    const files = Object.fromEntries(written.map(({ path, text }) => [path, text]));
+    const again = await offer({ ...machine, entry: WIN_ENTRY.toUpperCase(), files }, []);
     assert.deepStrictEqual(again.lines, [`${shim.path} runs this Foedrum already`]);
   });
 
@@ -423,6 +437,172 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     assert.deepStrictEqual(lines, [
       '/home/ada/.local/bin/foedrum is there and is not a foedrum command init wrote; it is left as it is',
     ]);
+  });
+});
+
+describe('the foedrum command for Git Bash on Windows (ADR 0212)', () => {
+  const FOLDER = 'C:\\Users\\ada\\.local\\bin';
+  const CMD = `${FOLDER}\\foedrum.cmd`;
+  const SH = `${FOLDER}\\foedrum`;
+  const OLD_ENTRY = 'C:\\Users\\ada\\old\\foedrum\\src\\cli\\main.ts';
+  const filesOf = (run: Run): Record<string, string> =>
+    Object.fromEntries(run.written.map(({ path, text }) => [path, text]));
+
+  it('writes a foedrum script beside foedrum.cmd, with LF line ends, running the same main.ts', async () => {
+    const { written, lines } = await offer(windows(FOLDER), ['']);
+    assert.deepStrictEqual(
+      written.map(({ path }) => path),
+      [CMD, SH],
+    );
+    const script = written[1] ?? assert.fail('no script');
+    assert.equal(script.executable, true);
+    assert.ok(script.text.startsWith('#!/bin/sh\n'), script.text);
+    assert.ok(script.text.includes(`\nexec node '${WIN_ENTRY}' "$@"\n`), script.text);
+    assert.ok(!script.text.includes('\r'), 'LF line ends');
+    assert.ok(lines.includes(`Wrote ${SH}`), lines.join('\n'));
+  });
+
+  it("keeps both when both run this checkout, and writes the script beside an init's foedrum.cmd alone", async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const again = await offer({ ...windows(FOLDER), files });
+    assert.deepStrictEqual(again.questions, []);
+    assert.deepStrictEqual(again.written, []);
+    const alone = await offer({ ...windows(FOLDER), files: { [CMD]: files[CMD] ?? '' } });
+    assert.deepStrictEqual(alone.questions, []);
+    assert.deepStrictEqual(
+      alone.written.map(({ path }) => path),
+      [SH],
+    );
+  });
+
+  it('re-points both together after a yes, and keeps both on a no', async () => {
+    const files = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const question = `${CMD} runs the Foedrum in C:\\Users\\ada\\old\\foedrum. Point it at C:\\Users\\ada\\code\\foedrum? [y/N]: `;
+    const no = await offer({ ...windows(FOLDER), files }, ['n']);
+    assert.deepStrictEqual(no.questions, [question]);
+    assert.deepStrictEqual(no.written, []);
+    const yes = await offer({ ...windows(FOLDER), files }, ['y']);
+    assert.deepStrictEqual(yes.questions, [question]);
+    assert.deepStrictEqual(
+      yes.written.map(({ path }) => path),
+      [CMD, SH],
+    );
+    for (const { text } of yes.written) assert.ok(text.includes(WIN_ENTRY), text);
+  });
+
+  it('asks to re-point both when only the script runs another checkout', async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const old = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const { questions } = await offer(
+      { ...windows(FOLDER), files: { ...files, [SH]: old[SH] ?? '' } },
+      ['n'],
+    );
+    assert.deepStrictEqual(questions, [
+      `${SH} runs the Foedrum in C:\\Users\\ada\\old\\foedrum. Point it at C:\\Users\\ada\\code\\foedrum? [y/N]: `,
+    ]);
+  });
+
+  it('writes the one file of the pair that is missing, saying so, without the lookup line', async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const cmdAlone = await offer({ ...windows(FOLDER), files: { [CMD]: files[CMD] ?? '' } });
+    assert.deepStrictEqual(cmdAlone.lines, [`Wrote ${SH}`]);
+    const scriptAlone = await offer({ ...windows(FOLDER), files: { [SH]: files[SH] ?? '' } });
+    assert.deepStrictEqual(scriptAlone.questions, []);
+    assert.deepStrictEqual(scriptAlone.lines, [`Wrote ${CMD}`]);
+  });
+
+  it('says it kept both files on a no to the re-point', async () => {
+    const files = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const { lines } = await offer({ ...windows(FOLDER), files }, ['n']);
+    assert.deepStrictEqual(lines, [`Kept ${CMD}`, `Kept ${SH}`]);
+  });
+
+  it('prints by hand only the files it could not write, after the one it wrote', async () => {
+    const { lines, written } = await offer(
+      { ...windows(FOLDER), writeFails: 'EACCES: permission denied', failsOn: SH },
+      [''],
+    );
+    assert.deepStrictEqual(
+      written.map(({ path }) => path),
+      [CMD],
+    );
+    const at = lines.indexOf(`Wrote ${CMD}`);
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.deepStrictEqual(lines.slice(at + 1, at + 3), [
+      `Could not write ${SH}: EACCES: permission denied`,
+      `Not written. To write it by hand, put these lines in ${SH}:`,
+    ]);
+    assert.ok(!lines.some((line) => line.endsWith(`${CMD}:`)), lines.join('\n'));
+  });
+
+  it('prints both files by hand when the script cannot be read', async () => {
+    const { lines, written } = await offer({
+      ...windows(FOLDER),
+      readFails: 'EACCES: permission denied',
+      failsOn: SH,
+    });
+    assert.deepStrictEqual(written, []);
+    assert.equal(lines[0], `Could not read ${SH}: EACCES: permission denied`);
+    for (const file of [CMD, SH]) {
+      assert.ok(
+        lines.includes(`Not written. To write it by hand, put these lines in ${file}:`),
+        lines.join('\n'),
+      );
+    }
+  });
+
+  it('knows again its script after an editor gave it CRLF line ends', async () => {
+    const files = filesOf(await offer(windows(FOLDER), ['']));
+    const crlf = (files[SH] ?? '').replaceAll('\n', '\r\n');
+    const { lines, written } = await offer({ ...windows(FOLDER), files: { ...files, [SH]: crlf } });
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual(lines, [`${CMD} runs this Foedrum already`]);
+  });
+
+  it('says to save the script by hand with LF line ends, and no chmod, on Windows', async () => {
+    const { lines } = await offer(windows(FOLDER), ['n']);
+    assert.equal(
+      lines.at(-1),
+      'Save it with LF line ends, not CRLF: Git Bash reads a CR as part of the line',
+    );
+    assert.ok(!lines.some((line) => line.startsWith('and run: chmod')), lines.join('\n'));
+  });
+
+  it('prints both files by hand for a home that is a root folder', async () => {
+    const { lines } = await offer({ ...windows('C:\\Tools'), home: 'C:\\' });
+    assert.ok(lines.includes('  @echo off'), lines.join('\n'));
+    assert.ok(lines.includes('  #!/bin/sh'), lines.join('\n'));
+  });
+
+  it('says it kept only the file that is there on a no to the re-point', async () => {
+    const files = filesOf(await offer({ ...windows(FOLDER), entry: OLD_ENTRY }, ['']));
+    const { lines } = await offer({ ...windows(FOLDER), files: { [CMD]: files[CMD] ?? '' } }, [
+      'n',
+    ]);
+    assert.deepStrictEqual(lines, [`Kept ${CMD}`]);
+  });
+
+  it('leaves a foedrum script there that init did not write, writing neither file', async () => {
+    const { questions, lines, written } = await offer({
+      ...windows(FOLDER),
+      files: { [SH]: '#!/bin/sh\necho mine\n' },
+    });
+    assert.deepStrictEqual(questions, []);
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual(lines, [
+      `${SH} is there and is not a foedrum command init wrote; it is left as it is`,
+    ]);
+  });
+
+  it('on a no, prints both files to write by hand', async () => {
+    const { lines } = await offer(windows(FOLDER), ['n']);
+    for (const file of [CMD, SH]) {
+      assert.ok(
+        lines.includes(`Not written. To write it by hand, put these lines in ${file}:`),
+        lines.join('\n'),
+      );
+    }
+    assert.ok(lines.includes(`  exec node '${WIN_ENTRY}' "$@"`), lines.join('\n'));
   });
 });
 

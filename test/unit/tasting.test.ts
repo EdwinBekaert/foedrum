@@ -23,7 +23,7 @@ import {
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { TastingOutDoc } from '../../src/schemas/out-doc.ts';
+import { MAX_RISK_LEFT, MOST_RISKS_LEFT, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
@@ -270,6 +270,29 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.equal(brewer.output.schema, 'tasting');
     // No Bash: git diff --output and --no-index reach any file outside a sandbox (ADR 0161).
     assert.deepEqual(brewer.tools.allow, ['Read', 'Grep', 'Glob', `Edit(${brewer.output.doc})`]);
+  });
+
+  it("asks in its Out doc section for the risk left, in the lens's terms, and for nothing when there is none (ADR 0214)", () => {
+    const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
+    assert.ok(found !== undefined);
+    const section = found.instructions.slice(found.instructions.indexOf('## Out doc'));
+    assert.match(section, /- `"riskLeft"`: /);
+    assert.match(section, /in the terms of your lens/);
+    assert.match(section, /could not verify/);
+    assert.match(section, /not a finding/);
+    assert.match(section, /nothing to say, leave it out/);
+  });
+
+  it('gives the Taster the bounds of riskLeft its schema holds it to (ADR 0214)', () => {
+    const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
+    assert.ok(found !== undefined);
+    assert.ok(
+      found.instructions.includes(
+        `at most ${MOST_RISKS_LEFT} lines of at most ${MAX_RISK_LEFT} characters each`,
+      ),
+      found.instructions,
+    );
+    assert.deepEqual([MOST_RISKS_LEFT, MAX_RISK_LEFT], [10, 300]);
   });
 
   const base = 'a'.repeat(40);
@@ -619,6 +642,36 @@ describe('the tasting room in one parallel group (#428, ADR 0168)', () => {
       valid(loadRecipes(room)).recipes.find('tasting-room')?.steps,
     );
     for (const lens of LENSES) assert.ok(status.includes(`- \`${lens}\`: `), status);
+  });
+
+  it("keeps each lens's risk left with its own step (ADR 0214)", async () => {
+    const risks: Readonly<Record<string, string>> = {
+      correctness: 'The retry path only shows in a run',
+      security: 'Could not read the vendored parser',
+    };
+    const { batch } = await brew(room, 'tasting-room', ({ stepId }) => {
+      if (!LENSES.includes(stepId)) return behave.succeed();
+      const { facts } = behave.succeed() as Extract<Behaviour, { kind: 'settle' }>;
+      const riskLeft = stepId in risks ? [risks[stepId]] : [];
+      const doc = { status: 'done', summary: 'Tasted', verdict: 'approve', findings: [], riskLeft };
+      return { kind: 'settle', facts: { ...facts, outDoc: outDoc(doc) } };
+    });
+    const reports = stepReports(batch);
+    for (const lens of LENSES) {
+      const report = reports.find(({ stepId }) => stepId === lens);
+      const own = risks[lens];
+      assert.deepEqual(
+        report?.tasting,
+        { verdict: 'approve', findings: [], ...(own === undefined ? {} : { riskLeft: [own] }) },
+        lens,
+      );
+    }
+    const status = renderStatus(
+      batch,
+      valid(loadRecipes(room)).recipes.find('tasting-room')?.steps,
+    );
+    assert.ok(status.includes(`- \`correctness\`: ${risks.correctness}`), status);
+    assert.ok(status.includes(`- \`security\`: ${risks.security}`), status);
   });
 
   it('resumes only the lenses that had not ended when the driver was killed mid-group', async () => {

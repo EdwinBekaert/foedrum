@@ -1077,8 +1077,8 @@ describe('claudeBrewerRunner', () => {
     });
   });
 
-  // #238, ADR 0091: claude refuses every request until the window resets, so retrying now would
-  // spend the step's attempts on the same refusal. Stuck at once, on the environment.
+  // #238, ADR 0091, ADR 0206: claude refuses every request until the window resets, so retrying
+  // now would spend the step's attempts on the same refusal. The engine holds the brewers.
   it('blocks on the environment when a usage window ran out, naming the limit and its reset', async () => {
     const [initLine] = fixture('success.jsonl');
     for (const { text, limit, resets } of documentedUsageLimits) {
@@ -1091,7 +1091,8 @@ describe('claudeBrewerRunner', () => {
         assert.deepEqual(ended.ending, {
           kind: 'blocked',
           blockerKind: 'environment',
-          summary: `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`,
+          summary: `claude hit its ${limit} limit, which resets ${resets}`,
+          usageLimit: { limit, resets },
         });
         assert.equal(calls.length, 1);
       }

@@ -98,6 +98,36 @@ describe('renderStatus', () => {
     assert.doesNotMatch(renderStatus(batch(), steps), /Paused/);
   });
 
+  it('says the usage window is closed, which limit, its reset and when brewers start again (ADR 0206)', () => {
+    const closed = {
+      limit: 'weekly',
+      resets: 'Mon 12:00am',
+      reopensAt: '2026-10-25T23:05:00.000Z',
+      read: true,
+    } as const;
+    const lines = renderStatus(batch(), steps, undefined, undefined, undefined, closed).split('\n');
+    const lane = lines.indexOf('🍺 **Brewing**');
+    assert.ok(lane > 0);
+    assert.equal(
+      lines[lane + 1],
+      '⏳ Usage window closed: claude hit its weekly limit, which resets Mon 12:00am; brewers wait until 23:05 UTC, 25 October.',
+    );
+    const unread = renderStatus(batch(), steps, undefined, undefined, undefined, {
+      ...closed,
+      resets: 'soon <b>',
+      read: false,
+    });
+    assert.match(
+      unread,
+      /⏳ Usage window closed: claude hit its weekly limit, which resets soon &lt;b&gt;; brewers try again at 23:05 UTC, 25 October\./,
+    );
+    assert.doesNotMatch(
+      renderStatus(ordered(), undefined, undefined, undefined, undefined, closed),
+      /Usage window/,
+    );
+    assert.doesNotMatch(renderStatus(batch(), steps), /Usage window/);
+  });
+
   it("escapes a pause's reason as any text an issue wrote (ADR 0202)", () => {
     const text = renderStatus(batch(), steps, undefined, {
       by: 'ada',
@@ -822,6 +852,76 @@ describe('renderStatus', () => {
     assert.doesNotMatch(text, /Findings|an old round/);
   });
 
+  /** A Taster's attempt that approved, with `riskLeft` when it is given. */
+  const risky = (attempt: number, riskLeft?: string[]): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: at,
+    outcome: {
+      kind: 'succeeded',
+      output: {
+        status: 'done',
+        summary: 'Tasted',
+        assumptions: [],
+        verdict: 'approve',
+        findings: [{ severity: 'minor', why: 'a small thing', introduced: true }],
+        ...(riskLeft === undefined ? {} : { riskLeft }),
+      },
+    },
+  });
+
+  it("lists each Taster's risk left under Risk left, after its findings, five per step, and none when empty (ADR 0214)", () => {
+    const many = Array.from({ length: 7 }, (_, i) => `risk ${i + 1}`);
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('correctness', risky(1, ['Only a run shows *the* retry'])),
+          step('security', risky(1, many)),
+          step('necessity', risky(1)),
+        ]),
+      }),
+      ['correctness', 'security', 'necessity'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Risk left**');
+    // Right after the three steps' findings, so a comment cut to length keeps it before the rest.
+    assert.equal(at_, lines.indexOf('**Findings**') + 5, text);
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 8), [
+      '- `correctness`: Only a run shows \\*the\\* retry',
+      '- `security`: risk 1',
+      '- `security`: risk 2',
+      '- `security`: risk 3',
+      '- `security`: risk 4',
+      '- `security`: risk 5',
+      '- `security`: and 2 more',
+    ]);
+    assert.doesNotMatch(text, /`necessity`: risk|risk 6/);
+    // None when no Taster wrote one, or only an empty one.
+    const none = renderStatus(
+      batch({ steps: new Map([step('taste', risky(1)), step('security', risky(1, []))]) }),
+      ['taste', 'security'],
+    );
+    assert.match(none, /\*\*Findings\*\*/);
+    assert.doesNotMatch(none, /Risk left/);
+  });
+
+  it("shows only the latest round's risk left, and none when that round did not succeed (ADR 0214)", () => {
+    const later = renderStatus(
+      batch({
+        steps: new Map([step('taste', risky(1, ['an old risk']), risky(2, ['a new risk']))]),
+      }),
+      ['taste'],
+    );
+    assert.match(later, /- `taste`: a new risk/);
+    assert.doesNotMatch(later, /an old risk/);
+    const blocked = failed(2, 'blocked (findings): the Taster asks for changes: x');
+    const text = renderStatus(
+      batch({ steps: new Map([step('taste', risky(1, ['an old risk']), blocked)]) }),
+      ['taste'],
+    );
+    assert.doesNotMatch(text, /Risk left|an old risk/);
+  });
+
   it('shows at most 10 assumptions a step and counts the rest', () => {
     const many = Array.from({ length: 12 }, (_, i) => `guess ${i + 1}`);
     const text = renderStatus(batch({ steps: new Map([step('plan', done(1, many))]) }), steps);
@@ -883,6 +983,32 @@ describe('renderStatus: out doc text that looks like a secret (#235)', () => {
       new RegExp(`^- \`taste\`: major: ${escaped(leftOut('taste'))}$`),
     );
     assert.doesNotMatch(text, /^# heading|^\*\*Pull requests\*\*/m);
+    noToken(text);
+  });
+
+  it("leaves out a Taster's risk left that looks like a secret, naming the step (ADR 0214)", () => {
+    const tasted: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [],
+          riskLeft: ['Not run on Windows', `Token ${token}`],
+        },
+      },
+    };
+    const text = renderStatus(batch({ steps: new Map([step('taste', tasted)]) }), ['taste']);
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Risk left**');
+    assert.ok(at_ >= 0, text);
+    assert.equal(lines[at_ + 1], '- `taste`: Not run on Windows');
+    assert.match(lines[at_ + 2] ?? '', new RegExp(`^- \`taste\`: ${escaped(leftOut('taste'))}$`));
     noToken(text);
   });
 
@@ -1168,6 +1294,33 @@ describe('statusEffects', () => {
     later(minute);
     await driver.tick();
     assert.doesNotMatch(only().body, /Paused/);
+  });
+
+  it('edits the comment of a brewing batch to say the usage window is closed (ADR 0206)', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    issue({
+      kind: 'finish',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'claude hit its session limit, which resets 3:45pm',
+        usageLimit: { limit: 'session', resets: '3:45pm' },
+      },
+      reopensAt: { at: new Date('2026-10-18T14:50:00.000Z'), read: true },
+    });
+    later(minute);
+    // The retry of plan waits for the reopen: the runner starts nothing.
+    await driver.tick();
+    assert.match(
+      only().body,
+      /Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 18 October\./,
+    );
   });
 
   it('edits nothing while the text stays the same', async () => {

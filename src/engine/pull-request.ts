@@ -826,6 +826,8 @@ export const pullRequestText = ({
               (finding) =>
                 `  finding: ${flat(findingText(finding), stepId)}: ${flat(finding.why, stepId)}`,
             ),
+            // What its review leaves, in its words (ADR 0214).
+            ...(tasting.riskLeft ?? []).map((risk) => `  risk left: ${flat(risk, stepId)}`),
           ]),
     ],
   );

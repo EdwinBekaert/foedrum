@@ -15,3 +15,4 @@ The engine is plain, deterministic code: every change is a command decided again
 | [The state branch](state-branch.md) | Durable state in the Brewery repository |
 | [Worktrees](worktrees.md) | Attempt worktrees, the task tree, the cleanup |
 | [Drivers](drivers.md) | The Cellar, driver locks, batch ownership, takeover |
+| [The usage window](usage-window.md) | Brewers held while claude's usage window is closed, and its reopen |

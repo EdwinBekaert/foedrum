@@ -13,7 +13,7 @@ import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Attempt, Batch, Lane, Pause, State } from './fold.ts';
+import type { Attempt, Batch, Lane, Pause, State, UsageWindow } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
@@ -21,6 +21,7 @@ import { changeText, findingText, knownCommits, pushKey } from './pull-request.t
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
+import { usageWindowText } from './usage-window.ts';
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
 export interface StatusComments {
@@ -348,6 +349,12 @@ const pauseText = ({ by, via, why, stopAt }: Pause): string => {
   return `⏸️ **Paused** by ${plain(by)} (${via})${reason}. Nothing new starts; what runs ends at its next convenient point${stopped}.`;
 };
 
+/** What a brewing batch shows while the usage window is closed (ADR 0206). */
+const usageWindowLines = (batch: Batch, window: UsageWindow | undefined): string[] =>
+  window === undefined || batch.lane.kind !== 'brewing'
+    ? []
+    : [`⏳ ${plain(usageWindowText(window))}.`];
+
 const recipeText = (recipe: Batch['recipe']): string => {
   if (recipe === undefined) return 'No recipe is chosen yet.';
   const name = `Recipe **${plain(recipe.name)}**`;
@@ -522,6 +529,17 @@ const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): str
     ),
   );
 
+/** How many items of one Taster's risk left the comment shows. */
+const mostRisksLeft = 5;
+
+/** The risk left each Taster's step wrote in its latest round, as its findings are (ADR 0214). */
+const riskLeftLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) =>
+    capped(stepId, tastingOf(latestOutput(batch, stepId))?.riskLeft ?? [], mostRisksLeft, (risk) =>
+      told(risk, stepId),
+    ),
+  );
+
 /** How many changes of one Finer's step the comment shows. */
 const mostChanges = 10;
 
@@ -592,6 +610,7 @@ export const renderStatus = (
   isCommit: IsCommit = () => false,
   paused?: Pause,
   sensitive?: SensitiveFiles,
+  usageWindow?: UsageWindow,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -602,7 +621,11 @@ export const renderStatus = (
   const stepIds = [...new Set([...(steps ?? []), ...batch.steps.keys(), ...(batch.skipped ?? [])])];
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
-    [...laneText(batch.lane, told), ...(paused === undefined ? [] : [pauseText(paused)])],
+    [
+      ...laneText(batch.lane, told),
+      ...(paused === undefined ? [] : [pauseText(paused)]),
+      ...usageWindowLines(batch, usageWindow),
+    ],
     [
       recipeText(batch.recipe),
       ...pathLine(batch),
@@ -617,6 +640,8 @@ export const renderStatus = (
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
   const findings = findingLines(batch, stepIds, told);
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
+  const risksLeft = riskLeftLines(batch, stepIds, told);
+  if (risksLeft.length > 0) sections.push(['**Risk left**', ...risksLeft]);
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);
   const receipts = receiptLines(batch, told);
@@ -710,7 +735,14 @@ const statusDue = (
   const pushed = PushResult.safeParse(state.effects.get(effectKey.encode(pushKey(batchId))));
   const sensitive = pushed.success ? pushed.data.sensitive : undefined;
   const paused = pauseOf(state, batch);
-  const text = renderStatus(batch, steps, knownCommits(state, batchId), paused, sensitive);
+  const text = renderStatus(
+    batch,
+    steps,
+    knownCommits(state, batchId),
+    paused,
+    sensitive,
+    state.usageWindow,
+  );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
   const due = { key: revisionKey(batchId, revision), issue, text, digest };

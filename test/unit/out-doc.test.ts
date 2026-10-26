@@ -4,11 +4,15 @@ import {
   dispositionsOf,
   MAX_DISPOSITION_FILE,
   MAX_DISPOSITION_WHY,
+  MAX_RISK_LEFT,
   MOST_DISPOSITIONS,
+  MOST_RISKS_LEFT,
   OutDocFrontmatter,
   outDocFrontmatter,
   PullRequestOutDoc,
   readOutDoc,
+  TastingOutDoc,
+  tastingOf,
 } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
 
@@ -251,5 +255,59 @@ describe('dispositions (ADR 0191)', () => {
     assert.deepEqual(dispositionsOf({ ...done, verdict: 'approve' }), []);
     assert.deepEqual(dispositionsOf({ ...done, dispositions: [{ disposition: 'maybe' }] }), []);
     assert.deepEqual(dispositionsOf(null), []);
+  });
+});
+
+describe("a Taster's riskLeft (ADR 0214)", () => {
+  const approved = { status: 'done', summary: 'Tasted', verdict: 'approve' } as const;
+  const risks = ['The retry path only shows in a run', 'Could not read src/vendor/big.ts'];
+
+  it('takes a list of one-line items, and reads an out doc without it as before', () => {
+    const doc = { ...approved, riskLeft: risks };
+    assert.deepEqual(TastingOutDoc.parse(doc), { ...doc, assumptions: [], findings: [] });
+    assert.deepEqual(TastingOutDoc.parse(approved), { ...approved, assumptions: [], findings: [] });
+    assert.equal(TastingOutDoc.safeParse({ ...approved, riskLeft: [] }).success, true);
+  });
+
+  /** The one issue a refused out doc has, at its path. */
+  const refusal = (riskLeft: unknown) => {
+    const read = TastingOutDoc.safeParse({ ...approved, riskLeft });
+    assert.equal(read.success, false);
+    assert.equal(read.error?.issues.length, 1, JSON.stringify(read.error?.issues));
+    return read.error?.issues[0]?.path;
+  };
+
+  it(`takes an item of ${MAX_RISK_LEFT} characters, and refuses a longer one with one line`, () => {
+    const sized = (length: number) => ({ ...approved, riskLeft: ['r'.repeat(length)] });
+    assert.equal(TastingOutDoc.safeParse(sized(MAX_RISK_LEFT)).success, true);
+    assert.deepEqual(refusal(['r'.repeat(MAX_RISK_LEFT + 1)]), ['riskLeft', 0]);
+  });
+
+  it(`takes ${MOST_RISKS_LEFT} items, and refuses more with one line`, () => {
+    const many = (count: number) => Array(count).fill('One risk');
+    assert.equal(
+      TastingOutDoc.safeParse({ ...approved, riskLeft: many(MOST_RISKS_LEFT) }).success,
+      true,
+    );
+    assert.deepEqual(refusal(many(MOST_RISKS_LEFT + 1)), ['riskLeft']);
+  });
+
+  it('refuses an item of two lines, an empty one, and a list that is not one', () => {
+    assert.deepEqual(refusal(['one\ntwo']), ['riskLeft', 0]);
+    assert.deepEqual(refusal([' ']), ['riskLeft', 0]);
+    assert.deepEqual(refusal('one risk'), ['riskLeft']);
+  });
+
+  it('is given back by tastingOf beside the verdict and findings, and not when empty', () => {
+    assert.deepEqual(tastingOf({ ...approved, riskLeft: risks }), {
+      verdict: 'approve',
+      findings: [],
+      riskLeft: risks,
+    });
+    assert.deepEqual(tastingOf({ ...approved, riskLeft: [] }), {
+      verdict: 'approve',
+      findings: [],
+    });
+    assert.deepEqual(tastingOf(approved), { verdict: 'approve', findings: [] });
   });
 });

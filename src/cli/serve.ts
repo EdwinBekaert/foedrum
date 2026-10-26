@@ -116,7 +116,7 @@ const commandName = (command: EngineCommand): string => {
   const batchId =
     'batchId' in command
       ? command.batchId
-      : 'batchId' in command.event
+      : 'event' in command && 'batchId' in command.event
         ? command.event.batchId
         : undefined;
   return batchId === undefined ? command.kind : `${command.kind} of batch ${batchId}`;
