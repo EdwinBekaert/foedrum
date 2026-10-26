@@ -1495,7 +1495,8 @@ describe('runBrew', () => {
     it('retries a batch it finds waiting for a session at its start, as the person, and opens the session: exit 0', async () => {
       const piped = { ...request, noSessions: 'no-terminal' } as const;
       assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
-      assert.equal(await runBrew(setup, shell(behave.succeed('Refined')), request), 0);
+      const again = shell(behave.succeed('Refined'), { lock: () => fakeLock('ann') });
+      assert.equal(await runBrew(setup, again, request), 0);
       assert.deepStrictEqual(resumedBy(), ['retry by ann via terminal']);
       assert.deepStrictEqual(started, ['refine#2']);
       assert.ok(
@@ -1507,7 +1508,8 @@ describe('runBrew', () => {
     it('leaves a batch waiting for a session to the person when it opens none: exit 3', async () => {
       const piped = { ...request, noSessions: 'no-terminal' } as const;
       assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
-      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
+      assert.equal(await runBrew(setup, again, piped), 3, String(lines));
       assert.deepStrictEqual(resumedBy(), []);
       assert.deepStrictEqual(started, []);
     });

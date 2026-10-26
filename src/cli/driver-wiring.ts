@@ -101,6 +101,8 @@ export interface WiringOptions {
   resumes?: (attempt: AttemptRef) => boolean;
   /** Whether the driver goes on with a batch it may hold; every one by default (ADR 0127). */
   holds?: (batchId: string) => boolean;
+  /** Whether it opens an interactive step's session: `foedrum brew` on a terminal (ADR 0222). */
+  sessions?: boolean;
   /** Prints one line of the driver's own, a notice or a report. */
   say: (line: string) => void;
   /** Reports a driver's notice. */
@@ -115,7 +117,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, resumes, holds, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, holds, sessions, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -296,6 +298,7 @@ export const wireDriver = async (
     takes,
     ...(drivesOn === undefined ? {} : { drivesOn }),
     ...(holds === undefined ? {} : { holds }),
+    ...(sessions === undefined ? {} : { sessions }),
     stateBranch,
     limits: plans.limits,
     outDoc: plans.outDoc,
@@ -308,9 +311,14 @@ export const wireDriver = async (
       const stepBrewer = brewerOf(batchId, stepId);
       return stepBrewer && familyOfBrewer(setup.models, stepBrewer);
     },
-    // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118).
+    // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118),
+    // but an interactive step's: its session opens anew, with the whole prompt (ADR 0222).
     resumes:
-      resumes ?? (({ batchId, stepId }) => brewerOf(batchId, stepId)?.retryMode === 'resume'),
+      resumes ??
+      (({ batchId, stepId }) => {
+        const stepBrewer = setup.brewers.find(recipeOf(batchId) ?? '', stepId);
+        return stepBrewer?.interactive === undefined && stepBrewer?.brewer.retryMode === 'resume';
+      }),
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,

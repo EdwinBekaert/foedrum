@@ -287,7 +287,7 @@ export const headlessRunner =
 export function interactiveBrewerRunner(
   options: Pick<
     InteractiveRunnerDeps,
-    'claude' | 'plan' | 'foreground' | 'terminalEnv' | 'platform' | 'say'
+    'claude' | 'opensResumed' | 'plan' | 'foreground' | 'terminalEnv' | 'platform' | 'say'
   > & {
     /** The process runner every attempt's setup runs through (ADR 0158, ADR 0163). */
     setup: ExecProcess;

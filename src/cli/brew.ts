@@ -251,6 +251,8 @@ export const runBrew = async (
       takes: (id) => id === batchId,
       // None of the batches this owner left earlier: they lapse within a lease (ADR 0123).
       drivesOn: () => false,
+      // An interactive step's session opens on a terminal outside Claude Code (ADR 0222).
+      sessions: request.noSessions === undefined,
       say,
       report: (notice) => {
         if (notice.kind === 'batch_lost' && notice.batchId === batchId) holder = notice.holder;
@@ -353,6 +355,33 @@ export const runBrew = async (
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`routed batch ${batchId} to the recipe ${recipe}`);
     }
+    // What opens the session a batch waits for, as this brew can or cannot (ADR 0222).
+    const sessionLine = (why: BrewRequest['noSessions']): string => {
+      switch (why) {
+        case undefined:
+          return `run foedrum brew ${asGiven} again to reopen the session`;
+        case 'claude-code':
+          return `run foedrum brew ${asGiven} in a terminal to open its session`;
+        case 'no-terminal':
+          return `stdin is not a terminal, and claude needs one: run foedrum brew ${asGiven} in a terminal`;
+        default: {
+          const unhandled: never = why;
+          throw new Error(`Unhandled reason ${JSON.stringify(unhandled)}`);
+        }
+      }
+    };
+    // A batch that waits for a session when a brew that opens one starts: the person runs it now,
+    // once; within the run the batch never retries by itself (ADR 0222).
+    const { lane: found } = batch;
+    if (
+      request.noSessions === undefined &&
+      found.kind === 'stuck' &&
+      found.reason.kind === 'waiting_for_session'
+    ) {
+      const decision = log.issue({ kind: 'retry', batchId, by, via }, clock());
+      if (decision.kind === 'refused') return refuse(decision.reason);
+      say(`batch ${batchId} waits for a session at ${found.reason.stepId}; opening it`);
+    }
     say(`brewing batch ${batchId} as ${owner}`);
 
     /**
@@ -445,6 +474,7 @@ export const runBrew = async (
             return BREW_EXIT.needsInput;
           }
           say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}`);
+          if (reason.kind === 'waiting_for_session') say(sessionLine(request.noSessions));
           return BREW_EXIT.stuck;
         }
         case 'brewing':
