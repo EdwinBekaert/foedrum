@@ -46,6 +46,26 @@ export const environmentVariable = (
     ? Object.entries(env).find(([key]) => key.toUpperCase() === name)?.[1]
     : env[name];
 
+/** PATHEXT's extensions in lower case, or Windows' default ones when it is not set. */
+export const pathExtensions = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] =>
+  (environmentVariable(env, 'PATHEXT', platform) || DEFAULT_PATHEXT)
+    .split(';')
+    .filter((extension) => extension !== '')
+    .map((extension) => extension.toLowerCase());
+
+/** PATH's folders in order, unquoted, without the ones that are not absolute. */
+export const pathFolders = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => {
+  const path = platform === 'win32' ? win32 : posix;
+  return (
+    (environmentVariable(env, 'PATH', platform) ?? '')
+      .split(path.delimiter)
+      .map((folder) => folder.replace(/^"(.*)"$/, '$1'))
+      // A relative folder would be checked here but resolved against another directory when the
+      // program starts.
+      .filter((folder) => path.isAbsolute(folder))
+  );
+};
+
 /**
  * The path of the file the command name runs, or undefined when none is found. A name with a
  * folder in it is checked as it is, without PATH.
@@ -58,23 +78,12 @@ export const resolveExecutable = (
   const { isExecutable = runnableFile(platform) } = options;
   const path = platform === 'win32' ? win32 : posix;
   // On Windows a name gets each PATHEXT extension, unless it already ends in one.
-  const extensions = (environmentVariable(env, 'PATHEXT', platform) || DEFAULT_PATHEXT)
-    .split(';')
-    .filter((extension) => extension !== '')
-    .map((extension) => extension.toLowerCase());
+  const extensions = pathExtensions(env, platform);
   const candidates = (base: string): string[] =>
     platform !== 'win32' || extensions.includes(path.extname(base).toLowerCase())
       ? [base]
       : extensions.map((extension) => `${base}${extension}`);
-  const folders =
-    name.includes(path.sep) || name.includes('/')
-      ? ['']
-      : (environmentVariable(env, 'PATH', platform) ?? '')
-          .split(path.delimiter)
-          .map((folder) => folder.replace(/^"(.*)"$/, '$1'))
-          // A relative folder would be checked here but resolved against another directory
-          // when the program starts.
-          .filter((folder) => path.isAbsolute(folder));
+  const folders = name.includes(path.sep) || name.includes('/') ? [''] : pathFolders(env, platform);
   for (const folder of folders) {
     const base = folder === '' ? name : path.join(folder, name);
     const found = candidates(base).find(isExecutable);
