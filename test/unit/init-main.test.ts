@@ -3,8 +3,8 @@
 // doctor runs there (ADR 0021, ADR 0199).
 
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { after, describe, it } from 'node:test';
 import { initFromCheckout } from '../../src/cli/init-main.ts';
@@ -216,6 +216,53 @@ describe('initFromCheckout', () => {
       if (!windows) assert.equal(statSync(shim).mode & 0o777, 0o755);
       assert.ok(shown.includes(`Wrote ${shim}\n`), shown);
     } finally {
+      machine.remove();
+    }
+  });
+
+  it('offers only a PATH entry that is a folder it can write, and runs main.ts from its own place, not the working directory (ADR 0210)', async () => {
+    const machine = makeTempDir('init-main-shim-cwd');
+    const was = process.cwd();
+    try {
+      const home = join(machine.path, 'home');
+      const clone = join(machine.path, 'brewery');
+      const bin = join(home, 'bin');
+      const file = join(home, 'a-file');
+      mkdirSync(join(clone, '.git'), { recursive: true });
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(file, '');
+      // A checkout of its own as the working directory, which the shim must not run.
+      mkdirSync(join(machine.path, 'src', 'cli'), { recursive: true });
+      process.chdir(machine.path);
+      const gh = ghOver(fakeFetch([{ status: 200, body: { login: 'octocat' } }]).fetch);
+      const exec: ExecProcess = async (file, args, options) => {
+        if (args[0] === 'api') return gh.exec(file, args, options);
+        return { exitCode: 0, stdout: '', stderr: '', output: '' };
+      };
+      const path = [join(home, 'gone'), file, bin].join(delimiter);
+      let shown = '';
+      await initFromCheckout(clone, {
+        exec,
+        resolve: (name) => `/usr/bin/${name}`,
+        denylist: () => ({ kind: 'none', path: '/made-up/denylist.txt' }),
+        shim: { env: { PATH: path, Path: path }, home },
+        terminal: {
+          input: Readable.from(['\n', '\n', '\n']),
+          output: {
+            write: (text: string) => {
+              shown += text;
+            },
+          },
+        },
+      });
+      assert.ok(shown.includes(`  1. ${bin}\n`), shown);
+      assert.ok(!shown.includes('  2. '), shown);
+      const shim = join(bin, process.platform === 'win32' ? 'foedrum.cmd' : 'foedrum');
+      const text = readFileSync(shim, 'utf8');
+      assert.ok(text.includes(join(import.meta.dirname, '..', '..', 'src', 'cli', 'main.ts')));
+      assert.ok(!text.includes(machine.path), text);
+    } finally {
+      process.chdir(was);
       machine.remove();
     }
   });

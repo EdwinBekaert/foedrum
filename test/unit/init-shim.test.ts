@@ -321,4 +321,91 @@ describe('the foedrum command init writes (ADR 0210)', () => {
     const unseen = await offer({ ...machine, resolves: null }, ['']);
     assert.equal(unseen.lines.at(-1), 'Open a new terminal to run foedrum');
   });
+
+  it('puts each kind of folder a tool manages last, and a near miss among the others', async () => {
+    const machine = posix(
+      [
+        '/home/ada/.npm-global/bin',
+        '/home/ada/nvm/bin',
+        '/home/ada/.pyenv/shims',
+        '/home/ada/python3/bin',
+        '/home/ada/tools/npm',
+        '/home/ada/tools',
+      ].join(':'),
+    );
+    const { lines } = await offer(machine, ['n']);
+    assert.deepStrictEqual(lines.slice(1, 7), [
+      '  1. /home/ada/tools/npm',
+      '  2. /home/ada/tools',
+      '  3. /home/ada/.npm-global/bin',
+      '  4. /home/ada/nvm/bin',
+      '  5. /home/ada/.pyenv/shims',
+      '  6. /home/ada/python3/bin',
+    ]);
+    const windowsRun = await offer(
+      windows(
+        [
+          'C:\\Users\\ada\\AppData\\Roaming\\nvm',
+          'C:\\Users\\ada\\tools\\Scripts',
+          'C:\\Users\\ada\\AppData\\Local\\npm',
+          'C:\\Users\\ada\\tools',
+        ].join(';'),
+      ),
+      ['n'],
+    );
+    assert.deepStrictEqual(windowsRun.lines.slice(1, 5), [
+      '  1. C:\\Users\\ada\\AppData\\Local\\npm',
+      '  2. C:\\Users\\ada\\tools',
+      '  3. C:\\Users\\ada\\AppData\\Roaming\\nvm',
+      '  4. C:\\Users\\ada\\tools\\Scripts',
+    ]);
+  });
+
+  it('on Windows compares folders, a shim and the lookup whatever their case', async () => {
+    const machine = windows(
+      ['C:\\Users\\ada\\Tools', 'c:\\users\\ada\\tools', 'c:\\USERS\\ada\\.LOCAL\\bin'].join(';'),
+    );
+    const { lines, written } = await offer(
+      { ...machine, resolves: 'C:\\USERS\\ADA\\.LOCAL\\BIN\\FOEDRUM.CMD' },
+      [''],
+    );
+    assert.deepStrictEqual(lines.slice(0, 4), [
+      'Folders on the PATH for the foedrum command:',
+      '  1. c:\\USERS\\ada\\.LOCAL\\bin',
+      '  2. C:\\Users\\ada\\Tools',
+      `Wrote ${written[0]?.path}`,
+    ]);
+    assert.equal(lines.at(-1), 'foedrum runs it in this terminal');
+    const shim = written[0] ?? assert.fail('not written');
+    const again = await offer(
+      { ...machine, entry: WIN_ENTRY.toUpperCase(), files: { [shim.path]: shim.text } },
+      [],
+    );
+    assert.deepStrictEqual(again.lines, [`${shim.path} runs this Foedrum already`]);
+  });
+
+  it('never offers the home itself, or a folder on another drive', async () => {
+    const posixRun = await offer(posix('/home/ada:/home/ada/tools'), ['n']);
+    assert.deepStrictEqual(posixRun.lines.slice(1, 3), [
+      '  1. /home/ada/tools',
+      'Not written. To write it by hand, put these lines in /home/ada/tools/foedrum:',
+    ]);
+    const windowsRun = await offer(windows('C:\\Users\\ada;D:\\Users\\ada\\bin'));
+    assert.equal(
+      windowsRun.lines[0],
+      'No folder on the PATH is inside C:\\Users\\ada to write the foedrum command into.',
+    );
+  });
+
+  it("leaves a foedrum with a node line like init's but without its mark", async () => {
+    const mine = `#!/bin/sh\nexec node '/home/ada/elsewhere/src/cli/main.ts' "$@"\n`;
+    const { questions, lines, written } = await offer(
+      posix('/home/ada/.local/bin', { files: { '/home/ada/.local/bin/foedrum': mine } }),
+    );
+    assert.deepStrictEqual(questions, []);
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual(lines, [
+      '/home/ada/.local/bin/foedrum is there and is not a foedrum command init wrote; it is left as it is',
+    ]);
+  });
 });
