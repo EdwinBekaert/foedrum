@@ -1,7 +1,7 @@
 // The ready set (ADR 0211, ADR 0216): the intake starts the sub-orders whose blockers' pull requests
 // merged, and for a `release` blocker were released after, at their order's rank and in their plan's
 // order. Recorded `order.decomposed` and `release.observed` events and a fake tracker, no network
-// (ADR 0021): nothing produces sub-orders until mash (#388, #389), nor releases yet.
+// (ADR 0021): nothing produces sub-orders until mash (#388, #389).
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';

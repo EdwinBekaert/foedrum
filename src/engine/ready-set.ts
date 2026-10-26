@@ -1,7 +1,8 @@
 // The ready set (ADR 0211, ADR 0216): the sub-orders the intake may start now, a pure function of the
 // folded state. A sub-order is ready when it is in its order's latest breakdown, has no batch yet,
 // and every sub-order it is blocked by is done: its pull request merged, and for a `release`
-// dependency, a release of its repository recorded after that merge.
+// dependency, a release of its repository recorded after that merge. `releaseWaits` says which
+// repositories' releases the intake reads for that (ADR 0223).
 
 import type { Dependency } from '../schemas/events.ts';
 import { orderKey, type State } from './fold.ts';
