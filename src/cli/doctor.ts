@@ -238,6 +238,34 @@ const toolLine = (name: ToolName, run: ToolRun | undefined): ToolLine => ({
   path: run?.path,
 });
 
+/**
+ * The user-mode network stack a Linux setup's namespace gets the network from (ADR 0218): pasta,
+ * else slirp4netns, else pasta as missing. pasta prints its package's version as its first line's
+ * second word (`pasta 0.0~git20240220.1e6f92b-1`), which is not a dotted number.
+ */
+const stackLine = (tools: DoctorFacts['tools']): ToolLine => {
+  if (tools.pasta !== undefined) {
+    const version =
+      tools.pasta.exitCode === 0 ? firstLine(tools.pasta)?.split(/\s+/)[1] : undefined;
+    return { name: 'pasta', version, path: tools.pasta.path };
+  }
+  return tools.slirp4netns === undefined
+    ? toolLine('pasta', undefined)
+    : toolLine('slirp4netns', tools.slirp4netns);
+};
+
+/** A setup does not start on Linux without a stack; a Brewery without one needs neither. */
+const stackProblems = ({ platform, tools }: DoctorFacts): Problem[] =>
+  platform === 'linux' && tools.pasta === undefined && tools.slirp4netns === undefined
+    ? [
+        {
+          required: false,
+          what: 'pasta (passt) or slirp4netns not found',
+          fix: "install passt or slirp4netns: a repository's setup does not start without one (ADR 0218)",
+        },
+      ]
+    : [];
+
 /** Whether the dotted version `version` comes before `least`. */
 const isBefore = (version: string, least: readonly number[]): boolean => {
   const parts = version.split('.').map(Number);
@@ -663,6 +691,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...configProblems(facts),
     ...recipes.problems,
     ...sandboxProblems,
+    ...stackProblems(facts),
   ];
   // Podman first: it runs without a daemon or root. One that does not answer its version (a
   // runtime waiting for its daemon) is passed over for the next; when none answers, the first
@@ -689,7 +718,7 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
       toolLine('claude', tools.claude),
       // The sandbox's own tools matter on Linux only.
       ...(facts.platform === 'linux'
-        ? [toolLine('bwrap', tools.bwrap), toolLine('socat', tools.socat)]
+        ? [toolLine('bwrap', tools.bwrap), toolLine('socat', tools.socat), stackLine(tools)]
         : []),
     ],
     isolation,

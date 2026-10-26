@@ -76,10 +76,12 @@ jobs:
           exit "$status"
 
       # The sandbox check steps run in on Linux (ADR 0076), so its integration test runs against
-      # the real bwrap here instead of skipping.
-      - name: Install bubblewrap
+      # the real bwrap here instead of skipping; and passt's pasta, the user-mode network stack a
+      # setup's network namespace gets the network from, whose cases fail on CI without it
+      # (ADR 0218).
+      - name: Install bubblewrap and passt
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: sudo apt-get install -y bubblewrap
+        run: sudo apt-get install -y bubblewrap passt
 
       # Ubuntu 24.04 and later restrict unprivileged user namespaces, which bwrap needs; the
       # profile below is the one Claude Code's sandbox docs give for it ("Ubuntu 24.04 and later:

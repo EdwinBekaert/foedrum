@@ -334,18 +334,16 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       `foedrum.jsonc requires the sandboxed isolation level, and check steps would run at ${level} (${why}) (ADR 0076)`,
     );
   }
-  // A setup runs before brewer attempts as well as before check steps (ADR 0163). It
-  // keeps the host's network namespace on Linux and WSL2, and with it the host's abstract Unix
-  // sockets, until #425 (ADR 0158); on native Windows it has no sandbox, which the checks' line
-  // above already says when a recipe has a check step.
+  // A setup runs before brewer attempts as well as before check steps (ADR 0163). On native
+  // Windows it has no sandbox, which the checks' line above already says when a recipe has a
+  // check step; elsewhere it runs in the check sandbox, on Linux and WSL2 in a network namespace
+  // of its own (ADR 0218).
   const checksRefused = unsandboxedChecks && loaded.valid && loaded.checks.any();
-  if (config?.isolation?.minimum === 'sandboxed' && platform !== 'darwin' && !checksRefused) {
+  if (config?.isolation?.minimum === 'sandboxed' && unsandboxedChecks && !checksRefused) {
     for (const { repo, setup } of repositories) {
       if (setup === undefined) continue;
       problems.push(
-        unsandboxedChecks
-          ? `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside a sandbox on native Windows (ADR 0163)`
-          : `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)`,
+        `foedrum.jsonc requires the sandboxed isolation level, and ${repo}'s setup runs outside a sandbox on native Windows (ADR 0163)`,
       );
     }
   }

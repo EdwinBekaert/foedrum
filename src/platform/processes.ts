@@ -293,6 +293,7 @@ export const execProcessWith =
       jobObject = false,
       shell = false,
       stdin,
+      pipes,
     },
   ) =>
     new Promise((done) => {
@@ -318,6 +319,11 @@ export const execProcessWith =
         done(failed(`${file}: a command line for the shell takes no arguments`));
         return;
       }
+      // The shell and the Job Object's helper hand their program the standard three only.
+      if (pipes !== undefined && (shell || (jobObject && jobObjects))) {
+        done(failed(`${file}: extra pipes cannot go through a shell or a Job Object`));
+        return;
+      }
       // The shell finds the programs of a command line itself.
       const program = shell || resolve === undefined ? file : resolve(file, env);
       if (program === undefined) {
@@ -332,11 +338,13 @@ export const execProcessWith =
           jobObject,
           ...(shell ? { shell } : {}),
           ...(stdin === undefined ? {} : { stdin: true }),
+          ...(pipes === undefined ? {} : { pipes: pipes.count }),
         });
       } catch (error) {
         done(failed(error));
         return;
       }
+      const extra = (child.stdio ?? []).slice(3, 3 + (pipes?.count ?? 0)) as Duplex[];
       let finished = false;
       const finish = (result: ExecResult): void => {
         if (finished) return;
@@ -350,6 +358,7 @@ export const execProcessWith =
         if (child.pid !== undefined) killTree(child.pid);
         child.stdout.destroy();
         child.stderr.destroy();
+        for (const pipe of extra) pipe.destroy();
         finish(ended(null, killed));
       };
       const stop = (): void => kill('stopped');
@@ -387,6 +396,20 @@ export const execProcessWith =
         }
         child.stdin.on('error', () => {});
         child.stdin.end(stdin);
+      }
+      if (pipes !== undefined) {
+        if (extra.length < pipes.count) {
+          if (child.pid !== undefined) killTree(child.pid);
+          child.stdout.destroy();
+          child.stderr.destroy();
+          for (const pipe of extra) pipe.destroy();
+          finish(failed(`${file}: no pipe ${3 + extra.length}`));
+          return;
+        }
+        // A program that ends before it reads or writes them makes them fail (EPIPE, ECONNRESET);
+        // how it ended says more.
+        for (const pipe of extra) pipe.on('error', () => {});
+        pipes.onPipes(extra);
       }
       child.on('close', (code, endedBy) => {
         // Fail closed: a program the helper could not hold in a job did not start (ADR 0039).
@@ -618,7 +641,7 @@ const jobObjectsHere = process.platform === 'win32';
 
 /** The real spawner. Unit tests use a fake one instead (ADR 0021). */
 export const processSpawner: Spawner = {
-  spawn: (file, args, { cwd, env, jobObject = false, stdin = false, shell = false }) => {
+  spawn: (file, args, { cwd, env, jobObject = false, stdin = false, shell = false, pipes = 0 }) => {
     const command = shell
       ? shellCommand(file, process.platform, env)
       : spawnCommand(file, args, process.platform, env);
@@ -631,9 +654,13 @@ export const processSpawner: Spawner = {
       windowsHide: true,
       ...killableSpawnOptions(),
     };
-    return stdin
-      ? spawn(start.file, start.args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
-      : spawn(start.file, start.args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const extra = Array.from({ length: pipes }, () => 'pipe' as const);
+    const child = spawn(start.file, start.args, {
+      ...options,
+      stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe', ...extra],
+    });
+    // Pipes, so never null.
+    return child as typeof child & { stdout: Readable; stderr: Readable };
   },
   killTree: killProcessTree,
   jobObjects: jobObjectsHere,
