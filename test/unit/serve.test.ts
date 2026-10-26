@@ -405,6 +405,9 @@ describe('runServe', () => {
         fetch: github.fetch,
         wait: async () => {
           waits++;
+          // A person retitles the pull request once it is open: the brief reads its title.
+          const [opened] = github.pulls;
+          if (passed && opened !== undefined) opened.title = 'Add a --json flag, retitled';
           const done = passed ? briefComments() : conflictComments();
           if (done.length > 0 || waits > 40) controller.abort();
         },
@@ -458,7 +461,7 @@ describe('runServe', () => {
     const [brief] = briefComments();
     assert.ok(brief, lines.join(String.fromCodePoint(0x0a)));
     assert.equal(brief?.key, `acme/web#${pull?.number}`);
-    assert.match(brief?.body ?? '', /^### Merge\? Add a --json flag @ `/);
+    assert.match(brief?.body ?? '', /^### Merge\? Add a --json flag, retitled @ `/);
     assert.match(brief?.body ?? '', /- ✅ ci \(success\)/);
     assert.match(
       brief?.body ?? '',

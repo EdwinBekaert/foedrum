@@ -704,7 +704,8 @@ describe('the merge brief (ADR 0225)', () => {
       open();
       finished([passed('ci/build')]);
       const body = await brief();
-      const text = body.slice(0, body.indexOf('<!-- foedrum:'));
+      // Up to the brief's own record line: a model's `<!--` anywhere before it is a leak.
+      const text = body.slice(0, body.lastIndexOf('\n\n<!-- foedrum:brief '));
       assert.doesNotMatch(text, /closes #3/i);
       assert.doesNotMatch(text, /@ann/);
       assert.doesNotMatch(text, /<!--/);
@@ -915,7 +916,8 @@ describe('the merge brief (ADR 0225)', () => {
     it('links no brief once a later record is ready and its brief is not posted yet (regression test)', async () => {
       nip();
       finished([passed('ci/build')]);
-      await post(effectsOf(fakeHost().host));
+      assert.deepStrictEqual(await post(effectsOf(fakeHost().host)), ['brief.1']);
+      assert.match(await statusText(), /is ready to merge/);
       pending();
       finished([passed('ci/build'), passed('ci/late')]);
       assert.doesNotMatch(await statusText(), /is ready to merge/);
