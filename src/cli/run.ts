@@ -14,7 +14,7 @@ import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import type { BrewerSource } from './brewer-report.ts';
 import { columns } from './columns.ts';
-import { commands } from './commands.ts';
+import { commands, type RegisteredCommand } from './commands.ts';
 import type { DoctorFacts } from './doctor.ts';
 import type { BranchReading } from './kept-branches.ts';
 
@@ -143,22 +143,37 @@ const SERVE = { name: 'serve', summary: "Run the Cellar: brew the Brewery's batc
 
 const usage = (): CliResult => {
   const serve = [SERVE.name, SERVE.summary];
-  const rows = commands.map(({ name, summary, positionals, optional = [], rest, ...more }) => [
-    [
-      name,
-      ...positionals.map((positional) => `<${positional}>`),
-      ...optional.map((positional) => `[<${positional}>]`),
-      ...(rest === undefined ? [] : [`<${rest}>...`]),
-      ...Object.entries(more.options ?? {}).map(([option, value]) => `[--${option} <${value}>]`),
-      ...(more.flags ?? []).map((flag) => `[--${flag}]`),
-    ].join(' '),
-    summary,
-  ]);
+  const optionsOf = ({ options = {}, repeated = [] }: RegisteredCommand): string[] =>
+    Object.entries(options).map(
+      ([option, value]) => `[--${option} <${value}>]${repeated.includes(option) ? '...' : ''}`,
+    );
+  const rows = commands.map((command) => {
+    const { name, summary, positionals, optional = [], rest, synopsis, flags = [] } = command;
+    return [
+      [
+        name,
+        ...positionals.map((positional) => `<${positional}>`),
+        ...optional.map((positional) => `[<${positional}>]`),
+        ...(rest === undefined ? [] : [`<${rest}>...`]),
+        ...(synopsis === undefined
+          ? [...optionsOf(command), ...flags.map((flag) => `[--${flag}]`)]
+          : [synopsis]),
+      ].join(' '),
+      summary,
+    ];
+  });
+  // A command whose options are too many for its row lists them below the table.
+  const below = commands.flatMap((command) =>
+    command.synopsis === undefined
+      ? []
+      : ['', `${command.name} takes:`, ...optionsOf(command).map((option) => `  ${option}`)],
+  );
   const lines = [
     'Usage: foedrum <command> [arguments]',
     '',
     'Commands:',
     ...columns([serve, ...rows]),
+    ...below,
     '',
     `Every command takes --via <${VIA.join('|')}> but serve: the surface its events record.`,
   ];
@@ -200,6 +215,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   const prefix = `foedrum ${name}`;
   // The options the command takes, each with a value or, a flag, without: a field of its input.
   const known = Object.keys(command?.options ?? {});
+  const repeated = command?.repeated ?? [];
   const flags = command?.flags ?? [];
   // Not strict, so an unknown option is a token this can name instead of parseArgs' message.
   const { tokens } = parseArgs({
@@ -216,7 +232,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
   });
   const options = tokens.filter((token) => token.kind === 'option');
   if (options.some((option) => option.name === 'help')) return usage();
-  const optionValues: Record<string, string | true> = {};
+  const optionValues: Record<string, string | string[] | true> = {};
   let surface = context.surface;
   for (const option of options) {
     if (command !== undefined && option.name === 'via') {
@@ -241,7 +257,10 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
       return usageError(`${prefix}: unknown option "${option.rawName}"`);
     }
     if (option.value === undefined) return usageError(`${prefix}: ${option.rawName} needs a value`);
-    optionValues[option.name] = option.value;
+    if (repeated.includes(option.name)) {
+      const values = optionValues[option.name];
+      optionValues[option.name] = [...(Array.isArray(values) ? values : []), option.value];
+    } else optionValues[option.name] = option.value;
   }
   const values = tokens.flatMap((token) => (token.kind === 'positional' ? [token.value] : []));
   if (command === undefined) {

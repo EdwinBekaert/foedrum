@@ -132,7 +132,7 @@ Usage: foedrum <command> [arguments]
 Commands:
   serve                                                   Run the Cellar: brew the Brewery's batches until Ctrl+C
   doctor                                                  Check the tools Foedrum needs and the isolation level
-  init                                                    Write a Brewery's files in its clone from a few questions, then run doctor
+  init [--<question> <answer>]... [--no-input]            Set up a Brewery from a few questions, each answerable by its option, then run doctor
   status [--watch]                                        List the batches and their lanes
   stuck                                                   List the Stuck batches with their options and questions
   brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
@@ -151,6 +151,19 @@ Commands:
   brew <issue> [--as <name>] [--take]                     Brew an issue's batch here until it is on tap, Stuck or needs input
   rank <order> [<place>] [--why <reason>]                 Move an order in the intake's queue to place <n>, or mark it to finish first
   takeover <batch> [--as <name>]                          Hand a batch from the driver that holds it to another: --as, else this session
+
+init takes:
+  [--brewery <owner/name>]
+  [--visibility <private|public>]
+  [--targets <owner/name ...>]
+  [--alias <repo=alias>]...
+  [--use-checks <repo=y|n>]...
+  [--check <repo:check=command>]...
+  [--change <file=y|n>]...
+  [--label <repo=y|n>]...
+  [--push <y|n>]
+  [--shim <n|number>]
+  [--repoint <y|n>]
 
 Every command takes --via <plugin|terminal> but serve: the surface its events record.
 

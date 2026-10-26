@@ -20,7 +20,7 @@ import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
 import { firstLine } from '../workspace/clone-git.ts';
 import type { GitResult } from '../workspace/git.ts';
-import { offerShim, type ShimPorts } from './init-shim.ts';
+import { offerShim, type ShimPorts, shimChoice } from './init-shim.ts';
 import type { CliResult } from './run.ts';
 
 export interface InitPorts {
@@ -76,7 +76,38 @@ const MODELS = `// Model aliases over Foedrum's defaults (ADR 0153), such as { "
 /** Standard input ended before an answer: init stops where it is. */
 class NoAnswer extends Error {}
 
-type Parsed<T> = { value: T } | { refused: string };
+/** An option's answer that does not pass, or a question `--no-input` leaves unanswered: exit 2. */
+class Refused extends Error {}
+
+export type Parsed<T> = { value: T } | { refused: string };
+
+/** The options a question may be keyed by a repository or file in, `<key>=<answer>` (ADR 0212). */
+const KEYED = ['alias', 'use-checks', 'check', 'change', 'label'] as const;
+
+/** The option that answers a question: its name, and the repository or file it is keyed by. */
+interface Option {
+  name: keyof InitAnswers;
+  key?: string;
+}
+
+/** An option as given on the command line, with `answer`. */
+const optionWith = ({ name, key }: Option, answer: string): string =>
+  key === undefined ? `--${name} ${answer}` : `--${name} ${key}=${answer}`;
+
+/** A question as its refusal names it: the question quoted, then its default. */
+const quoted = (question: string): string => {
+  const asked = question.replace(/: $/, '');
+  const [, text = asked, fallback] = /^(.*?)( \[[^\]]*\])?$/.exec(asked) ?? [];
+  return `"${text}"${fallback ?? ''}`;
+};
+
+/** A yes or no from its option: y, yes, n or no, any case; empty for the default. */
+const yesNo = (answer: string, byDefault: boolean): Parsed<boolean> => {
+  if (answer === '') return { value: byDefault };
+  if (/^y(?:es)?$/i.test(answer)) return { value: true };
+  if (/^no?$/i.test(answer)) return { value: false };
+  return { refused: 'Answer y or n' };
+};
 
 type Json = Record<string, unknown>;
 
@@ -213,41 +244,90 @@ const suggestedAlias = (repo: string): string =>
 export type InitAnswers = Omit<InitCommand, 'command'>;
 
 /** Runs `foedrum init` through `ports`, with the answers `given` as options. */
-export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promise<CliResult> => {
+export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promise<CliResult> => {
   const { say, files } = ports;
   // Outside a clone, init creates the repository and clones it into a folder of its name (ADR 0207).
   const inClone = files.exists('.git');
   // The clone's folder from the working directory, `''` inside one; known once the name is asked.
   let folder = '';
   const at = (path: string): string => (folder === '' ? path : `${folder}/${path}`);
+  const noInput = given['no-input'] === true;
 
-  // Asks until an answer passes `parse`, which says why it does not.
-  const ask = async <T>(
+  // The keyed options' answers, by option and key, each given once (ADR 0212).
+  const keyed = new Map<string, string>();
+  for (const name of KEYED) {
+    for (const item of given[name] ?? []) {
+      const split = item.indexOf('=');
+      if (split <= 0) return usage(`--${name} ${item}: Give it as <key>=<answer>`);
+      const id = `${name} ${item.slice(0, split)}`;
+      if (keyed.has(id)) return usage(`--${name} ${item.slice(0, split)} is given twice`);
+      keyed.set(id, item.slice(split + 1));
+    }
+  }
+  const optionValue = (option: Option): string | undefined => {
+    if (option.key !== undefined) return keyed.get(`${option.name} ${option.key}`);
+    const value = given[option.name];
+    return typeof value === 'string' ? value : undefined;
+  };
+
+  // The answer `option` gives, or else asks until one passes `parse`, which says why it does not.
+  // An option's answer that does not pass, or none under --no-input, refuses init (ADR 0212).
+  const answer = async <T>(
     question: string,
-    fallback: string | undefined,
-    parse: (answer: string) => Parsed<T> | Promise<Parsed<T>>,
+    option: Option,
+    parse: (answer: string, typed: boolean) => Parsed<T> | Promise<Parsed<T>>,
   ): Promise<T> => {
-    const shown = `${question}${fallback ? ` [${fallback}]` : ''}: `;
+    const value = optionValue(option);
+    if (value !== undefined) {
+      const parsed = await parse(value.trim(), false);
+      if ('value' in parsed) return parsed.value;
+      throw new Refused(`${optionWith(option, value)}: ${parsed.refused}`);
+    }
+    if (noInput) {
+      throw new Refused(`no answer to ${quoted(question)}; add ${optionWith(option, '<answer>')}`);
+    }
     for (;;) {
-      const answer = await ports.ask(shown);
-      if (answer === undefined) throw new NoAnswer(question);
-      const parsed = await parse(answer.trim() || (fallback ?? ''));
+      const typed = await ports.ask(question);
+      if (typed === undefined) throw new NoAnswer(question.replace(/:? (?:\[.*)?$/, ''));
+      const parsed = await parse(typed.trim(), true);
       if ('value' in parsed) return parsed.value;
       say(`  ${parsed.refused}`);
     }
   };
 
-  // The answer to `question`; init stops when standard input has ended.
-  const answerTo = async (question: string): Promise<string> => {
-    const answer = await ports.ask(question);
-    if (answer === undefined) throw new NoAnswer(question.replace(/ \[.*$/, ''));
-    return answer;
+  // Asks until an answer passes `parse`; an empty answer takes `fallback`.
+  const ask = <T>(
+    question: string,
+    fallback: string | undefined,
+    option: Option,
+    parse: (answer: string) => Parsed<T> | Promise<Parsed<T>>,
+  ): Promise<T> =>
+    answer(`${question}${fallback ? ` [${fallback}]` : ''}: `, option, (given) =>
+      parse(given || (fallback ?? '')),
+    );
+
+  // A yes or no, `byDefault` for an empty answer; typed, anything but a yes is a no.
+  const confirm = (question: string, byDefault: boolean, option: Option): Promise<boolean> =>
+    answer(question, option, (given, typed) =>
+      typed && given !== '' ? { value: /^y(?:es)?$/i.test(given) } : yesNo(given, byDefault),
+    );
+
+  // A question init asks after the repository is created, answered now when its option is given,
+  // or refused now under --no-input after the lines it shows: before anything is created.
+  const early = async (option: Option, lines: readonly string[], check: () => Promise<unknown>) => {
+    if (optionValue(option) === undefined) {
+      if (!noInput) return;
+      for (const line of lines) say(line);
+    }
+    await check();
   };
 
-  // A yes or no, `byDefault` for an empty answer.
-  const confirm = async (question: string, byDefault: boolean): Promise<boolean> => {
-    const given = (await answerTo(question)).trim();
-    return given === '' ? byDefault : /^y(?:es)?$/i.test(given);
+  // Whether each target has the intake label, read once (ADR 0207).
+  const labels = new Map<string, Promise<boolean>>();
+  const labelled = (repo: string): Promise<boolean> => {
+    const read = labels.get(repo) ?? ports.github.hasLabel(repo, INTAKE_LABEL);
+    labels.set(repo, read);
+    return read;
   };
 
   // The files written or changed, said before doctor's report.
@@ -275,6 +355,7 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
     const brewery = await ask(
       'Brewery repository (owner/name)',
       named.success ? named.data : `${login}/foedrum-brewery`,
+      { name: 'brewery' },
       schemaOf(Repo),
     );
     let isPrivate = true;
@@ -294,10 +375,15 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
         return refuse(`the folder ${name} is there already; run init where it is not`);
       }
       folder = name;
-      isPrivate = await ask('Private or public', 'private', (answer): Parsed<boolean> => {
-        if (answer === 'private' || answer === 'public') return { value: answer === 'private' };
-        return { refused: 'Answer private or public' };
-      });
+      isPrivate = await ask(
+        'Private or public',
+        'private',
+        { name: 'visibility' },
+        (answer): Parsed<boolean> => {
+          if (answer === 'private' || answer === 'public') return { value: answer === 'private' };
+          return { refused: 'Answer private or public' };
+        },
+      );
     }
 
     // The repositories foedrum.jsonc has keep their entries as they are.
@@ -306,6 +392,7 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
     const targets = await ask(
       'Target repositories (owner/name, separated by spaces)',
       Object.keys(kept).join(' '),
+      { name: 'targets' },
       async (answer): Promise<Parsed<string[]>> => {
         const names = [...new Set(answer.split(/\s+/).filter((name) => name !== ''))];
         for (const name of names) {
@@ -358,6 +445,7 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
         RepositoryAlias.safeParse(suggested).success && !aliases.has(suggested)
           ? suggested
           : undefined,
+        { name: 'alias', key: repo },
         (answer) => {
           const parsed = schemaOf(RepositoryAlias)(answer);
           if ('value' in parsed && aliases.has(parsed.value)) {
@@ -374,7 +462,8 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
         for (const check of CheckName.options) say(`  ${check}: ${proposed[check] ?? 'none'}`);
         say(`  setup: ${read.lockfile ? 'npm ci' : 'none'}`);
         say(`  tools: ${nodeTools(proposed).join(', ') || 'none'}`);
-        if (!(await confirm(`Use these for ${repo}? [Y/n]: `, true))) scripts = undefined;
+        const use = { name: 'use-checks', key: repo } as const;
+        if (!(await confirm(`Use these for ${repo}? [Y/n]: `, true, use))) scripts = undefined;
       }
       let checks: Record<string, string | null>;
       if (scripts === undefined) {
@@ -383,6 +472,7 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
           checks[check] = await ask(
             `${check} check of ${repo} (a command, empty for none)`,
             undefined,
+            { name: 'check', key: `${repo}:${check}` },
             (answer): Parsed<string | null> => {
               if (answer === '') return { value: null };
               const parsed = schemaOf(Command)(answer);
@@ -432,6 +522,30 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
       settings,
     ];
 
+    // The questions after the repository is created, answered from their options now, or refused
+    // under --no-input, so nothing is created or written before a refusal (ADR 0212).
+    for (const plan of plans) {
+      if (plan.changes === undefined || plan.changes.length === 0) continue;
+      const option = { name: 'change', key: plan.path } as const;
+      await early(option, changeLines(plan), () => confirm(changeQuestion(plan), false, option));
+    }
+    for (const repo of targets) {
+      const option = { name: 'label', key: repo } as const;
+      if (optionValue(option) === undefined && !noInput) continue;
+      // A label it cannot read is said where init would ask.
+      const has = await labelled(repo).catch(() => true);
+      if (!has) await early(option, [], () => confirm(labelQuestion(repo), true, option));
+    }
+    await early({ name: 'push' }, [], () => confirm(PUSH_QUESTION, true, { name: 'push' }));
+    const shim = shimChoice(ports.shim);
+    if (shim.kind === 'repoint') {
+      const option = { name: 'repoint' } as const;
+      await early(option, [], () => confirm(shim.question, false, option));
+    } else if (shim.kind === 'folders') {
+      const option = { name: 'shim' } as const;
+      await early(option, shim.lines, () => answer(shim.question, option, shim.parse));
+    }
+
     // Every question about the files is answered: the repository is created only now, so input
     // that ended early leaves none behind (ADR 0207).
     if (!inClone) {
@@ -459,9 +573,9 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
         say(plan.kept === true ? `${plan.path} is kept as it is` : `${plan.path} is up to date`);
         continue;
       }
-      say(`${plan.path} would change:`);
-      for (const change of plan.changes) say(`  ${change}`);
-      if (await confirm(plan.question ?? `Change ${plan.path}? [y/N]: `, false)) {
+      for (const line of changeLines(plan)) say(line);
+      const option = { name: 'change', key: plan.path } as const;
+      if (await confirm(changeQuestion(plan), false, option)) {
         files.write(at(plan.path), plan.text);
         written.push(plan.path);
         say(`Changed ${plan.path}`);
@@ -471,7 +585,7 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
     }
     say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
 
-    for (const repo of targets) await intakeLabel(ports, confirm, repo);
+    for (const repo of targets) await intakeLabel(ports, confirm, labelled, repo);
     pushFailed = !(await commitAndPush(
       ports,
       confirm,
@@ -479,8 +593,13 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
       plans.map(({ path }) => path),
     ));
     // The foedrum command on the PATH, before doctor's report (ADR 0210).
-    await offerShim(ports.shim, { say, answer: answerTo });
+    await offerShim(ports.shim, {
+      say,
+      ask: (question, name, parse) => answer(question, { name }, parse),
+      confirm: (question, name, byDefault) => confirm(question, byDefault, { name }),
+    });
   } catch (error) {
+    if (error instanceof Refused) return usage(error.message);
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written${created}`);
     }
@@ -496,7 +615,20 @@ export const runInit = async (ports: InitPorts, _given: InitAnswers = {}): Promi
   return { exitCode: ok && !pushFailed ? 0 : 1, stdout: '', stderr: '' };
 };
 
-type Confirm = (question: string, byDefault: boolean) => Promise<boolean>;
+type Confirm = (question: string, byDefault: boolean, option: Option) => Promise<boolean>;
+
+const PUSH_QUESTION = 'Commit and push these? [Y/n]: ';
+
+const labelQuestion = (repo: string): string =>
+  `Create the label ${INTAKE_LABEL} in ${repo}? [Y/n]: `;
+
+const changeQuestion = (plan: Planned): string => plan.question ?? `Change ${plan.path}? [y/N]: `;
+
+/** What a file that is there would change, said before asking. */
+const changeLines = (plan: Planned): string[] => [
+  `${plan.path} would change:`,
+  ...(plan.changes ?? []).map((change) => `  ${change}`),
+];
 
 /** The one command that creates the intake label in `repo` later. */
 const labelCommand = (repo: string): string =>
@@ -506,21 +638,26 @@ const labelCommand = (repo: string): string =>
  * The intake label in `repo`, after asking (ADR 0207): one that is there is left alone; a no, or a
  * label it cannot read or create, prints the command that creates it, and init goes on.
  */
-const intakeLabel = async (ports: InitPorts, confirm: Confirm, repo: string): Promise<void> => {
+const intakeLabel = async (
+  ports: InitPorts,
+  confirm: Confirm,
+  labelled: (repo: string) => Promise<boolean>,
+  repo: string,
+): Promise<void> => {
   const { say } = ports;
   try {
-    if (await ports.github.hasLabel(repo, INTAKE_LABEL)) {
+    if (await labelled(repo)) {
       say(`${repo} has the label ${INTAKE_LABEL}`);
       return;
     }
-    if (await confirm(`Create the label ${INTAKE_LABEL} in ${repo}? [Y/n]: `, true)) {
+    if (await confirm(labelQuestion(repo), true, { name: 'label', key: repo })) {
       await ports.github.createLabel(repo, INTAKE_LABEL, LABEL_DESCRIPTION);
       say(`Created the label ${INTAKE_LABEL} in ${repo}`);
       return;
     }
     say('To create it later:');
   } catch (error) {
-    if (error instanceof NoAnswer) throw error;
+    if (error instanceof NoAnswer || error instanceof Refused) throw error;
     say(error instanceof Error ? error.message : String(error));
   }
   say(labelCommand(repo));
@@ -566,7 +703,7 @@ const commitAndPush = async (
         say('Also pushed, not on GitHub yet:');
         for (const commit of unpushed) say(`  ${commit}`);
       }
-      if (await confirm('Commit and push these? [Y/n]: ', true)) {
+      if (await confirm(PUSH_QUESTION, true, { name: 'push' })) {
         // The commit takes the listed files only, never what else is staged.
         const commit = ['commit', '-m', COMMIT_MESSAGE, '--', ...listed];
         for (const args of [['add', '--', ...listed], commit, PUSH]) {
@@ -611,6 +748,9 @@ const commitsNotPushed = async (
   }
   return log.stdout.split(/\r?\n/).filter((line) => line !== '');
 };
+
+/** A command line init cannot run: an option's answer that does not pass, or one missing. */
+const usage = (message: string): CliResult => ({ ...refuse(message), exitCode: 2 });
 
 const refuse = (message: string): CliResult => ({
   exitCode: 1,

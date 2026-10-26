@@ -21,7 +21,7 @@ Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-
   - `--push <y|n>`: `Commit and push these?`.
   - `--shim <number|n>`: `Write the foedrum command into which folder?`.
   - `--repoint <y|n>`: `<file> runs the Foedrum in <other>. Point it at <this>?`.
-- `--alias`, `--use-checks`, `--check`, `--change` and `--label` may be given more than once, one per repository or file. The registry gains options that repeat, shown in `--help` with `...`.
+- `--alias`, `--use-checks`, `--check`, `--change` and `--label` may be given more than once, one per repository or file. The registry gains options that repeat, shown in `--help` with `...`, and a synopsis for a command whose options are too many for its row: init's row shows `[--<question> <answer>]... [--no-input]`, and its options are listed below the table.
 - A question answered by its option is not asked. A value that does not pass is refused with exit 2 and one line that names the option and says why; it is not asked again, since a command line cannot answer twice.
 - A keyed option for a question init does not ask (an alias of a target it keeps, a label a target has) is not used.
 
@@ -42,7 +42,7 @@ Date: 2026-10-26 · Status: Accepted · Amends [0207](0207-foedrum-init-creates-
 ## Consequences
 - In a Claude Code session opened in an empty folder, `/foedrum:init` ends with a pushed Brewery, the labels and the `foedrum` command, asking the same questions the terminal asks.
 - A script or CI can run `foedrum init --no-input …` and know it either ran with the answers it gave or created nothing.
-- The skill runs init once per question, each run reading GitHub again: about ten short runs for a first Brewery.
+- The skill runs init once per question, each run reading GitHub again: 8 to 12 short runs for a first Brewery.
 - A new question in init is a new option, and refused under `--no-input` until given: the skill learns it from init's line without a change.
 
 ## Alternatives considered

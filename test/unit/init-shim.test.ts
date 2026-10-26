@@ -78,11 +78,20 @@ const offer = async (machine: Machine, answers: readonly string[] = []): Promise
       return run.written.at(-1)?.path;
     },
   };
+  const answer = (question: string): string => {
+    run.questions.push(question);
+    return queue.shift() ?? assert.fail(`no answer to ${question}`);
+  };
+  // As init asks: again after an answer that does not pass, saying why; anything but a yes is a no.
   await offerShim(ports, {
-    answer: async (question) => {
-      run.questions.push(question);
-      return queue.shift() ?? assert.fail(`no answer to ${question}`);
+    ask: async (question, _option, parse) => {
+      for (;;) {
+        const parsed = parse(answer(question).trim());
+        if ('value' in parsed) return parsed.value;
+        run.lines.push(`  ${parsed.refused}`);
+      }
     },
+    confirm: async (question) => /^y(?:es)?$/i.test(answer(question).trim()),
     say: (line) => {
       run.lines.push(line);
     },

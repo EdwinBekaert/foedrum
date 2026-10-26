@@ -4,6 +4,7 @@
 
 import { posix, win32 } from 'node:path';
 import { pathExtensions, pathFolders } from '../platform/executables.ts';
+import type { Parsed } from './init.ts';
 
 export interface ShimPorts {
   platform: NodeJS.Platform;
@@ -23,8 +24,13 @@ export interface ShimPorts {
 }
 
 export interface ShimTerminal {
-  /** Asks one question and gives its answer; throws when standard input has ended. */
-  answer: (question: string) => Promise<string>;
+  /**
+   * Asks `question` until an answer passes `parse`, or takes the answer its option gives (ADR
+   * 0212); throws when standard input has ended, or when the option's answer does not pass.
+   */
+  ask: <T>(question: string, option: 'shim', parse: (answer: string) => Parsed<T>) => Promise<T>;
+  /** A yes or no, `byDefault` for an empty answer, or the one its option gives. */
+  confirm: (question: string, option: 'repoint', byDefault: boolean) => Promise<boolean>;
   say: (line: string) => void;
 }
 
@@ -76,20 +82,44 @@ const managed = (segments: readonly string[]): boolean =>
       (segment === 'npm' && segments[at - 1] === 'roaming'),
   ) || segments.at(-1) === 'scripts';
 
-/** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */
-export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promise<void> => {
-  const { platform, env, home, entry } = ports;
-  const { say } = terminal;
-  const windows = platform === 'win32';
-  const path = windows ? win32 : posix;
+/**
+ * What init does about the `foedrum` command on this machine, read before any question (ADR 0210,
+ * ADR 0212): only say lines, ask whether to point init's shim of another checkout here, or ask
+ * which folder to write it into.
+ */
+export type ShimChoice =
+  | { kind: 'said'; lines: string[] }
+  | { kind: 'repoint'; question: string; file: string }
+  | {
+      kind: 'folders';
+      question: string;
+      /** The numbered folders, said before the question. */
+      lines: string[];
+      /** Reads an answer: the shim's file in the folder it picks, or `null` for none. */
+      parse: (answer: string) => Parsed<string | null>;
+      /** Where the shim would go, said on a no. */
+      first: string;
+    };
+
+/** The shim on the platform of `ports`: whether it is Windows, its paths, shell and text. */
+const shimOf = (ports: ShimPorts) => {
+  const windows = ports.platform === 'win32';
   const shell = SHELLS[windows ? 'windows' : 'posix'];
+  return { windows, path: windows ? win32 : posix, shell, text: shell.text(ports.entry) };
+};
+
+/** What init does about the `foedrum` command, read from `ports` without writing anything. */
+export const shimChoice = (ports: ShimPorts): ShimChoice => {
+  const { platform, env, home, entry } = ports;
+  const { windows, path, shell, text } = shimOf(ports);
   if (windows && !pathExtensions(env, platform).includes('.cmd')) {
-    say(
-      'PATHEXT has no .CMD, so foedrum.cmd would not run as foedrum; the foedrum command is not written',
-    );
-    return;
+    return {
+      kind: 'said',
+      lines: [
+        'PATHEXT has no .CMD, so foedrum.cmd would not run as foedrum; the foedrum command is not written',
+      ],
+    };
   }
-  const text = shell.text(entry);
   const same = (a: string, b: string): boolean =>
     windows
       ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
@@ -126,37 +156,37 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
   const folders = inside.toSorted((a, b) => rank(a) - rank(b));
 
   if (folders.length === 0) {
-    say(`No folder on the PATH is inside ${home} to write the foedrum command into.`);
+    const lines = [`No folder on the PATH is inside ${home} to write the foedrum command into.`];
     // Every folder lies inside a root home, so init names none, a system folder least of all.
     if (rootHome) {
-      say(
+      lines.push(
         'A home that is a root folder holds every folder, so init names none; write it by hand into a folder of yours on the PATH:',
+        ...indented(text),
       );
-      for (const line of text.split(/\r?\n/).slice(0, -1)) say(`  ${line}`);
-      if (!windows) say('and run chmod 755 on it');
-      return;
+      if (!windows) lines.push('and run chmod 755 on it');
+      return { kind: 'said', lines };
     }
     // A bin folder of the user's on the PATH only needs making, or making writable.
     const listed = preferred.find((own) => onPath.some((folder) => same(folder, own)));
     const suggested = listed ?? (preferred[0] as string);
     if (listed !== undefined) {
-      say(`Create ${suggested}, or make it writable: it is on the PATH already.`);
+      lines.push(`Create ${suggested}, or make it writable: it is on the PATH already.`);
     } else if (windows) {
       // PowerShell's single-quoted strings write each quote it reads as one twice, typographic
       // ones too.
       const quoted = suggested.replace(/['\u2018\u2019\u201a\u201b]/g, (quote) => quote + quote);
-      say(`Create ${suggested} and add it to your PATH, in PowerShell:`);
-      say(
+      lines.push(
+        `Create ${suggested} and add it to your PATH, in PowerShell:`,
         `  New-Item -ItemType Directory -Force '${quoted}'; [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';${quoted}', 'User')`,
       );
     } else {
-      say(
+      lines.push(
         `Create ${suggested} and add this line to your shell's profile (~/.profile, ~/.bashrc or ~/.zshrc):`,
+        '  export PATH="$HOME/.local/bin:$PATH"',
       );
-      say('  export PATH="$HOME/.local/bin:$PATH"');
     }
-    byHand(say, path.join(suggested, shell.name), text, windows);
-    return;
+    lines.push(...byHand(path.join(suggested, shell.name), text, windows));
+    return { kind: 'said', lines };
   }
 
   // A foedrum there already decides: init's own shim is kept or pointed here, another file is left.
@@ -167,45 +197,71 @@ export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promi
       there = ports.read(file);
     } catch (error) {
       // A folder by that name, or a file it may not read: init goes on to doctor.
-      say(`Could not read ${file}: ${messageOf(error)}`);
-      byHand(say, file, text, windows);
-      return;
+      return {
+        kind: 'said',
+        lines: [`Could not read ${file}: ${messageOf(error)}`, ...byHand(file, text, windows)],
+      };
     }
     if (there === undefined) continue;
     const runs = there.includes(MARK) ? shell.entryOf(there) : undefined;
     if (runs === undefined) {
-      say(`${file} is there and is not a foedrum command init wrote; it is left as it is`);
-      return;
+      return {
+        kind: 'said',
+        lines: [`${file} is there and is not a foedrum command init wrote; it is left as it is`],
+      };
     }
-    if (same(runs, entry)) {
-      say(`${file} runs this Foedrum already`);
-      return;
-    }
-    const answer = await terminal.answer(
-      `${file} runs the Foedrum in ${checkout(runs)}. Point it at ${checkout(entry)}? [y/N]: `,
-    );
-    if (/^y(?:es)?$/i.test(answer.trim())) write(ports, terminal, file, text, windows);
-    else say(`Kept ${file}`);
-    return;
+    if (same(runs, entry)) return { kind: 'said', lines: [`${file} runs this Foedrum already`] };
+    return {
+      kind: 'repoint',
+      file,
+      question: `${file} runs the Foedrum in ${checkout(runs)}. Point it at ${checkout(entry)}? [y/N]: `,
+    };
   }
 
-  say('Folders on the PATH for the foedrum command:');
-  folders.forEach((folder, at) => {
-    say(`  ${at + 1}. ${folder}`);
-  });
-  for (;;) {
-    const answer = (await terminal.answer(QUESTION)).trim();
-    if (/^no?$/i.test(answer)) {
-      byHand(say, path.join(folders[0] as string, shell.name), text, windows);
+  return {
+    kind: 'folders',
+    question: QUESTION,
+    lines: [
+      'Folders on the PATH for the foedrum command:',
+      ...folders.map((folder, at) => `  ${at + 1}. ${folder}`),
+    ],
+    parse: (answer) => {
+      const given = answer.trim();
+      if (/^no?$/i.test(given)) return { value: null };
+      const picked = given === '' ? 1 : /^\d+$/.test(given) ? Number(given) : 0;
+      const folder = folders[picked - 1];
+      if (folder !== undefined) return { value: path.join(folder, shell.name) };
+      return { refused: `Answer a number from 1 to ${folders.length}, or n` };
+    },
+    first: path.join(folders[0] as string, shell.name),
+  };
+};
+
+/** Offers the `foedrum` command after asking, or says how to write it by hand (ADR 0210). */
+export const offerShim = async (ports: ShimPorts, terminal: ShimTerminal): Promise<void> => {
+  const { say } = terminal;
+  const { windows, text } = shimOf(ports);
+  const choice = shimChoice(ports);
+  switch (choice.kind) {
+    case 'said':
+      for (const line of choice.lines) say(line);
+      return;
+    case 'repoint':
+      if (await terminal.confirm(choice.question, 'repoint', false)) {
+        write(ports, terminal, choice.file, text, windows);
+      } else say(`Kept ${choice.file}`);
+      return;
+    case 'folders': {
+      for (const line of choice.lines) say(line);
+      const file = await terminal.ask(choice.question, 'shim', choice.parse);
+      if (file === null) for (const line of byHand(choice.first, text, windows)) say(line);
+      else write(ports, terminal, file, text, windows);
       return;
     }
-    const picked = answer === '' ? 1 : /^\d+$/.test(answer) ? Number(answer) : 0;
-    const folder = folders[picked - 1];
-    if (folder !== undefined) {
-      write(ports, terminal, path.join(folder, shell.name), text, windows);
-      return;
+    default: {
+      const never: never = choice;
+      throw new Error(`Unknown choice ${JSON.stringify(never)}`);
     }
-    say(`  Answer a number from 1 to ${folders.length}, or n`);
   }
 };
 
@@ -222,7 +278,7 @@ const write = (
   } catch (error) {
     // Windows' ACLs can keep the user out of a folder that passes `writable`; init goes on.
     say(`Could not write ${file}: ${messageOf(error)}`);
-    byHand(say, file, text, windows);
+    for (const line of byHand(file, text, windows)) say(line);
     return;
   }
   say(`Wrote ${file}`);
@@ -234,12 +290,19 @@ const write = (
   } else say(`foedrum runs ${runs} in this terminal, which is earlier on the PATH`);
 };
 
+/** The shim's lines, each indented to be read apart from init's own. */
+const indented = (text: string): string[] =>
+  text
+    .split(/\r?\n/)
+    .slice(0, -1)
+    .map((line) => `  ${line}`);
+
 /** Where the shim would go and what it would hold, for the user to write by hand. */
-const byHand = (say: ShimTerminal['say'], file: string, text: string, windows: boolean): void => {
-  say(`Not written. To write it by hand, put these lines in ${file}:`);
-  for (const line of text.split(/\r?\n/).slice(0, -1)) say(`  ${line}`);
-  if (!windows) say(`and run: chmod 755 ${file}`);
-};
+const byHand = (file: string, text: string, windows: boolean): string[] => [
+  `Not written. To write it by hand, put these lines in ${file}:`,
+  ...indented(text),
+  ...(windows ? [] : [`and run: chmod 755 ${file}`]),
+];
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
