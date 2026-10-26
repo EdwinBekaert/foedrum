@@ -353,12 +353,15 @@ export const execProcessWith =
         signal?.removeEventListener('abort', stop);
         done(result);
       };
-      const kill = (killed: Killed): void => {
-        if (finished) return;
+      const tearDown = (): void => {
         if (child.pid !== undefined) killTree(child.pid);
         child.stdout.destroy();
         child.stderr.destroy();
         for (const pipe of extra) pipe.destroy();
+      };
+      const kill = (killed: Killed): void => {
+        if (finished) return;
+        tearDown();
         finish(ended(null, killed));
       };
       const stop = (): void => kill('stopped');
@@ -399,10 +402,7 @@ export const execProcessWith =
       }
       if (pipes !== undefined) {
         if (extra.length < pipes.count) {
-          if (child.pid !== undefined) killTree(child.pid);
-          child.stdout.destroy();
-          child.stderr.destroy();
-          for (const pipe of extra) pipe.destroy();
+          tearDown();
           finish(failed(`${file}: no pipe ${3 + extra.length}`));
           return;
         }
