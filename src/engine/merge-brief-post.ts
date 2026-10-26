@@ -33,11 +33,11 @@ import {
 
 /** The pull request's comments and title on the code host, as the Brewery's own identity has them. */
 export interface MergeBriefHost {
-  /** The Brewery's own comment on the pull request whose body ends with `marker`: its id and body. */
+  /** The Brewery's own comment on the pull request whose body ends with `end`: its id and body. */
   find(
     repo: string,
     number: number,
-    marker: string,
+    end: string,
     signal?: AbortSignal,
   ): Promise<{ id: number; body: string } | undefined>;
   /** Comments on the pull request; the new comment's id. */
@@ -408,6 +408,18 @@ const briefRest = (
 const titleLine = (title: string, head: string): string =>
   `### Merge? ${plain(title)} @ ${code(shortSha(head))}`;
 
+/**
+ * The hidden line before a brief's marker that names the record it was posted for: what tells a
+ * brief a killed driver posted from another record's under the same key. No model text can write
+ * it, since `plain` writes each `<` as `&lt;`.
+ */
+const recordLine = ({ pullRequest, head, digest }: ReadyRecord): string =>
+  `<!-- foedrum:brief ${new URL(pullRequest).href} ${head} ${digest} -->`;
+
+/** What a brief of `ready` under `key` ends with: its record's line, then its marker. */
+const endOf = (key: string, ready: ReadyRecord): string =>
+  `\n\n${recordLine(ready)}\n${effectMarker(key)}`;
+
 /** A brief that is due: where it goes, what follows its title, and the record it is for. */
 interface DueBrief {
   repo: string;
@@ -427,8 +439,8 @@ const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): 
 
 /**
  * The merge brief of each ready pull request, for the driver (ADR 0225): due when `readyOf` gives a
- * record the latest brief was not posted for, found by its marker on the Brewery's own comment
- * when the text after its title is this record's, else posted.
+ * record the latest brief was not posted for, found among the Brewery's own comments by its record's
+ * line and its marker, else posted.
  */
 export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffects => {
   const { host, recipes, redProof = () => undefined } = options;
@@ -441,17 +453,16 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
   };
   const target: EffectTarget = {
     find: async (key, signal) => {
-      const { repo, number, rest, ready } = briefFor(key);
-      const marker = effectMarker(key);
-      const found = await host.find(repo, number, marker, signal);
-      // Another record's brief a killed driver posted under this key stays; this one is posted.
-      if (found === undefined || !found.body.endsWith(`\n\n${rest}\n\n${marker}`)) return undefined;
-      return { result: resultOf(found.id, ready) };
+      const { repo, number, ready } = briefFor(key);
+      // By the record alone: another record's brief a killed driver posted under this key stays,
+      // and a base that moved since changes the text, not the record.
+      const found = await host.find(repo, number, endOf(key, ready), signal);
+      return found === undefined ? undefined : { result: resultOf(found.id, ready) };
     },
     apply: async (key, signal) => {
       const { repo, number, rest, ready } = briefFor(key);
       const title = await host.title(repo, number, signal);
-      const body = `${titleLine(title, ready.head)}\n\n${rest}\n\n${effectMarker(key)}`;
+      const body = `${titleLine(title, ready.head)}\n\n${rest}${endOf(key, ready)}`;
       return resultOf(await host.create(repo, number, body, signal), ready);
     },
   };
