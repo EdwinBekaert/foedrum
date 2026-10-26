@@ -97,8 +97,8 @@ describe('settleAttempt', () => {
     });
   });
 
-  // ADR 0091: claude refuses every request until the window resets, so another attempt now would
-  // be refused too. A human retries after the reset claude named.
+  // ADR 0091, ADR 0206: claude refuses every request until the window resets, so another attempt
+  // now would be refused too. The engine holds the brewers until the reset claude named.
   it('blocks on the environment when a usage window ran out, naming the limit and its reset', () => {
     for (const { limit, resets } of documentedUsageLimits) {
       const ending = settleAttempt(
@@ -115,7 +115,8 @@ describe('settleAttempt', () => {
       assert.deepStrictEqual(ending, {
         kind: 'blocked',
         blockerKind: 'environment',
-        summary: `claude hit its ${limit} limit, which resets ${resets}: retry the step after that`,
+        summary: `claude hit its ${limit} limit, which resets ${resets}`,
+        usageLimit: { limit, resets },
       });
     }
   });
@@ -136,7 +137,8 @@ describe('settleAttempt', () => {
       assert.deepStrictEqual(ending, {
         kind: 'blocked',
         blockerKind: 'environment',
-        summary: 'claude hit its Opus limit, which resets 3:45pm: retry the step after that',
+        summary: 'claude hit its Opus limit, which resets 3:45pm',
+        usageLimit: { limit: 'Opus', resets: '3:45pm' },
       });
     }
   });
@@ -201,7 +203,8 @@ describe('settleAttempt', () => {
     assert.deepStrictEqual(settleAttempt(facts({ unresumed, usageLimit }), limits), {
       kind: 'blocked',
       blockerKind: 'environment',
-      summary: 'claude hit its session limit, which resets 3:45pm: retry the step after that',
+      summary: 'claude hit its session limit, which resets 3:45pm',
+      usageLimit,
     });
     const spendLimit = { kind: 'credit' } as const;
     const ending = settleAttempt(facts({ unresumed, spendLimit }), limits);
@@ -219,7 +222,8 @@ describe('settleAttempt', () => {
     assert.deepStrictEqual(settleAttempt(facts({ usageLimit, spendLimit }), limits), {
       kind: 'blocked',
       blockerKind: 'environment',
-      summary: 'claude hit its session limit, which resets 3:45pm: retry the step after that',
+      summary: 'claude hit its session limit, which resets 3:45pm',
+      usageLimit,
     });
   });
 

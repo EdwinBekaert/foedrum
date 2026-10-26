@@ -16,6 +16,7 @@ import type {
   StuckReason,
   Surface,
   Usage,
+  UsageLimitName,
   WaitCondition,
   WorktreeRef,
 } from '../schemas/events.ts';
@@ -83,6 +84,8 @@ export type Attempt =
       receipt?: Receipt;
       /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
       paused?: true;
+      /** Ended as claude hit a usage limit: it counts against no retry (ADR 0206). */
+      usageLimited?: true;
     };
 
 export interface Input {
@@ -233,6 +236,17 @@ export interface Release {
   version: string;
 }
 
+/**
+ * A closed usage window (ADR 0206): which limit claude hit, its reset as claude wrote it, and when
+ * the window reopens, which is an hour on when the reset could not be `read`.
+ */
+export interface UsageWindow {
+  limit: UsageLimitName;
+  resets: string;
+  reopensAt: string;
+  read: boolean;
+}
+
 /** A person's pause of an order or of the whole Brewery (ADR 0202). */
 export interface Pause {
   by: string;
@@ -272,6 +286,8 @@ export interface State {
   pauses: Pauses;
   /** The ranks in force, by `orderKey` (ADR 0208). */
   ranks: ReadonlyMap<string, Rank>;
+  /** The usage window while it is closed: no brewer attempt starts (ADR 0206). */
+  usageWindow: UsageWindow | undefined;
 }
 
 export const emptyState: State = {
@@ -283,6 +299,7 @@ export const emptyState: State = {
   effects: new Map(),
   pauses: { orders: new Map() },
   ranks: new Map(),
+  usageWindow: undefined,
 };
 
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
@@ -449,6 +466,7 @@ function apply(state: State, event: Event): State {
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
+          ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;
@@ -658,6 +676,14 @@ function apply(state: State, event: Event): State {
         };
       });
     }
+    case 'usage.window_closed': {
+      // A later limit replaces the window in force: decide keeps the later reopen (ADR 0206).
+      const { limit, resets, reopensAt, read } = event;
+      return { ...state, usageWindow: { limit, resets, reopensAt, read } };
+    }
+    case 'usage.window_opened':
+      if (state.usageWindow === undefined) throw reject('the usage window is not closed');
+      return { ...state, usageWindow: undefined };
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

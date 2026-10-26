@@ -186,6 +186,21 @@ describe('logPathOf', () => {
       },
       'batches/b1/events.jsonl',
     ],
+    // The usage window holds every batch's brewers: it names none (ADR 0206).
+    'usage.window_closed': [
+      {
+        type: 'usage.window_closed',
+        limit: 'session',
+        resets: '3:45pm',
+        reopensAt: '2026-10-15T13:50:00.000Z',
+        read: true,
+      },
+      'events.jsonl',
+    ],
+    'usage.window_opened': [
+      { type: 'usage.window_opened', at: '2026-10-15T13:50:00.000Z' },
+      'events.jsonl',
+    ],
     'batch.rewound': [
       {
         type: 'batch.rewound',

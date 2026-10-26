@@ -2971,6 +2971,27 @@ describe('openDriver', () => {
       });
     });
 
+    it('starts an action while the usage window is closed, and no brewer (ADR 0206)', async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions();
+      orderAle('b1');
+      order('b2');
+      const driver = await open({ runner: brewer.runner, actions, zone: () => 'UTC' });
+      await driver.drive();
+      brewer.end(plan('b2'), {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'claude hit its session limit, which resets 3:45pm',
+        usageLimit: { limit: 'session', resets: '3:45pm' },
+      });
+      await driver.tick();
+      assert.ok(driver.state().usageWindow, 'the window is closed');
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(applied, [push, pullRequest]);
+      assert.deepStrictEqual(brewer.started, [plan('b1'), plan('b2')]);
+    });
+
     it('takes no lease for the action, so no supervisor loses it while its effects fail', async () => {
       const brewer = handRunner();
       const reported: DriverNotice[] = [];
@@ -3277,6 +3298,110 @@ describe('openDriver', () => {
       resume(1);
       await again.tick();
       assert.deepStrictEqual(second.started, [plan('b1')]);
+    });
+  });
+
+  describe('the usage window (ADR 0206)', () => {
+    const limited: Ending = {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'claude hit its session limit, which resets 3:45pm',
+      usageLimit: { limit: 'session', resets: '3:45pm' },
+    };
+    // 3:45pm in UTC at t0, plus the margin.
+    const reopen = new Date('2026-10-15T15:50:00.000Z');
+
+    it('reads the reset in the zone it was given', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, zone: () => 'Europe/Brussels' });
+      await driver.drive();
+      end(plan('b1'), limited);
+      await driver.tick();
+      // 15:45 in Brussels on 15 October, in summer time, plus the margin.
+      assert.equal(driver.state().usageWindow?.reopensAt, '2026-10-15T13:50:00.000Z');
+    });
+
+    it('closes the window at the reset read in its zone, and starts no brewer until it reopens', async () => {
+      const { runner, started, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, zone: () => 'UTC' });
+      await driver.drive();
+      end(plan('b1'), limited);
+      await driver.tick();
+      // Ordered once the window is closed: a pass starts what is due before it records the ends.
+      order('b2');
+      assert.deepStrictEqual(driver.state().usageWindow, {
+        limit: 'session',
+        resets: '3:45pm',
+        reopensAt: reopen.toISOString(),
+        read: true,
+      });
+      now = new Date(reopen.getTime() - 1);
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      now = reopen;
+      await driver.tick();
+      assert.equal(driver.state().usageWindow, undefined);
+      assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2), plan('b2')]);
+    });
+
+    it('starts an attempt that runs no brewer while the window is closed, such as a check', async () => {
+      const { runner, started, end } = handRunner();
+      order('b1');
+      const driver = await open({
+        runner,
+        zone: () => 'UTC',
+        brews: (ref) => ref.batchId !== 'b2',
+      });
+      await driver.drive();
+      end(plan('b1'), limited);
+      await driver.tick();
+      assert.ok(driver.state().usageWindow, 'the window is closed');
+      order('b2');
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1'), plan('b2')]);
+    });
+
+    it('starts a held attempt of a paused order only once the window is open and the pause lifted', async () => {
+      const { runner, started, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, zone: () => 'UTC' });
+      await driver.drive();
+      end(plan('b1'), limited);
+      await driver.tick();
+      const who = { by: 'ada', via: 'terminal' } as const;
+      assert.equal(
+        intake.issue({ kind: 'pause', order: { issue: 1 }, ...who }, now).kind,
+        'accepted',
+      );
+      now = reopen;
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      assert.equal(
+        intake.issue({ kind: 'continue', order: { issue: 1 }, ...who }, now).kind,
+        'accepted',
+      );
+      await driver.tick();
+      assert.deepStrictEqual(started, [plan('b1'), plan('b1', 2)]);
+    });
+
+    it('starts nothing held after a restart while the window is closed, and goes on at its reopen', async () => {
+      const first = handRunner();
+      order('b1');
+      const driver = await open({ runner: first.runner, zone: () => 'UTC' });
+      await driver.drive();
+      first.end(plan('b1'), limited);
+      await driver.tick();
+      driver.close();
+      drivers.splice(drivers.indexOf(driver), 1);
+      const second = handRunner();
+      const again = await open({ runner: second.runner, zone: () => 'UTC' });
+      await again.tick();
+      assert.deepStrictEqual(second.started, []);
+      now = reopen;
+      await again.tick();
+      assert.deepStrictEqual(second.started, [plan('b1', 2)]);
     });
   });
 });
