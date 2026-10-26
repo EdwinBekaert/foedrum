@@ -9,6 +9,9 @@ import { emptyState, fold } from '../engine/fold.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient } from '../github/client.ts';
+import { githubLogin } from '../github/login.ts';
+import { createGitHubReads } from '../github/reads.ts';
+import { githubTargetTracker } from '../github/tracker.ts';
 import { userName } from '../platform/env.ts';
 import { stopOnSignals } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
@@ -76,6 +79,18 @@ export const cliFromCheckout = async (
             cwd,
           }),
         ),
+      // The intake's reads, as serve makes them, through gh's own login (ADR 0073, ADR 0208).
+      queue: (config) => {
+        const client = createGitHubClient({
+          ...(options?.exec === undefined ? {} : { exec: options.exec }),
+          hostname: githubHostname(config),
+          cwd,
+        });
+        return {
+          tracker: githubTargetTracker(createGitHubReads(client)),
+          login: (signal) => githubLogin(client, signal),
+        };
+      },
       // Loaded only for serve: it brings the runner, git and the state branch.
       serve: async () => (await import('./serve-main.ts')).serveFromCheckout(cwd, options),
       // Loaded only for brew, as for serve.

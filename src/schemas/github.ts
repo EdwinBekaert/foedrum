@@ -46,6 +46,11 @@ export const GitHubIssue = z.object({
   body: z.string().nullable().optional(),
 });
 
+/** One item of the intake's listing: with its creation time, its arrival in the queue (ADR 0208). */
+export const GitHubListedIssue = GitHubIssue.extend({
+  created_at: z.iso.datetime({ offset: true }),
+});
+
 /** `GET /repos/{owner}/{repo}/pulls/{n}`. */
 export const GitHubPullRequest = z.object({
   state: z.enum(['open', 'closed']),

@@ -34,6 +34,8 @@ export interface TargetIssue {
   assignees: readonly string[];
   /** The GitHub login that opened the issue. */
   author: string;
+  /** When it was created on GitHub: its arrival in the intake's queue (ADR 0208). */
+  created: string;
 }
 
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */
@@ -151,73 +153,6 @@ export const claimIssue = async (
   // Gone between creating and reading it: released in between; the next poll tries again.
   if (!holder.found || holder.brewery === undefined) return { kind: 'taken', by: undefined };
   return same(holder.brewery, brewery) ? { kind: 'ours' } : { kind: 'taken', by: holder.brewery };
-};
-
-/** What one pass of the intake got for a repository's issues. */
-export interface ClaimPass {
-  /** The issues this Brewery holds the claim of and orders now, in issue order. */
-  order: number[];
-  /** The candidates another Brewery (or someone unknown) holds the claim of. */
-  taken: { issue: number; by: string | undefined }[];
-  /**
-   * The candidate whose claim the code host failed: the pass stopped there, and the claims before
-   * it are in `order`, so they are ordered now and never left without a batch.
-   */
-  failed?: { issue: number; error: unknown };
-}
-
-/**
- * Claims the candidates of `issues`, one after the other, oldest issue first, until it orders
- * `limit` of them; the rest wait for the next pass, or for another Brewery. It stops at the first
- * claim the code host fails, and returns what it holds so far with the failure.
- */
-export const claimCandidates = async (
-  host: ClaimHost,
-  issues: readonly TargetIssue[],
-  /** `limit`: the Brewery's free capacity, how many batches it can start now. */
-  /** `signal`: handed to the code host; once it aborts, the next claim fails and the pass stops. */
-  options: CandidateOptions & {
-    repo: string;
-    now: string;
-    limit: number;
-    signal?: AbortSignal | undefined;
-  },
-): Promise<ClaimPass> => {
-  const { repo, now, claimant, limit, signal } = options;
-  if (!Number.isSafeInteger(limit) || limit < 0) {
-    throw new RangeError(`The limit must be a whole number of batches, got ${limit}`);
-  }
-  const candidates = issues
-    .filter((issue) => isCandidate(issue, options))
-    .map((issue) => issue.number)
-    // Once each: a listing whose pages shift while it is read can return an issue twice.
-    .filter((number, index, numbers) => numbers.indexOf(number) === index)
-    .sort((one, other) => one - other);
-  const pass: ClaimPass = { order: [], taken: [] };
-  for (const issue of candidates) {
-    // A taken claim costs no capacity, so the pass goes on to the next candidate.
-    if (pass.order.length === limit) break;
-    let outcome: ClaimOutcome;
-    try {
-      signal?.throwIfAborted();
-      outcome = await claimIssue(host, { repo, issue, brewery: claimant.brewery, now, signal });
-    } catch (error) {
-      pass.failed = { issue, error };
-      break;
-    }
-    switch (outcome.kind) {
-      case 'won':
-      case 'ours':
-        pass.order.push(issue);
-        break;
-      case 'taken':
-        pass.taken.push({ issue, by: outcome.by });
-        break;
-      default:
-        outcome satisfies never;
-    }
-  }
-  return pass;
 };
 
 /** Releases the claim when its record still names `brewery`; `gone` or `not_ours` otherwise. */

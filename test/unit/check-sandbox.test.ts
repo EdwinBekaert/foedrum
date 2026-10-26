@@ -4,9 +4,11 @@
 
 import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  borrowedStores,
+  insideFolders,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
@@ -611,6 +613,236 @@ describe('worktreeGitDir', () => {
     try {
       assert.equal(worktreeGitDir(path), undefined);
       assert.equal(worktreeGitDir(join(dir.path, 'missing')), undefined);
+    } finally {
+      dir.remove();
+    }
+  });
+});
+
+// A worktree of Foedrum's own git directory borrows the clone's objects through its alternates;
+// the sandbox binds them only from a folder Foedrum alone writes (ADR 0203).
+describe('sandboxedChecks for a repository that borrows an object store', () => {
+  const store = '/home/ada/.foedrum/acme/clones/acme.api/.git/objects';
+  const borrowing = {
+    borrowedOf: (repository: string) => (repository === gitDir ? [store] : []),
+    borrowsFrom: (repository: string) => repository === gitDir,
+  };
+
+  it('binds the store read-only in bwrap, after the repository and before the worktree', async () => {
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(options(exec, { platform: 'linux', ...borrowing }));
+    await run(line, [], call);
+    assert.deepEqual(calls[0]?.args.slice(17, 26), [
+      '--ro-bind',
+      gitDir,
+      gitDir,
+      '--ro-bind',
+      store,
+      store,
+      '--bind',
+      worktree,
+      worktree,
+    ]);
+    // Never writable.
+    assert.equal(calls[0]?.args.filter((arg) => arg === store).length, 2);
+    assert.equal(calls[0]?.args[calls[0].args.indexOf(store) - 1], '--ro-bind');
+  });
+
+  it('binds no store when the repository names none, or the worktree names no repository', async () => {
+    const named = fake();
+    await sandboxedChecks(options(named.exec, { platform: 'linux', borrowedOf: () => [] }))(
+      line,
+      [],
+      call,
+    );
+    assert.ok(!named.calls[0]?.args.includes(store));
+    const none = fake();
+    await sandboxedChecks(
+      options(none.exec, { platform: 'linux', gitDirOf: () => undefined, ...borrowing }),
+    )(line, [], call);
+    assert.ok(!none.calls[0]?.args.includes(store));
+  });
+
+  // A check writes its worktree, `.git` and a record inside it included: an alternates file there
+  // must not bind the home folder or /run for a later check (review of #528).
+  it('binds no store a repository inside the worktree names, and binds one beside it whose name only starts with it', async () => {
+    const planted = `${worktree}/fake`;
+    const inside = fake();
+    await sandboxedChecks(
+      options(inside.exec, {
+        platform: 'linux',
+        gitDirOf: () => planted,
+        borrowedOf: () => [home, '/run'],
+      }),
+    )(line, [], call);
+    const args = inside.calls[0]?.args ?? [];
+    assert.ok(
+      !args.some((arg, n) => arg === '--ro-bind' && [home, '/run'].includes(args[n + 1] ?? '')),
+    );
+    const beside = `${worktree}-own.git`;
+    const outside = fake();
+    await sandboxedChecks(
+      options(outside.exec, {
+        platform: 'linux',
+        gitDirOf: () => beside,
+        borrowedOf: (repository) => (repository === beside ? [store] : []),
+        borrowsFrom: (repository) => repository === beside,
+      }),
+    )(line, [], call);
+    assert.ok(outside.calls[0]?.args.includes(store));
+  });
+
+  it('binds no store under Seatbelt that a repository inside the worktree names', async () => {
+    const { calls, exec } = fake();
+    const temp = { make: () => '/private/var/folders/x/T/foedrum-check-1', remove: async () => {} };
+    await sandboxedChecks(
+      options(exec, {
+        platform: 'darwin',
+        temp,
+        gitDirOf: () => worktree,
+        borrowedOf: () => [home],
+      }),
+    )(line, [], call);
+    assert.ok(!calls[0]?.args.some((arg) => arg.startsWith('BORROWED_')));
+  });
+
+  it('binds no store by default, from any repository', async () => {
+    const { calls, exec } = fake();
+    await sandboxedChecks(options(exec, { platform: 'linux', borrowedOf: () => [store] }))(
+      line,
+      [],
+      call,
+    );
+    assert.ok(!calls[0]?.args.includes(store));
+  });
+
+  // A brewer or a check writes its own worktree, and a sibling attempt's path is plain to work out:
+  // a record planted there is outside this worktree, but not in a folder Foedrum alone writes
+  // (review of #528).
+  it("binds no store a sibling attempt's worktree names, and binds one Foedrum's own git directory names", async () => {
+    const gitDirs = '/home/ada/.foedrum/acme/acme.api/git-dirs';
+    const borrowsFrom = insideFolders([gitDirs], (path) => path);
+    const sibling = fake();
+    await sandboxedChecks(
+      options(sibling.exec, {
+        platform: 'linux',
+        gitDirOf: () => '/home/ada/.foedrum/acme/attempts/12-1/build/1/x',
+        borrowedOf: () => [home],
+        borrowsFrom,
+      }),
+    )(line, [], call);
+    // The home folder only as the tmpfs that hides it.
+    assert.equal(sibling.calls[0]?.args.filter((arg) => arg === home).length, 1);
+    const own = fake();
+    const ownDir = `${gitDirs}/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.git`;
+    await sandboxedChecks(
+      options(own.exec, {
+        platform: 'linux',
+        gitDirOf: () => ownDir,
+        borrowedOf: () => [store],
+        borrowsFrom,
+      }),
+    )(line, [], call);
+    assert.ok(own.calls[0]?.args.includes(store));
+  });
+
+  it('lets a check read the store under Seatbelt, as a parameter, and write nothing there', async () => {
+    const { calls, exec } = fake();
+    const temp = { make: () => '/private/var/folders/x/T/foedrum-check-1', remove: async () => {} };
+    await sandboxedChecks(options(exec, { platform: 'darwin', temp, ...borrowing }))(
+      line,
+      [],
+      call,
+    );
+    const args = calls[0]?.args ?? [];
+    assert.ok(args.includes(`BORROWED_0=${store}`));
+    const profile = args[args.indexOf('-p') + 1] ?? '';
+    assert.match(profile, /\(allow file-read\* \(subpath \(param "BORROWED_0"\)\)\)/);
+    // The one write rule names the worktree and the temporary folder only.
+    const writes = profile.split('\n').filter((rule) => rule.startsWith('(allow file-write*'));
+    assert.equal(writes.length, 1);
+    assert.doesNotMatch(writes[0] ?? '', /BORROWED/);
+  });
+
+  it('names no store in the profile when the repository borrows none', () => {
+    assert.doesNotMatch(seatbeltProfile(0), /BORROWED/);
+    assert.match(seatbeltProfile(0, { borrowed: 2 }), /\(param "BORROWED_1"\)/);
+  });
+});
+
+describe('insideFolders', () => {
+  const root = '/home/ada/.foedrum/acme/acme.api/git-dirs';
+  const own = `${root}/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.git`;
+
+  it('holds a repository whose real path lies inside a root, the root read by its real path too', () => {
+    assert.equal(insideFolders([root], (path) => path)(own), true);
+    const linked = (path: string) => path.replace('/home/ada/', '/var/home/ada/');
+    assert.equal(insideFolders([root], linked)(linked(own)), true);
+  });
+
+  // A merged tree's worktree is `<uuid>.tree` in the root, which its check writes: only a direct
+  // `<uuid>.git` child, which no check writes, holds (review of #528).
+  it('holds no repository nested in the root, as one planted in a merged tree’s worktree is, nor a direct child that is no .git', () => {
+    const inside = insideFolders([root], (path) => path);
+    const tree = `${root}/0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.tree`;
+    assert.equal(inside(`${tree}/evil`), false);
+    assert.equal(inside(`${own}/worktrees`), false);
+    assert.equal(inside(tree), false);
+  });
+
+  it('holds neither the root itself, nor a folder beside it whose name only starts with it, nor any other', () => {
+    const inside = insideFolders([root], (path) => path);
+    assert.equal(inside(root), false);
+    assert.equal(inside(`${root}-x/0b6f2c1e.git`), false);
+    assert.equal(inside('/home/ada/.foedrum/acme/attempts/12-1/build/1/x'), false);
+  });
+
+  // The sandbox gives it the repository's real path: a path under the root that is a link into a
+  // worktree is the worktree's (review of #528).
+  it('holds no repository named under the root through a link to a worktree', async () => {
+    const worktreeFake = `${worktree}/fake`;
+    const real = (path: string) => (path === `${root}/link.git` ? worktreeFake : path);
+    const { calls, exec } = fake();
+    await sandboxedChecks(
+      options(exec, {
+        platform: 'linux',
+        realPath: real,
+        gitDirOf: () => `${root}/link.git`,
+        borrowedOf: () => [home],
+        borrowsFrom: insideFolders([root], real),
+      }),
+    )(line, [], call);
+    const args = calls[0]?.args ?? [];
+    assert.equal(args.filter((arg) => arg === home).length, 1);
+  });
+});
+
+describe('borrowedStores', () => {
+  it("names each store a repository's alternates file lists, a relative one against its objects", () => {
+    const dir = makeTempDir('borrowed');
+    try {
+      const repository = join(dir.path, 'own.git');
+      mkdirSync(join(repository, 'objects', 'info'), { recursive: true });
+      const absolute = join(dir.path, 'clone', '.git', 'objects');
+      writeFileSync(
+        join(repository, 'objects', 'info', 'alternates'),
+        `${absolute}\n# a comment\n\n../../other/objects\n`,
+      );
+      assert.deepEqual(
+        borrowedStores(repository),
+        [absolute, join(repository, 'objects', '..', '..', 'other', 'objects')].map((path) =>
+          resolve(path),
+        ),
+      );
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('names none without an alternates file', () => {
+    const dir = makeTempDir('borrowed');
+    try {
+      assert.deepEqual(borrowedStores(dir.path), []);
     } finally {
       dir.remove();
     }

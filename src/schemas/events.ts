@@ -188,6 +188,9 @@ export const GravityReading = z.discriminatedUnion('result', [
 ]);
 export type GravityReading = z.infer<typeof GravityReading>;
 
+/** The longest reason a base check records for checks that did not run (ADR 0203). */
+export const MAX_UNCHECKED_LENGTH = 500;
+
 export const Answer = z.strictObject({ q: NonEmpty, answer: NonEmpty });
 export type Answer = z.infer<typeof Answer>;
 
@@ -305,6 +308,33 @@ const orderDecomposed = z
       });
     }
   });
+
+/**
+ * Where a person put an order in the intake's queue (ADR 0208): marked to finish first, or at
+ * `position`, kept as the `arrival` of the order that was there, which the queue sorts by, and a
+ * `tie` that orders it among the ranked orders of that arrival, the lower ahead.
+ */
+export const RankPlace = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('first') }),
+  z.strictObject({
+    kind: z.literal('position'),
+    position: z.int().positive(),
+    arrival: Timestamp,
+    tie: z.number(),
+  }),
+]);
+export type RankPlace = z.infer<typeof RankPlace>;
+
+// A person moved an order of the intake's queue, or marked it to finish first (ADR 0208); a later
+// rank of the same order replaces it.
+const orderRanked = z.strictObject({
+  type: z.literal('order.ranked'),
+  order: OrderRef,
+  place: RankPlace,
+  by: NonEmpty,
+  via: Surface,
+  why: NonEmpty.optional(),
+});
 
 // Removes sub-orders that wait for nothing still pending until none are left; whatever remains waits in a cycle.
 function hasCycle(dependencies: Dependency[]): boolean {
@@ -425,6 +455,7 @@ export const Event = z.discriminatedUnion('type', [
     routeBy: Timestamp.optional(),
   }),
   orderDecomposed,
+  orderRanked,
   z.strictObject({
     type: z.literal('batch.waiting'),
     batchId: BatchId,
@@ -495,6 +526,10 @@ export const Event = z.discriminatedUnion('type', [
     conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
     // The bottle branch's tip when someone else pushed to it: no merge-tree ran, and none will.
     branchMoved: CommitSha.optional(),
+    // On a clean merge, the first reading of the checks on the merged tree that did not pass, or
+    // why they did not run (ADR 0203).
+    failed: GravityReading.optional(),
+    unchecked: z.string().min(1).max(MAX_UNCHECKED_LENGTH).optional(),
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),

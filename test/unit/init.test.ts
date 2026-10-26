@@ -48,16 +48,49 @@ interface Run {
   lines: string[];
   written: string[];
   read: string[];
+  /** What init did on GitHub, with git and doctor, and each file it wrote, in order. */
+  events: string[];
+  /** Each git call: the folder from the working directory, and its arguments. */
+  git: { folder: string; args: readonly string[] }[];
+}
+
+interface Options {
+  doctor?: { ok: boolean; report: string };
+  /** The repositories GitHub has; default none. */
+  repositories?: readonly string[];
+  /** The target repositories without the intake label; default none. */
+  unlabelled?: readonly string[];
+  /** Creating a label fails with this. */
+  labelFails?: string;
+  /** Reading whether a target repository has the label fails with this. */
+  labelReadFails?: string;
+  /** Creating the Brewery's repository fails with this. */
+  createFails?: string;
+  /** What `git status` prints; default nothing to commit. */
+  status?: string;
+  /** What `git log` prints of the commits no remote has; default none. */
+  unpushed?: string;
+  /** git calls that fail, by their command, with what git says. */
+  gitFails?: Readonly<Record<string, string>>;
+  /** The exit code of a git call that fails, by its command; default 1. */
+  gitCodes?: Readonly<Record<string, number>>;
 }
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
 const init = async (
   answers: readonly string[],
   clone: Clone = { files: new Map() },
-  options: { doctor?: { ok: boolean; report: string } } = {},
+  options: Options = {},
 ): Promise<Run> => {
   const queue = [...answers];
-  const run: Omit<Run, 'result'> = { questions: [], lines: [], written: [], read: [] };
+  const run: Omit<Run, 'result'> = {
+    questions: [],
+    lines: [],
+    written: [],
+    read: [],
+    events: [],
+    git: [],
+  };
   const ports: InitPorts = {
     ask: async (question) => {
       run.questions.push(question);
@@ -67,10 +100,14 @@ const init = async (
       run.lines.push(line);
     },
     files: {
-      exists: (path) => (path === '.git' ? clone.git !== false : clone.files.has(path)),
+      exists: (path) =>
+        path === '.git'
+          ? clone.git !== false
+          : [...clone.files.keys()].some((file) => file === path || file.startsWith(`${path}/`)),
       read: (path) => clone.files.get(path),
       write: (path, text) => {
         run.written.push(path);
+        run.events.push(`write ${path}`);
         clone.files.set(path, text);
       },
     },
@@ -81,7 +118,42 @@ const init = async (
       if (facts === undefined) throw new Error(`GitHub answered 404 to the repository ${repo}`);
       return facts;
     },
-    doctor: async () => options.doctor ?? { ok: true, report: 'Doctor: ready\n' },
+    github: {
+      exists: async (repo) => {
+        run.events.push(`exists ${repo}`);
+        return (options.repositories ?? []).includes(repo);
+      },
+      create: async (repo, login, isPrivate) => {
+        run.events.push(`create ${repo} ${login} ${isPrivate ? 'private' : 'public'}`);
+        if (options.createFails !== undefined) throw new Error(options.createFails);
+      },
+      hasLabel: async (repo, label) => {
+        run.events.push(`has ${repo} ${label}`);
+        if (options.labelReadFails !== undefined) throw new Error(options.labelReadFails);
+        return !(options.unlabelled ?? []).includes(repo);
+      },
+      createLabel: async (repo, label, description) => {
+        run.events.push(`label ${repo} ${label} ${description}`);
+        if (options.labelFails !== undefined) throw new Error(options.labelFails);
+      },
+    },
+    git: async (folder, args) => {
+      run.git.push({ folder, args });
+      run.events.push(`git ${args[0]}`);
+      const fails = options.gitFails?.[args[0] ?? ''];
+      if (fails !== undefined) {
+        return { code: options.gitCodes?.[args[0] ?? ''] ?? 1, stdout: '', stderr: `${fails}\n` };
+      }
+      const printed: Readonly<Record<string, string | undefined>> = {
+        status: options.status,
+        log: options.unpushed,
+      };
+      return { code: 0, stdout: printed[args[0] ?? ''] ?? '', stderr: '' };
+    },
+    doctor: async (folder) => {
+      run.events.push(`doctor ${folder}`);
+      return options.doctor ?? { ok: true, report: 'Doctor: ready\n' };
+    },
   };
   const result = await runInit(ports);
   return { result, ...run };
@@ -470,19 +542,412 @@ describe('foedrum init (ADR 0199)', () => {
     assert.equal(clone.files.get('.claude/settings.json'), '{ not json');
   });
 
-  it('refuses a folder that is not a clone, before any question', async () => {
-    const { result, questions, written } = await init([], { files: new Map(), git: false });
-    assert.equal(result.exitCode, 1);
-    assert.match(result.stderr, /^foedrum init: .*clone/);
-    assert.deepStrictEqual(questions, []);
-    assert.deepStrictEqual(written, []);
-  });
-
   it('stops with one line, writing nothing, when standard input ends before the answers', async () => {
     const clone: Clone = { files: new Map() };
     const { result, written } = await init([''], clone);
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /^foedrum init: no answer to /);
     assert.deepStrictEqual(written, []);
+  });
+});
+
+const LABEL_DESCRIPTION = 'Foedrum brews an issue with this label into a pull request';
+const FILES = ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json'];
+/** What `git status --porcelain -z` prints for the four files, new. */
+const ALL_NEW = `${FILES.map((file) => `?? ${file}`).join('\0')}\0`;
+const outside = (): Clone => ({ files: new Map(), git: false });
+
+describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () => {
+  it('creates a private repository with the default name after the questions, clones it and writes the files there', async () => {
+    const clone = outside();
+    const { result, questions, events, git, lines } = await init(['', '', ''], clone);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, [
+      'Brewery repository (owner/name) [octocat/foedrum-brewery]: ',
+      'Private or public [private]: ',
+      'Target repositories (owner/name, separated by spaces): ',
+    ]);
+    assert.deepStrictEqual(events.slice(0, 3), [
+      'exists octocat/foedrum-brewery',
+      'create octocat/foedrum-brewery octocat private',
+      'git clone',
+    ]);
+    assert.deepStrictEqual(git[0], {
+      folder: '',
+      args: ['clone', '--', 'https://github.com/octocat/foedrum-brewery.git', 'foedrum-brewery'],
+    });
+    // The files go into the clone, and doctor runs there.
+    for (const file of FILES) assert.ok(clone.files.has(`foedrum-brewery/${file}`), file);
+    assert.ok(events.includes('doctor foedrum-brewery'), events.join('\n'));
+    assert.ok(lines.includes('The Brewery is in the folder foedrum-brewery'), lines.join('\n'));
+    const config = parsed(clone, 'foedrum-brewery/foedrum.jsonc', BreweryConfig);
+    assert.equal(config.brewery, 'octocat/foedrum-brewery');
+  });
+
+  it('creates a public repository when asked, after asking again for an answer that is neither', async () => {
+    const { events, lines } = await init(['', 'secret', 'public', ''], outside());
+    assert.ok(lines.includes('  Answer private or public'), lines.join('\n'));
+    assert.ok(events.includes('create octocat/foedrum-brewery octocat public'), events.join('\n'));
+  });
+
+  it('creates the repository of an organization, and clones it into a folder of its name', async () => {
+    const clone = outside();
+    const { events, git } = await init(['acme/brewery', '', ''], clone);
+    assert.ok(events.includes('create acme/brewery octocat private'), events.join('\n'));
+    assert.deepStrictEqual(git[0]?.args, [
+      'clone',
+      '--',
+      'https://github.com/acme/brewery.git',
+      'brewery',
+    ]);
+    assert.ok(clone.files.has('brewery/foedrum.jsonc'));
+  });
+
+  it('refuses a name GitHub has with one line, creating and asking nothing more', async () => {
+    const { result, questions, events, written } = await init(['', '', ''], outside(), {
+      repositories: ['octocat/foedrum-brewery'],
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: octocat\/foedrum-brewery is on GitHub already; .*clone/,
+    );
+    assert.equal(result.stderr.split('\n').filter(Boolean).length, 1);
+    assert.equal(questions.length, 1);
+    assert.deepStrictEqual(events, ['exists octocat/foedrum-brewery']);
+    assert.deepStrictEqual(written, []);
+  });
+
+  it("refuses a folder of the repository's name that is there, before creating anything", async () => {
+    const clone: Clone = { files: new Map([['foedrum-brewery/notes.txt', 'x']]), git: false };
+    const { result, events } = await init(['', '', ''], clone);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: the folder foedrum-brewery is there already/);
+    assert.ok(!events.some((event) => event.startsWith('create')), events.join('\n'));
+  });
+
+  it('creates nothing when standard input ends before the last question', async () => {
+    const { result, events } = await init(['', ''], outside());
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: no answer to "Target repositories/);
+    assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
+  });
+
+  it("stops with git's line when the clone fails, writing nothing", async () => {
+    const { result, written } = await init(['', '', ''], outside(), {
+      gitFails: { clone: 'fatal: repository not found' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /git clone failed: fatal: repository not found/);
+    assert.deepStrictEqual(written, []);
+  });
+
+  it('creates and clones nothing inside a clone, also for a name GitHub has, and asks nothing to push when nothing changed', async () => {
+    const { result, questions, events, lines } = await init(['', ''], undefined, {
+      repositories: ['octocat/foedrum-brewery'],
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(!questions.some((question) => question.startsWith('Private')), questions.join('\n'));
+    assert.ok(!events.some((event) => /^(exists|create|git clone)/.test(event)), events.join('\n'));
+    assert.ok(events.includes('doctor '), events.join('\n'));
+    assert.ok(lines.includes('Nothing to commit'), lines.join('\n'));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+
+  it('creates the intake label after a yes, with its description', async () => {
+    const { questions, events } = await init(['', 'acme/web', '', '', ''], undefined, {
+      unlabelled: ['acme/web'],
+    });
+    assert.ok(
+      questions.includes('Create the label foedrum:brew in acme/web? [Y/n]: '),
+      questions.join('\n'),
+    );
+    assert.ok(
+      events.includes(`label acme/web foedrum:brew ${LABEL_DESCRIPTION}`),
+      events.join('\n'),
+    );
+  });
+
+  it('prints the gh command after a no, creating no label', async () => {
+    const { lines, events } = await init(['', 'acme/web', '', '', 'n'], undefined, {
+      unlabelled: ['acme/web'],
+    });
+    assert.ok(!events.some((event) => event.startsWith('label')), events.join('\n'));
+    assert.ok(
+      lines.includes(
+        `gh label create foedrum:brew --repo acme/web --description "${LABEL_DESCRIPTION}" --color ededed`,
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it('leaves a label that is there alone, without asking', async () => {
+    const { questions, events, lines } = await init(['', 'acme/web', '', '']);
+    assert.ok(events.includes('has acme/web foedrum:brew'), events.join('\n'));
+    assert.ok(!events.some((event) => event.startsWith('label')), events.join('\n'));
+    assert.ok(!questions.some((question) => question.startsWith('Create')), questions.join('\n'));
+    assert.ok(lines.includes('acme/web has the label foedrum:brew'), lines.join('\n'));
+  });
+
+  it('names a label it cannot create, with the gh command, and goes on', async () => {
+    const { result, lines } = await init(['', 'acme/web', '', '', ''], undefined, {
+      unlabelled: ['acme/web'],
+      labelFails: 'GitHub answered 403 to the label: Must have admin rights',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const at = lines.findIndex((line) => line.includes('Must have admin rights'));
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^gh label create foedrum:brew --repo acme\/web /);
+  });
+
+  it('lists what it will commit, then commits and pushes it after a yes, before doctor', async () => {
+    const { questions, git, events, lines } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+    });
+    for (const file of FILES) assert.ok(lines.includes(`  ${file}`), lines.join('\n'));
+    assert.ok(questions.includes('Commit and push these? [Y/n]: '), questions.join('\n'));
+    // The order of the three calls; what the commit takes has a test of its own.
+    const after = git.filter(({ args }) => ['add', 'commit', 'push'].includes(args[0] ?? ''));
+    assert.deepStrictEqual(
+      after.map(({ folder, args }) => [folder, args[0]]),
+      [
+        ['', 'add'],
+        ['', 'commit'],
+        ['', 'push'],
+      ],
+    );
+    assert.deepStrictEqual(after[0]?.args, ['add', '--', ...FILES]);
+    assert.deepStrictEqual(after[2]?.args, ['push', '-u', 'origin', 'HEAD']);
+    assert.ok(events.indexOf('git push') < events.indexOf('doctor '), events.join('\n'));
+  });
+
+  it('commits and pushes in the new clone', async () => {
+    const { git } = await init(['', '', '', ''], outside(), { status: ALL_NEW });
+    const push = git.find(({ args }) => args[0] === 'push');
+    assert.equal(push?.folder, 'foedrum-brewery');
+  });
+
+  it('pushes nothing after a no, keeps the files and says how to push them', async () => {
+    const clone: Clone = { files: new Map() };
+    const { git, lines } = await init(['', '', 'n'], clone, { status: ALL_NEW });
+    assert.ok(
+      !git.some(({ args }) => ['add', 'commit', 'push'].includes(args[0] ?? '')),
+      JSON.stringify(git),
+    );
+    assert.ok(clone.files.has('foedrum.jsonc'));
+    for (const command of [`git add -- ${FILES.join(' ')}`, 'git push -u origin HEAD']) {
+      assert.ok(lines.includes(command), lines.join('\n'));
+    }
+    // What the commit command takes has a test of its own.
+    assert.ok(
+      lines.some((line) => line.startsWith('git commit -m "Set up the Brewery with foedrum init"')),
+      lines.join('\n'),
+    );
+  });
+
+  it("names a push that fails with git's line and the commands, and ends in 1 after doctor", async () => {
+    const { result, lines, events } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { push: 'remote: Permission denied' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git push failed: remote: Permission denied'), lines.join('\n'));
+    assert.ok(lines.includes('git push -u origin HEAD'), lines.join('\n'));
+    assert.ok(events.includes('doctor '), events.join('\n'));
+  });
+
+  it('passes no token to git: a plain https URL, and arguments without a credential', async () => {
+    const { git } = await init(['', '', '', ''], outside(), { status: ALL_NEW });
+    for (const command of ['clone', 'add', 'commit', 'push']) {
+      assert.ok(
+        git.some(({ args }) => args[0] === command),
+        command,
+      );
+    }
+    for (const { args } of git) {
+      for (const arg of args) assert.doesNotMatch(arg, /@|token|gh[pousr]_/i, arg);
+    }
+  });
+  it("stops with GitHub's line when the repository cannot be created, cloning and writing nothing", async () => {
+    const { result, events, written } = await init(['', '', ''], outside(), {
+      createFails: 'GitHub answered 422 to creating the repository: name already exists',
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: GitHub answered 422 to creating the repository/);
+    assert.ok(!events.includes('git clone'), events.join('\n'));
+    assert.deepStrictEqual(written, []);
+  });
+
+  it('lists and adds only the files git names as new or changed', async () => {
+    const { lines, git } = await init(['', '', ''], undefined, { status: ' M foedrum.jsonc\0' });
+    assert.ok(lines.includes('  foedrum.jsonc'), lines.join('\n'));
+    assert.ok(!lines.includes('  models.jsonc'), lines.join('\n'));
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'add')?.args, [
+      'add',
+      '--',
+      'foedrum.jsonc',
+    ]);
+  });
+
+  it('stops at an add that fails, with the commands, committing and pushing nothing', async () => {
+    const { result, lines, git } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { add: 'fatal: index.lock exists' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git add failed: fatal: index.lock exists'), lines.join('\n'));
+    assert.ok(!git.some(({ args }) => ['commit', 'push'].includes(args[0] ?? '')));
+    assert.ok(lines.includes('git push -u origin HEAD'), lines.join('\n'));
+  });
+
+  it('names a status that fails, with the commands, and ends in 1', async () => {
+    const { result, lines, questions } = await init(['', ''], undefined, {
+      gitFails: { status: 'fatal: not a git repository' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git status failed: fatal: not a git repository'), lines.join('\n'));
+    assert.ok(lines.includes('git push -u origin HEAD'), lines.join('\n'));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+
+  it('names a label it cannot read, with the gh command, without asking', async () => {
+    const { result, lines, questions } = await init(['', 'acme/web', '', ''], undefined, {
+      labelReadFails: 'GitHub answered 500 to the label foedrum:brew of acme/web',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const at = lines.indexOf('GitHub answered 500 to the label foedrum:brew of acme/web');
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^gh label create foedrum:brew --repo acme\/web /);
+    assert.ok(!questions.some((question) => question.startsWith('Create')), questions.join('\n'));
+  });
+
+  it('stops with one line when standard input ends at the label question', async () => {
+    const { result, events } = await init(['', 'acme/web', '', ''], undefined, {
+      unlabelled: ['acme/web'],
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"/,
+    );
+    // Inside a clone init created nothing, so the line names nothing.
+    assert.doesNotMatch(result.stderr, /created and cloned/);
+    assert.ok(!events.some((event) => event.startsWith('git status')), events.join('\n'));
+  });
+  it('commits only the files it lists, never what else is staged, and prints the same command', async () => {
+    const yes = await init(['', '', ''], undefined, { status: ' M foedrum.jsonc\0' });
+    assert.deepStrictEqual(yes.git.find(({ args }) => args[0] === 'commit')?.args, [
+      'commit',
+      '-m',
+      'Set up the Brewery with foedrum init',
+      '--',
+      'foedrum.jsonc',
+    ]);
+    const no = await init(['', '', 'n'], undefined, { status: ' M foedrum.jsonc\0' });
+    assert.ok(
+      no.lines.includes('git commit -m "Set up the Brewery with foedrum init" -- foedrum.jsonc'),
+      no.lines.join('\n'),
+    );
+  });
+
+  it('lists the commits GitHub does not have yet, which the push sends too, before asking', async () => {
+    const { lines, git } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      unpushed: 'abc1234 Local work\ndef5678 More local work\n',
+    });
+    // Which remotes the log leaves out has a test of its own.
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'log')?.args.slice(0, 4), [
+      'log',
+      '--format=%h %s',
+      'HEAD',
+      '--not',
+    ]);
+    const at = lines.indexOf('Also pushed, not on GitHub yet:');
+    assert.ok(at > lines.indexOf('  .claude/settings.json'), lines.join('\n'));
+    assert.deepStrictEqual(lines.slice(at + 1, at + 3), [
+      '  abc1234 Local work',
+      '  def5678 More local work',
+    ]);
+  });
+
+  it('asks git for no commits on a branch that has none yet', async () => {
+    const { git, lines } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { 'rev-parse': '' },
+    });
+    assert.deepStrictEqual(git.find(({ args }) => args[0] === 'rev-parse')?.args, [
+      'rev-parse',
+      '-q',
+      '--verify',
+      'HEAD',
+    ]);
+    assert.ok(!git.some(({ args }) => args[0] === 'log'));
+    assert.ok(!lines.includes('Also pushed, not on GitHub yet:'), lines.join('\n'));
+    assert.ok(git.some(({ args }) => args[0] === 'push'));
+  });
+
+  it('pushes nothing when it cannot tell which commits GitHub lacks', async () => {
+    const { result, lines, git, questions } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { log: 'fatal: bad object' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git log failed: fatal: bad object'), lines.join('\n'));
+    assert.ok(!git.some(({ args }) => args[0] === 'push'));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+
+  it('refuses a name Windows cannot have as a folder before asking GitHub, but not a near miss', async () => {
+    for (const name of [
+      'octocat/NUL',
+      'octocat/con.d',
+      'octocat/com1',
+      'octocat/prn',
+      'octocat/AUX',
+      'octocat/lpt9',
+      'octocat/brewery.',
+    ]) {
+      const { result, events } = await init([name, '', ''], outside());
+      assert.equal(result.exitCode, 1, name);
+      const folder = name.split('/')[1] ?? '';
+      assert.equal(
+        result.stderr,
+        `foedrum init: ${folder} cannot be a folder on Windows; choose another name\n`,
+      );
+      assert.deepStrictEqual(events, [], name);
+    }
+    for (const near of ['console', 'com0', 'lpt']) {
+      const { events } = await init([`octocat/${near}`, '', ''], outside());
+      assert.ok(events.includes(`create octocat/${near} octocat private`), events.join('\n'));
+    }
+  });
+
+  it('names the folder and the repository it created when input ends after them', async () => {
+    const { result } = await init(['', '', 'acme/web', '', ''], outside(), {
+      unlabelled: ['acme/web'],
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: no answer to "Create the label foedrum:brew in acme\/web\?"; .*octocat\/foedrum-brewery is created and cloned into the folder foedrum-brewery/,
+    );
+  });
+  it('pushes nothing when git cannot tell whether the branch has a commit', async () => {
+    const { result, lines, git, questions } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { 'rev-parse': 'fatal: not a git repository' },
+      gitCodes: { 'rev-parse': 128 },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(
+      lines.includes('git rev-parse failed: fatal: not a git repository'),
+      lines.join('\n'),
+    );
+    assert.ok(!git.some(({ args }) => ['log', 'push'].includes(args[0] ?? '')));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+  it('lists the commits that origin, the remote the push goes to, does not have', async () => {
+    const { git } = await init(['', '', ''], undefined, { status: ALL_NEW });
+    assert.equal(git.find(({ args }) => args[0] === 'log')?.args.at(-1), '--remotes=origin');
   });
 });

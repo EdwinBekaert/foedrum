@@ -1449,6 +1449,104 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "order.ranked"
+        },
+        "order": {
+          "type": "object",
+          "properties": {
+            "issue": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "repo": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*\\/(?!\\.\\.?$)[\\w.][\\w.-]*$"
+            }
+          },
+          "required": [
+            "issue"
+          ],
+          "additionalProperties": false
+        },
+        "place": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "first"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "position"
+                },
+                "position": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "arrival": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "tie": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "position",
+                "arrival",
+                "tie"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "by": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "via": {
+          "type": "string",
+          "enum": [
+            "plugin",
+            "terminal",
+            "comment",
+            "dashboard"
+          ]
+        },
+        "why": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "type",
+        "order",
+        "place",
+        "by",
+        "via"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "batch.waiting"
         },
         "batchId": {
@@ -1831,6 +1929,223 @@
         "branchMoved": {
           "type": "string",
           "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "failed": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "skipped"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                }
+              },
+              "required": [
+                "result",
+                "check"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "exited"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "exitCode": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "exitCode",
+                "tail"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "killed"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "killed": {
+                  "type": "string",
+                  "enum": [
+                    "timed-out",
+                    "stopped",
+                    "too-much-output"
+                  ]
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "killed",
+                "tail"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "signaled"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "signal": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "signal",
+                "tail"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "string",
+                  "const": "unstarted"
+                },
+                "check": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "typecheck",
+                    "lint",
+                    "format",
+                    "test"
+                  ]
+                },
+                "setup": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "command": {
+                  "type": "string",
+                  "pattern": "\\S"
+                },
+                "unsandboxed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "tail": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "result",
+                "command",
+                "tail"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "unchecked": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         }
       },
       "required": [

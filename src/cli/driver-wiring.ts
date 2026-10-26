@@ -6,7 +6,7 @@
 
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
-import { createCheckRunner } from '../checks/check-runner.ts';
+import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
@@ -84,6 +84,8 @@ export interface Wired {
   claimant: Claimant;
   /** Each repository's base and pushes, as the openPullRequest action has them (ADR 0071). */
   pushes: readonly PullRequestRepository[];
+  /** The checks of a tree as the check runner reads a check step's (ADR 0203). */
+  checkTree: CheckTree;
 }
 
 export interface WiringOptions {
@@ -309,7 +311,7 @@ export const wireDriver = async (
     report,
   });
   opened.driver = driver;
-  return { store, driver, reads, claims, claimant, pushes };
+  return { store, driver, reads, claims, claimant, pushes, checkTree: checks.checkTree };
 };
 
 /** Closes what `opened` holds: the driver, which stops its runs and lets the lock go, or the lock. */

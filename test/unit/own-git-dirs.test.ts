@@ -18,6 +18,16 @@ describe('planOwnGitDirs', () => {
     assert.deepEqual(planOwnGitDirs([dir(`${uuid}.git`, FLOOR_MS + 1)], now), [`${uuid}.git`]);
   });
 
+  it('removes the <uuid>.tree worktree a stopped merged-check run left beside it (ADR 0203)', () => {
+    const entries = [dir(`${uuid}.git`, FLOOR_MS + 1), dir(`${uuid}.tree`, FLOOR_MS + 1)];
+    assert.deepEqual(planOwnGitDirs(entries, now), [`${uuid}.git`, `${uuid}.tree`]);
+    assert.deepEqual(planOwnGitDirs([dir(`${other}.tree`, FLOOR_MS)], now), []);
+    assert.deepEqual(
+      planOwnGitDirs([{ ...dir(`${uuid}.tree`, FLOOR_MS * 2), directory: false }], now),
+      [],
+    );
+  });
+
   it('keeps one no older than the floor, which a running call may still use', () => {
     const entries = [dir(`${uuid}.git`, FLOOR_MS), dir(`${other}.git`, 0)];
     assert.deepEqual(planOwnGitDirs(entries, now), []);

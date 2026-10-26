@@ -97,6 +97,46 @@ describe('serveShell', () => {
     assert.deepStrictEqual(started, ['/usr/bin/bwrap']);
   });
 
+  // The clone's objects reach a merged tree's check only from Foedrum's own git directories, never
+  // from an attempt's worktree (ADR 0203, review of #528).
+  it("binds a repository's borrowed stores only from its own git directories", async () => {
+    const { git } = fakeGit();
+    const store = '/home/brewer/clones/acme.web/.git/objects';
+    const started: string[][] = [];
+    const shellWith = (repository: string) =>
+      serveShell(setup, {
+        root: 'brewery',
+        git,
+        out: () => {},
+        listen: () => {},
+        checks: {
+          exec: async (file: string, args: readonly string[]) => {
+            started.push([file, ...args]);
+            return { exitCode: 0, stdout: '', stderr: '', output: '' };
+          },
+          platform: 'linux' as const,
+          findBwrap: () => '/usr/bin/bwrap',
+          realPath: (path: string) => path,
+          gitDirOf: () => repository,
+          borrowedOf: () => [store],
+          home: '/home/brewer',
+        },
+      });
+    const gitDirs = join(workRoot, 'acme.web', 'git-dirs');
+    mkdirSync(gitDirs, { recursive: true });
+    const own = join(gitDirs, '0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d.git');
+    mkdirSync(own);
+    await shellWith(own).exec('npm test', [], { cwd: workRoot, shell: true });
+    await shellWith(own).setup('npm ci', [], { cwd: workRoot, shell: true });
+    const attempt = join(workRoot, 'acme.web', 'attempts', '12-1', 'build', '1', 'x');
+    mkdirSync(attempt, { recursive: true });
+    await shellWith(attempt).exec('npm test', [], { cwd: workRoot, shell: true });
+    assert.deepStrictEqual(
+      started.map((args) => args.includes(store)),
+      [true, true, false],
+    );
+  });
+
   it("starts a repository's setup in the OS sandbox with the network kept, never as it is (ADR 0158)", async () => {
     const { git } = fakeGit();
     const started: string[][] = [];
