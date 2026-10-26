@@ -47,13 +47,16 @@ export interface SpawnCommand {
  * so the bare `node` in npm's shims is never one planted in the working directory (#12). Anything
  * else starts directly, without a shell.
  */
+/** Whether a file is a .cmd or .bat file, which Windows runs through cmd.exe (ADR 0031). */
+const isBatchFile = (file: string): boolean => /\.(?:cmd|bat)$/i.test(file);
+
 export const spawnCommand = (
   file: string,
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
 ): SpawnCommand =>
-  platform === 'win32' && /\.(?:cmd|bat)$/i.test(file)
+  platform === 'win32' && isBatchFile(file)
     ? throughCmd(windowsCommandLine(file, args), env)
     : { file, args: [...args], shell: false, env };
 
@@ -330,8 +333,9 @@ export const execProcessWith =
         done(failed(`${file}: not found on PATH (ENOENT)`));
         return;
       }
-      // A .cmd or .bat file runs through cmd.exe on Windows (ADR 0031): the same refusal.
-      if (pipes !== undefined && /\.(?:cmd|bat)$/i.test(program)) {
+      // A .cmd or .bat file runs through cmd.exe on Windows: the same refusal, on every platform,
+      // since no program the pipes are for has such a name.
+      if (pipes !== undefined && isBatchFile(program)) {
         done(failed(`${file}: extra pipes cannot go through a shell or a Job Object`));
         return;
       }
