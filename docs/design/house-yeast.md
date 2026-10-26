@@ -28,7 +28,7 @@ A repository can opt for the Brewery fallback (`houseYeast: "brewery"`), and not
 The Brewery layer is the Markdown files directly in the Brewery's `house-yeast/`, read when `foedrum serve` starts.
 A repository's layer is its `.foedrum/house-yeast/` at the commit the batch's change starts at, read with git in its clone, so a batch's own commits never steer its own brewers; with the Brewery fallback it is the Brewery's `house-yeast/<owner>/<name>/`.
 A repository rule replaces a Brewery rule of its id.
-The rules whose scope matches a file the batch changed, and the step's lens when a rule names one, are selected through the same code as `/brew-review` (`src/brewers/house-yeast.ts`).
+The rules whose scope matches a file the batch changed, and the step's lens when a rule names one, are selected through the same code as `/brew-review` (`src/brewers/house-yeast.ts`); a step of several lenses together gets the rules each of its lenses would get apart, each once, in the order of its lenses ([ADR 0220](../adr/0220-a-taster-s-step-can-run-several-lenses-together.md)).
 Each one is an untrusted input named `houseYeast`, and the ids selected and cut, with the files left out as invalid, are recorded on the attempt's `step.finished`.
 
 **From lesson to rule:** a review finding that needed a fix, or a human review comment on a bottle, is recorded as a **candidate** on the state branch.

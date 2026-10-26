@@ -50,10 +50,12 @@ Its model, effort, turns and stall limit are its brewer's; a recipe that wants a
 Its Taster gets the change once, and the lenses as its one input `lens`: every lens file in the step's order, under a source that names each lens and its file.
 The engine adds a fixed text, only on such a step: review through each lens in turn, give every finding the `lens` it was found through, read a lens file's "stay inside this one" as "report under this lens only what it asks", and start each `riskLeft` item with its lens; a one-lens prompt stays as it is.
 Its house yeast is the rules each of its lenses would get apart, each once, in the order of its lenses.
-Each finding of its out doc names one of the step's lenses, or the out doc is invalid and the attempt fails, as on any schema error; a finding without a `lens` is its step's lens's, which `lensOfFinding` reads.
+Each finding of its out doc names one of the step's lenses, or the out doc is invalid and the attempt fails, as on any schema error; on a one-lens step a finding may leave its lens out, and one that names a lens names the step's.
+A finding without a `lens` is its step's lens's: `lensOfFinding` gives that to a reader that counts by lens (#561).
 The out doc has one `verdict`, from the findings of every lens, so `"blocking": true` blocks on any lens; a recipe that wants one lens to block and the others to advise runs that lens apart, beside the step in a group.
 A findings route from it carries its whole out doc, every lens's findings at once, where a group of lenses apart carries the first blocking child's.
-Its findings show their lens before their severity (`diff/security, major in src/a.ts:3`) in a later round's `earlierFindings`, the status comment, the pull request body and the Stuck reason, and the status comment shows ten per lens.
+Its findings show their lens before their severity (`diff/security, major in src/a.ts:3`) in a later round's `earlierFindings`, the status comment, the pull request body and the Stuck reason.
+The status comment shows ten findings per lens when every finding of the step names one, and ten per step otherwise.
 Which recipes run lenses together is #567's to measure: the default recipes run them apart until then.
 
 **Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
