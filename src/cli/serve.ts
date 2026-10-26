@@ -233,6 +233,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   }
   const opened: Opened = { lock };
   let polling: Promise<void> | undefined;
+  let stopRuns: AbortController | undefined;
+  let merged: MergedChecks | undefined;
   try {
     const { store, driver, reads, claims, claimant, pushes, checkTree } = await wireDriver(
       setup,
@@ -247,8 +249,12 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     );
     // A second writer on the store, as a terminal command is (ADR 0044).
     const log = createCommandLog({ store, recipes: setup.recipes });
-    // One run at a time in the Cellar, beside the ticks and the pass (ADR 0203).
-    const merged =
+    // One run at a time in the Cellar, beside the ticks and the pass (ADR 0203), stopped on every
+    // way out of serve.
+    stopRuns = new AbortController();
+    const runs = stopRuns.signal;
+    signal.addEventListener('abort', () => stopRuns?.abort(), { once: true });
+    merged =
       shell.mergedTree === undefined
         ? undefined
         : createMergedChecks({
@@ -311,7 +317,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     }
     while (!signal.aborted) {
       poll();
-      merged?.poll(signal);
+      merged?.poll(runs);
       try {
         await driver.tick();
       } catch (error) {
@@ -321,9 +327,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       if (signal.aborted) break;
       await wait(intervalMs, signal);
     }
-    // Its deadline bounds the wait; the stop ends the run's processes.
+    // Its deadline bounds the wait.
     await polling;
-    await merged?.settled();
     say('stopped');
     return 0;
   } catch (error) {
@@ -335,8 +340,11 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     say(messageOf(error));
     return 1;
   } finally {
-    // The pass underway writes to the store until it settles.
+    // The pass underway, and the run on a merged tree once stopped, write to the store until they
+    // settle.
     await polling;
+    stopRuns?.abort();
+    await merged?.settled();
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
     try {
       closeOpened(opened);

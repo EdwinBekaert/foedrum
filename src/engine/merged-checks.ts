@@ -20,7 +20,7 @@ export interface MergedCheckDue {
   /** The commit Foedrum pushed. */
   head: string;
   /** How many checks of the pull request the log held when it was handed on. */
-  checked?: number;
+  checked: number;
 }
 
 /** How a run on the merged tree ended. */
@@ -78,15 +78,18 @@ export interface MergedChecks {
   settled(): Promise<void>;
 }
 
-/** Whether `due` is still to run: its pull request open on tap, and no check recorded at its tip. */
+/**
+ * Whether `due` is still to run, or to record: its pull request open on tap, and no check recorded
+ * since it was handed on, so a newer tip's check or a moved branch stands (review of #528).
+ */
 const stillDue = (log: CommandLog, due: MergedCheckDue): boolean => {
   const batch = log.state().batches.get(due.batchId);
   if (batch?.lane.kind !== 'on_tap' || !batch.lane.pullRequests.includes(due.pullRequest)) {
     return false;
   }
   if (batch.pullRequestEnds?.[due.pullRequest] !== undefined) return false;
-  const latest = batch.baseChecks?.filter((check) => check.pullRequest === due.pullRequest).at(-1);
-  return latest?.tip !== due.tip;
+  const checks = batch.baseChecks?.filter((check) => check.pullRequest === due.pullRequest) ?? [];
+  return checks.length === due.checked;
 };
 
 /** A reason as the log keeps it: its first line, at most MAX_UNCHECKED_LENGTH characters. */
@@ -102,6 +105,8 @@ export const createMergedChecks = (options: MergedChecksOptions): MergedChecks =
   let running: { due: MergedCheckDue; ended: Promise<void> } | undefined;
 
   const record = (due: MergedCheckDue, found: { failed?: GravityReading; unchecked?: string }) => {
+    // Another writer checked the pull request while it ran.
+    if (!stillDue(log, due)) return;
     const event = {
       type: 'pull_request.base_checked',
       batchId: due.batchId,

@@ -179,6 +179,7 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
         branch: repository.base,
         tip,
         head: open.head,
+        checked: batch.baseChecks?.filter((check) => check.pullRequest === open.url).length ?? 0,
       });
       continue;
     }

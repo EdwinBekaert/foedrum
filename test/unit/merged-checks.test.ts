@@ -158,7 +158,8 @@ describe('createMergedChecks', () => {
     merged.poll(live);
     calls[0]?.end({ kind: 'failed', reading: failing });
     await merged.settled();
-    merged.due(due('web-7', web, tip2));
+    // As the next pass hands it on: after the one check recorded.
+    merged.due(due('web-7', web, tip2, 1));
     merged.poll(live);
     calls[1]?.end({ kind: 'unchecked', why: 'git worktree add failed: fatal: disk full' });
     await merged.settled();
@@ -246,10 +247,12 @@ describe('createMergedChecks', () => {
     merged.poll(live);
     merged.due(due('web-7', web, tip1));
     merged.due(due('web-7', web, tip2));
-    // A pull request whose run is underway is queued again at the new tip.
+    // A pull request whose run is underway is queued again at the new tip; once that run
+    // recorded, the next pass hands it on after that check.
     merged.due(due('web-8', web2, tip2));
     calls[0]?.end({ kind: 'passed' });
     await merged.settled();
+    merged.due(due('web-8', web2, tip2, 1));
     merged.poll(live);
     calls[1]?.end({ kind: 'passed' });
     await merged.settled();
