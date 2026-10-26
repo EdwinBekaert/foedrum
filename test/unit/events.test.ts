@@ -165,7 +165,7 @@ const valid: Record<Event['type'], Event> = {
   'order.ranked': {
     type: 'order.ranked',
     order: { issue: 7, repo: 'acme/web' },
-    place: { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z' },
+    place: { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z', tie: 0.5 },
     by: 'ada',
     via: 'terminal',
     why: 'the release needs it',
@@ -289,7 +289,7 @@ describe('Event', () => {
 
   it('accepts a rank marked first, and refuses a place it cannot sort by (ADR 0208)', () => {
     const ranked = valid['order.ranked'];
-    const place = { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z' };
+    const place = { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z', tie: 0 };
     accepts(Event, { ...ranked, place: { kind: 'first' } });
     rejects(Event, { ...ranked, place: { kind: 'first', arrival: place.arrival } });
     rejects(Event, { ...ranked, place: { ...place, position: 0 } });

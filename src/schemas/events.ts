@@ -300,11 +300,17 @@ const orderDecomposed = z
 
 /**
  * Where a person put an order in the intake's queue (ADR 0208): marked to finish first, or at
- * `position`, kept as the `arrival` of the order that was there, which the queue sorts by.
+ * `position`, kept as the `arrival` of the order that was there, which the queue sorts by, and a
+ * `tie` that orders it among the ranked orders of that arrival, the lower ahead.
  */
 export const RankPlace = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('first') }),
-  z.strictObject({ kind: z.literal('position'), position: z.int().positive(), arrival: Timestamp }),
+  z.strictObject({
+    kind: z.literal('position'),
+    position: z.int().positive(),
+    arrival: Timestamp,
+    tie: z.number(),
+  }),
 ]);
 export type RankPlace = z.infer<typeof RankPlace>;
 

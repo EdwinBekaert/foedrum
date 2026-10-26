@@ -68,6 +68,21 @@ export const arrivalAt = (
 };
 
 /**
+ * Where `rank <order> <position>` puts the order: the arrival of the order now at `position` among
+ * those of `queue` without the mark, leaving `order` out, and a tie that puts it just ahead of that
+ * order and behind the ranked orders of the same arrival ahead of it; past the end, `now`.
+ */
+export const placeAt = (
+  _queue: readonly QueuedOrder[],
+  _ranks: Ranks,
+  _order: OrderRef,
+  _position: number,
+  _now: Date,
+): { arrival: string; tie: number } => {
+  throw new Error('not implemented');
+};
+
+/**
  * Why `order` cannot be ranked, from the folded state alone, or undefined: it is a sub-order, which
  * its plan ranks, the Brewery issue of a claimed target issue, or it has a batch, so it left the
  * queue.

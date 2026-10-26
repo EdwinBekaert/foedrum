@@ -28,7 +28,7 @@ import {
 } from '../engine/intake.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
-import { arrivalAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
+import { placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -724,7 +724,7 @@ export const commands: readonly RegisteredCommand[] = [
                 : {
                     kind: 'position',
                     position: place,
-                    arrival: arrivalAt(queue, ranks, order, place, now),
+                    ...placeAt(queue, ranks, order, place, now),
                   },
             by: context.user(),
             via: context.surface,

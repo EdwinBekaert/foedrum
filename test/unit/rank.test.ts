@@ -12,7 +12,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { createIntake, type IntakeOptions, type TargetTracker } from '../../src/engine/intake.ts';
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
-import { arrivalAt, type QueuedOrder, rankQueue } from '../../src/engine/ranks.ts';
+import { placeAt, type QueuedOrder, rankQueue } from '../../src/engine/ranks.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event, OrderRef, RankPlace } from '../../src/schemas/events.ts';
@@ -79,10 +79,11 @@ const rank = (order: OrderRef, place: RankPlace): RankOrder => ({
   via: 'terminal',
 });
 const first: RankPlace = { kind: 'first' };
-const position = (n: number, arrival: string): RankPlace => ({
+const position = (n: number, arrival: string, tie = 0): RankPlace => ({
   kind: 'position',
   position: n,
   arrival,
+  tie,
 });
 
 describe('rankQueue', () => {
@@ -113,10 +114,10 @@ describe('rankQueue', () => {
     ]);
   });
 
-  it('puts a ranked order at its arrival, ahead of the unranked ones that share it, the later rank ahead', () => {
+  it('puts a ranked order at its arrival, ahead of the unranked ones that share it, the lower tie ahead', () => {
     const ranks = ranksOf(
       ranked({ issue: 3, repo: web }, position(1, at(0))),
-      ranked({ issue: 2, repo: api }, position(1, at(0))),
+      ranked({ issue: 2, repo: api }, position(1, at(0), -1)),
     );
     assert.deepStrictEqual(names(rankQueue(queue, ranks)), [
       'acme/api#2',
@@ -169,26 +170,47 @@ describe('rankQueue', () => {
     assert.deepStrictEqual(names(rankQueue(queue, ranks))[0], 'acme/web#3');
   });
 
-  describe('arrivalAt', () => {
-    const sorted = rankQueue(queue, ranksOf());
+  describe('placeAt', () => {
+    const order = { issue: 3, repo: web };
 
     it('gives the arrival of the order now at the place, leaving the ranked order out', () => {
-      const order = { issue: 3, repo: web };
-      assert.equal(arrivalAt(sorted, ranksOf(), order, 1, t0), at(0));
-      assert.equal(arrivalAt(sorted, ranksOf(), order, 3, t0), at(1));
+      const sorted = rankQueue(queue, ranksOf());
+      assert.deepStrictEqual(placeAt(sorted, ranksOf(), order, 1, t0), { arrival: at(0), tie: 0 });
+      assert.deepStrictEqual(placeAt(sorted, ranksOf(), order, 3, t0), { arrival: at(1), tie: 0 });
       // Its own place does not count: web#3 is fifth, so place 5 is past the other four.
-      assert.equal(arrivalAt(sorted, ranksOf(), order, 5, t0), t0.toISOString());
+      assert.deepStrictEqual(placeAt(sorted, ranksOf(), order, 5, t0), {
+        arrival: t0.toISOString(),
+        tie: 0,
+      });
     });
 
-    it('counts only the orders without the mark, and a ranked one by its rank', () => {
+    it('counts only the orders without the mark, and a ranked one by its rank and tie', () => {
       const ranks = ranksOf(
         ranked({ issue: 1, repo: api }, first),
         ranked({ issue: 2, repo: api }, position(1, at(0))),
       );
-      const order = { issue: 3, repo: web };
-      // api#1 is marked: place 1 is api#2, ranked at 10:00, not its own 10:01.
-      assert.equal(arrivalAt(rankQueue(queue, ranks), ranks, order, 1, t0), at(0));
-      assert.equal(arrivalAt(rankQueue(queue, ranks), ranks, order, 2, t0), at(1));
+      const sorted = rankQueue(queue, ranks);
+      // api#1 is marked: place 1 is api#2, ranked at 10:00 with tie 0, so it goes ahead of that.
+      assert.deepStrictEqual(placeAt(sorted, ranks, order, 1, t0), { arrival: at(0), tie: -1 });
+      assert.deepStrictEqual(placeAt(sorted, ranks, order, 2, t0), { arrival: at(1), tie: 0 });
+    });
+
+    it('puts an order between a ranked order and the order behind it that share an arrival', () => {
+      // api#2 ranked at its own arrival, 10:01: api#1, api#2, #12, web#1, web#3.
+      const ranks = ranksOf(ranked({ issue: 2, repo: api }, position(2, at(1))));
+      const sorted = rankQueue(queue, ranks);
+      const place = placeAt(sorted, ranks, order, 3, t0);
+      assert.deepStrictEqual(place, { arrival: at(1), tie: 1 });
+      const moved = ranksOf(
+        ranked({ issue: 2, repo: api }, position(2, at(1))),
+        ranked(order, { kind: 'position', position: 3, ...place }),
+      );
+      assert.deepStrictEqual(names(rankQueue(queue, moved)).slice(0, 4), [
+        'acme/api#1',
+        'acme/api#2',
+        'acme/web#3',
+        '#12',
+      ]);
     });
   });
 });
@@ -394,6 +416,19 @@ describe('foedrum rank (ADR 0208)', () => {
     assert.deepStrictEqual(last(), ranked({ issue: 2, repo: api }, position(9, t0.toISOString())));
   });
 
+  it('keeps the place asked for when the order ahead of it was ranked to the same arrival', async () => {
+    // #13 goes to place 2, at api#2's arrival; web#7 then goes to place 3, between the two.
+    assert.deepStrictEqual(
+      await run(['rank', '#13', '2']),
+      ok('#13 ranked 2: place 2 of 5 in the queue\n'),
+    );
+    assert.deepStrictEqual(
+      await run(['rank', 'web#7', '3']),
+      ok('web#7 ranked 3: place 3 of 5 in the queue\n'),
+    );
+    assert.deepStrictEqual(last(), ranked({ issue: 7, repo: web }, position(3, at(2), 1)));
+  });
+
   it("prints an order's place in the queue and its rank, and appends nothing", async () => {
     await run(['rank', 'web#7', '1', '--why', 'the release']);
     await run(['rank', '12', 'first']);
@@ -501,7 +536,7 @@ describe('foedrum rank (ADR 0208)', () => {
     const replay = (await run(['replay', 'web-7'])).stdout;
     assert.match(
       replay,
-      /order\.ranked +\{"order":\{"issue":7,"repo":"acme\/web"\},"place":\{"kind":"position","position":1,"arrival":"2026-10-20T10:01:00\.000Z"\},"by":"ada","via":"terminal","why":"the release"\}/,
+      /order\.ranked +\{"order":\{"issue":7,"repo":"acme\/web"\},"place":\{"kind":"position","position":1,"arrival":"2026-10-20T10:01:00\.000Z","tie":0\},"by":"ada","via":"terminal","why":"the release"\}/,
     );
     assert.doesNotMatch(replay, /"repo":"acme\/api"/);
   });
