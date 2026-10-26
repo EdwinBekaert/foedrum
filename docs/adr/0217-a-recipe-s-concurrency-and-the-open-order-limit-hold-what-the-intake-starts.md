@@ -41,7 +41,7 @@ Decided by the maintainer on 2026-10-26.
 - So a paused order counts (its batches keep their lanes, and a `continue` must not put the Brewery above the limit), a stopped one counts (Stuck `stopped`), and so does any Stuck one, until a person moves it on.
 - An order whose batches are all On tap or cancelled, with no sub-order left, does not count, even with its pull request open and waiting on a person. A decomposed order whose remaining sub-orders wait for that merge does.
 - An order whose latest batch is cancelled does not count: ADR 0211 starts none of its sub-orders.
-- The cost: a sub-order blocked by a closed pull request keeps its order open until a person orders the blocker again or cancels the order.
+- The cost: a sub-order blocked by a closed pull request keeps its order open until a person orders the blocker again or cancels the order, and so does a sub-order whose own issue a person closed, which the intake never orders (ADR 0211), until a new breakdown leaves it out or the order is cancelled.
 
 ### What the open-order limit holds
 - Only a new order: one with no batch yet. A ready sub-order of an open order is never held by it, since finishing the orders that started is the point.
