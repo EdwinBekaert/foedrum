@@ -193,7 +193,7 @@ describe('stop (ADR 0205)', () => {
     assert.equal(batch('b7').lane.kind, 'brewing');
   });
 
-  it('refuses the end of the attempt it stopped: the stop spends no attempt', () => {
+  it('refuses the end of the attempt it stopped, so that end is not recorded', () => {
     order(12);
     start('b12');
     accept({ kind: 'stop', order: { issue: 12 }, ...who });

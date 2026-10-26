@@ -1,7 +1,7 @@
 // A stop during an attempt, a kill during a stop, and a retry (#518, ADR 0205): batches brew, a
 // person stops one order at a random tick, and the driver may be killed and started again before
-// its next tick. The stopped order's runs are stopped by that next tick, nothing of it starts
-// until its retry, and once retried every stopped batch is on tap. The run count is FOEDRUM_RUNS
+// its next tick. The driver that ran them stops the stopped order's runs by that next tick,
+// nothing of it starts until its retry, and once retried every stopped batch is on tap. The run count is FOEDRUM_RUNS
 // (a few in npm run check, more in CI).
 
 import assert from 'node:assert/strict';
@@ -21,7 +21,8 @@ import { forEachSeedAsync } from '../helpers/property.ts';
 
 const minute = 60_000;
 const t0 = new Date('2026-10-26T16:00:00.000Z');
-// Each step may run twice: one loss to the kill; the stopped attempt spends none.
+// Each step may run twice: one loss to the kill, or the stopped attempt, which counts; a person's
+// retry schedules the step whatever attempts it has left (ADR 0205).
 const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 2 }) });
 const who = { by: 'ada', via: 'terminal' } as const;
 
