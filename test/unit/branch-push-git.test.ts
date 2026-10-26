@@ -798,3 +798,78 @@ describe('openBranchPush: secretScan (ADR 0079)', () => {
     );
   });
 });
+
+describe('openBranchPush: touchedFiles (ADR 0201)', () => {
+  const SINCE = 'a'.repeat(40);
+
+  it('lists every path the diff from the start to the commit names, a deleted one and both sides of a rename too, in the clone', async () => {
+    const { git, calls } = recordingGit(() => ok('src/auth/login.ts\0docs/a b.md\0old/ci.yml\0'));
+    const push = openBranchPush({ git, clone });
+    assert.deepEqual(await push.touchedFiles(SINCE, TIP), [
+      'src/auth/login.ts',
+      'docs/a b.md',
+      'old/ci.yml',
+    ]);
+    assert.deepEqual(
+      calls.map(({ cwd, args }) => [cwd, ...args]),
+      [
+        [
+          clone,
+          'diff',
+          '--name-only',
+          '-z',
+          '--no-renames',
+          '--no-ext-diff',
+          '--no-relative',
+          '--ignore-submodules=none',
+          '--end-of-options',
+          SINCE,
+          TIP,
+        ],
+      ],
+    );
+  });
+
+  it('reads the files as committed, as the secret scan does: no replace ref, graft or shallow file of the clone changes them (review of #523)', async () => {
+    const { git, calls } = recordingGit(() => ok(''));
+    await openBranchPush({ git, clone }).touchedFiles(SINCE, TIP);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0]?.options?.env, {
+      GIT_NO_REPLACE_OBJECTS: '1',
+      GIT_GRAFT_FILE: devNull,
+      GIT_SHALLOW_FILE: devNull,
+      GIT_NO_LAZY_FETCH: '1',
+    });
+    assert.deepEqual(calls[0]?.options?.config, {
+      'core.attributesFile': devNull,
+      'log.showRoot': 'true',
+      'advice.graftFileDeprecated': 'false',
+      'protocol.allow': 'never',
+      ...IN_CLONE,
+    });
+  });
+
+  it("fails with git's reason when git does, and refuses a commit that is no full sha before git runs", async () => {
+    const broken = recordingGit(() => ({ code: 128, stdout: '', stderr: 'fatal: bad object\n' }));
+    await assert.rejects(openBranchPush({ git: broken.git, clone }).touchedFiles(SINCE, TIP), {
+      message: 'git diff failed: fatal: bad object',
+    });
+    const { git, calls } = recordingGit();
+    await assert.rejects(
+      openBranchPush({ git, clone }).touchedFiles('main', TIP),
+      /main is no full commit sha/,
+    );
+    await assert.rejects(
+      openBranchPush({ git, clone }).touchedFiles(SINCE, 'HEAD'),
+      /HEAD is no full commit sha/,
+    );
+    assert.deepEqual(calls, []);
+  });
+
+  it('passes the signal to git', async () => {
+    const { git, calls } = recordingGit(() => ok(''));
+    const { signal } = new AbortController();
+    assert.deepEqual(await openBranchPush({ git, clone }).touchedFiles(SINCE, TIP, signal), []);
+    assert.equal(calls[0]?.options?.signal, signal);
+  });
+});

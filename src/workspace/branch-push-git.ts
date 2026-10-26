@@ -287,5 +287,26 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         ...scanPatches(patches, isCommit),
       ];
     },
+    touchedFiles: async (since, commit, signal) => {
+      for (const sha of [since, commit]) {
+        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+      }
+      // Each path once, a rename's two as a deletion and an addition, never quoted after -z.
+      const args = [
+        'diff',
+        '--name-only',
+        '-z',
+        '--no-renames',
+        '--no-ext-diff',
+        '--no-relative',
+        '--ignore-submodules=none',
+        '--end-of-options',
+        since,
+        commit,
+      ];
+      // As committed, as the scan reads them: no replace ref or graft of a brewer's names the files.
+      const listed = await gitOutput(local, clone, args, { ...aborts(signal), ...AS_COMMITTED });
+      return listed.split('\0').filter((path) => path !== '');
+    },
   };
 };

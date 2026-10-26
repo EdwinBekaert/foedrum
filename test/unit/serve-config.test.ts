@@ -120,6 +120,15 @@ describe('serveSetup', () => {
     assert.equal(ready(inputs()).repositories[0]?.houseYeast, undefined);
   });
 
+  it("passes on each repository's sensitive paths, and none when it names none (ADR 0201)", () => {
+    const sensitivePaths = ['.github/workflows/**', 'src/auth/**'];
+    const setup = ready(
+      inputs({ files: { ...inputs().files, config: config({}, { sensitivePaths }) } }),
+    );
+    assert.deepStrictEqual(setup.repositories[0]?.sensitivePaths, sensitivePaths);
+    assert.equal(ready(inputs()).repositories[0]?.sensitivePaths, undefined);
+  });
+
   it('finds the clone of a repository whose name the two files spell in another case', () => {
     const setup = ready(
       inputs({
