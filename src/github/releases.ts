@@ -5,6 +5,7 @@
 import type { LatestRelease, ReleaseReader } from '../engine/releases.ts';
 import {
   GitHubCompare,
+  GitHubGitCommit,
   GitHubLatestRelease,
   GitHubLatestTag,
   GitHubPullRequest,
@@ -60,7 +61,7 @@ const versionOf = (name: string, repo: string): string => {
 const Moment = z.iso.datetime({ offset: true });
 
 export const githubReleaseReader = (reads: GitHubReads, client: GitHubClient): ReleaseReader => {
-  /** The newest tag of `repo` and its commit's date; none when it has no tag of a commit. */
+  /** The newest tag of `repo` and its commit's date; none when it has no tag. */
   const latestTag = async (repo: string, signal?: AbortSignal) => {
     const what = `the latest tag of ${repo}`;
     const [owner, name] = repoPath(repo).split('/');
@@ -72,9 +73,20 @@ export const githubReleaseReader = (reads: GitHubReads, client: GitHubClient): R
     if (tag === undefined) return undefined;
     const version = versionOf(tag.name, repo);
     const target = tag.target;
-    if (target === undefined) return undefined;
+    // Never read as no release: the wait it holds up would show nowhere.
+    if (target === undefined) {
+      throw new Error(`The latest tag of ${repo}, ${JSON.stringify(version)}, points at no commit`);
+    }
     const date = 'committedDate' in target ? target.committedDate : target.target.committedDate;
-    return { version, published: new Date(date).toISOString() };
+    return { version, published: new Date(date).toISOString(), tag: true };
+  };
+
+  /** When the merge commit `merge` was committed: git's data API, which lists no files. */
+  const mergeCommitDate = async (path: string, merge: string, signal?: AbortSignal) => {
+    const what = `the merge commit ${merge}`;
+    const answer = await reads.get(`/repos/${path}/git/commits/${merge}`, signal);
+    if (answer.status !== 200) throw refused(answer.status, answer.body, what);
+    return checked(GitHubGitCommit, answer.body, what).committer.date;
   };
 
   return {
@@ -103,10 +115,13 @@ export const githubReleaseReader = (reads: GitHubReads, client: GitHubClient): R
         what,
       );
       if (mergedAt == null || merge == null) return false;
-      const merged = checked(Moment, mergedAt, what);
-      // Published before the merge, it cannot hold it: no compare, whose answer lists every
-      // commit since an old release (ADR 0223).
-      if (Date.parse(release.published) < Date.parse(merged)) return false;
+      // A release published before the merge cannot hold it; a tag's date is its commit's, set
+      // where it was made, so it goes by the merge commit's own, which a local merge sets before
+      // its push. Either way no compare, whose answer lists every commit since (ADR 0223).
+      const since = release.tag
+        ? await mergeCommitDate(path, merge, signal)
+        : checked(Moment, mergedAt, what);
+      if (Date.parse(release.published) < Date.parse(since)) return false;
       const compare = `/repos/${path}/compare/${encodeURIComponent(release.version)}...${merge}?per_page=1`;
       const whatCompared = `the compare of ${release.version} with ${merge} in ${pull.repo}`;
       const compared = await reads.get(compare, signal);

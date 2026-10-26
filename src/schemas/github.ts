@@ -94,6 +94,11 @@ export const GitHubLatestTag = z.object({
   }),
 });
 
+/** `GET /repos/{owner}/{repo}/git/commits/{sha}`: when it was committed (ADR 0223). */
+export const GitHubGitCommit = z.object({
+  committer: z.object({ date: z.iso.datetime({ offset: true }) }),
+});
+
 /** `GET /repos/{owner}/{repo}/compare/{base}...{head}`: how head stands to base (ADR 0223). */
 export const GitHubCompare = z.object({
   status: z.enum(['ahead', 'behind', 'identical', 'diverged']),
