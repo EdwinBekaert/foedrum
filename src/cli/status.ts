@@ -39,6 +39,8 @@ const stuckOn = (reason: StuckReason): string => {
       return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
     case 'routing':
       return `not routed by ${reason.deadlineAt}`;
+    case 'stopped':
+      return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
     default: {
       const unhandled: never = reason;
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);

@@ -52,6 +52,7 @@ import {
   RewindCommand,
   SkipCommand,
   StatusCommand,
+  StopCommand,
   StuckCommand,
   TakeoverCommand,
 } from '../schemas/commands.ts';
@@ -641,6 +642,40 @@ export const commands: readonly RegisteredCommand[] = [
         if (decision.kind === 'refused') return failed('continue', decision.reason);
         return done(
           target === undefined ? 'The Brewery continues\n' : `${givenName(target)} continues\n`,
+        );
+      });
+    },
+  }),
+  define({
+    name: 'stop',
+    summary: 'Stop an order now: what runs of it is killed, and its batches are Stuck until retry',
+    changesState: true,
+    positionals: ['order'],
+    options: { why: 'reason' },
+    schema: StopCommand,
+    handler: async ({ order: target, why }, context) => {
+      const order = orderRefOf(target, context);
+      if ('refused' in order) return failed('stop', order.refused);
+      return writeBrewery('stop', context, async (log) => {
+        const decision = log.issue(
+          {
+            kind: 'stop',
+            order,
+            by: context.user(),
+            via: context.surface,
+            ...(why === undefined ? {} : { why }),
+          },
+          context.now(),
+        );
+        if (decision.kind === 'refused') return failed('stop', decision.reason);
+        const stuck = decision.events.flatMap((event) =>
+          event.type === 'batch.stuck' && event.reason.kind === 'stopped'
+            ? [`${event.batchId} is Stuck at ${event.reason.stepId}`]
+            : [],
+        );
+        const them = stuck.length === 1 ? 'it' : 'each';
+        return done(
+          `${givenName(target)} stopped: ${stuck.join(', ')}; foedrum retry continues ${them}\n`,
         );
       });
     },

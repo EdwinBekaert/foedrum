@@ -65,6 +65,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | Microbiologist | Bug triage |
 | Lab tech | Verification |
 | Tasting panel | Evaluation |
+| Tapster | Showing the engineer what can now be done, and taking feedback |
 
 ## Default recipes — sized by the glass
 
