@@ -9,6 +9,12 @@ export const reopenMarginMs = 5 * 60_000;
 /** How long the window stays closed when the reset cannot be read. */
 export const unreadRetryMs = 60 * 60_000;
 
+/** When a closed usage window reopens, and whether claude's reset could be read. */
+export interface Reopen {
+  at: Date;
+  read: boolean;
+}
+
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /** The documented forms only (ADR 0091): `3:45pm`, or a weekday before it, `Mon 12:00am`. */
 const RESET = /^(?:(Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?(1[0-2]|[1-9]):([0-5]\d)(am|pm)$/;
@@ -21,7 +27,7 @@ const resetOf = (resets: string, now: Date, zone: string): number | undefined =>
   const hours = (Number(hour) % 12) + (half === 'pm' ? 12 : 0);
   let today: Date;
   try {
-    today = new Date(wallClock(Math.floor(now.getTime() / 1000) * 1000, zone));
+    today = new Date(wallClock(now.getTime(), zone));
   } catch (error) {
     // ICU reports Etc/Unknown when it cannot tell the machine's zone, and rejects it as a zone.
     if (!(error instanceof RangeError)) throw error;
@@ -49,7 +55,7 @@ const resetOf = (resets: string, now: Date, zone: string): number | undefined =>
  * When the window whose reset claude wrote as `resets` reopens, read at `now` in `zone`: the next
  * moment that matches (`3:45pm`, `Mon 12:00am`) plus the margin, or an hour on when unread.
  */
-export const reopenOf = (resets: string, now: Date, zone: string): { at: Date; read: boolean } => {
+export const reopenOf = (resets: string, now: Date, zone: string): Reopen => {
   const reset = resetOf(resets, now, zone);
   return reset === undefined
     ? { at: new Date(now.getTime() + unreadRetryMs), read: false }

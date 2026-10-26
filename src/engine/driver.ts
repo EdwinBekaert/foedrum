@@ -30,7 +30,7 @@ import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
-import { reopenOf } from './usage-window.ts';
+import { type Reopen, reopenOf } from './usage-window.ts';
 import type { OutDocOf } from './worktree-claims.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
@@ -240,7 +240,7 @@ const finishOf = (
   ref: AttemptRef,
   end: AttemptEnd,
   paused: boolean,
-  reopensAt: { at: Date; read: boolean } | undefined,
+  reopensAt: Reopen | undefined,
 ): EngineCommand => {
   const { session, receipt, ...rest } = end;
   const report = ClaudeReport.safeParse({ version: session?.claudeVersion, model: session?.model });

@@ -33,6 +33,7 @@ import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
+import type { Reopen } from './usage-window.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
 interface Issuer {
@@ -119,7 +120,7 @@ export type EngineCommand =
        * When the usage window its `usageLimit` names reopens, as the driver read the reset, and
        * whether it could (ADR 0206).
        */
-      reopensAt?: { at: Date; read: boolean };
+      reopensAt?: Reopen;
     }
   /** The supervisor found the attempt past its deadline (invariant I5). */
   | { kind: 'expire'; batchId: string; stepId: string; attempt: number }
@@ -553,13 +554,9 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
   // The window is the subscription's, whatever becomes of this batch (ADR 0206).
   if (limited !== undefined && reopensAt !== undefined) close(draft, limited, reopensAt);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
-  // A usage limit is the subscription's wait, no failure: the step runs again after the reopen.
-  if (limited !== undefined) {
-    schedule(draft, batchId, stepId, { retry: true });
-    return;
-  }
-  // A pause is a person's choice, no failure: the step runs again whatever attempts it has left.
-  if (stopped) {
+  // A pause is a person's choice and a usage limit the subscription's wait, no failure: the step
+  // runs again whatever attempts it has left, after the reopen for a usage limit.
+  if (stopped || limited !== undefined) {
     schedule(draft, batchId, stepId, { retry: true });
     return;
   }
@@ -1269,11 +1266,7 @@ function usageLimitOf(
  * Closes the usage window (ADR 0206), or keeps it closed until the later of its reopen and this
  * one: the window reopens at the latest reset claude named.
  */
-function close(
-  draft: Draft,
-  { limit, resets }: UsageLimit,
-  reopensAt: { at: Date; read: boolean },
-) {
+function close(draft: Draft, { limit, resets }: UsageLimit, reopensAt: Reopen) {
   const current = draft.state.usageWindow;
   if (current !== undefined && Date.parse(current.reopensAt) >= reopensAt.at.getTime()) return;
   draft.push({
