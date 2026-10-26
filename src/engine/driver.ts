@@ -30,7 +30,7 @@ import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
-import { type Reopen, reopenOf } from './usage-window.ts';
+import { type ModelFamily, type Reopen, reopenOf, windowHolds } from './usage-window.ts';
 import type { OutDocOf } from './worktree-claims.ts';
 import { batchIsOver, createWorktreeCleanup, endedBatches } from './worktree-cleanup.ts';
 
@@ -127,6 +127,11 @@ export interface DriverOptions {
    * `foedrum brew` ask the brewer of the attempt's step.
    */
   resumes?: (attempt: AttemptRef) => boolean;
+  /**
+   * The model family a brewer attempt runs on, to know which closed usage window holds it
+   * (ADR 0215); undefined, which every closed window holds, by default.
+   */
+  family?: (attempt: AttemptRef) => ModelFamily | undefined;
   /**
    * The IANA time zone claude's usage-limit reset is read in (ADR 0206); default the machine's.
    */
@@ -312,6 +317,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     outDoc,
     worktrees = [],
     brews = () => true,
+    family = () => undefined,
     resumes = () => false,
     zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     sessionId = randomUUID,
@@ -713,8 +719,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           // Another driver's batch, or one this driver does not take, is not its to start.
           if (!claim(batch.id)) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
-          // No brewer starts while the usage window is closed; a check or an action does (ADR 0206).
-          const held = log.state().usageWindow !== undefined && brews(ref);
+          // No brewer starts while a usage window that holds its family is closed; a check or an
+          // action does (ADR 0206, ADR 0215).
+          const held = brews(ref) && windowHolds(log.state().usageWindows, family(ref));
           if (held && actionOf(log.state(), recipes, ref) === undefined) continue;
           const key = attemptKey.encode(ref);
           if (refused.has(key)) continue;

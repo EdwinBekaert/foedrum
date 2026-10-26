@@ -9,6 +9,7 @@ import {
   answersOf,
   attemptLimits,
   changeStart,
+  familyOfBrewer,
   gitRulesOf,
   inputsOf,
   modelOf,
@@ -594,6 +595,27 @@ describe('modelOf (models.jsonc)', () => {
       () => modelOf(models, brewer({ model: 'large' })),
       /models\.jsonc has no model for the alias "large" of the brewer "brewmaster"/,
     );
+  });
+});
+
+describe('familyOfBrewer (ADR 0215)', () => {
+  const families: ModelsConfig = {
+    models: { builder: 'claude-sonnet-5-5', deep: 'opus', quick: 'claude-haiku-5-5' },
+    brewers: { taster: 'deep', gauger: 'quick' },
+  };
+
+  it("is the family of the model behind the brewer's alias", () => {
+    assert.equal(familyOfBrewer(families, brewer()), 'Sonnet');
+    assert.equal(familyOfBrewer(families, brewer({ model: 'deep' })), 'Opus');
+  });
+
+  it('reads a blind-tasting swap as the attempt runs it', () => {
+    assert.equal(familyOfBrewer(families, brewer({ name: 'taster' })), 'Opus');
+  });
+
+  it('cannot tell a family no Opus or Sonnet limit names, nor an alias without a model', () => {
+    assert.equal(familyOfBrewer(families, brewer({ name: 'gauger' })), undefined);
+    assert.equal(familyOfBrewer(families, brewer({ model: 'large' })), undefined);
   });
 });
 

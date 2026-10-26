@@ -421,6 +421,43 @@ describe('runServe', () => {
     assert.match(comment?.body ?? '', /src\/cli\.ts/);
   });
 
+  describe('a usage window per family (review of #555, ADR 0215)', () => {
+    /** Serves the Brewery with `models` for its models.jsonc, the Opus window closed all day. */
+    const servedWhileOpusClosed = async (models: string) => {
+      const result = serveSetup(
+        serveInputs({
+          files: { ...serveInputs().files, local: local({ workRoot: dir.path }), models },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail();
+      store.withTransaction((tx) =>
+        tx.append({
+          type: 'usage.window_closed',
+          limit: 'Opus',
+          resets: '11:55pm',
+          reopensAt: '2026-10-18T00:00:00.000Z',
+          read: true,
+        }),
+      );
+      assert.equal(await runServe(setup, shell()), 0);
+    };
+
+    it('starts the cellarman models.jsonc swaps to a Sonnet alias, though its own alias runs Opus', async () => {
+      await servedWhileOpusClosed(
+        JSON.stringify({
+          models: { quick: 'claude-opus-5-5', middle: 'claude-sonnet-5-5' },
+          brewers: { cellarman: 'middle' },
+        }),
+      );
+      assert.equal(plans.length, 1);
+    });
+
+    it('holds the cellarman on Opus', async () => {
+      await servedWhileOpusClosed(JSON.stringify({ models: { quick: 'claude-opus-5-5' } }));
+      assert.deepStrictEqual(plans, []);
+    });
+  });
+
   it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
     const touched: string[] = [];
     const terminal: LiveTerminal = {

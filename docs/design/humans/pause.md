@@ -22,7 +22,7 @@ flowchart LR
 - Under `--all` the intake orders and claims nothing, and the engine's `order` is refused; it still records pull request ends and the checks on their heads ([open pull requests](../intake/open-pull-requests.md)), checks bases and routes Ordered batches. A person's `foedrum order` is not held.
 - The status comment says **Paused** with who, from where, why and the `--by` instant in UTC with the time in its zone; `foedrum status` adds `paused by …` to the batch's line, and `foedrum replay` lists the pause and continue events that held it and the pause in its state.
 - Only a person continues, until the Innkeeper's planning job (#227); `stop` kills at once.
-- A closed usage window holds brewers beside a pause, and reopens by itself: a paused batch's attempt starts once both are lifted, and gets its new deadline at `continue` ([the usage window](../engine/usage-window.md)).
+- A closed usage window holds brewers, or those of its family, beside a pause, and reopens by itself: a paused batch's attempt starts once both are lifted, and gets its new deadline at `continue` ([the usage window](../engine/usage-window.md)).
 
 ## Stop
 

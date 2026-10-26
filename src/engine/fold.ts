@@ -18,12 +18,14 @@ import type {
   Surface,
   Usage,
   UsageLimitName,
+  UsageScope,
   WaitCondition,
   WorktreeRef,
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { effectKey } from './effect-key.ts';
 import { ranIn } from './session-resume.ts';
+import { scopeOf } from './usage-window.ts';
 
 /** Where a batch is: the board lanes (architecture §4.3), plus cancelled. */
 export type Lane =
@@ -273,6 +275,9 @@ export interface UsageWindow {
   read: boolean;
 }
 
+/** The usage windows closed now, by the scope whose brewers each holds (ADR 0215). */
+export type UsageWindows = Readonly<Partial<Record<UsageScope, UsageWindow>>>;
+
 /** A person's pause of an order or of the whole Brewery (ADR 0202). */
 export interface Pause {
   by: string;
@@ -312,8 +317,8 @@ export interface State {
   pauses: Pauses;
   /** The ranks in force, by `orderKey` (ADR 0208). */
   ranks: ReadonlyMap<string, Rank>;
-  /** The usage window while it is closed: no brewer attempt starts (ADR 0206). */
-  usageWindow: UsageWindow | undefined;
+  /** The usage windows closed now, by scope: no brewer attempt they hold starts (ADR 0206, ADR 0215). */
+  usageWindows: UsageWindows;
 }
 
 export const emptyState: State = {
@@ -325,7 +330,7 @@ export const emptyState: State = {
   effects: new Map(),
   pauses: { orders: new Map() },
   ranks: new Map(),
-  usageWindow: undefined,
+  usageWindows: {},
 };
 
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
@@ -728,13 +733,27 @@ function apply(state: State, event: Event): State {
       });
     }
     case 'usage.window_closed': {
-      // A later limit replaces the window in force: decide keeps the later reopen (ADR 0206).
+      // A later limit replaces the window of its scope: decide keeps the later reopen (ADR 0206).
+      // The limit names the scope, also in a log written before scopes (ADR 0215).
       const { limit, resets, reopensAt, read } = event;
-      return { ...state, usageWindow: { limit, resets, reopensAt, read } };
+      const window = { limit, resets, reopensAt, read };
+      return { ...state, usageWindows: { ...state.usageWindows, [scopeOf(limit)]: window } };
     }
-    case 'usage.window_opened':
-      if (state.usageWindow === undefined) throw reject('the usage window is not closed');
-      return { ...state, usageWindow: undefined };
+    case 'usage.window_opened': {
+      const { scope } = event;
+      // Without a scope, as #543 wrote it, every closed window opened (ADR 0215).
+      if (scope === undefined) {
+        if (Object.keys(state.usageWindows).length === 0) {
+          throw reject('the usage window is not closed');
+        }
+        return { ...state, usageWindows: {} };
+      }
+      if (state.usageWindows[scope] === undefined) {
+        throw reject(`the ${scope === 'all' ? '' : `${scope} `}usage window is not closed`);
+      }
+      const { [scope]: _opened, ...closed } = state.usageWindows;
+      return { ...state, usageWindows: closed };
+    }
     case 'effect.applied': {
       // Invariant I4: an effect is keyed by a batch or an attempt of the log (ADR 0043), and
       // applied at most once.

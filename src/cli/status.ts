@@ -5,7 +5,7 @@ import { orderName } from '../engine/claim-orders.ts';
 import type { Batch, Pause, State } from '../engine/fold.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
-import { usageWindowText } from '../engine/usage-window.ts';
+import { usageWindowsText } from '../engine/usage-window.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { columns } from './columns.ts';
 
@@ -132,8 +132,9 @@ export const formatStatus = (
   interactive: ReadonlyMap<string, string> = new Map(),
 ): string => {
   const batches = [...state.batches.values()];
-  // Above the board: it holds every batch's brewers (ADR 0206).
-  const window = state.usageWindow === undefined ? [] : [usageWindowText(state.usageWindow), ''];
+  // Above the board: each holds every batch's brewers, or those of its family (ADR 0206, ADR 0215).
+  const lines = usageWindowsText(state.usageWindows);
+  const window = lines.length === 0 ? [] : [...lines, ''];
   if (batches.length === 0) return `${[...window, 'No batches.'].join('\n')}\n`;
   const rows = batches.map((batch) => statusRow(state, batch, interactive));
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;

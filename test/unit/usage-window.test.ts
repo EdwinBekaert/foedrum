@@ -12,7 +12,8 @@ import type { Batch } from '../../src/engine/fold.ts';
 import { emptyState } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { planTick } from '../../src/engine/supervisor.ts';
-import { reopenOf, usageWindowText } from '../../src/engine/usage-window.ts';
+import { familyOf, reopenOf, usageWindowText } from '../../src/engine/usage-window.ts';
+import type { UsageLimitName } from '../../src/schemas/events.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 
 const minute = 60_000;
@@ -110,7 +111,7 @@ describe('the usage window (ADR 0206)', () => {
         },
       ]);
       assert.equal(batch('b12').lane.kind, 'brewing');
-      assert.deepStrictEqual(log.state().usageWindow, {
+      assert.deepStrictEqual(log.state().usageWindows.all, {
         limit: 'session',
         resets: '3:45pm',
         reopensAt: at(230).toISOString(),
@@ -251,7 +252,7 @@ describe('the usage window (ADR 0206)', () => {
       start('b12');
       hit('b12');
       const restarted = createCommandLog({ store, recipes });
-      assert.equal(restarted.state().usageWindow?.reopensAt, at(230).toISOString());
+      assert.equal(restarted.state().usageWindows.all?.reopensAt, at(230).toISOString());
     });
   });
 
@@ -271,7 +272,7 @@ describe('the usage window (ADR 0206)', () => {
         },
       });
       assert.deepStrictEqual(types(events), ['step.finished', 'batch.stuck']);
-      assert.equal(log.state().usageWindow, undefined);
+      assert.deepStrictEqual(log.state().usageWindows, {});
     });
   });
 
@@ -284,7 +285,7 @@ describe('the usage window (ADR 0206)', () => {
       hit('b12', 1, at(230));
       // An earlier reset moves nothing.
       assert.deepStrictEqual(types(hit('b13', 1, at(200))), ['step.finished', 'step.scheduled']);
-      assert.equal(log.state().usageWindow?.reopensAt, at(230).toISOString());
+      assert.equal(log.state().usageWindows.all?.reopensAt, at(230).toISOString());
       start('b12', 'plan', 2);
       // A later one moves the reopen.
       assert.deepStrictEqual(types(hit('b12', 2, at(300))), [
@@ -292,7 +293,7 @@ describe('the usage window (ADR 0206)', () => {
         'usage.window_closed',
         'step.scheduled',
       ]);
-      assert.equal(log.state().usageWindow?.reopensAt, at(300).toISOString());
+      assert.equal(log.state().usageWindows.all?.reopensAt, at(300).toISOString());
     });
 
     it('while closed with the same reopen records no second close', () => {
@@ -310,10 +311,10 @@ describe('the usage window (ADR 0206)', () => {
       hit('b12', 1, at(30));
       now = at(30);
       accept({ kind: 'reopen' });
-      assert.equal(log.state().usageWindow, undefined);
+      assert.deepStrictEqual(log.state().usageWindows, {});
       start('b12', 'plan', 2);
       hit('b12', 2, at(120));
-      assert.equal(log.state().usageWindow?.reopensAt, at(120).toISOString());
+      assert.equal(log.state().usageWindows.all?.reopensAt, at(120).toISOString());
     });
   });
 
@@ -393,11 +394,11 @@ describe('the usage window (ADR 0206)', () => {
       const events = accept({ kind: 'reopen' });
       const deadlineAt = new Date(now.getTime() + hour).toISOString();
       assert.deepStrictEqual(events, [
-        { type: 'usage.window_opened', at: now.toISOString() },
+        { type: 'usage.window_opened', at: now.toISOString(), scope: 'all' },
         { type: 'step.rescheduled', batchId: 'b12', stepId: 'plan', attempt: 2, deadlineAt },
         { type: 'step.rescheduled', batchId: 'b13', stepId: 'plan', attempt: 1, deadlineAt },
       ]);
-      assert.equal(log.state().usageWindow, undefined);
+      assert.deepStrictEqual(log.state().usageWindows, {});
       assert.deepStrictEqual(store.batchesPastDeadline(now), []);
     });
 
@@ -423,6 +424,195 @@ describe('the usage window (ADR 0206)', () => {
       now = at(230);
       assert.deepStrictEqual(types(accept({ kind: 'reopen' })), ['usage.window_opened']);
       assert.equal(batch('b12').lane.kind, 'stuck');
+    });
+  });
+
+  describe('a window per scope (ADR 0215)', () => {
+    /** Ends `batchId`'s attempt with claude's `limit`, whose window reopens at `reopen`. */
+    const hitBy = (batchId: string, limit: UsageLimitName, reopen: Date, attempt = 1) =>
+      accept({
+        kind: 'finish',
+        batchId,
+        stepId: 'plan',
+        attempt,
+        ending: { ...limited, usageLimit: { limit, resets: '3:45pm' } },
+        reopensAt: { at: reopen, read: true },
+      });
+    const window = (limit: UsageLimitName, reopen: Date) => ({
+      limit,
+      resets: '3:45pm',
+      reopensAt: reopen.toISOString(),
+      read: true,
+    });
+    const tick = () =>
+      planTick({
+        state: log.state(),
+        due: store.batchesPastDeadline(now),
+        expiredLeases: [],
+        progress: { progress: () => undefined },
+        recipes,
+        now,
+      });
+
+    it('closes only the Opus window for an Opus limit, only the Sonnet one for a Sonnet limit', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Opus', at(230));
+      assert.deepStrictEqual(log.state().usageWindows, { Opus: window('Opus', at(230)) });
+      hitBy('b13', 'Sonnet', at(100));
+      assert.deepStrictEqual(log.state().usageWindows, {
+        Opus: window('Opus', at(230)),
+        Sonnet: window('Sonnet', at(100)),
+      });
+    });
+
+    it('closes the window of every brewer for a session or weekly limit, beside a closed family', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Opus', at(230));
+      hitBy('b13', 'weekly', at(300));
+      assert.deepStrictEqual(log.state().usageWindows, {
+        Opus: window('Opus', at(230)),
+        all: window('weekly', at(300)),
+      });
+    });
+
+    it('keeps the later reopen within a scope, whatever another scope reopens at', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Opus', at(230));
+      // An earlier Opus reset moves nothing, though no Sonnet or session window is closed.
+      assert.deepStrictEqual(types(hitBy('b13', 'Opus', at(200))), [
+        'step.finished',
+        'step.scheduled',
+      ]);
+      start('b13', 'plan', 2);
+      // A Sonnet limit closes its own window, though its reopen is earlier than Opus's.
+      assert.deepStrictEqual(types(hitBy('b13', 'Sonnet', at(100), 2)), [
+        'step.finished',
+        'usage.window_closed',
+        'step.scheduled',
+      ]);
+    });
+
+    it('reopens each scope at its own reset, the other staying closed, and reschedules at each', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Opus', at(230));
+      hitBy('b13', 'weekly', at(300));
+      now = at(229);
+      refuse({ kind: 'reopen' }, /reopens at/);
+      assert.equal(tick().reopen, undefined);
+      now = at(230);
+      assert.equal(tick().reopen, true);
+      const deadlineAt = (minutes: number) => new Date(at(minutes).getTime() + hour).toISOString();
+      assert.deepStrictEqual(accept({ kind: 'reopen' }), [
+        { type: 'usage.window_opened', at: at(230).toISOString(), scope: 'Opus' },
+        {
+          type: 'step.rescheduled',
+          batchId: 'b12',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt: deadlineAt(230),
+        },
+        {
+          type: 'step.rescheduled',
+          batchId: 'b13',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt: deadlineAt(230),
+        },
+      ]);
+      assert.deepStrictEqual(log.state().usageWindows, { all: window('weekly', at(300)) });
+      // Held still by the window of every brewer: no expire, and no second reopen until its own.
+      now = at(299);
+      assert.deepStrictEqual(tick(), { commands: [], releaseLeases: [] });
+      now = at(300);
+      assert.deepStrictEqual(types(accept({ kind: 'reopen' })), [
+        'usage.window_opened',
+        'step.rescheduled',
+        'step.rescheduled',
+      ]);
+      assert.deepStrictEqual(log.state().usageWindows, {});
+    });
+
+    // Review of #555: the window that closed first is not the first to reopen.
+    it('reopens the earlier window when it closed after the later one', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Sonnet', at(300));
+      hitBy('b13', 'Opus', at(230));
+      now = at(229);
+      refuse({ kind: 'reopen' }, /reopens at 2026-10-26T15:50:00\.000Z/);
+      now = at(230);
+      const opened = accept({ kind: 'reopen' }).filter(
+        (event) => event.type === 'usage.window_opened',
+      );
+      assert.deepStrictEqual(opened, [
+        { type: 'usage.window_opened', at: at(230).toISOString(), scope: 'Opus' },
+      ]);
+      assert.deepStrictEqual(log.state().usageWindows, { Sonnet: window('Sonnet', at(300)) });
+    });
+
+    it('opens every window whose reopen has come in one reopen', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hitBy('b12', 'Opus', at(230));
+      hitBy('b13', 'Sonnet', at(200));
+      now = at(240);
+      const events = accept({ kind: 'reopen' });
+      assert.deepStrictEqual(
+        events.flatMap((event) => (event.type === 'usage.window_opened' ? [event.scope] : [])),
+        ['Opus', 'Sonnet'],
+      );
+      assert.deepStrictEqual(log.state().usageWindows, {});
+    });
+
+    it('reopens a window a log of #543 closed, by the scope its limit names', () => {
+      order(12);
+      store.withTransaction((tx) =>
+        tx.append({
+          type: 'usage.window_closed',
+          limit: 'Sonnet',
+          resets: '3:45pm',
+          reopensAt: at(230).toISOString(),
+          read: true,
+        }),
+      );
+      const restarted = createCommandLog({ store, recipes });
+      assert.deepStrictEqual(restarted.state().usageWindows, { Sonnet: window('Sonnet', at(230)) });
+      now = at(230);
+      const decision = restarted.issue({ kind: 'reopen' }, now);
+      assert.deepStrictEqual(decision.kind === 'accepted' && decision.events[0], {
+        type: 'usage.window_opened',
+        at: at(230).toISOString(),
+        scope: 'Sonnet',
+      });
+    });
+
+    it('expires no attempt that has not started while only a family window is closed', () => {
+      order(12);
+      order(13);
+      start('b12');
+      hitBy('b12', 'Sonnet', at(5 * 60));
+      now = at(2 * 60);
+      refuse(
+        { kind: 'expire', batchId: 'b13', stepId: 'plan', attempt: 1 },
+        /waits for the usage window/,
+      );
+      assert.deepStrictEqual(tick().commands, []);
     });
   });
 });
@@ -551,35 +741,91 @@ describe('reopenOf (ADR 0206)', () => {
 });
 
 describe('usageWindowText (ADR 0206)', () => {
+  const window = {
+    limit: 'session',
+    resets: '3:45pm',
+    reopensAt: '2026-10-26T14:50:00.000Z',
+    read: true,
+  } as const;
+
   it('names the limit, the reset as claude wrote it, and when brewers start again in UTC', () => {
-    const window = {
-      limit: 'Opus',
-      resets: '3:45pm',
-      reopensAt: '2026-10-26T14:50:00.000Z',
-      read: true,
-    } as const;
     assert.equal(
       usageWindowText(window),
-      'Usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers wait until 14:50 UTC, 26 October',
+      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 26 October',
     );
     assert.equal(
       usageWindowText({ ...window, read: false }),
-      'Usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers try again at 14:50 UTC, 26 October',
+      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers try again at 14:50 UTC, 26 October',
+    );
+  });
+
+  it("names a family's window and the brewers on it (ADR 0215)", () => {
+    assert.equal(
+      usageWindowText({ ...window, limit: 'Opus' }),
+      'Opus usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers on Opus wait until 14:50 UTC, 26 October',
+    );
+    assert.equal(
+      usageWindowText({ ...window, limit: 'Sonnet', read: false }),
+      'Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet try again at 14:50 UTC, 26 October',
     );
   });
 });
 
 describe('formatStatus with the usage window closed (ADR 0206)', () => {
+  const session = {
+    limit: 'session',
+    resets: '3:45pm',
+    reopensAt: '2026-10-26T14:50:00.000Z',
+    read: true,
+  } as const;
+
   it('shows the window above No batches. too', () => {
-    const usageWindow = {
-      limit: 'session',
-      resets: '3:45pm',
-      reopensAt: '2026-10-26T14:50:00.000Z',
-      read: true,
-    } as const;
     assert.equal(
-      formatStatus({ ...emptyState, usageWindow }),
+      formatStatus({ ...emptyState, usageWindows: { all: session } }),
       'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 26 October\n\nNo batches.\n',
     );
+  });
+
+  it('shows a line for each closed window, every brewer first, then Opus, then Sonnet (ADR 0215)', () => {
+    const sonnet = { ...session, limit: 'Sonnet', reopensAt: '2026-10-26T16:50:00.000Z' } as const;
+    const opus = { ...session, limit: 'Opus', resets: '5:45pm' } as const;
+    assert.equal(
+      formatStatus({ ...emptyState, usageWindows: { Sonnet: sonnet, Opus: opus } }),
+      [
+        'Opus usage window closed: claude hit its Opus limit, which resets 5:45pm; brewers on Opus wait until 14:50 UTC, 26 October',
+        'Sonnet usage window closed: claude hit its Sonnet limit, which resets 3:45pm; brewers on Sonnet wait until 16:50 UTC, 26 October',
+        '',
+        'No batches.',
+        '',
+      ].join('\n'),
+    );
+    assert.match(
+      formatStatus({ ...emptyState, usageWindows: { Opus: opus, all: session } }),
+      /^Usage window closed: claude hit its session limit.*\nOpus usage window closed/,
+    );
+  });
+});
+
+describe('familyOf (ADR 0215)', () => {
+  it('tells Opus and Sonnet by a word of the model id or family', () => {
+    for (const model of ['claude-opus-5-5', 'opus', 'opus[1m]', 'claude-3-opus-20240229']) {
+      assert.equal(familyOf(model), 'Opus', model);
+    }
+    for (const model of ['claude-sonnet-5-5', 'sonnet', 'sonnet[1m]', 'us.anthropic.sonnet-4']) {
+      assert.equal(familyOf(model), 'Sonnet', model);
+    }
+  });
+
+  it('cannot tell another family, a word that only holds the name, or a model with both', () => {
+    for (const model of [
+      'claude-haiku-5-5',
+      'claude-fable-5-1',
+      'default',
+      'opusx',
+      'sonnets-5',
+      'opus-sonnet',
+    ]) {
+      assert.equal(familyOf(model), undefined, model);
+    }
   });
 });
