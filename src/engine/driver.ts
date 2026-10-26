@@ -284,19 +284,20 @@ const attemptOf = (state: State, ref: AttemptRef) =>
 const isOver = (attempt: ReturnType<typeof attemptOf>): boolean =>
   attempt?.phase === 'finished' || attempt?.abandoned === true;
 
-/** The action `ref`'s step is in its batch's recipe, or `undefined` for any other step. */
-/** Whether `ref` is an attempt of an interactive step, a person's session (ADR 0222). */
-const interactiveOf = (state: State, recipes: Recipes, ref: AttemptRef): boolean => {
+/** The recipe of `ref`'s batch, when it has `ref`'s step. */
+const recipeWith = (state: State, recipes: Recipes, ref: AttemptRef) => {
   const name = state.batches.get(ref.batchId)?.recipe?.name;
   const recipe = name === undefined ? undefined : recipes.find(name);
-  return recipe?.has(ref.stepId) === true && recipe.interactive(ref.stepId);
+  return recipe?.has(ref.stepId) === true ? recipe : undefined;
 };
 
-const actionOf = (state: State, recipes: Recipes, ref: AttemptRef) => {
-  const name = state.batches.get(ref.batchId)?.recipe?.name;
-  const recipe = name === undefined ? undefined : recipes.find(name);
-  return recipe?.has(ref.stepId) === true ? recipe.action(ref.stepId) : undefined;
-};
+/** Whether `ref` is an attempt of an interactive step, a person's session (ADR 0222). */
+const interactiveOf = (state: State, recipes: Recipes, ref: AttemptRef): boolean =>
+  recipeWith(state, recipes, ref)?.interactive(ref.stepId) === true;
+
+/** The action `ref`'s step is in its batch's recipe, or `undefined` for any other step. */
+const actionOf = (state: State, recipes: Recipes, ref: AttemptRef) =>
+  recipeWith(state, recipes, ref)?.action(ref.stepId);
 
 /**
  * The action attempts of `batchId` that run: started, the latest of their step, not abandoned,
