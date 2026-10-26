@@ -4,10 +4,12 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { formatStatus } from '../../src/cli/status.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Command, Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
+import { emptyState } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { planTick } from '../../src/engine/supervisor.ts';
 import { reopenOf, usageWindowText } from '../../src/engine/usage-window.ts';
@@ -147,6 +149,32 @@ describe('the usage window (ADR 0206)', () => {
       assert.deepStrictEqual(types(failed), ['step.finished', 'batch.stuck']);
     });
 
+    it('is left out of the count, so a later failure of its step is still retried', () => {
+      order(12);
+      start('b12');
+      hit('b12', 1, at(230));
+      now = at(240);
+      accept({ kind: 'reopen' });
+      start('b12', 'plan', 2);
+      const plan = { batchId: 'b12', stepId: 'plan' } as const;
+      const retried = accept({
+        kind: 'finish',
+        ...plan,
+        attempt: 2,
+        ending: { kind: 'cancelled' },
+      });
+      assert.deepStrictEqual(types(retried), ['step.finished', 'step.scheduled']);
+      start('b12', 'plan', 3);
+      const stuck = accept({ kind: 'finish', ...plan, attempt: 3, ending: { kind: 'cancelled' } });
+      const last = stuck.at(-1);
+      assert.deepStrictEqual(last?.type === 'batch.stuck' && last.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'plan',
+        attempts: 2,
+        lastReason: 'the attempt was cancelled',
+      });
+    });
+
     it('is refused without the reopen the driver read', () => {
       order(12);
       start('b12');
@@ -219,6 +247,15 @@ describe('the usage window (ADR 0206)', () => {
         'step.scheduled',
       ]);
       assert.equal(log.state().usageWindow?.reopensAt, at(300).toISOString());
+    });
+
+    it('while closed with the same reopen records no second close', () => {
+      order(12);
+      order(13);
+      start('b12');
+      start('b13');
+      hit('b12', 1, at(230));
+      assert.deepStrictEqual(types(hit('b13', 1, at(230))), ['step.finished', 'step.scheduled']);
     });
 
     it('after the reopen closes the window again', () => {
@@ -393,6 +430,16 @@ describe('reopenOf (ADR 0206)', () => {
     assert.equal(read('Mon 12:00am', '2026-10-26T09:00:00.000Z').at, '2026-11-01T23:05:00.000Z');
   });
 
+  it('reads every weekday by its own name', () => {
+    // From Monday 26 October.
+    assert.equal(read('Wed 9:00am', '2026-10-26T09:00:00.000Z').at, '2026-10-28T08:05:00.000Z');
+    assert.equal(read('Sun 11:30pm', '2026-10-26T09:00:00.000Z').at, '2026-11-01T22:35:00.000Z');
+    assert.equal(read('Tue 1:00am', '2026-10-26T09:00:00.000Z').at, '2026-10-27T00:05:00.000Z');
+    assert.equal(read('Thu 1:00am', '2026-10-26T09:00:00.000Z').at, '2026-10-29T00:05:00.000Z');
+    assert.equal(read('Fri 1:00am', '2026-10-26T09:00:00.000Z').at, '2026-10-30T00:05:00.000Z');
+    assert.equal(read('Sat 1:00am', '2026-10-26T09:00:00.000Z').at, '2026-10-31T00:05:00.000Z');
+  });
+
   it('reads a weekday later on the same day as today', () => {
     assert.equal(read('Mon 3:45pm', '2026-10-26T09:00:00.000Z').at, '2026-10-26T14:50:00.000Z');
   });
@@ -406,6 +453,10 @@ describe('reopenOf (ADR 0206)', () => {
       '3:60pm',
       'Monday 12:00am',
       '3pm',
+      '3:45pm (Europe/Paris)',
+      '3:45pmx',
+      '3:45PM',
+      'mon 12:00am',
     ]) {
       assert.deepStrictEqual(
         read(resets, '2026-10-26T09:00:00.000Z'),
@@ -438,6 +489,21 @@ describe('usageWindowText (ADR 0206)', () => {
     assert.equal(
       usageWindowText({ ...window, read: false }),
       'Usage window closed: claude hit its Opus limit, which resets 3:45pm; brewers try again at 14:50 UTC, 26 October',
+    );
+  });
+});
+
+describe('formatStatus with the usage window closed (ADR 0206)', () => {
+  it('shows the window above No batches. too', () => {
+    const usageWindow = {
+      limit: 'session',
+      resets: '3:45pm',
+      reopensAt: '2026-10-26T14:50:00.000Z',
+      read: true,
+    } as const;
+    assert.equal(
+      formatStatus({ ...emptyState, usageWindow }),
+      'Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 26 October\n\nNo batches.\n',
     );
   });
 });

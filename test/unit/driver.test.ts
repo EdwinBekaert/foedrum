@@ -2972,6 +2972,27 @@ describe('openDriver', () => {
       });
     });
 
+    it('starts an action while the usage window is closed, and no brewer (ADR 0206)', async () => {
+      const brewer = handRunner();
+      const { actions, applied } = fakeActions();
+      orderAle('b1');
+      order('b2');
+      const driver = await open({ runner: brewer.runner, actions, zone: () => 'UTC' });
+      await driver.drive();
+      brewer.end(plan('b2'), {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'claude hit its session limit, which resets 3:45pm',
+        usageLimit: { limit: 'session', resets: '3:45pm' },
+      });
+      await driver.tick();
+      assert.ok(driver.state().usageWindow, 'the window is closed');
+      brewer.end(plan('b1'));
+      await driver.tick();
+      assert.deepStrictEqual(applied, [push, pullRequest]);
+      assert.deepStrictEqual(brewer.started, [plan('b1'), plan('b2')]);
+    });
+
     it('takes no lease for the action, so no supervisor loses it while its effects fail', async () => {
       const brewer = handRunner();
       const reported: DriverNotice[] = [];

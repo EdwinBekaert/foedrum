@@ -485,6 +485,37 @@ describe('foedrum: commands that change state', () => {
       );
     });
 
+    it('leaves out of replay the window events from before the last reopen before the batch was ordered', async () => {
+      hitLimit();
+      const later = new Date('2026-10-18T15:00:00.000Z');
+      const log = createCommandLog({ store, recipes });
+      const accept = (command: Parameters<typeof log.issue>[0]) =>
+        assert.equal(log.issue(command, later).kind, 'accepted', JSON.stringify(command));
+      accept({ kind: 'reopen' });
+      accept({ kind: 'order', batchId: '27-1', order: { issue: 27 } });
+      accept({ kind: 'route', batchId: '27-1', recipe: 'pint', reason: 'label', source: 'label' });
+      accept({
+        kind: 'record',
+        event: { type: 'step.started', batchId: '23-1', stepId: 'plan', attempt: 2 },
+      });
+      accept({
+        kind: 'finish',
+        batchId: '23-1',
+        stepId: 'plan',
+        attempt: 2,
+        ending: {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: 'claude hit its weekly limit, which resets Mon 12:00am',
+          usageLimit: { limit: 'weekly', resets: 'Mon 12:00am' },
+        },
+        reopensAt: { at: new Date('2026-10-19T23:05:00.000Z'), read: true },
+      });
+      const replay = (await run(['replay', '27-1'])).stdout;
+      assert.match(replay, /usage\.window_closed +\{"limit":"weekly"/);
+      assert.doesNotMatch(replay, /"limit":"session"|usage\.window_opened/);
+    });
+
     it('lists the window events in replay beside the batch events', async () => {
       hitLimit();
       const replay = (await run(['replay', '23-1'])).stdout;
