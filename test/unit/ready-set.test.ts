@@ -74,12 +74,7 @@ const started = (
   onTap(`${order}-1`),
 ];
 
-const ready = (...events: Event[]) =>
-  readySubOrders(fold(events)).map(({ order, issue, parentBatchId }) => ({
-    order,
-    issue,
-    parentBatchId,
-  }));
+const ready = (...events: Event[]) => readySubOrders(fold(events));
 const sub = (order: number, issue: number, parentBatchId = `${order}-1`) => ({
   order,
   issue,
