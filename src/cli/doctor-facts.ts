@@ -26,6 +26,8 @@ const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
   claude: ['--version'],
   bwrap: ['--version'],
   socat: ['-V'],
+  pasta: ['--version'],
+  slirp4netns: ['--version'],
   podman: ['--version'],
   docker: ['--version'],
 };
@@ -136,7 +138,18 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     platform: shell.platform,
     kernelRelease: shell.kernelRelease,
     node: shell.node,
-    tools: { npm, git, gh, claude, bwrap, socat, podman, docker },
+    tools: {
+      npm,
+      git,
+      gh,
+      claude,
+      bwrap,
+      socat,
+      pasta: undefined,
+      slirp4netns: undefined,
+      podman,
+      docker,
+    },
     github: { host, login, credentials },
     // Found on PATH, never run: starting it would hold the machine awake (ADR 0195).
     keepAwake: awakeMechanism({

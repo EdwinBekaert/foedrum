@@ -410,9 +410,9 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
     );
   });
 
-  // A setup runs in the check sandbox, network kept, wherever a check does; on Linux that sandbox
-  // still reaches the host's abstract Unix sockets until #425 (ADR 0158).
-  it("meets a sandboxed minimum with a repository's setup on macOS, refuses it on Linux until #425, and with the checks' line on Windows", () => {
+  // A setup runs in the check sandbox, network kept, wherever a check does (ADR 0158); on Linux
+  // in a network namespace of its own, away from the host's abstract Unix sockets (ADR 0218).
+  it("meets a sandboxed minimum with a repository's setup on macOS and Linux, and refuses it with the checks' line on Windows", () => {
     const files = inputs().files;
     const sandboxed = config(
       { isolation: { minimum: 'sandboxed' } },
@@ -427,10 +427,8 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
         diagnosis: diagnose(macos),
       }),
     );
-    assert.deepStrictEqual(refused(inputs({ files: { ...files, config: sandboxed } })), [
-      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)",
-    ]);
-    // Without a setup, or without the minimum, Linux starts.
+    ready(inputs({ files: { ...files, config: sandboxed } }));
+    // Without a setup, or without the minimum, Linux starts too.
     ready(inputs({ files: { ...files, config: requires('sandboxed') } }));
     ready(
       inputs({
@@ -451,7 +449,7 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
 
   // A setup also runs before every fresh brewer attempt, so a recipe without a check step runs it
   // too (ADR 0163).
-  it("refuses a sandboxed minimum with a repository's setup on Linux and native Windows without a check step", () => {
+  it("refuses a sandboxed minimum with a repository's setup on native Windows without a check step, and meets it on Linux and macOS", () => {
     const files = inputs().files;
     const stoutOnly = { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) };
     const sandboxed = config(
@@ -459,9 +457,7 @@ describe('serveSetup: the isolation level of check steps (ADR 0076)', () => {
       { setup: { command: 'npm ci', timeout: '10m' } },
     );
     const noChecks = { ...files, config: sandboxed, brewery: stoutOnly };
-    assert.deepStrictEqual(refused(inputs({ files: noChecks })), [
-      "foedrum.jsonc requires the sandboxed isolation level, and acme/web's setup reaches the host's abstract Unix sockets on Linux until #425 (ADR 0158)",
-    ]);
+    ready(inputs({ files: noChecks }));
     assert.deepStrictEqual(
       refused(inputs({ platform: 'win32', files: noChecks, diagnosis: diagnose(windows) })),
       [

@@ -255,7 +255,15 @@ export interface SandboxedChecksOptions {
   temp?: TempFolders;
   /** Whether the sandbox keeps the network, as a repository's setup needs (ADR 0158). */
   network?: boolean;
+  /**
+   * Where a user-mode network stack is on the Cellar's PATH, or undefined (ADR 0218); default
+   * `resolveExecutable`.
+   */
+  findStackTool?: (name: NetworkStackTool) => string | undefined;
 }
+
+/** The user-mode network stacks a Linux setup's namespace gets the network from (ADR 0218). */
+export type NetworkStackTool = 'pasta' | 'slirp4netns';
 
 /** The real path of /etc/resolv.conf when it lies under /run, which the sandbox hides. */
 const resolverIn = (realPath: (path: string) => string): string | undefined => {

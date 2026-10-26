@@ -17,7 +17,17 @@ import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
 
 /** The tools doctor looks for on PATH. */
-export type ToolName = 'npm' | 'git' | 'gh' | 'claude' | 'bwrap' | 'socat' | 'podman' | 'docker';
+export type ToolName =
+  | 'npm'
+  | 'git'
+  | 'gh'
+  | 'claude'
+  | 'bwrap'
+  | 'socat'
+  | 'pasta'
+  | 'slirp4netns'
+  | 'podman'
+  | 'docker';
 
 /** A tool found on PATH, and what its version command answered. */
 export interface ToolRun {

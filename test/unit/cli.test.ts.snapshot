@@ -2,12 +2,13 @@ exports[`foedrum doctor > reports every tool, a sandbox and a container runtime 
 Foedrum doctor
 
   node    24.20.0
-  npm     11.6.2   /usr/bin/npm
-  git     2.47.1   /usr/bin/git
-  gh      2.102.0  /usr/bin/gh
-  claude  2.1.301  /home/brewer/.local/bin/claude
-  bwrap   0.9.0    /usr/bin/bwrap
-  socat   1.7.4.4  /usr/bin/socat
+  npm     11.6.2                     /usr/bin/npm
+  git     2.47.1                     /usr/bin/git
+  gh      2.102.0                    /usr/bin/gh
+  claude  2.1.301                    /home/brewer/.local/bin/claude
+  bwrap   0.9.0                      /usr/bin/bwrap
+  socat   1.7.4.4                    /usr/bin/socat
+  pasta   0.0~git20240220.1e6f92b-1  /usr/bin/pasta
 
 Isolation: sandboxed (bubblewrap and socat)
   The sandbox hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).
@@ -39,12 +40,13 @@ exports[`foedrum doctor > reports what is missing, and exits 1 when a required t
 Foedrum doctor
 
   node    24.20.0
-  npm     11.6.2   /usr/bin/npm
-  git     2.47.1   /usr/bin/git
-  gh      2.102.0  /usr/bin/gh
+  npm     11.6.2                     /usr/bin/npm
+  git     2.47.1                     /usr/bin/git
+  gh      2.102.0                    /usr/bin/gh
   claude  missing
   bwrap   missing
-  socat   1.7.4.4  /usr/bin/socat
+  socat   1.7.4.4                    /usr/bin/socat
+  pasta   0.0~git20240220.1e6f92b-1  /usr/bin/pasta
 
 Isolation: permissions only (the sandbox needs bubblewrap and socat)
   A brewer runs as you here, so it can still read gh's login from the OS keyring or its hosts file. The sandboxed level (bubblewrap and socat) hides your home folder and the other user folders from a brewer's shell commands, apart from the worktree, git's global configuration, parts of ~/.claude and the toolchain folders of serve's PATH (ADR 0162), hides gh's hosts file where an absolute GH_CONFIG_DIR or XDG_CONFIG_HOME puts it, and the token variables, and keeps them from reaching GitHub; Claude Code's docs don't say whether the sandbox stops a read from the OS keyring. For brewers, the container level mounts only the worktree, which closes both. A login a brewer did read is stopped at the push (ADR 0079) and left out of the pull request and the status comment (ADR 0088) when it looks like one. Check steps run only in bubblewrap's sandbox, with no network and the home folder hidden; where it cannot start, they do not run (ADR 0076).

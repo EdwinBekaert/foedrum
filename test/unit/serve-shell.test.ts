@@ -116,6 +116,8 @@ describe('serveShell', () => {
           },
           platform: 'linux' as const,
           findBwrap: () => '/usr/bin/bwrap',
+          // The setup's user-mode network stack (ADR 0218), never looked up on this machine.
+          findStackTool: (name: string) => (name === 'pasta' ? '/usr/bin/pasta' : undefined),
           realPath: (path: string) => path,
           gitDirOf: () => repository,
           borrowedOf: () => [store],
@@ -147,6 +149,7 @@ describe('serveShell', () => {
       },
       platform: 'linux' as const,
       findBwrap: () => '/usr/bin/bwrap',
+      findStackTool: (name: string) => (name === 'pasta' ? '/usr/bin/pasta' : undefined),
       realPath: (path: string) => path,
       gitDirOf: () => undefined,
       home: '/home/brewer',
@@ -162,7 +165,8 @@ describe('serveShell', () => {
     assert.equal(started.length, 1);
     assert.equal(started[0]?.[0], '/usr/bin/bwrap');
     assert.ok(started[0]?.includes('/home/brewer'));
-    assert.ok(!started[0]?.includes('--unshare-net'));
+    // A network namespace of its own, which a user-mode network stack joins (ADR 0218).
+    assert.ok(started[0]?.includes('--unshare-net'));
     assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
   });
 
@@ -178,6 +182,7 @@ describe('serveShell', () => {
       },
       platform: 'linux' as const,
       findBwrap: () => '/usr/bin/bwrap',
+      findStackTool: (name: string) => (name === 'pasta' ? '/usr/bin/pasta' : undefined),
       realPath: (path: string) => path,
       gitDirOf: () => undefined,
       home: '/home/brewer',
@@ -216,7 +221,8 @@ describe('serveShell', () => {
       .ended;
     assert.equal(started.length, 1);
     assert.equal(started[0]?.[0], '/usr/bin/bwrap');
-    assert.ok(!started[0]?.includes('--unshare-net'));
+    // A network namespace of its own, which a user-mode network stack joins (ADR 0218).
+    assert.ok(started[0]?.includes('--unshare-net'));
     assert.deepStrictEqual(started[0]?.slice(-3), ['/bin/sh', '-c', 'npm ci']);
     assert.deepStrictEqual(end.ending, {
       kind: 'blocked',

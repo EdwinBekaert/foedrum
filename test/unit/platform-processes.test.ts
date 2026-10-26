@@ -194,10 +194,11 @@ const fakeSpawner = (child: FakeChild | Error = new FakeChild()) => {
     env: NodeJS.ProcessEnv;
     shell?: boolean;
     stdin?: boolean;
+    pipes?: number;
   }[] = [];
   const killed: number[] = [];
   const spawner: Spawner = {
-    spawn: (file, args, { cwd, env, shell, stdin }) => {
+    spawn: (file, args, { cwd, env, shell, stdin, pipes }) => {
       spawned.push({
         file,
         args,
@@ -205,6 +206,7 @@ const fakeSpawner = (child: FakeChild | Error = new FakeChild()) => {
         env,
         ...(shell === undefined ? {} : { shell }),
         ...(stdin === undefined ? {} : { stdin }),
+        ...(pipes === undefined ? {} : { pipes }),
       });
       if (child instanceof Error) throw child;
       return child;
@@ -319,6 +321,80 @@ describe('execProcessWith', () => {
     assert.equal(result.killed, undefined);
     assert.match(result.stderr, /^gh: no pipe to its stdin/);
     assert.deepEqual(killed, [77]);
+  });
+
+  // bwrap's --info-fd and --block-fd, a network stack's --ready-fd (ADR 0218).
+  it('gives the program its extra pipes as file descriptors 3 and up, handed over once it started', async () => {
+    const child = new FakeChild();
+    const three = new PassThrough();
+    const four = new PassThrough();
+    Object.assign(child, { stdio: [child.stdin, child.stdout, child.stderr, three, four] });
+    const { spawned, exec } = fakeSpawner(child);
+    const handed: (readonly unknown[])[] = [];
+    const done = exec('bwrap', ['--info-fd', '3'], {
+      cwd: '/work',
+      pipes: { count: 2, onPipes: (pipes) => handed.push(pipes) },
+    });
+    assert.equal(handed.length, 1);
+    assert.equal(handed[0]?.[0], three);
+    assert.equal(handed[0]?.[1], four);
+    assert.equal(handed[0]?.length, 2);
+    child.close(0);
+    assert.equal((await done).exitCode, 0);
+    assert.equal(spawned[0]?.pipes, 2);
+    // Without the option, none is asked for.
+    const other = new FakeChild();
+    const plain = fakeSpawner(other);
+    const without = plain.exec('git', [], { cwd: '/work' });
+    other.close(0);
+    await without;
+    assert.equal(plain.spawned[0]?.pipes, undefined);
+  });
+
+  it('starts nothing, and says so, when pipes come with a command line or a Job Object on Windows', async () => {
+    const pipes = { count: 1, onPipes: () => {} };
+    // A child that ends, should one start.
+    const started = (child: FakeChild, running: Promise<ExecResult>) =>
+      settle().then(() => {
+        child.close(0);
+        return running;
+      });
+    const lineChild = new FakeChild();
+    const lined = fakeSpawner(lineChild);
+    const shell = await started(
+      lineChild,
+      lined.exec('npm test', [], { cwd: '/work', shell: true, pipes }),
+    );
+    assert.equal(shell.exitCode, null);
+    assert.match(shell.stderr, /npm test: extra pipes cannot go through/);
+    assert.deepEqual(lined.spawned, []);
+    const jobChild = new FakeChild();
+    const held = fakeSpawner(jobChild);
+    held.spawner.jobObjects = true;
+    const exec = execProcessWith(held.spawner);
+    const job = await started(
+      jobChild,
+      exec('bwrap', [], { cwd: '/work', jobObject: true, pipes }),
+    );
+    assert.equal(job.exitCode, null);
+    assert.match(job.stderr, /bwrap: extra pipes cannot go through/);
+    assert.deepEqual(held.spawned, []);
+  });
+
+  it('answers as not started, and ends the tree, when the program has fewer pipes than asked', async () => {
+    const child = new FakeChild(78);
+    const { killed, exec } = fakeSpawner(child);
+    let handed = false;
+    const done = exec('bwrap', [], {
+      cwd: '/work',
+      pipes: { count: 1, onPipes: () => (handed = true) },
+    });
+    child.close(0);
+    const result = await done;
+    assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /^bwrap: no pipe 3/);
+    assert.deepEqual(killed, [78]);
+    assert.equal(handed, false);
   });
 
   it('keeps a character whose bytes arrive in two chunks', async () => {

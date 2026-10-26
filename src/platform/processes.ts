@@ -3,7 +3,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
-import type { Readable, Writable } from 'node:stream';
+import type { Duplex, Readable, Writable } from 'node:stream';
 import { environmentVariable, resolveExecutable } from './executables.ts';
 import { JOB_OBJECT_FAILED, jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
@@ -179,6 +179,18 @@ export interface ExecOptions {
   shell?: boolean | undefined;
   /** Written to the program's stdin, which is then closed; without it, stdin is empty. */
   stdin?: string | undefined;
+  /**
+   * Pipes the program gets beyond stdin, stdout and stderr, as file descriptors 3, 4, … in order,
+   * each handed to `onPipes` as a stream once it has started: bwrap's `--info-fd` and
+   * `--block-fd`, for instance (ADR 0218). Not with `shell`, nor in a Job Object on Windows.
+   */
+  pipes?: ExtraPipes | undefined;
+}
+
+/** Extra pipes a program gets (`ExecOptions.pipes`). */
+export interface ExtraPipes {
+  count: number;
+  onPipes: (pipes: readonly Duplex[]) => void;
 }
 
 export interface ExecResult {
@@ -207,6 +219,8 @@ export interface ChildHandle {
   readonly stdin?: Writable | null | undefined;
   readonly stdout: Readable;
   readonly stderr: Readable;
+  /** The program's file descriptors as streams: the extra pipes from index 3 (ADR 0218). */
+  readonly stdio?: readonly unknown[];
   on(event: 'error', listener: (error: Error) => void): unknown;
   on(
     event: 'close',
@@ -235,6 +249,8 @@ export interface Spawner {
       env: NodeJS.ProcessEnv;
       jobObject?: boolean;
       stdin?: boolean;
+      /** How many extra pipes the program gets, as file descriptors 3 and up (ADR 0218). */
+      pipes?: number;
       /** `file` is a command line for the platform shell. */
       shell?: boolean;
     },

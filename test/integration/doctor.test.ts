@@ -180,7 +180,14 @@ const keyring = (sandboxedLevel: string) =>
 const checkStepKeyring = `  The sandbox ${sandboxHides} ${writtenDown} Check steps run in an OS sandbox of their own, with no network and the home folder hidden, so they can't read gh's login (ADR 0076).`;
 
 // The lines that differ by platform: the sandbox's tools, the isolation level, its advice and its
-// problem.
+// problems. The stubs have no user-mode network stack, which a Linux setup needs (ADR 0218).
+const NO_STACK =
+  "  pasta (passt) or slirp4netns not found: install passt or slirp4netns: a repository's setup does not start without one (ADR 0218)";
+// The end of a report with no required problem: the optional ones, if any.
+const optional = (problems: readonly string[]) =>
+  problems.length === 0
+    ? ['Foedrum has everything it needs.']
+    : ['Problems:', ...problems, '', 'Foedrum can run; the problems above are optional.'];
 const sandbox = (at: (name: string) => string, bwrap: boolean) => {
   switch (process.platform) {
     case 'linux':
@@ -188,6 +195,7 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
         rows: [
           bwrap ? `  bwrap   0.9.0     ${at('bwrap')}` : '  bwrap   missing',
           `  socat   1.7.4.4   ${at('socat')}`,
+          '  pasta   missing',
         ],
         isolation: bwrap
           ? ['Isolation: sandboxed (bubblewrap and socat)', checkStepKeyring]
@@ -195,9 +203,12 @@ const sandbox = (at: (name: string) => string, bwrap: boolean) => {
               'Isolation: permissions only (the sandbox needs bubblewrap and socat)',
               keyring('The sandboxed level (bubblewrap and socat)'),
             ],
-        problems: bwrap
-          ? []
-          : ['  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level'],
+        problems: [
+          ...(bwrap
+            ? []
+            : ['  bubblewrap (bwrap) not found: install bubblewrap for the sandboxed level']),
+          NO_STACK,
+        ],
       };
     case 'win32':
       return {
@@ -253,7 +264,7 @@ describe('foedrum doctor with stub tools', () => {
         KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
-        'Foedrum has everything it needs.',
+        ...optional(platform.problems),
         '',
       ].join('\n'),
     );
@@ -342,7 +353,7 @@ describe('foedrum doctor with stub tools', () => {
         KEEP_AWAKE_LINE,
         '',
         ...PROMPT_LINES,
-        'Foedrum has everything it needs.',
+        ...optional(platform.problems),
         '',
       ].join('\n'),
     );

@@ -5,10 +5,12 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import {
   borrowedStores,
   insideFolders,
+  type NetworkStackTool,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
@@ -48,6 +50,8 @@ const options = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {}) 
   home,
   findBwrap: () => '/usr/bin/bwrap',
   hasSandboxExec: () => true,
+  // No user-mode network stack unless a test gives one (ADR 0218).
+  findStackTool: () => undefined,
   realPath: (path: string) => path,
   gitDirOf: (path: string) => (path === worktree ? gitDir : undefined),
   ...more,
@@ -407,30 +411,233 @@ describe('sandboxedChecks on macOS: sandbox-exec', () => {
   });
 });
 
-// A repository's setup installs, so its sandbox keeps the network and nothing else (ADR 0158).
+/**
+ * A fake runner for a setup's two processes on Linux (ADR 0218): bwrap writes its child's pid to
+ * fd 3 and runs the line once fd 4 has a byte; the stack is up, or fails, as `stack` says. What
+ * it records: the calls, the order of events and the resolver's file bwrap was given on fd 5.
+ */
+const fakeSetup = ({
+  info = '{\n    "child-pid": 4242\n}\n',
+  stack = 'up',
+  answer = {},
+}: {
+  info?: string;
+  stack?: 'up' | 'fails';
+  answer?: Partial<ExecResult>;
+} = {}) => {
+  const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
+  const events: string[] = [];
+  const resolver = { text: '' };
+  const ran = (more: Partial<ExecResult> = {}): ExecResult => ({
+    exitCode: 0,
+    stdout: '',
+    stderr: '',
+    output: '',
+    ...more,
+  });
+  const stopped = (signal: AbortSignal | undefined, what: string) =>
+    new Promise<ExecResult>((done) => {
+      const stop = () => {
+        events.push(what);
+        done(ran({ exitCode: null, killed: 'stopped' }));
+      };
+      if (signal?.aborted) stop();
+      else signal?.addEventListener('abort', stop, { once: true });
+    });
+  const exec: ExecProcess = async (file, args, options) => {
+    calls.push({ file, args, options });
+    const pipes = Array.from({ length: options.pipes?.count ?? 0 }, () => new PassThrough());
+    options.pipes?.onPipes(pipes);
+    const [first, second, third] = pipes;
+    if (file === '/usr/bin/bwrap') {
+      if (first === undefined || second === undefined) return ran(answer);
+      if (info === '') {
+        first.end();
+        return ran({ exitCode: 1, stderr: 'bwrap: setting up uid map: Permission denied\n' });
+      }
+      first.end(info);
+      return Promise.race([
+        new Promise<ExecResult>((done) =>
+          second.once('data', () => {
+            // bwrap has read the resolver's file by the time the line runs.
+            resolver.text = String(third?.read() ?? '');
+            events.push('the line runs');
+            done(ran(answer));
+          }),
+        ),
+        stopped(options.signal, 'bwrap stopped'),
+      ]);
+    }
+    const tool = file === '/usr/bin/pasta' ? 'pasta' : 'slirp4netns';
+    events.push(`${tool} starts`);
+    if (stack === 'fails') {
+      const said = `${tool}: Couldn't open user namespace /proc/4242/ns/user: Permission denied\n`;
+      return ran({ exitCode: 1, stderr: said, output: said });
+    }
+    // pasta forks to the background once the namespace is up; slirp4netns says so on fd 3.
+    if (tool === 'pasta') return ran();
+    first?.write('1');
+    return stopped(options.signal, 'slirp4netns stopped');
+  };
+  return { calls, events, resolver, exec };
+};
+
+const stackTools =
+  (...found: NetworkStackTool[]) =>
+  (name: NetworkStackTool) =>
+    found.includes(name) ? `/usr/bin/${name}` : undefined;
+
+const PASTA_ARGS = [
+  '--config-net',
+  '--quiet',
+  '-4',
+  '-a',
+  '10.0.2.100',
+  '-n',
+  '24',
+  '-g',
+  '10.0.2.2',
+  '--no-map-gw',
+  '-t',
+  'none',
+  '-u',
+  'none',
+  '-T',
+  'none',
+  '-U',
+  'none',
+  '--dns-forward',
+  '10.0.2.3',
+  '4242',
+];
+
+const SLIRP4NETNS_ARGS = [
+  '--configure',
+  '--mtu=65520',
+  '--disable-host-loopback',
+  '--ready-fd=3',
+  '--exit-fd=4',
+  '4242',
+  'tap0',
+];
+
+const linuxSetup = (exec: ExecProcess, more: Partial<SandboxedChecksOptions> = {}) =>
+  sandboxedChecks(
+    options(exec, {
+      platform: 'linux',
+      network: true,
+      findStackTool: stackTools('pasta', 'slirp4netns'),
+      ...more,
+    }),
+  );
+
+// A repository's setup installs, so its sandbox keeps the network and nothing else (ADR 0158),
+// through a network namespace of its own on Linux and WSL2 (ADR 0218).
 describe('sandboxedChecks with the network kept, for a setup', () => {
-  it('starts the line in bwrap without a network namespace of its own, everything else as a check', async () => {
+  it("starts the line in bwrap with a network namespace of its own, which pasta joins before the line runs, everything else as a check's", async () => {
     const checked = fake();
     await sandboxedChecks(options(checked.exec, { platform: 'linux' }))(line, [], call);
-    const { calls, exec } = fake();
-    const run = sandboxedChecks(options(exec, { platform: 'linux', network: true }));
-    await run(line, [], call);
-    assert.deepEqual(calls, [
-      {
-        ...checked.calls[0],
-        args: checked.calls[0]?.args.filter((arg) => arg !== '--unshare-net'),
-      },
+    const checkArgs = checked.calls[0]?.args ?? [];
+    const { calls, events, resolver, exec } = fakeSetup({ answer: { exitCode: 3 } });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(result.exitCode, 3);
+    const at = checkArgs.indexOf('--unshare-net') + 1;
+    const after = checkArgs.indexOf(home) + 1;
+    assert.deepEqual(calls[0]?.args, [
+      ...checkArgs.slice(0, at),
+      ...['--info-fd', '3', '--block-fd', '4'],
+      ...checkArgs.slice(at, after),
+      ...['--ro-bind-data', '5', '/etc/resolv.conf'],
+      ...checkArgs.slice(after),
     ]);
+    assert.equal(calls[0]?.file, '/usr/bin/bwrap');
+    assert.equal(calls[0]?.options.pipes?.count, 3);
+    assert.equal(calls[0]?.options.shell, false);
+    assert.equal(calls[0]?.options.timeoutMs, call.timeoutMs);
+    // pasta attaches to bwrap's child, with the host's loopback and every forwarded port closed.
+    assert.deepEqual(
+      calls.slice(1).map(({ file, args }) => ({ file, args })),
+      [{ file: '/usr/bin/pasta', args: PASTA_ARGS }],
+    );
+    assert.equal(calls[1]?.options.cwd, worktree);
+    assert.equal(calls[1]?.options.timeoutMs, call.timeoutMs);
+    assert.equal(calls[1]?.options.shell, undefined);
+    assert.deepEqual(events, ['pasta starts', 'the line runs']);
+    // The stack's resolver, never the host's 127.0.0.53, which the namespace's own loopback is.
+    assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
   });
 
-  // Ubuntu's /etc/resolv.conf links into /run, which the sandbox hides: an install could not
-  // find its registry's address without the one file.
-  it("binds the resolver's file read-only where /etc/resolv.conf links into the hidden /run", async () => {
+  it('uses slirp4netns where pasta is not on PATH, and stops it once bwrap has ended', async () => {
+    const { calls, events, resolver, exec } = fakeSetup();
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(calls[1]?.file, '/usr/bin/slirp4netns');
+    assert.deepEqual(calls[1]?.args, SLIRP4NETNS_ARGS);
+    // Its --ready-fd and --exit-fd.
+    assert.equal(calls[1]?.options.pipes?.count, 2);
+    assert.deepEqual(events, ['slirp4netns starts', 'the line runs', 'slirp4netns stopped']);
+    assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
+  });
+
+  it('prefers pasta when both are there', async () => {
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec)(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/pasta');
+  });
+
+  it('does not start without pasta or slirp4netns, and says so', async () => {
+    const { calls, exec } = fakeSetup();
+    const result = await linuxSetup(exec, { findStackTool: stackTools() })(line, [], call);
+    assert.deepEqual(calls, []);
+    assert.equal(result.exitCode, null);
+    assert.match(
+      result.output,
+      /^neither pasta \(passt\) nor slirp4netns is on PATH: a repository's setup runs only in a network namespace of its own here; install passt or slirp4netns \(ADR 0218\)\n$/,
+    );
+  });
+
+  it("reads as not started, with the stack's message, when the stack fails, and the line never runs", async () => {
+    for (const tool of ['pasta', 'slirp4netns'] as const) {
+      const { events, exec } = fakeSetup({ stack: 'fails' });
+      const result = await linuxSetup(exec, { findStackTool: stackTools(tool) })(line, [], call);
+      assert.equal(result.exitCode, null, tool);
+      assert.equal(result.killed, undefined, tool);
+      assert.match(
+        result.output,
+        new RegExp(`^${tool}: Couldn't open user namespace /proc/4242/ns/user: Permission denied`),
+      );
+      assert.deepEqual(events, [`${tool} starts`, 'bwrap stopped'], tool);
+    }
+  });
+
+  it('reads as not started, and starts no stack, when bwrap fails before it tells its pid', async () => {
+    const { calls, exec } = fakeSetup({ info: '' });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
+  });
+
+  it('stops bwrap, and reads as not started, when its pid cannot be read', async () => {
+    const { calls, events, exec } = fakeSetup({ info: '{"child-pid": "x"}' });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(events, ['bwrap stopped']);
+    assert.equal(result.exitCode, null);
+    assert.match(result.output, /^bwrap gave no child pid on its --info-fd/);
+  });
+
+  // Ubuntu's /etc/resolv.conf links into /run, which the sandbox hides: the stack's file goes
+  // where the link points, so the link finds it.
+  it("gives the resolver's file at the real path of /etc/resolv.conf, and a check none", async () => {
     const stub = '/run/systemd/resolve/stub-resolv.conf';
     const realPath = (path: string) => (path === '/etc/resolv.conf' ? stub : path);
-    const { calls, exec } = fake();
-    const run = sandboxedChecks(options(exec, { platform: 'linux', network: true, realPath }));
-    await run(line, [], call);
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec, { realPath })(line, [], call);
     const args = calls[0]?.args ?? [];
     const at = args.indexOf('/run');
     assert.deepEqual(args.slice(at - 1, at + 6), [
@@ -438,32 +645,45 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
       '/run',
       '--tmpfs',
       home,
-      '--ro-bind',
-      stub,
+      '--ro-bind-data',
+      '5',
       stub,
     ]);
-    // A check has no network, so it gets no resolver.
-    const checked = fake();
-    await sandboxedChecks(options(checked.exec, { platform: 'linux', realPath }))(line, [], call);
-    assert.ok(!checked.calls[0]?.args.includes(stub));
-  });
-
-  it("binds no resolver's file when /etc/resolv.conf is outside /run or cannot be resolved", async () => {
-    for (const realPath of [
-      (path: string) => (path === '/etc/resolv.conf' ? '/mnt/wsl/resolv.conf' : path),
-      // Near misses: a folder whose name only starts with run, and /run itself.
-      (path: string) => (path === '/etc/resolv.conf' ? '/runner/resolv.conf' : path),
-      (path: string) => (path === '/etc/resolv.conf' ? '/run' : path),
-      (path: string) => {
-        if (path === '/etc/resolv.conf') throw new Error('ENOENT: no such file');
+    const unresolved = fakeSetup();
+    await linuxSetup(unresolved.exec, {
+      realPath: (path: string) => {
+        if (path === '/etc/resolv.conf') throw new Error('ELOOP: too many links');
         return path;
       },
-    ]) {
-      const { calls, exec } = fake();
-      const run = sandboxedChecks(options(exec, { platform: 'linux', network: true, realPath }));
-      await run(line, [], call);
-      assert.equal(calls[0]?.args.filter((arg) => arg === '--ro-bind').length, 2);
-    }
+    })(line, [], call);
+    const given = unresolved.calls[0]?.args ?? [];
+    assert.equal(given[given.indexOf('--ro-bind-data') + 2], '/etc/resolv.conf');
+    // A check has no network, so it gets no resolver, no pipes and no stack.
+    const checked = fake();
+    const check = sandboxedChecks(
+      options(checked.exec, { platform: 'linux', realPath, findStackTool: stackTools('pasta') }),
+    );
+    await check(line, [], call);
+    assert.equal(checked.calls.length, 1);
+    assert.ok(!checked.calls[0]?.args.includes('--ro-bind-data'));
+    assert.ok(!checked.calls[0]?.args.includes('--info-fd'));
+    assert.equal(checked.calls[0]?.options.pipes, undefined);
+  });
+
+  it('ends the run as stopped, the stack too, when the caller stops it', async () => {
+    const stop = new AbortController();
+    const { events, exec } = fakeSetup();
+    const running = linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(line, [], {
+      ...call,
+      signal: stop.signal,
+    });
+    stop.abort();
+    const result = await running;
+    assert.equal(result.killed, 'stopped');
+    assert.equal(
+      events.filter((event) => event === 'slirp4netns starts').length,
+      events.filter((event) => event === 'slirp4netns stopped').length,
+    );
   });
 
   // Seatbelt's network* also covers Unix sockets, such as launchd's ssh-agent under /private/tmp

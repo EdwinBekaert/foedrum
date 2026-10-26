@@ -37,10 +37,11 @@ describe('diagnose: tools', () => {
       { name: 'claude', version: '2.1.301', path: '/home/brewer/.local/bin/claude' },
       { name: 'bwrap', version: '0.9.0', path: '/usr/bin/bwrap' },
       { name: 'socat', version: '1.7.4.4', path: '/usr/bin/socat' },
+      { name: 'pasta', version: '0.0~git20240220.1e6f92b-1', path: '/usr/bin/pasta' },
     ]);
   });
 
-  it('lists bubblewrap and socat on Linux only', () => {
+  it('lists bubblewrap, socat and the network stack on Linux only', () => {
     assert.deepEqual(
       diagnose(windows).tools.map((tool) => tool.name),
       ['node', 'npm', 'git', 'gh', 'claude'],
@@ -49,6 +50,27 @@ describe('diagnose: tools', () => {
       diagnose(macos).tools.map((tool) => tool.name),
       ['node', 'npm', 'git', 'gh', 'claude'],
     );
+  });
+
+  // A Linux setup's network namespace gets the network from pasta, or slirp4netns (ADR 0218).
+  it('lists slirp4netns where pasta is not there, and pasta as missing where neither is', () => {
+    const slirp = linux({
+      pasta: undefined,
+      slirp4netns: ran(
+        '/usr/bin/slirp4netns',
+        'slirp4netns version 1.2.1\ncommit: 09e31e92fa3d2a1d3ca261adaf7a2c1d3a1b4c5d\nlibslirp: 4.7.0\n',
+      ),
+    });
+    assert.deepEqual(diagnose(slirp).tools.at(-1), {
+      name: 'slirp4netns',
+      version: '1.2.1',
+      path: '/usr/bin/slirp4netns',
+    });
+    assert.deepEqual(diagnose(linux({ pasta: undefined })).tools.at(-1), {
+      name: 'pasta',
+      version: undefined,
+      path: undefined,
+    });
   });
 
   it('reads the version out of a Windows build string', () => {
@@ -450,6 +472,28 @@ describe('diagnose: isolation (ADR 0010)', () => {
       assert.equal(diagnosis.problems[0]?.required, false);
       assert.match(diagnosis.problems[0]?.what ?? '', new RegExp(`\\b${missing}\\b`));
     }
+  });
+
+  // A setup does not start without one, and a Brewery without one needs neither (ADR 0218).
+  it('reports a missing network stack on Linux as a problem that is not required, and keeps the level', () => {
+    const diagnosis = diagnose(linux({ pasta: undefined }));
+    assert.equal(diagnosis.isolation.level, 'sandboxed');
+    assert.equal(diagnosis.ok, true);
+    assert.deepEqual(diagnosis.problems, [
+      {
+        required: false,
+        what: 'pasta (passt) or slirp4netns not found',
+        fix: "install passt or slirp4netns: a repository's setup does not start without one (ADR 0218)",
+      },
+    ]);
+    const slirp = linux({
+      pasta: undefined,
+      slirp4netns: ran('/usr/bin/slirp4netns', 'slirp4netns version 1.2.1\n'),
+    });
+    assert.deepEqual(diagnose(slirp).problems, []);
+    assert.deepEqual(diagnose(linux()).problems, []);
+    assert.deepEqual(diagnose(macos).problems, []);
+    assert.deepEqual(diagnose(windows).problems, []);
   });
 
   it('is permissions only on native Windows, and recommends WSL2', () => {
