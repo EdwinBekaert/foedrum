@@ -2,8 +2,9 @@
 // files from the answers and from what GitHub says of each target repository, checks each against
 // its schema, and, outside a clone, creates the Brewery's repository and clones it. It writes the
 // new files and asks before changing one that is there, offers the intake label in each target
-// repository, commits and pushes after asking, then runs doctor. The ports are the terminal, the
-// files, GitHub through gh, git and doctor; init-main.ts gives the real ones.
+// repository, commits and pushes after asking, offers the foedrum command on the PATH (ADR 0210),
+// then runs doctor. The ports are the terminal, the files, GitHub through gh, git, doctor and the
+// machine the command goes on; init-main.ts gives the real ones.
 
 import { parseJsonc } from '../formats/jsonc.ts';
 import { LABEL_COLOR } from '../github/brewery-repository.ts';
@@ -18,7 +19,7 @@ import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
 import { firstLine } from '../workspace/clone-git.ts';
 import type { GitResult } from '../workspace/git.ts';
-import type { ShimPorts } from './init-shim.ts';
+import { offerShim, type ShimPorts } from './init-shim.ts';
 import type { CliResult } from './run.ts';
 
 export interface InitPorts {
@@ -468,6 +469,15 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
       folder,
       plans.map(({ path }) => path),
     ));
+    // The foedrum command on the PATH, before doctor's report (ADR 0210).
+    await offerShim(ports.shim, {
+      say,
+      answer: async (question) => {
+        const answer = await ports.ask(question);
+        if (answer === undefined) throw new NoAnswer(question.replace(/ \[.*$/, ''));
+        return answer;
+      },
+    });
   } catch (error) {
     if (error instanceof NoAnswer) {
       return refuse(`no answer to "${error.message}"; nothing more is written${created}`);
