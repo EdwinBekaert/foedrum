@@ -86,8 +86,9 @@ export interface CliContext {
    */
   resume: (input: ResumeCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
   /**
-   * Asks for and writes a Brewery's files in its clone, then runs doctor (ADR 0199); its questions
-   * and lines go straight to the terminal.
+   * Asks for and writes a Brewery's files, creating and cloning its repository outside a clone,
+   * offers the intake labels, commits and pushes, then runs doctor (ADR 0199, ADR 0207); its
+   * questions and lines go straight to the terminal.
    */
   init: () => Promise<CliResult>;
 }

@@ -12,7 +12,7 @@ import { z } from './zod.ts';
 export const DoctorCommand = z.strictObject({ command: z.literal('doctor') });
 export type DoctorCommand = z.infer<typeof DoctorCommand>;
 
-/** `foedrum init`: a Brewery's files in its clone, from a few questions (ADR 0199). */
+/** `foedrum init`: a Brewery's files, and outside a clone its repository, from a few questions (ADR 0199, ADR 0207). */
 export const InitCommand = z.strictObject({ command: z.literal('init') });
 export type InitCommand = z.infer<typeof InitCommand>;
 

@@ -1,17 +1,29 @@
-// `foedrum init` on the real machine, in the Brewery's clone `cwd` (ADR 0199): the terminal, the
-// clone's files, GitHub through gh's own login and doctor, given to init.ts.
+// `foedrum init` on the real machine, in the Brewery's clone `cwd` or the folder it clones it into
+// (ADR 0199, ADR 0207): the terminal, the files, GitHub through gh's own login, git and doctor,
+// given to init.ts.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import {
+  createLabel,
+  createRepository,
+  labelExists,
+  repositoryExists,
+} from '../github/brewery-repository.ts';
 import { createGitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { repositoryFacts } from '../github/repository-facts.ts';
+import { execProcess } from '../platform/processes.ts';
+import { runGitWith } from '../workspace/git.ts';
 import { diagnose, formatDiagnosis } from './doctor.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { runInit } from './init.ts';
 import { type CliResult, printable } from './run.ts';
+
+/** How long init's clone, commit and push may each take. */
+const GIT_TIMEOUT_MS = 120_000;
 
 /** Where the questions are asked and the lines shown: standard input and output by default. */
 export interface InitTerminal {
@@ -64,6 +76,7 @@ export const initFromCheckout = async (
     ...(options?.exec === undefined ? {} : { exec: options.exec }),
     cwd,
   });
+  const git = runGitWith(options?.exec ?? execProcess);
   const answers = linesOf(input);
   try {
     return await runInit({
@@ -84,8 +97,16 @@ export const initFromCheckout = async (
       },
       login: () => githubLogin(github),
       repository: (repo) => repositoryFacts(github, repo),
-      doctor: async () => {
-        const diagnosis = diagnose(await doctorFromCheckout(cwd, options));
+      github: {
+        exists: (repo) => repositoryExists(github, repo),
+        create: (repo, login, isPrivate) => createRepository(github, repo, login, isPrivate),
+        hasLabel: (repo, label) => labelExists(github, repo, label),
+        createLabel: (repo, label, description) => createLabel(github, repo, label, description),
+      },
+      // The git Foedrum runs: no prompt, no token variable, gh as git's credential helper (ADR 0073).
+      git: (folder, args) => git(at(folder), args, { timeoutMs: GIT_TIMEOUT_MS }),
+      doctor: async (folder) => {
+        const diagnosis = diagnose(await doctorFromCheckout(at(folder), options));
         return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };
       },
     });
