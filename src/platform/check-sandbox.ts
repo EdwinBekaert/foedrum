@@ -28,6 +28,11 @@ interface SandboxKeeps {
   network?: boolean;
 }
 
+/** How many object stores the worktree's repository borrows, each a `BORROWED_<n>` (ADR 0203). */
+interface Borrowed {
+  borrowed?: number;
+}
+
 /**
  * The profile every check runs under on macOS, its paths given as parameters (`-D`): `parents`
  * folders above the worktree and its repository in the home folder, as `PARENT_<n>`, whose
@@ -36,7 +41,7 @@ interface SandboxKeeps {
  */
 export const seatbeltProfile = (
   parents: number,
-  { network = false }: SandboxKeeps = {},
+  { network = false }: SandboxKeeps & Borrowed = {},
 ): string => {
   const literals = Array.from({ length: parents }, (_, n) => `(literal (param "PARENT_${n}"))`);
   return [
@@ -179,6 +184,14 @@ export const worktreeGitDir = (worktree: string): string | undefined => {
   }
 };
 
+/**
+ * The object stores a repository's `objects/info/alternates` names, a relative one against its
+ * `objects` (ADR 0203); none without the file.
+ */
+export const borrowedStores = (_repository: string): string[] => {
+  throw new Error('not implemented');
+};
+
 export interface SandboxedChecksOptions {
   /** The process runner the sandbox is started through. */
   exec: ExecProcess;
@@ -194,6 +207,8 @@ export interface SandboxedChecksOptions {
   realPath?: (path: string) => string;
   /** The repository a worktree's `.git` file names, or undefined. */
   gitDirOf?: (worktree: string) => string | undefined;
+  /** The object stores a repository borrows; default `borrowedStores`. */
+  borrowedOf?: (repository: string) => readonly string[];
   /** Default folders under `os.tmpdir()`. */
   temp?: TempFolders;
   /** Whether the sandbox keeps the network, as a repository's setup needs (ADR 0158). */

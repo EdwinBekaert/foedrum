@@ -56,3 +56,19 @@ export const openMergeTree =
     }
     return { kind: 'conflicts', files };
   };
+
+/**
+ * Runs `use` with a worktree of the merged tree of `head` and `tip` (ADR 0203): a commit of it on
+ * both, checked out from a git directory of Foedrum's own that borrows the clone's objects and
+ * holds a copy of its tags and remote-tracking refs. Both go when `use` ends, also when it fails.
+ */
+export const openMergedTree =
+  (_options: MergeTreeOptions) =>
+  async <T>(
+    _head: string,
+    _tip: string,
+    _use: (worktree: string) => Promise<T>,
+    _signal?: AbortSignal,
+  ): Promise<T> => {
+    throw new Error('not implemented');
+  };

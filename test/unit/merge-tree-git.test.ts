@@ -3,11 +3,12 @@
 // the clone's objects, and reads git's exit code and NUL-separated output.
 
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { devNull } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
-import { openMergeTree } from '../../src/workspace/merge-tree-git.ts';
+import { openMergedTree, openMergeTree } from '../../src/workspace/merge-tree-git.ts';
 import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
 const HEAD = 'a'.repeat(40);
@@ -95,4 +96,119 @@ describe('openMergeTree', () => {
     assert.equal(config['remote.foedrum.url'], url);
     assert.equal(config['remote.foedrum.promisor'], 'true');
   });
+});
+
+describe('openMergedTree', () => {
+  const COMMIT = '9'.repeat(40);
+  const TAG = '7'.repeat(40);
+  const MAIN = '6'.repeat(40);
+
+  /** A git that merges cleanly, makes the commit and the worktree, and lists the clone's refs. */
+  const treeGit = (
+    merged: GitResult = ok(`${TREE}\0`),
+    refs = `${TAG} refs/tags/v1.0.0\n${MAIN} refs/remotes/origin/main\n`,
+  ) => {
+    const recorded = recordingGit(merged);
+    const git: Git = async (cwd, args, options) => {
+      const result = await recorded.git(cwd, args, options);
+      if (args.includes('commit-tree')) return ok(`${COMMIT}\n`);
+      if (args[0] === 'for-each-ref') return ok(refs);
+      const add = args.indexOf('add');
+      if (args.includes('worktree') && add !== -1) {
+        mkdirSync(args.at(-2) ?? '', { recursive: true });
+      }
+      return result;
+    };
+    return { ...recorded, git };
+  };
+  const call = (calls: ReturnType<typeof recordingGit>['calls'], word: string) =>
+    calls.find(({ args }) => args.includes(word));
+
+  it('commits the merged tree on head and tip and checks it out from its own git directory, then removes both', async () => {
+    const root = nextFolder();
+    const { git, calls } = treeGit();
+    let seen: { tree: string; packed: string; alternates: string } | undefined;
+    const read = await openMergedTree({ git, clone, own: { url, root, id: () => 'one' } })(
+      HEAD,
+      TIP,
+      async (worktree) => {
+        seen = {
+          tree: worktree,
+          packed: readFileSync(join(root, 'one.git', 'packed-refs'), 'utf8'),
+          alternates: readFileSync(join(root, 'one.git', 'objects', 'info', 'alternates'), 'utf8'),
+        };
+        return 'read';
+      },
+    );
+    assert.equal(read, 'read');
+    assert.equal(seen?.tree, join(root, 'one.tree'));
+    const commit = call(calls, 'commit-tree');
+    assert.deepStrictEqual(commit?.args.slice(1, 7), ['commit-tree', TREE, '-p', HEAD, '-p', TIP]);
+    // Foedrum's own name: the user's configuration need not name one.
+    assert.equal(commit?.options?.env?.GIT_AUTHOR_NAME, 'Foedrum');
+    assert.equal(commit?.options?.env?.GIT_COMMITTER_NAME, 'Foedrum');
+    const add = call(calls, 'worktree');
+    assert.match(add?.args[0] ?? '', /^--git-dir=.*one\.git$/);
+    assert.deepStrictEqual(add?.args.slice(1), [
+      'worktree',
+      'add',
+      '--quiet',
+      '--detach',
+      '--end-of-options',
+      join(root, 'one.tree'),
+      COMMIT,
+    ]);
+    assert.equal(add?.options?.config?.['core.hooksPath'], devNull);
+    // The clone's tags and remote-tracking refs, read with no hook or fsmonitor of the clone's.
+    const refs = call(calls, 'for-each-ref');
+    assert.equal(refs?.cwd, clone);
+    assert.equal(refs?.options?.config?.['core.hooksPath'], devNull);
+    assert.equal(seen?.packed, `${TAG} refs/tags/v1.0.0\n${MAIN} refs/remotes/origin/main\n`);
+    assert.equal(seen?.alternates, `${join(clone, 'objects')}\n`);
+    assert.equal(existsSync(join(root, 'one.tree')), false);
+    assert.equal(existsSync(join(root, 'one.git')), false);
+  });
+
+  it('keeps only the refs it can read as a commit and a tag or remote-tracking ref', async () => {
+    const root = nextFolder();
+    const listed = `${TAG} refs/tags/v1\nnot-a-sha refs/tags/v2\n${MAIN} refs/heads/main\n${MAIN} refs/remotes/origin/main\n`;
+    const { git } = treeGit(ok(`${TREE}\0`), listed);
+    const packed = await openMergedTree({ git, clone, own: { url, root, id: () => 'one' } })(
+      HEAD,
+      TIP,
+      async () => readFileSync(join(root, 'one.git', 'packed-refs'), 'utf8'),
+    );
+    assert.equal(packed, `${TAG} refs/tags/v1\n${MAIN} refs/remotes/origin/main\n`);
+  });
+
+  it('removes the worktree and the directory when the read fails, and fails with it', async () => {
+    const root = nextFolder();
+    const { git } = treeGit();
+    await assert.rejects(
+      openMergedTree({ git, clone, own: { url, root, id: () => 'one' } })(HEAD, TIP, async () => {
+        throw new Error('read failed');
+      }),
+      { message: 'read failed' },
+    );
+    assert.equal(existsSync(join(root, 'one.tree')), false);
+    assert.equal(existsSync(join(root, 'one.git')), false);
+  });
+
+  it('fails without a read when the merge conflicts now, or git fails', async () => {
+    const conflicted = treeGit(exited(1, `${TREE}\0src/a.ts\0`));
+    let used = false;
+    const use = async () => {
+      used = true;
+    };
+    await assert.rejects(open2(conflicted.git)(HEAD, TIP, use), /conflicts in src\/a\.ts/);
+    const broken = treeGit(exited(128, '', 'fatal: bad object cccc\n'));
+    await assert.rejects(
+      open2(broken.git)(HEAD, TIP, use),
+      /git merge-tree failed: fatal: bad object/,
+    );
+    assert.equal(used, false);
+  });
+
+  const open2 = (git: Git) =>
+    openMergedTree({ git, clone, own: { url, root: nextFolder(), id: () => 'one' } });
 });

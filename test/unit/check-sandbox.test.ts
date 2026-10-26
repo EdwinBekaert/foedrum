@@ -4,9 +4,10 @@
 
 import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  borrowedStores,
   SANDBOX_EXEC,
   type SandboxedChecksOptions,
   sandboxedChecks,
@@ -611,6 +612,103 @@ describe('worktreeGitDir', () => {
     try {
       assert.equal(worktreeGitDir(path), undefined);
       assert.equal(worktreeGitDir(join(dir.path, 'missing')), undefined);
+    } finally {
+      dir.remove();
+    }
+  });
+});
+
+// A worktree of Foedrum's own git directory borrows the clone's objects through its alternates:
+// the same objects a check step's worktree reads with the clone's repository (ADR 0203).
+describe('sandboxedChecks for a repository that borrows an object store', () => {
+  const store = '/home/ada/.foedrum/acme/clones/acme.api/.git/objects';
+  const borrowing = { borrowedOf: (repository: string) => (repository === gitDir ? [store] : []) };
+
+  it('binds the store read-only in bwrap, after the repository and before the worktree', async () => {
+    const { calls, exec } = fake();
+    const run = sandboxedChecks(options(exec, { platform: 'linux', ...borrowing }));
+    await run(line, [], call);
+    assert.deepEqual(calls[0]?.args.slice(17, 26), [
+      '--ro-bind',
+      gitDir,
+      gitDir,
+      '--ro-bind',
+      store,
+      store,
+      '--bind',
+      worktree,
+      worktree,
+    ]);
+    // Never writable.
+    assert.equal(calls[0]?.args.filter((arg) => arg === store).length, 2);
+    assert.equal(calls[0]?.args[calls[0].args.indexOf(store) - 1], '--ro-bind');
+  });
+
+  it('binds no store when the repository names none, or the worktree names no repository', async () => {
+    const named = fake();
+    await sandboxedChecks(options(named.exec, { platform: 'linux', borrowedOf: () => [] }))(
+      line,
+      [],
+      call,
+    );
+    assert.ok(!named.calls[0]?.args.includes(store));
+    const none = fake();
+    await sandboxedChecks(
+      options(none.exec, { platform: 'linux', gitDirOf: () => undefined, ...borrowing }),
+    )(line, [], call);
+    assert.ok(!none.calls[0]?.args.includes(store));
+  });
+
+  it('lets a check read the store under Seatbelt, as a parameter, and write nothing there', async () => {
+    const { calls, exec } = fake();
+    const temp = { make: () => '/private/var/folders/x/T/foedrum-check-1', remove: async () => {} };
+    await sandboxedChecks(options(exec, { platform: 'darwin', temp, ...borrowing }))(
+      line,
+      [],
+      call,
+    );
+    const args = calls[0]?.args ?? [];
+    assert.ok(args.includes(`BORROWED_0=${store}`));
+    const profile = args[args.indexOf('-p') + 1] ?? '';
+    assert.match(profile, /\(allow file-read\* \(subpath \(param "BORROWED_0"\)\)\)/);
+    // The one write rule names the worktree and the temporary folder only.
+    const writes = profile.split('\n').filter((rule) => rule.startsWith('(allow file-write*'));
+    assert.equal(writes.length, 1);
+    assert.doesNotMatch(writes[0] ?? '', /BORROWED/);
+  });
+
+  it('names no store in the profile when the repository borrows none', () => {
+    assert.doesNotMatch(seatbeltProfile(0), /BORROWED/);
+    assert.match(seatbeltProfile(0, { borrowed: 2 }), /\(param "BORROWED_1"\)/);
+  });
+});
+
+describe('borrowedStores', () => {
+  it("names each store a repository's alternates file lists, a relative one against its objects", () => {
+    const dir = makeTempDir('borrowed');
+    try {
+      const repository = join(dir.path, 'own.git');
+      mkdirSync(join(repository, 'objects', 'info'), { recursive: true });
+      const absolute = join(dir.path, 'clone', '.git', 'objects');
+      writeFileSync(
+        join(repository, 'objects', 'info', 'alternates'),
+        `${absolute}\n# a comment\n\n../../other/objects\n`,
+      );
+      assert.deepEqual(
+        borrowedStores(repository),
+        [absolute, join(repository, 'objects', '..', '..', 'other', 'objects')].map((path) =>
+          resolve(path),
+        ),
+      );
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('names none without an alternates file', () => {
+    const dir = makeTempDir('borrowed');
+    try {
+      assert.deepEqual(borrowedStores(dir.path), []);
     } finally {
       dir.remove();
     }
