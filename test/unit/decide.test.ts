@@ -2274,6 +2274,14 @@ describe('decide: a failing check on the open pull request sends the batch back 
     }
   });
 
+  it('refuses while the whole Brewery is paused', () => {
+    const all: Event = { type: 'order.paused', by: 'ada', via: 'terminal' };
+    assert.deepStrictEqual(decide(fold([...failedOnTap, all]), fix(), ale()), {
+      kind: 'refused',
+      reason: 'batch b1 is paused: its pull request goes back once it is continued',
+    });
+  });
+
   const secondFailed = [
     ...failedOnTap,
     ...fixRound('b1', firstHead, secondHead),

@@ -710,4 +710,21 @@ describe('admit sends a batch on tap back only along its pull request route (ADR
     };
     assert.equal(accepted([...onTap, sentBack], ended), true);
   });
+
+  it('records the end of that pull request while the batch is Stuck in the fix too', () => {
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      state: 'merged',
+    };
+    const stuckInFix: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: { kind: 'deadline_passed', stepId: 'plan', deadlineAt },
+      options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+      remindAt,
+    };
+    assert.equal(accepted([...onTap, sentBack, stuckInFix], ended), true);
+  });
 });

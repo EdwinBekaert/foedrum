@@ -555,6 +555,26 @@ describe('planTick: a failing check on an open pull request (ADR 0219)', () => {
     assert.deepStrictEqual(tick(moved), []);
   });
 
+  it('sends nothing once a round found the branch gone', () => {
+    const gone = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead).map((event) =>
+        event.type === 'effect.applied' ? pushed('b1', secondHead, 2, { gone: true }) : event,
+      ),
+      checksFinished('b1', secondHead),
+    ];
+    assert.deepStrictEqual(tick(gone), []);
+  });
+
+  it('sends nothing while the whole Brewery is paused, and sends it once continued', () => {
+    const failed = [...openedOnTap(), checksFinished('b1', firstHead)];
+    const all: Event = { type: 'order.paused', by: 'ada', via: 'terminal' };
+    const continued: Event = { type: 'order.continued', by: 'ada', via: 'terminal' };
+    assert.deepStrictEqual(tick([...failed, all]), []);
+    assert.deepStrictEqual(tick([...failed, all, continued]), [fix('b1')]);
+  });
+
   it("sends nothing once a person's skip left the failed head as it is, nor for a person's head after it", () => {
     const skipped: Event[] = [
       ...openedOnTap(),

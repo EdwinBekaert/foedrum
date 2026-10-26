@@ -199,6 +199,24 @@ describe('worktreeClaims: the task tree no push recorded (ADR 0084)', () => {
     }
   });
 
+  it("reads a later round's push, which leaves the task tree out unless it found the branch moved or gone (ADR 0219)", () => {
+    const tree = 'refs/heads/foedrum/12-1/brew/2';
+    const rounds = (second: Record<string, unknown>): ReadonlyMap<string, unknown> =>
+      new Map([
+        ...pushedFrom('refs/heads/foedrum/12-1/brew/1'),
+        [
+          effectKey.encode({ batchId: '12-1', effect: 'push.2' }),
+          { branch: 'foedrum/acme.app/12-1/brew/2', commit: TIP, from: tree, ...second },
+        ],
+      ]);
+    const unpushed = (second: Record<string, unknown>) =>
+      claims(brewed(lanes['on-tap'] as Lane, rounds(second)), []).unpushed;
+    assert.deepEqual(unpushed({}), new Map());
+    for (const nothing of [{ moved: 'd'.repeat(40) }, { gone: true }]) {
+      assert.deepEqual(unpushed(nothing), new Map([['foedrum/12-1/brew/2', BASE]]));
+    }
+  });
+
   it('names the pushed task tree of a batch on tap whose pull request is open, for a fix round (ADR 0219)', () => {
     const url = 'https://github.com/acme/app/pull/1';
     const effects = new Map([

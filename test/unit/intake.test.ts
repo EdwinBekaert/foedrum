@@ -429,6 +429,28 @@ describe('createIntake', () => {
       assert.equal(batch?.lane.kind, 'brewing');
     });
 
+    it('records the end of that pull request while the batch is Stuck in the fix too (ADR 0219)', async () => {
+      const [sentBack] = fixRound('1-1', firstHead, secondHead, 2, pullRequest);
+      store.replay([
+        ...openedOnTap('1-1', 'half', firstHead, pullRequest),
+        checksFinished('1-1', firstHead, undefined, pullRequest),
+        ...(sentBack === undefined ? [] : [sentBack]),
+        {
+          type: 'batch.stuck',
+          batchId: '1-1',
+          reason: { kind: 'deadline_passed', stepId: 'plan', deadlineAt: now.toISOString() },
+          options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+          remindAt: now.toISOString(),
+        },
+      ]);
+      log = createCommandLog({ store, recipes });
+      const { tracker } = fakeTracker({ [web]: [], [api]: [] }, { [pullRequest]: 'closed' });
+      await intake(tracker).poll();
+      const batch = log.state().batches.get('1-1');
+      assert.deepStrictEqual(batch?.pullRequestEnds, { [pullRequest]: 'closed' });
+      assert.equal(batch?.lane.kind, 'stuck');
+    });
+
     it('checks the open pull requests against their bases after it records the ends (ADR 0198)', async () => {
       onTap();
       for (const [key, result] of [

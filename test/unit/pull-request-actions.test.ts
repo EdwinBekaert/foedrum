@@ -998,4 +998,31 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
       output: { pullRequest: url },
     });
   });
+
+  it("keeps the round's push it recorded before the pull request ended", () => {
+    const ended: Event = {
+      type: 'pull_request.ended',
+      batchId: '12-1',
+      pullRequest: url,
+      state: 'merged',
+    };
+    const { actions } = withRemote({ [branch]: fixed });
+    const recorded = applied(push2, { branch, commit: fixed, from: from2 });
+    const state = fold([...onTap, ...round, recorded, ended]);
+    assert.deepEqual(keysOf(state, actions), [push2, open]);
+  });
+
+  it('fails for good when the round before recorded no push', () => {
+    const { actions } = withRemote({ [branch]: tip });
+    const withoutFirst = onTap.filter(
+      (event) => event.type !== 'effect.applied' || event.key !== push,
+    );
+    const state = fold([...withoutFirst, ...round]);
+    assert.deepEqual(actions.due(state, action2), []);
+    assert.deepEqual(actions.ending(state, action2), {
+      kind: 'failed',
+      retryable: false,
+      reason: 'batch 12-1 has no push of round 1 of its pull request to push round 2 on',
+    });
+  });
 });
