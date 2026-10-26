@@ -24,7 +24,7 @@ const said = NonEmpty.max(MAX_DISPOSITION_WHY);
  * What the brewer a findings route brought back did with one finding of its route input
  * (ADR 0191), at the finding's place as the Taster wrote it, or the change as a whole without a
  * file: fixed, or with a `why`, dismissed as not a defect or left as there before the change
- * (ADR 0094).
+ * (ADR 0094), a `why` that names the evidence a later round checks (ADR 0204).
  */
 export const Disposition = z.discriminatedUnion('disposition', [
   z.strictObject({ ...place, disposition: z.literal('fixed'), why: said.exactOptional() }),
