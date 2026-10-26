@@ -11,6 +11,7 @@ Deeper tasting on sensitive paths, the spread and test signals, and the same tre
 
 ## Decision
 - **`sensitivePaths` in a repository's entry of `foedrum.jsonc`**: a list of path globs, relative to the repository's root with `/` between folders, as `posix.matchesGlob` reads them (the house-yeast rules' globs, [ADR 0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md)), such as `.github/workflows/**` or `src/auth/**`, except that a wildcard also matches a name that starts with a dot: `src/auth/**` covers `src/auth/.env`, the kind of file the list is for.
+  A dot written inside braces or a class (`{.github,ci}/**`) matches as `posix.matchesGlob` reads it, so a wildcard after it does not reach a dotfile below: write such a name at the start of its own glob (`.github/**`).
   There are no defaults: without the field, or with an empty list, nothing is matched and nothing is shown.
   A glob that is blank, starts at `/` or `!`, holds a `\` or has a `.` or `..` segment is refused when the file is loaded, with one line: it would match nothing git names, or not what it seems to.
 - **Matched once, at the push of the batch's pull request** (the openPullRequest action, ADR 0071): the files of `git diff --name-only -z --no-renames` from where the batch's change starts to the commit pushed, as a diff Taster's change input starts it ([ADR 0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md), after a merge of the base at the base it merged, [ADR 0164](0164-a-batch-merges-its-base-before-its-last-check.md)).
