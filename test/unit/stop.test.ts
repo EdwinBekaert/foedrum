@@ -25,6 +25,7 @@ const minute = 60_000;
 const t0 = new Date('2026-10-26T12:00:00.000Z');
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+  lager: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 2 }),
   tasting: fakeRecipe({ steps: ['plan', 'taste', 'open'], groups: { taste: ['a', 'b'] } }),
 });
 const succeeded: Ending = {
@@ -222,6 +223,23 @@ describe('stop (ADR 0205)', () => {
         retry: true,
       });
       assert.equal(batch('b12').lane.kind, 'brewing');
+    });
+
+    it('counts the stopped attempt, so a later retryable failure uses up the step sooner', () => {
+      order(12, 'lager');
+      start('b12');
+      accept({ kind: 'stop', order: { issue: 12 }, ...who });
+      accept({ kind: 'retry', batchId: 'b12', ...who });
+      start('b12', 'plan', 2);
+      const failed = { kind: 'failed', retryable: true, reason: 'tests fail' } as const;
+      accept({ kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 2, ending: failed });
+      const { lane } = batch('b12');
+      assert.deepStrictEqual(lane.kind === 'stuck' && lane.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'plan',
+        attempts: 2,
+        lastReason: 'tests fail',
+      });
     });
 
     it("resumes a parallel group's children that had not ended", () => {
