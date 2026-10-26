@@ -231,10 +231,14 @@ describe('the demo brewers', () => {
     const round2 = await tasted(runner, 'correctness', 2);
     assert.equal(round2.verdict, 'approve');
     assert.deepStrictEqual(round2.findings, []);
-    // The advisory lenses run again in the second round, and approve again.
+    // The advisory lenses run again in the second round, approve again, and raise their open
+    // findings again, which no disposition settled (ADR 0191).
     for (const stepId of ['security', 'test-design']) {
-      await tasted(runner, stepId, 1);
-      assert.equal((await tasted(runner, stepId, 2)).verdict, 'approve', stepId);
+      const round1 = await tasted(runner, stepId, 1);
+      const again = await tasted(runner, stepId, 2);
+      assert.equal(again.verdict, 'approve', stepId);
+      assert.equal(again.findings?.length, 1, `${stepId}: ${JSON.stringify(again.findings)}`);
+      assert.deepStrictEqual(again.findings, round1.findings, stepId);
     }
     // The Finer runs after each of the Cellarman's three attempts.
     for (const attempt of [1, 2, 3]) {
