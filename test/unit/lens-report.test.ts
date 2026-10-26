@@ -28,7 +28,8 @@ const usage = (input: number, output: number, read: number, write: number): Usag
 const zero = usage(0, 0, 0, 0);
 
 // nip: implement (the Cellarman), correctness (a blocking lens step routed back to implement) and
-// acceptance (an advisory one). The recipe `old` is gone; diff/security is in use and never ran.
+// acceptance (an advisory one), and together (correctness and security in one Taster, ADR 0220).
+// The recipe `old` is gone; diff/security is in use and never ran on its own.
 const source: LensSource = {
   lenses: [
     { name: 'diff/acceptance', path: 'defaults/lenses/diff/acceptance.md' },
@@ -40,6 +41,9 @@ const source: LensSource = {
     if (stepId === 'correctness') return { lens: 'diff/correctness' };
     if (stepId === 'acceptance') return { lens: 'diff/acceptance' };
     if (stepId === 'implement') return { lens: undefined };
+    if (stepId === 'together') {
+      return { lens: undefined, together: ['diff/correctness', 'diff/security'] };
+    }
     return undefined;
   },
 };
@@ -61,13 +65,19 @@ const tally = (counts: Partial<LensTally> = {}): LensTally => ({
 });
 
 /** A finding at a file and line: what an out doc holds, as JSON. */
-type Found = TastingFinding & { file: string; line: number };
+type Found = Pick<TastingFinding, 'severity' | 'why' | 'introduced'> & {
+  file: string;
+  line: number;
+  lens?: string;
+};
 const finding = (
   file: string,
   line: number,
   severity: TastingFinding['severity'] = 'major',
   introduced = true,
 ): Found => ({ file, line, severity, why: `why ${file}:${line}`, introduced });
+/** A finding a Taster of several lenses found through `lens` (ADR 0220). */
+const through = (lens: string, found: Found): Found => ({ ...found, lens });
 
 const ordered = (batchId: string, issue: number, recipe = 'nip'): Event[] => [
   { type: 'batch.ordered', batchId, order: { issue }, routeBy: deadlineAt },
@@ -545,6 +555,78 @@ describe('lensReport', () => {
   });
 });
 
+describe('lensReport: lenses together (ADR 0220)', () => {
+  const pair = ['diff/correctness', 'diff/security'];
+  const events = [
+    ...ordered('b1', 1),
+    ...attempt('b1', 'together', 1, blocked, {
+      usage: usage(10, 20, 30, 40),
+      findings: kept(
+        through('diff/correctness', finding('src/a.ts', 1)),
+        through('diff/security', finding('src/b.ts', 2, 'blocker')),
+        through('diff/security', finding('src/c.ts', 3, 'minor')),
+      ),
+    }),
+    ...attempt(
+      'b1',
+      'implement',
+      2,
+      disposed(
+        { file: 'src/a.ts', line: 1, disposition: 'fixed' },
+        { file: 'src/b.ts', line: 2, disposition: 'dismissed', why: 'see b.test.ts:4' },
+      ),
+      { from: 'together' },
+    ),
+    ...attempt(
+      'b1',
+      'together',
+      2,
+      tasted([through('diff/security', finding('src/c.ts', 3, 'minor'))]),
+      {
+        usage: usage(1, 2, 3, 4),
+      },
+    ),
+  ];
+
+  it('gives each finding to the lens it names, each lens its rounds, and no lens the tokens', () => {
+    const made = report(events);
+    assert.deepStrictEqual(
+      lens(made, 'diff/correctness'),
+      tally({
+        rounds: 2,
+        severity: { blocker: 0, major: 1, minor: 0 },
+        ends: { fixed: 1, dismissed: 0, 'pre-existing': 0, open: 0 },
+      }),
+    );
+    assert.deepStrictEqual(
+      lens(made, 'diff/security'),
+      tally({
+        rounds: 2,
+        severity: { blocker: 1, major: 0, minor: 1 },
+        ends: { fixed: 0, dismissed: 1, 'pre-existing': 0, open: 1 },
+      }),
+    );
+  });
+
+  it('puts the tokens of a step of lenses together on a shared row of its own, never split', () => {
+    assert.deepStrictEqual(report(events).shared, [
+      { lenses: pair, rounds: 2, usage: usage(11, 22, 33, 44) },
+    ]);
+  });
+
+  it('counts a blocked round of lenses together with no recorded findings as not recorded for each lens', () => {
+    const old = [...ordered('b1', 1), ...attempt('b1', 'together', 1, blocked)];
+    const made = report(old);
+    for (const name of pair) {
+      assert.deepStrictEqual(
+        lens(made, name),
+        tally({ rounds: 1, notRecorded: { rounds: 1, findings: 0 } }),
+        name,
+      );
+    }
+  });
+});
+
 describe('formatLensReport', () => {
   it('prints each lens with its file, its findings, how they ended and its tokens', () => {
     const events = [
@@ -611,6 +693,33 @@ describe('formatLensReport', () => {
     );
   });
 
+  it('prints the lenses together on a row of their own, with the tokens they shared (ADR 0220)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'together', 1, tasted([through('diff/security', finding('src/a.ts', 1))]), {
+        usage: usage(1, 2, 3, 4),
+      }),
+    ];
+    assert.equal(
+      formatLensReport(report(events, { ...source, lenses: source.lenses.slice(1) })),
+      [
+        'diff/correctness  defaults/lenses/diff/correctness.md',
+        '  1 round, no findings',
+        '  tokens: none reported',
+        'diff/security  lenses/diff/security.md',
+        '  1 round, 1 finding: 1 major',
+        '  ended: 1 open',
+        '  tokens: none reported',
+        '',
+        'Lenses together, their tokens not split (ADR 0220):',
+        'diff/correctness + diff/security',
+        '  1 round',
+        '  tokens: 1 input, 2 output, 3 cache read, 4 cache write',
+        '',
+      ].join('\n'),
+    );
+  });
+
   it('says so when no recipe has a lens step', () => {
     assert.equal(formatLensReport(report([], { ...source, lenses: [] })), 'No lenses.\n');
   });
@@ -669,5 +778,49 @@ describe('lensSource', () => {
     assert.deepStrictEqual(step('amber', 'implement'), { lens: undefined });
     assert.equal(step('amber', 'review'), undefined);
     assert.equal(step('stout', 'taste'), undefined);
+  });
+
+  it('gives a step of lenses together each of its lenses, and lists them in use (ADR 0220)', () => {
+    const together = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'implement', brewer: 'gauger' },
+              { id: 'taste', brewer: 'taster', lenses: ['diff/security', 'diff/unused'] },
+              { action: 'openPullRequest' },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/gauger.md',
+          text: brewerText('gauger', {
+            access: 'write',
+            git: { commit: true },
+            produces: 'commits',
+          }),
+        },
+        {
+          path: 'brewers/taster.md',
+          text: brewerText('taster', { output: { doc: 'taste.md', schema: 'tasting' } }),
+        },
+      ],
+      defaults: { lenses: [lensFile('security'), lensFile('unused')] },
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const made = lensSource(together);
+    assert.deepStrictEqual(made.step('amber', 'taste'), {
+      lens: undefined,
+      together: ['diff/security', 'diff/unused'],
+    });
+    assert.deepStrictEqual(
+      made.lenses.map(({ name }) => name),
+      ['diff/security', 'diff/unused'],
+    );
   });
 });

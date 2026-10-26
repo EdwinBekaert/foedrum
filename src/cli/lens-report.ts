@@ -17,9 +17,13 @@ export interface LensSource {
   lenses: readonly { name: string; path: string }[];
   /**
    * Step `stepId` of recipe `recipe` as the files have it, with the lens it reviews through when it
-   * is a lens step, or `undefined` when no recipe of that name has that step.
+   * is a lens step, or its lenses together (ADR 0220), or `undefined` when no recipe of that name
+   * has that step.
    */
-  step: (recipe: string, stepId: string) => { lens: string | undefined } | undefined;
+  step: (
+    recipe: string,
+    stepId: string,
+  ) => { lens: string | undefined; together?: readonly string[] } | undefined;
 }
 
 /** A lens's findings by their latest severity. */
@@ -50,11 +54,20 @@ export interface LensTally {
   usage: Usage;
 }
 
+/** The rounds and tokens of steps that run the same lenses together: tokens no lens's own (ADR 0220). */
+export interface SharedTally {
+  lenses: readonly string[];
+  rounds: number;
+  usage: Usage;
+}
+
 export interface LensReport {
   /** Every lens in use, by name, also those with no rounds. */
   lenses: readonly (LensTally & { name: string; path: string })[];
   /** The lens steps the recipe files no longer have, or no longer give a lens, by recipe and step. */
   gone: readonly (LensTally & { recipe: string; stepId: string })[];
+  /** The steps of lenses together, by their lenses, in the order of their names. */
+  shared: readonly SharedTally[];
 }
 
 const counts = (): LensTally => ({
@@ -173,7 +186,9 @@ export const lensReport = (
       const tallyOf = (attempt: number): LensTally | undefined => {
         const key = attemptKey.encode({ batchId: batch.id, stepId: step.id, attempt });
         const ranIn = ran.get(key) ?? recipe;
-        const lens = source.step(ranIn, step.id)?.lens;
+        const inFiles = source.step(ranIn, step.id);
+        if (inFiles?.together !== undefined) throw new Error('not implemented');
+        const lens = inFiles?.lens;
         if (lens !== undefined) {
           const found = lenses.get(lens) ?? { ...counts(), path: '' };
           lenses.set(lens, found);
@@ -200,6 +215,8 @@ export const lensReport = (
     gone: [...gone.values()].sort(
       (a, b) => byName(a.recipe, b.recipe) || byName(a.stepId, b.stepId),
     ),
+    // Lenses together: not implemented yet (ADR 0220).
+    shared: [],
   };
 };
 
