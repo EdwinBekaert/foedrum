@@ -32,9 +32,9 @@ Holding only the family of an Opus or Sonnet limit is #537, not this decision.
 - **A spend limit or a too-low credit balance** ([ADR 0129](0129-a-spend-limit-or-a-too-low-credit-balance-blocks-on-the-environment.md)) stays Stuck: nothing resets it by itself.
 
 ### The reset
-- The driver reads claude's reset text in the machine's time zone as the next moment that matches, only in the documented forms ([ADR 0091](0091-a-run-out-usage-window-blocks-on-the-environment.md)): `3:45pm` (an hour 1 to 12, two digits of minutes, `am` or `pm`) is today at 15:45, or tomorrow once that has passed; `Mon 12:00am` (a weekday, `Mon` to `Sun`, before it) is the coming Monday at midnight, or the Monday after when that moment has passed.
+- The driver reads claude's reset text in the machine's time zone as the next moment that matches, only in the documented forms ([ADR 0091](0091-a-run-out-usage-window-blocks-on-the-environment.md)): `3:45pm` (an hour 1 to 12, two digits of minutes, `am` or `pm`) is today at 15:45, or tomorrow once that passed over an hour ago; `Mon 12:00am` (a weekday, `Mon` to `Sun`, before it) is the coming Monday at midnight, or the Monday after once that moment passed over an hour ago.
   Across a change of clocks the wall-clock time is kept, as `pause --by` reads a local time.
-- **A reset that matched within the last hour** is that reset, not tomorrow's or next week's: the driver may handle the end minutes after claude wrote it, and claude names the reset to the minute. The window then reopens after the margin, or at once when the margin has passed too, where a day or a week would hold every brewer for nothing.
+- **A reset that matched within the last hour** is that reset, not tomorrow's or next week's, also when that hour reaches back across midnight to yesterday's match or last week's weekday: the driver may handle the end minutes after claude wrote it, and claude names the reset to the minute. The window then reopens after the margin, or at once when the margin has passed too, where a day or a week would hold every brewer for nothing.
 - **A margin of 5 minutes** is added, so the first attempt after the reopen does not meet a window that claude's clock has not reopened yet.
 - The event records the reopen as a UTC instant beside claude's text, so a reader on another machine sees both.
 - **A reset the engine cannot read** (another form, or a machine whose zone ICU cannot use) reopens the window an hour after the limit, with `read: false`: the next brewer attempt then tries, and a refusal closes it for another hour.
@@ -58,7 +58,7 @@ Holding only that family's brewers, by the model each brewer runs, is #537.
 
 ### Where it shows
 - **The status comment** of a brewing batch says, while the window is closed: `Usage window closed: claude hit its <limit> limit, which resets <resets>; brewers wait until <hh:mm> UTC, <day month>`, or for an unread reset `…; brewers try again at <hh:mm> UTC, <day month>`. A revision is due when it opens or closes, as for any text ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)).
-- **`foedrum status`** prints the same line above the board.
+- **`foedrum status`** prints the same line above its batches; the `--watch` board ([ADR 0188](0188-foedrum-status-watch-redraws-a-board-of-the-live-batches.md)) does not.
 - **`foedrum replay`** lists the window's events beside the batch's own, as it lists a pause's; the attempt's `step.finished` shows it met the limit.
 
 ## Consequences
