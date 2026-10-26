@@ -812,6 +812,47 @@ describe('the merge brief (ADR 0225)', () => {
       assert.equal(recorded.comment, 2);
       assert.match(comments[1]?.body ?? '', /ci\/late/);
     });
+
+    it("takes this record's brief as posted when only its base moved after the kill", async () => {
+      nip();
+      finished([passed('ci/build')]);
+      const { host, comments } = fakeHost();
+      const [key] = effectsOf(host).due(log.state(), 'web-7');
+      assert.ok(key);
+      const posting = effectsOf(host);
+      posting.due(log.state(), 'web-7');
+      await posting.target.apply(effectKey.encode(key));
+      // Killed before its ledger entry; the base moved and merges cleanly: the same record.
+      baseChecked({});
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+      assert.equal(comments.length, 1);
+    });
+
+    it("finds this record's brief among two a kill left under its key", async () => {
+      nip();
+      finished([passed('ci/build')]);
+      const { host, comments } = fakeHost();
+      const apply = async (): Promise<void> => {
+        const effects = effectsOf(host);
+        const [key] = effects.due(log.state(), 'web-7');
+        assert.ok(key);
+        await effects.target.apply(effectKey.encode(key));
+      };
+      // Killed before its ledger entry, then the record changed and its brief was posted too,
+      // and that driver was killed before its ledger entry as well.
+      await apply();
+      pending();
+      finished([passed('ci/build'), passed('ci/late')]);
+      await apply();
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+      assert.equal(comments.length, 2);
+      const recorded = log
+        .state()
+        .effects.get(effectKey.encode({ batchId: 'web-7', effect: 'brief.1' })) as {
+        comment: number;
+      };
+      assert.equal(recorded.comment, 2);
+    });
   });
 
   describe('the status comment', () => {
