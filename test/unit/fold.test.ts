@@ -53,13 +53,53 @@ describe('fold', () => {
       reopensAt: at,
       read: true,
     } as const;
-    assert.equal(fold([closed, opened]).usageWindow, undefined);
-    assert.deepStrictEqual(fold([closed]).usageWindow, {
-      limit: 'session',
+    assert.deepStrictEqual(fold([closed, opened]).usageWindows, {});
+    assert.deepStrictEqual(fold([closed]).usageWindows, {
+      all: { limit: 'session', resets: '3:45pm', reopensAt: at, read: true },
+    });
+  });
+
+  // ADR 0215: a log #543 wrote has no scope on its events; the limit names it.
+  it('folds a log of one usage window by each limit into its scope, and its open opens every one', () => {
+    const at = '2026-10-26T14:50:00.000Z';
+    const closed = (limit: 'session' | 'weekly' | 'Opus' | 'Sonnet') =>
+      ({
+        type: 'usage.window_closed',
+        limit,
+        resets: '3:45pm',
+        reopensAt: at,
+        read: true,
+      }) as const;
+    const window = (limit: string) => ({ limit, resets: '3:45pm', reopensAt: at, read: true });
+    assert.deepStrictEqual(
+      fold([closed('Opus'), closed('weekly'), closed('Sonnet')]).usageWindows,
+      {
+        Opus: window('Opus'),
+        all: window('weekly'),
+        Sonnet: window('Sonnet'),
+      },
+    );
+    const opened = { type: 'usage.window_opened', at } as const;
+    assert.deepStrictEqual(fold([closed('Opus'), closed('session'), opened]).usageWindows, {});
+  });
+
+  it("opens only the window of an open's scope, and refuses a scope that is not closed (ADR 0215)", () => {
+    const at = '2026-10-26T14:50:00.000Z';
+    const closed = {
+      type: 'usage.window_closed',
+      limit: 'Opus',
       resets: '3:45pm',
       reopensAt: at,
       read: true,
+    } as const;
+    const session = { ...closed, limit: 'session' } as const;
+    const opened = (scope: 'all' | 'Opus' | 'Sonnet') =>
+      ({ type: 'usage.window_opened', at, scope }) as const;
+    assert.deepStrictEqual(fold([closed, session, opened('Opus')]).usageWindows, {
+      all: { limit: 'session', resets: '3:45pm', reopensAt: at, read: true },
     });
+    assert.throws(() => fold([closed, opened('Sonnet')]), /the Sonnet usage window is not closed/);
+    assert.throws(() => fold([closed, opened('all')]), /the usage window is not closed/);
   });
 
   it('starts from the empty state', () => {
@@ -72,7 +112,7 @@ describe('fold', () => {
       effects: new Map(),
       pauses: { orders: new Map() },
       ranks: new Map(),
-      usageWindow: undefined,
+      usageWindows: {},
     };
     assert.deepStrictEqual(fold([]), empty);
     assert.deepStrictEqual(emptyState, empty);

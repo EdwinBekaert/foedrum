@@ -17,6 +17,7 @@ import type {
   Surface,
   Usage,
   UsageLimitName,
+  UsageScope,
   WaitCondition,
   WorktreeRef,
 } from '../schemas/events.ts';
@@ -247,6 +248,9 @@ export interface UsageWindow {
   read: boolean;
 }
 
+/** The usage windows closed now, by the scope whose brewers each holds (ADR 0215). */
+export type UsageWindows = Readonly<Partial<Record<UsageScope, UsageWindow>>>;
+
 /** A person's pause of an order or of the whole Brewery (ADR 0202). */
 export interface Pause {
   by: string;
@@ -288,6 +292,8 @@ export interface State {
   ranks: ReadonlyMap<string, Rank>;
   /** The usage window while it is closed: no brewer attempt starts (ADR 0206). */
   usageWindow: UsageWindow | undefined;
+  /** The usage windows closed now, by scope: no brewer attempt they hold starts (ADR 0215). */
+  usageWindows: UsageWindows;
 }
 
 export const emptyState: State = {
@@ -300,6 +306,7 @@ export const emptyState: State = {
   pauses: { orders: new Map() },
   ranks: new Map(),
   usageWindow: undefined,
+  usageWindows: {},
 };
 
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */

@@ -1,6 +1,7 @@
 // The usage window (ADR 0206): when claude hits a usage limit, no brewer attempt starts until the
 // reset it named, read in the machine's time zone.
 
+import type { UsageScope } from '../schemas/events.ts';
 import type { UsageWindow } from './fold.ts';
 import { fromWallClock, wallClock } from './wall-clock.ts';
 
@@ -13,6 +14,17 @@ export const unreadRetryMs = 60 * 60_000;
  * be handled minutes after claude wrote it, and claude names the reset to the minute.
  */
 export const passedWithinMs = 60 * 60_000;
+
+/** A model family whose own usage limit claude names: an Opus or a Sonnet window (ADR 0215). */
+export type ModelFamily = Exclude<UsageScope, 'all'>;
+
+/**
+ * The family of a model id or family as `claude --model` takes it, by its words (`opus` or
+ * `sonnet`); undefined when it cannot be told, and every limit holds it (ADR 0215).
+ */
+export const familyOf = (_model: string): ModelFamily | undefined => {
+  throw new Error('not implemented');
+};
 
 /** When a closed usage window reopens, and whether claude's reset could be read. */
 export interface Reopen {
