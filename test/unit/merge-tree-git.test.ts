@@ -194,6 +194,25 @@ describe('openMergedTree', () => {
     assert.equal(existsSync(join(root, 'one.git')), false);
   });
 
+  it('fails without a read when the worktree cannot be added, and removes both', async () => {
+    const root = nextFolder();
+    const recorded = treeGit();
+    const git: Git = async (cwd, args, options) =>
+      args.includes('worktree')
+        ? exited(128, '', 'fatal: could not create work tree dir\n')
+        : recorded.git(cwd, args, options);
+    let used = false;
+    await assert.rejects(
+      openMergedTree({ git, clone, own: { url, root, id: () => 'one' } })(HEAD, TIP, async () => {
+        used = true;
+      }),
+      { message: 'git worktree add failed: fatal: could not create work tree dir' },
+    );
+    assert.equal(used, false);
+    assert.equal(existsSync(join(root, 'one.tree')), false);
+    assert.equal(existsSync(join(root, 'one.git')), false);
+  });
+
   it('fails without a read when the merge conflicts now, or git fails', async () => {
     const conflicted = treeGit(exited(1, `${TREE}\0src/a.ts\0`));
     let used = false;

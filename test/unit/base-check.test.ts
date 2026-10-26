@@ -608,6 +608,33 @@ describe('checkBases', () => {
       ]);
     });
 
+    it('says how each kind of reading failed on the merged tree, a literal command by its line', () => {
+      const ran = { check: 'test', command: 'npm test', tail: '' } as const;
+      const cases: [GravityReading, string][] = [
+        [{ result: 'signaled', ...ran, signal: 'SIGSEGV' }, 'was ended by SIGSEGV'],
+        [{ result: 'unstarted', ...ran }, 'could not start'],
+        [{ result: 'killed', ...ran, killed: 'timed-out' }, 'did not finish by its deadline'],
+        [
+          { result: 'killed', ...ran, killed: 'too-much-output' },
+          "wrote more output than the process runner's limit",
+        ],
+        [{ result: 'killed', ...ran, killed: 'stopped' }, 'was stopped'],
+      ];
+      onTap();
+      for (const [n, [reading, how]] of cases.entries()) {
+        checked(String(n).repeat(40).slice(0, 40), { failed: reading });
+        assert.match(
+          baseCheckLines(batch())[0] ?? '',
+          new RegExp(`: the check "test" \\(npm test\\) ${how.replace(/[.()]/g, '\\$&')}$`),
+        );
+      }
+      checked(tip1, { failed: { result: 'exited', command: 'make e2e', exitCode: 2, tail: '' } });
+      assert.match(
+        baseCheckLines(batch())[0] ?? '',
+        /: the check "make e2e" failed with exit code 2$/,
+      );
+    });
+
     it('keeps the failure and the reason on the fold of the check', () => {
       onTap();
       checked(tip1, { failed: failing });

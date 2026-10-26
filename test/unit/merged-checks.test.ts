@@ -365,6 +365,18 @@ describe('createMergedChecks', () => {
     assert.equal(calls.length, 1);
   });
 
+  it('starts no run for a batch that is not on tap, nor for a pull request its lane does not hold', () => {
+    accept({ kind: 'order', batchId: 'web-9', order: { issue: 9, repo: 'acme/web' } });
+    onTap('web-7', 'nip', web);
+    const { calls, run } = fakeRun();
+    const merged = checks(run);
+    merged.due(due('web-9', web, tip1));
+    merged.poll(live);
+    merged.due(due('web-7', api, tip1));
+    merged.poll(live);
+    assert.deepStrictEqual(calls, []);
+  });
+
   it('settles at once when no run is underway', async () => {
     const merged = checks(fakeRun().run);
     await merged.settled();
@@ -433,6 +445,16 @@ describe('mergedCheckStep', () => {
     assert.deepStrictEqual(
       mergedCheckStep(recipes, stepChecks({ green: ['typecheck', 'test'] }), batchOf('nip')),
       { stepId: 'green', refs: ['typecheck', 'test'], deadlineMs: MOST_RUN_MS },
+    );
+  });
+
+  it("keeps the step's own deadline under MOST_RUN_MS", () => {
+    const short = fakeRecipes({
+      nip: { ...fakeRecipe({ steps: ['green'], merges: ['green'] }), deadlineMs: () => 1_800_000 },
+    });
+    assert.deepStrictEqual(
+      mergedCheckStep(short, stepChecks({ green: ['test'] }), batchOf('nip'))?.deadlineMs,
+      1_800_000,
     );
   });
 
