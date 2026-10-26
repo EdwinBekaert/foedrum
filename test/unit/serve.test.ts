@@ -180,6 +180,7 @@ describe('runServe', () => {
         pushes.push(`${repository.repo} ${commit} ${branch}`);
       },
       secretScan: async () => [],
+      touchedFiles: async () => [],
     }),
     runner: (claude, plan) => {
       calls.push(`runner ${claude}`);
@@ -331,6 +332,7 @@ describe('runServe', () => {
             pushes.push(`${repository.repo} ${commit} ${branch}`);
           },
           secretScan: async () => [],
+          touchedFiles: async () => [],
         }),
         mergeTree: () => async (head, tip) => {
           merged.push(`${head} ${tip}`);

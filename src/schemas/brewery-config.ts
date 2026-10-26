@@ -122,6 +122,12 @@ const RepositoryConfig = z
     base: BranchName.optional().describe(
       'The branch attempts start from, at origin/<base> after a fetch; default main (ADR 0063)',
     ),
+    sensitivePaths: z
+      .array(z.string())
+      .refine(() => {
+        throw new Error('not implemented');
+      })
+      .optional(),
   })
   .refine((repository) => repository.intake === undefined || repository.alias !== undefined, {
     message: 'An intake needs an alias, for the batch ids of the issues it claims',

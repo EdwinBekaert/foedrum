@@ -287,5 +287,8 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         ...scanPatches(patches, isCommit),
       ];
     },
+    touchedFiles: async () => {
+      throw new Error('not implemented');
+    },
   };
 };

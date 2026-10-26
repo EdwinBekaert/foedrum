@@ -71,6 +71,11 @@ export interface BranchPush {
    * secret, or that the scan cannot read: nothing when they may go (ADR 0079).
    */
   secretScan(base: string, commit: string, signal?: AbortSignal): Promise<ScanFinding[]>;
+  /**
+   * Every path the diff from `since` to `commit` (both full shas) names: added, altered, deleted,
+   * and a rename at both paths (ADR 0201).
+   */
+  touchedFiles(since: string, commit: string, signal?: AbortSignal): Promise<string[]>;
 }
 
 /** A repository a batch writes in: its base branch, and the pushes of its clone. */
@@ -79,6 +84,8 @@ export interface PullRequestRepository {
   /** The branch the pull request goes into, as the remote names it (`main`). */
   base: string;
   push: BranchPush;
+  /** The path globs whose files the pull request names when its change touches them (ADR 0201). */
+  sensitivePaths?: readonly string[];
 }
 
 export interface PullRequestActionsOptions {

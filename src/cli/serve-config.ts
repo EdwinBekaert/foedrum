@@ -75,6 +75,8 @@ export interface ServeRepository {
   setup?: RepositorySetup;
   /** Where its own house-yeast rules are kept (ADR 0018); default in the repository. */
   houseYeast?: 'repo' | 'brewery';
+  /** The path globs a batch's pull request names when its change touches them (ADR 0201). */
+  sensitivePaths?: readonly string[];
 }
 
 /** What the intake in serve's loop orders, and how often it polls (ADR 0068). */

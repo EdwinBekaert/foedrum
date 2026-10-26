@@ -469,6 +469,7 @@ export const renderStatus = (
   batch: Batch,
   steps?: readonly string[],
   isCommit: IsCommit = () => false,
+  _sensitive?: { count: number; files: readonly string[] },
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {

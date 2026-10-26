@@ -1351,3 +1351,101 @@ describe('statusEffects', () => {
     assert.doesNotMatch(body, /ghp|A1b2/);
   });
 });
+
+describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () => {
+  const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
+  const sensitiveLine = (text: string): string | undefined =>
+    text.split('\n').find((line) => line.startsWith('Touches sensitive paths'));
+
+  it('names them in one line after the pull requests', () => {
+    const text = renderStatus(onTap, steps, undefined, {
+      count: 2,
+      files: ['src/auth/login.ts', '.github/workflows/ci.yml'],
+    });
+    assert.equal(
+      sensitiveLine(text),
+      'Touches sensitive paths: src/auth/login.ts, .github/workflows/ci.yml',
+    );
+    assert.ok(text.indexOf(pr) < text.indexOf('Touches sensitive paths'), text);
+  });
+
+  it('shows nothing when none was recorded', () => {
+    assert.equal(sensitiveLine(renderStatus(onTap, steps)), undefined);
+    assert.doesNotMatch(renderStatus(onTap, steps), /sensitive/i);
+  });
+
+  it('names the first ten and counts the rest, the ones the ledger left out too', () => {
+    const files = Array.from({ length: 50 }, (_, n) => `src/auth/f${n}.ts`);
+    const line = sensitiveLine(renderStatus(onTap, steps, undefined, { count: 60, files }));
+    assert.equal(line, `Touches sensitive paths: ${files.slice(0, 10).join(', ')} and 50 more`);
+  });
+
+  it('escapes each file name to one plain line, cut as other texts', () => {
+    const long = `src/auth/${'a'.repeat(300)}.ts`;
+    const line =
+      sensitiveLine(
+        renderStatus(onTap, steps, undefined, {
+          count: 2,
+          files: ['src/auth/<b>@alice_*x*.ts', long],
+        }),
+      ) ?? assert.fail('no line');
+    assert.match(line, /src\/auth\/&lt;b&gt;&#64;alice_\\*x\\*\.ts, /);
+    assert.doesNotMatch(line, /a{300}/);
+    assert.match(line, /a…$/);
+  });
+});
+
+describe('statusEffects: the sensitive paths the push recorded (ADR 0201)', () => {
+  const recipes = fakeRecipes({ nip: fakeRecipe({ steps: ['plan'] }) });
+  let store: EventStore;
+  let comments: ReturnType<typeof fakeComments>;
+
+  beforeEach(() => {
+    store = openSqliteEventStore(':memory:');
+    comments = fakeComments('alice');
+  });
+  afterEach(() => store.close());
+
+  const commented = async (pushed: unknown): Promise<string> => {
+    const now = new Date(at);
+    const log = createCommandLog({ store, recipes });
+    const decision = log.issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } }, now);
+    assert.equal(decision.kind, 'accepted');
+    store.withTransaction((tx) => tx.recordEffect({ batchId: '7-1', effect: 'push' }, pushed));
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => now,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: statusEffects({ brewery, comments: comments.host, recipes, clock: () => now }),
+      report: () => undefined,
+    });
+    try {
+      await driver.tick();
+    } finally {
+      driver.close();
+    }
+    return comments.comments[0]?.body ?? assert.fail('no status comment');
+  };
+  const pushed = {
+    branch: 'foedrum/acme.brewery/7-1/acme.web',
+    commit: 'c'.repeat(40),
+    from: 'refs/heads/foedrum/7-1/brew/1',
+  };
+
+  it('shows the files the push of the batch recorded', async () => {
+    const body = await commented({
+      ...pushed,
+      sensitive: { count: 1, files: ['.github/workflows/ci.yml'] },
+    });
+    assert.match(body, /^Touches sensitive paths: \.github\/workflows\/ci\.yml$/m);
+  });
+
+  it('shows nothing for a push that recorded none', async () => {
+    assert.doesNotMatch(await commented(pushed), /sensitive/i);
+  });
+});

@@ -38,10 +38,12 @@ const fakePush = (
   behind: string[] = [],
   found: ScanFinding[] = [],
   fetched = main,
+  touched: string[] = [],
 ) => {
   const asked: string[] = [];
   const pushes: string[] = [];
   const scans: string[] = [];
+  const diffs: string[] = [];
   const target: BranchPush = {
     commit: async (revision) => {
       asked.push(revision);
@@ -62,8 +64,12 @@ const fakePush = (
       scans.push(`${from}..${to}`);
       return found;
     },
+    touchedFiles: async (since, to) => {
+      diffs.push(`${since}..${to}`);
+      return touched;
+    },
   };
-  return { target, asked, pushes, remote, scans };
+  return { target, asked, pushes, remote, scans, diffs };
 };
 
 /** A code host with the pull requests the Brewery opened, by head branch. */
@@ -139,6 +145,8 @@ const actionsWith = (
     answer?: string;
     found?: ScanFinding[];
     fetched?: string;
+    touched?: string[];
+    sensitivePaths?: string[];
   } = {},
 ) => {
   const pushed = fakePush(
@@ -147,12 +155,20 @@ const actionsWith = (
     options.behind,
     options.found,
     options.fetched,
+    options.touched,
   );
   const code = fakeHost(options.opened, options.answer);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
     brewery: 'acme/brewery',
-    repositories: [{ repo: 'acme/api', base: 'main', push: pushed.target }],
+    repositories: [
+      {
+        repo: 'acme/api',
+        base: 'main',
+        push: pushed.target,
+        ...(options.sensitivePaths === undefined ? {} : { sensitivePaths: options.sensitivePaths }),
+      },
+    ],
     host: code.host,
     orderTitle: async (order) => {
       titles.push(order);
@@ -638,5 +654,92 @@ describe('pullRequestActions: the secret scan before the push (ADR 0079)', () =>
       withoutSecrets(stopped, 'open-pull-request', knownCommits(state, '12-1')),
       stopped,
     );
+  });
+});
+
+describe('pullRequestActions: the sensitive paths the change touches (ADR 0201)', () => {
+  const sensitivePaths = ['.github/workflows/**', 'src/auth/**'];
+  const touched = ['src/auth/login.ts', 'README.md', '.github/workflows/ci.yml'];
+  const sensitive = { count: 2, files: ['src/auth/login.ts', '.github/workflows/ci.yml'] };
+
+  it('records the files that match, as git named them, from where the change starts to the commit pushed', async () => {
+    const { actions, diffs, pushes } = actionsWith({ sensitivePaths, touched });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from, sensitive });
+    // The batch started at its first attempt's commit.
+    assert.deepEqual(diffs, [`${other}..${tip}`]);
+    assert.deepEqual(pushes, [`${tip} ${branch}`]);
+  });
+
+  it('records them on a push it finds too', async () => {
+    const { actions } = actionsWith({ sensitivePaths, touched, remote: { [branch]: tip } });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.find(push), {
+      result: { branch, commit: tip, from, sensitive },
+    });
+  });
+
+  it('records nothing when the change touches none of them', async () => {
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched: ['README.md'] });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.equal(diffs.length, 1);
+  });
+
+  it('reads no diff when the repository names no sensitive paths', async () => {
+    for (const paths of [undefined, []]) {
+      const { actions, diffs } = actionsWith({
+        touched,
+        ...(paths === undefined ? {} : { sensitivePaths: paths }),
+      });
+      keysOf(brewing(), actions);
+      assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+      assert.deepEqual(diffs, []);
+    }
+  });
+
+  it('reads no diff for a push the scan refused, nor for nothing to push', async () => {
+    const found: ScanFinding[] = [{ commit: tip, place: 'message', kind: 'GitHub token' }];
+    const refused = actionsWith({ sensitivePaths, touched, found });
+    keysOf(brewing(), refused.actions);
+    assert.deepEqual(await refused.actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      refused: found,
+    });
+    assert.deepEqual(refused.diffs, []);
+    const empty = actionsWith({ sensitivePaths, touched, behind: [tip] });
+    keysOf(brewing(), empty.actions);
+    assert.deepEqual(await empty.actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      empty: true,
+    });
+    assert.deepEqual(empty.diffs, []);
+  });
+
+  it('keeps the first 50 files and counts them all', async () => {
+    const many = Array.from({ length: 60 }, (_, n) => `src/auth/f${n}.ts`);
+    const { actions } = actionsWith({ sensitivePaths, touched: many });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: { count: 60, files: many.slice(0, 50) },
+    });
+  });
+
+  it('reads no diff for a batch with no recorded start', async () => {
+    const { actions, diffs } = actionsWith({ sensitivePaths, touched });
+    const state = brewing();
+    const batch = state.batches.get('12-1');
+    assert.ok(batch);
+    const unstarted: State = { ...state, batches: new Map([['12-1', { ...batch, starts: {} }]]) };
+    keysOf(unstarted, actions);
+    assert.deepEqual(await actions.target.apply(push), { branch, commit: tip, from });
+    assert.deepEqual(diffs, []);
   });
 });
