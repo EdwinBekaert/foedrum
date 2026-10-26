@@ -316,6 +316,8 @@ export const openSqliteEventStore = (
       case 'batch.taken_over':
       case 'pull_request.ended':
       case 'pull_request.base_checked':
+      case 'pull_request.checks_pending':
+      case 'pull_request.checks_finished':
         return;
       case 'step.rescheduled':
         // A paused attempt's new deadline as its pause is lifted (ADR 0202).

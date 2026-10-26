@@ -25,8 +25,8 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
   };
 };
 
-// `owner/name` and the number of the pull request at `url`, a web URL such as a batch records.
-const pullRequestOf = (url: string): { repo: string; number: number } => {
+/** `owner/name` and the number of the pull request at `url`, a web URL such as a batch records. */
+export const pullRequestOf = (url: string): { repo: string; number: number } => {
   const match = /^\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/.exec(URL.parse(url)?.pathname ?? '');
   const [, repo = '', number] = match ?? [];
   if (!Repo.safeParse(repo).success) throw new Error(`${url} is not a pull request`);

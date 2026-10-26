@@ -7,6 +7,7 @@ import type {
   Dependency,
   Event,
   GravityReading,
+  HeadCheck,
   OrderRef,
   RankPlace,
   Receipt,
@@ -178,7 +179,32 @@ export interface Batch {
    * (ADR 0198); absent while none was.
    */
   baseChecks?: readonly BaseCheck[];
+  /**
+   * The latest record of the checks on each open pull request's head, by URL (ADR 0213); absent
+   * while none was. A record names its head: it says nothing of another.
+   */
+  pullRequestChecks?: Readonly<Record<string, HeadChecks>>;
 }
+
+/** Whether two finished records of a head's checks say the same, in whatever order (ADR 0213). */
+export const sameHeadChecks = (
+  a: { checks: readonly HeadCheck[]; more?: number | undefined },
+  b: { checks: readonly HeadCheck[]; more?: number | undefined },
+): boolean => {
+  const text = ({ checks, more }: typeof a): string =>
+    JSON.stringify([
+      checks
+        .map(({ name, kind, conclusion, url }) => JSON.stringify([name, kind, conclusion, url]))
+        .sort(),
+      more ?? 0,
+    ]);
+  return text(a) === text(b);
+};
+
+/** The checks on a pull request's head (ADR 0213): still running since a pass saw it, or finished. */
+export type HeadChecks =
+  | { kind: 'pending'; head: string; since: string }
+  | { kind: 'finished'; head: string; checks: readonly HeadCheck[]; more?: number };
 
 /** One merge-tree check of an open pull request against its base's tip (ADR 0198). */
 export interface BaseCheck {
@@ -629,6 +655,31 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, batchId, (batch) => ({
         ...batch,
         baseChecks: [...(batch.baseChecks ?? []), check],
+      }));
+    }
+    case 'pull_request.checks_pending': {
+      const { batchId, pullRequest, head, since } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pullRequestChecks: {
+          ...batch.pullRequestChecks,
+          [pullRequest]: { kind: 'pending', head, since },
+        },
+      }));
+    }
+    case 'pull_request.checks_finished': {
+      const { batchId, pullRequest, head, checks, more } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pullRequestChecks: {
+          ...batch.pullRequestChecks,
+          [pullRequest]: {
+            kind: 'finished',
+            head,
+            checks,
+            ...(more === undefined ? {} : { more }),
+          },
+        },
       }));
     }
     case 'order.paused': {

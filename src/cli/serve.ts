@@ -19,6 +19,7 @@ import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engin
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
+import { githubCheckReader } from '../github/checks.ts';
 import { GitHubRateLimited } from '../github/client.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
@@ -284,6 +285,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       },
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
       bases,
+      checks: githubCheckReader(reads),
     });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).
     let nextPoll = Number.NEGATIVE_INFINITY;

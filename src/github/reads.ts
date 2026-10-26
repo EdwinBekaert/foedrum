@@ -2,7 +2,7 @@
 // before, and a 304 answers that same body again without counting against the rate limit. A list
 // is read page by page along GitHub's `Link` header, each page conditional on its own.
 
-import { GitHubPage } from '../schemas/github.ts';
+import { GitHubPage, GitHubWrappedPage } from '../schemas/github.ts';
 import { checked, refused } from './answers.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 
@@ -29,8 +29,11 @@ const MiB = 1024 * 1024;
 export interface GitHubReads {
   /** A GET of `path`, conditional on the answer before; a 304 answers that one as 200. */
   get(path: string, signal?: AbortSignal): Promise<GitHubAnswer>;
-  /** Every item of the list at `path`, page after page; `what` names it in an error. */
-  pages(path: string, what: string, signal?: AbortSignal): Promise<unknown[]>;
+  /**
+   * Every item of the list at `path`, page after page; `what` names it in an error. With `field`,
+   * each page is an object that holds its items under that name, as GitHub's check runs.
+   */
+  pages(path: string, what: string, signal?: AbortSignal, field?: string): Promise<unknown[]>;
 }
 
 /** The URL of the `next` relation in a `Link` header, or undefined when there is none. */
@@ -93,7 +96,7 @@ export const createGitHubReads = (
 
   return {
     get,
-    pages: async (path, what, signal) => {
+    pages: async (path, what, signal, field) => {
       const items: unknown[] = [];
       let bytes = 0;
       for (let next: string | undefined = path, page = 1; next !== undefined; page++) {
@@ -102,7 +105,9 @@ export const createGitHubReads = (
         if (answer.status !== 200) throw refused(answer.status, answer.body, what);
         bytes += answer.bytes;
         if (bytes > maxListBytes) throw new Error(`${what} is longer than ${maxListBytes} bytes`);
-        items.push(...checked(GitHubPage, answer.body, what));
+        const list =
+          field === undefined ? answer.body : checked(GitHubWrappedPage, answer.body, what)[field];
+        items.push(...checked(GitHubPage, list, what));
         const url = nextPage(answer.headers.get('link'));
         // gh's login goes with every request: never to a page off the API.
         if (url !== undefined && !url.startsWith(`${client.baseUrl}/`)) {

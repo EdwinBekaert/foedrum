@@ -74,7 +74,7 @@ const lastTip = (state: State, batch: Batch, url: string): string | undefined =>
  * The open pull request of `batch` that its ledger opened, with the commit and the bottle branch
  * its push recorded; `undefined` also once someone else pushed to that branch (ADR 0198).
  */
-const openOf = (
+export const openOf = (
   state: State,
   batch: Batch,
 ): { url: string; head: string; branch: string } | undefined => {
