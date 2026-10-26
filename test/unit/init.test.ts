@@ -48,16 +48,41 @@ interface Run {
   lines: string[];
   written: string[];
   read: string[];
+  /** What init did on GitHub, with git and doctor, and each file it wrote, in order. */
+  events: string[];
+  /** Each git call: the folder from the working directory, and its arguments. */
+  git: { folder: string; args: readonly string[] }[];
+}
+
+interface Options {
+  doctor?: { ok: boolean; report: string };
+  /** The repositories GitHub has; default none. */
+  repositories?: readonly string[];
+  /** The target repositories without the intake label; default none. */
+  unlabelled?: readonly string[];
+  /** Creating a label fails with this. */
+  labelFails?: string;
+  /** What `git status` prints; default nothing to commit. */
+  status?: string;
+  /** git calls that fail, by their command, with what git says. */
+  gitFails?: Readonly<Record<string, string>>;
 }
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
 const init = async (
   answers: readonly string[],
   clone: Clone = { files: new Map() },
-  options: { doctor?: { ok: boolean; report: string } } = {},
+  options: Options = {},
 ): Promise<Run> => {
   const queue = [...answers];
-  const run: Omit<Run, 'result'> = { questions: [], lines: [], written: [], read: [] };
+  const run: Omit<Run, 'result'> = {
+    questions: [],
+    lines: [],
+    written: [],
+    read: [],
+    events: [],
+    git: [],
+  };
   const ports: InitPorts = {
     ask: async (question) => {
       run.questions.push(question);
@@ -67,10 +92,14 @@ const init = async (
       run.lines.push(line);
     },
     files: {
-      exists: (path) => (path === '.git' ? clone.git !== false : clone.files.has(path)),
+      exists: (path) =>
+        path === '.git'
+          ? clone.git !== false
+          : [...clone.files.keys()].some((file) => file === path || file.startsWith(`${path}/`)),
       read: (path) => clone.files.get(path),
       write: (path, text) => {
         run.written.push(path);
+        run.events.push(`write ${path}`);
         clone.files.set(path, text);
       },
     },
@@ -81,7 +110,34 @@ const init = async (
       if (facts === undefined) throw new Error(`GitHub answered 404 to the repository ${repo}`);
       return facts;
     },
-    doctor: async () => options.doctor ?? { ok: true, report: 'Doctor: ready\n' },
+    github: {
+      exists: async (repo) => {
+        run.events.push(`exists ${repo}`);
+        return (options.repositories ?? []).includes(repo);
+      },
+      create: async (repo, login, isPrivate) => {
+        run.events.push(`create ${repo} ${login} ${isPrivate ? 'private' : 'public'}`);
+      },
+      hasLabel: async (repo, label) => {
+        run.events.push(`has ${repo} ${label}`);
+        return !(options.unlabelled ?? []).includes(repo);
+      },
+      createLabel: async (repo, label, description) => {
+        run.events.push(`label ${repo} ${label} ${description}`);
+        if (options.labelFails !== undefined) throw new Error(options.labelFails);
+      },
+    },
+    git: async (folder, args) => {
+      run.git.push({ folder, args });
+      run.events.push(`git ${args[0]}`);
+      const fails = options.gitFails?.[args[0] ?? ''];
+      if (fails !== undefined) return { code: 1, stdout: '', stderr: `${fails}\n` };
+      return { code: 0, stdout: args[0] === 'status' ? (options.status ?? '') : '', stderr: '' };
+    },
+    doctor: async (folder) => {
+      run.events.push(`doctor ${folder}`);
+      return options.doctor ?? { ok: true, report: 'Doctor: ready\n' };
+    },
   };
   const result = await runInit(ports);
   return { result, ...run };
@@ -470,19 +526,224 @@ describe('foedrum init (ADR 0199)', () => {
     assert.equal(clone.files.get('.claude/settings.json'), '{ not json');
   });
 
-  it('refuses a folder that is not a clone, before any question', async () => {
-    const { result, questions, written } = await init([], { files: new Map(), git: false });
-    assert.equal(result.exitCode, 1);
-    assert.match(result.stderr, /^foedrum init: .*clone/);
-    assert.deepStrictEqual(questions, []);
-    assert.deepStrictEqual(written, []);
-  });
-
   it('stops with one line, writing nothing, when standard input ends before the answers', async () => {
     const clone: Clone = { files: new Map() };
     const { result, written } = await init([''], clone);
     assert.equal(result.exitCode, 1);
     assert.match(result.stderr, /^foedrum init: no answer to /);
     assert.deepStrictEqual(written, []);
+  });
+});
+
+const LABEL_DESCRIPTION = 'Foedrum brews an issue with this label into a pull request';
+const FILES = ['foedrum.jsonc', 'models.jsonc', '.gitignore', '.claude/settings.json'];
+/** What `git status --porcelain -z` prints for the four files, new. */
+const ALL_NEW = `${FILES.map((file) => `?? ${file}`).join('\0')}\0`;
+const outside = (): Clone => ({ files: new Map(), git: false });
+
+describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () => {
+  it('creates a private repository with the default name after the questions, clones it and writes the files there', async () => {
+    const clone = outside();
+    const { result, questions, events, git, lines } = await init(['', '', ''], clone);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepStrictEqual(questions, [
+      'Brewery repository (owner/name) [octocat/foedrum-brewery]: ',
+      'Private or public [private]: ',
+      'Target repositories (owner/name, separated by spaces): ',
+    ]);
+    assert.deepStrictEqual(events.slice(0, 3), [
+      'exists octocat/foedrum-brewery',
+      'create octocat/foedrum-brewery octocat private',
+      'git clone',
+    ]);
+    assert.deepStrictEqual(git[0], {
+      folder: '',
+      args: ['clone', '--', 'https://github.com/octocat/foedrum-brewery.git', 'foedrum-brewery'],
+    });
+    // The files go into the clone, and doctor runs there.
+    for (const file of FILES) assert.ok(clone.files.has(`foedrum-brewery/${file}`), file);
+    assert.ok(events.includes('doctor foedrum-brewery'), events.join('\n'));
+    assert.ok(lines.includes('The Brewery is in the folder foedrum-brewery'), lines.join('\n'));
+    const config = parsed(clone, 'foedrum-brewery/foedrum.jsonc', BreweryConfig);
+    assert.equal(config.brewery, 'octocat/foedrum-brewery');
+  });
+
+  it('creates a public repository when asked, after asking again for an answer that is neither', async () => {
+    const { events, lines } = await init(['', 'secret', 'public', ''], outside());
+    assert.ok(lines.includes('  Answer private or public'), lines.join('\n'));
+    assert.ok(events.includes('create octocat/foedrum-brewery octocat public'), events.join('\n'));
+  });
+
+  it('creates the repository of an organization, and clones it into a folder of its name', async () => {
+    const clone = outside();
+    const { events, git } = await init(['acme/brewery', '', ''], clone);
+    assert.ok(events.includes('create acme/brewery octocat private'), events.join('\n'));
+    assert.deepStrictEqual(git[0]?.args, [
+      'clone',
+      '--',
+      'https://github.com/acme/brewery.git',
+      'brewery',
+    ]);
+    assert.ok(clone.files.has('brewery/foedrum.jsonc'));
+  });
+
+  it('refuses a name GitHub has with one line, creating and asking nothing more', async () => {
+    const { result, questions, events, written } = await init(['', '', ''], outside(), {
+      repositories: ['octocat/foedrum-brewery'],
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(
+      result.stderr,
+      /^foedrum init: octocat\/foedrum-brewery is on GitHub already; .*clone/,
+    );
+    assert.equal(result.stderr.split('\n').filter(Boolean).length, 1);
+    assert.equal(questions.length, 1);
+    assert.deepStrictEqual(events, ['exists octocat/foedrum-brewery']);
+    assert.deepStrictEqual(written, []);
+  });
+
+  it("refuses a folder of the repository's name that is there, before creating anything", async () => {
+    const clone: Clone = { files: new Map([['foedrum-brewery/notes.txt', 'x']]), git: false };
+    const { result, events } = await init(['', '', ''], clone);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: the folder foedrum-brewery is there already/);
+    assert.ok(!events.some((event) => event.startsWith('create')), events.join('\n'));
+  });
+
+  it('creates nothing when standard input ends before the last question', async () => {
+    const { result, events } = await init(['', ''], outside());
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /^foedrum init: no answer to "Target repositories/);
+    assert.ok(!events.some((event) => /^(create|git)/.test(event)), events.join('\n'));
+  });
+
+  it("stops with git's line when the clone fails, writing nothing", async () => {
+    const { result, written } = await init(['', '', ''], outside(), {
+      gitFails: { clone: 'fatal: repository not found' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /git clone failed: fatal: repository not found/);
+    assert.deepStrictEqual(written, []);
+  });
+
+  it('creates and clones nothing inside a clone, also for a name GitHub has, and asks nothing to push when nothing changed', async () => {
+    const { result, questions, events, lines } = await init(['', ''], undefined, {
+      repositories: ['octocat/foedrum-brewery'],
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(!questions.some((question) => question.startsWith('Private')), questions.join('\n'));
+    assert.ok(!events.some((event) => /^(exists|create|git clone)/.test(event)), events.join('\n'));
+    assert.ok(events.includes('doctor '), events.join('\n'));
+    assert.ok(lines.includes('Nothing to commit'), lines.join('\n'));
+    assert.ok(!questions.some((question) => question.startsWith('Commit')), questions.join('\n'));
+  });
+
+  it('creates the intake label after a yes, with its description', async () => {
+    const { questions, events } = await init(['', 'acme/web', '', '', ''], undefined, {
+      unlabelled: ['acme/web'],
+    });
+    assert.ok(
+      questions.includes('Create the label foedrum:brew in acme/web? [Y/n]: '),
+      questions.join('\n'),
+    );
+    assert.ok(
+      events.includes(`label acme/web foedrum:brew ${LABEL_DESCRIPTION}`),
+      events.join('\n'),
+    );
+  });
+
+  it('prints the gh command after a no, creating no label', async () => {
+    const { lines, events } = await init(['', 'acme/web', '', '', 'n'], undefined, {
+      unlabelled: ['acme/web'],
+    });
+    assert.ok(!events.some((event) => event.startsWith('label')), events.join('\n'));
+    assert.ok(
+      lines.includes(
+        `gh label create foedrum:brew --repo acme/web --description "${LABEL_DESCRIPTION}" --color ededed`,
+      ),
+      lines.join('\n'),
+    );
+  });
+
+  it('leaves a label that is there alone, without asking', async () => {
+    const { questions, events, lines } = await init(['', 'acme/web', '', '']);
+    assert.ok(events.includes('has acme/web foedrum:brew'), events.join('\n'));
+    assert.ok(!events.some((event) => event.startsWith('label')), events.join('\n'));
+    assert.ok(!questions.some((question) => question.startsWith('Create')), questions.join('\n'));
+    assert.ok(lines.includes('acme/web has the label foedrum:brew'), lines.join('\n'));
+  });
+
+  it('names a label it cannot create, with the gh command, and goes on', async () => {
+    const { result, lines } = await init(['', 'acme/web', '', '', ''], undefined, {
+      unlabelled: ['acme/web'],
+      labelFails: 'GitHub answered 403 to the label: Must have admin rights',
+    });
+    assert.equal(result.exitCode, 0, result.stderr);
+    const at = lines.findIndex((line) => line.includes('Must have admin rights'));
+    assert.ok(at >= 0, lines.join('\n'));
+    assert.match(lines[at + 1] ?? '', /^gh label create foedrum:brew --repo acme\/web /);
+  });
+
+  it('lists what it will commit, then commits and pushes it after a yes, before doctor', async () => {
+    const { questions, git, events, lines } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+    });
+    for (const file of FILES) assert.ok(lines.includes(`  ${file}`), lines.join('\n'));
+    assert.ok(questions.includes('Commit and push these? [Y/n]: '), questions.join('\n'));
+    const after = git.filter(({ args }) => args[0] !== 'status');
+    assert.deepStrictEqual(
+      after.map(({ folder, args }) => [folder, ...args]),
+      [
+        ['', 'add', '--', ...FILES],
+        ['', 'commit', '-m', 'Set up the Brewery with foedrum init'],
+        ['', 'push', '-u', 'origin', 'HEAD'],
+      ],
+    );
+    assert.ok(events.indexOf('git push') < events.indexOf('doctor '), events.join('\n'));
+  });
+
+  it('commits and pushes in the new clone', async () => {
+    const { git } = await init(['', '', '', ''], outside(), { status: ALL_NEW });
+    const push = git.find(({ args }) => args[0] === 'push');
+    assert.equal(push?.folder, 'foedrum-brewery');
+  });
+
+  it('pushes nothing after a no, keeps the files and says how to push them', async () => {
+    const clone: Clone = { files: new Map() };
+    const { git, lines } = await init(['', '', 'n'], clone, { status: ALL_NEW });
+    assert.deepStrictEqual(
+      git.map(({ args }) => args[0]),
+      ['status'],
+    );
+    assert.ok(clone.files.has('foedrum.jsonc'));
+    for (const command of [
+      `git add -- ${FILES.join(' ')}`,
+      'git commit -m "Set up the Brewery with foedrum init"',
+      'git push -u origin HEAD',
+    ]) {
+      assert.ok(lines.includes(command), lines.join('\n'));
+    }
+  });
+
+  it("names a push that fails with git's line and the commands, and ends in 1 after doctor", async () => {
+    const { result, lines, events } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      gitFails: { push: 'remote: Permission denied' },
+    });
+    assert.equal(result.exitCode, 1);
+    assert.ok(lines.includes('git push failed: remote: Permission denied'), lines.join('\n'));
+    assert.ok(lines.includes('git push -u origin HEAD'), lines.join('\n'));
+    assert.ok(events.includes('doctor '), events.join('\n'));
+  });
+
+  it('passes no token to git: a plain https URL, and arguments without a credential', async () => {
+    const { git } = await init(['', '', '', ''], outside(), { status: ALL_NEW });
+    assert.deepStrictEqual(
+      git.map(({ args }) => args[0]),
+      ['clone', 'status', 'add', 'commit', 'push'],
+    );
+    for (const { args } of git) {
+      for (const arg of args) assert.doesNotMatch(arg, /@|token|gh[pousr]_/i, arg);
+    }
   });
 });

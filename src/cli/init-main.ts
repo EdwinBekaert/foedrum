@@ -4,6 +4,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import {
+  createLabel,
+  createRepository,
+  labelExists,
+  repositoryExists,
+} from '../github/brewery-repository.ts';
 import { createGitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { repositoryFacts } from '../github/repository-facts.ts';
@@ -84,6 +90,15 @@ export const initFromCheckout = async (
       },
       login: () => githubLogin(github),
       repository: (repo) => repositoryFacts(github, repo),
+      github: {
+        exists: (repo) => repositoryExists(github, repo),
+        create: (repo, login, isPrivate) => createRepository(github, repo, login, isPrivate),
+        hasLabel: (repo, label) => labelExists(github, repo, label),
+        createLabel: (repo, label, description) => createLabel(github, repo, label, description),
+      },
+      git: async () => {
+        throw new Error('not implemented');
+      },
       doctor: async () => {
         const diagnosis = diagnose(await doctorFromCheckout(cwd, options));
         return { ok: diagnosis.ok, report: formatDiagnosis(diagnosis) };

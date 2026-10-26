@@ -13,6 +13,7 @@ import { ModelsConfig } from '../schemas/models.ts';
 import { CheckName, Command } from '../schemas/primitives.ts';
 import { readJsonc } from '../schemas/read.ts';
 import type { z } from '../schemas/zod.ts';
+import type { GitResult } from '../workspace/git.ts';
 import type { CliResult } from './run.ts';
 
 export interface InitPorts {
@@ -20,7 +21,7 @@ export interface InitPorts {
   ask: (question: string) => Promise<string | undefined>;
   /** Shows one line on the terminal, as it comes. */
   say: (line: string) => void;
-  /** The Brewery's files, by their path from its root with `/`. */
+  /** Files and folders, by their path from the working directory with `/`. */
   files: {
     exists: (path: string) => boolean;
     read: (path: string) => string | undefined;
@@ -30,8 +31,18 @@ export interface InitPorts {
   login: () => Promise<string>;
   /** What GitHub says of `repo`. */
   repository: (repo: string) => Promise<RepositoryFacts>;
-  /** doctor's report on the clone, and whether it found the machine ready. */
-  doctor: () => Promise<{ ok: boolean; report: string }>;
+  /** What init does on GitHub through gh's login (ADR 0207). */
+  github: {
+    exists: (repo: string) => Promise<boolean>;
+    /** Creates `repo`, empty, under `login` when it is the owner, else under the organization. */
+    create: (repo: string, login: string, isPrivate: boolean) => Promise<void>;
+    hasLabel: (repo: string, label: string) => Promise<boolean>;
+    createLabel: (repo: string, label: string, description: string) => Promise<void>;
+  };
+  /** git in `folder`, from the working directory (`''` for itself), as Foedrum runs it. */
+  git: (folder: string, args: readonly string[]) => Promise<GitResult>;
+  /** doctor's report on the clone in `folder`, and whether it found the machine ready. */
+  doctor: (folder: string) => Promise<{ ok: boolean; report: string }>;
 }
 
 /** The plugin the Brewery's sessions enable, from this repository as its marketplace (ADR 0125). */
@@ -401,7 +412,7 @@ export const runInit = async (ports: InitPorts): Promise<CliResult> => {
   }
 
   say(`Written: ${written.length === 0 ? 'none' : written.join(', ')}`);
-  const { ok, report } = await ports.doctor();
+  const { ok, report } = await ports.doctor('');
   say(report.trimEnd());
   say('');
   say('Each machine runs these once, in the Brewery, for the plugin:');
