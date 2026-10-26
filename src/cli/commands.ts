@@ -387,18 +387,26 @@ export const commands: readonly RegisteredCommand[] = [
       readBrewery('replay', context, (events, state) => {
         const batch = state.batches.get(id);
         if (batch === undefined) return failed('replay', `no batch ${id} in the event store`);
-        // Beside its own events, the pauses and continues of its order or of all since it was
-        // ordered, which name no batch (ADR 0202).
+        // Beside its own events, the pauses and continues of its order or of all, which name no
+        // batch (ADR 0202): since the last continue before it was ordered, so a pause that
+        // held it from its order shows too.
         const ordered = events.find(({ event }) => batchOf(event) === id)?.id ?? 0;
         const order = orderKey(orderOfBatch(state, batch));
         const held = (event: Event): boolean =>
           (event.type === 'order.paused' || event.type === 'order.continued') &&
           (event.order === undefined || orderKey(event.order) === order);
+        const lifted =
+          events
+            .filter(
+              ({ id: at, event }) =>
+                at < ordered && event.type === 'order.continued' && held(event),
+            )
+            .at(-1)?.id ?? 0;
         return done(
           formatReplay(
             batch,
             events.filter(
-              ({ id: at, event }) => batchOf(event) === id || (at > ordered && held(event)),
+              ({ id: at, event }) => batchOf(event) === id || (at > lifted && held(event)),
             ),
             pauseOf(state, batch),
           ),

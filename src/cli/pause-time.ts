@@ -43,7 +43,16 @@ export const stopInstant = (
   if (Duration.safeParse(text).success) return { at: new Date(now.getTime() + durationMs(text)) };
   if (!LocalTime.safeParse(text).success) return { refused: STOP_TIME_HELP };
   const [hours, minutes] = text.split(':').map(Number);
-  const today = new Date(wallClock(Math.floor(now.getTime() / 1000) * 1000, zone));
+  let today: Date;
+  try {
+    today = new Date(wallClock(Math.floor(now.getTime() / 1000) * 1000, zone));
+  } catch (error) {
+    // ICU reports Etc/Unknown when it cannot tell the machine's zone, and rejects it as a zone.
+    if (!(error instanceof RangeError)) throw error;
+    return {
+      refused: `this machine reports its time zone as ${zone}, which it cannot read a local time in; give --by as a duration, such as 20m`,
+    };
+  }
   const at = (days: number) =>
     fromWallClock(
       Date.UTC(
