@@ -37,8 +37,10 @@ const ordered = (batchId: string, issue: number, parentBatchId?: string): Event 
   ...(parentBatchId === undefined ? {} : { parentBatchId }),
   routeBy,
 });
-/** `blocks`: [sub-order, blocked by, kind], `code` by default. */
-/** `subOrders`: an issue in `acme/web`, or an issue and its repository. */
+/**
+ * `subOrders`: an issue in `acme/web`, or an issue and its repository; `blocks`: [sub-order,
+ * blocked by, kind], `code` by default.
+ */
 const decomposed = (
   batchId: string,
   subOrders: readonly (number | readonly [number, string])[],
