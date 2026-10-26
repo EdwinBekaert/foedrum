@@ -28,6 +28,7 @@ import {
   same,
   type TargetIssue,
 } from './issue-claims.ts';
+import type { QueuedOrder } from './ranks.ts';
 
 /**
  * What the intake reads: the open issues of a target repository (architecture §3.1's `Tracker`,
@@ -149,6 +150,29 @@ export const intakeRepositories = (config: BreweryConfig): IntakeRepository[] =>
   Object.entries(config.repositories).flatMap(([repo, { alias, intake }]) =>
     intake === undefined || alias === undefined ? [] : [{ repo, alias, filter: intake }],
   );
+
+/** A repository's open issues, as a pass listed them: none when it could not. */
+export interface Listing {
+  repository: IntakeRepository;
+  issues: readonly TargetIssue[];
+}
+
+/** An order of the pass's queue: a Brewery issue, or a target issue of `repository`. */
+export interface QueuedIssue extends QueuedOrder {
+  repository?: IntakeRepository;
+}
+
+/**
+ * The queue of one pass in rank order (ADR 0208): the Brewery's issues the intake would order and
+ * the target issues it would claim, of `repositories` in the order foedrum.jsonc lists them.
+ */
+export const intakeQueue = (
+  _state: State,
+  _listed: { brewery: readonly TargetIssue[]; repositories: readonly Listing[] },
+  _who: { authors: readonly string[]; claimant: Claimant },
+): QueuedIssue[] => {
+  throw new Error('not implemented');
+};
 
 export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =

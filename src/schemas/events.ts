@@ -298,6 +298,27 @@ const orderDecomposed = z
     }
   });
 
+/**
+ * Where a person put an order in the intake's queue (ADR 0208): marked to finish first, or at
+ * `position`, kept as the `arrival` of the order that was there, which the queue sorts by.
+ */
+export const RankPlace = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('first') }),
+  z.strictObject({ kind: z.literal('position'), position: z.int().positive(), arrival: Timestamp }),
+]);
+export type RankPlace = z.infer<typeof RankPlace>;
+
+// A person moved an order of the intake's queue, or marked it to finish first (ADR 0208); a later
+// rank of the same order replaces it.
+const orderRanked = z.strictObject({
+  type: z.literal('order.ranked'),
+  order: OrderRef,
+  place: RankPlace,
+  by: NonEmpty,
+  via: Surface,
+  why: NonEmpty.optional(),
+});
+
 // Removes sub-orders that wait for nothing still pending until none are left; whatever remains waits in a cycle.
 function hasCycle(dependencies: Dependency[]): boolean {
   let pending = dependencies;
@@ -417,6 +438,7 @@ export const Event = z.discriminatedUnion('type', [
     routeBy: Timestamp.optional(),
   }),
   orderDecomposed,
+  orderRanked,
   z.strictObject({
     type: z.literal('batch.waiting'),
     batchId: BatchId,

@@ -21,6 +21,7 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     assignees: assigneeLogins(issue.assignees),
     // A deleted account is nobody, so never an allow-listed author.
     author: issue.user?.login ?? '',
+    created: '',
   };
 };
 

@@ -248,6 +248,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'pull_request.base_checked':
       case 'order.paused':
       case 'order.continued':
+      case 'order.ranked':
       case 'step.rescheduled':
         break;
       default:

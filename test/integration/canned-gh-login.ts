@@ -100,6 +100,7 @@ export const doctorHere = async (
     readKeptBranches: notForDoctor('kept branches'),
     config: notForDoctor('foedrum.jsonc'),
     claims: notForDoctor('claims'),
+    queue: notForDoctor('queue'),
     serve: notForDoctor('serve'),
     brew: notForDoctor('brew'),
     watch: notForDoctor('watch'),

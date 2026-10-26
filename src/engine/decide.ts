@@ -10,6 +10,7 @@ import {
   MAX_OPEN_FINDING_TEXT,
   MOST_OPEN_FINDINGS,
   type OrderRef,
+  type RankPlace,
   type Receipt,
   type RoundsOut,
   type ScheduleRoute,
@@ -145,7 +146,20 @@ export type PauseOrContinue =
     }
   | { kind: 'continue'; order?: OrderRef; by: string; via: Surface };
 
-export type Command = HumanCommand | PauseOrContinue | EngineCommand;
+/**
+ * A person's rank of an order of the intake's queue (ADR 0208); later the Innkeeper's (#227).
+ * `place`: marked "finish first", or a position kept as the arrival of the order that was there.
+ */
+export interface RankOrder {
+  kind: 'rank';
+  order: OrderRef;
+  place: RankPlace;
+  by: string;
+  via: Surface;
+  why?: string;
+}
+
+export type Command = HumanCommand | PauseOrContinue | RankOrder | EngineCommand;
 
 export interface Context {
   now: Date;
@@ -246,6 +260,8 @@ function run(draft: Draft, command: Command): Event[] {
       });
       break;
     }
+    case 'rank':
+      throw new Error('not implemented');
     case 'unrouted':
       unrouted(draft, command.batchId);
       break;

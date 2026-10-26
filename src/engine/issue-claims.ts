@@ -34,6 +34,8 @@ export interface TargetIssue {
   assignees: readonly string[];
   /** The GitHub login that opened the issue. */
   author: string;
+  /** When it was created on GitHub: its arrival in the intake's queue (ADR 0208). */
+  created: string;
 }
 
 /** The Brewery that claims: its repository (`owner/name`) and its token's GitHub login. */

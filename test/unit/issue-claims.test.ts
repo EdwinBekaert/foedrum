@@ -35,6 +35,8 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   milestone: undefined,
   assignees: [],
   author: 'alice',
+  // A minute apart by number, so the lower number arrived first (ADR 0208).
+  created: new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString(),
   ...fields,
 });
 const options = (claimant: Claimant, fields: Partial<CandidateOptions> = {}): CandidateOptions => ({

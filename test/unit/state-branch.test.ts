@@ -162,6 +162,16 @@ describe('logPathOf', () => {
       'batches/b1/events.jsonl',
     ],
     'order.paused': [{ type: 'order.paused', by: 'ada', via: 'terminal' }, 'events.jsonl'],
+    'order.ranked': [
+      {
+        type: 'order.ranked',
+        order: { issue: 7, repo: 'acme/web' },
+        place: { kind: 'first' },
+        by: 'ada',
+        via: 'terminal',
+      },
+      'events.jsonl',
+    ],
     'order.continued': [
       { type: 'order.continued', order: { issue: 12 }, by: 'ada', via: 'terminal' },
       'events.jsonl',

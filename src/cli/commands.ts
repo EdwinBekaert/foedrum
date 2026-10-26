@@ -36,6 +36,7 @@ import {
   OrderCommand,
   type OrderTarget,
   PauseCommand,
+  RankCommand,
   RecipeCommand,
   ReplayCommand,
   ResumeCommand,
@@ -617,6 +618,16 @@ export const commands: readonly RegisteredCommand[] = [
     // A driver of its own on the machine, run by the terminal (ADR 0123).
     handler: async (input, context) =>
       context.brew(input, { by: context.user(), via: context.surface }),
+  }),
+  define({
+    name: 'rank',
+    summary: "Move an order in the intake's queue to place <n>, or mark it to finish first",
+    changesState: true,
+    positionals: ['order'],
+    optional: ['place'],
+    options: { why: 'reason' },
+    schema: RankCommand,
+    handler: async () => failed('rank', 'not implemented'),
   }),
   define({
     name: 'takeover',

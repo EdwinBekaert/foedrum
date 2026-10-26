@@ -323,6 +323,7 @@ export const openSqliteEventStore = (
         return;
       case 'order.paused':
       case 'order.continued':
+      case 'order.ranked':
         return;
       default: {
         const unhandled: never = event;

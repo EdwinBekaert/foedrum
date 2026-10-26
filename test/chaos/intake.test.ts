@@ -107,6 +107,7 @@ const tracker = (planned: readonly Planned[], opened: ReadonlySet<number>): Targ
     milestone: undefined,
     assignees: [],
     author: 'ann',
+    created: new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString(),
   });
   return {
     issues: async (repo) =>

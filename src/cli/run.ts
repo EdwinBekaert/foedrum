@@ -5,6 +5,7 @@
 import { parseArgs } from 'node:util';
 import type { EventStore } from '../engine/event-store.ts';
 import type { State } from '../engine/fold.ts';
+import type { TargetTracker } from '../engine/intake.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -16,6 +17,13 @@ import { columns } from './columns.ts';
 import { commands } from './commands.ts';
 import type { DoctorFacts } from './doctor.ts';
 import type { BranchReading } from './kept-branches.ts';
+
+/** What `rank` reads of GitHub to know the intake's queue (ADR 0208). */
+export interface QueueReads {
+  tracker: TargetTracker;
+  /** The login gh uses: an issue assigned to it is the Brewery's own. */
+  login: (signal?: AbortSignal) => Promise<string>;
+}
 
 /** What the commands need from the machine. */
 export interface CliContext {
@@ -64,6 +72,11 @@ export interface CliContext {
    * `order` of a target issue calls it.
    */
   claims: (config: BreweryConfig) => ClaimHost;
+  /**
+   * The reads of the intake's queue on the GitHub host `config` names, through gh's own login
+   * (ADR 0073): the open issues and the login. Only `rank` calls it (ADR 0208).
+   */
+  queue: (config: BreweryConfig) => QueueReads;
   /** Runs the Cellar until Ctrl+C (ADR 0063); its notices go straight to the terminal. */
   serve: () => Promise<CliResult>;
   /**

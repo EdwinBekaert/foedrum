@@ -162,6 +162,14 @@ const valid: Record<Event['type'], Event> = {
     zone: 'Europe/Brussels',
   },
   'order.continued': { type: 'order.continued', by: 'ada', via: 'plugin' },
+  'order.ranked': {
+    type: 'order.ranked',
+    order: { issue: 7, repo: 'acme/web' },
+    place: { kind: 'position', position: 2, arrival: '2026-12-30T09:00:00.000Z' },
+    by: 'ada',
+    via: 'terminal',
+    why: 'the release needs it',
+  },
   'step.rescheduled': {
     type: 'step.rescheduled',
     batchId: 'b1',

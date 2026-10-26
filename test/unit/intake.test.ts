@@ -52,6 +52,8 @@ const issue = (number: number, fields: Partial<TargetIssue> = {}): TargetIssue =
   milestone: undefined,
   assignees: [],
   author: 'alice',
+  // A minute apart by number, so the lower number arrived first (ADR 0208).
+  created: new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString(),
   ...fields,
 });
 const record = (brewery: string, number: number): string =>
@@ -136,18 +138,18 @@ describe('createIntake', () => {
     await intake(tracker, { capacity: 3 }).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['1-1', 'web-3', 'web-5'],
+      ['1-1', 'api-2', 'web-3'],
     );
     assert.equal(github.refs.has(`${web}#9`), false, 'the rest stay unclaimed');
-    assert.equal(github.refs.has(`${api}#2`), false);
+    assert.equal(github.refs.has(`${web}#5`), false);
   });
 
-  it('shares the capacity between repositories in the order the config names them', async () => {
+  it('shares the capacity between repositories by arrival, not in the order the config names them (ADR 0208)', async () => {
     const { tracker } = fakeTracker({ [web]: [issue(4)], [api]: [issue(2), issue(3)] });
     await intake(tracker, { capacity: 2 }).poll();
     assert.deepStrictEqual(
       batches().map(({ id }) => id),
-      ['web-4', 'api-2'],
+      ['api-2', 'api-3'],
     );
   });
 
@@ -510,7 +512,7 @@ describe('createIntake', () => {
       );
     });
 
-    it('orders Brewery issues before target issues, both within the free capacity', async () => {
+    it('orders Brewery issues and target issues together by arrival, within the free capacity (ADR 0208)', async () => {
       const { tracker } = fakeTracker({
         [brewery]: [labelled(12), labelled(13)],
         [web]: [issue(7), issue(8)],
@@ -519,7 +521,7 @@ describe('createIntake', () => {
       await breweryIntake(tracker, { capacity: 3 }).poll();
       assert.deepStrictEqual(
         batches().map(({ id }) => id),
-        ['12-1', '13-1', 'web-7'],
+        ['web-7', 'web-8', '12-1'],
       );
     });
 
@@ -536,7 +538,8 @@ describe('createIntake', () => {
       assert.equal(github.refs.size, 0);
       accept({ kind: 'continue', by: 'alice', via: 'terminal' });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing', 'web-7 ordered']);
+      // web#7 came before #13 (ADR 0208).
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered', '13-1 brewing']);
     });
 
     it('orders as before while only one order is paused (ADR 0202)', async () => {
@@ -548,7 +551,7 @@ describe('createIntake', () => {
         [api]: [],
       });
       await breweryIntake(tracker).poll();
-      assert.deepStrictEqual(lanes(), ['12-1 brewing', '13-1 brewing', 'web-7 ordered']);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing', 'web-7 ordered', '13-1 brewing']);
     });
 
     it('routes an Ordered batch it did not order in this pass: a killed pass left it, or a retry', async () => {
