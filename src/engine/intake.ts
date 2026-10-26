@@ -30,6 +30,7 @@ import {
   same,
   type TargetIssue,
 } from './issue-claims.ts';
+import type { PullRequestCheckReader } from './pr-checks.ts';
 import { type QueuedOrder, rankQueue } from './ranks.ts';
 
 /**
@@ -102,6 +103,11 @@ export interface IntakeOptions {
    * moves (ADR 0198); none by default, and none on a git without `merge-tree --write-tree`.
    */
   bases?: readonly BaseCheckRepository[];
+  /**
+   * What reads the checks on each open pull request's head, which each pass records once they
+   * finish (ADR 0213); none by default.
+   */
+  checks?: PullRequestCheckReader;
 }
 
 export interface Intake {

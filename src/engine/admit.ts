@@ -122,6 +122,9 @@ function rule(state: State, event: Event): string | undefined {
       return endable(state, event);
     case 'pull_request.base_checked':
       return checkable(state, event);
+    case 'pull_request.checks_pending':
+    case 'pull_request.checks_finished':
+      throw new Error('not implemented');
     // The fold refuses a continue of what is not paused; a pause holds any order (ADR 0202).
     case 'order.paused':
     case 'order.continued':

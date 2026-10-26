@@ -28,6 +28,39 @@ export const PullRequestUrl = z
     return parsed?.username === '' && parsed.password === '';
   }, 'Must not contain credentials');
 
+/** The most checks a record of a pull request's head keeps (ADR 0213). */
+export const MAX_HEAD_CHECKS = 100;
+/** The longest name of a check on a pull request's head that a record keeps (ADR 0213). */
+export const MAX_HEAD_CHECK_NAME_LENGTH = 200;
+
+/**
+ * How a check on a pull request's head finished, as GitHub names it (ADR 0213): a check run's
+ * conclusion or a commit status's state; `unknown` for one Foedrum does not know.
+ */
+export const CheckConclusion = z.enum([
+  'success',
+  'neutral',
+  'skipped',
+  'failure',
+  'cancelled',
+  'timed_out',
+  'action_required',
+  'stale',
+  'startup_failure',
+  'error',
+  'unknown',
+]);
+export type CheckConclusion = z.infer<typeof CheckConclusion>;
+
+/** A finished check on a pull request's head (ADR 0213); its link only when it is https. */
+export const HeadCheck = z.strictObject({
+  name: z.string().min(1).max(MAX_HEAD_CHECK_NAME_LENGTH),
+  kind: z.enum(['check_run', 'status']),
+  conclusion: CheckConclusion,
+  url: PullRequestUrl.optional(),
+});
+export type HeadCheck = z.infer<typeof HeadCheck>;
+
 /** Where a command or answer came from (ADR 0019). */
 export const Surface = z.enum(['plugin', 'terminal', 'comment', 'dashboard']);
 export type Surface = z.infer<typeof Surface>;
@@ -530,6 +563,25 @@ export const Event = z.discriminatedUnion('type', [
     // why they did not run (ADR 0203).
     failed: GravityReading.optional(),
     unchecked: z.string().min(1).max(MAX_UNCHECKED_LENGTH).optional(),
+  }),
+  // A check on an open pull request's head still runs, or none is there yet, as the first pass
+  // that saw it found (ADR 0213): when it began to wait, recorded once per head.
+  z.strictObject({
+    type: z.literal('pull_request.checks_pending'),
+    batchId: BatchId,
+    pullRequest: PullRequestUrl,
+    head: CommitSha,
+    since: Timestamp,
+  }),
+  // Every check on an open pull request's head finished (ADR 0213): each with its conclusion,
+  // failed first, and how many more there were; recorded once per head.
+  z.strictObject({
+    type: z.literal('pull_request.checks_finished'),
+    batchId: BatchId,
+    pullRequest: PullRequestUrl,
+    head: CommitSha,
+    checks: z.array(HeadCheck).max(MAX_HEAD_CHECKS),
+    more: z.int().positive().optional(),
   }),
   // The idempotency ledger for external side effects (invariant I4).
   z.strictObject({ type: z.literal('effect.applied'), key: EffectKeyText, result: z.unknown() }),

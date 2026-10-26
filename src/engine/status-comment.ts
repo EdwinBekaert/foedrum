@@ -261,6 +261,14 @@ export const baseCheckLines = (batch: Batch): string[] =>
     ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url) ?? [])
     : [];
 
+/**
+ * The lines of the open pull requests of a batch on tap whose checks on their head were recorded
+ * (ADR 0213): waiting for them since when, passed, failed with a link to a failing one, or none.
+ */
+export const checkLines = (_batch: Batch): string[] => {
+  throw new Error('not implemented');
+};
+
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
 const laneText = (lane: Lane, told: Told): string[] => {
   switch (lane.kind) {

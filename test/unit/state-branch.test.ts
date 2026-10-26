@@ -161,6 +161,26 @@ describe('logPathOf', () => {
       },
       'batches/b1/events.jsonl',
     ],
+    'pull_request.checks_pending': [
+      {
+        type: 'pull_request.checks_pending',
+        batchId: 'b1',
+        pullRequest: 'https://github.com/acme/api/pull/7',
+        head: 'a'.repeat(40),
+        since: '2026-10-26T09:00:00.000Z',
+      },
+      'batches/b1/events.jsonl',
+    ],
+    'pull_request.checks_finished': [
+      {
+        type: 'pull_request.checks_finished',
+        batchId: 'b1',
+        pullRequest: 'https://github.com/acme/api/pull/7',
+        head: 'a'.repeat(40),
+        checks: [],
+      },
+      'batches/b1/events.jsonl',
+    ],
     'order.paused': [{ type: 'order.paused', by: 'ada', via: 'terminal' }, 'events.jsonl'],
     'order.ranked': [
       {

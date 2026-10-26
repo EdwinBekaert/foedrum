@@ -7,6 +7,7 @@ import type {
   Dependency,
   Event,
   GravityReading,
+  HeadCheck,
   OrderRef,
   RankPlace,
   Receipt,
@@ -173,7 +174,17 @@ export interface Batch {
    * (ADR 0198); absent while none was.
    */
   baseChecks?: readonly BaseCheck[];
+  /**
+   * The latest record of the checks on each open pull request's head, by URL (ADR 0213); absent
+   * while none was. A record names its head: it says nothing of another.
+   */
+  pullRequestChecks?: Readonly<Record<string, HeadChecks>>;
 }
+
+/** The checks on a pull request's head (ADR 0213): still running since a pass saw it, or finished. */
+export type HeadChecks =
+  | { kind: 'pending'; head: string; since: string }
+  | { kind: 'finished'; head: string; checks: readonly HeadCheck[]; more?: number };
 
 /** One merge-tree check of an open pull request against its base's tip (ADR 0198). */
 export interface BaseCheck {
@@ -608,6 +619,9 @@ function apply(state: State, event: Event): State {
         baseChecks: [...(batch.baseChecks ?? []), check],
       }));
     }
+    case 'pull_request.checks_pending':
+    case 'pull_request.checks_finished':
+      throw new Error('not implemented');
     case 'order.paused': {
       const { order, by, via, why, stopAt, zone } = event;
       const pause: Pause = {

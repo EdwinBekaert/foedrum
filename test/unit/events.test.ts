@@ -4,6 +4,7 @@ import { formatReplay } from '../../src/cli/replay.ts';
 import { fold } from '../../src/engine/fold.ts';
 import {
   Event,
+  MAX_HEAD_CHECKS,
   SessionRef,
   StuckReason,
   Surface,
@@ -147,6 +148,29 @@ const valid: Record<Event['type'], Event> = {
     tip: 'c'.repeat(40),
     conflicts: ['src/app.ts'],
   },
+  'pull_request.checks_pending': {
+    type: 'pull_request.checks_pending',
+    batchId: 'app-7',
+    pullRequest,
+    head: sha,
+    since: '2026-10-26T09:00:00.000Z',
+  },
+  'pull_request.checks_finished': {
+    type: 'pull_request.checks_finished',
+    batchId: 'app-7',
+    pullRequest,
+    head: sha,
+    checks: [
+      {
+        name: 'check (ubuntu-latest)',
+        kind: 'check_run',
+        conclusion: 'failure',
+        url: 'https://github.com/acme/lib-core/actions/runs/1/job/2',
+      },
+      { name: 'ci/coverage', kind: 'status', conclusion: 'success' },
+    ],
+    more: 3,
+  },
   'effect.applied': {
     type: 'effect.applied',
     key: '["b1","brew",1,"pull_request"]',
@@ -285,6 +309,24 @@ describe('Event', () => {
     rejects(Event, finished([{ result: 'skipped' }]));
     rejects(Event, finished([{ result: 'passed', check: 'test' }]));
     rejects(Event, finished([{ ...exited, result: 'killed', killed: 'crashed' }]));
+  });
+
+  it('bounds the checks on a head and refuses a link that is not https (ADR 0213)', () => {
+    const finished = valid['pull_request.checks_finished'];
+    const check = { name: 'test', kind: 'check_run', conclusion: 'success' };
+    accepts(Event, { ...finished, checks: [] });
+    accepts(Event, { ...finished, checks: Array(MAX_HEAD_CHECKS).fill(check) });
+    rejects(Event, { ...finished, checks: Array(MAX_HEAD_CHECKS + 1).fill(check) });
+    accepts(Event, { ...finished, checks: [{ ...check, name: 'x'.repeat(200) }] });
+    rejects(Event, { ...finished, checks: [{ ...check, name: 'x'.repeat(201) }] });
+    rejects(Event, { ...finished, checks: [{ ...check, name: '' }] });
+    rejects(Event, { ...finished, checks: [{ ...check, conclusion: 'pending' }] });
+    rejects(Event, { ...finished, checks: [{ ...check, kind: 'suite' }] });
+    rejects(Event, { ...finished, checks: [{ ...check, url: 'http://ci.example/1' }] });
+    rejects(Event, { ...finished, checks: [{ ...check, url: 'https://u:p@ci.example/1' }] });
+    rejects(Event, { ...finished, more: 0 });
+    rejects(Event, { ...finished, head: 'main' });
+    rejects(Event, { ...valid['pull_request.checks_pending'], since: 'yesterday' });
   });
 
   it('accepts a rank marked first, and refuses a place it cannot sort by (ADR 0208)', () => {
