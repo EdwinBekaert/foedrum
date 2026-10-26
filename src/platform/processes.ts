@@ -330,6 +330,11 @@ export const execProcessWith =
         done(failed(`${file}: not found on PATH (ENOENT)`));
         return;
       }
+      // A .cmd or .bat file runs through cmd.exe on Windows (ADR 0031): the same refusal.
+      if (pipes !== undefined && /\.(?:cmd|bat)$/i.test(program)) {
+        done(failed(`${file}: extra pipes cannot go through a shell or a Job Object`));
+        return;
+      }
       let child: ChildHandle;
       try {
         child = spawn(program, [...args], {

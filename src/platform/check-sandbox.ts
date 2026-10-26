@@ -446,7 +446,11 @@ const inOwnNamespace = async (
     call.signal === undefined ? own : AbortSignal.any([call.signal, own]);
   let failure: string | undefined;
   let attaching: Promise<unknown> = Promise.resolve();
+  // Only while bwrap runs: a stack Foedrum stops once bwrap has ended, at its deadline too, did
+  // not fail (review of #564).
+  let bwrapEnded = false;
   const fail = (why: string) => {
+    if (bwrapEnded) return;
     failure = why;
     stopBwrap.abort();
   };
@@ -474,11 +478,17 @@ const inOwnNamespace = async (
       },
     },
   });
+  bwrapEnded = true;
   stopStack.abort();
   await attaching;
   const own = sandboxRun('bwrap', result);
   if (own !== result || call.signal?.aborted === true) return own;
-  return failure === undefined ? result : unstarted(failure, '0218');
+  if (failure === undefined) return result;
+  // bwrap that failed under its own name says why, also when Foedrum stopped it for want of a
+  // pid before the runner saw it end (review of #564).
+  return result.stderr.startsWith('bwrap: ')
+    ? unstarted(result.stderr.trim())
+    : unstarted(failure, '0218');
 };
 
 /**
