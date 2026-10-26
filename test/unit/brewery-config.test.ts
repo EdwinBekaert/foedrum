@@ -463,6 +463,18 @@ describe('BreweryConfig for the intake in foedrum serve (ADR 0068)', () => {
     }
   });
 
+  it('takes an openOrders of 1 to 20 whole orders, and leaves it out when the file does (ADR 0217)', () => {
+    for (const openOrders of [1, 20]) {
+      const parsed = BreweryConfig.parse(config({}, { openOrders })) as { openOrders?: number };
+      assert.equal(parsed.openOrders, openOrders, String(openOrders));
+    }
+    for (const openOrders of [0, 21, 1.5, -1, '2']) {
+      assert.equal(accepted(config({}, { openOrders })), false, String(openOrders));
+    }
+    const parsed = BreweryConfig.parse(config({})) as { openOrders?: number };
+    assert.equal(parsed.openOrders, undefined);
+  });
+
   it('polls every 30 seconds at most and every hour at least', () => {
     for (const pollEvery of ['30s', '60s', '5m', '1h', '3600s']) {
       assert.equal(accepted(config({}, { pollEvery })), true, pollEvery);

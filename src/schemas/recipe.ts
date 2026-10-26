@@ -274,6 +274,14 @@ const RecipeFields = z.strictObject({
     .describe(
       'Gauger and red proof before Cellarman; default true for recipes that write code, and the router may switch it off (ADR 0017)',
     ),
+  concurrency: z
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .describe(
+      "How many of its batches may brew at once, never above the Brewery's concurrency; no limit of its own by default (ADR 0217)",
+    ),
   steps: z.array(Step).min(1),
 });
 

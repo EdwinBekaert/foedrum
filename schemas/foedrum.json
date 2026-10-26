@@ -30,6 +30,12 @@
       "minimum": 1,
       "maximum": 20
     },
+    "openOrders": {
+      "description": "How many orders may be in progress at once: a new order waits while that many are open; default 3 (ADR 0217)",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
     "pollEvery": {
       "description": "How often the intake polls GitHub, from \"30s\" to \"1h\"; default \"60s\" (ADR 0052)",
       "type": "string",

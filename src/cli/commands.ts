@@ -27,6 +27,13 @@ import {
   type QueuedIssue,
 } from '../engine/intake.ts';
 import { type ClaimHost, claimIssue } from '../engine/issue-claims.ts';
+import {
+  DEFAULT_OPEN_ORDERS,
+  type Limits,
+  limitLines,
+  limitsOf,
+  mayHold,
+} from '../engine/limits.ts';
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
@@ -139,6 +146,22 @@ const failed = (command: string, message: string): CliResult => ({
   stdout: '',
   stderr: `foedrum ${command}: ${message}\n`,
 });
+
+/**
+ * The lines of the limits that hold now (ADR 0217), from foedrum.jsonc and the recipes, read only
+ * while a limit can hold; one line when they do not load.
+ */
+const limitsHeld = (state: State, { config, recipes }: CliContext): string[] => {
+  if (!mayHold(state)) return [];
+  let limits: Limits;
+  try {
+    limits = limitsOf(config().openOrders ?? DEFAULT_OPEN_ORDERS, recipes());
+  } catch (error) {
+    const [first] = (error instanceof Error ? error.message : String(error)).split('\n');
+    return [`the limits could not be read: ${first}`];
+  }
+  return limitLines(state, limits);
+};
 
 // Reads every event of the Brewery's store and folds them; one line when there is no store (or
 // `none`, for a command that has an answer without one) or the fold refuses the log. Never writes
@@ -427,7 +450,8 @@ export const commands: readonly RegisteredCommand[] = [
               .filter(({ owner }) => owner !== CELLAR_OWNER)
               .map(({ batchId, owner }) => [batchId, owner]),
           );
-          return done(formatStatus(state, keptBranchLines(unpushed, readings), interactive));
+          const kept = keptBranchLines(unpushed, readings);
+          return done(formatStatus(state, kept, interactive, limitsHeld(state, context)));
         },
         // A fresh Brewery: serve and brew make the store when they first start.
         done('No batches yet.\n'),

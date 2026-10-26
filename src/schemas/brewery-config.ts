@@ -173,6 +173,14 @@ export const BreweryConfig = z
       .max(20)
       .optional()
       .describe('How many batches may be Ordered or Brewing at once; default 1 (ADR 0068)'),
+    openOrders: z
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(
+        'How many orders may be in progress at once: a new order waits while that many are open; default 3 (ADR 0217)',
+      ),
     pollEvery: PollEvery.optional().describe(
       'How often the intake polls GitHub, from "30s" to "1h"; default "60s" (ADR 0052)',
     ),

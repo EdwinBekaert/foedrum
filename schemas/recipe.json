@@ -38,6 +38,12 @@
       "description": "Gauger and red proof before Cellarman; default true for recipes that write code, and the router may switch it off (ADR 0017)",
       "type": "boolean"
     },
+    "concurrency": {
+      "description": "How many of its batches may brew at once, never above the Brewery's concurrency; no limit of its own by default (ADR 0217)",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
     "steps": {
       "minItems": 1,
       "type": "array",

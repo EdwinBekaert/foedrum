@@ -10,6 +10,7 @@ import { commands } from '../../src/cli/commands.ts';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { linux, ran, windows } from '../helpers/doctor-facts.ts';
@@ -49,6 +50,10 @@ const watchedStore = (events: readonly Event[]) => {
   };
   return { store, afterRun };
 };
+
+/** A foedrum.jsonc with room for every order, so no limit line comes above the board (ADR 0217). */
+const roomy = (): BreweryConfig =>
+  ({ ...BreweryConfig.parse({ repositories: {} }), openOrders: 20 }) as BreweryConfig;
 
 const context = (overrides: Partial<CliContext> = {}): CliContext => ({
   cwd,
@@ -481,7 +486,7 @@ describe('foedrum status', () => {
   });
 
   it('lists every batch with its issue, lane and what it waits for', async (t) => {
-    const result = await run(['status'], { openStore: () => storeWith(brewery) });
+    const result = await run(['status'], { openStore: () => storeWith(brewery), config: roomy });
     assert.equal(result.exitCode, 0);
     assert.equal(result.stderr, '');
     snapshot(t, result.stdout);
@@ -521,7 +526,10 @@ describe('foedrum status', () => {
   });
 
   it('counts one batch as one', async () => {
-    const result = await run(['status'], { openStore: () => storeWith([ordered(11)]) });
+    const result = await run(['status'], {
+      openStore: () => storeWith([ordered(11)]),
+      config: roomy,
+    });
     assert.equal(
       result.stdout,
       '1 batch\n\n  11-1  #11  ordered  to be routed by 2026-12-31T00:00:00.000Z\n',
@@ -644,6 +652,7 @@ describe('foedrum status', () => {
       const asked: [string[], [string, string][]][] = [];
       const result = await run(['status'], {
         openStore: () => storeWith(cancelledWithCommits),
+        config: roomy,
         readKeptBranches: async (state, unpushed) => {
           asked.push([[...state.batches.keys()], [...unpushed]]);
           return new Map([

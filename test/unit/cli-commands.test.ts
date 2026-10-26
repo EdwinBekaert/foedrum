@@ -158,14 +158,8 @@ describe('foedrum: commands that change state', () => {
     const recipes = () => {
       throw new Error('the recipes were loaded');
     };
-    for (const argv of [
-      ['status'],
-      ['stuck'],
-      ['replay', '21-1'],
-      ['doctor'],
-      ['brewers'],
-      ['lenses'],
-    ]) {
+    // status loads them while a limit can hold (ADR 0217): see "status: the limits that hold".
+    for (const argv of [['stuck'], ['replay', '21-1'], ['doctor'], ['brewers'], ['lenses']]) {
       assert.equal((await run(argv, { recipes })).exitCode, 0, argv.join(' '));
     }
   });
@@ -474,6 +468,66 @@ describe('foedrum: commands that change state', () => {
     });
   });
 
+  describe('status: the limits that hold (ADR 0217)', () => {
+    const config =
+      (fields = {}) =>
+      () =>
+        BreweryConfig.parse({
+          brewery: 'acme/brewery',
+          users: ['ada'],
+          repositories: {},
+          ...fields,
+        });
+    const limited = () =>
+      fakeRecipes({ pint: { ...fakeRecipe({ steps: ['plan', 'implement'] }), concurrency: 1 } });
+
+    it('prints each limit that holds above the board, read from foedrum.jsonc and the recipes', async () => {
+      const result = await run(['status'], { config: config({ openOrders: 6 }), recipes: limited });
+      assert.equal(result.exitCode, 0);
+      assert.match(
+        result.stdout,
+        /^recipe pint: 1 of 1 at once \(23-1\); its next orders wait\nopen orders: 6 of 6 \(#21, #22, #23, #24, #25, #26\); new orders wait\n\n6 batches\n/,
+      );
+    });
+
+    it('holds at 3 open orders when foedrum.jsonc names no openOrders', async () => {
+      const result = await run(['status'], { config: config(), recipes: () => recipes });
+      assert.match(
+        result.stdout,
+        /^open orders: 6 of 3 \(#21, #22, #23, #24, #25, #26\); new orders wait\n\n6 batches\n/,
+      );
+    });
+
+    it('prints the board and one line when foedrum.jsonc or the recipes do not load', async () => {
+      const broken = () => {
+        throw new Error('foedrum.jsonc: "openOrders" must be at most 20\nand more');
+      };
+      for (const overrides of [
+        { config: broken, recipes: limited },
+        { config: config(), recipes: broken },
+      ]) {
+        const result = await run(['status'], overrides);
+        assert.equal(result.exitCode, 0);
+        assert.match(
+          result.stdout,
+          /^the limits could not be read: foedrum\.jsonc: "openOrders" must be at most 20\n\n6 batches\n/,
+        );
+      }
+    });
+
+    it('reads neither foedrum.jsonc nor the recipes while no batch is Ordered, Brewing, Conditioning or Stuck', async () => {
+      for (const id of ['21-1', '22-1', '23-1', '24-1', '25-1', '26-1']) {
+        assert.equal((await run(['cancel', id])).exitCode, 0, id);
+      }
+      const recipes = () => {
+        throw new Error('the recipes were loaded');
+      };
+      const result = await run(['status'], { recipes });
+      assert.equal(result.exitCode, 0);
+      assert.match(result.stdout, /^6 batches\n/);
+    });
+  });
+
   describe('the usage window (ADR 0206)', () => {
     /** 23-1's plan hits claude's session limit; the window reopens at 14:50 UTC. */
     const hitLimit = (): void => {
@@ -498,8 +552,14 @@ describe('foedrum: commands that change state', () => {
 
     it('shows a closed usage window above the board in status', async () => {
       hitLimit();
+      // Room for every order, so no limit holds above the board (ADR 0217).
+      const config = () =>
+        ({
+          ...BreweryConfig.parse({ brewery: 'acme/brewery', users: ['ada'], repositories: {} }),
+          openOrders: 20,
+        }) as BreweryConfig;
       assert.match(
-        (await run(['status'])).stdout,
+        (await run(['status'], { config })).stdout,
         /^Usage window closed: claude hit its session limit, which resets 3:45pm; brewers wait until 14:50 UTC, 18 October\n\n6 batches\n/,
       );
     });
