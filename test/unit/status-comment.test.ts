@@ -884,7 +884,8 @@ describe('renderStatus', () => {
     );
     const lines = text.split('\n');
     const at_ = lines.indexOf('**Risk left**');
-    assert.ok(at_ > lines.indexOf('**Findings**'), text);
+    // Right after the three steps' findings, so a comment cut to length keeps it before the rest.
+    assert.equal(at_, lines.indexOf('**Findings**') + 5, text);
     assert.deepEqual(lines.slice(at_ + 1, at_ + 8), [
       '- `correctness`: Only a run shows \\*the\\* retry',
       '- `security`: risk 1',
