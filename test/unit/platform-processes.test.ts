@@ -397,6 +397,36 @@ describe('execProcessWith', () => {
     assert.equal(handed, false);
   });
 
+  // On Windows a .cmd or .bat file runs through cmd.exe, which hands its program the standard
+  // three only (review of #564).
+  it('starts nothing, and says so, when pipes come with a file that runs through the shell', async () => {
+    const pipes = { count: 1, onPipes: () => {} };
+    for (const resolved of ['C:\\tools\\stack.cmd', 'C:\\tools\\STACK.BAT']) {
+      const child = new FakeChild();
+      const held = fakeSpawner(child);
+      held.spawner.resolve = () => resolved;
+      const exec = execProcessWith(held.spawner);
+      const running = exec('stack', [], { cwd: '/work', pipes });
+      await settle();
+      child.close(0);
+      const result = await running;
+      assert.equal(result.exitCode, null, resolved);
+      assert.match(result.stderr, /stack: extra pipes cannot go through a shell/, resolved);
+      assert.deepEqual(held.spawned, [], resolved);
+    }
+    // A name that only starts like one is no batch file.
+    const child = new FakeChild();
+    Object.assign(child, {
+      stdio: [child.stdin, child.stdout, child.stderr, new PassThrough()],
+    });
+    const near = fakeSpawner(child);
+    near.spawner.resolve = () => 'C:\\tools\\stack.cmdline.exe';
+    const running = execProcessWith(near.spawner)('stack', [], { cwd: '/work', pipes });
+    await settle();
+    child.close(0);
+    assert.equal((await running).exitCode, 0);
+  });
+
   // The deadline, the stop and the tree kill stay the runner's with extra pipes (ADR 0218).
   it('ends the tree and destroys the extra pipes when the signal aborts a run that has them', async () => {
     const child = new FakeChild(79);

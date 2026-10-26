@@ -685,6 +685,31 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.match(result.output, /^bwrap gave no child pid on its --info-fd/);
   });
 
+  // Review of #564: its info pipe can close before the runner sees it end, and Foedrum then stops
+  // it for want of a pid; what it said under its own name is still the reason.
+  it('reads as not started with what bwrap said, when it fails after its info pipe closed', async () => {
+    const { calls, exec } = fakeSetup({ bwrap: 'fails-late' });
+    const result = await linuxSetup(exec)(line, [], call);
+    assert.equal(calls.length, 1);
+    assert.equal(result.exitCode, null);
+    assert.equal(result.killed, undefined);
+    assert.match(result.output, /^bwrap: setting up uid map: Permission denied \(ADR 0076\)/);
+  });
+
+  // Review of #564: the stack Foedrum stops once bwrap has ended has not failed.
+  it('reads as timed out when the deadline passes before the stack is up, and stops the stack', async () => {
+    const { events, exec } = fakeSetup({ stack: 'hangs', bwrap: 'times-out' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.equal(result.killed, 'timed-out');
+    assert.equal(result.exitCode, null);
+    assert.doesNotMatch(result.output, /slirp4netns/);
+    assert.deepEqual(events, ['slirp4netns starts', 'bwrap timed out', 'slirp4netns stopped']);
+  });
+
   it('reads no pid of 0, nor from JSON that ends before it is whole', async () => {
     for (const info of [['{"child-pid": 0}'], ['{"child-']]) {
       const { calls, events, exec } = fakeSetup({ info });
