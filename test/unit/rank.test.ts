@@ -611,6 +611,47 @@ describe('foedrum rank (ADR 0208)', () => {
       );
       assert.equal(lastId(), before);
     });
+
+    it('counts an order whose two sub-orders are ready as one place of the queue', async () => {
+      accept({
+        kind: 'record',
+        event: {
+          type: 'order.decomposed',
+          batchId: '30-1',
+          subOrders: [
+            { issue: 31, repo: web },
+            { issue: 32, repo: web },
+          ],
+          dependencies: [],
+        },
+      });
+      assert.deepStrictEqual(
+        await run(['rank', '#30'], queue),
+        ok('#30: place 6 of 6 in the queue, by its arrival\n'),
+      );
+      assert.deepStrictEqual(
+        await run(['rank', '#30', '2'], queue),
+        ok('#30 ranked 2: place 2 of 6 in the queue\n'),
+      );
+    });
+
+    it('refuses one whose issue is closed, though sub-orders of it are left', async () => {
+      accept({ kind: 'order', batchId: '31-1', order: { issue: 31 }, parentBatchId: '30-1' });
+      const closed: Partial<CliContext> = {
+        queue: () => {
+          const listed = withOrder();
+          listed[brewery] = (listed[brewery] ?? []).map((found) =>
+            found.number === 30 ? { ...found, state: 'closed' as const } : found,
+          );
+          return { tracker: fakeTracker(listed), login: async () => 'alice' };
+        },
+      };
+      const before = lastId();
+      const result = await run(['rank', '#30', '1'], closed);
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /^foedrum rank: #30 is not in the intake's queue/);
+      assert.equal(lastId(), before);
+    });
   });
 
   it('refuses when the queue cannot be read, or the Brewery is not named', async () => {

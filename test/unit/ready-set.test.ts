@@ -124,6 +124,21 @@ describe('readySubOrders', () => {
     assert.deepStrictEqual(ready(...events, ended('3-1', pr(9), 'merged')), [sub(1, 4)]);
   });
 
+  it('never holds a sub-order whose blocker is not in the bottle that merged', () => {
+    assert.deepStrictEqual(
+      ready(
+        ordered('1-1', 1),
+        decomposed('1-1', [2, 3, 4], [[4, 2]]),
+        ordered('2-1', 2, '1-1'),
+        ordered('3-1', 3, '1-1'),
+        { type: 'bottle.opened', bottleId: 'b1', repo: web, subOrders: [3], pullRequest: pr(9) },
+        onTap('3-1', pr(9)),
+        ended('3-1', pr(9), 'merged'),
+      ),
+      [],
+    );
+  });
+
   it('never holds a sub-order blocked by a release, merged or not: #538 adds the release signal', () => {
     assert.deepStrictEqual(
       ready(
