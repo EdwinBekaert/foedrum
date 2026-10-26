@@ -100,10 +100,17 @@ export type TastingFinding = z.infer<typeof TastingFinding>;
 export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
-/** A Taster's out doc: the contract's, with its findings, and a verdict when it is done. */
+/** One item of a Taster's `riskLeft`: a risk its review leaves, or what it could not verify. */
+const RiskLeft = NonEmpty.max(MAX_RISK_LEFT).regex(/^[^\r\n]*$/, 'Must be one line');
+
+/**
+ * A Taster's out doc: the contract's, with its findings, a verdict when it is done, and the risk
+ * its review leaves (ADR 0214), optional, so an out doc without it reads as before.
+ */
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
+  riskLeft: z.array(RiskLeft).max(MOST_RISKS_LEFT).exactOptional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done') return;
   if (doc.verdict === undefined) {
@@ -134,15 +141,17 @@ export interface TastingReport {
 }
 
 /**
- * The verdict and findings of an attempt's `output` when a Taster wrote it (ADR 0161); undefined
- * for any other brewer's out doc, and for a check's success, which has none.
+ * The verdict and findings of an attempt's `output` when a Taster wrote it (ADR 0161), with its
+ * risk left when it wrote any (ADR 0214); undefined for any other brewer's out doc, and for a
+ * check's success, which has none.
  */
 export const tastingOf = (output: unknown): TastingReport | undefined => {
   const read = TastingOutDoc.safeParse(output);
   if (!read.success || read.data.status !== 'done' || read.data.verdict === undefined) {
     return undefined;
   }
-  return { verdict: read.data.verdict, findings: read.data.findings };
+  const { verdict, findings, riskLeft = [] } = read.data;
+  return { verdict, findings, ...(riskLeft.length === 0 ? {} : { riskLeft }) };
 };
 
 /** Where a finding or a disposition is: its file and line, or the change as a whole (ADR 0191). */
