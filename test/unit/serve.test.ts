@@ -25,6 +25,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -1983,6 +1984,75 @@ describe('runServe', () => {
       assert.ok(released(), lines.join('\n'));
       assert.ok(github.requests.includes('GET /user'));
       assert.deepStrictEqual(github.issue('acme/web', 7)?.labels, []);
+    });
+
+    it("records the release a merged release blocker waits on, through GitHub's API (ADR 0223)", async () => {
+      store = empty();
+      const lib = 'acme/lib-core';
+      const merged = 'https://github.com/acme/lib-core/pull/5';
+      const routeBy = '2026-10-17T13:00:00.000Z';
+      store.withTransaction((tx) => {
+        for (const event of [
+          { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
+          {
+            type: 'order.decomposed',
+            batchId: '1-1',
+            subOrders: [
+              { issue: 2, repo: lib },
+              { issue: 3, repo: 'acme/web' },
+            ],
+            dependencies: [{ subOrder: 3, blockedBy: 2, kind: 'release' }],
+          },
+          { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+          {
+            type: 'batch.ordered',
+            batchId: '2-1',
+            order: { issue: 2 },
+            parentBatchId: '1-1',
+            routeBy,
+          },
+          { type: 'batch.on_tap', batchId: '2-1', pullRequests: [merged] },
+          { type: 'pull_request.ended', batchId: '2-1', pullRequest: merged, state: 'merged' },
+        ] satisfies Event[]) {
+          tx.append(event);
+        }
+      });
+      setup = intakeSetup({ concurrency: 2 });
+      const sha = 'c'.repeat(40);
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {},
+        instead: (_method, url) => {
+          switch (url.pathname) {
+            case '/repos/acme/lib-core/releases/latest':
+              return {
+                status: 200,
+                body: { tag_name: 'v1.0.0', published_at: '2026-10-17T11:00:00Z' },
+              };
+            case '/repos/acme/lib-core/pulls/5':
+              return {
+                status: 200,
+                body: {
+                  state: 'closed',
+                  merged: true,
+                  merged_at: '2026-10-17T10:00:00Z',
+                  merge_commit_sha: sha,
+                },
+              };
+            case `/repos/acme/lib-core/compare/v1.0.0...${sha}`:
+              return { status: 200, body: { status: 'behind' } };
+            default:
+              return undefined;
+          }
+        },
+      });
+      const recorded = () => state().releases.length > 0;
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(recorded) })), 0);
+      assert.deepStrictEqual(
+        state().releases.map(({ repo, version }) => `${repo} ${version}`),
+        [`${lib} v1.0.0`],
+      );
+      assert.ok(lines.includes(`foedrum serve: recorded the release v1.0.0 of ${lib}`));
     });
 
     it("stops when it cannot read the token's login for a target intake", async () => {

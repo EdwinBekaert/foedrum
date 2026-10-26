@@ -279,6 +279,51 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     assert.ok((log.state().subOrders.get(5)?.batchIds.length ?? 0) > 0);
   });
 
+  it("records a release that holds one of a blocker's merged pull requests (review of #578)", async () => {
+    recorded(
+      ...waiting,
+      ordered('2-2', 2, '1-1'),
+      onTap('2-2', pr(6)),
+      ended('2-2', pr(6), 'merged'),
+    );
+    // It holds the first merge of #2, not the second.
+    const { reader, asked } = fakeReader({ [lib]: v1 }, { [v1.version]: [pr(5)] });
+    await poll(reader);
+    assert.deepStrictEqual(releases(), [`${lib} lib-core v1.0.0`]);
+    assert.deepStrictEqual(asked, [`latest ${lib}`, `holds ${lib} v1.0.0 ${pr(5)}`]);
+    assert.ok(started());
+  });
+
+  it('reports a record the admission refuses, since another writer recorded it first (review of #578)', async () => {
+    recorded(...waiting);
+    const reader: ReleaseReader = {
+      latest: async () => v1,
+      holds: async () => {
+        // Another driver records the same release while this pass reads.
+        store.withTransaction((tx) => {
+          tx.append({
+            type: 'release.observed',
+            repo: lib,
+            package: 'lib-core',
+            version: 'v1.0.0',
+          });
+        });
+        return true;
+      },
+    };
+    await poll(reader);
+    assert.deepStrictEqual(releases(), [`${lib} lib-core v1.0.0`]);
+    assert.deepStrictEqual(
+      notices.filter(({ kind }) => kind === 'released'),
+      [],
+    );
+    const failed = notices.find(({ kind }) => kind === 'failed');
+    assert.equal(
+      failed?.kind === 'failed' ? failed.what : '',
+      `recording the release v1.0.0 of ${lib}`,
+    );
+  });
+
   it('reads nothing without a release blocker, nor for one not merged, closed, or of a cancelled order', async () => {
     const code = decomposed(
       [

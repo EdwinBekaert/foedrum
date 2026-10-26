@@ -108,6 +108,15 @@ describe('githubReleaseReader', () => {
       for (const tag of ['v1..2', 'v1 2', '-x/.hidden', 'v1.lock', 'v1/', '@', 'a@{b', 'x\u0007']) {
         await assert.rejects(readerWith([release(tag)]).reader.latest(repo), /no valid ref name/);
       }
+      // One near miss for each rule of git's ref names (review of #578).
+      const nearMisses = ['v1~1', 'v1^', 'v1:2', 'v1?', 'v1*', 'v1[', 'v1\\2', 'v1.'];
+      for (const tag of [...nearMisses, `x${String.fromCodePoint(0x7f)}`]) {
+        await assert.rejects(readerWith([release(tag)]).reader.latest(repo), /no valid ref name/);
+      }
+      assert.equal(
+        (await readerWith([release('v'.repeat(255))]).reader.latest(repo))?.version,
+        'v'.repeat(255),
+      );
       await assert.rejects(
         readerWith([release('v'.repeat(256))]).reader.latest(repo),
         /longer than 255 characters/,
@@ -169,6 +178,22 @@ describe('githubReleaseReader', () => {
       const { reader, requests } = readerWith([merged]);
       const old = { version: 'v2.3.0', published: '2026-10-26T09:59:59.000Z' };
       assert.equal(await reader.holds(repo, old, pullRequest), false);
+      assert.deepStrictEqual(
+        requests.map(({ url }) => url),
+        [pullUrl],
+      );
+    });
+
+    it('compares a release published in the second of the merge', async () => {
+      const { reader, requests } = readerWith([merged, compared('behind')]);
+      const same = { version: 'v2.4.0', published: '2026-10-26T10:00:00.000Z' };
+      assert.equal(await reader.holds(repo, same, pullRequest), true);
+      assert.equal(requests.length, 2);
+    });
+
+    it('holds nothing of a pull request with a merge commit but no merge time, and compares nothing', async () => {
+      const { reader, requests } = readerWith([pull({ merged_at: null, merge_commit_sha: merge })]);
+      assert.equal(await reader.holds(repo, v2, pullRequest), false);
       assert.deepStrictEqual(
         requests.map(({ url }) => url),
         [pullUrl],

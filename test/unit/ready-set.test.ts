@@ -429,6 +429,21 @@ describe('releaseWaits (ADR 0223)', () => {
     ]);
   });
 
+  it('goes by order number, the repository spelled as the lowest order names it (review of #578)', () => {
+    const blocked = (order: number, repo: string, n: number): Event[] => [
+      ordered(`${order}-1`, order),
+      decomposed(`${order}-1`, [[order + 1, repo], order + 2], [[order + 2, order + 1, 'release']]),
+      onTap(`${order}-1`),
+      ordered(`${order + 1}-1`, order + 1, `${order}-1`),
+      onTap(`${order + 1}-1`, pr(n)),
+      ended(`${order + 1}-1`, pr(n), 'merged'),
+    ];
+    // Order #7 is folded first, and spells the repository otherwise.
+    assert.deepStrictEqual(waits(...blocked(7, 'Acme/Lib-Core', 9), ...blocked(1, lib, 5)), [
+      { repo: lib, blockers: [[pr(5)], [pr(9)]] },
+    ]);
+  });
+
   it("gives a blocker's bottle by its pull request", () => {
     const bottled = [
       ...started(1, [[2, lib], [3, lib], 4], [[4, 2, 'release']]),
