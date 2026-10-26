@@ -171,7 +171,8 @@ describe('foedrum: commands that change state', () => {
       cancel: ['cancel', '23-1'],
       pause: ['pause', '21'],
       continue: ['continue', '21'],
-      stop: ['stop', '23'],
+      // 22-1 brews again after the retry above; cancel ended 23-1.
+      stop: ['stop', '22'],
       order: ['order', '#99'],
       takeover: ['takeover', '22-1', '--as', 'ann'],
     };

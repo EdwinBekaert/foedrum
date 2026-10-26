@@ -199,7 +199,7 @@ describe('stop (ADR 0205)', () => {
     accept({ kind: 'stop', order: { issue: 12 }, ...who });
     refuse(
       { kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 1, ending: { kind: 'cancelled' } },
-      /abandoned/,
+      /^batch b12 is stuck; finish needs it brewing$/,
     );
   });
 
