@@ -74,6 +74,8 @@ interface Options {
   gitFails?: Readonly<Record<string, string>>;
   /** The exit code of a git call that fails, by its command; default 1. */
   gitCodes?: Readonly<Record<string, number>>;
+  /** A writable folder on the PATH inside the home, for the foedrum command; default none. */
+  shimFolder?: string;
 }
 
 /** Runs init with `answers` in order; an answer past the last is the end of standard input. */
@@ -153,6 +155,19 @@ const init = async (
     doctor: async (folder) => {
       run.events.push(`doctor ${folder}`);
       return options.doctor ?? { ok: true, report: 'Doctor: ready\n' };
+    },
+    // The foedrum command (ADR 0210) on a made-up Linux machine.
+    shim: {
+      platform: 'linux',
+      env: { PATH: options.shimFolder ?? '/usr/bin' },
+      home: '/home/ada',
+      entry: '/home/ada/code/foedrum/src/cli/main.ts',
+      writable: (folder) => folder === options.shimFolder,
+      read: () => undefined,
+      write: (path) => {
+        run.events.push(`shim ${path}`);
+      },
+      resolve: () => undefined,
     },
   };
   const result = await runInit(ports);
@@ -949,5 +964,40 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
   it('lists the commits that origin, the remote the push goes to, does not have', async () => {
     const { git } = await init(['', '', ''], undefined, { status: ALL_NEW });
     assert.equal(git.find(({ args }) => args[0] === 'log')?.args.at(-1), '--remotes=origin');
+  });
+});
+
+describe('foedrum init writes the foedrum command (ADR 0210)', () => {
+  it('asks for it once after the push and before doctor, inside a clone', async () => {
+    const { questions, events } = await init(['', '', '', ''], undefined, {
+      status: ALL_NEW,
+      shimFolder: '/home/ada/.local/bin',
+    });
+    assert.equal(
+      questions.at(-1),
+      'Write the foedrum command into which folder? [1, or n for none]: ',
+    );
+    const shim = events.indexOf('shim /home/ada/.local/bin/foedrum');
+    assert.ok(events.indexOf('git push') < shim, events.join('\n'));
+    assert.ok(shim < events.indexOf('doctor '), events.join('\n'));
+  });
+
+  it('asks for it after creating the Brewery too', async () => {
+    const { events } = await init(['', '', '', '', ''], outside(), {
+      status: ALL_NEW,
+      shimFolder: '/home/ada/.local/bin',
+    });
+    const shim = events.indexOf('shim /home/ada/.local/bin/foedrum');
+    assert.ok(shim > events.indexOf('git push'), events.join('\n'));
+    assert.ok(shim < events.indexOf('doctor foedrum-brewery'), events.join('\n'));
+  });
+
+  it('stops with one line when standard input ends at its question', async () => {
+    const { result } = await init(['', '', ''], undefined, {
+      status: ALL_NEW,
+      shimFolder: '/home/ada/.local/bin',
+    });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /no answer to "Write the foedrum command into which folder\?"/);
   });
 });
