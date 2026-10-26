@@ -153,13 +153,19 @@ const addRounds = (
     const raised = new Set<Tracked>();
     const left = [...dispositions];
     for (const finding of found.findings) {
-      // Its lens is one of the step's: the out doc's schema refuses another (ADR 0220).
-      const tally = target.of(finding);
-      if (tally === undefined) continue;
-      const known = tracked.get(tally) ?? [];
-      tracked.set(tally, known);
       const { file, line, severity, introduced } = finding;
       const at = { file, line };
+      const tally = target.of(finding);
+      // A lens the files no longer give its step: whose it is now is unknown, so each lens counts
+      // it as not recorded, and it still takes the disposition the next round paired with it.
+      if (tally === undefined) {
+        for (const each of target.tallies) each.notRecorded.findings += 1;
+        const paired = left.findIndex((disposition) => samePlace(disposition, at));
+        if (paired >= 0) left.splice(paired, 1);
+        continue;
+      }
+      const known = tracked.get(tally) ?? [];
+      tracked.set(tally, known);
       let same = known.find(
         (each) => !raised.has(each) && each.end === undefined && samePlace(each, at),
       );
