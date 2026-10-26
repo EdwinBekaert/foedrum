@@ -1036,6 +1036,24 @@ describe('runBrew', () => {
     assert.deepStrictEqual(started, ['brew#1']);
   });
 
+  it('names the order to continue when a sub-order is held by its paused order: exit 5 (ADR 0202)', async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    const subOrders = [{ issue: 30, repo: 'acme/web' }];
+    const decomposed = { type: 'order.decomposed', batchId: '12-1', subOrders, dependencies: [] };
+    log().issue({ kind: 'record', event: decomposed } as const, t0);
+    log().issue(
+      { kind: 'order', batchId: '30-1', order: { issue: 30 }, parentBatchId: '12-1' },
+      t0,
+    );
+    log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
+    const sub = { ...request, target: { issue: 30 } };
+    assert.equal(await runBrew(setup, shell(behave.succeed()), sub), 5);
+    assert.equal(
+      lines.at(-1),
+      'foedrum brew: #30 is a sub-order of #12, which is paused; foedrum continue #12 lets it brew',
+    );
+  });
+
   it('refuses a paused order, ordering nothing: exit 5 (ADR 0202)', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
