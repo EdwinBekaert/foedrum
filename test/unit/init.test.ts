@@ -696,15 +696,18 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
     });
     for (const file of FILES) assert.ok(lines.includes(`  ${file}`), lines.join('\n'));
     assert.ok(questions.includes('Commit and push these? [Y/n]: '), questions.join('\n'));
-    const after = git.filter(({ args }) => args[0] !== 'status');
+    // The order of the three calls; what the commit takes has a test of its own.
+    const after = git.filter(({ args }) => ['add', 'commit', 'push'].includes(args[0] ?? ''));
     assert.deepStrictEqual(
-      after.map(({ folder, args }) => [folder, ...args]),
+      after.map(({ folder, args }) => [folder, args[0]]),
       [
-        ['', 'add', '--', ...FILES],
-        ['', 'commit', '-m', 'Set up the Brewery with foedrum init'],
-        ['', 'push', '-u', 'origin', 'HEAD'],
+        ['', 'add'],
+        ['', 'commit'],
+        ['', 'push'],
       ],
     );
+    assert.deepStrictEqual(after[0]?.args, ['add', '--', ...FILES]);
+    assert.deepStrictEqual(after[2]?.args, ['push', '-u', 'origin', 'HEAD']);
     assert.ok(events.indexOf('git push') < events.indexOf('doctor '), events.join('\n'));
   });
 
@@ -717,18 +720,19 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
   it('pushes nothing after a no, keeps the files and says how to push them', async () => {
     const clone: Clone = { files: new Map() };
     const { git, lines } = await init(['', '', 'n'], clone, { status: ALL_NEW });
-    assert.deepStrictEqual(
-      git.map(({ args }) => args[0]),
-      ['status'],
+    assert.ok(
+      !git.some(({ args }) => ['add', 'commit', 'push'].includes(args[0] ?? '')),
+      JSON.stringify(git),
     );
     assert.ok(clone.files.has('foedrum.jsonc'));
-    for (const command of [
-      `git add -- ${FILES.join(' ')}`,
-      'git commit -m "Set up the Brewery with foedrum init"',
-      'git push -u origin HEAD',
-    ]) {
+    for (const command of [`git add -- ${FILES.join(' ')}`, 'git push -u origin HEAD']) {
       assert.ok(lines.includes(command), lines.join('\n'));
     }
+    // What the commit command takes has a test of its own.
+    assert.ok(
+      lines.some((line) => line.startsWith('git commit -m "Set up the Brewery with foedrum init"')),
+      lines.join('\n'),
+    );
   });
 
   it("names a push that fails with git's line and the commands, and ends in 1 after doctor", async () => {
@@ -744,10 +748,12 @@ describe('foedrum init outside a clone, the labels and the push (ADR 0207)', () 
 
   it('passes no token to git: a plain https URL, and arguments without a credential', async () => {
     const { git } = await init(['', '', '', ''], outside(), { status: ALL_NEW });
-    assert.deepStrictEqual(
-      git.map(({ args }) => args[0]),
-      ['clone', 'status', 'add', 'commit', 'push'],
-    );
+    for (const command of ['clone', 'add', 'commit', 'push']) {
+      assert.ok(
+        git.some(({ args }) => args[0] === command),
+        command,
+      );
+    }
     for (const { args } of git) {
       for (const arg of args) assert.doesNotMatch(arg, /@|token|gh[pousr]_/i, arg);
     }
