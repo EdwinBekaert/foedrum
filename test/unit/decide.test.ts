@@ -1974,6 +1974,16 @@ describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
     });
   });
 
+  it('records no findings for a blocked brewer that wrote none, nor for a failure (ADR 0221)', () => {
+    const { findings: _, ...none } = blocked;
+    assert.equal('findings' in finishedOf(none), false);
+    assert.equal(
+      'findings' in
+        finishedOf({ kind: 'failed', retryable: false, reason: 'the check green failed' }),
+      false,
+    );
+  });
+
   it('makes the batch Stuck on a divergence when the route goes back to a skipped step', () => {
     const skippedGauge: Event[] = [
       ordered,
