@@ -947,17 +947,20 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
   }
 }
 
+/** A finding's text on one line, cut to what the status comment reads of it (ADR 0192). */
+export const cutFindingText = (text: string): string =>
+  text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
+
 /**
  * The first `most` of `findings`, on one line and cut to what the status comment reads of them, and
  * a count of the rest. A text the schema took has a character that is not blank, so it is never
  * blank once cut.
  */
 const cutFindings = (findings: readonly TastingFinding[], most: number) => {
-  const cut = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, MAX_OPEN_FINDING_TEXT);
   const kept = findings.slice(0, most).map(({ file, why, ...finding }) => ({
     ...finding,
-    ...(file === undefined ? {} : { file: cut(file) }),
-    why: cut(why),
+    ...(file === undefined ? {} : { file: cutFindingText(file) }),
+    why: cutFindingText(why),
   }));
   return { kept, more: findings.length - kept.length };
 };

@@ -4,6 +4,7 @@
 // apart, so no round is dropped.
 
 import { attemptKey } from '../engine/attempt-key.ts';
+import { cutFindingText } from '../engine/decide.ts';
 import type { Attempt, Batch, State } from '../engine/fold.ts';
 import { lensRounds } from '../engine/lens-rounds.ts';
 import type { Usage } from '../schemas/events.ts';
@@ -65,7 +66,11 @@ const counts = (): LensTally => ({
 });
 
 type Place = { file?: string | undefined; line?: number | undefined };
-const samePlace = (a: Place, b: Place): boolean => a.file === b.file && a.line === b.line;
+// A file as step.finished keeps a finding's, so a recorded finding meets the disposition written
+// against the Taster's own out doc (ADR 0221).
+const fileOf = ({ file }: Place): string | undefined =>
+  file === undefined ? undefined : cutFindingText(file);
+const samePlace = (a: Place, b: Place): boolean => fileOf(a) === fileOf(b) && a.line === b.line;
 
 /** One finding of a lens step across its rounds: its latest severity, and its disposition once it has one. */
 type Tracked = Place &
@@ -158,8 +163,12 @@ export const lensReport = (
     const recipe = batch.recipe?.name;
     if (recipe === undefined) continue;
     for (const step of batch.steps.values()) {
-      const reviewed = lensRounds(batch, step.id).length > 0;
-      // The tally of an attempt: its lens's, or, for a step that reviewed, its step's apart when
+      // A Taster's step: a round with its verdict, or blocked with the findings only a Taster
+      // records. Any brewer may block on findings, so that alone makes no lens step.
+      const tasted = lensRounds(batch, step.id).some(
+        ({ ran }) => ran.outcome.kind === 'succeeded' || ran.findings !== undefined,
+      );
+      // The tally of an attempt: its lens's, or, for a Taster's step, its step's apart when
       // the files no longer give it a lens; none for a step that is no lens step.
       const tallyOf = (attempt: number): LensTally | undefined => {
         const key = attemptKey.encode({ batchId: batch.id, stepId: step.id, attempt });
@@ -170,7 +179,7 @@ export const lensReport = (
           lenses.set(lens, found);
           return found;
         }
-        if (!reviewed) return undefined;
+        if (!tasted) return undefined;
         const apart = JSON.stringify([ranIn, step.id]);
         const found = gone.get(apart) ?? { ...counts(), recipe: ranIn, stepId: step.id };
         gone.set(apart, found);
