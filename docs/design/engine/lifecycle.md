@@ -40,5 +40,6 @@ Engine-generated batch ids are `<issue>-<n>` (`src/engine/batch-id.ts`), which a
 
 Board lanes are these states: **Ordered · Brewing · Conditioning ⏳ · Stuck 🔔 · On tap**.
 Conditioning is waiting with a visible reason ("waiting for lib-core ≥ 2.4.0") and a reminder (default: after 2 days, then every 2 days; configurable per Brewery and recipe, for now one interval per supervisor: [ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)) — never silent, but not a failure either.
+A sub-order blocked by another has no batch while it waits for that blocker's merge, so it is in no lane and has no Conditioning reason or reminder, unlike the wait for a merge ADR 0013 describes: the intake orders it in the first pass after the merge is recorded, and this wait is the second exception to "every wait has a deadline", beside a person's pause ([work breakdown](../intake/work-breakdown.md), [ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)).
 A Stuck batch has a reminder as well, with the same default.
 An Ordered batch waits to be routed by a routing deadline (default 1 hour); past it, it is Stuck on routing ([ADR 0032](../../adr/0032-routing-deadline-for-ordered-batches.md)).

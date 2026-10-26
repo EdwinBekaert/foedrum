@@ -252,7 +252,7 @@ describe('foedrum: the command line', () => {
     assert.equal(served, 1);
   });
 
-  it('runs foedrum init through its context, with no argument, terminal-only for now (ADR 0199)', async () => {
+  it('runs foedrum init through its context, with no argument (ADR 0199)', async () => {
     const result = { exitCode: 1, stdout: '', stderr: '' };
     let ran = 0;
     const init = async () => {
@@ -267,7 +267,63 @@ describe('foedrum: the command line', () => {
     );
     const command = commands.find(({ name }) => name === 'init');
     assert.equal(command?.changesState, false);
-    assert.match(command?.terminalOnly ?? '', /\/foedrum:init/);
+  });
+
+  it('gives foedrum init its answers as options, repeated ones as lists, and carries it in the plugin (ADR 0212)', async () => {
+    const inputs: unknown[] = [];
+    const init = async (input: unknown) => {
+      inputs.push(input);
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+    const argv = [
+      'init',
+      '--brewery',
+      'acme/brewery',
+      '--visibility',
+      'private',
+      '--targets',
+      'acme/web acme/api',
+      '--alias',
+      'acme/web=web',
+      '--alias',
+      'acme/api=api',
+      '--use-checks',
+      'acme/web=y',
+      '--check',
+      'acme/api:build=make',
+      '--change',
+      '.gitignore=n',
+      '--label',
+      'acme/web=y',
+      '--push',
+      'y',
+      '--shim',
+      '1',
+      '--repoint',
+      'n',
+      '--no-input',
+      '--via',
+      'plugin',
+    ];
+    assert.equal((await run(argv, { init })).exitCode, 0);
+    assert.deepStrictEqual(inputs, [
+      {
+        command: 'init',
+        brewery: 'acme/brewery',
+        visibility: 'private',
+        targets: 'acme/web acme/api',
+        alias: ['acme/web=web', 'acme/api=api'],
+        'use-checks': ['acme/web=y'],
+        check: ['acme/api:build=make'],
+        change: ['.gitignore=n'],
+        label: ['acme/web=y'],
+        push: 'y',
+        shim: '1',
+        repoint: 'n',
+        'no-input': true,
+      },
+    ]);
+    assert.equal(commands.find(({ name }) => name === 'init')?.terminalOnly, undefined);
   });
 
   it('runs foedrum resume through its context, with or without its step (ADR 0126)', async () => {
