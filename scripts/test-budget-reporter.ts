@@ -125,10 +125,16 @@ export interface RemeasureOptions {
   coverage?: boolean;
 }
 
-// Runs one test file alone under node --test with the CPU time preload, as npm test does, and
-// reads the CPU time it reports (ADR 0089).
+// Runs one test file alone under node --test with the CPU time preload, as npm test does, with
+// coverage when its run had it (ADR 0241), and reads the CPU time it reports (ADR 0089).
 export const remeasureAlone =
-  ({ execPath, cwd, runProcess, timeoutMs = REMEASURE_TIMEOUT_MS }: RemeasureOptions) =>
+  ({
+    execPath,
+    cwd,
+    runProcess,
+    timeoutMs = REMEASURE_TIMEOUT_MS,
+    coverage = true,
+  }: RemeasureOptions) =>
   async (file: string): Promise<number | undefined> => {
     const { output, killed } = await runProcess(
       execPath,
@@ -136,7 +142,7 @@ export const remeasureAlone =
         '--import',
         './scripts/test-cpu-time.ts',
         '--test',
-        '--experimental-test-coverage',
+        ...(coverage ? ['--experimental-test-coverage'] : []),
         '--test-reporter=tap',
         '--test-reporter-destination=stdout',
         file,
@@ -161,6 +167,8 @@ export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>)
     execPath: process.execPath,
     cwd: process.cwd(),
     runProcess: async (...args) => (await import('./process-runner.ts')).spawnProcess(...args),
+    // The reporter runs in the test runner's process, whose flags say whether the run had it.
+    coverage: process.execArgv.includes('--experimental-test-coverage'),
   });
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(2)} s`;

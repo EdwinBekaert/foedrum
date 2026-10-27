@@ -1,6 +1,8 @@
 // `npm run check`: starts the typecheck, the linter, the tests and the two guards at once, prints
 // each step's output in a fixed order with the failed steps last, and fails when any step fails. One after another they
-// took about twice as long, mostly npm start-ups on Windows (issue #70). The npm scripts run
+// took about twice as long, mostly npm start-ups on Windows (issue #70). The tests are the test
+// files the change reaches, without coverage; with --all, as in CI, every test file with
+// coverage, as npm test (ADR 0241). The npm scripts run
 // through npm's own CLI (npm_execpath, set by `npm run check`), so package.json stays the one
 // place for their commands and nothing starts a shell.
 
@@ -21,13 +23,84 @@ export interface CheckStep {
 // files a change reaches (ADR 0241).
 export type TestRun = { kind: 'coverage' } | Affected;
 
-export const checkSteps = (npmCli: string, _tests: TestRun = { kind: 'coverage' }): CheckStep[] => [
+// npm test's command without coverage and without its glob: the files go after it. A unit test
+// holds package.json's test script to it.
+export const TEST_COMMAND = [
+  'scripts/with-checkout-tmp.ts',
+  '--import',
+  './scripts/test-cpu-time.ts',
+  '--test',
+  '--test-reporter=./scripts/spec-reporter.ts',
+  '--test-reporter-destination=stdout',
+  '--test-reporter=./scripts/test-budget-reporter.ts',
+  '--test-reporter-destination=stdout',
+];
+
+// Every test file; node --test expands the glob itself.
+export const TEST_GLOB = 'test/{unit,property,chaos}/**/*.test.ts';
+
+const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
+  switch (tests.kind) {
+    case 'coverage':
+      return [{ label: 'npm test', args: [npmCli, 'test'] }];
+    case 'all':
+      return [
+        {
+          label: 'node --test (every test file, without coverage)',
+          args: [...TEST_COMMAND, TEST_GLOB],
+        },
+      ];
+    case 'some': {
+      const { files } = tests;
+      if (files.length === 0) return [];
+      const count = files.length === 1 ? '1 test file' : `${files.length} test files`;
+      return [
+        { label: `node --test (${count} the change reaches)`, args: [...TEST_COMMAND, ...files] },
+      ];
+    }
+    default: {
+      const never: never = tests;
+      return never;
+    }
+  }
+};
+
+export const checkSteps = (npmCli: string, tests: TestRun = { kind: 'coverage' }): CheckStep[] => [
   { label: 'npm run typecheck', args: [npmCli, 'run', 'typecheck'] },
   { label: 'npm run lint', args: [npmCli, 'run', 'lint'] },
-  { label: 'npm test', args: [npmCli, 'test'] },
+  ...testStep(npmCli, tests),
   { label: 'node scripts/check-test-layers.ts', args: ['scripts/check-test-layers.ts'] },
   { label: 'node scripts/check-deps.ts --offline', args: ['scripts/check-deps.ts', '--offline'] },
 ];
+
+// The line that says which tests run, before the steps' output.
+const testsLine = (tests: TestRun): string => {
+  switch (tests.kind) {
+    case 'coverage':
+      return '';
+    case 'all':
+      return `Every test file runs, without coverage: ${tests.why}\n`;
+    case 'some':
+      return tests.files.length === 0
+        ? 'No test file reached by the change.\n'
+        : `Test files the change reaches (${tests.files.length}):\n${tests.files.map((file) => `  ${file}\n`).join('')}`;
+    default: {
+      const never: never = tests;
+      return never;
+    }
+  }
+};
+
+// The test files the change reaches, or every test file when the change cannot be read.
+const findTests = async (affected: (() => Promise<Affected>) | undefined): Promise<TestRun> => {
+  if (affected === undefined) return { kind: 'coverage' };
+  try {
+    return await affected();
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    return { kind: 'all', why: `the change could not be read: ${why}` };
+  }
+};
 
 export interface CheckOptions {
   env: NodeJS.ProcessEnv;
@@ -69,6 +142,7 @@ export const runCheck = async ({
   stepTimeoutMs = STEP_TIMEOUT_MS,
   signal,
   lowerPriority,
+  affected,
 }: CheckOptions): Promise<number> => {
   lowerPriority?.();
   // A worktree without node_modules of its own would run every step against the packages of the
@@ -83,9 +157,11 @@ export const runCheck = async ({
     write('npm_execpath is not set: run this as `npm run check`.\n');
     return 1;
   }
+  const tests = await findTests(affected);
+  write(testsLine(tests));
   // The runner kills a step's whole tree at the deadline or when the check is stopped. A runner
   // that rejects counts as a failed step, so the other steps are still waited for.
-  const running = checkSteps(npmCli).map(({ label, args }) => ({
+  const running = checkSteps(npmCli, tests).map(({ label, args }) => ({
     label,
     outcome: runProcess(execPath, args, cwd, { timeoutMs: stepTimeoutMs, signal }).catch(
       (error: unknown): ProcessOutcome => ({
@@ -111,7 +187,15 @@ export const runCheck = async ({
 };
 
 if (import.meta.main) {
+  const { readFile } = await import('node:fs/promises');
+  const { parseArgs } = await import('node:util');
   const { spawnProcess } = await import('./process-runner.ts');
+  const { affectedByChange } = await import('./affected-tests.ts');
+  const { runGit } = await import('../src/workspace/git.ts');
+  const { gitThrough } = await import('../src/workspace/worktree-removal-git.ts');
+  // --all: every test file with coverage, as CI runs it (ADR 0241).
+  const { all } = parseArgs({ options: { all: { type: 'boolean', default: false } } }).values;
+  const cwd = process.cwd();
   // Outside Windows the steps lead process groups of their own, which a Ctrl+C in the terminal
   // does not reach, and on Windows npm's children would outlive it: kill their trees instead.
   // The gate stops the check with SIGTERM before SIGKILL (killProcessTree), so this process
@@ -120,10 +204,20 @@ if (import.meta.main) {
     env: process.env,
     execPath: process.execPath,
     runProcess: spawnProcess,
-    cwd: process.cwd(),
+    cwd,
     write: (text) => process.stdout.write(text),
     signal: stopOnSignals(),
     // Below normal outside CI, so the steps leave the desktop responsive (#140).
     lowerPriority: () => lowerOwnPriority(process.env),
+    ...(all
+      ? {}
+      : {
+          affected: () =>
+            affectedByChange({
+              cwd,
+              git: gitThrough(runGit),
+              read: (path) => readFile(path, 'utf8').catch(() => undefined),
+            }),
+        }),
   });
 }
