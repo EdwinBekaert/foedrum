@@ -179,4 +179,70 @@ describe('the brew-audit workflow', () => {
     const { out } = await run({}, { report: '' });
     assert.equal(out.report, null);
   });
+
+  it('keeps the findings of an area whose skeptic answered nothing, marked unverified', async () => {
+    const { out } = await run(
+      {},
+      {
+        'find:cli': { area: 'cli', verdict: 'v', findings: [finding('cli-1')] },
+        'verify:cli': null,
+      },
+    );
+    assert.deepEqual(out.findings, [
+      { ...finding('cli-1'), id: 'cli-1@aaaaaaaa', area: 'cli', unverified: true },
+    ]);
+    assert.deepEqual(out.unverified, ['cli']);
+  });
+
+  it('keeps a finding the skeptic neither kept nor dropped, marked unverified, and the area unfinished', async () => {
+    const { out } = await run(
+      {},
+      {
+        'find:cli': { area: 'cli', verdict: 'v', findings: [finding('cli-1'), finding('cli-2')] },
+        'verify:cli': {
+          area: 'cli',
+          verdict: 'vv',
+          kept: [],
+          dropped: [{ id: 'cli-1', reason: 'r' }],
+        },
+      },
+    );
+    assert.deepEqual(out.findings, [
+      { ...finding('cli-2'), id: 'cli-2@aaaaaaaa', area: 'cli', unverified: true },
+    ]);
+    assert.deepEqual(out.unverified, ['cli']);
+  });
+
+  it('marks a kept finding as security when the skeptic says it is one', async () => {
+    const { out } = await run(
+      {},
+      {
+        'find:adrs': {
+          area: 'adrs',
+          verdict: 'v',
+          findings: [{ ...finding('adrs-1'), dimension: 'adr' }],
+        },
+        'verify:adrs': {
+          area: 'adrs',
+          verdict: 'vv',
+          kept: [{ id: 'adrs-1', severity: 'low', note: 'n', security: true }],
+          dropped: [],
+        },
+      },
+    );
+    assert.deepEqual(
+      out.findings.map((f: { dimension: string }) => f.dimension),
+      ['security'],
+    );
+  });
+
+  it('audits an area the earlier audit did not finish in full, and only that one', async () => {
+    const { calls } = await run(
+      { since: SINCE, previous: [], changed: ['src/cli/a.ts'], unfinished: ['cli'] },
+      {},
+    );
+    const whole = /The earlier audit did not finish this area: audit all of it/;
+    assert.match(calls.find((c) => c.opts.label === 'find:cli')?.prompt ?? '', whole);
+    assert.doesNotMatch(calls.find((c) => c.opts.label === 'find:schemas')?.prompt ?? '', whole);
+  });
 });
