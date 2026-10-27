@@ -42,6 +42,6 @@ Where the full counts run stays as ADR 0134 has it: chaos ×200 and property ×5
 - **Fail the budget and the ceiling outside CI too, after the runs alone:** measured above; it failed `npm test` with nothing wrong, and its runs alone pushed the check past its time.
 - **Raise the ceiling:** it would stop catching a run count grown too large, which is what it is for.
 - **Move `shrink.test.ts` out of `test/chaos/`:** it would drop out of every check, the Linux leg's included.
-- **A CI path trigger for `test/helpers/chaos*`:** the Linux leg's `FOEDRUM_RUNS` runs the shrinker in full on every pull request, and with ADR 0241 (#595) a change there also reaches every chaos file in the gate's affected set.
+- **A CI path trigger for `test/helpers/chaos*`:** the Linux leg's `FOEDRUM_RUNS` runs the shrinker in full on every pull request, and once ADR 0241 (#595) lands, a change there would also reach every chaos file in the gate's affected set.
 - **Fewer seeds searched in the check:** the search stops at the first failure, so a lower limit saves nothing until it misses the planted failure.
 - **Fewer steps of the smallest schedule's proof in the check:** they are about a tenth of the two-driver test's runs; dropping some would prove less and save little.
