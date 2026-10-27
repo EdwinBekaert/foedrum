@@ -211,11 +211,11 @@ describe('a failing chaos run', () => {
   it('replays a run from its own faults event for event, with faults of every kind', async () => {
     const kinds = new Set<string>();
     const wanted = ['kill', 'pause', 'first', 'down', 'stall', 'interject'];
-    // The last `runs` of a dozen seeds, all of them in full: on most, the pauses change nothing
-    // the drivers do (seed 10 is the first where they do), so a replay that dropped them would
-    // pass on fewer; the check's three hold seed 10.
+    // The last `runs` of a dozen seeds, and seeds 10 to 12 at least, all of them in full: on
+    // most, the pauses change nothing the drivers do (seed 10 is the first where they do), so a
+    // replay that dropped them would pass without seed 10.
     for (
-      let seed = Math.max(1, dozen - runs + 1);
+      let seed = Math.max(1, Math.min(10, dozen - runs + 1));
       seed <= dozen || (seed <= maxSeeds && wanted.some((k) => !kinds.has(k)));
       seed++
     ) {
