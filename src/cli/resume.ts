@@ -19,6 +19,7 @@ import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import type { BatchLease, EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, type State } from '../engine/fold.ts';
 import { resumeOf } from '../engine/session-resume.ts';
+import { sessionCommand } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
@@ -181,6 +182,8 @@ interface Running {
 interface Open {
   open: true;
   ref: AttemptRef;
+  /** The batch's issue, which `foedrum brew` reopens the session by. */
+  batch: Pick<Batch, 'issue' | 'repo'>;
   /** When its session opened (`interactiveSince`). */
   since: string;
 }
@@ -219,7 +222,7 @@ const runningTarget = (
     if (latest?.phase !== 'started' || latest.abandoned === true) continue;
     const { attempt: n, interactiveSince: since } = latest;
     if (since !== undefined)
-      return { open: true, ref: { batchId, stepId: step.id, attempt: n }, since };
+      return { open: true, ref: { batchId, stepId: step.id, attempt: n }, batch, since };
   }
   let why: string | undefined;
   for (const step of steps) {
@@ -292,17 +295,23 @@ const failed = (line: string): CliResult => ({
   stderr: `foedrum resume: ${line}\n`,
 });
 
-/** Why an open interactive session is refused, and who holds its batch (ADR 0231). */
-const openLine = ({ ref, since }: Open, leases: readonly BatchLease[]): string => {
+/**
+ * Why an open interactive session is refused (ADR 0231): it must close so it reports, and brew
+ * opens it again when it closed without its out doc. Open for sure only while a driver holds the
+ * batch, since brew renews its lease only while it waits on claude.
+ */
+const openLine = ({ ref, batch, since }: Open, leases: readonly BatchLease[]): string => {
   const { batchId } = ref;
-  const open = `${labelOf(ref)} of batch ${batchId} is an interactive session open since ${since}`;
+  const of = `${labelOf(ref)} of batch ${batchId} is an interactive session`;
+  const brew = sessionCommand(batch);
   const lease = leases.find((held) => held.batchId === batchId);
   if (lease === undefined) {
-    const lapses = 'the supervisor loses the attempt once its lease lapses';
-    return `${open}, and no driver holds the batch: ${lapses}, and the batch waits for a session again`;
+    const lapses = "it waits for a session again once the attempt's lease lapses";
+    return `${of} open since ${since}, and no driver holds the batch: ${lapses}, then ${brew} opens a fresh one`;
   }
-  const read = `close it there, then foedrum resume ${batchId} ${labelOf(ref)} opens it for reading`;
-  return `${open}, in ${lease.owner} until ${lease.expiresAt.toISOString()}: ${read}`;
+  const until = lease.expiresAt.toISOString();
+  const close = `close it there so it reports; if it closes without its out doc, ${brew} opens it again`;
+  return `${of} still open in ${lease.owner} (since ${since}, lease until ${until}): ${close}`;
 };
 
 /** Runs `foedrum resume`: claude's exit code, or one line on why it opened nothing. */

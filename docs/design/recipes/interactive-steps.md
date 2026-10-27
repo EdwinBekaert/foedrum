@@ -31,5 +31,5 @@ flowchart LR
 - An open session has no deadline and no stall limit: the supervisor does not expire a started attempt of an interactive step, and its lease, renewed while foedrum runs, ends it when foedrum dies.
   `step.started` records `interactiveSince`, and the status comment says `session open since <time>` on the step's line.
   A `stop` or `cancel` still ends the wait; what the session writes after that is not read.
-- `foedrum resume` of an open interactive attempt is refused at once, with one line naming since when the session is open and the driver that holds the batch (or that none does), and takes nothing over: the session cannot be stopped from outside ([ADR 0231](../../adr/0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md)).
-  Once the person closed it, `foedrum resume <batch> <step>#<n>` opens the finished attempt for reading.
+- `foedrum resume` of an open interactive attempt is refused at once and takes nothing over: the session cannot be stopped from outside, and it must close with its out doc before the batch goes on ([ADR 0231](../../adr/0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md)).
+  Its line names the driver that holds the batch, since when the session is open and until when the lease runs, asks to close it there so it reports, and names `foedrum brew <issue> --take` to open it again; with no live lease, it says no driver holds the batch, which waits for a session again once the attempt's lease lapses.
