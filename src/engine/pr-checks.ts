@@ -84,26 +84,28 @@ const kept = <T extends HeadCheck>(checks: readonly T[]): { checks: T[]; more?: 
 type FinishedCheck = HeadCheck & { job?: number };
 
 /**
- * How long the log reads of one record may take: well inside a pass's deadline, so a record with
- * slow logs is written all the same and the next pass skips it as unchanged (ADR 0228).
+ * How long the log reads of one pass may take, all its records together: well inside its deadline,
+ * so a record with slow logs is written all the same and the next pass skips it as unchanged
+ * (ADR 0228).
  */
 const LOG_READS_MS = 60_000;
 
-/** Why a failed job's log was not read once the record's time for its logs was up. */
-const LATE = 'it was not read within the minute a record gives its logs';
+/** Why a failed job's log was not read once the pass's time for logs was up. */
+const LATE = 'it was not read within the minute a pass gives job logs';
 
 /**
  * `checks` as a record keeps them, each of the first `MOST_FAILED_CHECKS` failed Actions jobs with
- * its log (ADR 0228), read one at a time until `LOG_READS_MS` is up. Undefined for no record on
- * this pass: given up, or a read the reader says to try again, which it reports.
+ * its log (ADR 0228), read one at a time until the pass's minute ends at `until`. Undefined for no
+ * record on this pass: given up, a read the reader says to try again, which it reports, or a
+ * record whose first read would start after `until`, which the next pass reads.
  */
 const withLogs = async (
   { reader, clock, failed }: CheckReadOptions,
   url: string,
   checks: readonly FinishedCheck[],
   signal: AbortSignal,
+  until: number,
 ): Promise<HeadCheck[] | undefined> => {
-  const until = clock().getTime() + LOG_READS_MS;
   const recorded: HeadCheck[] = [];
   let read = 0;
   for (const { job, ...check } of checks) {
@@ -113,6 +115,7 @@ const withLogs = async (
     }
     read++;
     if (clock().getTime() >= until) {
+      if (read === 1) return undefined;
       recorded.push({ ...check, log: { unread: LATE } });
       continue;
     }
@@ -146,6 +149,7 @@ export const recordChecks = async (
       failed(`recording the checks of ${event.pullRequest}`, new Error(decision.reason));
     }
   };
+  const until = clock().getTime() + LOG_READS_MS;
   for (const batchId of [...log.state().batches.keys()]) {
     if (signal.aborted) return;
     // Each batch as the log has it now: other writers append beside the pass (ADR 0044).
@@ -178,7 +182,7 @@ export const recordChecks = async (
       const checks = kept(finished);
       if (before?.kind === 'finished' && sameHeadChecks(before, checks)) continue;
       // Only a record about to be written reads a log, so an unchanged one never reads it again.
-      const logged = await withLogs(options, open.url, checks.checks, signal);
+      const logged = await withLogs(options, open.url, checks.checks, signal, until);
       if (signal.aborted) return;
       if (logged === undefined) continue;
       record({
