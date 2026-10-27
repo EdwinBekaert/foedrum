@@ -1,7 +1,8 @@
 // Events of a batch that brewed, pushed and opened its pull request (ADR 0071), and the records of
-// the checks on its head (ADR 0213): what a failing pull request sends back (ADR 0219).
+// the checks on its head (ADR 0213) and on its merged tree (ADR 0203): what a failing pull request
+// sends back (ADR 0219, ADR 0226).
 
-import type { Event, HeadCheck } from '../../src/schemas/events.ts';
+import type { Event, GravityReading, HeadCheck } from '../../src/schemas/events.ts';
 
 export const OPEN = 'open-pull-request';
 export const fixPullRequest = 'https://github.com/acme/api/pull/12';
@@ -18,6 +19,37 @@ export const passedCheck: HeadCheck = {
   kind: 'check_run',
   conclusion: 'success',
 };
+/** The base's tip a merged-tree check ran at. */
+export const baseTip = 'e'.repeat(40);
+/** The first reading that did not pass on a merged tree (ADR 0203). */
+export const mergedFailure: GravityReading = {
+  result: 'exited',
+  check: 'test',
+  command: 'npm test',
+  exitCode: 1,
+  tail: 'not ok 1 - adds\n# fail 1',
+};
+
+/**
+ * The record of a check of the merged tree of `head` with `main` at `tip` (ADR 0203), failed by
+ * default; with no `head`, as a log written before ADR 0226 has it.
+ */
+export const baseChecked = (
+  batchId: string,
+  head: string | undefined,
+  tip = baseTip,
+  found: Record<string, unknown> = { failed: mergedFailure },
+  pullRequest = fixPullRequest,
+): Event =>
+  ({
+    type: 'pull_request.base_checked',
+    batchId,
+    pullRequest,
+    branch: 'main',
+    tip,
+    ...(head === undefined ? {} : { head }),
+    ...found,
+  }) as Event;
 
 /** The push key of `round`: `push` for the first, `push.<n>` after (ADR 0219). */
 export const pushKeyText = (batchId: string, round = 1): string =>
@@ -120,7 +152,8 @@ export const checksPending = (
 
 /**
  * A fix round of batch `batchId` sent back from `head`: `plan` again along the route, then the
- * action, which pushes `next` as round `round`, and On tap again.
+ * action, which pushes `next` as round `round`, and On tap again. With `tip`, the merged tree with
+ * the base at `tip` sent it back (ADR 0226).
  */
 export const fixRound = (
   batchId: string,
@@ -128,6 +161,7 @@ export const fixRound = (
   next: string,
   round = 2,
   pullRequest = fixPullRequest,
+  tip?: string,
 ): Event[] => [
   {
     type: 'step.scheduled',
@@ -135,7 +169,13 @@ export const fixRound = (
     stepId: 'plan',
     attempt: round,
     deadlineAt: '2026-10-15T11:00:00.000Z',
-    route: { from: OPEN, why: 'pull_request', pullRequest, head },
+    route: {
+      from: OPEN,
+      why: 'pull_request',
+      pullRequest,
+      head,
+      ...(tip === undefined ? {} : { cause: 'merged_check', tip }),
+    },
   },
   ...step(batchId, 'plan', round),
   {

@@ -228,6 +228,8 @@ export interface BaseCheck {
   /** The base branch, as the remote names it. */
   branch: string;
   tip: string;
+  /** The head merged with the tip (ADR 0226); absent in a log written before it. */
+  head?: string;
   /** The files it conflicts in; absent when it merges cleanly. */
   conflicts?: readonly string[];
   /** The bottle branch's tip, when someone else pushed to it: not checked, then or after. */

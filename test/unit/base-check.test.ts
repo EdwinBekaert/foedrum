@@ -143,7 +143,7 @@ describe('checkBases', () => {
     await pass(repository);
     await pass(repository);
     assert.deepStrictEqual(batch().baseChecks, [
-      { pullRequest, branch: 'main', tip: tip1, conflicts: ['src/a.ts', 'src/b.ts'] },
+      { pullRequest, branch: 'main', tip: tip1, head, conflicts: ['src/a.ts', 'src/b.ts'] },
     ]);
     assert.deepStrictEqual(
       calls.filter((call) => call.startsWith('merge-tree')),
@@ -189,7 +189,7 @@ describe('checkBases', () => {
       [tip3]: clean,
     });
     await pass(repository);
-    assert.deepStrictEqual(batch().baseChecks, [{ pullRequest, branch: 'main', tip: tip1 }]);
+    assert.deepStrictEqual(batch().baseChecks, [{ pullRequest, branch: 'main', tip: tip1, head }]);
     assert.deepStrictEqual(conflictPosts(batch()), []);
     assert.deepStrictEqual(baseCheckLines(batch()), []);
     state.at = tip2;
@@ -307,6 +307,7 @@ describe('checkBases', () => {
       pullRequest,
       branch: 'main',
       tip: tip2,
+      head,
       branchMoved: 'f'.repeat(40),
     });
     assert.equal(batch().baseChecks?.length, 2);
@@ -505,7 +506,9 @@ describe('checkBases', () => {
       const { repository } = fakeRepository({ [tip1]: clean });
       const { handed, checks } = handing(false);
       await pass({ ...repository, checks });
-      assert.deepStrictEqual(batch().baseChecks, [{ pullRequest, branch: 'main', tip: tip1 }]);
+      assert.deepStrictEqual(batch().baseChecks, [
+        { pullRequest, branch: 'main', tip: tip1, head },
+      ]);
       assert.deepStrictEqual(handed, []);
     });
 
@@ -516,7 +519,7 @@ describe('checkBases', () => {
       await pass({ ...repository, checks });
       assert.deepStrictEqual(handed, []);
       assert.deepStrictEqual(batch().baseChecks, [
-        { pullRequest, branch: 'main', tip: tip1, conflicts: ['src/a.ts'] },
+        { pullRequest, branch: 'main', tip: tip1, head, conflicts: ['src/a.ts'] },
       ]);
     });
 
@@ -941,6 +944,181 @@ describe('checkBases', () => {
         });
         assert.deepStrictEqual(effects.due({ ...state, batches }, 'web-8'), []);
       });
+    });
+  });
+
+  describe('a base check is of a head, and a failure on it sends the batch back (ADR 0226)', () => {
+    const open = 'open';
+    const head2 = 'f'.repeat(40);
+    const failing: GravityReading = {
+      result: 'exited',
+      check: 'test',
+      command: 'npm test',
+      exitCode: 1,
+      tail: 'not ok 1 - adds',
+    };
+    const fixed = fakeRecipes({
+      // Nip's shape: the openPullRequest step goes back to plan, at most two rounds.
+      fixed: fakeRecipe({
+        steps: ['plan', open],
+        actions: { [open]: 'openPullRequest' },
+        routes: { [open]: { pull_request: 'plan' } },
+        maxRounds: 2,
+        pullRequests: [],
+      }),
+      half: fakeRecipe({ steps: ['plan'], pullRequests: [pullRequest] }),
+    });
+    let fixLog: CommandLog;
+    beforeEach(() => {
+      fixLog = createCommandLog({ store, recipes: fixed });
+    });
+    const take = (command: Parameters<CommandLog['issue']>[0]): void => {
+      const decision = fixLog.issue(command, now);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    };
+    const record = (key: Parameters<typeof effectKey.encode>[0], result: unknown): void =>
+      take({
+        kind: 'record',
+        event: { type: 'effect.applied', key: effectKey.encode(key), result },
+      });
+    const pushedAt = (commit: string): PushResult => ({
+      branch: 'foedrum/x/acme.web',
+      commit,
+      from: 'start',
+    });
+    /** Batch web-7 of `fixed`: plan, then the action pushed `head` and opened the pull request. */
+    const onTapFixed = (): void => {
+      take({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
+      take({ kind: 'route', batchId: 'web-7', recipe: 'fixed', reason: 'label', source: 'label' });
+      for (const stepId of ['plan', open]) {
+        const ref = { batchId: 'web-7', stepId, attempt: 1 };
+        take({ kind: 'record', event: { type: 'step.started', ...ref } });
+        if (stepId === open) {
+          record(pushKey('web-7'), pushedAt(head));
+          record(pullRequestKey('web-7'), pullRequest);
+        }
+        take({ kind: 'finish', ...ref, ending: succeeded });
+      }
+    };
+    const failedAt = (tip: string, of = head): void =>
+      take({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest,
+          branch: 'main',
+          tip,
+          head: of,
+          failed: failing,
+        },
+      });
+    const fixCommand = (tip: string, of = head) =>
+      ({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest,
+        head: of,
+        cause: { kind: 'merged_check', tip },
+      }) as const;
+    /** The fix round: plan#2 merged the base at `merged` at its start, and the action pushed `next`. */
+    const fixRoundTo = (next: string, merged: string): void => {
+      const planRef = { batchId: 'web-7', stepId: 'plan', attempt: 2 };
+      take({ kind: 'record', event: { type: 'step.started', ...planRef } });
+      record({ ...planRef, effect: 'merge_base' }, { base: merged, merged: 'b'.repeat(40) });
+      take({ kind: 'finish', ...planRef, ending: succeeded });
+      const openRef = { batchId: 'web-7', stepId: open, attempt: 2 };
+      take({ kind: 'record', event: { type: 'step.started', ...openRef } });
+      record(pushKey('web-7', 2), pushedAt(next));
+      take({ kind: 'finish', ...openRef, ending: succeeded });
+    };
+    const fixedBatch = (): Batch => {
+      const found = fixLog.state().batches.get('web-7');
+      assert.ok(found);
+      return found;
+    };
+    const fixedPass = (repository: BaseCheckRepository) =>
+      checkBases(
+        {
+          log: fixLog,
+          repositories: [repository],
+          clock: () => now,
+          failed: (what, error) => failures.push({ what, error }),
+        },
+        new AbortController().signal,
+      );
+    /** The posts due, each found by its marker or applied, and recorded, as the driver does. */
+    const drain = async (github: ReturnType<typeof fakeGitHub>): Promise<string[]> => {
+      const effects = baseConflictEffects({ marks: github.marks('alice'), recipes: fixed });
+      const applied: string[] = [];
+      for (const key of effects.due(fixLog.state(), 'web-7')) {
+        const at = effectKey.encode(key);
+        const found = await effects.target.find(at);
+        record(key, found === undefined ? await effects.target.apply(at) : found.result);
+        applied.push(key.effect);
+      }
+      return applied;
+    };
+
+    it('checks a fixed head only once the base moves past what its round merged, on the new head', async () => {
+      onTapFixed();
+      failedAt(tip1);
+      take(fixCommand(tip1));
+      fixRoundTo(head2, tip1);
+      assert.equal(fixedBatch().lane.kind, 'on_tap');
+      const { repository, calls, state } = fakeRepository({ [tip1]: clean, [tip2]: clean });
+      state.branch = head2;
+      await fixedPass(repository);
+      assert.deepStrictEqual(
+        calls.filter((call) => call.startsWith('merge-tree')),
+        [],
+      );
+      state.at = tip2;
+      await fixedPass(repository);
+      assert.deepStrictEqual(
+        calls.filter((call) => call.startsWith('merge-tree')),
+        ['merge-tree f d'],
+      );
+      assert.deepStrictEqual(fixedBatch().baseChecks?.at(-1), {
+        pullRequest,
+        branch: 'main',
+        tip: tip2,
+        head: head2,
+      });
+    });
+
+    it("shows no failure of the old head on the fixed head's status line", () => {
+      onTapFixed();
+      failedAt(tip1);
+      assert.match(baseCheckLines(fixedBatch(), head)[0] ?? '', /fails on the merged tree/);
+      take(fixCommand(tip1));
+      fixRoundTo(head2, tip1);
+      assert.deepStrictEqual(baseCheckLines(fixedBatch(), head2), []);
+      const text = renderStatus(
+        fixedBatch(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        head2,
+      );
+      assert.doesNotMatch(text, /fails on the merged tree/);
+    });
+
+    it('posts the failure saying Foedrum fixes it, also once the tick sent the batch back first', async () => {
+      onTapFixed();
+      failedAt(tip1);
+      take(fixCommand(tip1));
+      assert.equal(fixedBatch().lane.kind, 'brewing');
+      const github = fakeGitHub();
+      assert.deepStrictEqual(await drain(github), ['base_check_failed.1']);
+      assert.deepStrictEqual(await drain(github), []);
+      const [body] = github.issue(web, 12).comments.map((comment) => comment.body);
+      assert.ok(body);
+      assert.match(body, /Foedrum sends the batch back to fix it, at most 2 rounds/);
+      assert.doesNotMatch(body, /stays On tap/);
     });
   });
 });

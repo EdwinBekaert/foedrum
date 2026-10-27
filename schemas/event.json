@@ -220,6 +220,14 @@
                 "head": {
                   "type": "string",
                   "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "cause": {
+                  "type": "string",
+                  "const": "merged_check"
+                },
+                "tip": {
+                  "type": "string",
+                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
                 }
               },
               "required": [
@@ -1431,6 +1439,34 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
+                },
+                "cause": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "merged_check"
+                    },
+                    "branch": {
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "tip": {
+                      "type": "string",
+                      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                    },
+                    "check": {
+                      "type": "string",
+                      "pattern": "\\S"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "branch",
+                    "tip",
+                    "check"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -2107,6 +2143,10 @@
           "pattern": "\\S"
         },
         "tip": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "head": {
           "type": "string",
           "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },

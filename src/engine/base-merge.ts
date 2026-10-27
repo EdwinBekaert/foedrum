@@ -12,7 +12,7 @@ import {
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import type { EffectTarget } from './effects.ts';
-import type { State } from './fold.ts';
+import type { Batch, State } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
 
 /** What a merge in a worktree came to: its commit, or the files it conflicts in, aborted. */
@@ -94,6 +94,14 @@ export const baseMergeTarget = (
     }
   },
 });
+
+/**
+ * Whether attempt `ref` of `batch` merges the base at its start (ADR 0226): a failing check on the
+ * pull request's merged tree sent it back, or it retries an attempt that was.
+ */
+export const routedMerge = (_batch: Batch, _ref: AttemptRef): boolean => {
+  throw new Error('not implemented');
+};
 
 /**
  * How the attempt ends when its merge's `result` stops it: blocked on a divergence when it

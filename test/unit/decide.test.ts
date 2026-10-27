@@ -23,6 +23,8 @@ import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
 import {
+  baseChecked,
+  baseTip,
   checksFinished,
   checksPending,
   failedCheck,
@@ -2608,6 +2610,142 @@ describe('decide: a failing check on the open pull request sends the batch back 
           },
           options: [...withoutAnswer],
           remindAt: inTwoDays,
+        },
+      ],
+    });
+  });
+});
+
+describe('decide: a failing check on the merged tree sends the batch back (ADR 0226)', () => {
+  const ale = (maxRounds = 2) => ({
+    ...context,
+    recipes: fakeRecipes({
+      ale: fakeRecipe({
+        steps: ['plan', OPEN],
+        actions: { [OPEN]: 'openPullRequest' },
+        routes: { [OPEN]: { pull_request: 'plan' } },
+        maxRounds,
+        pullRequests: [],
+      }),
+    }),
+  });
+  const fix = (head = firstHead, tip = baseTip) =>
+    ({
+      kind: 'fix_pull_request',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      head,
+      cause: { kind: 'merged_check', tip },
+    }) as const;
+  const onHead = (head = firstHead) =>
+    ({
+      kind: 'fix_pull_request',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      head,
+      cause: { kind: 'checks' },
+    }) as const;
+  const route = (head = firstHead, tip = baseTip) =>
+    ({
+      from: OPEN,
+      why: 'pull_request',
+      pullRequest: fixPullRequest,
+      head,
+      cause: 'merged_check',
+      tip,
+    }) as const;
+  const failedOnTap = [...openedOnTap(), baseChecked('b1', firstHead)];
+
+  it('schedules the route goto with the pull request, the head and the tip it failed at', () => {
+    assert.deepStrictEqual(decide(fold(failedOnTap), fix(), ale()), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt: inAnHour,
+          route: route(),
+        },
+      ],
+    });
+  });
+
+  it('refuses another tip, a check without a head, the checks cause first, and a second command', () => {
+    const both = [...failedOnTap, checksFinished('b1', firstHead)];
+    assert.equal(decide(fold(failedOnTap), fix(firstHead, 'f'.repeat(40)), ale()).kind, 'refused');
+    const headless = [...openedOnTap(), baseChecked('b1', undefined)];
+    assert.equal(decide(fold(headless), fix(), ale()).kind, 'refused');
+    assert.equal(decide(fold(both), onHead(), ale()).kind, 'refused');
+    const decided = decide(fold(failedOnTap), fix(), ale());
+    const sent = decided.kind === 'accepted' ? decided.events : [];
+    assert.equal(decide(fold([...failedOnTap, ...sent]), fix(), ale()).kind, 'refused');
+  });
+
+  const tip2 = 'f'.repeat(40);
+  // A round for the head's checks, then the merged tree of the new head fails: rounds are shared.
+  const secondFailed = [
+    ...openedOnTap(),
+    checksFinished('b1', firstHead),
+    ...fixRound('b1', firstHead, secondHead),
+    baseChecked('b1', secondHead, tip2),
+  ];
+  const stuckOnMerged: StuckReason = {
+    kind: 'pull_request_failed',
+    stepId: OPEN,
+    pullRequest: fixPullRequest,
+    head: secondHead,
+    rounds: 1,
+    failed: [],
+    more: 0,
+    cause: {
+      kind: 'merged_check',
+      branch: 'main',
+      tip: tip2,
+      check: 'the check "test" (npm test)',
+    },
+  };
+
+  it('makes the batch Stuck with the merged-tree check once the rounds the head checks shared are used', () => {
+    assert.deepStrictEqual(decide(fold(secondFailed), fix(secondHead, tip2), ale(1)), {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'batch.stuck',
+          batchId: 'b1',
+          reason: stuckOnMerged,
+          options: [...withoutAnswer],
+          remindAt: inTwoDays,
+        },
+      ],
+    });
+  });
+
+  const stuckEvents: Event[] = [
+    ...secondFailed,
+    {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: stuckOnMerged,
+      options: [...withoutAnswer],
+      remindAt: inTwoDays,
+    },
+  ];
+
+  it('retries along the route with the same cause', () => {
+    const retry = { kind: 'retry', batchId: 'b1', ...by } as const;
+    assert.deepStrictEqual(decide(fold(stuckEvents), retry, ale(1)), {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 3,
+          deadlineAt: inAnHour,
+          route: route(secondHead, tip2),
         },
       ],
     });

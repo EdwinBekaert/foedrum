@@ -537,6 +537,9 @@ function lineRecipe(
       return rounds < route.maxRounds ? route.goto : undefined;
     },
     rounds: roundsOf,
+    maxRounds: () => {
+      throw new Error('not implemented');
+    },
     routesTo: (id, why) => {
       const { route } = at(id);
       return route?.why === why ? route.goto : undefined;

@@ -440,3 +440,63 @@ describe('routeOf: a pull request that failed its checks (ADR 0219)', () => {
     assert.ok(Buffer.byteLength(routeInput(route).text, 'utf8') <= MAX_ROUTE_INPUT_BYTES);
   });
 });
+
+describe('routeOf: a pull request that fails its checks on the merged tree (ADR 0226)', () => {
+  const pullRequest = 'https://github.com/acme/api/pull/12';
+  const head = 'c'.repeat(40);
+  const tip = 'e'.repeat(40);
+  const open = 'open-pull-request';
+  const reading: GravityReading = {
+    result: 'exited',
+    check: 'test',
+    command: 'npm test',
+    exitCode: 1,
+    tail: 'not ok 1 - adds\n# fail 1',
+  };
+  const checked = (of = head, at = tip): Event => ({
+    type: 'pull_request.base_checked',
+    batchId: '12-1',
+    pullRequest,
+    branch: 'main',
+    tip: at,
+    head: of,
+    failed: reading,
+  });
+  const sentBack: Event = {
+    type: 'step.scheduled',
+    batchId: '12-1',
+    stepId: 'implement',
+    attempt: 2,
+    deadlineAt,
+    route: { from: open, why: 'pull_request', pullRequest, head, cause: 'merged_check', tip },
+  };
+  const opened = [...attempt('implement', 1), ...attempt(open, 1)];
+  const source = {
+    kind: 'route',
+    step: 'implement',
+    from: open,
+    why: 'pull_request',
+    pullRequest,
+    cause: 'merged_check',
+  } as const;
+
+  it('names the check that failed on the merged tree, its tail, and that the base is merged in', () => {
+    const route = planned([...opened, checked(), sentBack], 'implement', 2);
+    assert.deepEqual(route, {
+      source,
+      text: [
+        `Pull request ${pullRequest} merges cleanly with main at ${tip} but fails its checks there:`,
+        'the check "test" (npm test) exited with code 1. The end of its output:\nnot ok 1 - adds\n# fail 1',
+        "The base is merged into this worktree. The recipe's own checks run on your change after this step.",
+      ].join('\n\n'),
+    });
+  });
+
+  it('says so in one line when no check of that head and tip failed', () => {
+    const route = planned([...opened, checked('d'.repeat(40)), sentBack], 'implement', 2);
+    assert.deepEqual(route, {
+      source,
+      text: `Pull request ${pullRequest} failed its checks on the merged tree with main at ${tip}; the record of it is no longer there.`,
+    });
+  });
+});

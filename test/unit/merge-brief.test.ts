@@ -237,6 +237,7 @@ describe('the merge brief (ADR 0225)', () => {
       },
     });
   const baseChecked = (found: {
+    head?: string;
     conflicts?: string[];
     failed?: GravityReading;
     unchecked?: string;
@@ -413,6 +414,31 @@ describe('the merge brief (ADR 0225)', () => {
       assert.match(body, /Round 2: the checks failed on `aaaaaaaa`, and it pushed `ffffffff`\./);
       // The first head was never ready: the round's brief is the first.
       assert.equal(comments.length, 1);
+    });
+
+    it("posts for a fixed head once its old head's merged tree failed, and says so (ADR 0226)", async () => {
+      nip();
+      const { host, comments } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/build')]);
+      baseChecked({ head, failed: { ...redReading, check: 'test' } });
+      assert.deepStrictEqual(await post(effects), []);
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'merged_check', tip },
+      });
+      nipFromImplement(2, fixed);
+      finished([passed('ci/build')], fixed);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      const body = comments[0]?.body ?? '';
+      assert.match(
+        body,
+        /Round 2: the checks failed on the merged tree of `aaaaaaaa` with `main` at `cccccccc`, and it pushed `ffffffff`\./,
+      );
+      assert.match(body, /- Not checked against its base since it was pushed\./);
     });
 
     it('posts a brief for each head that was ready', async () => {

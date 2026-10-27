@@ -14,6 +14,7 @@ import type { EffectTarget } from './effects.ts';
 import type { BaseCheck, Batch, State } from './fold.ts';
 import type { MergedCheckDue } from './merged-checks.ts';
 import { openOf } from './pull-request.ts';
+import type { Recipes } from './recipes.ts';
 import { checkOf, plain, readingText } from './status-comment.ts';
 
 /** What a merge-tree of a pull request's head and its base's tip came to. */
@@ -263,6 +264,8 @@ const failureText = (batchId: string, { branch, tip, failed }: FailedCheck): str
 
 export interface BaseConflictEffectsOptions {
   marks: Pick<IssueMarks, 'findComment' | 'comment'>;
+  /** The Brewery's recipes: a batch whose recipe has the route back is fixed (ADR 0226). */
+  recipes?: Recipes;
   /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
   deadlineMs?: number;
 }

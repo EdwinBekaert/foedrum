@@ -173,8 +173,11 @@ export type EngineCommand =
       cause: FixCause;
     };
 
-/** What is wrong with an open pull request that sends its batch back (ADR 0219). */
-export type FixCause = { kind: 'checks' };
+/**
+ * What is wrong with an open pull request that sends its batch back: failed checks on its head
+ * (ADR 0219), or a failing check on its merged tree with the base at `tip` (ADR 0226).
+ */
+export type FixCause = { kind: 'checks' } | { kind: 'merged_check'; tip: string };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its

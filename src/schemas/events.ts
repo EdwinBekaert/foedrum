@@ -122,16 +122,23 @@ export type OrderRef = z.infer<typeof OrderRef>;
 /**
  * The route back that scheduled an attempt (ADR 0064): from the step whose check failed
  * (`onFail`) or whose brewer was blocked by findings (`onBlocked`), or from the openPullRequest
- * step whose pull request failed its checks on `head` (`onPullRequestFail`, ADR 0219).
+ * step whose pull request failed its checks on `head` (`onPullRequestFail`, ADR 0219), or on its
+ * merged tree with the base at `tip` (`cause: 'merged_check'`, ADR 0226).
  */
 export const ScheduleRoute = z.discriminatedUnion('why', [
   z.strictObject({ from: StepId, why: z.enum(['failed', 'findings']) }),
-  z.strictObject({
-    from: StepId,
-    why: z.literal('pull_request'),
-    pullRequest: PullRequestUrl,
-    head: CommitSha,
-  }),
+  z
+    .strictObject({
+      from: StepId,
+      why: z.literal('pull_request'),
+      pullRequest: PullRequestUrl,
+      head: CommitSha,
+      cause: z.literal('merged_check').optional(),
+      tip: CommitSha.optional(),
+    })
+    .refine((route) => (route.cause === undefined) === (route.tip === undefined), {
+      message: 'A merged-tree route names its tip, and only it does',
+    }),
 ]);
 export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
 
@@ -313,7 +320,9 @@ export const StuckReason = z.discriminatedUnion('kind', [
   // An Ordered batch that nothing routed by its routing deadline (ADR 0032).
   z.strictObject({ kind: z.literal('routing'), deadlineAt: Timestamp }),
   // The openPullRequest step `stepId`'s pull request failed its checks on `head` with its
-  // onPullRequestFail rounds used: the first failed checks, and how many more (ADR 0219).
+  // onPullRequestFail rounds used: the first failed checks, and how many more (ADR 0219); or,
+  // with `cause`, the check that fails on its merged tree with `branch` at `tip`, as the status
+  // line names it (ADR 0226).
   z.strictObject({
     kind: z.literal('pull_request_failed'),
     stepId: StepId,
@@ -322,6 +331,14 @@ export const StuckReason = z.discriminatedUnion('kind', [
     rounds: Count,
     failed: z.array(FailedCheck).max(MOST_FAILED_CHECKS),
     more: Count,
+    cause: z
+      .strictObject({
+        kind: z.literal('merged_check'),
+        branch: NonEmpty,
+        tip: CommitSha,
+        check: NonEmpty,
+      })
+      .optional(),
   }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({
@@ -617,6 +634,8 @@ export const Event = z.discriminatedUnion('type', [
     pullRequest: PullRequestUrl,
     branch: NonEmpty,
     tip: CommitSha,
+    // The head merged with the tip (ADR 0226); absent in a log written before it.
+    head: CommitSha.optional(),
     conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
     // The bottle branch's tip when someone else pushed to it: no merge-tree ran, and none will.
     branchMoved: CommitSha.optional(),

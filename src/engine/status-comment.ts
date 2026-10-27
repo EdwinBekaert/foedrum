@@ -276,7 +276,7 @@ export const readingText = (reading: GravityReading): string => {
 };
 
 /** The lines of the pull requests of a batch on tap that its base checks have something to say of. */
-export const baseCheckLines = (batch: Batch): string[] =>
+export const baseCheckLines = (batch: Batch, _head?: string): string[] =>
   batch.lane.kind === 'on_tap'
     ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url) ?? [])
     : [];
@@ -647,6 +647,8 @@ export const renderStatus = (
   sensitive?: SensitiveFiles,
   usageWindows: UsageWindows = {},
   brief?: MergeBrief,
+  /** The commit of the batch's latest push, whose base checks the status line shows (ADR 0226). */
+  _head?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
