@@ -188,6 +188,21 @@ describe('the setups', () => {
     }
   });
 
+  it("start with Nip's Gauger, which testFirst off skips, so the Cellarman's tests input is skipped too", () => {
+    for (const name of ['apart-7', 'together-7', 'together-nip'] as const) {
+      const recipe = Recipe.parse(parseJsonc(recipeText(name)));
+      assert.equal(recipe.testFirst, false, name);
+      assert.deepEqual(
+        recipe.steps.slice(0, 2),
+        [
+          { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+          { id: 'implement', brewer: 'cellarman' },
+        ],
+        name,
+      );
+    }
+  });
+
   it("give each a recipe a Brewery loads with Foedrum's defaults", () => {
     const brewery = makeTempDir('tasting-compare');
     try {
