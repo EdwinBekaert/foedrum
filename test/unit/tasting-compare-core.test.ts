@@ -14,6 +14,7 @@ import {
   type RunRecord,
   readKey,
   recipeText,
+  recordOf,
   runFailure,
   SETUPS,
   scoreRun,
@@ -24,6 +25,7 @@ import {
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
@@ -152,6 +154,11 @@ describe('addedLines', () => {
         ['new.md', new Set([1])],
       ]),
     );
+  });
+
+  it('reads an added line that starts with ++ as a line of its file, not a header', () => {
+    const patch = ['+++ b/x.ts', '@@ -0,0 +1,3 @@', '+++ counter', '+b', '+--c', ''].join('\n');
+    assert.deepEqual(addedLines(patch), new Map([['x.ts', new Set([1, 2, 3])]]));
   });
 
   it('reads a patch with CRLF line ends', () => {
@@ -316,6 +323,54 @@ describe('attemptsOf', () => {
   });
 });
 
+describe('recordOf', () => {
+  /** An event of a run's store, with only the fields recordOf reads. */
+  const event = (fields: Record<string, unknown>) => ({ event: fields as unknown as Event });
+  const tasted = event({
+    type: 'step.finished',
+    batchId: '1-1',
+    stepId: 'taste',
+    attempt: 1,
+    outcome: { kind: 'succeeded', output: { findings: [finding('src/a.ts', 3)] } },
+    usage: USAGE,
+    receipt: { turns: 4, durationMs: 9_000 },
+  });
+
+  it("reads a batch on tap, and its Tasters' attempts", () => {
+    const record = recordOf(
+      [tasted, event({ type: 'batch.on_tap', batchId: '1-1', pullRequests: [] })],
+      'together-7',
+    );
+    assert.equal(record.ended, 'on_tap');
+    assert.deepEqual(
+      record.attempts.map(({ stepId, findings, turns }) => ({ stepId, findings, turns })),
+      [{ stepId: 'taste', findings: [finding('src/a.ts', 3)], turns: 4 }],
+    );
+  });
+
+  it('reads a Stuck batch by its reason, and one that never ended as not ended', () => {
+    const stuck = event({
+      type: 'batch.stuck',
+      batchId: '1-1',
+      reason: { kind: 'attempts_exhausted' },
+    });
+    assert.equal(recordOf([tasted, stuck], 'together-7').ended, 'stuck: attempts_exhausted');
+    assert.equal(recordOf([tasted], 'together-7').ended, 'not ended');
+    const cancelled = event({ type: 'batch.cancelled', batchId: '1-1' });
+    assert.equal(recordOf([cancelled], 'together-7').ended, 'cancelled');
+  });
+
+  it('reads the last end of a batch that was resumed after it was Stuck', () => {
+    const stuck = event({
+      type: 'batch.stuck',
+      batchId: '1-1',
+      reason: { kind: 'attempts_exhausted' },
+    });
+    const onTap = event({ type: 'batch.on_tap', batchId: '1-1', pullRequests: [] });
+    assert.equal(recordOf([stuck, tasted, onTap], 'together-7').ended, 'on_tap');
+  });
+});
+
 describe('runFailure', () => {
   it('is none for a run on tap whose Tasters all succeeded', () => {
     assert.equal(runFailure(run('together-7', 1, [attempt('taste', [], [])])), undefined);
@@ -445,6 +500,8 @@ describe('summarize', () => {
     assert.equal(summary?.meanTurns, 15);
     assert.equal(summary?.meanAttemptMs, 90_000);
     assert.equal(summary?.meanWallMs, 60_000);
+    // The group's steps side by side: its longest attempt.
+    assert.equal(summary?.meanTasteMs, 40_000);
     assert.deepEqual(
       summary?.others[0]?.map(({ finding: { file } }) => file),
       ['src/z.ts'],
@@ -457,8 +514,9 @@ describe('summarize', () => {
     assert.deepEqual(nip?.found, [2]);
     assert.equal(nip?.meanTokens.total, 2840);
     assert.equal(nip?.meanTurns, 10);
-    // Side by side: the longer of the two attempts.
-    assert.equal(nip?.meanWallMs, 40_000);
+    // Side by side: the longer of the two attempts. It never ran alone, so it has no wall time.
+    assert.equal(nip?.meanTasteMs, 40_000);
+    assert.ok(Number.isNaN(nip?.meanWallMs));
     assert.deepEqual(nip?.others, [[]]);
   });
 
@@ -469,6 +527,31 @@ describe('summarize', () => {
     );
     assert.deepEqual(summary?.found, [2, 1]);
     assert.deepEqual(summary?.failed, [{ run: 1, why: 'the batch ended stuck: attempts' }]);
+  });
+
+  it("times a step's attempts one after the other, and the steps of a group side by side", () => {
+    const record = run('together-7', 1, [
+      attempt('taste', [], [], { durationMs: 25_000, failure: 'failed: stalled' }),
+      attempt('taste', [], [], { durationMs: 30_000 }),
+    ]);
+    const together = summarize(
+      [
+        record,
+        run('together-7', 1, [attempt('taste', [], [], { durationMs: 30_000 })], { retry: true }),
+      ],
+      KEY,
+    ).find(({ setup }) => setup === 'together-7');
+    assert.equal(together?.meanTasteMs, 30_000);
+    const twice = summarize(
+      [
+        run('together-nip', 1, [
+          attempt('taste', [], [], { durationMs: 25_000 }),
+          attempt('taste', [], [], { durationMs: 30_000 }),
+        ]),
+      ],
+      KEY,
+    ).find(({ setup }) => setup === 'together-nip');
+    assert.equal(twice?.meanTasteMs, 55_000);
   });
 
   it('puts the runs in their order when a retry was recorded after a later run', () => {

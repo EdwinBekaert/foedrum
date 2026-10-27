@@ -3,7 +3,7 @@
 // over runs, which run is next, the rule that picks a recipe's choice, and the one table.
 // scripts/tasting-compare.ts brews the runs with the real claude; nothing here starts a process.
 
-import type { Usage } from '../../src/schemas/events.ts';
+import type { Event, Usage } from '../../src/schemas/events.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { z } from '../../src/schemas/zod.ts';
@@ -246,6 +246,14 @@ export const attemptsOf = (
   return attempts;
 };
 
+/** A run's record from its store's events: how its batch ended, and its Taster attempts. */
+export const recordOf = (
+  _events: readonly { event: Event }[],
+  _setup: SetupName,
+): Pick<RunRecord, 'ended' | 'attempts'> => {
+  throw new Error('not implemented');
+};
+
 /** Why a run failed, or undefined: its batch is not on tap, or one of its Taster attempts failed. */
 export const runFailure = ({ ended, attempts }: RunRecord): string | undefined => {
   if (ended !== 'on_tap') return `the batch ended ${ended}`;
@@ -323,6 +331,8 @@ export interface SetupSummary {
   meanTokens: Tokens;
   meanTurns: number;
   meanAttemptMs: number;
+  /** The tasting's time: a group's steps side by side, a step's attempts one after the other. */
+  meanTasteMs?: number;
   meanWallMs: number;
   failed: { run: number; why: string }[];
 }
