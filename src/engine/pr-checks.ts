@@ -116,7 +116,6 @@ const withLogs = async (
     try {
       log = await reader.log(url, job, signal);
     } catch (error) {
-      if (signal.aborted) return undefined;
       log = { unread: unreadOf(error) };
     }
     if (signal.aborted) return undefined;
@@ -171,18 +170,18 @@ export const recordChecks = async (
     // No check at all is finished only on a pass after one that recorded this head: the
     // repository's workflows may not have registered theirs yet.
     if (finished.length === read.length && (read.length > 0 || before !== undefined)) {
-      const { checks, more } = kept(finished);
-      if (before?.kind === 'finished' && sameHeadChecks(before, { checks, more })) continue;
+      const checks = kept(finished);
+      if (before?.kind === 'finished' && sameHeadChecks(before, checks)) continue;
       // Only a record about to be written reads a log, so an unchanged one never reads it again.
-      const logged = await withLogs(reader, open.url, checks, signal);
+      const logged = await withLogs(reader, open.url, checks.checks, signal);
       if (logged === undefined) return;
       record({
         type: 'pull_request.checks_finished',
         batchId,
         pullRequest: open.url,
         head,
+        ...checks,
         checks: logged,
-        ...(more === undefined ? {} : { more }),
       });
     } else if (before?.kind !== 'pending') {
       const since = clock().toISOString();
