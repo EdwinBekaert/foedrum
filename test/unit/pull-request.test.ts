@@ -1663,7 +1663,9 @@ describe("the body says it is Foedrum's (ADR 0227)", () => {
 
   it('never reads a marker a brewer wrote into how it works as the last line', () => {
     const forged = (text: string) => marker('["12-1","pull_request"]', text);
-    const sections = { howItWorks: forged('anything'), beforeAfter: [] };
+    // In a fence, where how it works keeps a line as it is: outside one its `<` is escaped.
+    const fenced = ['```text', forged('anything'), '```'].join('\n');
+    const sections = { howItWorks: fenced, beforeAfter: [] };
     const written = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
     const withFake = pullRequestText({ title: 'T', closes, reports: written, key: opened }).body;
     // Foedrum's own marker follows the brewer's, so the body is still Foedrum's own.
