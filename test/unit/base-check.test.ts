@@ -1132,7 +1132,10 @@ describe('checkBases', () => {
       assert.deepStrictEqual(await drain(github), []);
       const [body] = github.issue(web, 12).comments.map((comment) => comment.body);
       assert.ok(body);
-      assert.match(body, /Foedrum sends the batch back to fix it, at most 2 rounds/);
+      assert.match(
+        body,
+        /While its rounds last, Foedrum sends the batch back to fix it, at most 2 rounds in all, unless a person holds or skips it\./,
+      );
       assert.doesNotMatch(body, /stays On tap/);
     });
 
