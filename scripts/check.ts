@@ -187,12 +187,9 @@ export const runCheck = async ({
 };
 
 if (import.meta.main) {
-  const { readFile } = await import('node:fs/promises');
   const { parseArgs } = await import('node:util');
   const { spawnProcess } = await import('./process-runner.ts');
-  const { affectedByChange } = await import('./affected-tests.ts');
-  const { runGit } = await import('../src/workspace/git.ts');
-  const { gitThrough } = await import('../src/workspace/worktree-removal-git.ts');
+  const { affectedInCheckout } = await import('./affected-tests.ts');
   // --all: every test file with coverage, as CI runs it (ADR 0241).
   const { all } = parseArgs({ options: { all: { type: 'boolean', default: false } } }).values;
   const cwd = process.cwd();
@@ -209,15 +206,6 @@ if (import.meta.main) {
     signal: stopOnSignals(),
     // Below normal outside CI, so the steps leave the desktop responsive (#140).
     lowerPriority: () => lowerOwnPriority(process.env),
-    ...(all
-      ? {}
-      : {
-          affected: () =>
-            affectedByChange({
-              cwd,
-              git: gitThrough(runGit),
-              read: (path) => readFile(path, 'utf8').catch(() => undefined),
-            }),
-        }),
+    ...(all ? {} : { affected: () => affectedInCheckout(cwd) }),
   });
 }

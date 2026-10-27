@@ -17,10 +17,12 @@ export interface ChangeOptions {
 
 const paths = (stdout: string): string[] => stdout.split('\0').filter((path) => path !== '');
 
+const firstLine = (text: string): string => text.split(/\r?\n/)[0] ?? '';
+
 // The output of a git call, or an error naming it and git's first line when it failed.
 const output = async (git: OkGit, cwd: string, args: string[]): Promise<string> => {
   const { ok, stdout, stderr } = await git(cwd, args);
-  if (!ok) throw new Error(`git ${args[0]} failed: ${stderr.split(/\r?\n/)[0] ?? ''}`);
+  if (!ok) throw new Error(`git ${args[0]} failed: ${firstLine(stderr)}`);
   return stdout;
 };
 
@@ -28,10 +30,7 @@ const output = async (git: OkGit, cwd: string, args: string[]): Promise<string> 
 export const affectedByChange = async ({ cwd, git, read }: ChangeOptions): Promise<Affected> => {
   const base = await git(cwd, ['merge-base', 'HEAD', 'origin/main']);
   if (!base.ok) {
-    return {
-      kind: 'all',
-      why: `no merge base with origin/main: ${base.stderr.split(/\r?\n/)[0] ?? ''}`,
-    };
+    return { kind: 'all', why: `no merge base with origin/main: ${firstLine(base.stderr)}` };
   }
   try {
     const [changed, untracked, typescript] = await Promise.all([
@@ -61,15 +60,20 @@ export const affectedByChange = async ({ cwd, git, read }: ChangeOptions): Promi
   }
 };
 
-if (import.meta.main) {
+/** affectedByChange with the real git and file reads, for the checkout at cwd. */
+export const affectedInCheckout = async (cwd: string): Promise<Affected> => {
   const { readFile } = await import('node:fs/promises');
   const { gitThrough } = await import('../src/workspace/worktree-removal-git.ts');
   const { runGit } = await import('../src/workspace/git.ts');
-  const affected = await affectedByChange({
-    cwd: process.cwd(),
+  return affectedByChange({
+    cwd,
     git: gitThrough(runGit),
     read: (path) => readFile(path, 'utf8').catch(() => undefined),
   });
+};
+
+if (import.meta.main) {
+  const affected = await affectedInCheckout(process.cwd());
   process.stdout.write(
     affected.kind === 'all'
       ? `every test file: ${affected.why}\n`
