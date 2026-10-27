@@ -129,6 +129,30 @@ describe('jobLogExcerpt', () => {
     );
   });
 
+  it('leaves no control character behind: a reset, a charset escape, or one an escape it removed rebuilt', () => {
+    const excerpt = jobLogExcerpt(
+      stamped([
+        '##[group]Run npm test',
+        `${esc}cnot ok 1 - adds`,
+        `${esc}(Bcharset${esc}7saved${esc}8`,
+        `${esc}${esc}[0m[31mred`,
+        `bell${String.fromCodePoint(0x07)} c1${String.fromCodePoint(0x9b)}31m\tand a tab`,
+        '##[error]Process completed with exit code 1.',
+      ]),
+    );
+    assert.equal(
+      excerpt,
+      [
+        '##[group]Run npm test',
+        'not ok 1 - adds',
+        'charsetsaved',
+        '[31mred',
+        'bell c131m\tand a tab',
+        '##[error]Process completed with exit code 1.',
+      ].join('\n'),
+    );
+  });
+
   it('keeps the log from its start when no step began before the first error', () => {
     const excerpt = jobLogExcerpt(
       stamped(['Preparing', '##[error]No runner could start', ...after]),

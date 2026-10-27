@@ -597,29 +597,61 @@ describe('recordChecks', () => {
     assert.equal(calls.filter((call) => call.startsWith('log')).length, MOST_FAILED_CHECKS);
   });
 
-  it('records the checks with why a log could not be read when its read fails', async () => {
+  it('reports a log read to try again, records nothing, and reads it again next pass', async () => {
     onTap();
-    const token = ['ghp', 'B'.repeat(36)].join('_');
-    const { reader } = fakeReader(
-      { [head]: [failedJob('a', 1), failedJob('b', 2), failedJob('c', 3)] },
-      {
-        1: new Error("GitHub's answer to GET /x is longer than 33554432 bytes\nand more"),
-        2: new Error(`gh failed: ${token}`),
-        3: new Error('x'.repeat(500)),
-      },
+    const limited = new Error("GitHub's rate limit holds requests until 2026-10-26T09:10:00.000Z");
+    const checks = { [head]: [failedJob('test', 9)] };
+    await pass(fakeReader(checks, { 9: limited }).reader);
+    assert.deepStrictEqual(
+      failures.map(({ what, error }) => [what, (error as Error).message]),
+      [[`reading the job logs of ${pullRequest}`, limited.message]],
     );
+    assert.deepStrictEqual(types(), []);
+    const again = fakeReader(checks, { 9: { excerpt: 'not ok 1 - adds' } });
+    await pass(again.reader);
+    assert.deepStrictEqual(batch().pullRequestChecks?.[pullRequest], {
+      kind: 'finished',
+      head,
+      checks: [
+        {
+          name: 'test',
+          kind: 'check_run',
+          conclusion: 'failure',
+          url: 'https://github.com/acme/web/actions/runs/1/job/9',
+          log: { excerpt: 'not ok 1 - adds' },
+        },
+      ],
+    });
+  });
+
+  it('reads the logs of a record for at most a minute, and records the rest as not read', async () => {
+    onTap();
+    const jobs = [failedJob('a', 1), failedJob('b', 2), failedJob('c', 3), failedJob('d', 4)];
+    const read: number[] = [];
+    const reader: PullRequestCheckReader = {
+      head: async () => head,
+      checks: async () => jobs,
+      log: async (_url, job) => {
+        read.push(job);
+        // Each read takes 40 s of the pass.
+        now = new Date(now.getTime() + 40_000);
+        return { excerpt: `log ${job}` };
+      },
+    };
     await pass(reader);
-    assert.deepStrictEqual(failures, []);
+    assert.deepStrictEqual(read, [1, 2]);
     const record = batch().pullRequestChecks?.[pullRequest];
     assert.equal(record?.kind, 'finished');
-    const [a, b, c] = record.checks.map(({ log }) => log);
-    assert.deepStrictEqual(a, {
-      unread: "GitHub's answer to GET /x is longer than 33554432 bytes",
-    });
-    assert.ok(b !== undefined && 'unread' in b);
-    assert.doesNotMatch(b.unread, new RegExp(token));
-    assert.ok(c !== undefined && 'unread' in c);
-    assert.ok(c.unread.length <= MAX_LOG_UNREAD_LENGTH);
+    const logs = record.checks.map(({ log }) => log);
+    assert.deepStrictEqual(logs.slice(0, 2), [{ excerpt: 'log 1' }, { excerpt: 'log 2' }]);
+    for (const log of logs.slice(2)) {
+      assert.ok(log !== undefined && 'unread' in log, JSON.stringify(log));
+      assert.match(log.unread, /not read within/);
+      assert.ok(log.unread.length <= MAX_LOG_UNREAD_LENGTH);
+    }
+    // Recorded, so the next pass reads no log of it again.
+    await pass(reader);
+    assert.deepStrictEqual(read, [1, 2]);
   });
 
   it('records nothing once its pass is given up while it reads a log', async () => {

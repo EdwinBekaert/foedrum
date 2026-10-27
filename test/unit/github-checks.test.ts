@@ -5,10 +5,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { githubCheckReader } from '../../src/github/checks.ts';
-import { createGitHubClient } from '../../src/github/client.ts';
+import { createGitHubClient, GitHubRateLimited } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
-import { MAX_HEAD_CHECK_URL_LENGTH } from '../../src/schemas/events.ts';
+import { MAX_HEAD_CHECK_URL_LENGTH, MAX_LOG_UNREAD_LENGTH } from '../../src/schemas/events.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 import { flagValue, ghOver } from '../helpers/fake-gh.ts';
 
@@ -29,11 +29,12 @@ const readerWith = (answers: Answer[]) => {
  * text, served by the blob store GitHub redirects to.
  */
 const logReaderWith = (
-  printed: { stdout: string; stderr?: string; exitCode: number } | 'too long',
+  printed: { stdout: string; stderr?: string; exitCode: number } | 'too long' | Error,
 ) => {
   const calls: { args: readonly string[]; maxOutputBytes: number | undefined }[] = [];
   const exec: ExecProcess = async (_file, args, options) => {
     calls.push({ args, maxOutputBytes: options.maxOutputBytes });
+    if (printed instanceof Error) throw printed;
     if (printed === 'too long') {
       return { exitCode: null, stdout: '', stderr: '', output: '', killed: 'too-much-output' };
     }
@@ -324,9 +325,40 @@ describe('githubCheckReader', () => {
     assert.deepStrictEqual(await reader.log(pullRequest, 9), { unread: 'it came back empty' });
   });
 
-  it('fails a log longer than its limit', async () => {
+  it('says a log longer than its limit could not be read', async () => {
     const { reader } = logReaderWith('too long');
-    await assert.rejects(reader.log(pullRequest, 9), /longer than 33554432 bytes/);
+    assert.deepStrictEqual(await reader.log(pullRequest, 9), {
+      unread:
+        "GitHub's answer to GET /repos/acme/web/actions/jobs/9/logs is longer than 33554432 bytes",
+    });
+  });
+
+  it("says why a read that failed could not be read: its error's first line, cut, never a secret", async () => {
+    const said = async (error: Error) => {
+      const log = await logReaderWith(error).reader.log(pullRequest, 9);
+      assert.ok('unread' in log, JSON.stringify(log));
+      return log.unread;
+    };
+    assert.equal(await said(new Error('spawn gh ENOENT\nat somewhere')), 'spawn gh ENOENT');
+    assert.equal(await said(new Error('')), 'its read failed');
+    const token = ['ghp', 'C'.repeat(36)].join('_');
+    assert.equal(
+      await said(new Error(`gh: bad credentials ${token}`)),
+      'its read failed with an error that looks like a secret',
+    );
+    // An emoji whose first half is the 200th character is left out whole.
+    const long = await said(new Error(`${'x'.repeat(MAX_LOG_UNREAD_LENGTH - 1)}${'🍺'.repeat(5)}`));
+    assert.equal(long, 'x'.repeat(MAX_LOG_UNREAD_LENGTH - 1));
+  });
+
+  it("throws GitHub's rate limit, so the pass reads the log again after the pause", async () => {
+    const { reader } = logReaderWith({
+      stdout:
+        'HTTP/1.1 429 Too Many Requests\nContent-Type: application/json\r\nRetry-After: 60\r\n\r\n{"message":"slow down"}',
+      stderr: 'gh: HTTP 429\n',
+      exitCode: 1,
+    });
+    await assert.rejects(reader.log(pullRequest, 9), GitHubRateLimited);
   });
 
   it('refuses an answer that is not a list of checks, and a head that is no commit sha', async () => {
