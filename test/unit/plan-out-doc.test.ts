@@ -144,6 +144,72 @@ describe('PlanOutDoc (ADR 0233)', () => {
       /subOrders\[1\]\.dependencies\[0\]\.kind/,
     ],
     ['more than 100 sub-orders', done(many), /subOrders/],
+    // Regression tests (review of #607): each bound, just past it.
+    ['an id of 41 characters', done([subOrder('a'.repeat(41))]), /subOrders\[0\]\.id/],
+    ['an id that starts with "-"', done([subOrder('-api')]), /subOrders\[0\]\.id/],
+    ['an id that ends with "-"', done([subOrder('api-')]), /subOrders\[0\]\.id/],
+    [
+      'a title of 121 characters',
+      done([subOrder('api', { title: 't'.repeat(121) })]),
+      /subOrders\[0\]\.title/,
+    ],
+    [
+      'a line of 301 characters',
+      done([subOrder('api', { why: 'w'.repeat(301) })]),
+      /subOrders\[0\]\.why/,
+    ],
+    [
+      'a path of 301 characters',
+      done([subOrder('api', { touches: [{ path: 'p'.repeat(301) }] })]),
+      /subOrders\[0\]\.touches\[0\]\.path/,
+    ],
+    [
+      '21 touches',
+      done([
+        subOrder('api', { touches: Array.from({ length: 21 }, (_, i) => ({ path: `f${i}` })) }),
+      ]),
+      /subOrders\[0\]\.touches/,
+    ],
+    [
+      'a size of 0 lines',
+      done([subOrder('api', { size: { lines: 0, mechanism: 'none' } })]),
+      /subOrders\[0\]\.size\.lines/,
+    ],
+    [
+      'testFirst true',
+      done([subOrder('api', { testFirst: true, testFirstOff: 'why' })]),
+      /subOrders\[0\]\.testFirst/,
+    ],
+    [
+      'no alternative considered',
+      done([subOrder('api')], { alternatives: { considered: [], whyThis: 'one' } }),
+      /alternatives\.considered/,
+    ],
+    [
+      '11 alternatives',
+      done([subOrder('api')], {
+        alternatives: {
+          considered: Array.from({ length: 11 }, (_, i) => ({ cut: `cut ${i}`, whyNot: 'no' })),
+          whyThis: 'one',
+        },
+      }),
+      /alternatives\.considered/,
+    ],
+    [
+      'more than 1,000 dependencies',
+      // Each sub-order waits for up to 11 before it: 1,034 in all, and no cycle.
+      done(
+        Array.from({ length: 100 }, (_, i) =>
+          subOrder(`s${i}`, {
+            dependencies: Array.from({ length: Math.min(i, 11) }, (_, j) => ({
+              on: `s${i - j - 1}`,
+              kind: 'code',
+            })),
+          }),
+        ),
+      ),
+      /1000 dependencies/,
+    ],
   ];
   for (const [what, frontmatter, path] of refusals) {
     it(`refuses ${what}, naming the field`, () => {
@@ -161,6 +227,23 @@ describe('PlanOutDoc (ADR 0233)', () => {
     assert.equal(refused(done([reasoned])), undefined);
     assert.equal(refused(done(chain([]))), undefined);
     assert.equal(refused(done(many.slice(0, 100))), undefined);
+  });
+
+  it('takes each bound at its limit (regression test)', () => {
+    const atLimits = subOrder('a'.repeat(40), {
+      title: 't'.repeat(120),
+      why: 'w'.repeat(300),
+      size: { lines: 1, mechanism: 'one' },
+      touches: [
+        { path: 'p'.repeat(300) },
+        ...Array.from({ length: 19 }, (_, i) => ({ path: `f${i}` })),
+      ],
+    });
+    const alternatives = {
+      considered: Array.from({ length: 10 }, (_, i) => ({ cut: `cut ${i}`, whyNot: 'no' })),
+      whyThis: 'one',
+    };
+    assert.equal(refused(done([atLimits], { alternatives })), undefined);
   });
 });
 

@@ -168,6 +168,10 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', { subOrders: many });
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.$/);
+    // Regression test (review of #607): the graph goes first, and the cut ends at a whole row.
+    assert.doesNotMatch(text, /```mermaid/);
+    const lines = text.split('\n');
+    assert.match(lines.at(-3) ?? '', /^\| `s\d+`: .* \|$/);
   });
 });
 
@@ -362,5 +366,23 @@ describe('planEffects (ADR 0233)', () => {
       comment: 1,
       digest: digest(renderPlan('7-2', 'plan', second)),
     });
+  });
+
+  it("never edits another order's comment: each order's plan is on its own issue (regression test)", async () => {
+    order();
+    step('plan', planned(three));
+    issue({ kind: 'order', batchId: '8-1', order: { issue: 8 } });
+    issue({ kind: 'route', batchId: '8-1', recipe: 'mash', reason: 'label', source: 'label' });
+    step('plan', planned(second), '8-1');
+    const driver = await open();
+    await driver.applyEffects();
+    assert.deepEqual(
+      comments.comments.map(({ issue, body }) => [issue, body]),
+      [
+        [7, `${renderPlan('7-1', 'plan', three)}\n\n${marker(1)}`],
+        [8, `${renderPlan('8-1', 'plan', second)}\n\n${marker(1, '8-1')}`],
+      ],
+    );
+    assert.deepEqual(comments.calls, ['create', 'create']);
   });
 });

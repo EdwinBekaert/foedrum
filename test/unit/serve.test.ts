@@ -654,6 +654,97 @@ describe('runServe', () => {
     });
   });
 
+  it("posts a plan brewer's plan on its order's issue, its paths checked in the Brewery's repositories (ADR 0233, regression test)", async () => {
+    const planner = `---
+${JSON.stringify({
+  name: 'brewmaster',
+  description: 'Plans the order.',
+  version: 1,
+  inputs: [{ name: 'order', from: 'order' }],
+  output: { doc: 'plan.md', schema: 'plan' },
+  produces: 'report',
+  model: 'quick',
+  effort: 'low',
+  tools: { allow: ['Read'] },
+  access: 'read',
+  tree: 'task',
+  deadline: '10m',
+  maxAttempts: 1,
+})}
+---
+Plan the order in {order}.
+`;
+    const mash = JSON.stringify({
+      name: 'mash',
+      description: 'Plans an order.',
+      steps: [{ id: 'plan', brewer: 'brewmaster' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [{ path: 'recipes/mash.jsonc', text: mash }],
+            brewers: [{ path: 'brewers/brewmaster.md', text: planner }],
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'mash', reason: 'label', source: 'label' },
+      t0,
+    );
+    const subOrders = [
+      {
+        id: 'json-flag',
+        title: 'A --json flag',
+        repo: 'acme/web',
+        size: { lines: 120, mechanism: 'one option' },
+        doneWhen: 'foedrum --json prints JSON',
+        touches: [{ path: 'src/cli.ts' }],
+        dependencies: [],
+        recipe: 'stout',
+        why: 'one change',
+        ready: true,
+      },
+    ];
+    const runner = (
+      _claude: string,
+      plan: (start: AttemptStart) => Promise<ClaudeAttemptPlan>,
+    ) => ({
+      start: (start: AttemptStart) => ({
+        ended: plan(start).then((made) => {
+          plans.push(made);
+          const output = { status: 'done', summary: 'Planned', assumptions: [], subOrders };
+          return { ending: { kind: 'succeeded', output } } as const;
+        }),
+        stop: () => {},
+      }),
+      progress: () => undefined,
+    });
+    assert.equal(await runServe(setup, shell({ runner })), 0);
+    assert.deepEqual(
+      plans[0]?.touches?.map((each) => ({
+        repo: each.repo,
+        commit: 'commit' in each && each.commit,
+      })),
+      setup.repositories.map(({ repo }) => ({ repo, commit: FAKE_COMMIT })),
+    );
+    const posted = (api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
+      body.includes('plan.1'),
+    );
+    assert.equal(posted.length, 1, lines.join('\n'));
+    assert.match(posted[0]?.body ?? '', /^### Foedrum · plan of batch `12-1`/);
+    assert.match(posted[0]?.body ?? '', /\| `json-flag`: A --json flag \| acme\/web \|/);
+  });
+
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
     const text = '---\n{"status":"done","summary":"Brewed"}\n---\nNotes.\n';
     const runner = (): BrewerRunner => ({

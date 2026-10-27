@@ -119,6 +119,8 @@ const setup = (
     whileScanning?: () => void;
     /** The paths git finds at a plan's commit (ADR 0233); default every path asked for. */
     touched?: PathsRead;
+    /** Runs while a plan's paths are read, before the read answers (ADR 0233). */
+    whileReading?: () => void;
     /** Runs while the commits are counted, before the count answers. */
     whileCounting?: () => void;
     /** Why removing the out doc a run before left fails, if it does. */
@@ -133,7 +135,12 @@ const setup = (
 ) => {
   const scans: { clone: string; branch: string; since: string; signal: AbortSignal | undefined }[] =
     [];
-  const pathReads: { clone: string; commit: string; paths: readonly string[] }[] = [];
+  const pathReads: {
+    clone: string;
+    commit: string;
+    paths: readonly string[];
+    signal: AbortSignal | undefined;
+  }[] = [];
   const counts: {
     clone: string;
     branch: string;
@@ -221,8 +228,9 @@ const setup = (
       more.whileScanning?.();
       return more.scanned ?? { kind: 'scanned', findings: [] };
     },
-    touches: async (clone, commit, paths) => {
-      pathReads.push({ clone, commit, paths });
+    touches: async (clone, commit, paths, signal) => {
+      pathReads.push({ clone, commit, paths, signal });
+      more.whileReading?.();
       return more.touched ?? { kind: 'read', present: new Set(paths) };
     },
   };
@@ -1231,7 +1239,27 @@ describe("claudeBrewerRunner: the touches check of a plan's done (ADR 0233)", ()
     );
     const { ending } = await runner.start(planning).ended;
     assert.equal(ending.kind, 'succeeded');
-    assert.deepEqual(pathReads, [{ clone: '/work/api.git', commit, paths: ['src/api.ts'] }]);
+    assert.deepEqual(
+      pathReads.map(({ clone, commit, paths }) => ({ clone, commit, paths })),
+      [{ clone: '/work/api.git', commit, paths: ['src/api.ts'] }],
+    );
+  });
+
+  it("cancels an attempt stopped while its plan's paths are read, with the attempt's own stop signal (regression test)", async () => {
+    let stop = (): void => {};
+    const { pathReads, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      {
+        plan: touching,
+        outDoc: planDone,
+        whileReading: () => stop(),
+        touched: { kind: 'unread', reason: 'git ls-tree failed: git did not finish in time' },
+      },
+    );
+    const run = runner.start(planning);
+    stop = run.stop;
+    assert.deepEqual((await run.ended).ending, { kind: 'cancelled' });
+    assert.equal(pathReads[0]?.signal?.aborted, true);
   });
 
   it('fails the attempt retryably when a path does not exist, naming the sub-order and the path', async () => {
