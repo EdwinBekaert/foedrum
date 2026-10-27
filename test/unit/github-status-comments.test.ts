@@ -122,3 +122,74 @@ describe('githubStatusComments', () => {
     assert.deepStrictEqual(requests, []);
   });
 });
+
+describe('githubStatusComments: a merge brief hidden as outdated (ADR 0229)', () => {
+  const node = (id: number) => ({ ...own(id, 'Brief'), node_id: `IC_${id}` });
+  const graphql = `${api}/graphql`;
+
+  it("reads its own comment's node id through REST, then whether GraphQL has it hidden", async () => {
+    const { comments, requests } = commentsWith([
+      { status: 200, body: node(501) },
+      { status: 200, body: { data: { node: { isMinimized: true } } } },
+      { status: 200, body: node(502) },
+      { status: 200, body: { data: { node: { isMinimized: false } } } },
+    ]);
+    assert.equal(await comments.hidden(repo, 501), 'hidden');
+    assert.equal(await comments.hidden(repo, 502), 'shown');
+    const [read, query] = requests;
+    assert.equal(read?.url, `${api}/repos/acme/brewery/issues/comments/501`);
+    assert.equal(query?.url, graphql);
+    assert.ok(query !== undefined);
+    const { query: text, variables } = query.body as { query: string; variables: unknown };
+    assert.match(text, /isMinimized/);
+    assert.deepStrictEqual(variables, { id: 'IC_501' });
+  });
+
+  it('says gone for a comment that is not there or not its own, without asking GraphQL', async () => {
+    const { comments, requests } = commentsWith([
+      { status: 404, body: { message: 'Not Found' } },
+      { status: 200, body: { ...node(502), user: { login: 'mallory' } } },
+      { status: 404, body: { message: 'Not Found' } },
+    ]);
+    assert.equal(await comments.hidden(repo, 501), 'gone');
+    assert.equal(await comments.hidden(repo, 502), 'gone');
+    assert.equal(await comments.hide(repo, 501), 'gone');
+    assert.ok(requests.every(({ url }) => url !== graphql));
+  });
+
+  it('hides its own comment with minimizeComment as OUTDATED, by its node id', async () => {
+    const { comments, requests } = commentsWith([
+      { status: 200, body: node(501) },
+      {
+        status: 200,
+        body: { data: { minimizeComment: { minimizedComment: { isMinimized: true } } } },
+      },
+    ]);
+    assert.equal(await comments.hide(repo, 501), 'hidden');
+    const mutation = requests[1];
+    assert.ok(mutation !== undefined);
+    assert.equal(mutation.url, graphql);
+    const { query, variables } = mutation.body as { query: string; variables: unknown };
+    assert.match(query, /minimizeComment/);
+    assert.deepStrictEqual(variables, { input: { subjectId: 'IC_501', classifier: 'OUTDATED' } });
+  });
+
+  it('fails on a GraphQL error, an answer it did not expect, or a refused read', async () => {
+    const { comments } = commentsWith([
+      { status: 200, body: node(501) },
+      { status: 200, body: { data: null, errors: [{ message: 'Resource not accessible' }] } },
+      { status: 200, body: node(501) },
+      { status: 200, body: { data: { node: null }, errors: [{ message: 'Could not resolve' }] } },
+      { status: 200, body: node(501) },
+      { status: 200, body: { data: { minimizeComment: null } } },
+      { status: 500, body: { message: 'Server Error' } },
+      { status: 200, body: own(501, 'Brief') },
+    ]);
+    await assert.rejects(comments.hide(repo, 501), /Resource not accessible/);
+    await assert.rejects(comments.hidden(repo, 501), /Could not resolve/);
+    await assert.rejects(comments.hide(repo, 501), /not what it should be/);
+    await assert.rejects(comments.hidden(repo, 501), /500.*acme\/brewery.*Server Error/);
+    // A comment without its node id cannot be hidden.
+    await assert.rejects(comments.hide(repo, 501), /no node id/);
+  });
+});

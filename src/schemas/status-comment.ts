@@ -27,3 +27,13 @@ export const MergeBrief = z.strictObject({
   digest: Digest,
 });
 export type MergeBrief = z.infer<typeof MergeBrief>;
+
+/**
+ * A merge brief hidden as outdated (ADR 0229): its comment, hidden as GitHub's `OUTDATED`, or gone
+ * when it was not there to hide.
+ */
+export const MergeBriefHidden = z.union([
+  z.strictObject({ comment: z.int().positive(), hidden: z.literal('outdated') }),
+  z.strictObject({ comment: z.int().positive(), gone: z.literal(true) }),
+]);
+export type MergeBriefHidden = z.infer<typeof MergeBriefHidden>;

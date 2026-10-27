@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { holdsInScenarios } from '../helpers/property.ts';
+import { holdsInScenarios, runsIn } from '../helpers/property.ts';
 
 describe('holdsInScenarios', () => {
   it('fails a broken invariant with its seed, shrunk to the one move that breaks it', async () => {
@@ -42,5 +42,26 @@ describe('holdsInScenarios', () => {
         return true;
       },
     );
+  });
+});
+
+// A file that runs a count of its own reads it as every property does (ADR 0243).
+describe('runsIn', () => {
+  it("gives the file's own count when FOEDRUM_RUNS is unset", () => {
+    assert.equal(runsIn({}, 3), 3);
+  });
+
+  it('gives the count FOEDRUM_RUNS sets', () => {
+    assert.equal(runsIn({ FOEDRUM_RUNS: '200' }, 3), 200);
+    assert.equal(runsIn({ FOEDRUM_RUNS: '1' }, 3), 1);
+  });
+
+  it('refuses a mistyped count, which would run no case at all', () => {
+    for (const value of ['', '0', '-2', '1.5', 'many']) {
+      assert.throws(
+        () => runsIn({ FOEDRUM_RUNS: value }, 3),
+        new Error(`FOEDRUM_RUNS must be an integer of at least 1, got ${value}`),
+      );
+    }
   });
 });

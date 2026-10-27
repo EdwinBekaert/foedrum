@@ -180,7 +180,13 @@ export const wireDriver = async (
   const conflicts = baseConflictEffects({ marks, recipes: setup.recipes });
   // A ready pull request's merge brief, on it, its title read as an issue's (ADR 0225).
   const briefs = mergeBriefEffects({
-    host: { find: comments.find, create: comments.create, title: marks.title },
+    host: {
+      find: comments.find,
+      create: comments.create,
+      title: marks.title,
+      hidden: comments.hidden,
+      hide: comments.hide,
+    },
     recipes: setup.recipes,
     redProof: (recipe) => setup.checks.redProof(recipe)?.id,
   });

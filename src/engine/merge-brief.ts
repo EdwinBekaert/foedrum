@@ -1,16 +1,18 @@
 // When a brewed pull request is ready to merge (ADR 0225): the latest record of the checks on the
 // head the batch pushed finished with none failed, its latest base check of that head (ADR 0226)
-// found no conflict and no failing check on the merged tree, and the batch is On tap. And the merge briefs the ledger
-// recorded, one per ready record. Pure: the brief's effect and the status comment read it.
+// found no conflict and no failing check on the merged tree, and the batch is On tap. And the
+// merge briefs the ledger recorded, one per ready record, and those outdated, to be hidden (ADR
+// 0229). Pure: the brief's effects and the status comment read it.
 
 import { createHash } from 'node:crypto';
 import type { HeadCheck } from '../schemas/events.ts';
 import { MergeBrief } from '../schemas/status-comment.ts';
-import type { BatchEffectKey } from '../schemas/store.ts';
+import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import { type Batch, baseChecksOn, headChecksText, type State } from './fold.ts';
 import { checkPassed } from './pr-checks.ts';
-import { openOf } from './pull-request.ts';
+import { openOf, recordedPushes } from './pull-request.ts';
+import type { BriefLine } from './status-comment.ts';
 
 /** The record of a pull request's checks that makes it ready to merge. */
 export interface ReadyRecord {
@@ -55,31 +57,105 @@ export const briefKey = (batchId: string, n: number): BatchEffectKey => ({
   effect: `brief.${n}`,
 });
 
+/** The effect that hides the `n`th merge brief of `batchId` as outdated (ADR 0229). */
+export const hiddenKey = (batchId: string, n: number): BatchEffectKey => ({
+  batchId,
+  effect: `brief.${n}.hidden`,
+});
+
+/** The merge briefs the ledger recorded for `batchId`, the `n`th at `n - 1`. */
+const recordedBriefs = (state: State, batchId: string): MergeBrief[] => {
+  const briefs: MergeBrief[] = [];
+  for (let n = 1; ; n++) {
+    const key = effectKey.encode(briefKey(batchId, n));
+    if (!state.effects.has(key)) return briefs;
+    const parsed = MergeBrief.safeParse(state.effects.get(key));
+    if (!parsed.success) throw new Error(`The ledger's ${key} is not a merge brief`);
+    briefs.push(parsed.data);
+  }
+};
+
 /** The latest merge brief the ledger recorded for `batchId`, if any, and the number of the next. */
 export const latestBrief = (
   state: State,
   batchId: string,
 ): { next: number; latest: MergeBrief | undefined } => {
-  let latest: MergeBrief | undefined;
-  for (let n = 1; ; n++) {
-    const key = effectKey.encode(briefKey(batchId, n));
-    if (!state.effects.has(key)) return { next: n, latest };
-    const parsed = MergeBrief.safeParse(state.effects.get(key));
-    if (!parsed.success) throw new Error(`The ledger's ${key} is not a merge brief`);
-    latest = parsed.data;
-  }
+  const briefs = recordedBriefs(state, batchId);
+  return { next: briefs.length + 1, latest: briefs.at(-1) };
 };
 
+/** Whether the ledger recorded the hide of the `n`th merge brief of `batchId`. */
+const isHidden = (state: State, batchId: string, n: number): boolean =>
+  state.effects.has(effectKey.encode(hiddenKey(batchId, n)));
+
 /** Whether `brief` was posted for `record`: the same pull request, head and checks. */
-export const briefOf = (brief: MergeBrief | undefined, record: ReadyRecord): boolean =>
+const briefOf = (brief: MergeBrief | undefined, record: ReadyRecord): boolean =>
   brief?.pullRequest === record.pullRequest &&
   brief.head === record.head &&
   brief.digest === record.digest;
 
+/** The latest merge brief of `batchId` while it is of `ready` and not hidden (ADR 0229). */
+export const currentBrief = (
+  state: State,
+  batchId: string,
+  ready: ReadyRecord,
+): MergeBrief | undefined => {
+  const { next, latest } = latestBrief(state, batchId);
+  return briefOf(latest, ready) && !isHidden(state, batchId, next - 1) ? latest : undefined;
+};
+
 /** The latest merge brief of `batch` while it is of the record that makes it ready now. */
-export const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
+const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
   const ready = readyOf(state, batch);
-  if (ready === undefined) return undefined;
-  const { latest } = latestBrief(state, batch.id);
-  return briefOf(latest, ready) ? latest : undefined;
+  return ready === undefined ? undefined : currentBrief(state, batch.id, ready);
+};
+
+/**
+ * What the status comment says of the open pull request of `batch` (ADR 0229): its current brief,
+ * else that it has none; nothing once no pull request of it is open.
+ */
+export const briefLine = (state: State, batch: Batch): BriefLine | undefined => {
+  const now = briefNow(state, batch);
+  if (now !== undefined) return now;
+  const open = openOf(state, batch);
+  return open === undefined ? undefined : { pullRequest: open.url };
+};
+
+/**
+ * The latest push of `batchId` that left its branch somewhere: at the commit it pushed, at someone
+ * else's (`moved`), or gone. A push that pushed nothing (`empty`, `refused`) left it where the one
+ * before did.
+ */
+const latestMove = (state: State, batchId: string): PushResult | undefined =>
+  recordedPushes(state, batchId)
+    .flatMap((recorded) => {
+      const parsed = PushResult.safeParse(recorded);
+      return parsed.success ? [parsed.data] : [];
+    })
+    .filter(({ empty, refused }) => empty !== true && refused === undefined)
+    .at(-1);
+
+/** Whether `pushed` left the pull request's head at another commit than `head`, or at none. */
+const movedFrom = (pushed: PushResult | undefined, head: string): boolean =>
+  pushed !== undefined && (pushed.gone === true || (pushed.moved ?? pushed.commit) !== head);
+
+/**
+ * The merge briefs of `batch` to hide as outdated (ADR 0229), by their number: recorded, not hidden
+ * yet, of a pull request with no recorded end, and either of a head the pull request is no longer
+ * at (the batch's latest push, or a base check that found someone else's push) or followed by a
+ * later brief. A record that goes pending or fails on the same head outdates nothing.
+ */
+export const outdatedBriefs = (state: State, batch: Batch): { n: number; brief: MergeBrief }[] => {
+  const briefs = recordedBriefs(state, batch.id);
+  const pushed = latestMove(state, batch.id);
+  return briefs.flatMap((brief, i) => {
+    const n = i + 1;
+    if (isHidden(state, batch.id, n)) return [];
+    if (batch.pullRequestEnds?.[brief.pullRequest] !== undefined) return [];
+    const branchMoved = batch.baseChecks?.some(
+      (check) => check.pullRequest === brief.pullRequest && check.branchMoved !== undefined,
+    );
+    const outdated = n < briefs.length || branchMoved === true || movedFrom(pushed, brief.head);
+    return outdated ? [{ n, brief }] : [];
+  });
 };
