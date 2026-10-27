@@ -1004,6 +1004,19 @@ describe('the merge brief (ADR 0225)', () => {
       });
     }
 
+    it("hides nothing for a base check that found no one else's push (regression test)", async () => {
+      nip();
+      const { host, hides } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      baseChecked({});
+      assert.deepStrictEqual(await post(effects), []);
+      baseChecked({ conflicts: ['src/a.ts'] });
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, []);
+    });
+
     it('hides nothing while a record of the same head goes pending or fails (regression test)', async () => {
       nip();
       const { host, hides } = fakeHost();
