@@ -50,7 +50,8 @@ const tasterSteps = (setup: SetupName): Map<string, readonly string[]> => {
 
 /**
  * The recipe of `setup`: the scripted implementer, then its Tasters, each the default `taster`
- * with its model; no check and no pull request, so the batch goes on tap once they have tasted.
+ * with its model, and the pull request a recipe that commits must open (ADR 0084), on the fake
+ * code host. No check runs and no Gauger: the seeded change is not test-first (ADR 0064).
  */
 export const recipeText = (setup: SetupName): string => {
   const { lenses } = SETUPS[setup];
@@ -64,7 +65,8 @@ export const recipeText = (setup: SetupName): string => {
   const recipe = {
     name: setup,
     description: `The seeded change of #567, tasted ${setup.startsWith('apart') ? 'apart' : 'together'}`,
-    steps: [{ id: IMPLEMENT, brewer: 'cellarman' }, taste],
+    testFirst: false,
+    steps: [{ id: IMPLEMENT, brewer: 'cellarman' }, taste, { action: 'openPullRequest' }],
   };
   return `// node scripts/tasting-compare.ts's setup ${setup} (ADR 0224).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
