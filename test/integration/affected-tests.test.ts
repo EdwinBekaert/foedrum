@@ -10,7 +10,7 @@ import { affectedInCheckout } from '../../scripts/affected-tests.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const git = (cwd: string, args: string[]): string =>
-  execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+  execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -26,8 +26,19 @@ const write = (root: string, files: Record<string, string>): void => {
 describe('affectedInCheckout with real git', () => {
   let dir: TempDir;
   let repo: string;
+  // Every git of the file, affectedInCheckout's included, reads only the test's own
+  // configuration: the machine's (a global commit.gpgsign, an excludesFile) takes no part. The
+  // file runs in a process of its own.
+  const machine = {
+    global: process.env.GIT_CONFIG_GLOBAL,
+    system: process.env.GIT_CONFIG_NOSYSTEM,
+  };
   before(() => {
     dir = makeTempDir('affected');
+    const config = join(dir.path, 'gitconfig');
+    writeFileSync(config, '[user]\n\tname = Test\n\temail = t@example.com\n');
+    process.env.GIT_CONFIG_GLOBAL = config;
+    process.env.GIT_CONFIG_NOSYSTEM = '1';
     repo = join(dir.path, 'repo');
     git(dir.path, ['init', '-q', '-b', 'main', repo]);
     write(repo, {
@@ -55,7 +66,16 @@ describe('affectedInCheckout with real git', () => {
     });
     rmSync(join(repo, 'src', 'gone.ts'));
   });
-  after(() => dir.remove());
+  after(() => {
+    for (const [name, value] of [
+      ['GIT_CONFIG_GLOBAL', machine.global],
+      ['GIT_CONFIG_NOSYSTEM', machine.system],
+    ] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    dir.remove();
+  });
 
   it('reaches the test files of every kind of change since the merge base, and no other', async () => {
     assert.deepEqual(await affectedInCheckout(repo), {
@@ -70,8 +90,13 @@ describe('affectedInCheckout with real git', () => {
   });
 
   it('runs every test file, saying why, without an origin/main', async () => {
-    git(repo, ['update-ref', '-d', 'refs/remotes/origin/main']);
-    const affected = await affectedInCheckout(repo);
+    // A repository of its own, so the other test's origin/main stays.
+    const bare = join(dir.path, 'no-origin');
+    git(dir.path, ['init', '-q', '-b', 'main', bare]);
+    write(bare, { 'src/a.ts': '' });
+    git(bare, ['add', '.']);
+    git(bare, ['commit', '-q', '-m', 'Base']);
+    const affected = await affectedInCheckout(bare);
     assert.equal(affected.kind, 'all');
     assert.match((affected as { why: string }).why, /^no merge base with origin\/main: /);
   });
