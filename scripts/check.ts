@@ -6,6 +6,7 @@
 // through npm's own CLI (npm_execpath, set by `npm run check`), so package.json stays the one
 // place for their commands and nothing starts a shell.
 
+import { parseArgs } from 'node:util';
 import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
 import type { Affected } from './affected-tests/core.ts';
 import { lowerOwnPriority } from './below-normal-priority.ts';
@@ -133,10 +134,14 @@ const STEP_TIMEOUT_MS = 300_000;
  * it; without, the test files the change reaches, found by `affected` (ADR 0241).
  */
 export const checkMode = (
-  _argv: string[],
-  _affected: () => Promise<Affected>,
+  argv: string[],
+  affected: () => Promise<Affected>,
 ): Pick<CheckOptions, 'affected'> => {
-  throw new Error('not implemented');
+  const { all } = parseArgs({
+    args: argv,
+    options: { all: { type: 'boolean', default: false } },
+  }).values;
+  return all ? {} : { affected };
 };
 
 const withNewline = (text: string): string =>
@@ -198,11 +203,8 @@ export const runCheck = async ({
 };
 
 if (import.meta.main) {
-  const { parseArgs } = await import('node:util');
   const { spawnProcess } = await import('./process-runner.ts');
   const { affectedInCheckout } = await import('./affected-tests.ts');
-  // --all: every test file with coverage, as CI runs it (ADR 0241).
-  const { all } = parseArgs({ options: { all: { type: 'boolean', default: false } } }).values;
   const cwd = process.cwd();
   // Outside Windows the steps lead process groups of their own, which a Ctrl+C in the terminal
   // does not reach, and on Windows npm's children would outlive it: kill their trees instead.
@@ -217,6 +219,6 @@ if (import.meta.main) {
     signal: stopOnSignals(),
     // Below normal outside CI, so the steps leave the desktop responsive (#140).
     lowerPriority: () => lowerOwnPriority(process.env),
-    ...(all ? {} : { affected: () => affectedInCheckout(cwd) }),
+    ...checkMode(process.argv.slice(2), () => affectedInCheckout(cwd)),
   });
 }

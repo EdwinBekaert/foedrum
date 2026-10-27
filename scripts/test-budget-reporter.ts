@@ -162,22 +162,27 @@ export const remeasureAlone =
 
 // The re-measure of a run whose test runner had the given flags, with coverage when they had it
 // (ADR 0241).
-export const remeasureFor = (_options: {
+export const remeasureFor = ({
+  execArgv,
+  runProcess,
+}: {
   execArgv: readonly string[];
   runProcess: RunProcess;
-}): ((file: string) => Promise<number | undefined>) => {
-  throw new Error('not implemented');
-};
-
-// The real re-measure: this node, in the folder npm test runs in, through the process runner,
-// loaded only when a file is over, since every test process loads this module (ADR 0038).
-export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>) =>
+}): ((file: string) => Promise<number | undefined>) =>
   remeasureAlone({
     execPath: process.execPath,
     cwd: process.cwd(),
+    runProcess,
+    coverage: execArgv.includes('--experimental-test-coverage'),
+  });
+
+// The real re-measure: this node, in the folder npm test runs in, through the process runner,
+// loaded only when a file is over, since every test process loads this module (ADR 0038). The
+// reporter runs in the test runner's process, whose flags say whether the run had coverage.
+export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>) =>
+  remeasureFor({
+    execArgv: process.execArgv,
     runProcess: async (...args) => (await import('./process-runner.ts')).spawnProcess(...args),
-    // The reporter runs in the test runner's process, whose flags say whether the run had it.
-    coverage: process.execArgv.includes('--experimental-test-coverage'),
   });
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(2)} s`;

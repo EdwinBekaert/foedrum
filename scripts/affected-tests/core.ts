@@ -37,11 +37,14 @@ export const affectedTests = (
 ): Affected => {
   const everything = changed.find(reachesEverything);
   if (everything !== undefined) return { kind: 'all', why: `${everything} changed` };
-  const byPath = changed.find((path) => !path.endsWith('.ts') && !isDocs(path));
+  // Tests read such files by path: fixtures, TypeScript ones too, and every other file outside docs.
+  const byPath = changed.find(
+    (path) => path.startsWith('test/fixtures/') || (!path.endsWith('.ts') && !isDocs(path)),
+  );
   if (byPath !== undefined) {
     return {
       kind: 'all',
-      why: `${byPath} changed: a file that is not TypeScript, which tests read by path`,
+      why: `${byPath} changed: a fixture or a file that is not TypeScript, which tests read by path`,
     };
   }
   // Who imports each file, then every file that leads to a changed one.
@@ -55,5 +58,7 @@ export const affectedTests = (
   for (const path of reached) {
     for (const importer of importers.get(path) ?? []) reached.add(importer);
   }
-  return { kind: 'some', files: [...reached].filter(isTestFile).sort() };
+  // A deleted or moved test file is no longer there to run.
+  const files = [...reached].filter((path) => isTestFile(path) && texts.has(path));
+  return { kind: 'some', files: files.sort() };
 };
