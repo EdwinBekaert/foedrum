@@ -528,28 +528,54 @@ describe('foedrum resume (ADR 0126)', () => {
         `talk#1 of batch 30-1 is an interactive session still open in brew-7 (since ${since}, lease until ${expiresAt.toISOString()}): close it there so it reports; if it closes without its out doc, foedrum brew 30 --take opens it again`,
       );
 
-      it('refuses it at once with the driver that holds the batch, by step and with no step named, and takes nothing over', async () => {
-        store.withTransaction((tx) =>
-          tx.putBatchLease({ batchId: '30-1', owner: 'brew-7', expiresAt }),
-        );
+      // Decided by the consultant (a /brew-review finding): the attempt's lease holds the session.
+      const talk = attemptKey.encode({ batchId: '30-1', stepId: 'talk', attempt: 1 });
+      const later = new Date(t0.getTime() + 90_000);
+      const opened = () => assert.deepEqual([calls, started, settings], [[], [], []]);
+
+      it('refuses it at once with the driver that holds its session, by step and with no step named, and takes nothing over', async () => {
+        store.withTransaction((tx) => {
+          tx.putLease({ attemptKey: talk, owner: 'brew-7', expiresAt });
+          tx.putBatchLease({ batchId: '30-1', owner: 'brew-7', expiresAt: later });
+        });
         assert.deepEqual(await resumeOf('30-1', 'talk', takes), held);
         assert.deepEqual(await resumeOf('30-1', undefined, takes), held);
         // Before the Claude Code and terminal checks: a terminal would wait the same.
         const inClaudeCode = { ...takes, terminal: { claudeCode: true, tty: false } };
         assert.deepEqual(await resumeOf('30-1', 'talk', inClaudeCode), held);
         assert.deepEqual([handed, takenOver()], [[], []]);
-        nothingOpened();
+        opened();
       });
 
-      it('refuses it too when no driver holds the batch, which waits for a session again once the attempt lease lapses', async () => {
+      it('names the driver whose session it is after a takeover moved the batch to another', async () => {
+        store.withTransaction((tx) => {
+          tx.putLease({ attemptKey: talk, owner: 'brew-7', expiresAt });
+          tx.putBatchLease({ batchId: '30-1', owner: 'serve-1', expiresAt: later });
+        });
+        assert.deepEqual(await resumeOf('30-1', 'talk', takes), held);
+        assert.deepEqual([handed, takenOver()], [[], []]);
+        opened();
+      });
+
+      it('refuses it too when no driver holds its session, which waits for a session again once the attempt lease lapses', async () => {
+        // The session's lease lapsed, serve holds the batch, and another attempt's lease is alive.
+        store.withTransaction((tx) => {
+          tx.putLease({ attemptKey: talk, owner: 'brew-7', expiresAt: new Date(t0.getTime() - 1) });
+          tx.putLease({
+            attemptKey: attemptKey.encode({ batchId: '23-1', stepId: 'plan', attempt: 1 }),
+            owner: 'serve-1',
+            expiresAt,
+          });
+          tx.putBatchLease({ batchId: '30-1', owner: 'serve-1', expiresAt: later });
+        });
         assert.deepEqual(
           await resumeOf('30-1', 'talk', takes),
           refused(
-            `talk#1 of batch 30-1 is an interactive session open since ${since}, and no driver holds the batch: it waits for a session again once the attempt's lease lapses, then foedrum brew 30 --take opens a fresh one`,
+            `talk#1 of batch 30-1 is an interactive session open since ${since}, and no driver holds the session: it waits for a session again once the attempt's lease lapses, then foedrum brew 30 --take opens a fresh one`,
           ),
         );
         assert.deepEqual([handed, takenOver()], [[], []]);
-        nothingOpened();
+        opened();
       });
 
       it('still hands a running headless step to the takeover', async () => {
@@ -596,7 +622,7 @@ describe('foedrum resume (ADR 0126)', () => {
         assert.deepEqual(
           await resumeOf('31-1', undefined, takes),
           refused(
-            `talk#1 of batch 31-1 is an interactive session open since ${since}, and no driver holds the batch: it waits for a session again once the attempt's lease lapses, then foedrum brew 31 --take opens a fresh one`,
+            `talk#1 of batch 31-1 is an interactive session open since ${since}, and no driver holds the session: it waits for a session again once the attempt's lease lapses, then foedrum brew 31 --take opens a fresh one`,
           ),
         );
         assert.deepEqual([handed, takenOver()], [[], []]);
