@@ -18,6 +18,7 @@ import type { State } from '../../src/engine/fold.ts';
 import { type PullRequestHost, pullRequestActions } from '../../src/engine/pull-request-actions.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { removeTree } from '../../src/platform/remove.ts';
+import { MergeResult } from '../../src/schemas/store.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
 import { openWorktreeMerge } from '../../src/workspace/base-merge-git.ts';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
@@ -40,6 +41,8 @@ const recipes = fakeRecipes({
     steps: ['implement', 'green', 'open-pull-request'],
     actions: { 'open-pull-request': 'openPullRequest' },
     merges: ['green'],
+    // A failure on the pull request goes back to implement (ADR 0219, ADR 0226).
+    routes: { 'open-pull-request': { pull_request: 'implement' } },
     pullRequests: [],
   }),
 });
@@ -120,14 +123,27 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
 
   const own = () => ({ url: origin, root: join(dir.path, `git-dirs-${runs}`) });
 
-  /** Brews batch 12-1 of Nip, whose implement step does `work`, to the end of one tick. */
-  const brew = async (work: (path: string) => void) => {
+  /**
+   * Brews batch 12-1 of Nip, whose implement step does `work`, to the end of one tick, then runs
+   * `then` with the driver before it closes.
+   */
+  const brew = async (
+    work: (path: string, attempt: number) => void,
+    then?: (driver: Awaited<ReturnType<typeof openDriver>>) => Promise<void>,
+  ) => {
     const clock = () => new Date('2026-10-23T12:00:00.000Z');
+    // The pull request's body, which a later round renders again (ADR 0227).
+    let body: string | undefined;
     const host: PullRequestHost = {
       find: async () => undefined,
-      open: async () => url,
-      body: async () => assert.fail('the first round renders no body again'),
-      update: async () => assert.fail('the first round renders no body again'),
+      open: async (_repo, request) => {
+        body = request.body;
+        return url;
+      },
+      body: async () => body ?? assert.fail('no pull request was opened'),
+      update: async (_url, text) => {
+        body = text;
+      },
     };
     let driver: Awaited<ReturnType<typeof openDriver>> | undefined;
     const worktreeOf = (ref: AttemptRef): string => {
@@ -142,7 +158,7 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     const seen: Seen[] = [];
     const runner = fakeBrewerRunner(({ ref }) => {
       const path = worktreeOf(ref);
-      if (ref.stepId === 'implement') work(path);
+      if (ref.stepId === 'implement') work(path, ref.attempt);
       else {
         seen.push({
           head: git(path, ['rev-parse', 'HEAD']).trim(),
@@ -191,6 +207,7 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       const route = { kind: 'route', batchId: '12-1', recipe: 'nip', reason: 'label' } as const;
       intake.issue({ ...route, source: 'label' }, clock());
       await driver.tick();
+      await then?.(driver);
       return { state: driver.state(), seen };
     } finally {
       driver.close();
@@ -285,6 +302,60 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     );
     assert.deepEqual(merged(state), { base });
     assert.equal(git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim(), tip);
+  });
+
+  it('merges the base at the start of a fix the merged tree sent back, and green finds nothing new (ADR 0226)', async () => {
+    const fix: AttemptRef = { batchId: '12-1', stepId: 'implement', attempt: 2 };
+    let seenByFix: string[] = [];
+    let base = '';
+    const { state } = await brew(
+      (path, attempt) => {
+        if (attempt === 1) return commit(path, 'plan.txt', 'plan\n');
+        // The fix sees what main brought in, and fixes on top of it.
+        seenByFix = readdirSync(path)
+          .filter((name) => name !== '.git')
+          .sort();
+        commit(path, 'fix.txt', 'fix\n');
+      },
+      async (driver) => {
+        // Main moves on, and the merged-check run found the pushed head failing with it.
+        base = mergeIntoMain('other.txt', 'other\n');
+        const head = git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim();
+        const reading = {
+          result: 'exited',
+          check: 'test',
+          command: 'npm test',
+          exitCode: 1,
+          tail: 'not ok 1',
+        } as const;
+        const event = {
+          type: 'pull_request.base_checked',
+          batchId: '12-1',
+          pullRequest: url,
+          branch: 'main',
+          tip: base,
+          head,
+          failed: reading,
+        } as const;
+        const intake = createCommandLog({ store, recipes });
+        assert.equal(
+          intake.issue({ kind: 'record', event }, new Date('2026-10-23T12:00:00.000Z')).kind,
+          'accepted',
+        );
+        await driver.tick();
+      },
+    );
+    assert.deepEqual(seenByFix, ['other.txt', 'plan.txt', 'readme.txt']);
+    const start = MergeResult.parse(state.effects.get(effectKey.encode(baseMergeKey(fix))));
+    assert.equal(start.base, base);
+    assert.ok(start.merged !== undefined, 'the fix merged the base as a commit of its own');
+    // Green merges again and finds the base already in.
+    const again = state.effects.get(effectKey.encode(baseMergeKey({ ...green, attempt: 2 })));
+    assert.deepEqual(again, { base });
+    // The fix, on top of the base it merged, is pushed to the same branch.
+    const pushed = git(origin, ['rev-parse', `refs/heads/${bottle}`]).trim();
+    assert.equal(git(origin, ['merge-base', '--is-ancestor', base, pushed]), '');
+    assert.deepEqual(state.batches.get('12-1')?.lane, { kind: 'on_tap', pullRequests: [url] });
   });
 
   describe('found by its key after a kill (ADR 0033)', () => {

@@ -222,12 +222,25 @@ export type HeadChecks =
   | { kind: 'pending'; head: string; since: string }
   | { kind: 'finished'; head: string; checks: readonly HeadCheck[]; more?: number };
 
+/**
+ * The base checks of the pull request `url` of `batch` on `head` (ADR 0226): a check without a
+ * head, an older log's, counts as one of any head; with no `head`, every check of `url`.
+ */
+export const baseChecksOn = (batch: Batch, url: string, head?: string): BaseCheck[] =>
+  (batch.baseChecks ?? []).filter(
+    (check) =>
+      check.pullRequest === url &&
+      (head === undefined || check.head === undefined || check.head === head),
+  );
+
 /** One merge-tree check of an open pull request against its base's tip (ADR 0198). */
 export interface BaseCheck {
   pullRequest: string;
   /** The base branch, as the remote names it. */
   branch: string;
   tip: string;
+  /** The head merged with the tip (ADR 0226); absent in a log written before it. */
+  head?: string;
   /** The files it conflicts in; absent when it merges cleanly. */
   conflicts?: readonly string[];
   /** The bottle branch's tip, when someone else pushed to it: not checked, then or after. */
@@ -694,12 +707,13 @@ function apply(state: State, event: Event): State {
       return { ...ended, merges: put(ended.merges, pullRequest, nextPosition(state)) };
     }
     case 'pull_request.base_checked': {
-      const { batchId, pullRequest, branch, tip, conflicts, branchMoved, failed, unchecked } =
+      const { batchId, pullRequest, branch, tip, head, conflicts, branchMoved, failed, unchecked } =
         event;
       const check: BaseCheck = {
         pullRequest,
         branch,
         tip,
+        ...(head === undefined ? {} : { head }),
         ...(conflicts === undefined ? {} : { conflicts }),
         ...(branchMoved === undefined ? {} : { branchMoved }),
         ...(failed === undefined ? {} : { failed }),

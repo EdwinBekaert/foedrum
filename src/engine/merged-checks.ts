@@ -113,6 +113,7 @@ export const createMergedChecks = (options: MergedChecksOptions): MergedChecks =
       pullRequest: due.pullRequest,
       branch: due.branch,
       tip: due.tip,
+      head: due.head,
       ...found,
     } as const;
     const decision = log.issue({ kind: 'record', event }, clock());

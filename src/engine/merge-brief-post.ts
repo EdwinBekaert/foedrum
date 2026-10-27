@@ -15,7 +15,7 @@ import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Attempt, Batch, State } from './fold.ts';
+import { type Attempt, type Batch, baseChecksOn, type State } from './fold.ts';
 import { type LensRound, lensRounds } from './lens-rounds.ts';
 import {
   briefKey,
@@ -118,12 +118,22 @@ const changedLines = (state: State, batch: Batch): string[] => {
   const pushes = recordedPushes(state, batch.id);
   const lines = fixRounds(batch).map(({ attempt }, i) => {
     const round = i + 2;
-    const failed = attempt.route?.why === 'pull_request' ? attempt.route.head : '';
+    const route = attempt.route?.why === 'pull_request' ? attempt.route : undefined;
+    const failed = route?.head ?? '';
     const pushed = PushResult.safeParse(pushes[round - 1]);
     const after = pushed.success
       ? `it pushed ${code(shortSha(pushed.data.commit))}`
       : 'it pushed nothing yet';
-    return `- Round ${round}: the checks failed on ${code(shortSha(failed))}, and ${after}.`;
+    // A merged-tree failure names its base check, which names its branch (ADR 0226).
+    const check =
+      route?.tip === undefined
+        ? undefined
+        : batch.baseChecks?.find(({ head, tip }) => head === route.head && tip === route.tip);
+    const where =
+      check === undefined
+        ? code(shortSha(failed))
+        : `the merged tree of ${code(shortSha(failed))} with ${code(check.branch)} at ${code(shortSha(check.tip))}`;
+    return `- Round ${round}: the checks failed on ${where}, and ${after}.`;
   });
   return lines.length === 0 ? ['- Nothing.'] : lines;
 };
@@ -141,16 +151,22 @@ const checkLines = ({ checks, more }: ReadyRecord): string[] => {
   ];
 };
 
-/** How the pull request merges with its base, by its latest base check (ADR 0198, ADR 0203). */
-const baseLine = (batch: Batch, url: string): string => {
-  const latest = batch.baseChecks?.filter((check) => check.pullRequest === url).at(-1);
+/**
+ * How the pull request merges with its base, by its latest base check of `head` (ADR 0198,
+ * ADR 0203, ADR 0226).
+ */
+const baseLine = (batch: Batch, url: string, head: string): string => {
+  const latest = baseChecksOn(batch, url, head).at(-1);
   if (latest === undefined) return '- Not checked against its base since it was pushed.';
   const at = `${code(latest.branch)} at ${code(shortSha(latest.tip))}`;
   if (latest.unchecked !== undefined) {
     return `- Not checked on the merged tree with ${at}: ${plain(latest.unchecked)}.`;
   }
-  // A base check names no head (#547): it may be of a head before a fix round.
-  return `- The latest check against its base, which names no head, merged cleanly with ${at}.`;
+  // A check an older log wrote names no head: it may be of a head before a fix round.
+  if (latest.head === undefined) {
+    return `- The latest check against its base, which names no head, merged cleanly with ${at}.`;
+  }
+  return `- Merged cleanly with ${at}.`;
 };
 
 /** The readings of a check step's latest success, its repository's setup left out (ADR 0163). */
@@ -405,7 +421,7 @@ const briefRest = (
     [
       `**Evidence on ${head}**`,
       ...checkLines(ready),
-      baseLine(batch, ready.pullRequest),
+      baseLine(batch, ready.pullRequest, ready.head),
       redProofLine(steps, proof),
       ...checkStepLines(steps, proof),
       ...notRunLines(steps, proof),
