@@ -1439,6 +1439,15 @@ describe('openDriver', () => {
         assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 1);
         assert.deepStrictEqual(fixLedger(driver, retry), { base: BASE, merged: MERGED });
       });
+
+      it('merges nothing at the start of a fix the head checks sent back', async () => {
+        sentBack(false);
+        const { merge, calls } = fakeMerge();
+        const { driver, hand } = await drive(merge);
+        assert.deepStrictEqual(hand.started, [fix]);
+        assert.deepStrictEqual(calls, []);
+        assert.equal(fixLedger(driver), undefined);
+      });
     });
   });
 

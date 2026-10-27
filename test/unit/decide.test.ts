@@ -2750,4 +2750,25 @@ describe('decide: a failing check on the merged tree sends the batch back (ADR 0
       ],
     });
   });
+
+  it('skips to on tap and settles the head for every cause; cancels', () => {
+    const skip = { kind: 'skip', batchId: 'b1', ...by } as const;
+    const skipped = decide(fold(stuckEvents), skip, ale(1));
+    assert.deepStrictEqual(skipped, {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'skip' },
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [fixPullRequest] },
+      ],
+    });
+    const events = skipped.kind === 'accepted' ? skipped.events : [];
+    const after = [...stuckEvents, ...events, checksFinished('b1', secondHead)];
+    assert.equal(decide(fold(after), fix(secondHead, tip2), ale(3)).kind, 'refused');
+    assert.equal(decide(fold(after), onHead(secondHead), ale(3)).kind, 'refused');
+    const cancel = { kind: 'cancel', batchId: 'b1', ...by } as const;
+    assert.deepStrictEqual(decide(fold(stuckEvents), cancel, ale(1)), {
+      kind: 'accepted',
+      events: [{ type: 'batch.cancelled', batchId: 'b1', ...by }],
+    });
+  });
 });

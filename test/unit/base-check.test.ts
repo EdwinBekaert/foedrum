@@ -1120,5 +1120,29 @@ describe('checkBases', () => {
       assert.match(body, /Foedrum sends the batch back to fix it, at most 2 rounds/);
       assert.doesNotMatch(body, /stays On tap/);
     });
+
+    it('keeps the post of a recipe without the route as it was', async () => {
+      onTap();
+      accept({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest,
+          branch: 'main',
+          tip: tip1,
+          head,
+          failed: failing,
+        },
+      });
+      const github = fakeGitHub();
+      const effects = baseConflictEffects({ marks: github.marks('alice'), recipes: fixed });
+      const [key] = effects.due(log.state(), 'web-7');
+      assert.ok(key);
+      await effects.target.apply(effectKey.encode(key));
+      const [comment] = github.issue(web, 12).comments;
+      assert.match(comment?.body ?? '', /The batch stays On tap/);
+      assert.doesNotMatch(comment?.body ?? '', /sends the batch back/);
+    });
   });
 });

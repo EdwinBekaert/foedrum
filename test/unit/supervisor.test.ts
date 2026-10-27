@@ -667,6 +667,19 @@ describe('planTick: a failing check on the merged tree (ADR 0226)', () => {
     assert.deepStrictEqual(tick(both), [fix()]);
   });
 
+  it('sends nothing for a check without a head, one that did not run, a pass after it, or a recipe without the route', () => {
+    const tip2 = 'f'.repeat(40);
+    for (const events of [
+      [...openedOnTap(), baseChecked('b1', undefined)],
+      [...openedOnTap(), baseChecked('b1', firstHead, baseTip, { unchecked: 'no worktree' })],
+      [...openedOnTap(), baseChecked('b1', firstHead), baseChecked('b1', firstHead, tip2, {})],
+      [...openedOnTap(), baseChecked('b1', secondHead)],
+      [...openedOnTap('b1', 'bare'), baseChecked('b1', firstHead)],
+    ]) {
+      assert.deepStrictEqual(tick(events), []);
+    }
+  });
+
   it("sends nothing for the old head's failure once the fix round pushed a new head", () => {
     const round = [
       ...openedOnTap(),
@@ -676,6 +689,24 @@ describe('planTick: a failing check on the merged tree (ADR 0226)', () => {
     assert.deepStrictEqual(tick(round), []);
     assert.deepStrictEqual(tick([...round, baseChecked('b1', secondHead, 'f'.repeat(40))]), [
       fix(secondHead, 'f'.repeat(40)),
+    ]);
+  });
+
+  it('sends the checks on the head back once the merged tree passes again', () => {
+    const passed = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      baseChecked('b1', firstHead),
+      baseChecked('b1', firstHead, 'f'.repeat(40), {}),
+    ];
+    assert.deepStrictEqual(tick(passed), [
+      {
+        kind: 'fix_pull_request',
+        batchId: 'b1',
+        pullRequest: fixPullRequest,
+        head: firstHead,
+        cause: { kind: 'checks' },
+      },
     ]);
   });
 });
