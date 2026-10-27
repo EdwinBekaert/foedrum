@@ -61,12 +61,8 @@ describe('affectedTests', () => {
   it('lists each test file once, sorted, when several changes reach it', () => {
     assert.deepEqual(
       affectedTests(
-        [
-          'src/schemas/order.ts',
-          'src/cli/status.ts',
-          'src/cli/format.ts',
-          'test/unit/order.test.ts',
-        ],
+        // status.test.ts first, so the list comes out sorted only when it is sorted.
+        ['test/unit/status.test.ts', 'src/schemas/order.ts', 'src/cli/format.ts'],
         tree(),
       ),
       some('test/unit/order.test.ts', 'test/unit/status.test.ts'),
