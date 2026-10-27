@@ -292,7 +292,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       },
       ...(shell.intakeDeadlineMs === undefined ? {} : { deadlineMs: shell.intakeDeadlineMs }),
       bases,
-      checks: githubCheckReader(reads),
+      checks: githubCheckReader(reads, client),
       releases: githubReleaseReader(reads, client),
     });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).

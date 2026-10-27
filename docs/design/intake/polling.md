@@ -1,7 +1,7 @@
 # Polling
 
 - **Polling intake** with conditional requests: works on a laptop with zero infrastructure ([ADR 0008](../../adr/0008-polling-intake.md)).
-  ADR 0052 sets the polling interval at a minute, which `foedrum serve` applies (`pollEvery`, ADR 0068); every GET carries the ETag of the answer before, so an unchanged poll is a 304 that costs no rate limit, and a list is read along its `Link` pages, 10 items a page, so the longest bodies anyone can write never pass the answer limit.
+  ADR 0052 sets the polling interval at a minute, which `foedrum serve` applies (`pollEvery`, ADR 0068); every GET through the cached reads carries the ETag of the answer before (a failed Actions job's log, read once, does not, [ADR 0228](../../adr/0228-a-failed-actions-job-s-log-goes-with-the-batch-back-to-its-fix-step.md)), so an unchanged poll is a 304 that costs no rate limit, and a list is read along its `Link` pages, 10 items a page, so the longest bodies anyone can write never pass the answer limit.
   A pass lists the Brewery's issues and every intake repository's before it orders anything, and orders them as one queue in rank order ([ranking](ranking.md)); each issue's `created_at` is its arrival.
   The queue holds the ready sub-orders of its orders beside the new orders, within the same free capacity ([ADR 0211](../../adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)).
   A target repository's listing asks GitHub for its filter's labels, and the cache keeps at most 64 MiB of answers, one list at most 32 MiB ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)).

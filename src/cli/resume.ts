@@ -19,6 +19,7 @@ import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, type State } from '../engine/fold.ts';
 import { resumeOf } from '../engine/session-resume.ts';
+import { sessionCommand } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
@@ -177,6 +178,16 @@ interface Running {
   session: string;
 }
 
+/** An interactive step's attempt whose session is open in a person's terminal (ADR 0231). */
+interface Open {
+  open: true;
+  ref: AttemptRef;
+  /** The batch's issue, which `foedrum brew` reopens the session by. */
+  batch: Pick<Batch, 'issue' | 'repo'>;
+  /** When its session opened (`interactiveSince`). */
+  since: string;
+}
+
 /** Whether a driver brews `batchId` now: resume then takes it over (ADR 0127). */
 const isRunning = (state: State, batchId: string): boolean => {
   const lane = state.batches.get(batchId)?.lane.kind;
@@ -186,13 +197,14 @@ const isRunning = (state: State, batchId: string): boolean => {
 /**
  * The step of the running `batch` whose session resume continues (ADR 0127): of `stepId`, or the
  * first step of the batch that has one, whose latest attempt runs a brewer's session, or waits
- * to resume the session of the attempt before it (a retry or an answer, `resumeOf`).
+ * to resume the session of the attempt before it (a retry or an answer, `resumeOf`). An interactive
+ * step whose session is open, of `stepId` or of any step, is refused instead (ADR 0231).
  */
 const runningTarget = (
   batch: Batch,
   stepId: string | undefined,
   attempt: string | undefined,
-): Running | Refused => {
+): Running | Open | Refused => {
   const batchId = batch.id;
   if (batch.lane.kind === 'ordered') {
     return { refused: `batch ${batchId} is ordered: no step of it has run yet` };
@@ -201,8 +213,19 @@ const runningTarget = (
     const latest = 'name the step alone, and foedrum resume continues its latest attempt';
     return { refused: `batch ${batchId} is ${batch.lane.kind}: ${latest}` };
   }
+  const steps = stepId === undefined ? [...batch.steps.values()] : [batch.steps.get(stepId)];
+  // A person's session cannot be stopped from outside, so it is never taken over (ADR 0231), also
+  // when no step is named and a headless step before it runs.
+  for (const step of steps) {
+    if (step === undefined) continue;
+    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
+    if (latest?.phase !== 'started' || latest.abandoned === true) continue;
+    const { attempt: n, interactiveSince: since } = latest;
+    if (since !== undefined)
+      return { open: true, ref: { batchId, stepId: step.id, attempt: n }, batch, since };
+  }
   let why: string | undefined;
-  for (const step of stepId === undefined ? batch.steps.values() : [batch.steps.get(stepId)]) {
+  for (const step of steps) {
     if (step === undefined) continue;
     const latest = step.attempts.get(Math.max(...step.attempts.keys()));
     if (latest === undefined || (latest.phase !== 'finished' && latest.abandoned === true)) {
@@ -235,7 +258,7 @@ const targetOf = (
   state: State,
   batchId: string,
   step: string | undefined,
-): Target | Running | Refused => {
+): Target | Running | Open | Refused => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return { refused: `no batch ${batchId} in the event store` };
   const at = step?.lastIndexOf('#') ?? -1;
@@ -272,6 +295,25 @@ const failed = (line: string): CliResult => ({
   stderr: `foedrum resume: ${line}\n`,
 });
 
+/**
+ * Why an open interactive session is refused (ADR 0231): it must close so it reports, and brew
+ * opens it again when it closed without its out doc. Open for sure only while its attempt's lease
+ * lives, which brew renews while it waits on claude; the batch's may be another driver's.
+ */
+const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string => {
+  const of = `${labelOf(ref)} of batch ${ref.batchId} is an interactive session`;
+  const brew = sessionCommand(batch);
+  const key = attemptKey.encode(ref);
+  const lease = leases.find((held) => held.attemptKey === key);
+  if (lease === undefined) {
+    const lapses = "it waits for a session again once the attempt's lease lapses";
+    return `${of} open since ${since}, and no driver holds the session: ${lapses}, then ${brew} opens a fresh one`;
+  }
+  const until = lease.expiresAt.toISOString();
+  const close = `close it there so it reports; if it closes without its out doc, ${brew} opens it again`;
+  return `${of} still open in ${lease.owner} (since ${since}, lease until ${until}): ${close}`;
+};
+
 /** Runs `foedrum resume`: claude's exit code, or one line on why it opened nothing. */
 export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promise<CliResult> => {
   const path = join(shell.cwd, '.foedrum', 'index.db');
@@ -282,6 +324,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const state = fold(events.map(({ event }) => event));
     const target = targetOf(events, state, input.batch, input.step);
     if ('refused' in target) return failed(target.refused);
+    if ('open' in target) return failed(openLine(target, store.currentLeases(shell.now())));
     const { ref } = target;
     const session = 'running' in target ? target.session : target.session.id;
     const { batchId } = ref;

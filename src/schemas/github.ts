@@ -111,6 +111,9 @@ export const GitHubPullRequestHead = z.object({ head: z.object({ sha: CommitSha 
 
 /** One item of `GET /repos/{owner}/{repo}/commits/{sha}/check-runs` (ADR 0213). */
 export const GitHubCheckRun = z.object({
+  /** For a check run of GitHub Actions, the id of its job, whose log can be read (ADR 0228). */
+  id: z.number().optional(),
+  app: z.object({ slug: z.string().nullable().optional() }).nullable().optional(),
   name: z.string(),
   status: z.string(),
   conclusion: z.string().nullable().optional(),
