@@ -1235,7 +1235,7 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(ready, /not ready to merge/);
     });
 
-    it('says nothing of a brief once its pull request merged (ADR 0229, regression test)', async () => {
+    it('says nothing of a brief once its pull request merged (ADR 0229)', async () => {
       nip();
       assert.ok(
         (await statusText()).includes(`- <${url}> is not ready to merge yet: no merge brief.`),

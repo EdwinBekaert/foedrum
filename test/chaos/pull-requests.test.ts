@@ -397,9 +397,10 @@ const briefRun = async (kills: readonly BriefPoint[], late = false, later = fals
     },
     create: async (_repo, _number, body) => {
       point('before the brief was posted');
-      comments.push({ id: comments.length + 1, body });
+      // Ids from 101, so no comment's id is a brief's number.
+      comments.push({ id: 101 + comments.length, body });
       point('after the brief was posted');
-      return comments.length;
+      return 100 + comments.length;
     },
     title: async () => 'Add a --json flag',
     hidden: async (_repo, id) => {
@@ -526,7 +527,7 @@ describe('chaos: the merge brief killed around its post (ADR 0225)', () => {
       );
       assert.equal(
         (state.effects.get(JSON.stringify(['12-1', 'brief.1'])) as { comment: number }).comment,
-        1,
+        101,
       );
     });
   }
@@ -537,7 +538,7 @@ describe('chaos: the merge brief killed around its post (ADR 0225)', () => {
     assert.match(comments[1]?.body ?? '', /ci \/ late/);
     assert.equal(
       (state.effects.get(JSON.stringify(['12-1', 'brief.1'])) as { comment: number }).comment,
-      2,
+      102,
     );
   });
 });
@@ -560,7 +561,7 @@ describe('chaos: the merge brief killed around its hide and the next post (ADR 0
       const { state, comments, hides, starts } = await briefRun(kills, false, true);
       assert.equal(starts, kills.length + 1, 'a new driver after each kill');
       assert.equal(comments.length, 2);
-      assert.deepStrictEqual(hides, [1]);
+      assert.deepStrictEqual(hides, [101]);
       assert.deepStrictEqual(
         [...state.effects.keys()].filter((key) => key.includes('brief')).sort(),
         [
@@ -570,7 +571,7 @@ describe('chaos: the merge brief killed around its hide and the next post (ADR 0
         ],
       );
       assert.deepStrictEqual(state.effects.get(JSON.stringify(['12-1', 'brief.1.hidden'])), {
-        comment: 1,
+        comment: 101,
         hidden: 'outdated',
       });
     });
