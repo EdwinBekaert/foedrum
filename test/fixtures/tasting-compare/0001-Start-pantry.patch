@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Fixture <fixture@example.invalid>
+Date: Tue, 27 Oct 2026 09:32:37 +0100
+Subject: [PATCH 1/2] Start pantry
+
+---
+ CLAUDE.md            |  9 +++++++++
+ README.md            | 10 ++++++++++
+ package.json         |  6 ++++++
+ src/cli.mjs          | 20 ++++++++++++++++++++
+ src/pantry.mjs       |  6 ++++++
+ src/store.mjs        | 23 +++++++++++++++++++++++
+ test/pantry.test.mjs | 14 ++++++++++++++
+ 7 files changed, 88 insertions(+)
+ create mode 100644 CLAUDE.md
+ create mode 100644 README.md
+ create mode 100644 package.json
+ create mode 100644 src/cli.mjs
+ create mode 100644 src/pantry.mjs
+ create mode 100644 src/store.mjs
+ create mode 100644 test/pantry.test.mjs
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+index 0000000..4dc4a78
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1,9 @@
++# Working on pantry
++
++pantry keeps a household's list of food and when each item is best before.
++
++## Rules
++
++- Only `src/store.mjs` touches the file system: every other module gets its items, and gives them back, through `load` and `save`, and never imports `node:fs`.
++- `load` validates a pantry file where it enters: every item has a `name` and a `bestBefore` date.
++- Tests use `node:test` and `node:assert`, and plain data instead of files.
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..6e56c92
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,10 @@
++# pantry
++
++A household's list of food, and when each item is best before.
++
++A pantry file is JSON: a list of `{ "name": "milk", "bestBefore": "2026-05-04" }`. It can live in a shared folder, such as one a household syncs between its members, so everyone adds to one list.
++
++```sh
++node src/cli.mjs add <file> <name> <best-before>
++node src/cli.mjs list <file>
++```
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..5990b93
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,6 @@
++{
++  "name": "pantry",
++  "private": true,
++  "type": "module",
++  "scripts": { "test": "node --test" }
++}
+diff --git a/src/cli.mjs b/src/cli.mjs
+new file mode 100644
+index 0000000..8e350b7
+--- /dev/null
++++ b/src/cli.mjs
+@@ -0,0 +1,20 @@
++// node src/cli.mjs <command> <file> ...: the pantry's commands.
++
++import { addItem } from './pantry.mjs';
++import { load, save } from './store.mjs';
++
++const [command, file, ...rest] = process.argv.slice(2);
++
++switch (command) {
++  case 'add': {
++    const [name, bestBefore] = rest;
++    save(file, addItem(load(file), { name, bestBefore }));
++    break;
++  }
++  case 'list':
++    for (const item of load(file)) console.log(`${item.bestBefore}  ${item.name}`);
++    break;
++  default:
++    console.error('usage: node src/cli.mjs add|list <file> ...');
++    process.exitCode = 2;
++}
+diff --git a/src/pantry.mjs b/src/pantry.mjs
+new file mode 100644
+index 0000000..3740171
+--- /dev/null
++++ b/src/pantry.mjs
+@@ -0,0 +1,6 @@
++// What pantry does with a list of items: plain data in, plain data out.
++
++/** `items` with `item` added, sorted by name. */
++export function addItem(items, item) {
++  return [...items, item].sort((a, b) => a.name.localeCompare(b.name));
++}
+diff --git a/src/store.mjs b/src/store.mjs
+new file mode 100644
+index 0000000..009ab80
+--- /dev/null
++++ b/src/store.mjs
+@@ -0,0 +1,23 @@
++// The only module that reads and writes pantry files (CLAUDE.md).
++
++import { readFileSync, writeFileSync } from 'node:fs';
++
++/** The items of the pantry file at `file`, each with a name and a valid best-before date. */
++export function load(file) {
++  const items = JSON.parse(readFileSync(file, 'utf8'));
++  if (!Array.isArray(items)) throw new Error(`${file} is not a list of items`);
++  for (const item of items) {
++    if (typeof item?.name !== 'string' || item.name === '') {
++      throw new Error(`${file} has an item without a name`);
++    }
++    if (typeof item.bestBefore !== 'string' || Number.isNaN(Date.parse(item.bestBefore))) {
++      throw new Error(`${file}: ${item.name} has no valid best-before date`);
++    }
++  }
++  return items;
++}
++
++/** Writes `items` to the pantry file at `file`. */
++export function save(file, items) {
++  writeFileSync(file, `${JSON.stringify(items, null, 2)}\n`);
++}
+diff --git a/test/pantry.test.mjs b/test/pantry.test.mjs
+new file mode 100644
+index 0000000..b25856a
+--- /dev/null
++++ b/test/pantry.test.mjs
+@@ -0,0 +1,14 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { addItem } from '../src/pantry.mjs';
++
++test('adds an item in order of name', () => {
++  const items = addItem([{ name: 'rice', bestBefore: '2027-01-01' }], {
++    name: 'milk',
++    bestBefore: '2026-05-04',
++  });
++  assert.deepEqual(
++    items.map((item) => item.name),
++    ['milk', 'rice'],
++  );
++});
