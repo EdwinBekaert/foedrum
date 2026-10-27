@@ -5,11 +5,17 @@
 
 import { jobLogExcerpt } from '../checks/job-log.ts';
 import type { PullRequestCheckReader, ReadCheck } from '../engine/pr-checks.ts';
-import { CheckConclusion, HeadCheck, MAX_HEAD_CHECK_NAME_LENGTH } from '../schemas/events.ts';
+import { findSecrets } from '../formats/secrets.ts';
+import {
+  CheckConclusion,
+  HeadCheck,
+  MAX_HEAD_CHECK_NAME_LENGTH,
+  MAX_LOG_UNREAD_LENGTH,
+} from '../schemas/events.ts';
 import { GitHubCheckRun, GitHubCommitStatus, GitHubPullRequestHead } from '../schemas/github.ts';
 import { CommitSha } from '../schemas/store.ts';
 import { checked, refused, repoPath } from './answers.ts';
-import type { GitHubClient } from './client.ts';
+import { type GitHubClient, GitHubRateLimited, type GitHubTextAnswer } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 import { pullRequestOf } from './tracker.ts';
 
@@ -17,6 +23,13 @@ import { pullRequestOf } from './tracker.ts';
 const conclusionOf = (text: string | null | undefined): CheckConclusion => {
   const parsed = CheckConclusion.safeParse(text);
   return parsed.success ? parsed.data : 'unknown';
+};
+
+/** The start of `text`, at most `most` characters, never half a character. */
+const startOf = (text: string, most: number): string => {
+  const cut = text.slice(0, most);
+  // A high surrogate cut from its pair is left out.
+  return /[\uD800-\uDBFF]$/.test(cut) && cut.length < text.length ? cut.slice(0, -1) : cut;
 };
 
 /**
@@ -30,9 +43,7 @@ const readCheck = (
   url: string | null | undefined,
   job?: number,
 ): ReadCheck => {
-  let cut = name.slice(0, MAX_HEAD_CHECK_NAME_LENGTH);
-  // Never half a character: a high surrogate cut from its pair is left out.
-  if (/[\uD800-\uDBFF]$/.test(cut) && cut.length < name.length) cut = cut.slice(0, -1);
+  const cut = startOf(name, MAX_HEAD_CHECK_NAME_LENGTH);
   return {
     name: cut === '' ? kind : cut,
     kind,
@@ -45,8 +56,18 @@ const readCheck = (
 /** The most of a job's log it reads, in bytes: a test suite's job prints about a megabyte. */
 const MAX_LOG_BYTES = 32 * 1024 * 1024;
 
+/** Why a job's log could not be read, from the error its read failed with: one line, never a secret. */
+const failedBecause = (error: unknown): string => {
+  const said = (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]?.trim();
+  if (said === undefined || said === '') return 'its read failed';
+  if (findSecrets(said, () => false).length > 0) {
+    return 'its read failed with an error that looks like a secret';
+  }
+  return startOf(said, MAX_LOG_UNREAD_LENGTH);
+};
+
 /** Why a job's log GitHub answered `status` to could not be read. */
-const unreadOf = (status: number): string => {
+const refusedBecause = (status: number): string => {
   switch (status) {
     case 404:
       return 'GitHub has no log of it (404)';
@@ -109,13 +130,20 @@ export const githubCheckReader = (
   },
   log: async (url, job, signal) => {
     const { repo } = pullRequestOf(url);
-    // Not through the cached reads: a log is read once, and would fill the cache (ADR 0068).
-    const answer = await client.text(
-      `/repos/${repoPath(repo)}/actions/jobs/${job}/logs`,
-      MAX_LOG_BYTES,
-      signal,
-    );
-    if (answer.status !== 200) return { unread: unreadOf(answer.status) };
+    let answer: GitHubTextAnswer;
+    try {
+      // Not through the cached reads: a log is read once, and would fill the cache (ADR 0068).
+      answer = await client.text(
+        `/repos/${repoPath(repo)}/actions/jobs/${job}/logs`,
+        MAX_LOG_BYTES,
+        signal,
+      );
+    } catch (error) {
+      // GitHub's rate limit ends, so the pass reads the log again after it; a stopped read too.
+      if (error instanceof GitHubRateLimited || signal?.aborted === true) throw error;
+      return { unread: failedBecause(error) };
+    }
+    if (answer.status !== 200) return { unread: refusedBecause(answer.status) };
     // What gh printed of a log it refused for its escape sequences, or a log with nothing in it.
     if (answer.text.trim() === '') return { unread: 'it came back empty' };
     return { excerpt: jobLogExcerpt(answer.text) };

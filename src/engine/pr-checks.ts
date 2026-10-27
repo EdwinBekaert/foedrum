@@ -4,13 +4,11 @@
 // There is no deadline: the engine waits as long as they run, and the status comment says so.
 // A record with failed checks keeps the end of each failed Actions job's log (ADR 0228).
 
-import { findSecrets } from '../formats/secrets.ts';
 import {
   type CheckConclusion,
   type CheckLog,
   type HeadCheck,
   MAX_HEAD_CHECKS,
-  MAX_LOG_UNREAD_LENGTH,
   MOST_FAILED_CHECKS,
 } from '../schemas/events.ts';
 import type { CommandLog } from './command-log.ts';
@@ -33,7 +31,10 @@ export interface PullRequestCheckReader {
   head(url: string, signal?: AbortSignal): Promise<string>;
   /** Every check on `head` in the repository of the pull request at `url`, page after page. */
   checks(url: string, head: string, signal?: AbortSignal): Promise<readonly ReadCheck[]>;
-  /** The log of the Actions job `job` in the repository of the pull request at `url` (ADR 0228). */
+  /**
+   * The log of the Actions job `job` in the repository of the pull request at `url` (ADR 0228): its
+   * excerpt, or why it could not be read; it throws only for a read to try on a later pass.
+   */
   log(url: string, job: number, signal?: AbortSignal): Promise<CheckLog>;
 }
 
@@ -82,28 +83,27 @@ const kept = <T extends HeadCheck>(checks: readonly T[]): { checks: T[]; more?: 
 /** A finished check as read, with the job whose log a record may keep. */
 type FinishedCheck = HeadCheck & { job?: number };
 
-/** Why a log could not be read, from the error its read failed with: one line, never a secret. */
-const unreadOf = (error: unknown): string => {
-  const said = (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]?.trim();
-  if (said === undefined || said === '') return 'its read failed';
-  if (findSecrets(said, () => false).length > 0)
-    return 'its read failed with an error that looks like a secret';
-  let cut = said.slice(0, MAX_LOG_UNREAD_LENGTH);
-  // Never half a character: a high surrogate cut from its pair is left out.
-  if (/[\uD800-\uDBFF]$/.test(cut) && cut.length < said.length) cut = cut.slice(0, -1);
-  return cut;
-};
+/**
+ * How long the log reads of one record may take: well inside a pass's deadline, so a record with
+ * slow logs is written all the same and the next pass skips it as unchanged (ADR 0228).
+ */
+const LOG_READS_MS = 60_000;
+
+/** Why a failed job's log was not read once the record's time for its logs was up. */
+const LATE = 'it was not read within the minute a record gives its logs';
 
 /**
  * `checks` as a record keeps them, each of the first `MOST_FAILED_CHECKS` failed Actions jobs with
- * its log (ADR 0228), read one at a time; undefined once the pass is given up.
+ * its log (ADR 0228), read one at a time until `LOG_READS_MS` is up. Undefined for no record on
+ * this pass: given up, or a read the reader says to try again, which it reports.
  */
 const withLogs = async (
-  reader: PullRequestCheckReader,
+  { reader, clock, failed }: CheckReadOptions,
   url: string,
   checks: readonly FinishedCheck[],
   signal: AbortSignal,
 ): Promise<HeadCheck[] | undefined> => {
+  const until = clock().getTime() + LOG_READS_MS;
   const recorded: HeadCheck[] = [];
   let read = 0;
   for (const { job, ...check } of checks) {
@@ -112,11 +112,16 @@ const withLogs = async (
       continue;
     }
     read++;
+    if (clock().getTime() >= until) {
+      recorded.push({ ...check, log: { unread: LATE } });
+      continue;
+    }
     let log: CheckLog;
     try {
       log = await reader.log(url, job, signal);
     } catch (error) {
-      log = { unread: unreadOf(error) };
+      if (!signal.aborted) failed(`reading the job logs of ${url}`, error);
+      return undefined;
     }
     if (signal.aborted) return undefined;
     recorded.push({ ...check, log });
@@ -173,8 +178,9 @@ export const recordChecks = async (
       const checks = kept(finished);
       if (before?.kind === 'finished' && sameHeadChecks(before, checks)) continue;
       // Only a record about to be written reads a log, so an unchanged one never reads it again.
-      const logged = await withLogs(reader, open.url, checks.checks, signal);
-      if (logged === undefined) return;
+      const logged = await withLogs(options, open.url, checks.checks, signal);
+      if (signal.aborted) return;
+      if (logged === undefined) continue;
       record({
         type: 'pull_request.checks_finished',
         batchId,
