@@ -43,6 +43,7 @@ const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
   // talk is a person's session (ADR 0222).
   sip: fakeRecipe({ steps: ['plan', 'talk'], interactive: ['talk'] }),
+  flight: fakeRecipe({ steps: ['look'], groups: { look: ['eye', 'talk'] }, interactive: ['talk'] }),
 });
 
 const loaded = loadRecipes({
@@ -554,6 +555,91 @@ describe('foedrum resume (ADR 0126)', () => {
       it('still hands a running headless step to the takeover', async () => {
         assert.equal((await resumeOf('23-1', 'plan', takes)).exitCode, 0);
         assert.deepEqual(handed, [{ batchId: '23-1', stepId: 'plan' }]);
+      });
+
+      it('with no step named, refuses an open session even while a headless step before it runs', async () => {
+        const log = createCommandLog({ store, recipes });
+        const issue = (command: Parameters<typeof log.issue>[0]) =>
+          assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+        // 31-1 tastes in a parallel group: eye runs headless in S3, talk's session is open in S4.
+        issue({ kind: 'order', batchId: '31-1', order: { issue: 31 } });
+        issue({
+          kind: 'route',
+          batchId: '31-1',
+          recipe: 'flight',
+          reason: 'label',
+          source: 'label',
+        });
+        for (const [stepId, id] of [
+          ['eye', S3],
+          ['talk', S4],
+        ] as const) {
+          const path = pathOf({ batchId: '31-1', stepId, attempt: 1 });
+          issue({
+            kind: 'record',
+            event: {
+              type: 'step.started',
+              batchId: '31-1',
+              stepId,
+              attempt: 1,
+              session: { id, worktree: path },
+              worktree: {
+                repo: 'acme/api',
+                path,
+                branch: `foedrum/31-1/${stepId}/1`,
+                commit: commit('a'),
+              },
+              ...(stepId === 'talk' ? { interactiveSince: since } : {}),
+            },
+          });
+        }
+        assert.deepEqual(
+          await resumeOf('31-1', undefined, takes),
+          refused(
+            `talk#1 of batch 31-1 is an interactive session open since ${since}, and no driver holds the batch: it waits for a session again once the attempt's lease lapses, then foedrum brew 31 --take opens a fresh one`,
+          ),
+        );
+        assert.deepEqual([handed, takenOver()], [[], []]);
+      });
+
+      it('with a step named, looks at that step alone', async () => {
+        assert.deepEqual(
+          await resumeOf('30-1', 'plan', takes),
+          refused(
+            'step plan of batch 30-1 has no attempt running or waiting to continue a session',
+          ),
+        );
+        assert.deepEqual(handed, []);
+      });
+
+      it('takes an abandoned interactive attempt for no open session', async () => {
+        const log = createCommandLog({ store, recipes });
+        const issue = (command: Parameters<typeof log.issue>[0]) =>
+          assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+        // Stuck abandons talk#1 while it is started; the rewind brews the batch again from plan.
+        issue({
+          kind: 'stall',
+          batchId: '30-1',
+          stepId: 'talk',
+          attempt: 1,
+          lastProgressAt: t0,
+          turnsWithoutProgress: 3,
+        });
+        issue({
+          kind: 'rewind',
+          batchId: '30-1',
+          toStepId: 'plan',
+          by: 'ada',
+          via: 'terminal',
+          shas: { 'acme/api': commit('8') },
+        });
+        assert.deepEqual(
+          await resumeOf('30-1', 'talk', takes),
+          refused(
+            'step talk of batch 30-1 has no attempt running or waiting to continue a session',
+          ),
+        );
+        assert.deepEqual(handed, []);
       });
 
       it('opens a finished interactive attempt for reading once the batch waits for a session (ADR 0126)', async () => {
