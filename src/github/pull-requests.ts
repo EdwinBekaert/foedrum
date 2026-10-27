@@ -1,12 +1,18 @@
 // The pull requests of the openPullRequest action on GitHub (ADR 0071): found by their head branch
-// among the pull requests the Brewery's own login opened, and opened through the REST API.
+// among the pull requests the Brewery's own login opened, and opened through the REST API; a later
+// round reads and updates the body only (ADR 0227).
 
 import { same } from '../engine/issue-claims.ts';
 import type { PullRequestHost } from '../engine/pull-request-actions.ts';
-import { GitHubOpenedPullRequest, GitHubValidationErrors } from '../schemas/github.ts';
+import {
+  GitHubOpenedPullRequest,
+  GitHubPullRequest,
+  GitHubValidationErrors,
+} from '../schemas/github.ts';
 import { checked, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
+import { pullRequestOf } from './tracker.ts';
 
 export interface GitHubPullRequestsOptions {
   client: GitHubClient;
@@ -76,6 +82,21 @@ export const githubPullRequests = (options: GitHubPullRequestsOptions): PullRequ
       if (draft && answer.status === 422 && refusesDrafts(answer.body)) answer = await ask(false);
       if (answer.status !== 201) throw refused(answer.status, answer.body, what);
       return checked(GitHubOpenedPullRequest, answer.body, what).html_url;
+    },
+    body: async (url, signal) => {
+      const { repo, number } = pullRequestOf(url);
+      const what = `the pull request ${repo}#${number}`;
+      const answer = await reads.get(`/repos/${repoPath(repo)}/pulls/${number}`, signal);
+      if (answer.status !== 200) throw refused(answer.status, answer.body, what);
+      // GitHub answers null for a pull request with no body.
+      return checked(GitHubPullRequest, answer.body, what).body ?? '';
+    },
+    update: async (url, body, signal) => {
+      const { repo, number } = pullRequestOf(url);
+      const what = `updating the body of the pull request ${repo}#${number}`;
+      const path = `/repos/${repoPath(repo)}/pulls/${number}`;
+      const answer = await client.rest('PATCH', path, { body }, signal);
+      if (answer.status !== 200) throw refused(answer.status, answer.body, what);
     },
   };
 };
