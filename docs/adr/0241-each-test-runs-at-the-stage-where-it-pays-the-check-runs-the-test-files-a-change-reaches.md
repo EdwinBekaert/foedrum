@@ -47,6 +47,7 @@ Other tools run only the tests a change reaches, and the full suite at a later s
 
 ### How the check runs them
 - `npm run check` runs the files the change reaches with the same test command as `npm test`, through `scripts/with-checkout-tmp.ts`, with the CPU-time preload and both reporters, without coverage, and names the files it ran before the steps' output.
+  The check starts node with that command and the files itself (`TEST_COMMAND` in `scripts/check.ts`, which a unit test holds `package.json`'s `test` script to), not through an npm script: npm runs a script through cmd.exe on Windows, whose command line ends at 8,191 characters, and the 239 test files' paths alone take about 7,600; node started without a shell gets Windows' 32,767.
   With no file reached it runs no test step and says "no test file reached".
   When every file is reached it runs them all, still without coverage.
 - `npm run check -- --all` runs every test file with coverage and its thresholds, exactly `npm test`; a part of the suite cannot meet the thresholds.
@@ -69,4 +70,5 @@ Other tools run only the tests a change reaches, and the full suite at a later s
 - **A longer step timeout:** it hides a hang for longer and does not make a check cheaper.
 - **The full suite at the gate:** CI already runs it, and a merge waits for `ci-ok`.
 - **A type checker or a bundler to find imports:** exact, but a dependency or a slow start for a reading that may err only towards too many.
+- **A second npm script that takes the files (`npm run test:files -- <files>`):** one place for the command, but the file list would pass through cmd.exe's 8,191-character command line on Windows.
 - **Matching fixture paths in test text:** fewer files for a fixture change, but a path built at run time would be missed; every file is never too few.
