@@ -25,7 +25,15 @@ export type InputSource =
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
   /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
-  | { kind: 'route'; step: string; from: string; why: ScheduleRoute['why']; pullRequest?: string }
+  | {
+      kind: 'route';
+      step: string;
+      from: string;
+      why: ScheduleRoute['why'];
+      pullRequest?: string;
+      /** Sent back by a failing check on the pull request's merged tree (ADR 0226). */
+      cause?: 'merged_check';
+    }
   /** Why a retry runs: the secret scan failed the attempt before it, `attempt` (ADR 0187). */
   | { kind: 'scan'; step: string; attempt: number }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
@@ -76,7 +84,8 @@ function describeSource(source: InputSource): string {
       return `answers to the questions of step ${source.step}`;
     case 'route': {
       if (source.why === 'pull_request') {
-        return `why step ${source.step} runs again: the failed checks of pull request ${source.pullRequest}`;
+        const what = source.cause === 'merged_check' ? 'merged-tree check' : 'checks';
+        return `why step ${source.step} runs again: the failed ${what} of pull request ${source.pullRequest}`;
       }
       const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;

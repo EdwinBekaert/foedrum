@@ -2,7 +2,6 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
@@ -13,12 +12,28 @@ import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Attempt, Batch, Lane, Pause, State, UsageWindows } from './fold.ts';
+import {
+  type Attempt,
+  type Batch,
+  baseChecksOn,
+  type Lane,
+  type Pause,
+  type State,
+  type UsageWindows,
+} from './fold.ts';
 import { briefNow } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
-import { changeText, findingText, knownCommits, latestPush } from './pull-request.ts';
+import {
+  changeText,
+  digestOf,
+  findingText,
+  knownCommits,
+  latestBody,
+  latestPush,
+  openedPullRequest,
+} from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
@@ -155,12 +170,18 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch): string => {
       return `no recipe was chosen by its routing deadline, ${reason.deadlineAt}`;
     // A check's name and link are whoever runs CI's words (ADR 0213), shown as plain text and a link.
     case 'pull_request_failed': {
+      const after = `after ${roundsText(reason.rounds)}`;
+      // The check's name and command are the Brewery's configuration (ADR 0209).
+      if (reason.cause !== undefined) {
+        const { branch, tip, check } = reason.cause;
+        return `${code(reason.stepId)}: ${link(reason.pullRequest)} fails its checks on the merged tree with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${plain(check)}`;
+      }
       const checks = reason.failed.map(
         ({ name, conclusion, url }) =>
           `${plain(name)} (${conclusion})${url === undefined ? '' : ` ${link(url)}`}`,
       );
       const more = reason.more > 0 ? [`and ${reason.more} more`] : [];
-      return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} after ${roundsText(reason.rounds)}: ${[...checks, ...more].join(', ')}`;
+      return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
     case 'stopped': {
@@ -198,10 +219,12 @@ export const shortSha = (sha: string): string => sha.slice(0, 8);
  * How the pull request `url` of `batch` merges with its base, by its latest check (ADR 0198): the
  * tip and the files of a conflict, or that it merges cleanly again after an earlier conflict; on
  * the merged tree (ADR 0203), the check that failed and how, why the checks did not run, or that
- * they pass again after either; `undefined` when every check was clean or none ran.
+ * they pass again after either; `undefined` when every check was clean or none ran. Only the checks
+ * of `head`, the latest push's, when it is given: an older head's failure is not this one's
+ * (ADR 0226).
  */
-const baseCheckLine = (batch: Batch, url: string): string | undefined => {
-  const checks = (batch.baseChecks ?? []).filter((check) => check.pullRequest === url);
+const baseCheckLine = (batch: Batch, url: string, head?: string): string | undefined => {
+  const checks = baseChecksOn(batch, url, head);
   const latest = checks.at(-1);
   // An ended pull request is checked no more: its last check says nothing now.
   if (latest === undefined || batch.pullRequestEnds?.[url] !== undefined) return undefined;
@@ -276,9 +299,9 @@ export const readingText = (reading: GravityReading): string => {
 };
 
 /** The lines of the pull requests of a batch on tap that its base checks have something to say of. */
-export const baseCheckLines = (batch: Batch): string[] =>
+export const baseCheckLines = (batch: Batch, head?: string): string[] =>
   batch.lane.kind === 'on_tap'
-    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url) ?? [])
+    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url, head) ?? [])
     : [];
 
 /**
@@ -632,12 +655,23 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
+/** A pull request whose body the latest round left as it is (ADR 0227). */
+export interface LeftBody {
+  pullRequest: string;
+  left: 'edited' | 'unmarked';
+}
+
+const leftBodyText: Record<LeftBody['left'], string> = {
+  edited: 'its description was edited since Foedrum wrote it',
+  unmarked: 'its description has no Foedrum marker',
+};
+
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the `sensitive`
  * files its pushed change touches (ADR 0201), the assumptions of its out docs and, on tap, its pull
- * requests, with a link to the `brief` that says one is ready to merge (ADR 0225). Every text a
- * brewer or an issue wrote is one escaped line.
+ * requests, with a link to the `brief` that says one is ready to merge (ADR 0225) and the body the
+ * latest round `left` as it is (ADR 0227). Every text a brewer or an issue wrote is one escaped line.
  */
 export const renderStatus = (
   batch: Batch,
@@ -647,6 +681,9 @@ export const renderStatus = (
   sensitive?: SensitiveFiles,
   usageWindows: UsageWindows = {},
   brief?: MergeBrief,
+  left?: LeftBody,
+  /** The commit of the batch's latest push, whose base checks the status line shows (ADR 0226). */
+  head?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -689,13 +726,19 @@ export const renderStatus = (
         ? ['No pull request.']
         : [
             '**Pull requests**',
-            ...pullRequests.map((url) => baseCheckLine(batch, url) ?? `- ${link(url)}`),
+            ...pullRequests.map((url) => baseCheckLine(batch, url, head) ?? `- ${link(url)}`),
             ...checkLines(batch),
             // The merge brief of the record that makes it ready now (ADR 0225).
             ...(brief === undefined
               ? []
               : [
                   `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
+                ]),
+            // A body someone edited, or one with no marker, is not rendered again (ADR 0227).
+            ...(left === undefined
+              ? []
+              : [
+                  `- ${link(left.pullRequest)}: ${leftBodyText[left.left]}, so Foedrum left it as it is`,
                 ]),
           ],
     );
@@ -707,10 +750,6 @@ export const renderStatus = (
   const kept = text.slice(0, longestText - cutNote.length);
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
-
-/** The first 16 hex digits of the SHA-256 of `text`: what a revision records of it. */
-const digestOf = (text: string): string =>
-  createHash('sha256').update(text).digest('hex').slice(0, 16);
 
 const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
   batchId,
@@ -748,6 +787,15 @@ const latestRevision = (
   return { next, latest };
 };
 
+/** The open pull request of `batch` whose body its latest round left as it is (ADR 0227). */
+const leftBody = (state: State, batch: Batch): LeftBody | undefined => {
+  const body = latestBody(state, batch.id);
+  const url = openedPullRequest(state, batch.id);
+  if (body === undefined || !('left' in body) || url === undefined) return undefined;
+  if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  return { pullRequest: url, left: body.left };
+};
+
 /** A revision of a status comment that is due. */
 interface DueRevision {
   key: BatchEffectKey;
@@ -774,16 +822,18 @@ const statusDue = (
   if (issue === undefined) return undefined;
   const { next: revision, latest: previous } = latestRevision(state, batchId);
   // The latest push of the pull request recorded the sensitive files (ADR 0201, ADR 0219).
-  const sensitive = latestPush(state, batchId)?.sensitive;
+  const pushed = latestPush(state, batchId);
   const paused = pauseOf(state, batch);
   const text = renderStatus(
     batch,
     steps,
     knownCommits(state, batchId),
     paused,
-    sensitive,
+    pushed?.sensitive,
     state.usageWindows,
     briefNow(state, batch),
+    leftBody(state, batch),
+    pushed?.commit,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

@@ -11,7 +11,14 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import type { Attempt, Batch, Lane, Step } from '../../src/engine/fold.ts';
+import {
+  type Attempt,
+  type Batch,
+  emptyState,
+  type Lane,
+  type State,
+  type Step,
+} from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
   renderStatus,
@@ -657,6 +664,24 @@ describe('renderStatus', () => {
           more: 3,
         },
         /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{40}` after 2 rounds: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, &#64;bob &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
+      ],
+      [
+        {
+          kind: 'pull_request_failed',
+          stepId: 'open-pull-request',
+          pullRequest: 'https://github.com/acme/api/pull/12',
+          head: 'c'.repeat(40),
+          rounds: 2,
+          failed: [],
+          more: 0,
+          cause: {
+            kind: 'merged_check',
+            branch: 'main',
+            tip: 'e'.repeat(40),
+            check: 'the check "<b>test</b>" (npm test)',
+          },
+        },
+        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> fails its checks on the merged tree with `main` at `eeeeeeee` after 2 rounds: the check "&lt;b&gt;test&lt;\/b&gt;" \(npm test\)$/,
       ],
     ];
     for (const [reason, said] of cases) {
@@ -1732,5 +1757,79 @@ describe('statusEffects: the sensitive paths the push recorded (ADR 0201)', () =
 
   it('shows nothing for a push that recorded none', async () => {
     assert.doesNotMatch(await commented(pushed), /sensitive/i);
+  });
+});
+
+describe('renderStatus: a body the latest round left as it is (ADR 0227)', () => {
+  const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
+  const render = (left?: { pullRequest: string; left: 'edited' | 'unmarked' }) =>
+    renderStatus(onTap, steps, undefined, undefined, undefined, {}, undefined, left);
+
+  const lines = (text: string) => text.split('\n');
+
+  it('says so under its pull request, for an edited body and for one with no marker', () => {
+    assert.ok(
+      lines(render({ pullRequest: pr, left: 'edited' })).includes(
+        `- <${pr}>: its description was edited since Foedrum wrote it, so Foedrum left it as it is`,
+      ),
+    );
+    assert.ok(
+      lines(render({ pullRequest: pr, left: 'unmarked' })).includes(
+        `- <${pr}>: its description has no Foedrum marker, so Foedrum left it as it is`,
+      ),
+    );
+  });
+
+  it('says nothing when no round left it', () => {
+    assert.doesNotMatch(render(), /description/);
+  });
+});
+
+describe('statusEffects: the body the latest round left, from the ledger (ADR 0227)', () => {
+  const pushed = { branch: 'b', commit: 'c'.repeat(40), from: 'r' };
+  const key = (effect: string) => JSON.stringify(['7-1', effect]);
+  const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
+  const shown = async (effects: [string, unknown][], shownBatch = onTap): Promise<string> => {
+    const comments = fakeComments('alice');
+    const recipes = fakeRecipes({ nip: fakeRecipe({ steps }) });
+    const now = () => new Date(at);
+    const status = statusEffects({ brewery, comments: comments.host, recipes, clock: now });
+    const state: State = {
+      ...emptyState,
+      batches: new Map([['7-1', shownBatch]]),
+      effects: new Map([[key('pull_request'), pr], ...effects]),
+    };
+    const [due] = status.due(state, '7-1');
+    await status.target.apply(effectKey.encode(due ?? assert.fail('no revision due')));
+    return comments.comments[0]?.body ?? assert.fail('no status comment');
+  };
+  const line = `- <${pr}>: its description was edited since Foedrum wrote it, so Foedrum left it as it is`;
+
+  it("shows the line when the latest round's body was left", async () => {
+    const body = await shown([
+      [key('push'), pushed],
+      [key('push.2'), pushed],
+      [key('body.2'), { left: 'edited' }],
+    ]);
+    assert.ok(body.split('\n').includes(line), body);
+  });
+
+  it('shows nothing for a body the latest round wrote, one a later round has not rendered yet, or once the pull request ended', async () => {
+    const left: [string, unknown][] = [
+      [key('push'), pushed],
+      [key('push.2'), pushed],
+      [key('body.2'), { left: 'edited' }],
+    ];
+    const ended = batch({
+      lane: { kind: 'on_tap', pullRequests: [pr] },
+      pullRequestEnds: { [pr]: 'merged' },
+    });
+    for (const body of [
+      await shown([...left.slice(0, 2), [key('body.2'), { digest: 'a'.repeat(16) }]]),
+      await shown([...left, [key('push.3'), pushed]]),
+      await shown(left, ended),
+    ]) {
+      assert.doesNotMatch(body, /description/);
+    }
   });
 });

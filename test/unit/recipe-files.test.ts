@@ -1914,6 +1914,13 @@ describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
     assert.equal(recipe.loopBack(sentBack(0), open, 'failed'), undefined);
   });
 
+  it("names its maxRounds for the pull request's route only (ADR 0226)", () => {
+    const recipe = pale({ goto: 'implement', maxRounds: 3 });
+    assert.equal(recipe.maxRounds(open, 'pull_request'), 3);
+    assert.equal(recipe.maxRounds(open, 'failed'), undefined);
+    assert.equal(pale().maxRounds(open, 'pull_request'), undefined);
+  });
+
   it('has no route without it', () => {
     const recipe = pale();
     assert.equal(recipe.routesTo(open, 'pull_request'), undefined);

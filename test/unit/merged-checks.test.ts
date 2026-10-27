@@ -143,7 +143,7 @@ describe('createMergedChecks', () => {
     calls[0]?.end({ kind: 'passed' });
     await merged.settled();
     assert.deepStrictEqual(batch('web-7').baseChecks, [
-      { pullRequest: web, branch: 'main', tip: tip1 },
+      { pullRequest: web, branch: 'main', tip: tip1, head },
     ]);
     merged.poll(live);
     assert.equal(calls.length, 1);
@@ -164,11 +164,12 @@ describe('createMergedChecks', () => {
     calls[1]?.end({ kind: 'unchecked', why: 'git worktree add failed: fatal: disk full' });
     await merged.settled();
     assert.deepStrictEqual(batch('web-7').baseChecks, [
-      { pullRequest: web, branch: 'main', tip: tip1, failed: failing },
+      { pullRequest: web, branch: 'main', tip: tip1, head, failed: failing },
       {
         pullRequest: web,
         branch: 'main',
         tip: tip2,
+        head,
         unchecked: 'git worktree add failed: fatal: disk full',
       },
     ]);
@@ -316,7 +317,7 @@ describe('createMergedChecks', () => {
     restarted.poll(live);
     assert.equal(after.calls.length, 1);
     assert.deepStrictEqual(batch('web-7').baseChecks, [
-      { pullRequest: web, branch: 'main', tip: tip1, failed: failing },
+      { pullRequest: web, branch: 'main', tip: tip1, head, failed: failing },
     ]);
   });
 

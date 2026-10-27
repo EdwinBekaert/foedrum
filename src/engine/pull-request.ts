@@ -2,6 +2,7 @@
 // branch it pushes, the pull request the ledger recorded, and the pull request's text from the
 // order and the brewers' out docs.
 
+import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import {
   type Disposition,
@@ -24,7 +25,7 @@ import {
   type TastingReport,
   tastingOf,
 } from '../schemas/out-doc.ts';
-import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
+import { type BatchEffectKey, BodyResult, PushResult } from '../schemas/store.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
@@ -77,6 +78,66 @@ export const pullRequestKey = (batchId: string): BatchEffectKey => ({
   batchId,
   effect: 'pull_request',
 });
+
+/**
+ * The effect that writes the batch's pull request body in `round`: the open's in the first, then
+ * `body.<n>`, which renders it again (ADR 0227).
+ */
+export const bodyKey = (batchId: string, round: number): BatchEffectKey =>
+  round === 1 ? pullRequestKey(batchId) : { batchId, effect: `body.${round}` };
+
+/** The text a body marker's digest is of: its line endings made `\n`, its end trimmed. */
+const normalized = (text: string): string => text.replace(/\r\n?/g, '\n').trimEnd();
+
+/** The first 16 hex digits of the SHA-256 of `text`, as a status comment's revision has (ADR 0072). */
+export const digestOf = (text: string): string =>
+  createHash('sha256').update(text).digest('hex').slice(0, 16);
+
+/** The marker line that ends a body Foedrum wrote: its key, and the digest of `text` above it. */
+const bodyMarker = (key: BatchEffectKey, text: string): string =>
+  `<!-- foedrum:${effectKey.encode(key)} sha256:${digestOf(normalized(text))} -->`;
+
+const MARKER_LINE = /^<!-- foedrum:(\[.*\]) sha256:([0-9a-f]{16}) -->$/;
+
+/** The key and digest of `line` when it is a body marker of `batchId`. */
+const markerOf = (batchId: string, line: string): { key: string; digest: string } | undefined => {
+  const [, key = '', digest = ''] = MARKER_LINE.exec(line) ?? [];
+  try {
+    return effectKey.decode(key).batchId === batchId ? { key, digest } : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Whose a pull request's body is (ADR 0227): Foedrum's own, with its marker, or left alone. */
+export type BodyOwner =
+  | { kind: 'own'; key: string; digest: string }
+  | { kind: 'left'; left: 'edited' | 'unmarked' };
+
+/**
+ * Whose the body of `batchId`'s pull request is (ADR 0227): Foedrum's own when its last line is a
+ * marker of the batch and the digest of the text above it matches, line endings made `\n`: only the
+ * last line, so a marker a brewer wrote into how it works never passes for it.
+ */
+export const bodyOwner = (batchId: string, body: string): BodyOwner => {
+  const text = normalized(body);
+  const at = text.lastIndexOf('\n');
+  const last = markerOf(batchId, text.slice(at + 1));
+  if (last !== undefined && digestOf(text.slice(0, Math.max(0, at)).trimEnd()) === last.digest) {
+    return { kind: 'own', ...last };
+  }
+  // A marker of the batch on another line: the text after it changed, or it moved.
+  const marked = text.split('\n').some((line) => markerOf(batchId, line.trim()) !== undefined);
+  return { kind: 'left', left: marked ? 'edited' : 'unmarked' };
+};
+
+/** What the latest round's body effect recorded (ADR 0227), for a round after the first. */
+export const latestBody = (state: State, batchId: string): BodyResult | undefined => {
+  const round = recordedPushes(state, batchId).length;
+  if (round < 2) return undefined;
+  const parsed = BodyResult.safeParse(state.effects.get(effectKey.encode(bodyKey(batchId, round))));
+  return parsed.success ? parsed.data : undefined;
+};
 
 /** The local name of the batch's bottle branch in `repo`: `foedrum/<batch>/<owner>.<name>`. */
 export const bottleBranch = (batchId: string, repo: string): string =>
@@ -399,6 +460,8 @@ export interface PullRequestTextInput {
   recipe?: string;
   /** The batch's finished attempts, for the brew table (ADR 0167). */
   attempts?: readonly AttemptRow[];
+  /** The effect that writes the body, which its last line names with a marker (ADR 0227). */
+  key?: BatchEffectKey;
 }
 
 export interface PullRequestText {
@@ -851,6 +914,7 @@ export const pullRequestText = ({
   isCommit = () => false,
   recipe,
   attempts = [],
+  key,
 }: PullRequestTextInput): PullRequestText => {
   const order = `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
@@ -867,8 +931,13 @@ export const pullRequestText = ({
     ...(attempts.length === 0 ? [] : [brewTable(attempts, isCommit)]),
   ].join('\n\n');
   const closing = `Closes ${order}`;
+  // The marker, when there is one, is as long whatever the text above it (ADR 0227).
+  const marking = key === undefined ? 0 : bodyMarker(key, '').length + 2;
   // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS.
-  const room = Math.max(0, Math.min(MAX_REPORTS, MAX_BODY - head.length - closing.length - FRAME));
+  const room = Math.max(
+    0,
+    Math.min(MAX_REPORTS, MAX_BODY - head.length - closing.length - marking - FRAME),
+  );
   // Only what can be shown is read (ADR 0088): reports of 1 MiB would cost a second at every apply.
   let unread = room + SCAN_PAST;
   let cut = false;
@@ -925,9 +994,10 @@ export const pullRequestText = ({
           `${fence}text\n${quoted}\n${fence}`,
           '</details>',
         ];
+  const body = [head, ...reported, closing].join('\n\n');
   return {
     title: oneLine === '' ? order : oneLine.slice(0, MAX_TITLE),
-    body: [head, ...reported, closing].join('\n\n'),
+    body: key === undefined ? body : `${body}\n\n${bodyMarker(key, body)}`,
     draft: opensAsDraft(reports) || written?.sections?.howItWorks === undefined,
   };
 };

@@ -15,6 +15,8 @@ import type { Event } from '../../src/schemas/events.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import {
+  baseChecked,
+  baseTip,
   checksFinished,
   checksPending,
   failedCheck,
@@ -629,5 +631,82 @@ describe('planTick: a failing check on an open pull request (ADR 0219)', () => {
     ];
     assert.deepStrictEqual(tick(skipped), []);
     assert.deepStrictEqual(tick([...skipped, checksFinished('b1', 'f'.repeat(40))]), []);
+  });
+});
+
+describe('planTick: a failing check on the merged tree (ADR 0226)', () => {
+  const recipes = fakeRecipes({
+    ale: fakeRecipe({
+      steps: ['plan', OPEN],
+      actions: { [OPEN]: 'openPullRequest' },
+      routes: { [OPEN]: { pull_request: 'plan' } },
+      pullRequests: [],
+    }),
+    bare: fakeRecipe({
+      steps: ['plan', OPEN],
+      actions: { [OPEN]: 'openPullRequest' },
+      pullRequests: [],
+    }),
+  });
+  const tick = (events: Event[]) => planTick(input(events, { recipes })).commands;
+  const fix = (head = firstHead, tip = baseTip) =>
+    ({
+      kind: 'fix_pull_request',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      head,
+      cause: { kind: 'merged_check', tip },
+    }) as const;
+
+  it("sends a batch back whose latest base check of its push's head failed on the merged tree", () => {
+    assert.deepStrictEqual(tick([...openedOnTap(), baseChecked('b1', firstHead)]), [fix()]);
+  });
+
+  it('sends it back for the merged tree first when the checks on its head failed too', () => {
+    const both = [...openedOnTap(), checksFinished('b1', firstHead), baseChecked('b1', firstHead)];
+    assert.deepStrictEqual(tick(both), [fix()]);
+  });
+
+  it('sends nothing for a check without a head, one that did not run, a pass after it, or a recipe without the route', () => {
+    const tip2 = 'f'.repeat(40);
+    for (const events of [
+      [...openedOnTap(), baseChecked('b1', undefined)],
+      [...openedOnTap(), baseChecked('b1', firstHead, baseTip, { unchecked: 'no worktree' })],
+      [...openedOnTap(), baseChecked('b1', firstHead), baseChecked('b1', firstHead, tip2, {})],
+      [...openedOnTap(), baseChecked('b1', secondHead)],
+      [...openedOnTap('b1', 'bare'), baseChecked('b1', firstHead)],
+    ]) {
+      assert.deepStrictEqual(tick(events), []);
+    }
+  });
+
+  it("sends nothing for the old head's failure once the fix round pushed a new head", () => {
+    const round = [
+      ...openedOnTap(),
+      baseChecked('b1', firstHead),
+      ...fixRound('b1', firstHead, secondHead, 2, fixPullRequest, baseTip),
+    ];
+    assert.deepStrictEqual(tick(round), []);
+    assert.deepStrictEqual(tick([...round, baseChecked('b1', secondHead, 'f'.repeat(40))]), [
+      fix(secondHead, 'f'.repeat(40)),
+    ]);
+  });
+
+  it('sends the checks on the head back once the merged tree passes again', () => {
+    const passed = [
+      ...openedOnTap(),
+      checksFinished('b1', firstHead),
+      baseChecked('b1', firstHead),
+      baseChecked('b1', firstHead, 'f'.repeat(40), {}),
+    ];
+    assert.deepStrictEqual(tick(passed), [
+      {
+        kind: 'fix_pull_request',
+        batchId: 'b1',
+        pullRequest: fixPullRequest,
+        head: firstHead,
+        cause: { kind: 'checks' },
+      },
+    ]);
   });
 });

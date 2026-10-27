@@ -127,6 +127,17 @@ export const PushResult = z.strictObject({
 });
 export type PushResult = z.infer<typeof PushResult>;
 
+/**
+ * The result the ledger keeps for a later round's body of the openPullRequest action (ADR 0227):
+ * the digest of the body it wrote, the first 16 hex digits of its SHA-256, or why it left the
+ * body as it was: a person or a bot edited it, or it carries no marker of the batch.
+ */
+export const BodyResult = z.union([
+  z.strictObject({ digest: z.string().regex(/^[0-9a-f]{16}$/) }),
+  z.strictObject({ left: z.enum(['edited', 'unmarked']) }),
+]);
+export type BodyResult = z.infer<typeof BodyResult>;
+
 /** The most files the ledger names of one merge of the base that conflicts (ADR 0164). */
 export const MAX_CONFLICTS = 50;
 

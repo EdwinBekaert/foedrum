@@ -3,13 +3,14 @@
 // host, each found by its key before it is applied (ADR 0033), so a kill between them never
 // pushes twice or opens two pull requests (I4). The attempt ends once both are recorded. A later
 // round of the pull request, after a failure on it sent the batch back, pushes again under a key of
-// its own onto the round before, and opens nothing (ADR 0219).
+// its own onto the round before, and opens nothing (ADR 0219); once that push went, it renders the
+// body again, unless someone edited it (ADR 0227).
 
 import { posix } from 'node:path';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
-import type { ScanFinding } from '../schemas/store.ts';
+import type { BatchEffectKey, BodyResult, ScanFinding } from '../schemas/store.ts';
 import { MAX_REFUSED, MAX_SENSITIVE, PushResult } from '../schemas/store.ts';
 import { remoteBranch } from '../workspace/attempt-worktrees.ts';
 import { mergedBase } from './base-merge.ts';
@@ -20,6 +21,8 @@ import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
 import {
   type AttemptRow,
+  bodyKey,
+  bodyOwner,
   bottleBranch,
   brewLog,
   knownCommits,
@@ -54,6 +57,10 @@ export interface PullRequestHost {
   find(repo: string, head: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Opens the pull request; its URL. */
   open(repo: string, request: PullRequestRequest, signal?: AbortSignal): Promise<string>;
+  /** The body of the pull request at `url`, empty when it has none (ADR 0227). */
+  body(url: string, signal?: AbortSignal): Promise<string>;
+  /** Replaces the body of the pull request at `url`, and nothing else of it (ADR 0227). */
+  update(url: string, body: string, signal?: AbortSignal): Promise<void>;
 }
 
 /** The pushes of a repository's clone to its remote. Every call stops when `signal` aborts. */
@@ -102,6 +109,17 @@ export interface PullRequestActionsOptions {
   orderTitle: (order: OrderIssue, signal?: AbortSignal) => Promise<string>;
 }
 
+/** What the pull request's body is rendered from, read when the effect applies (ADR 0167). */
+interface BodyFrom {
+  order: OrderIssue;
+  reports: readonly StepReport[];
+  isCommit: IsCommit;
+  recipe?: string;
+  attempts: readonly AttemptRow[];
+  /** The effect that writes it, which its marker names (ADR 0227). */
+  key: BatchEffectKey;
+}
+
 /** What one of the action's effects does, as `due` worked it out. */
 type ActionEffect =
   | {
@@ -119,12 +137,10 @@ type ActionEffect =
       kind: 'open';
       repo: string;
       request: Omit<PullRequestRequest, 'title' | 'body' | 'draft'>;
-      order: OrderIssue;
-      reports: readonly StepReport[];
-      isCommit: IsCommit;
-      recipe?: string;
-      attempts: readonly AttemptRow[];
-    };
+      from: BodyFrom;
+    }
+  /** A later round's body, rendered again on the pull request at `url` (ADR 0227). */
+  | { kind: 'body'; url: string; from: BodyFrom };
 
 // A character no path git names holds, in place of a name's leading dot.
 const NO_DOT = String.fromCharCode(0);
@@ -264,6 +280,19 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
     return effect;
   };
 
+  const render = async (from: BodyFrom, signal?: AbortSignal) => {
+    const { order, reports, isCommit, recipe, attempts, key } = from;
+    return pullRequestText({
+      title: await orderTitle(order, signal),
+      closes: { repo: order.repo ?? brewery, issue: order.issue },
+      reports,
+      isCommit,
+      ...(recipe === undefined ? {} : { recipe }),
+      attempts,
+      key,
+    });
+  };
+
   const targetOf = (effect: ActionEffect): EffectTarget => {
     switch (effect.kind) {
       case 'push': {
@@ -324,22 +353,40 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         };
       }
       case 'open': {
-        const { repo, request, order, reports, isCommit, recipe, attempts } = effect;
+        const { repo, request, from } = effect;
         return {
           find: async (_key, signal) => {
             const url = await host.find(repo, request.head, signal);
             return url === undefined ? undefined : { result: pullRequestUrl(url) };
           },
           apply: async (_key, signal) => {
-            const text = pullRequestText({
-              title: await orderTitle(order, signal),
-              closes: { repo: order.repo ?? brewery, issue: order.issue },
-              reports,
-              isCommit,
-              ...(recipe === undefined ? {} : { recipe }),
-              attempts,
-            });
+            const text = await render(from, signal);
             return pullRequestUrl(await host.open(repo, { ...request, ...text }, signal));
+          },
+        };
+      }
+      case 'body': {
+        const { url, from } = effect;
+        const { batchId } = from.key;
+        return {
+          // Updated by a run before that was killed before it recorded the update.
+          find: async (key, signal) => {
+            const owner = bodyOwner(batchId, await host.body(url, signal));
+            return owner.kind === 'own' && owner.key === key
+              ? { result: { digest: owner.digest } satisfies BodyResult }
+              : undefined;
+          },
+          // Only a body Foedrum wrote is rendered again: a person's edit stays theirs. The title
+          // and the draft state are never sent (ADR 0227).
+          apply: async (_key, signal): Promise<BodyResult> => {
+            const owner = bodyOwner(batchId, await host.body(url, signal));
+            if (owner.kind === 'left') return { left: owner.left };
+            const { body } = await render(from, signal);
+            await host.update(url, body, signal);
+            const written = bodyOwner(batchId, body);
+            if (written.kind !== 'own')
+              throw new Error(`The body rendered for ${url} has no marker`);
+            return { digest: written.digest };
           },
         };
       }
@@ -377,17 +424,37 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         ...(since === undefined || paths.length === 0 ? {} : { sensitive: { since, paths } }),
         ...(previous === undefined ? {} : { previous }),
       });
-      effects.set(effectKey.encode(pullRequestKey(batchId)), {
-        kind: 'open',
-        repo,
-        request: { head: branch, base: repository.base },
+      const from = (key: BatchEffectKey): BodyFrom => ({
         order,
         reports: stepReports(batch),
         isCommit: knownCommits(state, batchId),
         ...(batch.recipe === undefined ? {} : { recipe: batch.recipe.name }),
         attempts: brewLog(batch),
+        key,
       });
-      return [pushed, pullRequestKey(batchId)];
+      const opened = pullRequestKey(batchId);
+      effects.set(effectKey.encode(opened), {
+        kind: 'open',
+        repo,
+        request: { head: branch, base: repository.base },
+        from: from(opened),
+      });
+      // A later round renders the body again once its push went, while the pull request is open.
+      const url = openedPullRequest(state, batchId);
+      const went = PushResult.safeParse(state.effects.get(effectKey.encode(pushed)));
+      if (
+        round === 1 ||
+        ended === true ||
+        url === undefined ||
+        !went.success ||
+        went.data.moved !== undefined ||
+        went.data.gone === true
+      ) {
+        return [pushed, opened];
+      }
+      const body = bodyKey(batchId, round);
+      effects.set(effectKey.encode(body), { kind: 'body', url, from: from(body) });
+      return [pushed, opened, body];
     },
     target: {
       find: async (key, signal) => targetOf(effectOf(key)).find(key, signal),

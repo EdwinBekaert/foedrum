@@ -32,4 +32,37 @@ describe('describeLane', () => {
       detail: `https://github.com/acme/api/pull/12 failed its checks on ${'c'.repeat(40)} at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
     });
   });
+
+  it('says which pull request fails its checks on the merged tree, with which base and check (ADR 0226)', () => {
+    const batch: Batch = {
+      id: '12-1',
+      issue: 12,
+      steps: new Map(),
+      rewinds: [],
+      lane: {
+        kind: 'stuck',
+        reason: {
+          kind: 'pull_request_failed',
+          stepId: 'open-pull-request',
+          pullRequest: 'https://github.com/acme/api/pull/12',
+          head: 'c'.repeat(40),
+          rounds: 1,
+          failed: [],
+          more: 0,
+          cause: {
+            kind: 'merged_check',
+            branch: 'main',
+            tip: 'e'.repeat(40),
+            check: 'the check "test" (npm test)',
+          },
+        },
+        options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+        remindAt: '2026-10-17T12:00:00.000Z',
+      },
+    };
+    assert.deepStrictEqual(describeLane(batch), {
+      lane: 'stuck',
+      detail: `https://github.com/acme/api/pull/12 fails its checks on the merged tree with main at ${'e'.repeat(40)}: the check "test" (npm test), at open-pull-request after 1 round; reminder 2026-10-17T12:00:00.000Z`,
+    });
+  });
 });

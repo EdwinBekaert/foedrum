@@ -319,7 +319,10 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       pulls.map(({ head, base, title }) => ({ head, base, title })),
       [{ head: branch, base: 'main', title: 'Add a --json flag' }],
     );
-    assert.match(pulls[0]?.body ?? '', /\nCloses acme\/brewery#12$/i);
+    assert.match(
+      pulls[0]?.body ?? '',
+      /\nCloses acme\/brewery#12\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/i,
+    );
     // Opened through the ledger, and the batch went on tap with the URL GitHub answered.
     const events = pushed()
       .split('\n')

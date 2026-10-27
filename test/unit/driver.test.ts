@@ -1343,6 +1343,133 @@ describe('openDriver', () => {
       });
       assert.deepStrictEqual(store.currentLeases(now), []);
     });
+
+    describe('at the start of a fix the merged tree sent back (ADR 0226)', () => {
+      const PULL = 'https://github.com/acme/app/pull/3';
+      const HEAD = 'd'.repeat(40);
+      const TIP = 'e'.repeat(40);
+      const later = '2026-10-15T13:00:00.000Z';
+      const fix = { batchId: 'b1', stepId: 'implement', attempt: 2 };
+      const fixPath = join('work', 'acme.app', 'attempts', 'b1', 'implement', '2');
+      const append = (event: Event): void => {
+        store.withTransaction((tx) => tx.append(event));
+      };
+      const accept = (command: Parameters<CommandLog['issue']>[0]): void => {
+        const decision = intake.issue(command, now);
+        assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      };
+      /** Nip's batch on tap with its pull request, sent back to implement by `route`. */
+      const sentBack = (cause: boolean): void => {
+        orderNip();
+        for (const stepId of ['implement', 'green', 'open']) {
+          const ref = { batchId: 'b1', stepId, attempt: 1 };
+          accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+          if (stepId === 'open') {
+            const push = { branch: 'foedrum/b1/acme.app', commit: HEAD, from: 'start' };
+            for (const [effect, result] of [
+              ['push', push],
+              ['pull_request', PULL],
+            ] as const) {
+              const key = effectKey.encode({ batchId: 'b1', effect });
+              accept({ kind: 'record', event: { type: 'effect.applied', key, result } });
+            }
+          }
+          accept({ kind: 'finish', ...ref, ending: succeeded });
+        }
+        assert.equal(intake.state().batches.get('b1')?.lane.kind, 'on_tap');
+        append({
+          type: 'step.scheduled',
+          ...fix,
+          deadlineAt: later,
+          route: {
+            from: 'open',
+            why: 'pull_request',
+            pullRequest: PULL,
+            head: HEAD,
+            ...(cause ? { cause: 'merged_check', tip: TIP } : {}),
+          },
+        });
+      };
+      const drive = async (merge: BaseMerge) => {
+        const hand = handRunner();
+        const driver = await open({
+          runner: hand.runner,
+          worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: fakeWorktrees(), merge }],
+        });
+        await driver.drive();
+        return { driver, hand };
+      };
+      const fixLedger = (driver: Driver, ref: AttemptRef = fix) =>
+        driver.state().effects.get(effectKey.encode(baseMergeKey(ref)));
+
+      it('merges the base into the worktree of the fix before its brewer runs, through the ledger', async () => {
+        sentBack(true);
+        const { merge, calls } = fakeMerge();
+        const { driver, hand } = await drive(merge);
+        assert.deepStrictEqual(hand.started, [fix]);
+        assert.deepStrictEqual(calls, [
+          'abort',
+          'fetch main',
+          `merge ${BASE} into ${fixPath}: Merge main before implement`,
+        ]);
+        assert.deepStrictEqual(fixLedger(driver), { base: BASE, merged: MERGED });
+      });
+
+      it('finds the merge a killed run made, and merges no second time', async () => {
+        sentBack(true);
+        const { merge, calls } = fakeMerge();
+        merge.worktree.head = async () => MERGED;
+        const { driver, hand } = await drive(merge);
+        assert.deepStrictEqual(hand.started, [fix]);
+        assert.deepStrictEqual(calls, []);
+        assert.deepStrictEqual(fixLedger(driver), { base: BASE, merged: MERGED });
+      });
+
+      it('merges again at the start of a retry of the fix', async () => {
+        sentBack(true);
+        const { merge, calls } = fakeMerge();
+        append({ type: 'step.started', ...fix });
+        const reason = 'the brewer broke';
+        const outcome = { kind: 'failed', retryable: true, reason } as const;
+        append({ type: 'step.finished', ...fix, outcome });
+        append({ type: 'step.scheduled', ...fix, attempt: 3, deadlineAt: later, retry: true });
+        const { driver, hand } = await drive(merge);
+        const retry = { ...fix, attempt: 3 };
+        assert.deepStrictEqual(hand.started, [retry]);
+        assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 1);
+        assert.deepStrictEqual(fixLedger(driver, retry), { base: BASE, merged: MERGED });
+      });
+
+      it('merges again at the start of an answered fix that starts fresh', async () => {
+        sentBack(true);
+        const { merge, calls } = fakeMerge();
+        // The fix asked a question and recorded no session to resume: its answer starts fresh.
+        append({ type: 'step.started', ...fix });
+        const question = {
+          q: 'Keep the v1 endpoint?',
+          options: ['keep', 'remove'],
+          recommended: 'keep',
+          whyBlocking: 'Removing it breaks the mobile app',
+        };
+        const outcome = { kind: 'needs_input' as const, questions: [question] };
+        append({ type: 'step.finished', ...fix, outcome });
+        append({ type: 'step.scheduled', ...fix, attempt: 3, deadlineAt: later, answered: true });
+        const { driver, hand } = await drive(merge);
+        const answered = { ...fix, attempt: 3 };
+        assert.deepStrictEqual(hand.started, [answered]);
+        assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 1);
+        assert.deepStrictEqual(fixLedger(driver, answered), { base: BASE, merged: MERGED });
+      });
+
+      it('merges nothing at the start of a fix the head checks sent back', async () => {
+        sentBack(false);
+        const { merge, calls } = fakeMerge();
+        const { driver, hand } = await drive(merge);
+        assert.deepStrictEqual(hand.started, [fix]);
+        assert.deepStrictEqual(calls, []);
+        assert.equal(fixLedger(driver), undefined);
+      });
+    });
   });
 
   describe('sessions (ADR 0116)', () => {
