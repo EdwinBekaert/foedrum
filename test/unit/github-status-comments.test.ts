@@ -187,9 +187,9 @@ describe('githubStatusComments: a merge brief hidden as outdated (ADR 0229)', ()
     ]);
     await assert.rejects(comments.hide(repo, 501), /Resource not accessible/);
     await assert.rejects(comments.hidden(repo, 501), /Could not resolve/);
-    await assert.rejects(comments.hide(repo, 501), /answer/);
+    await assert.rejects(comments.hide(repo, 501), /not what it should be/);
     await assert.rejects(comments.hidden(repo, 501), /500.*acme\/brewery.*Server Error/);
     // A comment without its node id cannot be hidden.
-    await assert.rejects(comments.hide(repo, 501), /answer/);
+    await assert.rejects(comments.hide(repo, 501), /no node id/);
   });
 });

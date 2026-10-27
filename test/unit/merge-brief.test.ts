@@ -972,6 +972,38 @@ describe('the merge brief (ADR 0225)', () => {
       });
     }
 
+    const pushOutcomes: { name: string; pushed: Record<string, unknown>; due: string[] }[] = [
+      { name: 'an empty push of another commit', pushed: { commit: fixed, empty: true }, due: [] },
+      {
+        name: 'a refused push of another commit',
+        pushed: {
+          commit: fixed,
+          refused: [{ commit: fixed, place: 'src/a.ts:1', kind: 'aws-key' }],
+        },
+        due: [],
+      },
+      {
+        name: "a push that found someone else's commit",
+        pushed: { commit: head, moved: 'e'.repeat(40) },
+        due: ['brief.1.hidden'],
+      },
+      {
+        name: 'a push that found the branch gone',
+        pushed: { commit: head, gone: true },
+        due: ['brief.1.hidden'],
+      },
+    ];
+    for (const { name, pushed, due } of pushOutcomes) {
+      it(`reads ${name} as ${due.length === 0 ? 'no move' : 'a moved head'} (regression test)`, async () => {
+        nip();
+        const effects = effectsOf(fakeHost().host);
+        finished([passed('ci/test')]);
+        assert.deepStrictEqual(await post(effects), ['brief.1']);
+        ledger(pushKey('web-7', 2), { branch: 'foedrum/web-7/acme.web', from: 'start', ...pushed });
+        assert.deepStrictEqual(await post(effects), due);
+      });
+    }
+
     it('hides nothing while a record of the same head goes pending or fails (regression test)', async () => {
       nip();
       const { host, hides } = fakeHost();
@@ -1205,6 +1237,9 @@ describe('the merge brief (ADR 0225)', () => {
 
     it('says nothing of a brief once its pull request merged (ADR 0229, regression test)', async () => {
       nip();
+      assert.ok(
+        (await statusText()).includes(`- <${url}> is not ready to merge yet: no merge brief.`),
+      );
       accept({
         kind: 'record',
         event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest: url, state: 'merged' },
