@@ -62,7 +62,7 @@ Other tools run only the tests a change reaches, and the full suite at a later s
 
 ## Consequences
 - A change to one CLI file checks in seconds: its own tests and those whose imports reach it.
-- A change to `scripts/`, `test/helpers/`, the package files or any non-TypeScript file outside docs still runs every test file locally, without coverage.
+- A change to `scripts/`, `test/helpers/`, `test/fixtures/`, the package files or any other non-TypeScript file outside docs still runs every test file locally, without coverage.
 - A test that reaches a changed file by another path than a relative import (a computed `import()`, a file read by path from TypeScript under `src/`, a subprocess) is not run locally; CI runs it before the merge. That is the risk this accepts: a break found in CI instead of at the push.
 - Coverage below the thresholds fails in CI and in `npm run check -- --all`, no longer at the push.
 
