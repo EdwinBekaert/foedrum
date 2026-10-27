@@ -11,12 +11,14 @@ export const meta = {
 
 // args: { root: absolute path of a checkout pinned at sha, read-only;
 //         sha: the full commit; repo: "owner/name" for the links;
-//         since?: full commit of the previous audit; previous?: that audit's findings (array) }
+//         since?: full commit of the previous audit; previous?: that audit's findings (array);
+//         changed?: the files changed since then (array of repository paths) }
 const ROOT = args.root
 const SHA = args.sha
 const LINK = `https://github.com/${args.repo}/blob/${SHA}/`
 const SINCE = args.since
 const PREVIOUS = args.previous ?? []
+const CHANGED = args.changed ?? []
 
 const STANCE = `Finding nothing is a good result. You are not judged by how many findings you report. An area that is clean gets the verdict "nothing worth changing", and that is as useful as a finding. Report only what you would defend to the maintainer: a concrete file and line, what is wrong, why it matters (a real risk, a real cost to read or change it), and what to do instead. Leave out taste, style that the lint already rules, "could be more generic", and anything you would only call "consider". If you are unsure whether something is a problem, it is not a finding: leave it out. A short report with two real findings beats a long one with twenty.`
 
@@ -29,15 +31,17 @@ const DIMENSIONS = `Look for, in this order of weight:
 6. AI slop: comments that restate the code or narrate history, defensive checks for things the types or callers already rule out, near-duplicate functions written twice instead of reused, wordy error text, long explanations where a name would do.
 Correctness bugs you notice on the way count too (defaults/lenses/diff/correctness.md), and Windows, macOS and Linux differences (defaults/lenses/diff/cross-platform.md).`
 
-const RULES = `Work read-only in the pinned checkout ${ROOT} (commit ${SHA}). Never edit, create or delete a file there, never run git commands that change anything, never run npm install or the test suite. Reading, grep and glob are fine. Read docs/glossary.md, docs/architecture.md and docs/brewers-and-recipes.md before judging, and the ADRs in docs/adr/ that the code you read cites (a design choice an ADR made deliberately is not a finding for you; if you think the ADR itself is wrong, say so in one line under adrDoubts). Cite each finding with its path relative to the repository root and a line number at this commit. Never write a person's name; say "the maintainer".`
+const RULES = `Work in the pinned checkout ${ROOT} (commit ${SHA}), with Read, Grep and Glob only. Read docs/glossary.md, docs/architecture.md and docs/brewers-and-recipes.md before judging, and the ADRs in docs/adr/ that the code you read cites (a design choice an ADR made deliberately is not a finding for you; if you think the ADR itself is wrong, say so in one line under adrDoubts). Cite each finding with its path relative to the repository root and a line number at this commit. Never write a person's name; say "the maintainer".`
 
 const sinceNote = (area) => {
   if (!SINCE) return ''
   const mine = PREVIOUS.filter((f) => f.area === area)
   return `
 
-This audit follows an earlier one at ${SINCE}. Run \`git -C ${ROOT} diff --name-only ${SINCE} ${SHA}\` and audit the files of your area that changed since then, with what they touch. Code that did not change was audited then: leave it unless a change made it worse.
+This audit follows an earlier one at ${SINCE}. Audit the files of your area among those that changed since then (below), with what they touch. Code that did not change was audited then: leave it unless a change made it worse. Each of those changes was already reviewed through the diff lenses one pull request at a time, so weigh what that review cannot see: how several changes add up, code they left dead or duplicated, and a file grown past its job.
 Then re-check each earlier finding of your area at this commit and put each in "previous" as fixed (the problem is gone), open (still there; give the line at this commit) or gone (the code it named no longer exists).
+Files changed since then:
+${CHANGED.join(', ')}
 Earlier findings of this area:
 ${JSON.stringify(mine.map((f) => ({ id: f.id, file: f.file, line: f.line, title: f.title })), null, 1)}`
 }
@@ -134,7 +138,7 @@ const adrPrompt = `You audit the decisions themselves: the records in docs/adr/ 
 - decisions that would hurt someone using Foedrum on their own repository.
 Use dimension "adr" and cite the ADR file (line 1 is fine) or the code line.${SINCE ? `
 
-This audit follows an earlier one at ${SINCE}: judge the ADRs added or changed since then (\`git -C ${ROOT} diff --name-only ${SINCE} ${SHA} -- docs/adr\`), and the older ones only where a new one touches them.` : ''}
+This audit follows an earlier one at ${SINCE}: judge the ADRs added or changed since then (${CHANGED.filter((f) => f.startsWith('docs/adr/')).join(', ') || 'none'}), and the older ones only where a new one touches them.` : ''}
 
 ${RULES}
 
@@ -142,7 +146,7 @@ ${STANCE}${sinceNote('adrs')}`
 
 const verifyPrompt = (r) => `You are a skeptic. Another auditor reported these findings on area "${r.area}" of Foedrum. Try to refute each one by reading the code yourself in ${ROOT} (commit ${SHA}), read-only.
 
-Drop a finding when it is speculative, when the code already handles the case (check callers, schemas and tests), when the "fix" would add more than it removes, when the cited line does not show what is claimed, or when a design doc or ADR deliberately chose it (an ADR doubt is not a code finding). Keeping a weak finding is worse than dropping a real one. Re-rate the severity of what you keep: high means a real security risk or a defect that will bite; medium means a real cost to read or change the code; low means worth fixing when someone is in that file anyway.
+Drop a finding when it is speculative, when the code already handles the case (check callers, schemas and tests), when the "fix" would add more than it removes, when the cited line does not show what is claimed, or when a design doc or ADR deliberately chose it (an ADR doubt is not a code finding). Keeping a weak finding is worse than dropping a real one, and dropping every finding is a good result when none holds. Re-rate the severity of what you keep: high means a real security risk or a defect that will bite; medium means a real cost to read or change the code; low means worth fixing when someone is in that file anyway.
 
 The auditor's verdict on the area: ${r.verdict}
 
@@ -151,7 +155,7 @@ ${JSON.stringify(r.findings, null, 1)}
 
 Give your own one- or two-sentence verdict on the area after checking, and for every finding either keep it (with what you checked) or drop it (with why).`
 
-const reportPrompt = (results) => `Write the audit report of Foedrum at commit ${SHA}, in Markdown, from the verified results below. Only kept findings go in it; give how many were dropped per area in one line, without listing them.
+const reportPrompt = (results, missing) => `Write the audit report of Foedrum at commit ${SHA}, in Markdown, from the verified results below. Only kept findings go in it; give how many were dropped per area in one line, without listing them.
 
 Structure:
 # Foedrum audit at ${SHA.slice(0, 8)}${SINCE ? ` (since ${SINCE.slice(0, 8)})` : ''}
@@ -159,13 +163,15 @@ Structure:
 ${SINCE ? '## Since the last audit\nA table of the earlier findings: id, title, fixed / open / gone, with the line at this commit for open ones.\n' : ''}## The findings, worst first
 A table: severity | area | dimension | finding (one line) | link. Link each as [path:line](${LINK}<path>#L<line>).
 ## Per area
-For each area: its verdict, then each kept finding: title, what, why, fix, severity, the verifier's note. An area with no kept finding says "nothing worth changing".
+For each area: its verdict, then each kept finding: title, what, why, fix, severity, the verifier's note. An area with no kept finding says "nothing worth changing", except an area with "unverified" findings, which says "not verified: <n> findings the skeptic did not answer", and an area in the missing list below, which says "not audited".
 ## The decisions (ADRs)
 The kept ADR findings, then the adrDoubts the code auditors raised, deduplicated, one line each.
 ## What this audit did not cover
 What was sampled rather than read, and what a person should still judge.
 
 Rules: never write a person's name ("the maintainer"); no local path, only repository paths and the links above; no dollar amounts. Plain, short sentences. Do not add findings of your own.
+
+Missing areas: ${missing.join(', ') || 'none'}
 
 Results:
 ${JSON.stringify(results, null, 1)}`
@@ -179,30 +185,43 @@ const finders = [
 
 const verified = await pipeline(
   finders,
-  (f) => agent(f.prompt, { label: `find:${f.key}`, phase: 'Find', schema: FINDINGS }),
+  (f) => agent(f.prompt, { label: `find:${f.key}`, phase: 'Find', schema: FINDINGS, agentType: 'auditor' }),
   async (r, f) => {
     if (!r) return null
-    const base = { area: f.key, adrDoubts: r.adrDoubts ?? [], previous: r.previous ?? [] }
+    const base = { area: f.key, verdict: r.verdict, kept: [], dropped: [], adrDoubts: r.adrDoubts ?? [], previous: r.previous ?? [] }
     if (!r.findings.length) {
       log(`${f.key}: nothing to verify`)
-      return { ...base, verdict: r.verdict, kept: [], dropped: [] }
+      return base
     }
-    const v = await agent(verifyPrompt({ ...r, area: f.key }), { label: `verify:${f.key}`, phase: 'Verify', schema: VERDICTS })
+    const v = await agent(verifyPrompt({ ...r, area: f.key }), { label: `verify:${f.key}`, phase: 'Verify', schema: VERDICTS, agentType: 'auditor' })
     if (!v) {
-      log(`${f.key}: the verifier returned nothing; its findings are left out`)
-      return { ...base, verdict: r.verdict, kept: [], dropped: [], unverified: r.findings.length }
+      log(`${f.key}: the verifier returned nothing; its ${r.findings.length} findings are not verified`)
+      return { ...base, unverified: r.findings.length }
     }
+    // ids are unique within one audit only; the commit makes them unique across the chain of audits
     const byId = new Map(r.findings.map((x) => [x.id, x]))
-    const kept = v.kept.filter((k) => byId.has(k.id)).map((k) => ({ ...byId.get(k.id), area: f.key, severity: k.severity, verifierNote: k.note }))
-    log(`${f.key}: ${kept.length} kept, ${v.dropped.length} dropped`)
-    return { ...base, verdict: v.verdict, auditorVerdict: r.verdict, kept, dropped: v.dropped }
+    const kept = v.kept.filter((k) => byId.has(k.id)).map((k) => ({ ...byId.get(k.id), id: `${k.id}@${SHA.slice(0, 8)}`, area: f.key, severity: k.severity, verifierNote: k.note }))
+    const answered = new Set([...v.kept, ...v.dropped].map((x) => x.id))
+    const dropped = [...v.dropped, ...r.findings.filter((x) => !answered.has(x.id)).map((x) => ({ id: x.id, reason: 'not answered by the verifier' }))]
+    log(`${f.key}: ${kept.length} kept, ${dropped.length} dropped`)
+    return { ...base, verdict: v.verdict, auditorVerdict: r.verdict, kept, dropped }
   },
 )
 
 const results = verified.filter(Boolean)
 const missing = finders.map((f) => f.key).filter((k) => !results.some((r) => r.area === k))
+const unverified = results.filter((r) => r.unverified).map((r) => r.area)
 if (missing.length) log(`no result for: ${missing.join(', ')}`)
+if (unverified.length) log(`not verified: ${unverified.join(', ')}`)
+
+// An earlier finding stays in findings.json until an audit finds it fixed or gone, so the next audit re-checks it
+const incomplete = new Set([...missing, ...unverified])
+const carried = PREVIOUS.flatMap((p) => {
+  const state = incomplete.has(p.area) ? undefined : results.find((r) => r.area === p.area)?.previous.find((x) => x.id === p.id)
+  if (state?.state === 'fixed' || state?.state === 'gone') return []
+  return [state?.line ? { ...p, line: state.line } : p]
+})
 
 phase('Report')
-const report = await agent(reportPrompt(results), { label: 'report', phase: 'Report' })
-return { sha: SHA, since: SINCE ?? null, report, findings: results.flatMap((r) => r.kept), results, missing }
+const report = await agent(reportPrompt(results, missing), { label: 'report', phase: 'Report', agentType: 'auditor' })
+return { sha: SHA, since: SINCE ?? null, report: report || null, findings: [...results.flatMap((r) => r.kept), ...carried], results, missing, unverified }

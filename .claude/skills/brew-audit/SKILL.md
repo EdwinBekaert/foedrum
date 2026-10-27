@@ -6,15 +6,15 @@ argument-hint: "[--since <sha> | --full]"
 
 # Audit Foedrum's code
 
-An audit reads the code as it stands, not a change: `/brew-review` judges a pull request, this judges the codebase. It runs the saved workflow `.claude/workflows/brew-audit.js`: one auditor per area (engine core, engine GitHub side, brewers and checks, CLI, I/O boundary, schemas, tooling), one for a sample of the tests and one for the ADRs; one skeptic per area tries to refute every finding; one agent writes the report from what survives. The auditors use the diff lenses in `defaults/lenses/diff/` as their checklists, so improving a lens improves both reviews.
+An audit reads the code as it stands, not a change: `/brew-review` judges a pull request, this judges the codebase ([ADR 0245](../../../docs/adr/0245-brew-audit-a-read-only-audit-of-the-code-at-every-last-call.md)). It runs the saved workflow `.claude/workflows/brew-audit.js`: one auditor per area (engine core, engine GitHub side, brewers and checks, CLI, I/O boundary, schemas, tooling), one for a sample of the tests and one for the ADRs; one skeptic per area tries to refute every finding; one agent writes the report from what survives. The auditors use the diff lenses in `defaults/lenses/diff/` as their checklists, so improving a lens improves both reviews.
 
 Arguments: `$ARGUMENTS`
 
 ## Rules for the whole run
 
-- **Read-only.** The audit reads a worktree pinned at one commit and changes nothing: no file, no branch, no issue, no comment. It files nothing: a person picks which findings become issues.
+- **Read-only.** The audit reads a worktree pinned at one commit and changes nothing in the repository or on GitHub: no branch, no issue, no comment. It writes only its report and findings under `.foedrum/tmp/audits/`, and the temporary detached worktree it removes at the end. Every agent of the workflow is the `auditor` agent (`.claude/agents/auditor.md`): Read, Grep and Glob behind the read guard, so it is read-only by its tools, not by its prompt. It files nothing: a person picks which findings become issues.
 - **Finding nothing is a good result.** The workflow tells every auditor and skeptic so. Never ask for more findings, re-run to get some, or add findings of your own to the report.
-- **Security findings stay local until fixed.** The report and its findings are written under the main checkout's `.foedrum/tmp/audits/` (git-ignored), never into a commit, a pull request or an issue body as they are. When a caller puts the audit's outcome in public text, it gives counts per severity and per area, and names a security finding only by "a security finding in <area>".
+- **Security findings stay local until fixed.** The report and its findings are written under the main checkout's `.foedrum/tmp/audits/` (git-ignored), never into a commit, a pull request or an issue body as they are. When a caller puts the audit's outcome in public text, it gives counts per severity and per area, and counts security findings with the rest and never names one, its file or what it is.
 - **Paths.** `<main>` is the main checkout: the folder above `git rev-parse --path-format=absolute --git-common-dir`. Audits live in `<main>/.foedrum/tmp/audits/<sha>/`.
 
 ## Stage 1: the commit and the mode
@@ -25,24 +25,25 @@ Arguments: `$ARGUMENTS`
    - `--full`: the whole codebase.
    - `--since <base>`: `<base>` must match `^[0-9a-f]{40}$`, and `<main>/.foedrum/tmp/audits/<base>/findings.json` must exist; else stop and say which is missing.
    - neither: the newest earlier audit whose commit is an ancestor of `<sha>` (`git merge-base --is-ancestor <base> <sha>`, newest by `git log -1 --format=%ct <base>`) is `<base>`; with none, the whole codebase.
-4. Say which mode and why before going on: a full audit is about 19 agents and a few million tokens; one since an earlier audit costs less, in proportion to what changed.
+4. In a since-audit, `<changed>` is the list `git diff --name-only <base> <sha>` prints, one repository path per line; the auditors cannot run git, so the workflow gets it as data.
+5. Say which mode and why before going on: a full audit is about 19 agents and a few million tokens; one since an earlier audit costs less, in proportion to what changed.
 
 ## Stage 2: the pinned checkout
 
-`git worktree add --detach .claude/worktrees/audit-<sha8> <sha>` from `<main>`, where `<sha8>` is the first 8 characters. `<root>` is its absolute path. No `npm ci`: the audit runs nothing.
+`git worktree add --detach .claude/worktrees/audit-<sha8> <sha>` from `<main>`, where `<sha8>` is the first 8 characters. When that folder is already there, left by a run that stopped, remove it first with `git worktree remove --force .claude/worktrees/audit-<sha8>` (it holds nothing of anyone's: the audit writes nothing there). `<root>` is `git rev-parse --show-toplevel` in it, an absolute path with forward slashes on every system. No `npm ci`: the audit runs nothing.
 
 ## Stage 3: the workflow
 
 Run the Workflow tool with `name: "brew-audit"` and `args`:
 
 ```json
-{ "root": "<root>", "sha": "<sha>", "repo": "<repo>", "since": "<base>", "previous": <findings.json of <base>, as an array> }
+{ "root": "<root>", "sha": "<sha>", "repo": "<repo>", "since": "<base>", "previous": <findings.json of <base>, as an array>, "changed": <changed, as an array> }
 ```
 
-leaving out `since` and `previous` for a full audit. It runs in the background; wait for its notification. If it ends with `missing` areas, say which in the summary; do not re-run them by hand.
+leaving out `since`, `previous` and `changed` for a full audit. It runs in the background; wait for its notification. If it ends with `missing` areas (no auditor result) or `unverified` ones (the skeptic answered nothing), say which in the summary; do not re-run them by hand. Their earlier findings stay in `findings`, so the next audit re-checks them. When the workflow fails, or its `report` is empty, write nothing, remove the pinned worktree as in stage 4, and say so: a `report.md` marks the commit as audited.
 
 ## Stage 4: the report
 
-1. Write the workflow's `report` to `<main>/.foedrum/tmp/audits/<sha>/report.md` and its `findings` to `findings.json` there, with the file tool, unedited.
+1. Write the workflow's `report` to `<main>/.foedrum/tmp/audits/<sha>/report.md` and its `findings` to `findings.json` there, with the file tool, unedited. `findings` holds this audit's kept findings and every earlier finding no audit has found fixed or gone yet, so the chain of audits never drops an open one.
 2. Remove the pinned worktree: `git worktree remove .claude/worktrees/audit-<sha8>`.
 3. Print: the mode, the counts of kept findings per severity and per area, how many were dropped, the three things the report says are most worth doing, and the path of `report.md`. Then stop: what becomes an issue is the person's choice.
