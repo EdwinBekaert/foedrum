@@ -90,7 +90,7 @@ export const bodyKey = (batchId: string, round: number): BatchEffectKey =>
 const normalized = (text: string): string => text.replace(/\r\n?/g, '\n').trimEnd();
 
 /** The first 16 hex digits of the SHA-256 of `text`, as a status comment's revision has (ADR 0072). */
-const digestOf = (text: string): string =>
+export const digestOf = (text: string): string =>
   createHash('sha256').update(text).digest('hex').slice(0, 16);
 
 /** The marker line that ends a body Foedrum wrote: its key, and the digest of `text` above it. */

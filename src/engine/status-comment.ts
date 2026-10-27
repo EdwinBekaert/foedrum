@@ -2,7 +2,6 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
@@ -20,6 +19,7 @@ import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
 import {
   changeText,
+  digestOf,
   findingText,
   knownCommits,
   latestBody,
@@ -732,10 +732,6 @@ export const renderStatus = (
   const kept = text.slice(0, longestText - cutNote.length);
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
-
-/** The first 16 hex digits of the SHA-256 of `text`: what a revision records of it. */
-const digestOf = (text: string): string =>
-  createHash('sha256').update(text).digest('hex').slice(0, 16);
 
 const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
   batchId,
