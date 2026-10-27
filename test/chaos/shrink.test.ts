@@ -14,7 +14,8 @@ import {
   shrinkChaos,
   trialChaos,
 } from '../helpers/chaos-shrink.ts';
-import { describeEvent } from '../helpers/property.ts';
+import { generateScenario } from '../helpers/event-sequences.ts';
+import { describeEvent, runsIn } from '../helpers/property.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 let dir: TempDir;
@@ -26,11 +27,29 @@ after(() => dir.remove());
 /** How many seeds a test may try for a run that fails its check. */
 const maxSeeds = 30;
 
+/** The seeds the replay plays, and the count from which this file runs in full. */
+const dozen = 12;
+
+/**
+ * The runs this file plays: FOEDRUM_RUNS where it is set, as on CI's Linux leg, or a few in
+ * npm run check, where the chaos layer has a time ceiling (ADR 0243). From a dozen on it runs
+ * in full: the replay plays its dozen seeds, and a failure is found and shrunk in the forty moves
+ * every chaos run plays. Below, the replay plays the last of the dozen, and a failure is found in
+ * twelve moves, which hold fewer faults to shrink and still fail in both ways.
+ */
+const runs = runsIn(process.env, 3);
+
+/** The moves of a run that a failure is found and shrunk in, below a dozen runs. */
+const fewerMoves = 12;
+
+const scenarios: ChaosOptions =
+  runs >= dozen ? {} : { moves: (seed) => generateScenario(seed, fewerMoves) };
+
 // The first failure found for each check, so the tests that share a check search once.
 const found = new Map<ChaosChecks, Promise<FoundFailure>>();
 
 /** The first of the seeds from 1 whose run fails `checks`. */
-const firstFailure = (checks: ChaosChecks, options: ChaosOptions = {}): Promise<FoundFailure> => {
+const firstFailure = (checks: ChaosChecks, options: ChaosOptions): Promise<FoundFailure> => {
   const search = async (): Promise<FoundFailure> => {
     for (let seed = 1; seed <= maxSeeds; seed++) {
       const failure = await trialChaos(dir.path, { seed }, checks, options);
@@ -59,7 +78,7 @@ const isSmallest = async (
   found: FoundFailure,
   { failure, exhausted }: Shrunk,
   checks: ChaosChecks,
-  options: ChaosOptions = {},
+  options: ChaosOptions,
 ): Promise<void> => {
   assert.equal(exhausted, false, 'shrinking finished within its runs');
   const kind = failureKind(found.failure.error);
@@ -156,8 +175,8 @@ const played = async (play: Parameters<typeof trialChaos>[1]): Promise<Played> =
 
 describe('a failing chaos run', () => {
   it('shrinks to the moves it fails by and the one kill, at the site it had', async () => {
-    const found = await firstFailure(killedAfterAnEffect);
-    const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect);
+    const found = await firstFailure(killedAfterAnEffect, scenarios);
+    const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect, scenarios);
     const { moves, faults } = shrunk.failure.schedule;
     assert.deepStrictEqual(
       faults.map(({ kind }) => kind),
@@ -169,11 +188,11 @@ describe('a failing chaos run', () => {
       'the kill is the one the first run had, at its site',
     );
     assert.ok(moves.length < found.failure.schedule.moves.length, 'moves were removed');
-    await isSmallest(found, shrunk, killedAfterAnEffect);
+    await isSmallest(found, shrunk, killedAfterAnEffect, scenarios);
   });
 
   it('with two drivers, keeps the kill and the downtime a takeover needs, and nothing else', async () => {
-    const options = { drivers };
+    const options = { ...scenarios, drivers };
     const found = await firstFailure(tookOverFromTheKilled, options);
     const shrunk = await shrinkChaos(dir.path, found, tookOverFromTheKilled, options);
     const kinds = shrunk.failure.schedule.faults.map(({ kind }) => kind);
@@ -192,11 +211,12 @@ describe('a failing chaos run', () => {
   it('replays a run from its own faults event for event, with faults of every kind', async () => {
     const kinds = new Set<string>();
     const wanted = ['kill', 'pause', 'first', 'down', 'stall', 'interject'];
-    // A dozen seeds at least: on most, the pauses change nothing the drivers do (seed 10 is the
-    // first where they do), so a replay that dropped them would pass on fewer.
+    // The last `runs` of a dozen seeds, and seeds 10 to 12 at least, all of them in full: on
+    // most, the pauses change nothing the drivers do (seed 10 is the first where they do), so a
+    // replay that dropped them would pass without seed 10.
     for (
-      let seed = 1;
-      seed <= 12 || (seed <= maxSeeds && wanted.some((k) => !kinds.has(k)));
+      let seed = Math.max(1, Math.min(10, dozen - runs + 1));
+      seed <= dozen || (seed <= maxSeeds && wanted.some((k) => !kinds.has(k)));
       seed++
     ) {
       const first = await played({ seed });
@@ -213,8 +233,8 @@ describe('a failing chaos run', () => {
   });
 
   it('stops at its budget of runs and says so', async () => {
-    const found = await firstFailure(killedAfterAnEffect);
-    const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect, {}, 3);
+    const found = await firstFailure(killedAfterAnEffect, scenarios);
+    const shrunk = await shrinkChaos(dir.path, found, killedAfterAnEffect, scenarios, 3);
     assert.equal(shrunk.runs, 3);
     assert.equal(shrunk.exhausted, true);
   });
@@ -230,20 +250,23 @@ describe('a failing chaos run', () => {
   });
 
   it('is reported with its seed and the schedule it shrank to', async () => {
-    const { seed } = await firstFailure(killedAfterAnEffect);
-    await assert.rejects(checkSeed(dir.path, seed, killedAfterAnEffect), (error: Error) => {
-      assert.match(error.message, /^a driver was killed after an effect reached its target/);
-      assert.match(
-        error.message,
-        new RegExp(
-          `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults? to \\d+ moves? and 1 fault\\.`,
-        ),
-      );
-      assert.match(
-        error.message,
-        /\n +1\. move \d+, cellar: killed after an effect reached its target/,
-      );
-      return true;
-    });
+    const { seed } = await firstFailure(killedAfterAnEffect, scenarios);
+    await assert.rejects(
+      checkSeed(dir.path, seed, killedAfterAnEffect, scenarios),
+      (error: Error) => {
+        assert.match(error.message, /^a driver was killed after an effect reached its target/);
+        assert.match(
+          error.message,
+          new RegExp(
+            `\\nSeed ${seed}, shrunk in \\d+ runs from \\d+ moves and \\d+ faults? to \\d+ moves? and 1 fault\\.`,
+          ),
+        );
+        assert.match(
+          error.message,
+          /\n +1\. move \d+, cellar: killed after an effect reached its target/,
+        );
+        return true;
+      },
+    );
   });
 });
