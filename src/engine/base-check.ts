@@ -307,7 +307,11 @@ const fixRounds = (recipes: Recipes | undefined, batch: Batch): number | undefin
   const name = batch.recipe?.name;
   const recipe = name === undefined ? undefined : recipes?.find(name);
   const from = recipe === undefined ? undefined : pullRequestRoute(recipe);
-  return from === undefined ? undefined : recipe?.maxRounds(from, 'pull_request');
+  if (recipe === undefined || from === undefined) return undefined;
+  // A step its when skipped runs no round: the batch goes Stuck instead (ADR 0219).
+  const goto = recipe.routesTo(from, 'pull_request');
+  if (goto === undefined || batch.skipped?.has(goto) === true) return undefined;
+  return recipe.maxRounds(from, 'pull_request');
 };
 
 /**
@@ -345,7 +349,16 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
       // On tap, or brewing or Stuck after a failure sent it back from the pull request: a tick that
       // sent it back before the post loses no post (ADR 0226).
       const { kind } = batch.lane;
-      const sentBack = kind === 'brewing' || kind === 'stuck' ? sentBackFrom(batch) : undefined;
+      const { lane } = batch;
+      // Stuck on its pull request from on tap too, when no round ran (ADR 0219).
+      const stuckOn =
+        lane.kind === 'stuck' && lane.reason.kind === 'pull_request_failed'
+          ? [lane.reason.pullRequest]
+          : [];
+      const sentBack =
+        kind === 'brewing' || kind === 'stuck'
+          ? new Set([...sentBackFrom(batch), ...stuckOn])
+          : undefined;
       if (kind !== 'on_tap' && sentBack === undefined) return [];
       const rounds = fixRounds(recipes, batch);
       const due = [];

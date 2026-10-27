@@ -97,13 +97,16 @@ export const baseMergeTarget = (
 
 /**
  * Whether attempt `ref` of `batch` merges the base at its start (ADR 0226): a failing check on the
- * pull request's merged tree sent it back, or it retries an attempt that was.
+ * pull request's merged tree sent it back, or it retries or answers an attempt that was.
  */
 export const routedMerge = (batch: Batch, ref: AttemptRef): boolean => {
   const attempts = batch.steps.get(ref.stepId)?.attempts;
   let attempt = attempts?.get(ref.attempt);
-  // A retry starts fresh as the attempt it retries did (ADR 0117).
-  while (attempt?.retry === true) attempt = attempts?.get(attempt.attempt - 1);
+  // A retry, or an answer that starts fresh, starts as the attempt before it did (ADR 0117,
+  // ADR 0118).
+  while (attempt?.retry === true || attempt?.answered === true) {
+    attempt = attempts?.get(attempt.attempt - 1);
+  }
   const route = attempt?.route;
   return route?.why === 'pull_request' && route.cause === 'merged_check';
 };

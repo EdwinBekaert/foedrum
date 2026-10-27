@@ -36,7 +36,7 @@ And a post is due only On tap today: a tick that sends the batch back before the
 - Its source is `why step <goto> runs again: the failed merged-tree check of pull request <url>`, untrusted, in the nonce tags, held to 64 KiB ([ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)).
 
 ### The base merged at the fix step's start
-- **An attempt that a merged-tree route scheduled merges the base before its brewer runs** (`routedMerge`, `src/engine/base-merge.ts`; gated in the driver's `mergeBase` beside `Recipe.mergesBase`): through the same effect, key and finding as ADR 0164, `["<batch>","<step>",<attempt>,"merge_base"]`. So does a retry of it (`retry: true`), which starts fresh as the attempt it retries did.
+- **An attempt that a merged-tree route scheduled merges the base before its brewer runs** (`routedMerge`, `src/engine/base-merge.ts`; gated in the driver's `mergeBase` beside `Recipe.mergesBase`): through the same effect, key and finding as ADR 0164, `["<batch>","<step>",<attempt>,"merge_base"]`. So does a retry of it (`retry: true`) and an answer to its questions (`answered: true`) that starts fresh, each starting as the attempt before it did.
 - **A conflict at that merge**, the base having moved again into one, ends the attempt `blocked` on a divergence, as ADR 0164's merge does; #574 changes that.
 - **Green then merges again** and, with no newer base, finds nothing new (`{ base }`); `mergedBase` reads the start merge, so a Taster's change still starts at the base it brought in.
 
@@ -47,7 +47,7 @@ And a post is due only On tap today: a tick that sends the batch back before the
 
 ### The posts stay and say so
 - **When the batch's recipe has the route, a failure's post says Foedrum sends the batch back to fix it** while its rounds last, at most `<maxRounds>` rounds in all, unless a person holds or skips it (the post is made once, before the rounds it names are known to run), and that its status comment says how it goes; without the route it keeps today's text. `baseConflictEffects` gets the recipes for it, and the recipe's `maxRounds` (`Recipe.maxRounds`).
-- **A post is due On tap, and while the batch brews or is Stuck after a `pull_request` route on that pull request** (`sentBackFrom`), as `recordEnds` reads ended pull requests (ADR 0219): a tick that sends the batch back before the driver posts loses no post.
+- **A post is due On tap, and while the batch brews or is Stuck after a `pull_request` route on that pull request** (`sentBackFrom`), or Stuck on it straight from On tap (`pull_request_failed`, its route's step skipped), as `recordEnds` reads ended pull requests (ADR 0219): a tick that sends the batch back before the driver posts loses no post. When the route's step was skipped, no round runs, and the post says the batch stays On tap.
 - A conflict's post keeps its text: it sends nothing back yet.
 
 ## Consequences
