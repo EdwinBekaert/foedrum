@@ -51,7 +51,8 @@ const tasterSteps = (setup: SetupName): Map<string, readonly string[]> => {
 /**
  * The recipe of `setup`: the scripted implementer, then its Tasters, each the default `taster`
  * with its model, and the pull request a recipe that commits must open (ADR 0084), on the fake
- * code host. No check runs and no Gauger: the seeded change is not test-first (ADR 0064).
+ * code host. No check runs, and Nip's Gauger is skipped as testFirst off skips it, so the
+ * Cellarman's tests input is skipped too: the seeded change is not test-first (ADR 0064).
  */
 export const recipeText = (setup: SetupName): string => {
   const { lenses } = SETUPS[setup];
@@ -66,7 +67,12 @@ export const recipeText = (setup: SetupName): string => {
     name: setup,
     description: `The seeded change of #567, tasted ${setup.startsWith('apart') ? 'apart' : 'together'}`,
     testFirst: false,
-    steps: [{ id: IMPLEMENT, brewer: 'cellarman' }, taste, { action: 'openPullRequest' }],
+    steps: [
+      { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
+      { id: IMPLEMENT, brewer: 'cellarman' },
+      taste,
+      { action: 'openPullRequest' },
+    ],
   };
   return `// node scripts/tasting-compare.ts's setup ${setup} (ADR 0224).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
