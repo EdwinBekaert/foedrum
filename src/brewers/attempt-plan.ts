@@ -15,7 +15,7 @@ import { ranIn } from '../engine/session-resume.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
-import type { GravityReading, ScheduleRoute } from '../schemas/events.ts';
+import type { GravityReading, HeadCheck, ScheduleRoute } from '../schemas/events.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
   type Disposition,
@@ -585,6 +585,19 @@ export function routeOf(
 const checkKind = { check_run: 'check run', status: 'commit status' } as const;
 
 /**
+ * A failed Actions job's log under its check (ADR 0228): its excerpt, read for secrets when it was
+ * recorded, or why it could not be read; indented, so each check's lines stay together.
+ */
+const logLines = (log: HeadCheck['log']): string[] => {
+  if (log === undefined) return [];
+  if ('unread' in log) return [`  Its job's log could not be read: ${log.unread}.`];
+  return [
+    "  The end of its job's log, around its first error:",
+    ...log.excerpt.split('\n').map((line) => `  ${line}`),
+  ];
+};
+
+/**
  * What sent a step back from its open pull request (ADR 0219): each check that failed on the head
  * of the record the route names, from the event log. A name and a link are whoever runs CI's
  * words: untrusted, as every route input is (ADR 0128). No pass changes the record while the batch
@@ -606,10 +619,10 @@ function pullRequestRouteOf(
   }
   const failed = record.checks
     .filter(({ conclusion }) => !checkPassed(conclusion))
-    .map(
-      ({ name, kind, conclusion, url }) =>
-        `- ${name} (${checkKind[kind]}): ${conclusion}${url === undefined ? '' : `, ${url}`}`,
-    );
+    .flatMap(({ name, kind, conclusion, url, log }) => [
+      `- ${name} (${checkKind[kind]}): ${conclusion}${url === undefined ? '' : `, ${url}`}`,
+      ...logLines(log),
+    ]);
   const more =
     record.more === undefined ? [] : [`- and ${record.more} more checks the record left out`];
   const text = [

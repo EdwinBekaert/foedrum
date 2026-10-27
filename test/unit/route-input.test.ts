@@ -12,7 +12,7 @@ import {
   routeOf,
 } from '../../src/brewers/attempt-plan.ts';
 import { fold } from '../../src/engine/fold.ts';
-import type { Event, GravityReading } from '../../src/schemas/events.ts';
+import { type Event, type GravityReading, MAX_TAIL_LENGTH } from '../../src/schemas/events.ts';
 
 const deadlineAt = '2026-10-22T13:00:00.000Z';
 const worktreeOf = (name: string) => ({
@@ -410,6 +410,55 @@ describe('routeOf: a pull request that failed its checks (ADR 0219)', () => {
         told,
       ].join('\n'),
     });
+  });
+
+  it("shows the end of each failed Actions job's log under its check, or why it could not be read", () => {
+    const route = planned(
+      [
+        ...opened,
+        record([
+          {
+            ...failed,
+            log: { excerpt: '##[group]Run npm test\nnot ok 1 - adds\n##[error]exit 1' },
+          },
+          { ...failed, name: 'ci / old', log: { unread: 'it has expired (410)' } },
+          status,
+          passed,
+        ]),
+        sentBack,
+      ],
+      'implement',
+      2,
+    );
+    assert.equal(
+      route?.text,
+      [
+        `Pull request ${pullRequest} failed its checks on ${head}:`,
+        `- ci / test (check run): failure, ${failed.url}`,
+        "  The end of its job's log, around its first error:",
+        '  ##[group]Run npm test',
+        '  not ok 1 - adds',
+        '  ##[error]exit 1',
+        `- ci / old (check run): failure, ${failed.url}`,
+        "  Its job's log could not be read: it has expired (410).",
+        '- deploy (commit status): error',
+        told,
+      ].join('\n'),
+    );
+  });
+
+  it('holds five long excerpts to the limit of the input', () => {
+    const excerpt = 'x'.repeat(MAX_TAIL_LENGTH);
+    const checks = Array.from({ length: 5 }, (_, i) => ({
+      ...failed,
+      name: `t${i}`,
+      log: { excerpt },
+    }));
+    const route = planned([...opened, record(checks), sentBack], 'implement', 2);
+    assert.ok(route !== undefined);
+    const text = routeInput(route).text;
+    assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_ROUTE_INPUT_BYTES);
+    assert.equal(text.split(excerpt).length, 6);
   });
 
   it('says how many checks the record left out', () => {

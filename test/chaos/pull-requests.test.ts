@@ -34,6 +34,8 @@ const killPoints = [
   'after the push reached the remote',
   'before the pull request was opened',
   'after the pull request was opened',
+  'before the body was updated',
+  'after the body was updated',
 ] as const;
 type KillPoint = (typeof killPoints)[number];
 // Where a fix the merged tree sent back dies besides (ADR 0226): around its start merge and the
@@ -80,6 +82,8 @@ const codeHost = (kills: readonly AnyPoint[]) => {
   const remote = new Map<string, string>();
   const pushes: string[] = [];
   const opened = new Map<string, string>();
+  const bodies = new Map<string, string>();
+  const updates: string[] = [];
   const left = [...kills];
   let dead = false;
   let killed = 0;
@@ -118,8 +122,16 @@ const codeHost = (kills: readonly AnyPoint[]) => {
       point('before the pull request was opened');
       const url = `https://github.com/acme/app/pull/${opened.size + 1}`;
       opened.set(request.head, url);
+      bodies.set(url, request.body);
       point('after the pull request was opened');
       return url;
+    },
+    body: async (url) => bodies.get(url) ?? assert.fail(`no pull request ${url}`),
+    update: async (url, body) => {
+      point('before the body was updated');
+      updates.push(url);
+      bodies.set(url, body);
+      point('after the body was updated');
     },
   };
   return {
@@ -128,6 +140,8 @@ const codeHost = (kills: readonly AnyPoint[]) => {
     remote,
     pushes,
     opened,
+    bodies,
+    updates,
     /** A new driver process: alive, until its next kill point. */
     restart: () => {
       dead = false;
@@ -211,12 +225,14 @@ const brew = async (kills: readonly KillPoint[]) => {
 describe('chaos: the openPullRequest action killed around the push and the open (ADR 0071)', () => {
   // Every kill point once, and every two in the order a run reaches them: a later point, or a
   // point before an effect again, which the next driver reaches once more. A point after an
-  // effect is not reached twice: the next driver finds the effect there.
+  // effect is not reached twice: the next driver finds the effect there. The first round renders
+  // no body again.
+  const points = killPoints.filter((point) => !point.includes('body'));
   const runsOf: (readonly KillPoint[])[] = [
     [],
-    ...killPoints.map((point) => [point]),
-    ...killPoints.flatMap((first, i) =>
-      killPoints
+    ...points.map((point) => [point]),
+    ...points.flatMap((first, i) =>
+      points
         .filter((second, j) => j > i || (j === i && second.startsWith('before')))
         .map((second) => [first, second]),
     ),
@@ -229,6 +245,7 @@ describe('chaos: the openPullRequest action killed around the push and the open 
       assert.equal(starts, kills.length + 1, 'a new driver after each kill');
       assert.deepEqual(code.pushes, [`${FAKE_COMMIT} ${branch}`]);
       assert.deepEqual([...code.opened], [[branch, 'https://github.com/acme/app/pull/1']]);
+      assert.deepEqual(code.updates, []);
       assert.deepEqual(state.batches.get('12-1')?.lane, {
         kind: 'on_tap',
         pullRequests: ['https://github.com/acme/app/pull/1'],
@@ -348,8 +365,8 @@ const fixRun = async (kills: readonly KillPoint[]) => {
   }
 };
 
-describe('chaos: a fix round of a failing pull request killed around its push (ADR 0219)', () => {
-  const pushPoints = killPoints.filter((point) => point.includes('push'));
+describe('chaos: a fix round of a failing pull request killed around its push and its body (ADR 0219, ADR 0227)', () => {
+  const pushPoints = killPoints.filter((point) => point.includes('push') || point.includes('body'));
   const runsOf: (readonly KillPoint[])[] = [
     [],
     ...pushPoints.map((point) => [point]),
@@ -361,7 +378,7 @@ describe('chaos: a fix round of a failing pull request killed around its push (A
   ];
 
   for (const kills of runsOf) {
-    it(`pushes the fix once to the same pull request: ${kills.join(', then ') || 'no kill'}`, async () => {
+    it(`pushes the fix once to the same pull request and renders its body once: ${kills.join(', then ') || 'no kill'}`, async () => {
       const { state, code, starts } = await fixRun(kills);
       const branch = 'foedrum/acme.brewery/12-1/acme.app';
       assert.equal(starts, kills.length + 1, 'a new driver after each kill');
@@ -373,10 +390,16 @@ describe('chaos: a fix round of a failing pull request killed around its push (A
         pullRequests: ['https://github.com/acme/app/pull/1'],
       });
       assert.deepEqual([...state.effects.keys()].sort(), [
+        JSON.stringify(['12-1', 'body.2']),
         JSON.stringify(['12-1', 'pull_request']),
         JSON.stringify(['12-1', 'push']),
         JSON.stringify(['12-1', 'push.2']),
       ]);
+      assert.deepEqual(code.updates, ['https://github.com/acme/app/pull/1']);
+      assert.match(
+        code.bodies.get('https://github.com/acme/app/pull/1') ?? '',
+        /\n<!-- foedrum:\["12-1","body\.2"\] sha256:[0-9a-f]{16} -->$/,
+      );
     });
   }
 });

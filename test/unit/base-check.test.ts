@@ -1117,6 +1117,7 @@ describe('checkBases', () => {
         undefined,
         {},
         undefined,
+        undefined,
         head2,
       );
       assert.doesNotMatch(text, /fails on the merged tree/);

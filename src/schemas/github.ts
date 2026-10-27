@@ -61,6 +61,8 @@ export const GitHubPullRequest = z.object({
   merged_at: z.string().nullable().optional(),
   /** The commit its merge made, which a release must hold (ADR 0223). */
   merge_commit_sha: CommitSha.nullable().optional(),
+  /** Its description, null when it has none (ADR 0227). */
+  body: z.string().nullable().optional(),
 });
 
 /** `GET /repos/{owner}/{repo}/releases/latest`: its tag and when it was published (ADR 0223). */
@@ -109,6 +111,9 @@ export const GitHubPullRequestHead = z.object({ head: z.object({ sha: CommitSha 
 
 /** One item of `GET /repos/{owner}/{repo}/commits/{sha}/check-runs` (ADR 0213). */
 export const GitHubCheckRun = z.object({
+  /** For a check run of GitHub Actions, the id of its job, whose log can be read (ADR 0228). */
+  id: z.number().optional(),
+  app: z.object({ slug: z.string().nullable().optional() }).nullable().optional(),
   name: z.string(),
   status: z.string(),
   conclusion: z.string().nullable().optional(),

@@ -92,6 +92,8 @@ describe('the openPullRequest push with real git', () => {
         requests.push(request);
         return url;
       },
+      body: async () => assert.fail('the first round renders no body again'),
+      update: async () => assert.fail('the first round renders no body again'),
     };
     const reported: DriverNotice[] = [];
     let driver: Awaited<ReturnType<typeof openDriver>> | undefined;
