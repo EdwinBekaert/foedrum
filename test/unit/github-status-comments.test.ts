@@ -149,6 +149,7 @@ describe('githubStatusComments: a merge brief hidden as outdated (ADR 0229)', ()
     const { comments, requests } = commentsWith([
       { status: 404, body: { message: 'Not Found' } },
       { status: 200, body: { ...node(502), user: { login: 'mallory' } } },
+      { status: 404, body: { message: 'Not Found' } },
     ]);
     assert.equal(await comments.hidden(repo, 501), 'gone');
     assert.equal(await comments.hidden(repo, 502), 'gone');

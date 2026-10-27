@@ -550,7 +550,7 @@ describe('chaos: the merge brief killed around its hide and the next post (ADR 0
     [beforeHide],
     [afterHide],
     [beforeHide, afterHide],
-    [afterHide, afterHide],
+    [beforeHide, beforeHide],
     [beforePost, afterPost, afterHide],
     [afterPost, afterPost, beforeHide],
   ];
