@@ -1760,6 +1760,38 @@ describe('statusEffects: the sensitive paths the push recorded (ADR 0201)', () =
   });
 });
 
+describe('renderStatus: an open pull request with no merge brief (ADR 0229)', () => {
+  const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
+  const notReady = `- <${pr}> is not ready to merge yet: no merge brief.`;
+
+  it('says the open pull request has no merge brief', () => {
+    const text = renderStatus(
+      onTap,
+      steps,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      {
+        pullRequest: pr,
+      },
+    );
+    assert.ok(text.split('\n').includes(notReady));
+  });
+
+  it('links the current brief instead (regression test)', () => {
+    const brief = {
+      comment: 9,
+      pullRequest: pr,
+      head: 'a'.repeat(40),
+      digest: '0123456789abcdef',
+    };
+    const text = renderStatus(onTap, steps, undefined, undefined, undefined, {}, brief);
+    assert.ok(text.includes(`- <${pr}> is ready to merge on \`aaaaaaaa\`: <${pr}#issuecomment-9>`));
+    assert.doesNotMatch(text, /not ready to merge/);
+  });
+});
+
 describe('renderStatus: a body the latest round left as it is (ADR 0227)', () => {
   const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
   const render = (left?: { pullRequest: string; left: 'edited' | 'unmarked' }) =>

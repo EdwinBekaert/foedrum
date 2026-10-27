@@ -120,18 +120,40 @@ const greenReadings: GravityReading[] = [
   { result: 'skipped', check: 'format' },
 ];
 
-/** A code host of one pull request, its title `title`, that keeps the comments made on it. */
+/**
+ * A code host of one pull request, its title `title`, that keeps the comments made on it, the ids
+ * of those it hid as outdated and the repository each hide asked in. Its comment ids start at 101,
+ * so no id is a brief's number.
+ */
 const fakeHost = (title = 'Add a --json flag') => {
-  const comments: { id: number; body: string }[] = [];
+  const comments: { id: number; body: string; hidden?: boolean }[] = [];
+  const hides: number[] = [];
+  const asked: string[] = [];
+  let made = 100;
   const host: MergeBriefHost = {
     find: async (_repo, _number, marker) => comments.find(({ body }) => body.endsWith(marker)),
     create: async (_repo, _number, body) => {
-      comments.push({ id: comments.length + 1, body });
-      return comments.length;
+      made++;
+      comments.push({ id: made, body });
+      return made;
     },
     title: async () => title,
+    hidden: async (repo, id) => {
+      asked.push(repo);
+      const comment = comments.find((each) => each.id === id);
+      if (comment === undefined) return 'gone';
+      return comment.hidden === true ? 'hidden' : 'shown';
+    },
+    hide: async (repo, id) => {
+      asked.push(repo);
+      const comment = comments.find((each) => each.id === id);
+      if (comment === undefined) return 'gone';
+      hides.push(id);
+      comment.hidden = true;
+      return 'hidden';
+    },
   };
-  return { host, comments };
+  return { host, comments, hides, asked };
 };
 
 describe('the merge brief (ADR 0225)', () => {
@@ -241,6 +263,7 @@ describe('the merge brief (ADR 0225)', () => {
     conflicts?: string[];
     failed?: GravityReading;
     unchecked?: string;
+    branchMoved?: string;
   }): void =>
     accept({
       kind: 'record',
@@ -303,7 +326,7 @@ describe('the merge brief (ADR 0225)', () => {
       assert.deepStrictEqual(
         log.state().effects.get(effectKey.encode({ batchId: 'web-7', effect: 'brief.1' })),
         {
-          comment: 1,
+          comment: 101,
           pullRequest: url,
           head,
           digest: readyOf(log.state(), batch())?.digest,
@@ -458,7 +481,8 @@ describe('the merge brief (ADR 0225)', () => {
       });
       nipFromImplement(2, fixed);
       finished([passed('ci/test'), passed('ci/late')], fixed);
-      assert.deepStrictEqual(await post(effects), ['brief.2']);
+      // The first head's brief is outdated (ADR 0229).
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden', 'brief.2']);
     });
 
     it('posts while its order is paused: a brief runs nothing', async () => {
@@ -844,7 +868,7 @@ describe('the merge brief (ADR 0225)', () => {
       const next = effectsOf(host);
       assert.deepStrictEqual(next.due(log.state(), 'web-7'), [key]);
       const found = await next.target.find(encoded);
-      assert.equal((found?.result as { comment: number } | undefined)?.comment, 1);
+      assert.equal((found?.result as { comment: number } | undefined)?.comment, 101);
       assert.equal(comments.length, 1);
     });
 
@@ -862,7 +886,7 @@ describe('the merge brief (ADR 0225)', () => {
       assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
       assert.equal(comments.length, 2);
       const recorded = log.state().effects.get(effectKey.encode(key)) as { comment: number };
-      assert.equal(recorded.comment, 2);
+      assert.equal(recorded.comment, 102);
       assert.match(comments[1]?.body ?? '', /ci\/late/);
     });
 
@@ -904,7 +928,251 @@ describe('the merge brief (ADR 0225)', () => {
         .effects.get(effectKey.encode({ batchId: 'web-7', effect: 'brief.1' })) as {
         comment: number;
       };
-      assert.equal(recorded.comment, 2);
+      assert.equal(recorded.comment, 102);
+    });
+  });
+
+  describe('hidden as outdated (ADR 0229)', () => {
+    const hiddenKey = (n: number) =>
+      effectKey.encode({ batchId: 'web-7', effect: `brief.${n}.hidden` });
+    /** A late check fails the ready head `from`, and a fix round pushes `commit` as round `round`. */
+    const fixRound = (round = 2, commit = fixed, from = head): void => {
+      pending(from);
+      finished([passed('ci/test'), failed('ci/late')], from);
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head: from,
+        cause: { kind: 'checks' },
+      });
+      nipFromImplement(round, commit);
+    };
+
+    it("hides the old head's brief once when a fix round pushes a new head, and posts only once the new head is ready", async () => {
+      nip();
+      const { host, comments, hides, asked } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      fixRound();
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden']);
+      assert.deepStrictEqual(asked, ['acme/web', 'acme/web']);
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, [101]);
+      assert.deepStrictEqual(log.state().effects.get(hiddenKey(1)), {
+        comment: 101,
+        hidden: 'outdated',
+      });
+      finished([passed('ci/test'), passed('ci/late')], fixed);
+      assert.deepStrictEqual(await post(effects), ['brief.2']);
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, [101]);
+      assert.equal(comments.length, 2);
+    });
+
+    it("hides the brief once when a person pushed to the pull request's branch", async () => {
+      nip();
+      const { host, hides } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      baseChecked({ branchMoved: 'e'.repeat(40) });
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden']);
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, [101]);
+    });
+
+    for (const nothing of [
+      { empty: true },
+      { refused: [{ commit: fixed, place: 'src/a.ts:1', kind: 'aws-key' }] },
+    ]) {
+      it(`hides a brief whose head a round moved, though a later round pushed nothing: ${Object.keys(nothing)[0]}`, async () => {
+        nip();
+        const { host, hides } = fakeHost();
+        finished([passed('ci/test')]);
+        assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+        // Round 2 moves the head, and its hide fails until round 3 pushes nothing.
+        fixRound();
+        ledger(pushKey('web-7', 3), {
+          branch: 'foedrum/web-7/acme.web',
+          commit: fixed,
+          from: 'start',
+          ...nothing,
+        });
+        assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden']);
+        assert.deepStrictEqual(hides, [101]);
+      });
+    }
+
+    const pushOutcomes: { name: string; pushed: Record<string, unknown>; due: string[] }[] = [
+      { name: 'an empty push of another commit', pushed: { commit: fixed, empty: true }, due: [] },
+      {
+        name: 'a refused push of another commit',
+        pushed: {
+          commit: fixed,
+          refused: [{ commit: fixed, place: 'src/a.ts:1', kind: 'aws-key' }],
+        },
+        due: [],
+      },
+      {
+        name: "a push that found someone else's commit",
+        pushed: { commit: head, moved: 'e'.repeat(40) },
+        due: ['brief.1.hidden'],
+      },
+      {
+        name: 'a push that found the branch gone',
+        pushed: { commit: head, gone: true },
+        due: ['brief.1.hidden'],
+      },
+    ];
+    for (const { name, pushed, due } of pushOutcomes) {
+      it(`reads ${name} as ${due.length === 0 ? 'no move' : 'a moved head'} (regression test)`, async () => {
+        nip();
+        const effects = effectsOf(fakeHost().host);
+        finished([passed('ci/test')]);
+        assert.deepStrictEqual(await post(effects), ['brief.1']);
+        ledger(pushKey('web-7', 2), { branch: 'foedrum/web-7/acme.web', from: 'start', ...pushed });
+        assert.deepStrictEqual(await post(effects), due);
+      });
+    }
+
+    it("hides nothing for a base check that found no one else's push (regression test)", async () => {
+      nip();
+      const { host, hides } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      baseChecked({});
+      assert.deepStrictEqual(await post(effects), []);
+      baseChecked({ conflicts: ['src/a.ts'] });
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, []);
+    });
+
+    it('hides nothing while a record of the same head goes pending or fails (regression test)', async () => {
+      nip();
+      const { host, hides } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      pending();
+      assert.deepStrictEqual(await post(effects), []);
+      finished([failed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), []);
+      // A re-run passes it again: the very brief still holds.
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, []);
+    });
+
+    for (const end of ['merged', 'closed'] as const) {
+      it(`leaves the brief of a pull request that ${end} as it is (regression test)`, async () => {
+        nip();
+        const { host, hides } = fakeHost();
+        const effects = effectsOf(host);
+        finished([passed('ci/test')]);
+        assert.deepStrictEqual(await post(effects), ['brief.1']);
+        accept({
+          kind: 'record',
+          event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest: url, state: end },
+        });
+        // Even a push the ledger recorded after the end hides nothing.
+        ledger(pushKey('web-7', 2), {
+          branch: 'foedrum/web-7/acme.web',
+          commit: fixed,
+          from: 'start',
+        });
+        assert.deepStrictEqual(await post(effects), []);
+        assert.deepStrictEqual(hides, []);
+      });
+    }
+
+    it('hides an earlier brief of the same head once a later record posted its own', async () => {
+      nip();
+      const { host, hides } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      pending();
+      finished([passed('ci/test'), passed('ci/late')]);
+      assert.deepStrictEqual(await post(effects), ['brief.2']);
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden']);
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, [101]);
+    });
+
+    it('records a brief a person deleted as gone, and never asks again', async () => {
+      nip();
+      const { host, comments, hides } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      comments.splice(0);
+      baseChecked({ branchMoved: 'e'.repeat(40) });
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden']);
+      assert.deepStrictEqual(log.state().effects.get(hiddenKey(1)), { comment: 101, gone: true });
+      assert.deepStrictEqual(await post(effects), []);
+      assert.deepStrictEqual(hides, []);
+    });
+
+    it('hides once when a driver was killed between the hide and its record', async () => {
+      nip();
+      const { host, hides } = fakeHost();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+      fixRound();
+      const killed = effectsOf(host);
+      const [key] = killed.due(log.state(), 'web-7');
+      assert.ok(key !== undefined);
+      assert.equal(key.effect, 'brief.1.hidden');
+      await killed.target.apply(effectKey.encode(key));
+      // A new driver finds it hidden.
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden']);
+      assert.deepStrictEqual(hides, [101]);
+      assert.deepStrictEqual(log.state().effects.get(hiddenKey(1)), {
+        comment: 101,
+        hidden: 'outdated',
+      });
+    });
+
+    it('neither hides twice nor posts twice when a driver was killed between the hide and the next post', async () => {
+      nip();
+      const { host, comments, hides } = fakeHost();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+      fixRound();
+      finished([passed('ci/test'), passed('ci/late')], fixed);
+      const killed = effectsOf(host);
+      const keys = killed.due(log.state(), 'web-7');
+      assert.deepStrictEqual(
+        keys.map(({ effect }) => effect),
+        ['brief.1.hidden', 'brief.2'],
+      );
+      const [hide, next] = keys;
+      assert.ok(hide !== undefined && next !== undefined);
+      ledger(hide, await killed.target.apply(effectKey.encode(hide)));
+      // Killed after the post reached the pull request, before its ledger entry.
+      await killed.target.apply(effectKey.encode(next));
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.2']);
+      assert.deepStrictEqual(await post(effectsOf(host)), []);
+      assert.deepStrictEqual(hides, [101]);
+      assert.equal(comments.length, 2);
+    });
+
+    it('posts a new brief, never taking a hidden one as current, when a later round pushes the first head again', async () => {
+      nip();
+      const { host, comments } = fakeHost();
+      const effects = effectsOf(host);
+      finished([passed('ci/test'), passed('ci/late')]);
+      assert.deepStrictEqual(await post(effects), ['brief.1']);
+      // Round 2 moves the head, which hides brief 1; round 3 pushes the first head again.
+      fixRound(2, fixed, head);
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden']);
+      fixRound(3, head, fixed);
+      finished([passed('ci/test'), passed('ci/late')]);
+      assert.deepStrictEqual(await post(effects), ['brief.2']);
+      assert.equal(comments.length, 2);
     });
   });
 
@@ -939,7 +1207,7 @@ describe('the merge brief (ADR 0225)', () => {
       await post(effectsOf(fakeHost().host));
       assert.ok(
         (await statusText()).includes(
-          `- <${url}> is ready to merge on \`aaaaaaaa\`: <${url}#issuecomment-1>`,
+          `- <${url}> is ready to merge on \`aaaaaaaa\`: <${url}#issuecomment-101>`,
         ),
       );
       pending();
@@ -973,10 +1241,56 @@ describe('the merge brief (ADR 0225)', () => {
       });
       nipFromImplement(2, fixed);
       finished([passed('ci/test')], fixed);
-      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.2']);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden', 'brief.2']);
       assert.ok(
-        (await statusText()).includes(`is ready to merge on \`ffffffff\`: <${url}#issuecomment-2>`),
+        (await statusText()).includes(
+          `is ready to merge on \`ffffffff\`: <${url}#issuecomment-102>`,
+        ),
       );
+    });
+
+    it('says the open pull request has no merge brief while none is current (ADR 0229)', async () => {
+      nip();
+      const notReady = `- <${url}> is not ready to merge yet: no merge brief.`;
+      // Its checks are pending.
+      pending();
+      assert.ok((await statusText()).includes(notReady));
+      const { host } = fakeHost();
+      finished([passed('ci/test')]);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+      assert.doesNotMatch(await statusText(), /not ready to merge/);
+      // A fix round moves the head: brief 1 is hidden, and never linked again.
+      pending();
+      finished([passed('ci/test'), failed('ci/late')]);
+      accept({
+        kind: 'fix_pull_request',
+        batchId: 'web-7',
+        pullRequest: url,
+        head,
+        cause: { kind: 'checks' },
+      });
+      nipFromImplement(2, fixed);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden']);
+      const moved = await statusText();
+      assert.ok(moved.includes(notReady));
+      assert.doesNotMatch(moved, /issuecomment-101/);
+      finished([passed('ci/test'), passed('ci/late')], fixed);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.2']);
+      const ready = await statusText();
+      assert.ok(ready.includes(`is ready to merge on \`ffffffff\`: <${url}#issuecomment-102>`));
+      assert.doesNotMatch(ready, /not ready to merge/);
+    });
+
+    it('says nothing of a brief once its pull request merged (ADR 0229)', async () => {
+      nip();
+      assert.ok(
+        (await statusText()).includes(`- <${url}> is not ready to merge yet: no merge brief.`),
+      );
+      accept({
+        kind: 'record',
+        event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest: url, state: 'merged' },
+      });
+      assert.doesNotMatch(await statusText(), /merge brief/);
     });
   });
 
