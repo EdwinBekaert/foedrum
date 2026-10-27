@@ -24,7 +24,7 @@ Arguments: `$ARGUMENTS`
 3. The mode:
    - `--full`: the whole codebase.
    - `--since <base>`: `<base>` must match `^[0-9a-f]{40}$`, and `<main>/.foedrum/tmp/audits/<base>/findings.json` must exist; else stop and say which is missing.
-   - neither: the newest earlier audit whose commit is an ancestor of `<sha>` (`git merge-base --is-ancestor <base> <sha>`, newest by `git log -1 --format=%ct <base>`) is `<base>`; with none, the whole codebase.
+   - neither: among the folders of `<main>/.foedrum/tmp/audits/` whose name matches `^[0-9a-f]{40}$` and that hold a `findings.json`, the newest earlier audit whose commit is an ancestor of `<sha>` (`git merge-base --is-ancestor <base> <sha>`, newest by `git log -1 --format=%ct <base>`) is `<base>`; with none, the whole codebase.
 4. In a since-audit, `<changed>` is the list `git diff --name-only <base> <sha>` prints, one repository path per line; the auditors cannot run git, so the workflow gets it as data. `<unfinished>` is the array in `<main>/.foedrum/tmp/audits/<base>/unfinished.json`, the areas that audit did not finish, which this one audits in full (none when the file is not there).
 5. Say which mode and why before going on: a full audit is about 19 agents and a few million tokens; one since an earlier audit costs less, in proportion to what changed.
 
