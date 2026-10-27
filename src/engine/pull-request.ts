@@ -24,7 +24,7 @@ import {
   type TastingReport,
   tastingOf,
 } from '../schemas/out-doc.ts';
-import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
+import { type BatchEffectKey, type BodyResult, PushResult } from '../schemas/store.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
@@ -77,6 +77,33 @@ export const pullRequestKey = (batchId: string): BatchEffectKey => ({
   batchId,
   effect: 'pull_request',
 });
+
+/**
+ * The effect that writes the batch's pull request body in `round`: the open's in the first, then
+ * `body.<n>`, which renders it again (ADR 0227).
+ */
+export const bodyKey = (_batchId: string, _round: number): BatchEffectKey => {
+  throw new Error('not implemented');
+};
+
+/** Whose a pull request's body is (ADR 0227): Foedrum's own, with its marker, or left alone. */
+export type BodyOwner =
+  | { kind: 'own'; key: string; digest: string }
+  | { kind: 'left'; left: 'edited' | 'unmarked' };
+
+/**
+ * Whose the body of `batchId`'s pull request is (ADR 0227): Foedrum's own when its last line is a
+ * marker of the batch and the digest of the text above it matches, line endings made `
+`.
+ */
+export const bodyOwner = (_batchId: string, _body: string): BodyOwner => {
+  throw new Error('not implemented');
+};
+
+/** What the latest round's body effect recorded (ADR 0227), for a round after the first. */
+export const latestBody = (_state: State, _batchId: string): BodyResult | undefined => {
+  throw new Error('not implemented');
+};
 
 /** The local name of the batch's bottle branch in `repo`: `foedrum/<batch>/<owner>.<name>`. */
 export const bottleBranch = (batchId: string, repo: string): string =>
@@ -399,6 +426,8 @@ export interface PullRequestTextInput {
   recipe?: string;
   /** The batch's finished attempts, for the brew table (ADR 0167). */
   attempts?: readonly AttemptRow[];
+  /** The effect that writes the body, which its last line names with a marker (ADR 0227). */
+  key?: BatchEffectKey;
 }
 
 export interface PullRequestText {

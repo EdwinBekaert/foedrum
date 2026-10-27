@@ -1734,3 +1734,28 @@ describe('statusEffects: the sensitive paths the push recorded (ADR 0201)', () =
     assert.doesNotMatch(await commented(pushed), /sensitive/i);
   });
 });
+
+describe('renderStatus: a body the latest round left as it is (ADR 0227)', () => {
+  const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
+  const render = (left?: { pullRequest: string; left: 'edited' | 'unmarked' }) =>
+    renderStatus(onTap, steps, undefined, undefined, undefined, {}, undefined, left);
+
+  const lines = (text: string) => text.split('\n');
+
+  it('says so under its pull request, for an edited body and for one with no marker', () => {
+    assert.ok(
+      lines(render({ pullRequest: pr, left: 'edited' })).includes(
+        `- <${pr}>: its description was edited since Foedrum wrote it, so Foedrum left it as it is`,
+      ),
+    );
+    assert.ok(
+      lines(render({ pullRequest: pr, left: 'unmarked' })).includes(
+        `- <${pr}>: its description has no Foedrum marker, so Foedrum left it as it is`,
+      ),
+    );
+  });
+
+  it('says nothing when no round left it', () => {
+    assert.doesNotMatch(render(), /description/);
+  });
+});

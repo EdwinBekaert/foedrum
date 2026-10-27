@@ -77,5 +77,11 @@ export const githubPullRequests = (options: GitHubPullRequestsOptions): PullRequ
       if (answer.status !== 201) throw refused(answer.status, answer.body, what);
       return checked(GitHubOpenedPullRequest, answer.body, what).html_url;
     },
+    body: async () => {
+      throw new Error('not implemented');
+    },
+    update: async () => {
+      throw new Error('not implemented');
+    },
   };
 };

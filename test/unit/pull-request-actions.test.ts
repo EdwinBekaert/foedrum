@@ -74,18 +74,29 @@ const fakePush = (
   return { target, asked, pushes, remote, scans, diffs };
 };
 
-/** A code host with the pull requests the Brewery opened, by head branch. */
-const fakeHost = (opened: Record<string, string> = {}, answer = url) => {
+/** A code host with the pull requests the Brewery opened, by head branch, and their bodies by URL. */
+const fakeHost = (
+  opened: Record<string, string> = {},
+  answer = url,
+  bodies: Record<string, string> = {},
+) => {
   const requests: { repo: string; request: PullRequestRequest }[] = [];
+  const updates: { url: string; body: string }[] = [];
   const host: PullRequestHost = {
     find: async (repo, head) => (repo === 'acme/api' ? opened[head] : undefined),
     open: async (repo, request) => {
       requests.push({ repo, request });
       opened[request.head] = answer;
+      bodies[answer] = request.body;
       return answer;
     },
+    body: async (at) => bodies[at] ?? assert.fail(`no pull request ${at}`),
+    update: async (at, body) => {
+      updates.push({ url: at, body });
+      bodies[at] = body;
+    },
   };
-  return { host, requests };
+  return { host, requests, updates, bodies };
 };
 
 const ordered = (order: { issue: number; repo?: string }): Event => ({
@@ -150,6 +161,7 @@ const actionsWith = (
     touched?: string[];
     sensitivePaths?: string[];
     commits?: Record<string, string>;
+    bodies?: Record<string, string>;
   } = {},
 ) => {
   const pushed = fakePush(
@@ -161,7 +173,7 @@ const actionsWith = (
     options.touched,
     options.commits,
   );
-  const code = fakeHost(options.opened, options.answer);
+  const code = fakeHost(options.opened, options.answer, options.bodies);
   const titles: unknown[] = [];
   const actions = pullRequestActions({
     brewery: 'acme/brewery',
@@ -235,7 +247,11 @@ describe('pullRequestActions: the pull request', () => {
     assert.equal(request?.base, 'main');
     assert.equal(request?.title, 'Add a --json flag');
     assert.match(request?.body ?? '', /implement: Added --json/);
-    assert.match(request?.body ?? '', /\nCloses acme\/brewery#12$/);
+    // Its last line is the marker of the open's key, after Closes (ADR 0227).
+    assert.match(
+      request?.body ?? '',
+      /\nCloses acme\/brewery#12\n\n<!-- foedrum:\["12-1","pull_request"\] sha256:[0-9a-f]{16} -->$/,
+    );
   });
 
   it('opens it as a draft with the recipe and the brew log when no step tasted it (ADR 0167)', async () => {
@@ -866,6 +882,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
   const fixed = 'e'.repeat(40);
   const person = 'f'.repeat(40);
   const push2 = effectKey.encode({ batchId: '12-1', effect: 'push.2' });
+  const body2 = effectKey.encode({ batchId: '12-1', effect: 'body.2' });
   const from2 = 'refs/heads/foedrum/12-1/implement/2';
   const action2 = { ...action, attempt: 2 };
   const onTap: Event[] = [
@@ -975,7 +992,9 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
       { branch, commit: fixed, from: from2, moved: person },
     ]) {
       const state = fold([...onTap, ...round, applied(push2, result)]);
-      assert.deepEqual(actions.due(state, action2).map(effectKey.encode), [push2, open]);
+      // A round that went renders the body again; one that found the branch moved does not.
+      const body = 'moved' in result ? [] : [body2];
+      assert.deepEqual(actions.due(state, action2).map(effectKey.encode), [push2, open, ...body]);
       assert.deepEqual(actions.ending(state, action2), {
         kind: 'succeeded',
         output: { pullRequest: url },
@@ -1009,6 +1028,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
     const { actions } = withRemote({ [branch]: fixed });
     const recorded = applied(push2, { branch, commit: fixed, from: from2 });
     const state = fold([...onTap, ...round, recorded, ended]);
+    // Nor a body: the pull request ended before it was rendered again (ADR 0227).
     assert.deepEqual(keysOf(state, actions), [push2, open]);
   });
 
@@ -1023,6 +1043,105 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
       kind: 'failed',
       retryable: false,
       reason: 'batch 12-1 has no push of round 1 of its pull request to push round 2 on',
+    });
+  });
+
+  describe('the body is rendered again (ADR 0227)', () => {
+    const went = { branch, commit: fixed, from: from2 };
+    const pushedRound = fold([...onTap, ...round, applied(push2, went)]);
+    const marker2 = /\n\n<!-- foedrum:\["12-1","body\.2"\] sha256:([0-9a-f]{16}) -->$/;
+    /** The body the open wrote, as round 1 left it on the code host. */
+    const openedBody = async (): Promise<string> => {
+      const first = actionsWith();
+      keysOf(brewing(), first.actions);
+      await first.actions.target.apply(open);
+      return first.bodies[url] ?? assert.fail('no body');
+    };
+    const onHost = (body: string) =>
+      actionsWith({
+        remote: { [branch]: fixed },
+        commits: { [from2]: fixed },
+        bodies: { [url]: body },
+      });
+
+    it("updates Foedrum's own body once, with the round's reports and the marker of body.2", async () => {
+      const { actions, updates, requests } = onHost(await openedBody());
+      assert.deepEqual(keysOf(pushedRound, actions), [push2, open, body2]);
+      assert.equal(await actions.target.find(body2), undefined);
+      const result = await actions.target.apply(body2);
+      assert.equal(updates.length, 1);
+      const [{ url: at, body } = { url: '', body: '' }] = updates;
+      assert.equal(at, url);
+      assert.match(body, /implement: Fixed the test/);
+      assert.doesNotMatch(body, /implement: Added --json/);
+      assert.match(body, /\| `implement #2` \| succeeded \|/);
+      assert.match(body, /\nCloses acme\/brewery#12\n/);
+      const [, digest] = marker2.exec(body) ?? assert.fail(body);
+      assert.deepEqual(result, { digest });
+      // Only the body: the title and the draft state stay as a person may have set them.
+      assert.deepEqual(requests, []);
+    });
+
+    it('finds an update a kill left unrecorded by its marker, and updates nothing again', async () => {
+      const bodies: Record<string, string> = { [url]: await openedBody() };
+      const killed = actionsWith({
+        remote: { [branch]: fixed },
+        commits: { [from2]: fixed },
+        bodies,
+      });
+      keysOf(pushedRound, killed.actions);
+      const written = await killed.actions.target.apply(body2);
+      const next = actionsWith({
+        remote: { [branch]: fixed },
+        commits: { [from2]: fixed },
+        bodies,
+      });
+      keysOf(pushedRound, next.actions);
+      assert.deepEqual(await next.actions.target.find(body2), { result: written });
+      assert.deepEqual(next.updates, []);
+    });
+
+    it('reads \r\n line endings as no edit', async () => {
+      const { actions, updates } = onHost((await openedBody()).replaceAll('\n', '\r\n'));
+      keysOf(pushedRound, actions);
+      assert.match(JSON.stringify(await actions.target.apply(body2)), /digest/);
+      assert.equal(updates.length, 1);
+    });
+
+    it('leaves alone a body someone edited, or whose marker is not on its last line, and records it so', async () => {
+      const opened = await openedBody();
+      for (const body of [
+        opened.replace('Added --json', 'Added --json, as a person put it'),
+        `${opened}\n\n- [x] a box a bot ticked`,
+      ]) {
+        const { actions, updates } = onHost(body);
+        keysOf(pushedRound, actions);
+        assert.equal(await actions.target.find(body2), undefined);
+        assert.deepEqual(await actions.target.apply(body2), { left: 'edited' });
+        assert.deepEqual(updates, []);
+      }
+    });
+
+    it('leaves alone a body with no marker, as every pull request opened before, and records it so', async () => {
+      const opened = await openedBody();
+      const { actions, updates } = onHost(opened.slice(0, opened.lastIndexOf('\n')).trimEnd());
+      keysOf(pushedRound, actions);
+      assert.deepEqual(await actions.target.apply(body2), { left: 'unmarked' });
+      assert.deepEqual(updates, []);
+    });
+
+    it('renders nothing again for a round that pushed nothing', () => {
+      const finding = { commit: fixed, place: 'message', kind: 'GitHub token' };
+      for (const result of [
+        { ...went, moved: person },
+        { ...went, gone: true },
+        { ...went, empty: true },
+        { ...went, refused: [finding] },
+      ]) {
+        const { actions } = onHost('');
+        const state = fold([...onTap, ...round, applied(push2, result)]);
+        assert.ok(!keysOf(state, actions).includes(body2), JSON.stringify(result));
+      }
     });
   });
 });

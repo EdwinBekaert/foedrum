@@ -647,6 +647,7 @@ export const renderStatus = (
   sensitive?: SensitiveFiles,
   usageWindows: UsageWindows = {},
   brief?: MergeBrief,
+  _left?: { pullRequest: string; left: 'edited' | 'unmarked' },
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {

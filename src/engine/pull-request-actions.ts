@@ -54,6 +54,10 @@ export interface PullRequestHost {
   find(repo: string, head: string, signal?: AbortSignal): Promise<string | undefined>;
   /** Opens the pull request; its URL. */
   open(repo: string, request: PullRequestRequest, signal?: AbortSignal): Promise<string>;
+  /** The body of the pull request at `url`, empty when it has none (ADR 0227). */
+  body(url: string, signal?: AbortSignal): Promise<string>;
+  /** Replaces the body of the pull request at `url`, and nothing else of it (ADR 0227). */
+  update(url: string, body: string, signal?: AbortSignal): Promise<void>;
 }
 
 /** The pushes of a repository's clone to its remote. Every call stops when `signal` aborts. */
