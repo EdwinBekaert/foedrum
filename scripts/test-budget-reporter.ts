@@ -121,12 +121,20 @@ export interface RemeasureOptions {
   runProcess: RunProcess;
   // The deadline of one file's run.
   timeoutMs?: number;
+  // Whether the run had coverage, which the run alone then has too (ADR 0241); true by default.
+  coverage?: boolean;
 }
 
-// Runs one test file alone under node --test with the CPU time preload, as npm test does, and
-// reads the CPU time it reports (ADR 0089).
+// Runs one test file alone under node --test with the CPU time preload, as npm test does, with
+// coverage when its run had it (ADR 0241), and reads the CPU time it reports (ADR 0089).
 export const remeasureAlone =
-  ({ execPath, cwd, runProcess, timeoutMs = REMEASURE_TIMEOUT_MS }: RemeasureOptions) =>
+  ({
+    execPath,
+    cwd,
+    runProcess,
+    timeoutMs = REMEASURE_TIMEOUT_MS,
+    coverage = true,
+  }: RemeasureOptions) =>
   async (file: string): Promise<number | undefined> => {
     const { output, killed } = await runProcess(
       execPath,
@@ -134,7 +142,7 @@ export const remeasureAlone =
         '--import',
         './scripts/test-cpu-time.ts',
         '--test',
-        '--experimental-test-coverage',
+        ...(coverage ? ['--experimental-test-coverage'] : []),
         '--test-reporter=tap',
         '--test-reporter-destination=stdout',
         file,
@@ -152,12 +160,28 @@ export const remeasureAlone =
     return readings.length === 0 ? undefined : Math.max(...readings);
   };
 
-// The real re-measure: this node, in the folder npm test runs in, through the process runner,
-// loaded only when a file is over, since every test process loads this module (ADR 0038).
-export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>) =>
+// The re-measure of a run whose test runner had the given flags, with coverage when they had it
+// (ADR 0241).
+export const remeasureFor = ({
+  execArgv,
+  runProcess,
+}: {
+  execArgv: readonly string[];
+  runProcess: RunProcess;
+}): ((file: string) => Promise<number | undefined>) =>
   remeasureAlone({
     execPath: process.execPath,
     cwd: process.cwd(),
+    runProcess,
+    coverage: execArgv.includes('--experimental-test-coverage'),
+  });
+
+// The real re-measure: this node, in the folder npm test runs in, through the process runner,
+// loaded only when a file is over, since every test process loads this module (ADR 0038). The
+// reporter runs in the test runner's process, whose flags say whether the run had coverage.
+export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>) =>
+  remeasureFor({
+    execArgv: process.execArgv,
     runProcess: async (...args) => (await import('./process-runner.ts')).spawnProcess(...args),
   });
 

@@ -2,9 +2,11 @@
 // `npm run check` and in CI (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { checkSteps, runCheck } from '../../scripts/check.ts';
+import type { Affected } from '../../scripts/affected-tests/core.ts';
+import { checkMode, checkSteps, runCheck, TEST_COMMAND, TEST_GLOB } from '../../scripts/check.ts';
 import type { ReadText } from '../../scripts/deps-sync.ts';
 import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 
@@ -98,6 +100,180 @@ describe('checkSteps', () => {
         args: ['scripts/check-deps.ts', '--offline'],
       },
     ]);
+  });
+});
+
+// The test command of npm test, without coverage and without its glob (ADR 0241).
+const testRun = [
+  'scripts/with-checkout-tmp.ts',
+  '--import',
+  './scripts/test-cpu-time.ts',
+  '--test',
+  '--test-reporter=./scripts/spec-reporter.ts',
+  '--test-reporter-destination=stdout',
+  '--test-reporter=./scripts/test-budget-reporter.ts',
+  '--test-reporter-destination=stdout',
+];
+const testStepOf = (steps: { label: string; args: string[] }[]) =>
+  steps.filter(({ label }) => !/typecheck|lint|check-test-layers|check-deps/.test(label));
+
+describe('checkSteps for the test files a change reaches', () => {
+  it('runs the files the change reaches with the test command, without coverage', () => {
+    assert.deepEqual(
+      testStepOf(
+        checkSteps(npmCli, {
+          kind: 'some',
+          files: ['test/unit/a.test.ts', 'test/chaos/b.test.ts'],
+        }),
+      ),
+      [
+        {
+          label: 'node --test (2 test files the change reaches)',
+          args: [...testRun, 'test/unit/a.test.ts', 'test/chaos/b.test.ts'],
+        },
+      ],
+    );
+    assert.equal(
+      testStepOf(checkSteps(npmCli, { kind: 'some', files: ['test/unit/a.test.ts'] }))[0]?.label,
+      'node --test (1 test file the change reaches)',
+    );
+  });
+
+  it('runs every test file without coverage when the change reaches them all', () => {
+    assert.deepEqual(testStepOf(checkSteps(npmCli, { kind: 'all', why: 'package.json changed' })), [
+      {
+        label: 'node --test (every test file, without coverage)',
+        args: [...testRun, 'test/{unit,property,chaos}/**/*.test.ts'],
+      },
+    ]);
+  });
+
+  it('has no test step when the change reaches no test file, and keeps the others', () => {
+    assert.deepEqual(
+      checkSteps(npmCli, { kind: 'some', files: [] }).map(({ label }) => label),
+      [
+        'npm run typecheck',
+        'npm run lint',
+        'node scripts/check-test-layers.ts',
+        'node scripts/check-deps.ts --offline',
+      ],
+    );
+  });
+});
+
+// The check runs the files a change reaches with npm test's own command, so the two must not
+// drift apart: the same preload and reporters, coverage only in npm test (ADR 0241).
+describe("npm test's script", () => {
+  const { scripts } = JSON.parse(
+    readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8'),
+  ) as { scripts: Record<string, string> };
+  const words = (scripts.test ?? '').split(' ');
+
+  it("is the check's test command with coverage and its thresholds, over every test file", () => {
+    const coverage = (word: string) => /^--(?:experimental-)?test-coverage/.test(word);
+    assert.deepEqual(
+      words.filter((word) => !coverage(word)),
+      ['node', ...TEST_COMMAND, `"${TEST_GLOB}"`],
+    );
+    assert.deepEqual(
+      words.filter(coverage).map((word) => word.split('=')[0]),
+      [
+        '--experimental-test-coverage',
+        '--test-coverage-lines',
+        '--test-coverage-branches',
+        '--test-coverage-functions',
+      ],
+    );
+  });
+});
+
+describe('checkMode', () => {
+  const affected = async (): Promise<Affected> => ({ kind: 'some', files: [] });
+
+  it('runs every test file with coverage with --all, finding no change', () => {
+    assert.deepEqual(checkMode(['--all'], affected), {});
+  });
+
+  it('finds the test files the change reaches without --all', () => {
+    assert.deepEqual(checkMode([], affected), { affected });
+  });
+
+  it('refuses an argument it does not know', () => {
+    assert.throws(() => checkMode(['--al'], affected), /Unknown option '--al'/);
+  });
+});
+
+describe('runCheck with the test files a change reaches', () => {
+  const run = async (affected: () => Promise<Affected>) => {
+    const calls: string[][] = [];
+    const runProcess: RunProcess = async (_file, args) => {
+      calls.push(args);
+      return green('');
+    };
+    let written = '';
+    const exitCode = await runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd,
+      read: upToDate,
+      write: (text) => {
+        written += text;
+      },
+      affected,
+    });
+    return { exitCode, written, calls };
+  };
+
+  it('runs the files the change reaches and names them first', async () => {
+    const files = ['test/unit/a.test.ts', 'test/unit/b.test.ts'];
+    const { exitCode, written, calls } = await run(async () => ({ kind: 'some', files }));
+    assert.equal(exitCode, 0);
+    assert.ok(
+      written.startsWith(
+        'Test files the change reaches (2):\n  test/unit/a.test.ts\n  test/unit/b.test.ts\n',
+      ),
+      written,
+    );
+    assert.deepEqual(
+      calls.filter((args) => args[0] === 'scripts/with-checkout-tmp.ts'),
+      [[...testRun, ...files]],
+    );
+    assert.ok(!calls.some((args) => args.includes('test')), 'npm test ran');
+  });
+
+  it('says no test file is reached and runs the other steps', async () => {
+    const { exitCode, written, calls } = await run(async () => ({ kind: 'some', files: [] }));
+    assert.equal(exitCode, 0);
+    assert.ok(written.startsWith('No test file reached by the change.\n'), written);
+    assert.equal(calls.length, 4);
+  });
+
+  it('runs every test file without coverage when the change reaches them all, saying why', async () => {
+    const { written, calls } = await run(async () => ({
+      kind: 'all',
+      why: 'package.json changed',
+    }));
+    assert.ok(
+      written.startsWith('Every test file runs, without coverage: package.json changed\n'),
+      written,
+    );
+    assert.deepEqual(
+      calls.filter((args) => args[0] === 'scripts/with-checkout-tmp.ts'),
+      [[...testRun, 'test/{unit,property,chaos}/**/*.test.ts']],
+    );
+  });
+
+  it('runs every test file when the change cannot be read, with the error', async () => {
+    const { written } = await run(async () => {
+      throw new Error('git is missing');
+    });
+    assert.ok(
+      written.startsWith(
+        'Every test file runs, without coverage: the change could not be read: git is missing\n',
+      ),
+      written,
+    );
   });
 });
 

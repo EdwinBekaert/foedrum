@@ -9,6 +9,7 @@ import {
   npmTestReporter,
   recordCpuTime,
   remeasureAlone,
+  remeasureFor,
   runsInCi,
   type TestEvent,
   withoutCpuTimes,
@@ -712,6 +713,31 @@ describe('remeasureAlone', () => {
     ]);
     assert.equal(calls[0]?.options?.timeoutMs, 60_000);
   });
+
+  it('runs the file alone without coverage when its run had none (ADR 0241)', async () => {
+    const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+    await remeasureAlone({ execPath: 'node', cwd, runProcess, coverage: false })(fileA);
+    assert.deepEqual(calls[0]?.args, [
+      '--import',
+      './scripts/test-cpu-time.ts',
+      '--test',
+      '--test-reporter=tap',
+      '--test-reporter-destination=stdout',
+      fileA,
+    ]);
+  });
+
+  for (const [name, execArgv, coverage] of [
+    ['with coverage when the run had it', ['--test', '--experimental-test-coverage'], true],
+    ['without coverage when the run had none', ['--test'], false],
+  ] as const) {
+    it(`runs the file alone ${name}, read from the test runner's flags (ADR 0241)`, async () => {
+      const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+      await remeasureFor({ execArgv, runProcess })(fileA);
+      assert.equal(calls[0]?.args.includes('--experimental-test-coverage'), coverage);
+      assert.equal(calls[0]?.args.at(-1), fileA);
+    });
+  }
 
   it('gives a run alone 60 s by default', async () => {
     const { calls, runProcess } = runner({ exitCode: 0, output: '' });
