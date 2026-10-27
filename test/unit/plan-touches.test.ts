@@ -130,6 +130,34 @@ describe('touchesChecked (ADR 0233)', () => {
     assert.deepEqual(await touchesChecked(throwing, ending, repositories), blocked);
   });
 
+  it('blocks on the environment for a repository the plan names whose base could not be read, and reads the rest', async () => {
+    const { calls, read } = reader({ '/work/api.git': ['src/server.ts'] });
+    const unfetched: PlanRepository[] = [
+      repositories[0] as PlanRepository,
+      {
+        repo: 'acme/web',
+        clone: '/work/web.git',
+        unread: 'its base origin/main could not be fetched: offline',
+      },
+    ];
+    const api = succeeded(subOrder('api', 'acme/api', [{ path: 'src/server.ts' }]));
+    assert.deepEqual(await touchesChecked(read, api, unfetched), api);
+    const both = succeeded(
+      subOrder('api', 'acme/api', [{ path: 'src/server.ts' }]),
+      subOrder('ui', 'acme/web', [{ path: 'app/page.tsx' }]),
+    );
+    assert.deepEqual(await touchesChecked(read, both, unfetched), {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        "the plan's paths in acme/web were not read: its base origin/main could not be fetched: offline",
+    });
+    assert.deepEqual(
+      calls.map(({ clone }) => clone),
+      ['/work/api.git', '/work/api.git'],
+    );
+  });
+
   it('leaves any other ending, an out doc that is no plan, and an attempt without repositories as they are', async () => {
     const { calls, read } = reader({});
     const failed: Ending = { kind: 'failed', retryable: true, reason: 'no luck' };

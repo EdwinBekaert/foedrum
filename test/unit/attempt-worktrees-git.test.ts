@@ -111,6 +111,24 @@ describe('openAttemptWorktrees with a fake git', () => {
       }
     });
 
+    it("fetches on its own as create does, for a plan's check of a base the clone has no ref of (ADR 0233)", async () => {
+      const { calls, git } = fakeGit(() => undefined);
+      await open(git).fetch();
+      assert.deepEqual(calls, [
+        [
+          clone,
+          'fetch',
+          '--quiet',
+          '--prune',
+          '--no-auto-maintenance',
+          '--no-recurse-submodules',
+          'origin',
+        ],
+      ]);
+      const fails = fakeGit((_cwd, args) => (args.includes('fetch') ? failed() : undefined));
+      await assert.rejects(open(fails.git).fetch(), /fetch/);
+    });
+
     it('fetches by the remote it is given', async () => {
       const { calls, git } = fakeGit((_cwd, args) => {
         if (args.includes('upstream/main^{commit}')) return ok(`${BASE}\n`);

@@ -124,6 +124,19 @@ describe('PlanOutDoc (ADR 0233)', () => {
       done([subOrder('api', { dependencies: [{ on: 'api', kind: 'code' }] })]),
       /subOrders\[0\]\.dependencies\[0\]\.on/,
     ],
+    [
+      'a dependency named twice',
+      done([
+        subOrder('api'),
+        subOrder('ui', {
+          dependencies: [
+            { on: 'api', kind: 'code' },
+            { on: 'api', kind: 'release' },
+          ],
+        }),
+      ]),
+      /subOrders\[1\]\.dependencies\[1\]\.on/,
+    ],
     ['dependencies that form a cycle', done(chain([{ on: 'c', kind: 'code' }])), /cycle/],
     [
       'a kind of dependency other than code or release',

@@ -14,7 +14,8 @@ import type {
 export type WorktreeCall =
   | { kind: 'create'; ref: AttemptRef; base: string }
   | { kind: 'recreate'; ref: AttemptRef; commit: string }
-  | { kind: 'clean'; claims: Claims; scope: { batchId?: string } };
+  | { kind: 'clean'; claims: Claims; scope: { batchId?: string } }
+  | { kind: 'fetch' };
 
 export interface FakeWorktreesOptions {
   /** The attempts root; default `work/acme.app/attempts`. */
@@ -67,6 +68,9 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
       calls.flatMap((call) =>
         call.kind === 'clean' ? [{ claims: call.claims, scope: call.scope }] : [],
       ),
+    async fetch() {
+      calls.push({ kind: 'fetch' });
+    },
     async create(ref, base): Promise<AttemptWorktree> {
       calls.push({ kind: 'create', ref, base });
       const reason = options.refuse?.(ref);

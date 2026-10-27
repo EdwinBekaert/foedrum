@@ -126,6 +126,35 @@ describe('renderPlan (ADR 0233)', () => {
     assert.match(text, /s1\["api: \[left out: a text of step plan that looks like a secret\]"\]/);
   });
 
+  it('leaves out an id, a dependency and a recipe that look like a secret', () => {
+    // A long hexadecimal string that is no commit, which the secret scan reports (ADR 0088).
+    const hex = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+    const leaky = {
+      subOrders: [
+        subOrder(hex, { recipe: hex }),
+        subOrder('ui', { dependencies: [{ on: hex, kind: 'code' }] }),
+      ],
+    };
+    const text = renderPlan('7-1', 'plan', leaky);
+    assert.doesNotMatch(text, new RegExp(hex));
+    assert.match(text, /^\| `\[left out: a text of step plan that looks like a secret\]`: Build/m);
+    assert.match(text, /`\[left out: a text of step plan that looks like a secret\]` \(code\)/);
+    assert.match(text, /s1\["\[left out: a text of step plan that looks like a secret\]: Build/);
+  });
+
+  it('leaves the graph out, and nothing else, when only the graph takes the text past its length', () => {
+    // 100 rows of about 590 characters fit; their 100 graph lines of about 160 do not.
+    const long = 'x'.repeat(150);
+    const many = Array.from({ length: 100 }, (_, i) =>
+      subOrder(`s${i}`, { title: 'y'.repeat(120), doneWhen: long, why: long }),
+    );
+    const text = renderPlan('7-1', 'plan', { subOrders: many });
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.doesNotMatch(text, /```mermaid/);
+    assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
+    assert.match(text, /\*\*Gate\*\*\n\nNone yet\.$/);
+  });
+
   it("keeps the whole text within GitHub's length, cut at a whole line", () => {
     const long = 'x'.repeat(300);
     const many = Array.from({ length: 100 }, (_, i) =>

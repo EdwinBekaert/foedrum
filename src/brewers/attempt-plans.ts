@@ -88,6 +88,11 @@ export interface AttemptPlansOptions {
    * paths are checked in each once it is done (ADR 0233).
    */
   repositories?: readonly { repo: string; base: string }[];
+  /**
+   * Fetches a repository's clone through its worktree manager, when a plan's check finds no ref of
+   * its base there (ADR 0233).
+   */
+  fetchBase?: (repo: string) => Promise<void>;
   /** The Brewery's work root (ADR 0037). */
   workRoot: string;
   /** The brewer's minimal base environment and the runner's forced variables (ADR 0028). */

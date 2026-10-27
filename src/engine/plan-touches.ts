@@ -6,12 +6,14 @@ import { planOf } from '../schemas/plan.ts';
 import type { Ending } from './decide.ts';
 import { sameRepo } from './task-tree.ts';
 
-/** A repository of the Brewery, its clone, and the commit a plan's paths in it are checked at. */
-export interface PlanRepository {
-  repo: string;
-  clone: string;
-  commit: string;
-}
+/**
+ * A repository of the Brewery, its clone, and the commit a plan's paths in it are checked at, or
+ * why that commit could not be read: its base could not be fetched (ADR 0233).
+ */
+export type PlanRepository = { repo: string; clone: string } & (
+  | { commit: string }
+  | { unread: string }
+);
 
 /** The paths git found at a commit, or why it could not read them. */
 export type PathsRead =
