@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
@@ -94,6 +94,14 @@ describe('the seeded change', () => {
       key.defects.map(({ lens }) => lens).sort(),
       SETUPS['together-7'].lenses.toSorted(),
     );
+  });
+
+  it('measures the lenses Foedrum ships in defaults/lenses/diff, no fewer and no more', () => {
+    const shipped = readdirSync(join(import.meta.dirname, '..', '..', 'defaults', 'lenses', 'diff'))
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => `diff/${name.slice(0, -'.md'.length)}`)
+      .sort();
+    assert.deepEqual(SETUPS['apart-7'].lenses.toSorted(), shipped);
   });
 
   it("names, for every defect, ranges of lines the change adds to the defect's file", () => {
@@ -275,6 +283,24 @@ describe('attemptsOf', () => {
     assert.deepEqual(failed?.findings, []);
   });
 
+  it('reads a Taster that asked a question, or was cancelled, as failed, with no findings', () => {
+    const asked = { kind: 'needs_input', questions: [{ id: 'q', text: 'Which lens?' }] };
+    const attempts = attemptsOf(
+      [
+        finished('taste', asked as FinishedAttempt['outcome']),
+        finished('taste', { kind: 'cancelled' }),
+      ],
+      'together-7',
+    );
+    assert.deepEqual(
+      attempts.map(({ failure, findings }) => ({ failure, findings })),
+      [
+        { failure: 'needs_input', findings: [] },
+        { failure: 'cancelled', findings: [] },
+      ],
+    );
+  });
+
   it('drops a finding the schema refuses, and says so', () => {
     const [read] = attemptsOf(
       [
@@ -327,6 +353,14 @@ describe('scoreRun', () => {
     assert.deepEqual(found, [{ defect: 'logic', ownLens: true }]);
   });
 
+  it('keeps the defect for its own lens when another lens names it after', () => {
+    const { found } = score([
+      finding('src/a.ts', 4, 'diff/correctness'),
+      finding('src/a.ts', 3, 'diff/acceptance'),
+    ]);
+    assert.deepEqual(found, [{ defect: 'logic', ownLens: true }]);
+  });
+
   it("reads a finding without a lens as its step's one lens", () => {
     const { found } = score([finding('src/a.ts', 3)], ['diff/correctness']);
     assert.deepEqual(found, [{ defect: 'logic', ownLens: true }]);
@@ -352,6 +386,12 @@ describe('scoreRun', () => {
       { defect: 'logic', ownLens: false },
       { defect: 'unasked', ownLens: true },
     ]);
+  });
+
+  it('does not match a file whose name only ends in the same letters', () => {
+    const { found, others } = score([finding('xsrc/a.ts', 3), finding('/work/xsrc/a.ts', 3)]);
+    assert.deepEqual(found, []);
+    assert.equal(others.length, 2);
   });
 
   it("scores only the defects of the setup's lenses, and lists the others' findings", () => {
@@ -430,6 +470,14 @@ describe('summarize', () => {
     assert.deepEqual(summary?.found, [2, 1]);
     assert.deepEqual(summary?.failed, [{ run: 1, why: 'the batch ended stuck: attempts' }]);
   });
+
+  it('puts the runs in their order when a retry was recorded after a later run', () => {
+    const failed = apart(1, { ended: 'stuck: attempts' });
+    const summary = summarize([apart(2), failed, apart(1, { retry: true })], KEY).find(
+      ({ setup }) => setup === 'apart-7',
+    );
+    assert.deepEqual(summary?.found, [2, 1]);
+  });
 });
 
 describe('nextRun', () => {
@@ -470,6 +518,20 @@ describe('choiceOf', () => {
       summary('together-nip', 1.4, 500),
     ]);
     assert.deepEqual(choice, { seven: 'together', nip: 'apart' });
+  });
+
+  it('says nothing while a setup has no run, or no scored run', () => {
+    assert.deepEqual(choiceOf([summary('apart-7', 6, 1000), summary('apart-nip', 2, 1000)]), {
+      seven: undefined,
+      nip: undefined,
+    });
+    const choice = choiceOf([
+      summary('apart-7', 6, 1000),
+      summary('together-7', Number.NaN, 100),
+      summary('apart-nip', Number.NaN, 1000),
+      summary('together-nip', 2, 100),
+    ]);
+    assert.deepEqual(choice, { seven: undefined, nip: undefined });
   });
 
   it('stays apart when together saves less than 30 %', () => {
@@ -542,7 +604,11 @@ describe('tableMarkdown', () => {
             attempt('correctness', ['diff/correctness'], [finding('src/a.ts', 3)]),
           ]),
           run('together-nip', 1, [
-            attempt('taste', ['diff/correctness', 'diff/acceptance'], [finding('src/q.ts', 1)]),
+            attempt(
+              'taste',
+              ['diff/correctness', 'diff/acceptance'],
+              [{ ...finding('src/q.ts', 1), why: 'too slow' }],
+            ),
           ]),
         ],
         KEY,
@@ -552,12 +618,17 @@ describe('tableMarkdown', () => {
     assert.match(text, /\| apart-7 \| 1 \/ 2 \| 1 \| 1 \| 0 \|/);
     assert.match(text, /\| together-nip \| 0 \/ 2 \| 0 \| 0 \| 1 \|/);
     assert.match(text, /\| logic \| diff\/correctness \| 1\/1 \|/);
-    assert.match(text, /src\/q\.ts:1/);
-    assert.match(text, /Nip:/);
+    assert.match(
+      text,
+      /Other findings of together-nip, scored run 1:\n\n- taste: major in src\/q\.ts:1: too slow\n/,
+    );
+    assert.match(text, /\n- Nip: apart \(apart-nip against together-nip\)\n/);
   });
 
   it('says a setup with no runs has none, instead of an average of nothing', () => {
     const text = tableMarkdown(summarize([], KEY), KEY);
     assert.match(text, /\| together-7 \| no runs \|/);
+    assert.match(text, /\n- Nip: not measured /);
+    assert.match(text, /\n- Seven lenses: not measured /);
   });
 });
