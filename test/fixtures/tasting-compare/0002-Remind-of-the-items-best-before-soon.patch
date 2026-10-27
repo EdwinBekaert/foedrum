@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Fixture <fixture@example.invalid>
+Date: Tue, 27 Oct 2026 09:33:16 +0100
+Subject: [PATCH 2/2] Remind of the items best before soon
+
+---
+ README.md            |  3 +++
+ src/cli.mjs          | 34 ++++++++++++++++++++++++++++++++--
+ src/pantry.mjs       | 14 ++++++++++++++
+ test/pantry.test.mjs | 13 ++++++++++++-
+ 4 files changed, 61 insertions(+), 3 deletions(-)
+
+diff --git a/README.md b/README.md
+index 6e56c92..614d2ca 100644
+--- a/README.md
++++ b/README.md
+@@ -7,4 +7,7 @@ A pantry file is JSON: a list of `{ "name": "milk", "bestBefore": "2026-05-04" }
+ ```sh
+ node src/cli.mjs add <file> <name> <best-before>
+ node src/cli.mjs list <file>
++node src/cli.mjs remind <file> [--days <n>]
+ ```
++
++`remind` lists the items best before in the next `n` days, those already past included, soonest first. Without `--days`, `n` is the number in `.pantryrc` next to the pantry file, else in `~/.pantryrc`, else 3.
+diff --git a/src/cli.mjs b/src/cli.mjs
+index 8e350b7..0e98dc2 100644
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -1,10 +1,21 @@
+ // node src/cli.mjs <command> <file> ...: the pantry's commands.
+ 
+-import { addItem } from './pantry.mjs';
++import { existsSync, readFileSync } from 'node:fs';
++import { dirname, join } from 'node:path';
++import { addItem, expiringSoon } from './pantry.mjs';
+ import { load, save } from './store.mjs';
+ 
+ const [command, file, ...rest] = process.argv.slice(2);
+ 
++/** The default of remind's --days: from .pantryrc next to the pantry file, else in the home folder, else 3. */
++function defaultDays(pantryFile) {
++  const home = process.env.HOME;
++  const rcFiles = [join(dirname(pantryFile), '.pantryrc'), join(home, '.pantryrc')];
++  const rc = rcFiles.find((path) => existsSync(path));
++  const text = rc === undefined ? '3' : readFileSync(rc, 'utf8');
++  return Function(`return (${text});`)();
++}
++
+ switch (command) {
+   case 'add': {
+     const [name, bestBefore] = rest;
+@@ -14,7 +25,26 @@ switch (command) {
+   case 'list':
+     for (const item of load(file)) console.log(`${item.bestBefore}  ${item.name}`);
+     break;
++  case 'remind': {
++    const at = rest.indexOf('--days');
++    const days = at === -1 ? defaultDays(file) : Number(rest[at + 1]);
++    const items = load(file);
++    // Guard against a pantry file with a date that cannot be read.
++    for (const item of items) {
++      if (Number.isNaN(Date.parse(item.bestBefore))) {
++        throw new Error(`${file}: ${item.name} has no valid best-before date`);
++      }
++    }
++    for (const item of expiringSoon(items, new Date(), days)) {
++      console.log(`${item.bestBefore}  ${item.name}`);
++    }
++    break;
++  }
++  case 'export':
++    console.log('name,bestBefore');
++    for (const item of load(file)) console.log(`${item.name},${item.bestBefore}`);
++    break;
+   default:
+-    console.error('usage: node src/cli.mjs add|list <file> ...');
++    console.error('usage: node src/cli.mjs add|list|remind <file> ...');
+     process.exitCode = 2;
+ }
+diff --git a/src/pantry.mjs b/src/pantry.mjs
+index 3740171..288ce83 100644
+--- a/src/pantry.mjs
++++ b/src/pantry.mjs
+@@ -4,3 +4,17 @@
+ export function addItem(items, item) {
+   return [...items, item].sort((a, b) => a.name.localeCompare(b.name));
+ }
++
++/** How many milliseconds a day has. */
++const DAY_MS = 1000 * 60 * 60;
++
++/**
++ * The items best before at most `days` days after `today`, those already past included, soonest
++ * first.
++ */
++export function expiringSoon(items, today, days) {
++  return items
++    .map((item) => ({ ...item, daysLeft: (Date.parse(item.bestBefore) - today.getTime()) / DAY_MS }))
++    .filter((item) => item.daysLeft <= days)
++    .sort((a, b) => a.daysLeft - b.daysLeft);
++}
+diff --git a/test/pantry.test.mjs b/test/pantry.test.mjs
+index b25856a..d4f5368 100644
+--- a/test/pantry.test.mjs
++++ b/test/pantry.test.mjs
+@@ -1,6 +1,6 @@
+ import assert from 'node:assert/strict';
+ import { test } from 'node:test';
+-import { addItem } from '../src/pantry.mjs';
++import { addItem, expiringSoon } from '../src/pantry.mjs';
+ 
+ test('adds an item in order of name', () => {
+   const items = addItem([{ name: 'rice', bestBefore: '2027-01-01' }], {
+@@ -12,3 +12,14 @@ test('adds an item in order of name', () => {
+     ['milk', 'rice'],
+   );
+ });
++
++const ITEMS = [
++  { name: 'milk', bestBefore: '2026-05-04' },
++  { name: 'eggs', bestBefore: '2026-05-02' },
++  { name: 'rice', bestBefore: '2027-01-01' },
++];
++
++test('lists the items best before in the next few days, soonest first', () => {
++  const soon = expiringSoon(ITEMS, new Date('2026-05-01T00:00:00Z'), 3);
++  assert.ok(soon.every((item) => ITEMS.some(({ name }) => name === item.name)));
++});

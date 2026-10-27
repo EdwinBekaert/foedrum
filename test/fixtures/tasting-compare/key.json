@@ -1,0 +1,53 @@
+{
+  "defects": [
+    {
+      "id": "unasked-export",
+      "lens": "diff/acceptance",
+      "file": "src/cli.mjs",
+      "lines": [[43, 46]],
+      "what": "an export command that no item of the order asks for"
+    },
+    {
+      "id": "hours-for-days",
+      "lens": "diff/correctness",
+      "file": "src/pantry.mjs",
+      "lines": [[8, 9], [17, 17]],
+      "what": "DAY_MS is the milliseconds of an hour, so daysLeft counts hours and days ahead are missed"
+    },
+    {
+      "id": "home-variable",
+      "lens": "diff/cross-platform",
+      "file": "src/cli.mjs",
+      "lines": [[12, 13]],
+      "what": "process.env.HOME is unset on Windows, so join throws there instead of reading ~/.pantryrc"
+    },
+    {
+      "id": "fs-outside-store",
+      "lens": "diff/design-conformance",
+      "file": "src/cli.mjs",
+      "lines": [[3, 3], [14, 15]],
+      "what": "cli.mjs imports node:fs and reads .pantryrc itself, where CLAUDE.md says only src/store.mjs touches the file system"
+    },
+    {
+      "id": "guard-done-by-load",
+      "lens": "diff/necessity",
+      "file": "src/cli.mjs",
+      "lines": [[32, 37]],
+      "what": "remind checks every best-before date again, which load already validates where the file enters"
+    },
+    {
+      "id": "rc-evaluated",
+      "lens": "diff/security",
+      "file": "src/cli.mjs",
+      "lines": [[16, 16]],
+      "what": ".pantryrc, which can sit in a folder the household shares, is run as code through Function"
+    },
+    {
+      "id": "test-cannot-fail",
+      "lens": "diff/test-design",
+      "file": "test/pantry.test.mjs",
+      "lines": [[22, 25]],
+      "what": "the expiringSoon test asserts only that each item listed is an item, so it passes on an empty list and on any order"
+    }
+  ]
+}

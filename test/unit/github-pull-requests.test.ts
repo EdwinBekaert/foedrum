@@ -197,6 +197,47 @@ describe('githubPullRequests: open', () => {
   });
 });
 
+describe('githubPullRequests: the body (ADR 0227)', () => {
+  const pull = (body: string | null) => ({ number: 9, state: 'open', body });
+
+  it('reads the body of the pull request at its URL, and an empty one as no text', async () => {
+    const { host, requests } = hostWith([
+      { status: 200, body: pull('How it works') },
+      { status: 200, body: pull(null) },
+    ]);
+    assert.equal(await host.body(url), 'How it works');
+    assert.equal(await host.body(url), '');
+    assert.deepEqual(
+      requests.map(({ method, url }) => `${method} ${url}`),
+      [
+        'GET https://api.github.com/repos/acme/api/pulls/9',
+        'GET https://api.github.com/repos/acme/api/pulls/9',
+      ],
+    );
+  });
+
+  it("fails with GitHub's status and message when the pull request cannot be read", async () => {
+    const { host } = hostWith([{ status: 404, body: { message: 'Not Found' } }]);
+    await assert.rejects(host.body(url), /GitHub answered 404 .*acme\/api#9.*: Not Found/);
+  });
+
+  it('updates the body only: never the title, the draft state or anything else', async () => {
+    const { host, requests } = hostWith([{ status: 200, body: pull('New') }]);
+    await host.update(url, 'New');
+    assert.equal(requests[0]?.method, 'PATCH');
+    assert.equal(requests[0]?.url, 'https://api.github.com/repos/acme/api/pulls/9');
+    assert.deepEqual(requests[0]?.body, { body: 'New' });
+  });
+
+  it("fails with GitHub's status and message when the update is refused", async () => {
+    const { host } = hostWith([{ status: 403, body: { message: 'Resource not accessible' } }]);
+    await assert.rejects(
+      host.update(url, 'New'),
+      /GitHub answered 403 .*acme\/api#9.*: Resource not accessible/,
+    );
+  });
+});
+
 describe('githubOrderTitle', () => {
   const issue = { number: 12, state: 'open', user: { login: 'octocat' }, labels: [] };
 
