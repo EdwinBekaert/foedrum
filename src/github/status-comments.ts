@@ -3,6 +3,7 @@
 // counts only when `login` made it, since markers are predictable (ADR 0033).
 
 import { claimRef, same } from '../engine/issue-claims.ts';
+import type { MergeBriefHost } from '../engine/merge-brief-post.ts';
 import type { StatusComments } from '../engine/status-comment.ts';
 import { GitHubComment } from '../schemas/github.ts';
 import { checked, refused, repoPath } from './answers.ts';
@@ -29,7 +30,12 @@ const issuePath = (repo: string, issue: number): string => {
   return `/repos/${repoPath(repo)}/issues/${issue}`;
 };
 
-export const githubStatusComments = (options: GitHubStatusCommentsOptions): StatusComments => {
+/** The Brewery's own comments that a merge brief hides as outdated (ADR 0229). */
+export type HiddenComments = Pick<MergeBriefHost, 'hidden' | 'hide'>;
+
+export const githubStatusComments = (
+  options: GitHubStatusCommentsOptions,
+): StatusComments & HiddenComments => {
   const { client, reads, login } = options;
   // Markers are predictable: a comment by anyone else never counts.
   const ours = (comment: { user?: { login: string } | null | undefined }): boolean =>
@@ -70,6 +76,12 @@ export const githubStatusComments = (options: GitHubStatusCommentsOptions): Stat
       if (answer.status === 404) return 'gone';
       if (answer.status !== 200) throw refused(answer.status, answer.body, what);
       return 'edited';
+    },
+    hidden: async () => {
+      throw new Error('not implemented');
+    },
+    hide: async () => {
+      throw new Error('not implemented');
     },
   };
 };

@@ -24,6 +24,9 @@ import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { usageWindowsText } from './usage-window.ts';
 
+/** What the status comment says of a pull request's merge brief: the current one, or that the open pull request has none (ADR 0229). */
+export type BriefLine = MergeBrief | { pullRequest: string };
+
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
 export interface StatusComments {
   /** The Brewery's own comment on the issue whose body ends with `marker`: its id and body. */
@@ -646,7 +649,7 @@ export const renderStatus = (
   paused?: Pause,
   sensitive?: SensitiveFiles,
   usageWindows: UsageWindows = {},
-  brief?: MergeBrief,
+  brief?: BriefLine,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -692,7 +695,7 @@ export const renderStatus = (
             ...pullRequests.map((url) => baseCheckLine(batch, url) ?? `- ${link(url)}`),
             ...checkLines(batch),
             // The merge brief of the record that makes it ready now (ADR 0225).
-            ...(brief === undefined
+            ...(brief === undefined || !('comment' in brief)
               ? []
               : [
                   `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,

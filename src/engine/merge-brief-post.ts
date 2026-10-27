@@ -44,6 +44,10 @@ export interface MergeBriefHost {
   create(repo: string, number: number, body: string, signal?: AbortSignal): Promise<number>;
   /** The pull request's title. */
   title(repo: string, number: number, signal?: AbortSignal): Promise<string>;
+  /** Whether the Brewery's own comment is hidden; `gone` when it is not there or not its own. */
+  hidden(repo: string, comment: number, signal?: AbortSignal): Promise<'hidden' | 'shown' | 'gone'>;
+  /** Hides the Brewery's own comment as outdated; `gone` when it is not there or not its own. */
+  hide(repo: string, comment: number, signal?: AbortSignal): Promise<'hidden' | 'gone'>;
 }
 
 export interface MergeBriefEffectsOptions {

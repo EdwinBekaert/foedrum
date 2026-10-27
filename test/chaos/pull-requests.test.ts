@@ -367,15 +367,18 @@ describe('chaos: a fix round of a failing pull request killed around its push (A
 
 // The merge brief of a ready pull request (ADR 0225), killed on both sides of its post, once or
 // twice, and once with the record changing while no driver runs. The batch brews to On tap
-// without kills, then its checks pass on the pushed head.
+// without kills, then its checks pass on the pushed head. With `later`, a later record of the same
+// head posts the next brief, and the first is hidden as outdated (ADR 0229).
 const briefPoints = ['before the brief was posted', 'after the brief was posted'] as const;
-type BriefPoint = (typeof briefPoints)[number];
+const hidePoints = ['before the brief was hidden', 'after the brief was hidden'] as const;
+type BriefPoint = (typeof briefPoints)[number] | (typeof hidePoints)[number];
 
-const briefRun = async (kills: readonly BriefPoint[], late = false) => {
+const briefRun = async (kills: readonly BriefPoint[], late = false, later = false) => {
   const path = join(dir.path, `run-${++runs}.sqlite`);
   let store = openSqliteEventStore(path);
   const code = codeHost([]);
-  const comments: { id: number; body: string }[] = [];
+  const comments: { id: number; body: string; hidden?: boolean }[] = [];
+  const hides: number[] = [];
   const left = [...kills];
   let dead = false;
   let killed = 0;
@@ -399,6 +402,21 @@ const briefRun = async (kills: readonly BriefPoint[], late = false) => {
       return comments.length;
     },
     title: async () => 'Add a --json flag',
+    hidden: async (_repo, id) => {
+      if (dead) throw new Killed('dead');
+      const comment = comments.find((each) => each.id === id);
+      if (comment === undefined) return 'gone';
+      return comment.hidden === true ? 'hidden' : 'shown';
+    },
+    hide: async (_repo, id) => {
+      point('before the brief was hidden');
+      const comment = comments.find((each) => each.id === id);
+      if (comment === undefined) return 'gone';
+      comment.hidden = true;
+      hides.push(id);
+      point('after the brief was hidden');
+      return 'hidden';
+    },
   };
   const worktrees = fakeWorktrees();
   const record = (checks: Extract<Event, { type: 'pull_request.checks_finished' }>['checks']) => {
@@ -423,7 +441,9 @@ const briefRun = async (kills: readonly BriefPoint[], late = false) => {
   let starts = 0;
   let driver: Driver | undefined;
   let checked = false;
+  let recheck = later;
   const briefKey = JSON.stringify(['12-1', 'brief.1']);
+  const doneKey = later ? JSON.stringify(['12-1', 'brief.1.hidden']) : briefKey;
   try {
     for (let ticks = 0; ticks < 40; ticks++) {
       if (driver === undefined) {
@@ -467,10 +487,19 @@ const briefRun = async (kills: readonly BriefPoint[], late = false) => {
         checked = true;
         continue;
       }
-      if (driver.state().effects.has(briefKey)) break;
+      if (recheck && driver.state().effects.has(briefKey)) {
+        // A late check registers on the same head and passes: the next brief, then the hide.
+        record([
+          { name: 'ci / test', kind: 'check_run', conclusion: 'success' },
+          { name: 'ci / late', kind: 'check_run', conclusion: 'success' },
+        ]);
+        recheck = false;
+        continue;
+      }
+      if (driver.state().effects.has(doneKey)) break;
     }
     const state = createCommandLog({ store, recipes }).state();
-    return { state, comments, starts };
+    return { state, comments, hides, starts };
   } finally {
     driver?.close();
     store.close();
@@ -511,4 +540,39 @@ describe('chaos: the merge brief killed around its post (ADR 0225)', () => {
       2,
     );
   });
+});
+
+describe('chaos: the merge brief killed around its hide and the next post (ADR 0229)', () => {
+  const [beforeHide, afterHide] = hidePoints;
+  const [beforePost, afterPost] = briefPoints;
+  const runsOf: (readonly BriefPoint[])[] = [
+    [],
+    [beforeHide],
+    [afterHide],
+    [beforeHide, afterHide],
+    [afterHide, afterHide],
+    [beforePost, afterPost, afterHide],
+    [afterPost, afterPost, beforeHide],
+  ];
+
+  for (const kills of runsOf) {
+    it(`hides the first brief once and posts each once: ${kills.join(', then ') || 'no kill'}`, async () => {
+      const { state, comments, hides, starts } = await briefRun(kills, false, true);
+      assert.equal(starts, kills.length + 1, 'a new driver after each kill');
+      assert.equal(comments.length, 2);
+      assert.deepStrictEqual(hides, [1]);
+      assert.deepStrictEqual(
+        [...state.effects.keys()].filter((key) => key.includes('brief')).sort(),
+        [
+          JSON.stringify(['12-1', 'brief.1']),
+          JSON.stringify(['12-1', 'brief.1.hidden']),
+          JSON.stringify(['12-1', 'brief.2']),
+        ],
+      );
+      assert.deepStrictEqual(state.effects.get(JSON.stringify(['12-1', 'brief.1.hidden'])), {
+        comment: 1,
+        hidden: 'outdated',
+      });
+    });
+  }
 });
