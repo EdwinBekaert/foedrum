@@ -9,9 +9,12 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
+import { baseConflictEffects } from '../../src/engine/base-check.ts';
+import type { BaseMerge } from '../../src/engine/base-merge.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
+import type { EventStore, EventStoreTransaction } from '../../src/engine/event-store.ts';
 import { type MergeBriefHost, mergeBriefEffects } from '../../src/engine/merge-brief-post.ts';
 import {
   type BranchPush,
@@ -33,6 +36,15 @@ const killPoints = [
   'after the pull request was opened',
 ] as const;
 type KillPoint = (typeof killPoints)[number];
+// Where a fix the merged tree sent back dies besides (ADR 0226): around its start merge and the
+// post of the failure.
+const mergedPoints = [
+  'before the start merge',
+  'after the start merge',
+  'before the failure was posted',
+  'after the failure was posted',
+] as const;
+type AnyPoint = KillPoint | (typeof mergedPoints)[number];
 
 class Killed extends Error {}
 
@@ -64,14 +76,14 @@ const runner: BrewerRunner = {
  * which outlive the driver. `kills` says where the live driver dies, each the first time it gets
  * there; a dead driver touches nothing more.
  */
-const codeHost = (kills: readonly KillPoint[]) => {
+const codeHost = (kills: readonly AnyPoint[]) => {
   const remote = new Map<string, string>();
   const pushes: string[] = [];
   const opened = new Map<string, string>();
   const left = [...kills];
   let dead = false;
   let killed = 0;
-  const point = (at: KillPoint): void => {
+  const point = (at: AnyPoint): void => {
     if (dead) throw new Killed('dead');
     if (left[0] !== at) return;
     left.shift();
@@ -121,8 +133,12 @@ const codeHost = (kills: readonly KillPoint[]) => {
       dead = false;
     },
     kills: () => killed,
+    /** Dies here when it is the next kill point; throws once dead. */
+    point,
+    /** Whether the live driver died. */
+    dead: () => dead,
     /** Where the live driver dies from now on, each the first time it gets there. */
-    arm: (more: readonly KillPoint[]) => {
+    arm: (more: readonly AnyPoint[]) => {
       left.push(...more);
     },
   };
@@ -511,4 +527,214 @@ describe('chaos: the merge brief killed around its post (ADR 0225)', () => {
       2,
     );
   });
+});
+
+// A pull request whose merged tree fails a check goes back to `plan`, which merges the base at its
+// start, and its fix is pushed to the same branch, while the failure is posted (ADR 0226): killed
+// on both sides of the start merge, the push and the post, once or twice. The first round brews
+// without kills.
+const TIP = 'f'.repeat(40);
+const MERGED = 'd'.repeat(40);
+const mergedFixing = fakeRecipes({
+  ale: fakeRecipe({
+    steps: ['plan', 'open-pull-request'],
+    actions: { 'open-pull-request': 'openPullRequest' },
+    routes: { 'open-pull-request': { pull_request: 'plan' } },
+    maxRounds: 2,
+    // A kill loses the attempt it ran: the fix gets more than one.
+    maxAttempts: 5,
+    pullRequests: [],
+  }),
+});
+
+const mergedRun = async (kills: readonly AnyPoint[]) => {
+  const path = join(dir.path, `run-${++runs}.sqlite`);
+  const code = codeHost([]);
+  // A dead driver writes nothing more: a kill inside an effect is no failure it records.
+  const opened = (): EventStore => {
+    const inner = openSqliteEventStore(path);
+    return new Proxy(inner, {
+      get: (target, key) =>
+        key === 'withTransaction'
+          ? <T>(fn: (tx: EventStoreTransaction) => T): T => {
+              if (code.dead()) throw new Killed('dead');
+              return target.withTransaction(fn);
+            }
+          : Reflect.get(target, key, target),
+    });
+  };
+  let store = opened();
+  const commitOf = code.push.commit;
+  // A fix's task tree is a later attempt of plan.
+  const push: BranchPush = {
+    ...code.push,
+    commit: async (revision, signal) => {
+      const commit = await commitOf(revision, signal);
+      return /\/plan\/[2-9]$/.test(revision) ? FIXED : commit;
+    },
+  };
+  // A worktree's HEAD outlives the driver, as a merge in it does.
+  const heads = new Map<string, string>();
+  const merges: string[] = [];
+  const merge: BaseMerge = {
+    base: 'main',
+    push: { baseTip: async () => TIP, isAncestor: async (commit, of) => commit === of },
+    worktree: {
+      head: async (at) => heads.get(at) ?? FAKE_COMMIT,
+      parents: async (at, commit) => (commit === heads.get(at) ? [FAKE_COMMIT, TIP] : []),
+      abort: async () => {},
+      merge: async (at) => {
+        code.point('before the start merge');
+        heads.set(at, MERGED);
+        merges.push(at);
+        code.point('after the start merge');
+        return { kind: 'merged', commit: MERGED };
+      },
+    },
+  };
+  // The pull request's comments outlive the driver too.
+  const comments: string[] = [];
+  const marks = {
+    findComment: async (_repo: string, _issue: number, marker: string) => {
+      const at = comments.findIndex((body) => body.includes(marker));
+      return at === -1 ? undefined : at + 1;
+    },
+    comment: async (_repo: string, _issue: number, body: string) => {
+      code.point('before the failure was posted');
+      comments.push(body);
+      code.point('after the failure was posted');
+      return comments.length;
+    },
+  };
+  const worktrees = fakeWorktrees();
+  const log = createCommandLog({ store, recipes: mergedFixing });
+  log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+  log.issue(
+    { kind: 'route', batchId: '12-1', recipe: 'ale', reason: 'label', source: 'label' },
+    t0,
+  );
+  let starts = 0;
+  let driver: Driver | undefined;
+  let failed = false;
+  const roundDone = (): boolean => {
+    const state = driver?.state();
+    const posted = state?.effects.has(JSON.stringify(['12-1', 'base_check_failed.1']));
+    return (
+      state?.batches.get('12-1')?.lane.kind === 'on_tap' &&
+      state.effects.has(JSON.stringify(['12-1', 'push.2'])) &&
+      posted === true
+    );
+  };
+  try {
+    for (let ticks = 0; ticks < 40; ticks++) {
+      if (driver === undefined) {
+        code.restart();
+        starts++;
+        driver = await openDriver({
+          store,
+          runner,
+          recipes: mergedFixing,
+          clock: () => t0,
+          lock: () => fakeLock('cellar'),
+          takes: () => true,
+          stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+          limits: () => defaultLimits,
+          worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: worktrees, merge }],
+          effects: baseConflictEffects({ marks, recipes: mergedFixing }),
+          actions: pullRequestActions({
+            brewery: 'acme/brewery',
+            repositories: [{ repo: 'acme/app', base: 'main', push }],
+            host: code.host,
+            orderTitle: async () => 'Add a --json flag',
+          }),
+        });
+      }
+      await driver.tick().catch((error: unknown) => {
+        if (!(error instanceof Killed)) throw error;
+      });
+      if (code.kills() >= starts) {
+        driver.close();
+        driver = undefined;
+        store.close();
+        store = opened();
+        continue;
+      }
+      if (!failed && driver.state().batches.get('12-1')?.lane.kind === 'on_tap') {
+        // The merged-check run: the first round's head fails on the merged tree with main at TIP.
+        const event: Extract<Event, { type: 'pull_request.base_checked' }> = {
+          type: 'pull_request.base_checked',
+          batchId: '12-1',
+          pullRequest: 'https://github.com/acme/app/pull/1',
+          branch: 'main',
+          tip: TIP,
+          head: FAKE_COMMIT,
+          failed: {
+            result: 'exited',
+            check: 'test',
+            command: 'npm test',
+            exitCode: 1,
+            tail: 'not ok 1',
+          },
+        };
+        assert.equal(
+          createCommandLog({ store, recipes: mergedFixing }).issue({ kind: 'record', event }, t0)
+            .kind,
+          'accepted',
+        );
+        failed = true;
+        code.arm(kills);
+        continue;
+      }
+      if (roundDone()) break;
+    }
+    const state = createCommandLog({ store, recipes: mergedFixing }).state();
+    return { state, code, starts, merges, comments };
+  } finally {
+    driver?.close();
+    store.close();
+  }
+};
+
+describe('chaos: a fix the merged tree sent back killed around its merge, push and post (ADR 0226)', () => {
+  const points: readonly AnyPoint[] = [
+    ...mergedPoints,
+    ...killPoints.filter((point) => point.includes('push')),
+  ];
+  const runsOf: (readonly AnyPoint[])[] = [
+    [],
+    ...points.map((point) => [point]),
+    ...points.flatMap((first, i) =>
+      points
+        .filter((second, j) => j > i || (j === i && second.startsWith('before')))
+        .map((second) => [first, second]),
+    ),
+  ];
+
+  for (const kills of runsOf) {
+    it(`merges the base, pushes the fix and posts once: ${kills.join(', then ') || 'no kill'}`, async () => {
+      const { state, code, starts, merges, comments } = await mergedRun(kills);
+      const branch = 'foedrum/acme.brewery/12-1/acme.app';
+      assert.equal(starts, kills.length + 1, 'a new driver after each kill');
+      assert.deepEqual(code.pushes, [`${FAKE_COMMIT} ${branch}`, `${FIXED} ${branch}`]);
+      assert.equal(code.remote.get(branch), FIXED);
+      assert.deepEqual(state.batches.get('12-1')?.lane, {
+        kind: 'on_tap',
+        pullRequests: ['https://github.com/acme/app/pull/1'],
+      });
+      assert.equal(comments.length, 1, 'one post of the failure');
+      assert.match(comments[0] ?? '', /Foedrum sends the batch back to fix it, at most 2 rounds/);
+      // The fix's attempts each merged the base at their start, a worktree at most once.
+      assert.equal(new Set(merges).size, merges.length);
+      const plans = [...(state.batches.get('12-1')?.steps.get('plan')?.attempts.values() ?? [])];
+      const succeeded = plans.filter(
+        (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+      );
+      const fix = succeeded.at(-1);
+      assert.ok(fix !== undefined && fix.attempt > 1);
+      assert.deepEqual(
+        state.effects.get(JSON.stringify(['12-1', 'plan', fix.attempt, 'merge_base'])),
+        { base: TIP, merged: MERGED },
+      );
+    });
+  }
 });
