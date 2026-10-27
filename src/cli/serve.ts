@@ -66,7 +66,7 @@ export interface ServeShell {
    */
   worktrees: (
     repository: ServeRepository,
-  ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'recreate' | 'clean'>>;
+  ) => Promise<Pick<AttemptWorktrees, 'root' | 'create' | 'recreate' | 'clean' | 'fetch'>>;
   /**
    * The pushes of the openPullRequest action (ADR 0071), from the clone the repository's
    * worktrees are added to: the user's, or the managed one.

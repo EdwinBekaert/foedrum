@@ -33,20 +33,20 @@ const row = (subOrder: PlannedSubOrder, told: Told): string => {
   const waits =
     dependencies.length === 0
       ? 'none'
-      : dependencies.map(({ on, kind }) => `${code(on)} (${kind})`).join(', ');
+      : dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
   const off =
     subOrder.testFirst === false
       ? `; test-first off: ${plain(told(subOrder.testFirstOff ?? ''))}`
       : '';
   const ready = subOrder.ready ? 'yes' : `no: ${plain(told(subOrder.refinement ?? ''))}`;
   const cells = [
-    `${code(id)}: ${plain(told(title))}`,
+    `${code(told(id))}: ${plain(told(title))}`,
     plain(repo),
     `about ${size.lines} lines: ${plain(told(size.mechanism))}`,
     plain(told(doneWhen)),
     touched,
     waits,
-    `${code(recipe)}: ${plain(told(why))}${off}`,
+    `${code(told(recipe))}: ${plain(told(why))}${off}`,
     ready,
   ];
   return `| ${cells.join(' | ')} |`;
@@ -66,7 +66,9 @@ const graph = (subOrders: readonly PlannedSubOrder[], told: Told): string[] => {
   return [
     '```mermaid',
     'flowchart LR',
-    ...subOrders.map(({ id, title }) => `  ${nodes.get(id)}[${label(`${id}: ${told(title)}`)}]`),
+    ...subOrders.map(
+      ({ id, title }) => `  ${nodes.get(id)}[${label(`${told(id)}: ${told(title)}`)}]`,
+    ),
     ...edges,
     '```',
   ];
@@ -116,10 +118,13 @@ export const renderPlan = (
     sections.map((lines) => lines.join('\n')).join('\n\n');
   const text = joined([title, table, order, ...others, ...after]);
   if (text.length <= longestText) return text;
-  // Without the graph, so a cut never leaves its block open; whole lines only, so no escape or
-  // entity is cut in half.
+  // The graph goes first, so a cut never leaves its block open.
+  const left = ['**Order**', '', 'The graph is left out: GitHub keeps comments shorter.'];
+  const shorter = joined([title, table, left, ...others, ...after]);
+  if (shorter.length <= longestText) return shorter;
+  // Whole lines only, so no escape or entity is cut in half.
   const cutNote = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = joined([title, table, ...others, ...after]).slice(0, longestText - cutNote.length);
+  const kept = shorter.slice(0, longestText - cutNote.length);
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
 

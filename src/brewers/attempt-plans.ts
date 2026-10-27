@@ -12,6 +12,7 @@ import { mergedBase } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
+import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -142,6 +143,9 @@ const realFiles = {
   },
 };
 
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 /** The attempt `ref` as the driver recorded its start; undefined before. */
 const startedOf = (batch: Batch | undefined, ref: AttemptRef) => {
   const started = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
@@ -233,16 +237,39 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   /**
    * Each repository of the Brewery with the commit a plan's paths in it are checked at (ADR 0233):
    * the attempt's own at the commit its worktree started at, another at its base as its clone has
-   * it, with no fetch.
+   * it. A base the clone has no ref of is fetched once, through its worktree manager; one that still
+   * cannot be read is carried with why, which blocks only a plan that names its repository.
    */
-  const planRepositories = async (worktree: { repo: string; commit: string }) =>
+  const planRepositories = async (worktree: {
+    repo: string;
+    commit: string;
+  }): Promise<PlanRepository[]> =>
     Promise.all(
-      (options.repositories ?? []).map(async ({ repo, base }) => {
+      (options.repositories ?? []).map(async ({ repo, base }): Promise<PlanRepository> => {
         const clone = options.clone(repo);
         if (sameRepo(repo, worktree.repo)) return { repo, clone, commit: worktree.commit };
         const read = gitIn(repo, `the base ${base} of ${repo} was not read`);
-        const args = ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`];
-        return { repo, clone, commit: (await read(args)).trim() };
+        const resolve = async () =>
+          (await read(['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
+        try {
+          return { repo, clone, commit: await resolve() };
+        } catch {
+          // No ref of it yet: an attempt in that repository fetches, and none may have run.
+        }
+        try {
+          await options.fetchBase?.(repo);
+        } catch (error) {
+          return {
+            repo,
+            clone,
+            unread: `its base ${base} could not be fetched: ${messageOf(error)}`,
+          };
+        }
+        try {
+          return { repo, clone, commit: await resolve() };
+        } catch (error) {
+          return { repo, clone, unread: messageOf(error) };
+        }
       }),
     );
 
@@ -601,15 +628,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
                 env: checksEnv(options.env, platform),
               },
             };
-      if (found.brewer.output.schema === PLAN) {
-        return { ...prepared, touches: await planRepositories(worktree) };
-      }
-      if (found.brewer.produces !== 'commits') return prepared;
+      const checked =
+        found.brewer.output.schema === PLAN
+          ? { ...prepared, touches: await planRepositories(worktree) }
+          : prepared;
+      if (found.brewer.produces !== 'commits') return checked;
       // Its commits are counted on its branch in the clone, built from the attempt that made the
       // worktree as the worktree's is, never from the recorded branch or the worktree's own git
       // files (ADR 0037, ADR 0117).
       const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(madeBy) };
-      return { ...prepared, commits };
+      return { ...checked, commits };
     },
     limits: (ref) => {
       const found = brewerOf(ref);

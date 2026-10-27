@@ -131,10 +131,13 @@ export const wireDriver = async (
   const stateBranch = shell.stateBranch(store);
   await stateBranch.start();
   const worktrees: RepositoryWorktrees[] = [];
+  // Each repository's fetch, by its worktree manager: a plan's base it has no ref of (ADR 0233).
+  const fetches = new Map<string, () => Promise<void>>();
   const pushes: PullRequestRepository[] = [];
   for (const repository of setup.repositories) {
     const { repo, base } = repository;
     const manager = await shell.worktrees(repository);
+    fetches.set(repo.toLowerCase(), () => manager.fetch());
     // The pull request goes into the branch the attempts start from (ADR 0071).
     const into = base.slice(base.indexOf('/') + 1);
     const push = shell.push(repository);
@@ -225,6 +228,12 @@ export const wireDriver = async (
     clone,
     // A plan's paths are checked in each repository once it is done (ADR 0233).
     repositories: setup.repositories,
+    // A base its clone has no ref of yet is fetched once, by its worktree manager (ADR 0233).
+    fetchBase: async (repo) => {
+      const fetch = fetches.get(repo.toLowerCase());
+      if (fetch === undefined) throw new Error(`${repo} is no repository of this Brewery`);
+      await fetch();
+    },
     sandbox: setup.sandbox,
     ...(setup.configDirs === undefined ? {} : { configDirs: setup.configDirs }),
     workRoot: setup.workRoot,

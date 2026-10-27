@@ -72,7 +72,12 @@ export async function touchesChecked(
   const missing: string[] = [];
   for (const [repository, touched] of toRead) {
     if (touched.length === 0) continue;
-    const { repo, clone, commit } = repository;
+    const { repo, clone } = repository;
+    if ('unread' in repository) {
+      const summary = `the plan's paths in ${repo} were not read: ${repository.unread}`;
+      return { kind: 'blocked', blockerKind: 'environment', summary };
+    }
+    const { commit } = repository;
     const paths = [...new Set(touched.map(({ path }) => path))];
     const found = await read(clone, commit, paths, signal).catch(
       (error: unknown): PathsRead => ({

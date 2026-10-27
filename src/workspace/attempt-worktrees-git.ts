@@ -363,7 +363,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
   return {
     root,
     async fetch() {
-      throw new Error('not implemented');
+      await fetchOnce();
     },
     async create(ref, base) {
       attemptBranch(ref);

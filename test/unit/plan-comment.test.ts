@@ -131,7 +131,7 @@ describe('renderPlan (ADR 0233)', () => {
     const hex = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
     const leaky = {
       subOrders: [
-        subOrder(hex, { recipe: hex }),
+        subOrder(hex, { title: 'Build the API', recipe: hex }),
         subOrder('ui', { dependencies: [{ on: hex, kind: 'code' }] }),
       ],
     };

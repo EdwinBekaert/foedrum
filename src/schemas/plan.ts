@@ -119,13 +119,19 @@ export const PlanOutDoc = outDocFrontmatter({
     });
     return;
   }
+  const named = new Set<string>();
   for (const { subOrder, blockedBy, at, each } of waits) {
+    // A NUL is in no id, so no two pairs share a key.
+    const pair = `${subOrder}\0${blockedBy}`;
     const message =
       blockedBy === subOrder
         ? 'Must not be the sub-order itself'
-        : ids.has(blockedBy)
-          ? undefined
-          : 'Must be the id of a sub-order of this plan';
+        : !ids.has(blockedBy)
+          ? 'Must be the id of a sub-order of this plan'
+          : named.has(pair)
+            ? 'Must not be named twice'
+            : undefined;
+    named.add(pair);
     if (message === undefined) continue;
     ctx.addIssue({ code: 'custom', message, path: ['subOrders', at, 'dependencies', each, 'on'] });
   }
