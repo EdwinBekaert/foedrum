@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { Affected } from '../../scripts/affected-tests/core.ts';
-import { checkSteps, runCheck, TEST_COMMAND, TEST_GLOB } from '../../scripts/check.ts';
+import { checkMode, checkSteps, runCheck, TEST_COMMAND, TEST_GLOB } from '../../scripts/check.ts';
 import type { ReadText } from '../../scripts/deps-sync.ts';
 import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 
@@ -184,6 +184,22 @@ describe("npm test's script", () => {
         '--test-coverage-functions',
       ],
     );
+  });
+});
+
+describe('checkMode', () => {
+  const affected = async (): Promise<Affected> => ({ kind: 'some', files: [] });
+
+  it('runs every test file with coverage with --all, finding no change', () => {
+    assert.deepEqual(checkMode(['--all'], affected), {});
+  });
+
+  it('finds the test files the change reaches without --all', () => {
+    assert.deepEqual(checkMode([], affected), { affected });
+  });
+
+  it('refuses an argument it does not know', () => {
+    assert.throws(() => checkMode(['--al'], affected), /Unknown option '--al'/);
   });
 });
 

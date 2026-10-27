@@ -9,6 +9,7 @@ import {
   npmTestReporter,
   recordCpuTime,
   remeasureAlone,
+  remeasureFor,
   runsInCi,
   type TestEvent,
   withoutCpuTimes,
@@ -725,6 +726,18 @@ describe('remeasureAlone', () => {
       fileA,
     ]);
   });
+
+  for (const [name, execArgv, coverage] of [
+    ['with coverage when the run had it', ['--test', '--experimental-test-coverage'], true],
+    ['without coverage when the run had none', ['--test'], false],
+  ] as const) {
+    it(`runs the file alone ${name}, read from the test runner's flags (ADR 0241)`, async () => {
+      const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+      await remeasureFor({ execArgv, runProcess })(fileA);
+      assert.equal(calls[0]?.args.includes('--experimental-test-coverage'), coverage);
+      assert.equal(calls[0]?.args.at(-1), fileA);
+    });
+  }
 
   it('gives a run alone 60 s by default', async () => {
     const { calls, runProcess } = runner({ exitCode: 0, output: '' });

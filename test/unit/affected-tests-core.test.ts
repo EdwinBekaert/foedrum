@@ -108,6 +108,21 @@ describe('affectedTests', () => {
     );
   });
 
+  it('leaves out a deleted or moved test file, which is no longer there to run', () => {
+    const texts = tree({ 'test/integration/order.test.ts': '' });
+    texts.delete('test/unit/order.test.ts');
+    assert.deepEqual(
+      affectedTests(['test/unit/order.test.ts', 'test/integration/order.test.ts'], texts),
+      some(),
+    );
+  });
+
+  it('reaches every test file when a TypeScript fixture changed, since tests load fixtures by path', () => {
+    const affected = affectedTests(['test/fixtures/processes/tree.ts'], tree());
+    assert.equal(affected.kind, 'all');
+    assert.match((affected as { why: string }).why, /test\/fixtures\/processes\/tree\.ts/);
+  });
+
   it('reaches no test file for a TypeScript file no test imports', () => {
     assert.deepEqual(affectedTests(['test/integration/demo.test.ts'], tree()), some());
   });

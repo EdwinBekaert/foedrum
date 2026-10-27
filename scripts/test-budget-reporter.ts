@@ -160,6 +160,15 @@ export const remeasureAlone =
     return readings.length === 0 ? undefined : Math.max(...readings);
   };
 
+// The re-measure of a run whose test runner had the given flags, with coverage when they had it
+// (ADR 0241).
+export const remeasureFor = (_options: {
+  execArgv: readonly string[];
+  runProcess: RunProcess;
+}): ((file: string) => Promise<number | undefined>) => {
+  throw new Error('not implemented');
+};
+
 // The real re-measure: this node, in the folder npm test runs in, through the process runner,
 // loaded only when a file is over, since every test process loads this module (ADR 0038).
 export const nodeRemeasure = (): ((file: string) => Promise<number | undefined>) =>

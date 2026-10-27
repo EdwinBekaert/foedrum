@@ -128,6 +128,17 @@ export interface CheckOptions {
 // and with its output so far, instead of the gate giving up on the whole check.
 const STEP_TIMEOUT_MS = 300_000;
 
+/**
+ * The check's options from its arguments: with --all, every test file with coverage, as CI runs
+ * it; without, the test files the change reaches, found by `affected` (ADR 0241).
+ */
+export const checkMode = (
+  _argv: string[],
+  _affected: () => Promise<Affected>,
+): Pick<CheckOptions, 'affected'> => {
+  throw new Error('not implemented');
+};
+
 const withNewline = (text: string): string =>
   text === '' || text.endsWith('\n') ? text : `${text}\n`;
 
