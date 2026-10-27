@@ -392,7 +392,11 @@ describe('the read-only agents', () => {
   });
 
   it('are the auditor, taster and brett, and each runs the read guard before Read, Grep and Glob', () => {
-    assert.deepEqual(readOnly.map(({ name }) => name).sort(), ['auditor.md', 'brett.md', 'taster.md']);
+    assert.deepEqual(readOnly.map(({ name }) => name).sort(), [
+      'auditor.md',
+      'brett.md',
+      'taster.md',
+    ]);
     for (const { name, text } of readOnly) {
       const frontmatter = text.split('\n---\n')[0] ?? '';
       assert.ok(frontmatter.includes(READ_GUARD_HOOK), `${name} frontmatter:\n${frontmatter}`);
