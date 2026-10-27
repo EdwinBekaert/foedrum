@@ -713,6 +713,19 @@ describe('remeasureAlone', () => {
     assert.equal(calls[0]?.options?.timeoutMs, 60_000);
   });
 
+  it('runs the file alone without coverage when its run had none (ADR 0241)', async () => {
+    const { calls, runProcess } = runner({ exitCode: 0, output: '' });
+    await remeasureAlone({ execPath: 'node', cwd, runProcess, coverage: false })(fileA);
+    assert.deepEqual(calls[0]?.args, [
+      '--import',
+      './scripts/test-cpu-time.ts',
+      '--test',
+      '--test-reporter=tap',
+      '--test-reporter-destination=stdout',
+      fileA,
+    ]);
+  });
+
   it('gives a run alone 60 s by default', async () => {
     const { calls, runProcess } = runner({ exitCode: 0, output: '' });
     await remeasureAlone({ execPath: 'node', cwd, runProcess })(fileA);

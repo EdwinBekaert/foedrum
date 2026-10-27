@@ -5,6 +5,7 @@
 // place for their commands and nothing starts a shell.
 
 import { stopOnSignals, whyKilled } from '../src/platform/processes.ts';
+import type { Affected } from './affected-tests/core.ts';
 import { lowerOwnPriority } from './below-normal-priority.ts';
 import { outOfDate, type ReadText } from './deps-sync.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
@@ -16,7 +17,11 @@ export interface CheckStep {
   args: string[];
 }
 
-export const checkSteps = (npmCli: string): CheckStep[] => [
+// Which tests the check runs: every test file with coverage, as npm test (--all), or the test
+// files a change reaches (ADR 0241).
+export type TestRun = { kind: 'coverage' } | Affected;
+
+export const checkSteps = (npmCli: string, _tests: TestRun = { kind: 'coverage' }): CheckStep[] => [
   { label: 'npm run typecheck', args: [npmCli, 'run', 'typecheck'] },
   { label: 'npm run lint', args: [npmCli, 'run', 'lint'] },
   { label: 'npm test', args: [npmCli, 'test'] },
@@ -37,6 +42,11 @@ export interface CheckOptions {
   stepTimeoutMs?: number;
   /** Stops the check: every step still running is killed with the processes it started. */
   signal?: AbortSignal;
+  /**
+   * Finds the test files the change reaches, which the check runs without coverage; without it,
+   * every test file runs with coverage, as npm test (`npm run check -- --all`, ADR 0241).
+   */
+  affected?: () => Promise<Affected>;
   /** Lowers this process's priority before the steps start, which inherit it (#140). */
   lowerPriority?: () => void;
 }

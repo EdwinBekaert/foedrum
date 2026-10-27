@@ -121,6 +121,8 @@ export interface RemeasureOptions {
   runProcess: RunProcess;
   // The deadline of one file's run.
   timeoutMs?: number;
+  // Whether the run had coverage, which the run alone then has too (ADR 0241); true by default.
+  coverage?: boolean;
 }
 
 // Runs one test file alone under node --test with the CPU time preload, as npm test does, and
