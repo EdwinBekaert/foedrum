@@ -22,10 +22,12 @@ The audit files nothing, comments nowhere and changes no branch.
 ### Findings are kept in the main checkout
 The report and the findings live in `<main>/.foedrum/tmp/audits/<sha>/`, git-ignored, where `<main>` is the folder above git's common directory, shared by every worktree as the house-yeast candidates are ([ADR 0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)).
 They outlive the run, unlike the per-issue scratch files of CLAUDE.md "Temporary files": the next audit reads them to audit only what changed and to re-check each earlier finding as fixed, open or gone.
-An earlier finding stays in `findings.json` until an audit finds it fixed or gone, and so do the findings of an area the audit could not finish.
+An earlier finding stays in `findings.json` until an audit finds it fixed or gone, and so does a new finding its skeptic did not answer, marked unverified.
+An area the audit could not finish is listed in `unfinished.json`, and the next audit audits it in full.
 
 ### Security findings stay local
 Public text (a pull request, an issue) gives security findings only as counts per severity and area, never their file or what they are, until they are fixed.
+The auditor or the skeptic can mark a finding as security, and the last call also counts a finding about the push gate, the read guard, the check sandbox or secrets as one.
 
 ### Every last call runs it
 `/brew-last-call` invokes `/brew-audit` through the Skill tool and lists its findings as follow-ups grouped into proposed issues with their milestone; it files nothing.

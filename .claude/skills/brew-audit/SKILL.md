@@ -25,7 +25,7 @@ Arguments: `$ARGUMENTS`
    - `--full`: the whole codebase.
    - `--since <base>`: `<base>` must match `^[0-9a-f]{40}$`, and `<main>/.foedrum/tmp/audits/<base>/findings.json` must exist; else stop and say which is missing.
    - neither: the newest earlier audit whose commit is an ancestor of `<sha>` (`git merge-base --is-ancestor <base> <sha>`, newest by `git log -1 --format=%ct <base>`) is `<base>`; with none, the whole codebase.
-4. In a since-audit, `<changed>` is the list `git diff --name-only <base> <sha>` prints, one repository path per line; the auditors cannot run git, so the workflow gets it as data.
+4. In a since-audit, `<changed>` is the list `git diff --name-only <base> <sha>` prints, one repository path per line; the auditors cannot run git, so the workflow gets it as data. `<unfinished>` is the array in `<main>/.foedrum/tmp/audits/<base>/unfinished.json`, the areas that audit did not finish, which this one audits in full (none when the file is not there).
 5. Say which mode and why before going on: a full audit is about 19 agents and a few million tokens; one since an earlier audit costs less, in proportion to what changed.
 
 ## Stage 2: the pinned checkout
@@ -37,13 +37,13 @@ Arguments: `$ARGUMENTS`
 Run the Workflow tool with `name: "brew-audit"` and `args`:
 
 ```json
-{ "root": "<root>", "sha": "<sha>", "repo": "<repo>", "since": "<base>", "previous": <findings.json of <base>, as an array>, "changed": <changed, as an array> }
+{ "root": "<root>", "sha": "<sha>", "repo": "<repo>", "since": "<base>", "previous": <findings.json of <base>, as an array>, "changed": <changed, as an array>, "unfinished": <unfinished> }
 ```
 
-leaving out `since`, `previous` and `changed` for a full audit. It runs in the background; wait for its notification. If it ends with `missing` areas (no auditor result) or `unverified` ones (the skeptic answered nothing), say which in the summary; do not re-run them by hand. Their earlier findings stay in `findings`, so the next audit re-checks them. When the workflow fails, or its `report` is empty, write nothing, remove the pinned worktree as in stage 4, and say so: a `report.md` marks the commit as audited.
+leaving out `since`, `previous`, `changed` and `unfinished` for a full audit. It runs in the background; wait for its notification. If it ends with `missing` areas (no auditor result) or `unverified` ones (the skeptic answered nothing), say which in the summary; do not re-run them by hand. Their findings, earlier ones and unverified new ones, stay in `findings`, and the next audit audits those areas in full. When the workflow fails, or its `report` is empty, write nothing, remove the pinned worktree as in stage 4, and say so: a `report.md` marks the commit as audited.
 
 ## Stage 4: the report
 
-1. Write the workflow's `report` to `<main>/.foedrum/tmp/audits/<sha>/report.md` and its `findings` to `findings.json` there, with the file tool, unedited. `findings` holds this audit's kept findings and every earlier finding no audit has found fixed or gone yet, so the chain of audits never drops an open one.
+1. Write the workflow's `report` to `<main>/.foedrum/tmp/audits/<sha>/report.md`, its `findings` to `findings.json` there, and its `missing` and `unverified` areas together, as one array, to `unfinished.json` there, with the file tool, unedited. `findings` holds this audit's kept findings, the ones its skeptics did not answer (marked `unverified`), and every earlier finding no audit has found fixed or gone yet, so the chain of audits never drops an open one.
 2. Remove the pinned worktree: `git worktree remove .claude/worktrees/audit-<sha8>`.
 3. Print: the mode, the counts of kept findings per severity and per area, how many were dropped, the three things the report says are most worth doing, and the path of `report.md`. Then stop: what becomes an issue is the person's choice.
