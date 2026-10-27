@@ -1,6 +1,6 @@
 # 0228. A failed Actions job's log goes with the batch back to its fix step
 
-Date: 2026-10-27 · Status: Accepted · Amends [0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md) (what the route input of a pull-request route holds) and [0213](0213-an-open-pull-request-s-checks-on-its-head-are-recorded-once-they-finish.md) (a finished record may carry an excerpt of a failed job's log)
+Date: 2026-10-27 · Status: Accepted · Amends [0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md) (what the route input of a pull-request route holds) [0213](0213-an-open-pull-request-s-checks-on-its-head-are-recorded-once-they-finish.md) (a finished record may carry an excerpt of a failed job's log) and [0073](0073-github-only-through-gh-s-own-login.md) (doctor's minimum gh, now 2.97.0)
 
 ## Context
 Since [ADR 0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md) a failing check on a brewed pull request's head sends the batch back to a fix step whose route input names each failed check, its conclusion and a link the brewer cannot open.
@@ -19,13 +19,15 @@ And a job's log is printed by code the pull request changed: untrusted text that
 ### When it is read
 - **In the intake's pass, when a finished record with a failed check is about to be written** (`recordChecks`, `src/engine/pr-checks.ts`): after the unchanged record is skipped, so a record that does not change reads no log again.
 - **For the first `MOST_FAILED_CHECKS` (5) failed checks that are Actions jobs** (`ReadCheck.job`, read from a check run's `id` when its `app.slug` is `github-actions`), one at a time, in the record's order.
+- **For at most a minute per record** (`LOG_READS_MS`, measured on the pass's clock), well inside a pass's deadline of 150 s: once it is up, the failed jobs not read yet get `unread` and the record is written, so a record with slow logs never holds up the pass on every pass, and the next pass skips it as unchanged.
+- **A read GitHub's rate limit holds is tried again**: the reader throws it, the pass reports it and writes no record of that head, and a later pass reads the logs after the pause; every other failed read is an answer, `unread`.
 - The excerpt is in the same event the tick reads, so it never races the route back; a pass given up at its deadline after reading logs records nothing, as before.
 
 ### What is kept
 - **On each such check, `log`: `{ excerpt }` or `{ unread }`** (`HeadCheck.log`, `src/schemas/events.ts`), never on a check that passed, a commit status, another app's check run, or a failed job past the first five.
-- **The excerpt** (`jobLogExcerpt`, `src/checks/job-log.ts`): the log without a byte order mark, its escape sequences and each line's leading timestamp; the lines of the step that holds the first `##[error]` line, from its `##[group]Run` line up to and including that error; without an error line, the log up to `Post job cleanup.`; then lines that look like a secret left out, as a check's tail is (`withoutSecrets`, `src/checks/gravity.ts`), and cut to `MAX_TAIL_LENGTH` (4,000 characters) from its end (`tailOf`).
+- **The excerpt** (`jobLogExcerpt`, `src/checks/job-log.ts`): the log without a byte order mark, its escape sequences, every other control character but the tab, and each line's leading timestamp; the lines of the step that holds the first `##[error]` line, from its `##[group]Run` line up to and including that error; without an error line, the log up to `Post job cleanup.`; then lines that look like a secret left out, as a check's tail is (`withoutSecrets`, `src/checks/gravity.ts`), and cut to `MAX_TAIL_LENGTH` (4,000 characters) from its end (`tailOf`).
   It is filtered once, when recorded, and never again by its readers ([ADR 0209](0209-a-check-that-fails-on-an-open-pull-request-s-merged-tree-is-posted-on-it.md)).
-- **`unread`** is one line why, at most 200 characters: a log longer than its limit, `404` (no log), `410` (expired), `403` (no access), any other status, an empty body, or a read that failed (the error's first line, unless it looks like a secret). The record is written all the same.
+- **`unread`** is one line why, at most 200 characters: a log longer than its limit, `404` (no log), `410` (expired), `403` (no access), any other status, an empty body, a read that failed (the error's first line, unless it looks like a secret, read by the reader), or the record's minute was up. The record is written all the same.
 - `sameHeadChecks` still compares name, kind, conclusion and link only: a log never makes two records differ.
 
 ### How it is read
@@ -52,6 +54,8 @@ And a job's log is printed by code the pull request changed: untrusted text that
 
 ## Alternatives considered
 - **Read the log when the fix attempt is planned**: the plan is pure, from the event log; a retry of the attempt would see another text, or none once the log expired.
+- **A pass that runs out of time records nothing**, as before, without a budget for the logs: five reads of 30 s each reach the pass's deadline, and the same reads run again on every pass.
+- **A rate-limited read recorded as `unread`**: the pause ends within the hour, and a record that does not change is never read again, so the fix would go without a log it could have had.
 - **A separate event after the record**: the tick may send the batch back before it lands, and the fix starts without it.
 - **The raw last 4,000 characters**: the post-job steps, as probed, never the failure.
 - **The whole failing step**: unbounded; a test suite's step is most of the log.
