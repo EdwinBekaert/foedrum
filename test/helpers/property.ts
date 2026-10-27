@@ -32,9 +32,8 @@ const firstSeed = replayed ?? randomInt(2 ** 31);
  * How many runs `env`'s FOEDRUM_RUNS sets, or `runs` when it is unset; a mistyped number throws.
  * Zero runs would let every property pass without trying a single case.
  */
-export const runsIn = (_env: NodeJS.ProcessEnv, _runs: number): number => {
-  throw new Error('not implemented');
-};
+export const runsIn = (env: NodeJS.ProcessEnv, runs: number): number =>
+  integer('FOEDRUM_RUNS', env.FOEDRUM_RUNS, 1) ?? runs;
 
 const runsSet = integer('FOEDRUM_RUNS', process.env.FOEDRUM_RUNS, 1);
 
