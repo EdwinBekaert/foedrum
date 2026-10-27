@@ -1,6 +1,6 @@
 # 0233. A plan is an out doc whose paths the engine checks, shown as one comment per order
 
-Date: 2026-10-27 · Status: Accepted · Narrows #388 (its schema, `touches` check, `alternatives` and posting items)
+Date: 2026-10-27 · Status: Accepted · Narrows #388 (its schema, `touches` check, `alternatives` and posting items) · Amends [0154](0154-lane-labels-on-the-order-s-issue-and-the-status-comment-s-path-line.md) (the plan comment is another source of the driver's effects)
 
 ## Context
 An order too big for one pull request is broken into sub-orders, one repository each ([ADR 0013](0013-single-repo-sub-orders-bottles-and-releases.md)), and the ready set starts them from `order.decomposed` ([ADR 0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)).
@@ -27,7 +27,7 @@ And an effect is found by its marker on the Brewery's own comment, so a kill bet
   - `size`: `lines`, an estimate, a positive whole number, and `mechanism`, one line; no cap in the schema, since the sizing lens and the gate judge it (#587, #588);
   - `doneWhen`: one line, a test or an observable result;
   - `touches`: 1 to 20, each a `path` as `RelativePath` reads one (relative, forward slashes, no `.` or `..`, no glob character), to a file or a folder, with `new: true` when it does not exist yet;
-  - `dependencies`: each `on` an id of this plan and a `kind`, `code` or `release`, as `Dependency` has them; none on itself, none twice, no cycle, at most 1,000 in the plan; `hasCycle` is exported from `src/schemas/events.ts` and reused for any key;
+  - `dependencies`: each `on` another id of this plan, once, and a `kind`, `code` or `release`, as `Dependency` has them; none on itself, none twice, no cycle, at most 1,000 in the plan; `hasCycle` is exported from `src/schemas/events.ts` and reused for any key;
   - `recipe`, a recipe's name, and `why`, one line;
   - `testFirst: false` only with `testFirstOff`, the reason (#219's field); left out, the recipe's own holds;
   - `ready: true`, or `ready: false` with `refinement`, the reason it needs refining.
@@ -43,7 +43,9 @@ Rejected: a Markdown plan the engine parses (no field can be checked); recording
   Every path not marked new must exist; one that does not fails the attempt retryably, naming the sub-order, the path, the repository and the commit checked (12 hex digits), at most three, with a count of the rest.
   A path marked new that already exists passes: the sub-order may replace it, and the lenses judge that (#587).
   A read that fails blocks the attempt on its environment, as an unscanned commit does.
-- **The commit the plan was written against**: in the attempt's own repository, the commit its worktree started at; in another repository of the Brewery, its base (`origin/<base>`) as its clone has it, resolved to a commit when the attempt is planned, with no fetch. Decided by the consultant.
+- **The commit the plan was written against**: in the attempt's own repository, the commit its worktree started at; in another repository of the Brewery, its base (`origin/<base>`) as its clone has it, resolved to a commit when the attempt is planned. Decided by the consultant.
+  A base ref the clone has is not refreshed; one it has no ref of yet, as a managed clone before any attempt in that repository fetched, is fetched once through that repository's worktree manager, one fetch at a time with its own (decided by the consultant, after the review of #607 found that every plan attempt was otherwise unstartable).
+  A base that still cannot be read, or whose fetch fails, does not stop the attempt from starting: it is carried with why, and blocks the attempt on its environment only when a sub-order reads a path in that repository, naming the repository and that its base could not be fetched.
 - **One git call per repository**: `git ls-tree -t --name-only -z <commit> -- <paths>`, with `GIT_LITERAL_PATHSPECS=1`, in the clone with no hook ([ADR 0137](0137-the-push-its-lookup-and-the-worktree-fetch-run-in-the-clone-again.md)): trees only, so a blob-less clone fetches nothing; a path exists when git lists it. The commit must be a full sha, every path a `RelativePath`; paths past 24,000 characters of arguments go in a second call, so the command line stays below Windows' limit. Decided by the consultant.
 
 Rejected: the check in the fold or `decide` (they are pure and run no git); a model or a lens (#587 judges, this measures); `git cat-file --batch-check`, which reads paths from stdin with no limit on their number, but asks for each blob even for `%(objectname)` alone, so in the blob-less clone it fetches from the promisor remote, and fails when that remote cannot be reached.
@@ -54,7 +56,9 @@ Rejected: the check in the fold or `decide` (they are pure and run no git); a mo
 - **A later batch of the same order edits the order's comment**: its first revision's previous one is the latest revision of the order's batch before it, so an order never shows two plans. Decided by the consultant.
 - **No once-a-minute limit**: a plan changes only when a plan step succeeds. Decided by the consultant.
 - **Its text**: `### Foedrum · plan of batch <id>`; a table of the sub-orders (id, title, repository, size, done when, touches with the new ones marked, depends on, recipe and why, with test-first's reason when off, ready or why not); a Mermaid flowchart of their order, with each id replaced by a node id of the engine's (`s1`, `s2`, …), every label quoted as `quoted` does (exported from `pull-request.ts`), edges labelled `code` or `release` ([ADR 0180](0180-a-brewed-pull-request-quotes-its-mermaid-labels-or-leaves-the-diagram-out.md)); the `alternatives` when present; and a **Review** and a **Gate** section that say none yet, which #587 and #588 fill.
-- **Every model text** is one line through `plain`, and left out for a fixed line through `withoutSecrets` when it looks like a secret ([ADR 0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md)); the whole text is cut to whole lines below GitHub's limit, as `renderStatus` cuts.
+- **Every model text** is one line through `plain`, and left out for a fixed line through `withoutSecrets` when it looks like a secret ([ADR 0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md)), the ids and the recipe too, whose characters can still spell a long hexadecimal key (review of #607).
+  A text past GitHub's limit leaves the graph out first, with a line that says so, and is cut to whole lines below the limit, as `renderStatus` cuts, only when it is still too long.
+  A cell shows at most what `plain` shows, 200 characters, with `…` where it cuts: the out doc keeps the whole text.
 
 Rejected: a section of the status comment (it is per batch and rewritten every minute, and a plan is reviewed as a whole); a new comment each round (the issue).
 
@@ -64,5 +68,5 @@ No brewer writes a plan yet and no recipe runs one (#586); no lens reviews it (#
 ## Consequences
 - A brewer whose schema is `plan` has its plan read, its fields and paths checked, and shown on the order's issue as one comment edited each round.
 - One ledger entry per revision; no new event, no change to the fold or the admission.
-- A plan attempt runs one git call per repository it names after its `done`.
+- A plan attempt runs one git call per repository it names after its `done`, a second past 24,000 characters of paths, and resolves every other repository's base when it is planned, fetching once a base its clone has no ref of.
 - A plan naming a repository's base sees that base as the clone last fetched it, which may be behind the remote; the line names the commit, so a person can tell.
