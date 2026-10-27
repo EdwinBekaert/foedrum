@@ -2,7 +2,6 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
@@ -18,7 +17,15 @@ import { briefLine } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
-import { changeText, findingText, knownCommits, latestPush } from './pull-request.ts';
+import {
+  changeText,
+  digestOf,
+  findingText,
+  knownCommits,
+  latestBody,
+  latestPush,
+  openedPullRequest,
+} from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
@@ -638,13 +645,24 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
+/** A pull request whose body the latest round left as it is (ADR 0227). */
+export interface LeftBody {
+  pullRequest: string;
+  left: 'edited' | 'unmarked';
+}
+
+const leftBodyText: Record<LeftBody['left'], string> = {
+  edited: 'its description was edited since Foedrum wrote it',
+  unmarked: 'its description has no Foedrum marker',
+};
+
 /**
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the `sensitive`
  * files its pushed change touches (ADR 0201), the assumptions of its out docs and, on tap, its pull
  * requests, with a link to the `brief` that says one is ready to merge (ADR 0225), or a line that
- * none is (ADR 0229). Every text a
- * brewer or an issue wrote is one escaped line.
+ * none is (ADR 0229), and the body the latest round `left` as it is (ADR 0227). Every text a brewer
+ * or an issue wrote is one escaped line.
  */
 export const renderStatus = (
   batch: Batch,
@@ -654,6 +672,7 @@ export const renderStatus = (
   sensitive?: SensitiveFiles,
   usageWindows: UsageWindows = {},
   brief?: BriefLine,
+  left?: LeftBody,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -708,6 +727,12 @@ export const renderStatus = (
             ...(brief === undefined || 'comment' in brief
               ? []
               : [`- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief.`]),
+            // A body someone edited, or one with no marker, is not rendered again (ADR 0227).
+            ...(left === undefined
+              ? []
+              : [
+                  `- ${link(left.pullRequest)}: ${leftBodyText[left.left]}, so Foedrum left it as it is`,
+                ]),
           ],
     );
   }
@@ -718,10 +743,6 @@ export const renderStatus = (
   const kept = text.slice(0, longestText - cutNote.length);
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
-
-/** The first 16 hex digits of the SHA-256 of `text`: what a revision records of it. */
-const digestOf = (text: string): string =>
-  createHash('sha256').update(text).digest('hex').slice(0, 16);
 
 const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
   batchId,
@@ -757,6 +778,15 @@ const latestRevision = (
     found = recorded(state, batchId, next);
   }
   return { next, latest };
+};
+
+/** The open pull request of `batch` whose body its latest round left as it is (ADR 0227). */
+const leftBody = (state: State, batch: Batch): LeftBody | undefined => {
+  const body = latestBody(state, batch.id);
+  const url = openedPullRequest(state, batch.id);
+  if (body === undefined || !('left' in body) || url === undefined) return undefined;
+  if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
+  return { pullRequest: url, left: body.left };
 };
 
 /** A revision of a status comment that is due. */
@@ -795,6 +825,7 @@ const statusDue = (
     sensitive,
     state.usageWindows,
     briefLine(state, batch),
+    leftBody(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

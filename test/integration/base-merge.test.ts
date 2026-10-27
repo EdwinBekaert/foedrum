@@ -123,7 +123,12 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
   /** Brews batch 12-1 of Nip, whose implement step does `work`, to the end of one tick. */
   const brew = async (work: (path: string) => void) => {
     const clock = () => new Date('2026-10-23T12:00:00.000Z');
-    const host: PullRequestHost = { find: async () => undefined, open: async () => url };
+    const host: PullRequestHost = {
+      find: async () => undefined,
+      open: async () => url,
+      body: async () => assert.fail('the first round renders no body again'),
+      update: async () => assert.fail('the first round renders no body again'),
+    };
     let driver: Awaited<ReturnType<typeof openDriver>> | undefined;
     const worktreeOf = (ref: AttemptRef): string => {
       const started = driver

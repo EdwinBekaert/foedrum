@@ -2,11 +2,15 @@
 // recorded, what each step reported, and the pull request's text from the order and those reports.
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { fold } from '../../src/engine/fold.ts';
 import {
+  bodyKey,
+  bodyOwner,
   bottleBranch,
   brewLog,
+  latestBody,
   openedPullRequest,
   opensAsDraft,
   pullRequestText,
@@ -1586,5 +1590,133 @@ describe('pullRequestText', () => {
     assert.match(known.body, new RegExp(`plan: Reverted ${sha}`));
     const unknown = pullRequestText({ title: 'T', closes, reports });
     assert.doesNotMatch(unknown.body, new RegExp(sha));
+  });
+});
+
+describe("the body says it is Foedrum's (ADR 0227)", () => {
+  const closes = { repo: 'acme/brewery', issue: 12 };
+  const reports = [{ stepId: 'implement', summary: 'Added --json', assumptions: [] }];
+  const opened = bodyKey('12-1', 1);
+  const digest = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16);
+  const marker = (key: string, text: string) => `<!-- foedrum:${key} sha256:${digest(text)} -->`;
+  const body = pullRequestText({ title: 'T', closes, reports, key: opened }).body;
+  const above = (text: string) => text.slice(0, text.lastIndexOf('\n')).trimEnd();
+
+  it("keys the open's body by the pull request, and round n's by body.<n>", () => {
+    assert.deepEqual(bodyKey('12-1', 1), { batchId: '12-1', effect: 'pull_request' });
+    assert.deepEqual(bodyKey('12-1', 3), { batchId: '12-1', effect: 'body.3' });
+  });
+
+  it("ends the body with its key's marker and the digest of the text above it", () => {
+    const plain = pullRequestText({ title: 'T', closes, reports }).body;
+    assert.equal(body, `${plain}\n\n${marker('["12-1","pull_request"]', plain)}`);
+    assert.ok(plain.endsWith('\nCloses acme/brewery#12'), plain);
+  });
+
+  it('keeps the marker within the limit when the body is cut to length', () => {
+    const sections = { howItWorks: 'h'.repeat(9_000), seeIt: 's'.repeat(1_000), beforeAfter: [] };
+    const long = [
+      { stepId: 'implement', summary: 'S', assumptions: [], sections },
+      ...Array.from({ length: 100 }, (_, i) => ({
+        stepId: `s${i}`,
+        summary: 'y'.repeat(1_000),
+        assumptions: [],
+      })),
+    ];
+    const attempts = Array.from({ length: 50 }, (_, i) => ({
+      stepId: 'implement-the-order',
+      attempt: i + 1,
+      result: 'failed',
+      reason: '`|'.repeat(200),
+    }));
+    const key = bodyKey(`${'b'.repeat(60)}-1`, 99);
+    const cut = pullRequestText({ title: 'T', closes, reports: long, attempts, key }).body;
+    assert.ok(cut.length <= 65_536, `${cut.length}`);
+    assert.match(cut, /\n<!-- foedrum:\["b{60}-1","body\.99"\] sha256:[0-9a-f]{16} -->$/);
+  });
+
+  it("reads a body whose last line is the batch's marker, with the digest of the text above it, as Foedrum's own", () => {
+    assert.deepEqual(bodyOwner('12-1', body), {
+      kind: 'own',
+      key: '["12-1","pull_request"]',
+      digest: digest(above(body)),
+    });
+  });
+
+  it('reads \r\n line endings and trailing space as no edit', () => {
+    assert.equal(bodyOwner('12-1', `${body.replaceAll('\n', '\r\n')}\r\n`).kind, 'own');
+  });
+
+  it('reads a body whose text changed, or whose marker is not on its last line, as edited', () => {
+    const edited = body.replace('Added --json', 'Added --json, and a person wrote this');
+    assert.deepEqual(bodyOwner('12-1', edited), { kind: 'left', left: 'edited' });
+    const appended = `${body}\n\n<!-- a bot's summary -->\nSummary by a bot`;
+    assert.deepEqual(bodyOwner('12-1', appended), { kind: 'left', left: 'edited' });
+  });
+
+  it("reads a body with no marker of the batch as unmarked: one opened before ADR 0227, or another batch's", () => {
+    const plain = pullRequestText({ title: 'T', closes, reports }).body;
+    assert.deepEqual(bodyOwner('12-1', plain), { kind: 'left', left: 'unmarked' });
+    assert.deepEqual(bodyOwner('12-1', ''), { kind: 'left', left: 'unmarked' });
+    assert.deepEqual(bodyOwner('13-1', body), { kind: 'left', left: 'unmarked' });
+  });
+
+  it('reads a marker-shaped last line whose key is no effect key as no marker, never throwing (review of #583)', () => {
+    const plain = pullRequestText({ title: 'T', closes, reports }).body;
+    for (const key of ['[oops]', '["12-1"]', '["12-1","pull_request",3]']) {
+      const odd = `${plain}\n\n${marker(key, plain)}`;
+      assert.deepEqual(bodyOwner('12-1', odd), { kind: 'left', left: 'unmarked' }, key);
+    }
+  });
+
+  it('never reads a marker a brewer wrote into how it works as the last line', () => {
+    const forged = (text: string) => marker('["12-1","pull_request"]', text);
+    // In a fence, where how it works keeps a line as it is: outside one its `<` is escaped.
+    const fenced = ['```text', forged('anything'), '```'].join('\n');
+    const sections = { howItWorks: fenced, beforeAfter: [] };
+    const written = [{ stepId: 'implement', summary: 'S', assumptions: [], sections }];
+    const withFake = pullRequestText({ title: 'T', closes, reports: written, key: opened }).body;
+    // Foedrum's own marker follows the brewer's, so the body is still Foedrum's own.
+    assert.equal(bodyOwner('12-1', withFake).kind, 'own');
+    // A person who removed Foedrum's marker leaves the brewer's on an earlier line: edited.
+    const removed = withFake.slice(0, withFake.lastIndexOf('\n')).trimEnd();
+    assert.deepEqual(bodyOwner('12-1', removed), { kind: 'left', left: 'edited' });
+  });
+});
+
+describe('latestBody (ADR 0227)', () => {
+  const pushed = (round: number, result: unknown): Event => ({
+    type: 'effect.applied',
+    key: JSON.stringify(['12-1', round === 1 ? 'push' : `push.${round}`]),
+    result,
+  });
+  const went = { branch: 'b', commit: 'a'.repeat(40), from: 'r' };
+  const bodied = (round: number, result: unknown): Event => ({
+    type: 'effect.applied',
+    key: JSON.stringify(['12-1', `body.${round}`]),
+    result,
+  });
+
+  it("is the body result of the latest round's push", () => {
+    const left = { left: 'edited' };
+    const state = fold([ordered, pushed(1, went), pushed(2, went), bodied(2, left)]);
+    assert.deepEqual(latestBody(state, '12-1'), left);
+    const later = fold([
+      ordered,
+      pushed(1, went),
+      pushed(2, went),
+      bodied(2, left),
+      pushed(3, went),
+      bodied(3, { digest: 'a'.repeat(16) }),
+    ]);
+    assert.deepEqual(latestBody(later, '12-1'), { digest: 'a'.repeat(16) });
+  });
+
+  it("is undefined in round 1, before the round's body is recorded, and for a result the engine does not record", () => {
+    assert.equal(latestBody(fold([ordered, pushed(1, went)]), '12-1'), undefined);
+    const round2 = fold([ordered, pushed(1, went), pushed(2, went), bodied(3, { left: 'edited' })]);
+    assert.equal(latestBody(round2, '12-1'), undefined);
+    const odd = fold([ordered, pushed(1, went), pushed(2, went), bodied(2, { left: 'gone' })]);
+    assert.equal(latestBody(odd, '12-1'), undefined);
   });
 });

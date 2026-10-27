@@ -248,7 +248,10 @@ describe('runServe', () => {
       github.pulls.map(({ repo, head, base, title }) => ({ repo, head, base, title })),
       [{ repo: 'acme/web', head: branch, base: 'main', title: 'Add a --json flag' }],
     );
-    assert.match(github.pulls[0]?.body ?? '', /brew: Brewed[\s\S]*\nCloses Acme\/Brewery#12$/);
+    assert.match(
+      github.pulls[0]?.body ?? '',
+      /brew: Brewed[\s\S]*\nCloses Acme\/Brewery#12\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/,
+    );
     const [pull] = github.pulls;
     assert.deepStrictEqual(
       createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane,

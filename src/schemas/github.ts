@@ -61,6 +61,8 @@ export const GitHubPullRequest = z.object({
   merged_at: z.string().nullable().optional(),
   /** The commit its merge made, which a release must hold (ADR 0223). */
   merge_commit_sha: CommitSha.nullable().optional(),
+  /** Its description, null when it has none (ADR 0227). */
+  body: z.string().nullable().optional(),
 });
 
 /** `GET /repos/{owner}/{repo}/releases/latest`: its tag and when it was published (ADR 0223). */
