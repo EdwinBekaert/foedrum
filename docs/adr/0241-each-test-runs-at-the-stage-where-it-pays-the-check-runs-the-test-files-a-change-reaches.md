@@ -1,6 +1,6 @@
 # 0241. Each test runs at the stage where it pays: the check runs the test files a change reaches
 
-Date: 2026-10-27 · Status: Accepted · Amends [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) (where the tests run: the stage table below; its legs and run counts stay)
+Date: 2026-10-27 · Status: Accepted · Amends [0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) (where the tests run: the stage table below; its legs and run counts stay) and [0089](0089-a-file-over-the-test-budget-is-measured-again-alone.md) (a file run again alone has coverage only when its run had it)
 
 ## Context
 `npm run check` ran the typecheck, the linter, all 7,755 unit, property and chaos tests with coverage, the test-layer guard and the dependency guard.
@@ -42,13 +42,14 @@ Other tools run only the tests a change reaches, and the full suite at a later s
 - A changed test file reaches itself.
 - A change to `package.json`, `package-lock.json`, `tsconfig.json`, `scripts/` or `test/helpers/` reaches every test file: they set how every test runs.
 - A change only to docs (`docs/`, a top-level `*.md`) reaches none.
-- Any other changed file that is not TypeScript (`test/fixtures/`, `defaults/`, `schemas/`, `plugin/`, `biome.json`, `.claude/`, `.github/`) reaches every test file, since tests read such files by path: simpler than matching paths in test text, and never too few.
+- A changed file under `test/fixtures/`, TypeScript or not, and any other changed file that is not TypeScript (`defaults/`, `schemas/`, `plugin/`, `biome.json`, `.claude/`, `.github/`) reaches every test file, since tests read such files by path: simpler than matching paths in test text, and never too few.
 - A deleted file reaches the files that still import its path, and a file that stopped importing it is itself changed; a renamed file is a deleted and an added one.
+  A deleted or moved test file is not run: it is no longer there.
 
 ### How the check runs them
 - `npm run check` runs the files the change reaches with the same test command as `npm test`, through `scripts/with-checkout-tmp.ts`, with the CPU-time preload and both reporters, without coverage, and names the files it ran before the steps' output.
   The check starts node with that command and the files itself (`TEST_COMMAND` in `scripts/check.ts`, which a unit test holds `package.json`'s `test` script to), not through an npm script: npm runs a script through cmd.exe on Windows, whose command line ends at 8,191 characters, and the 239 test files' paths alone take about 7,600; node started without a shell gets Windows' 32,767.
-  With no file reached it runs no test step and says "no test file reached".
+  With no file reached it runs no test step and says "No test file reached by the change."
   When every file is reached it runs them all, still without coverage.
 - `npm run check -- --all` runs every test file with coverage and its thresholds, exactly `npm test`; a part of the suite cannot meet the thresholds.
 - `npm test` stays the command a contributor types for every test file with coverage.
