@@ -169,8 +169,9 @@ export const wireDriver = async (
   const claimed = [
     ...createCommandLog({ store, recipes: setup.recipes }).state().batches.values(),
   ].some((batch) => batch.repo !== undefined);
-  // A conflict with a base that moved, posted on its pull request (ADR 0198).
-  const conflicts = baseConflictEffects({ marks });
+  // A conflict with a base that moved, posted on its pull request (ADR 0198), and a failing check
+  // on its merged tree, which says when the recipe sends the batch back to fix it (ADR 0226).
+  const conflicts = baseConflictEffects({ marks, recipes: setup.recipes });
   // A ready pull request's merge brief, on it, its title read as an issue's (ADR 0225).
   const briefs = mergeBriefEffects({
     host: { find: comments.find, create: comments.create, title: marks.title },

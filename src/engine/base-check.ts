@@ -1,8 +1,9 @@
 // The check of the Brewery's open pull requests when their base moves (ADR 0198): each intake pass
 // reads each base's tip as the push's own fetch reads it (ADR 0090), merge-trees the pull request's
-// head against a tip that moved since its last check, and records what it found. A conflict is
-// posted on the pull request through the ledger when it first appears or its files change, and a
-// check that fails on the merged tree when it first fails (ADR 0209); the batch stays On tap.
+// head against a tip that moved since its last check of that head (ADR 0226), and records what it
+// found. A conflict is posted on the pull request through the ledger when it first appears or its
+// files change, and a check that fails on the merged tree when it first fails (ADR 0209), which
+// sends the batch back to its fix step when its recipe has the route (ADR 0226).
 
 import type { GravityReading } from '../schemas/events.ts';
 import { EffectKeyParts, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
@@ -11,11 +12,12 @@ import type { CommandLog } from './command-log.ts';
 import { type DriverEffects, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { BaseCheck, Batch, State } from './fold.ts';
+import { type BaseCheck, type Batch, baseChecksOn, type State } from './fold.ts';
 import type { MergedCheckDue } from './merged-checks.ts';
 import { openOf } from './pull-request.ts';
+import { pullRequestRoute, sentBackFrom } from './pull-request-fix.ts';
 import type { Recipes } from './recipes.ts';
-import { checkOf, plain, readingText } from './status-comment.ts';
+import { checkOf, plain, readingText, roundsText } from './status-comment.ts';
 
 /** What a merge-tree of a pull request's head and its base's tip came to. */
 export type MergeTreeResult = { kind: 'clean' } | { kind: 'conflicts'; files: string[] };
@@ -53,11 +55,12 @@ export interface BaseCheckOptions {
 const MERGE_BASE = 'merge_base';
 
 /**
- * The tip the pull request `url` of `batch` was last checked against: its latest check's, else the
- * base the batch's latest merge read (ADR 0164); `undefined` when neither is recorded.
+ * The tip the pull request `url` of `batch` was last checked against on `head`, the latest push's:
+ * its latest check of that head, else the base the batch's latest merge read (ADR 0164, ADR 0226);
+ * `undefined` when neither is recorded.
  */
-const lastTip = (state: State, batch: Batch, url: string): string | undefined => {
-  const checked = batch.baseChecks?.filter((check) => check.pullRequest === url).at(-1);
+const lastTip = (state: State, batch: Batch, url: string, head: string): string | undefined => {
+  const checked = baseChecksOn(batch, url, head).at(-1);
   if (checked !== undefined) return checked.tip;
   let merged: string | undefined;
   for (const [key, result] of state.effects) {
@@ -78,7 +81,7 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     batchId: string,
     pullRequest: string,
     branch: string,
-    tip: string,
+    { tip, head }: { tip: string; head: string },
     found: { conflicts?: string[]; branchMoved?: string },
   ): void => {
     const event = {
@@ -87,6 +90,7 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
       pullRequest,
       branch,
       tip,
+      head,
       ...found,
     } as const;
     const decision = log.issue({ kind: 'record', event }, clock());
@@ -123,7 +127,7 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     }
     const tip = await tipOf(repository);
     if (tip === undefined || signal.aborted) continue;
-    if (lastTip(state, batch, open.url) === tip) continue;
+    if (lastTip(state, batch, open.url, open.head) === tip) continue;
     // A bottle branch someone else pushed to holds what Foedrum never read: recorded once, and
     // checked no more (ADR 0198).
     let branchTip: string | undefined;
@@ -136,7 +140,13 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
     // Gone: the pull request is closing, and its end is recorded next pass.
     if (branchTip === undefined || signal.aborted) continue;
     if (branchTip !== open.head) {
-      record(batch.id, open.url, repository.base, tip, { branchMoved: branchTip });
+      record(
+        batch.id,
+        open.url,
+        repository.base,
+        { tip, head: open.head },
+        { branchMoved: branchTip },
+      );
       continue;
     }
     let merged: MergeTreeResult;
@@ -165,7 +175,7 @@ export const checkBases = async (options: BaseCheckOptions, signal: AbortSignal)
       batch.id,
       open.url,
       repository.base,
-      tip,
+      { tip, head: open.head },
       files.length === 0 ? {} : { conflicts: files },
     );
   }
@@ -225,12 +235,15 @@ export const pullRequestOf = (url: string): { repo: string; number: number } => 
   return { repo: `${owner}/${name}`, number: Number(number) };
 };
 
-/** A post's comment without its marker: the batch's heading, `body`, and that it stays On tap. */
-const postText = (batchId: string, body: string[]): string =>
+/**
+ * A post's comment without its marker: the batch's heading, `body`, and what the batch does: it
+ * stays On tap, or with `rounds` Foedrum sends it back to fix it (ADR 0226).
+ */
+const postText = (batchId: string, body: string[], rounds?: number): string =>
   [
     `### Foedrum · batch \`${batchId}\``,
     ...body,
-    `The batch stays On tap. Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
+    `${rounds === undefined ? 'The batch stays On tap.' : `Foedrum sends the batch back to fix it, at most ${roundsText(rounds)}, and the batch's status comment says how it goes.`} Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
 
 /** The comment a conflict posts, without its marker. */
@@ -254,13 +267,21 @@ const fenced = (text: string): string => {
  * The comment a failure on the merged tree posts, without its marker. Its tail is the one recorded,
  * already cut and with the lines that look like a secret left out (`readingOf`, ADR 0209).
  */
-const failureText = (batchId: string, { branch, tip, failed }: FailedCheck): string =>
-  postText(batchId, [
-    `\`${branch}\` moved to \`${tip}\`, and this pull request merges with it cleanly but no longer passes its checks there: on the merged tree, ${plain(readingText(failed))}.`,
-    ...(failed.result === 'skipped' || failed.tail === ''
-      ? []
-      : ['The end of its output:', fenced(failed.tail)]),
-  ]);
+const failureText = (
+  batchId: string,
+  { branch, tip, failed }: FailedCheck,
+  rounds: number | undefined,
+): string =>
+  postText(
+    batchId,
+    [
+      `\`${branch}\` moved to \`${tip}\`, and this pull request merges with it cleanly but no longer passes its checks there: on the merged tree, ${plain(readingText(failed))}.`,
+      ...(failed.result === 'skipped' || failed.tail === ''
+        ? []
+        : ['The end of its output:', fenced(failed.tail)]),
+    ],
+    rounds,
+  );
 
 export interface BaseConflictEffectsOptions {
   marks: Pick<IssueMarks, 'findComment' | 'comment'>;
@@ -279,13 +300,24 @@ const commentId = (id: number): number => {
 };
 
 /**
+ * The rounds the recipe of `batch` gives a pull request that failed, when it has the route back
+ * (ADR 0219); `undefined` when it stays On tap.
+ */
+const fixRounds = (recipes: Recipes | undefined, batch: Batch): number | undefined => {
+  const name = batch.recipe?.name;
+  const recipe = name === undefined ? undefined : recipes?.find(name);
+  const from = recipe === undefined ? undefined : pullRequestRoute(recipe);
+  return from === undefined ? undefined : recipe?.maxRounds(from, 'pull_request');
+};
+
+/**
  * The comment on the pull request each post calls for, a conflict's (ADR 0198) or a failure's on
- * the merged tree (ADR 0209), for the driver: due while the
- * batch is on tap and the pull request has no recorded end, found by its marker on the Brewery's
- * own comment (ADR 0033).
+ * the merged tree (ADR 0209), for the driver: due while the batch is on tap, or brews or is Stuck
+ * after its pull request sent it back (ADR 0226), and the pull request has no recorded end, found
+ * by its marker on the Brewery's own comment (ADR 0033).
  */
 export const baseConflictEffects = (options: BaseConflictEffectsOptions): DriverEffects => {
-  const { marks, deadlineMs } = options;
+  const { marks, recipes, deadlineMs } = options;
   // The comment behind each key `due` gave; the driver asks `due` before it applies a key.
   const comments = new Map<string, { repo: string; number: number; text: string }>();
   const commentFor = (key: string) => {
@@ -309,7 +341,13 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
-      if (batch?.lane.kind !== 'on_tap') return [];
+      if (batch === undefined) return [];
+      // On tap, or brewing or Stuck after a failure sent it back from the pull request: a tick that
+      // sent it back before the post loses no post (ADR 0226).
+      const { kind } = batch.lane;
+      const sentBack = kind === 'brewing' || kind === 'stuck' ? sentBackFrom(batch) : undefined;
+      if (kind !== 'on_tap' && sentBack === undefined) return [];
+      const rounds = fixRounds(recipes, batch);
       const due = [];
       const posts = [
         ...conflictPosts(batch).map(({ n, check }) => ({
@@ -320,11 +358,12 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
         ...failurePosts(batch).map(({ n, check }) => ({
           check,
           key: failureKey(batchId, n),
-          text: failureText(batchId, check),
+          text: failureText(batchId, check, rounds),
         })),
       ];
       for (const { check, key, text } of posts) {
         if (batch.pullRequestEnds?.[check.pullRequest] !== undefined) continue;
+        if (sentBack !== undefined && !sentBack.has(check.pullRequest)) continue;
         const encoded = effectKey.encode(key);
         if (state.effects.has(encoded)) continue;
         let where: { repo: string; number: number };
