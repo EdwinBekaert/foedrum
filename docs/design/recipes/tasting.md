@@ -56,7 +56,7 @@ The out doc has one `verdict`, from the findings of every lens, so `"blocking": 
 A findings route from it carries its whole out doc, every lens's findings at once, where a group of lenses apart carries the first blocking child's.
 Its findings show their lens before their severity (`diff/security, major in src/a.ts:3`) in a later round's `earlierFindings`, the status comment, the pull request body and the Stuck reason.
 The status comment shows ten findings per lens when every finding of the step names one, and ten per step otherwise.
-Which recipes run lenses together is #567's to measure: the default recipes run them apart until then.
+The default recipes run their lenses apart: together was measured on a seeded change and fell short of the rule that picks it ([ADR 0224](../../adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)).
 
 **Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 The engine checks each edit (an existing file under `src/` or `scripts/`, a line whose text is `original`, no new identifier or string), applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading.
