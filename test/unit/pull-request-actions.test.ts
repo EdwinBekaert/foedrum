@@ -343,7 +343,7 @@ describe('pullRequestActions: the pull request', () => {
     keysOf(brewing({ issue: 7, repo: 'acme/api' } as { issue: number }), actions);
     await actions.target.apply(open);
     assert.deepEqual(titles, [{ issue: 7, repo: 'acme/api' }]);
-    assert.match(requests[0]?.request.body ?? '', /\nCloses acme\/api#7$/);
+    assert.match(requests[0]?.request.body ?? '', /\nCloses acme\/api#7\n\n<!-- foedrum:/);
   });
 
   it('finds the pull request the Brewery opened from the bottle branch', async () => {
