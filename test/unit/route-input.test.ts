@@ -492,6 +492,16 @@ describe('routeOf: a pull request that fails its checks on the merged tree (ADR 
     });
   });
 
+  it("names the route's tip's check when the same head failed again at another tip", () => {
+    const later: Event = {
+      ...checked(head, 'f'.repeat(40)),
+      failed: { ...reading, tail: 'not ok 2 - later' },
+    } as Event;
+    const route = planned([...opened, checked(), later, sentBack], 'implement', 2);
+    assert.match(route?.text ?? '', /not ok 1 - adds/);
+    assert.doesNotMatch(route?.text ?? '', /not ok 2 - later/);
+  });
+
   it('says so in one line when no check of that head and tip failed', () => {
     const route = planned([...opened, checked('d'.repeat(40)), sentBack], 'implement', 2);
     assert.deepEqual(route, {
