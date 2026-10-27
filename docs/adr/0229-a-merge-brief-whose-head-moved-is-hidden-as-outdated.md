@@ -18,7 +18,7 @@ And an effect is found on the code host before it is applied, so a kill between 
 
 ### When a brief is outdated
 - **Brief `n` is outdated** (`outdatedBriefs`, `src/engine/merge-brief.ts`) when it is recorded, not yet hidden, its pull request has no recorded end (`Batch.pullRequestEnds`), and either:
-  - the head of its pull request is no longer the brief's: the batch's latest push recorded another commit, found the branch at someone else's (`moved`) or gone, or a base check of that pull request recorded `branchMoved` (a person's push); a push that pushed nothing (`empty`, `refused`) left the head where it was; or
+  - the head of its pull request is no longer the brief's: the latest push of the batch that left the branch somewhere recorded another commit, found the branch at someone else's (`moved`) or gone, or a base check of that pull request recorded `branchMoved` (a person's push); a push that pushed nothing (`empty`, `refused`) left the head where the push before it did, so a later round that pushes nothing never makes a moved head count as unmoved (review of #603); or
   - a later brief `m > n` is recorded: a re-run or a late check on the same head posted a newer record's brief, so only the latest brief stays open. Decided by the maintainer (2026-10-27).
 - **A brief whose pull request merged or closed is left as it is**: it is history, and on a merge it described the head that merged. Decided by the maintainer (2026-10-27).
 - **A record that goes pending or fails on the same head hides nothing**: the brief still names that head, and a pending record that finishes the same posts nothing again (ADR 0225), so hiding it then would leave no brief at all.
