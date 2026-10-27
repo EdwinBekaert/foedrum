@@ -105,17 +105,17 @@ const changedLines = (state: State, batch: Batch): string[] => {
   const pushes = recordedPushes(state, batch.id);
   const lines = fixRounds(batch).map(({ attempt }, i) => {
     const round = i + 2;
-    const { route } = attempt;
-    const failed = route?.why === 'pull_request' ? route.head : '';
+    const route = attempt.route?.why === 'pull_request' ? attempt.route : undefined;
+    const failed = route?.head ?? '';
     const pushed = PushResult.safeParse(pushes[round - 1]);
     const after = pushed.success
       ? `it pushed ${code(shortSha(pushed.data.commit))}`
       : 'it pushed nothing yet';
     // A merged-tree failure names its base check, which names its branch (ADR 0226).
     const check =
-      route?.why === 'pull_request' && route.tip !== undefined
-        ? batch.baseChecks?.find(({ head, tip }) => head === route.head && tip === route.tip)
-        : undefined;
+      route?.tip === undefined
+        ? undefined
+        : batch.baseChecks?.find(({ head, tip }) => head === route.head && tip === route.tip);
     const where =
       check === undefined
         ? code(shortSha(failed))

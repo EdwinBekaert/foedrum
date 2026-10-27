@@ -430,7 +430,7 @@ function run(draft: Draft, command: Command): Event[] {
             `step ${stepId} of batch ${batchId} has no onPullRequestFail route any more`,
           );
         }
-        const tip = cause === undefined ? {} : { cause: cause.kind, tip: cause.tip };
+        const tip = cause === undefined ? {} : routeCause(cause);
         schedule(draft, batchId, goto, {
           route: { from: stepId, why: 'pull_request', pullRequest, head, ...tip },
         });
