@@ -1440,6 +1440,27 @@ describe('openDriver', () => {
         assert.deepStrictEqual(fixLedger(driver, retry), { base: BASE, merged: MERGED });
       });
 
+      it('merges again at the start of an answered fix that starts fresh', async () => {
+        sentBack(true);
+        const { merge, calls } = fakeMerge();
+        // The fix asked a question and recorded no session to resume: its answer starts fresh.
+        append({ type: 'step.started', ...fix });
+        const question = {
+          q: 'Keep the v1 endpoint?',
+          options: ['keep', 'remove'],
+          recommended: 'keep',
+          whyBlocking: 'Removing it breaks the mobile app',
+        };
+        const outcome = { kind: 'needs_input' as const, questions: [question] };
+        append({ type: 'step.finished', ...fix, outcome });
+        append({ type: 'step.scheduled', ...fix, attempt: 3, deadlineAt: later, answered: true });
+        const { driver, hand } = await drive(merge);
+        const answered = { ...fix, attempt: 3 };
+        assert.deepStrictEqual(hand.started, [answered]);
+        assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 1);
+        assert.deepStrictEqual(fixLedger(driver, answered), { base: BASE, merged: MERGED });
+      });
+
       it('merges nothing at the start of a fix the head checks sent back', async () => {
         sentBack(false);
         const { merge, calls } = fakeMerge();

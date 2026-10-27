@@ -1252,6 +1252,45 @@ describe('checkBases', () => {
       ]);
     });
 
+    it('posts a failure once the batch went Stuck on it from on tap, its route step skipped, promising no round', async () => {
+      onTapFixed();
+      failedAt(tip1);
+      const github = fakeGitHub();
+      const effects = baseConflictEffects({ marks: github.marks('alice'), recipes: fixed });
+      const state = fixLog.state();
+      // The route's goto was skipped by its when: decide makes the batch Stuck with no route.
+      const stuck: Batch = {
+        ...fixedBatch(),
+        skipped: new Set(['plan']),
+        lane: {
+          kind: 'stuck',
+          reason: {
+            kind: 'pull_request_failed',
+            stepId: open,
+            pullRequest,
+            head,
+            rounds: 0,
+            failed: [],
+            more: 0,
+            cause: {
+              kind: 'merged_check',
+              branch: 'main',
+              tip: tip1,
+              check: 'the check "test" (npm test)',
+            },
+          },
+          options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+          remindAt: now.toISOString(),
+        },
+      };
+      const batches = new Map(state.batches).set('web-7', stuck);
+      const [key, ...more] = effects.due({ ...state, batches }, 'web-7');
+      assert.deepStrictEqual([key, ...more], [{ batchId: 'web-7', effect: 'base_check_failed.1' }]);
+      assert.ok(key);
+      await effects.target.apply(effectKey.encode(key));
+      assert.doesNotMatch(github.issue(web, 12).comments[0]?.body ?? '', /sends the batch back/);
+    });
+
     it('keeps the post of a recipe without the route as it was', async () => {
       onTap();
       accept({
