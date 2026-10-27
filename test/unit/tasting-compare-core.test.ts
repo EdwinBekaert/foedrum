@@ -17,10 +17,12 @@ import {
   runFailure,
   SETUPS,
   scoreRun,
+  scriptedTastings,
   summarize,
   tableMarkdown,
 } from '../../scripts/tasting-compare/core.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
+import type { TastingFinding } from '../../src/schemas/out-doc.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 
 const fixture = join(import.meta.dirname, '..', 'fixtures', 'tasting-compare');
@@ -64,7 +66,7 @@ const run = (
 const attempt = (
   stepId: string,
   lenses: readonly string[],
-  findings: ReturnType<typeof finding>[],
+  findings: RunRecord['attempts'][number]['findings'],
   more: Partial<RunRecord['attempts'][number]> = {},
 ): RunRecord['attempts'][number] => ({
   stepId,
@@ -442,6 +444,47 @@ describe('choiceOf', () => {
       summary('together-nip', 2, 100),
     ]);
     assert.deepEqual(choice, { seven: 'apart', nip: 'together' });
+  });
+});
+
+describe('scriptedTastings', () => {
+  /** A run whose Tasters report what the dry run's script gives each step. */
+  const played = (setup: RunRecord['setup']): RunRecord => {
+    const script = scriptedTastings(setup, KEY);
+    const lensesOf = (stepId: string) =>
+      setup === 'apart-7' ? [`diff/${stepId}`] : SETUPS[setup].lenses;
+    return run(
+      setup,
+      1,
+      Object.entries(script).map(([stepId, [turn]]) =>
+        attempt(stepId, lensesOf(stepId), (turn?.tasting?.findings ?? []) as TastingFinding[]),
+      ),
+    );
+  };
+
+  it('gives every Taster step of a setup one turn, and the implementer none', () => {
+    assert.deepEqual(Object.keys(scriptedTastings('apart-7', KEY)).sort(), [
+      'acceptance',
+      'correctness',
+      'cross-platform',
+      'design-conformance',
+      'necessity',
+      'security',
+      'test-design',
+    ]);
+    assert.deepEqual(Object.keys(scriptedTastings('together-7', KEY)), ['taste']);
+  });
+
+  it("reports each defect of the step's lenses, so the dry run finds them all by their own lens", () => {
+    for (const setup of ['apart-7', 'together-nip'] as const) {
+      assert.deepEqual(scoreRun(played(setup), KEY), {
+        found: [
+          { defect: 'logic', ownLens: true },
+          { defect: 'unasked', ownLens: true },
+        ],
+        others: [],
+      });
+    }
   });
 });
 

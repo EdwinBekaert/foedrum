@@ -7,6 +7,7 @@ import type { Usage } from '../../src/schemas/events.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { z } from '../../src/schemas/zod.ts';
+import type { Scripted } from '../../test/helpers/nip-fixture.ts';
 
 /** The seven default diff lenses, in the order the apart setup's group runs them. */
 const SEVEN = [
@@ -536,4 +537,12 @@ export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): str
     }
   }
   return `${lines.join('\n')}\n`;
+};
+
+/** The dry run's Tasters: each step reports the key's defects of its lenses (#567). */
+export const scriptedTastings = (
+  _setup: SetupName,
+  _key: Key,
+): Record<string, readonly Scripted[]> => {
+  throw new Error('not implemented');
 };
