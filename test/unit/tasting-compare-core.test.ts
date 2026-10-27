@@ -20,6 +20,7 @@ import {
   summarize,
   tableMarkdown,
 } from '../../scripts/tasting-compare/core.ts';
+import { parseJsonc } from '../../src/formats/jsonc.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
 
 const fixture = join(import.meta.dirname, '..', 'fixtures', 'tasting-compare');
@@ -169,7 +170,7 @@ describe('readKey', () => {
 describe('the setups', () => {
   it('give each a recipe the schema accepts, its Tasters the default taster', () => {
     for (const name of ['apart-7', 'together-7', 'together-nip'] as const) {
-      const recipe = Recipe.parse(JSON.parse(recipeText(name)));
+      const recipe = Recipe.parse(parseJsonc(recipeText(name)));
       assert.equal(recipe.name, name);
       const tasters = JSON.stringify(recipe.steps.slice(1));
       assert.doesNotMatch(tasters, /"brewer":"(?!taster")/, name);
@@ -177,7 +178,7 @@ describe('the setups', () => {
   });
 
   it('taste apart-7 through a parallel group of the seven lenses, one step each', () => {
-    const recipe = Recipe.parse(JSON.parse(recipeText('apart-7')));
+    const recipe = Recipe.parse(parseJsonc(recipeText('apart-7')));
     const group = recipe.steps[1];
     assert.ok(group !== undefined && 'parallel' in group);
     assert.deepEqual(
@@ -187,7 +188,7 @@ describe('the setups', () => {
   });
 
   it("taste together-nip through Nip's two lenses in one step", () => {
-    const recipe = Recipe.parse(JSON.parse(recipeText('together-nip')));
+    const recipe = Recipe.parse(parseJsonc(recipeText('together-nip')));
     const step = recipe.steps[1];
     assert.ok(step !== undefined && 'brewer' in step);
     assert.deepEqual(step.lenses, ['diff/correctness', 'diff/acceptance']);
