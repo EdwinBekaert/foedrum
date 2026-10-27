@@ -684,7 +684,7 @@ describe('checkBases', () => {
       const { repository } = fakeRepository({ [tip1]: conflicts('src/a.ts') });
       await pass(repository);
       const github = fakeGitHub();
-      const effects = baseConflictEffects({ marks: github.marks('alice') });
+      const effects = baseConflictEffects({ marks: github.marks('alice'), recipes });
       const keys = effects.due(log.state(), 'web-7');
       assert.deepStrictEqual(keys, [{ batchId: 'web-7', effect: 'base_conflict.1' }]);
       const [key] = keys;
@@ -707,7 +707,7 @@ describe('checkBases', () => {
       onTap();
       const { repository } = fakeRepository({ [tip1]: conflicts('src/a.ts') });
       await pass(repository);
-      const effects = baseConflictEffects({ marks: fakeGitHub().marks('alice') });
+      const effects = baseConflictEffects({ marks: fakeGitHub().marks('alice'), recipes });
       ledger({ batchId: 'web-7', effect: 'base_conflict.1' }, 1);
       assert.deepStrictEqual(effects.due(log.state(), 'web-7'), []);
       onTap('web-8', 'twice', other, 8);
@@ -732,7 +732,7 @@ describe('checkBases', () => {
       const { repository } = fakeRepository({ [tip1]: conflicts(`src/${planted}.ts`) });
       await pass(repository);
       const github = fakeGitHub();
-      const effects = baseConflictEffects({ marks: github.marks('alice') });
+      const effects = baseConflictEffects({ marks: github.marks('alice'), recipes });
       const [key] = effects.due(log.state(), 'web-7');
       assert.ok(key);
       await effects.target.apply(effectKey.encode(key));
@@ -765,7 +765,7 @@ describe('checkBases', () => {
       const encoded = (effect: string) => effectKey.encode({ batchId: 'web-7', effect });
       /** The effects due, each found by its marker or applied, and recorded, as the driver does. */
       const drain = async (github: ReturnType<typeof fakeGitHub>): Promise<string[]> => {
-        const effects = baseConflictEffects({ marks: github.marks('alice') });
+        const effects = baseConflictEffects({ marks: github.marks('alice'), recipes });
         const applied: string[] = [];
         for (const key of effects.due(log.state(), 'web-7')) {
           const at = effectKey.encode(key);
@@ -909,7 +909,7 @@ describe('checkBases', () => {
         checked(tip1, { failed: test });
         const github = fakeGitHub();
         // Posted, then killed before the ledger recorded it.
-        const killed = baseConflictEffects({ marks: github.marks('alice') });
+        const killed = baseConflictEffects({ marks: github.marks('alice'), recipes });
         const [key] = killed.due(log.state(), 'web-7');
         assert.ok(key);
         await killed.target.apply(effectKey.encode(key));
@@ -938,7 +938,7 @@ describe('checkBases', () => {
             failed: test,
           },
         });
-        const effects = baseConflictEffects({ marks: fakeGitHub().marks('alice') });
+        const effects = baseConflictEffects({ marks: fakeGitHub().marks('alice'), recipes });
         assert.equal(effects.due(log.state(), 'web-8').length, 1);
         // No event takes a batch off tap today: the state is made by hand, as a later one might.
         const state = log.state();

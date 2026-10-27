@@ -286,7 +286,7 @@ const failureText = (
 export interface BaseConflictEffectsOptions {
   marks: Pick<IssueMarks, 'findComment' | 'comment'>;
   /** The Brewery's recipes: a batch whose recipe has the route back is fixed (ADR 0226). */
-  recipes?: Recipes;
+  recipes: Recipes;
   /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
   deadlineMs?: number;
 }
@@ -303,9 +303,9 @@ const commentId = (id: number): number => {
  * The rounds the recipe of `batch` gives a pull request that failed, when it has the route back
  * (ADR 0219); `undefined` when it stays On tap.
  */
-const fixRounds = (recipes: Recipes | undefined, batch: Batch): number | undefined => {
+const fixRounds = (recipes: Recipes, batch: Batch): number | undefined => {
   const name = batch.recipe?.name;
-  const recipe = name === undefined ? undefined : recipes?.find(name);
+  const recipe = name === undefined ? undefined : recipes.find(name);
   const from = recipe === undefined ? undefined : pullRequestRoute(recipe);
   if (recipe === undefined || from === undefined) return undefined;
   // A step its when skipped runs no round: the batch goes Stuck instead (ADR 0219).
