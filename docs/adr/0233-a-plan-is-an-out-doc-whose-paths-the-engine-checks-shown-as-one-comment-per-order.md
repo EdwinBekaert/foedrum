@@ -69,4 +69,5 @@ No brewer writes a plan yet and no recipe runs one (#586); no lens reviews it (#
 - A brewer whose schema is `plan` has its plan read, its fields and paths checked, and shown on the order's issue as one comment edited each round.
 - One ledger entry per revision; no new event, no change to the fold or the admission.
 - A plan attempt runs one git call per repository it names after its `done`, a second past 24,000 characters of paths, and resolves every other repository's base when it is planned, fetching once a base its clone has no ref of.
+- The cost of that fetch is one fetch per never-fetched repository of the Brewery, ever: the plan is data the runner reads, so the fetch runs when the attempt is planned, before anyone knows which repositories the plan names, and the ref exists afterwards (decided by the consultant).
 - A plan naming a repository's base sees that base as the clone last fetched it, which may be behind the remote; the line names the commit, so a person can tell.
