@@ -587,6 +587,16 @@ describe('nextRun', () => {
     });
   });
 
+  it("brews each setup's last run before it is done", () => {
+    const first = (['apart-7', 'together-7', 'together-nip'] as const).map((setup) => ok(setup, 1));
+    assert.deepEqual(nextRun(first, 2), { setup: 'apart-7', run: 2, retry: false });
+    assert.deepEqual(nextRun([...first, ok('apart-7', 2), ok('together-7', 2)], 2), {
+      setup: 'together-nip',
+      run: 2,
+      retry: false,
+    });
+  });
+
   it('is done once every setup has its runs', () => {
     const records = (['apart-7', 'together-7', 'together-nip'] as const).flatMap((setup) =>
       [1, 2].map((number) => ok(setup, number)),
