@@ -645,6 +645,57 @@ describe('createAttemptPlans: plan', () => {
       );
     });
   }
+
+  it("gives a plan brewer's attempt each repository of the Brewery and the commit its paths are checked at (ADR 0233)", async () => {
+    const planning = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'plan.md', schema: 'plan' },
+            tools: { allow: ['Read'] },
+          }),
+        },
+      ],
+    });
+    assert.ok(planning.valid);
+    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const { plans } = setup([...ordered, started], {}, '', planning.brewers, {
+      repositories: [
+        { repo: 'acme/api', base: 'origin/main' },
+        { repo: 'acme/web', base: 'origin/trunk' },
+      ],
+      git: async (cwd, args) => {
+        calls.push({ cwd, args });
+        return {
+          code: 0,
+          stdout: `${'d'.repeat(40)}
+`,
+          stderr: '',
+        };
+      },
+    });
+    const planned = await plans.plan(start);
+    assert.deepEqual(planned.touches, [
+      { repo: 'acme/api', clone: join('/clones', 'acme/api'), commit: 'c'.repeat(40) },
+      { repo: 'acme/web', clone: join('/clones', 'acme/web'), commit: 'd'.repeat(40) },
+    ]);
+    // Its own repository at its worktree's commit; another at its base, with no fetch.
+    assert.deepEqual(calls, [
+      {
+        cwd: join('/clones', 'acme/web'),
+        args: ['rev-parse', '--verify', '--end-of-options', 'origin/trunk^{commit}'],
+      },
+    ]);
+    // Any other brewer's attempt has none.
+    assert.equal((await setup().plans.plan(start)).touches, undefined);
+  });
 });
 
 describe('createAttemptPlans: limits', () => {

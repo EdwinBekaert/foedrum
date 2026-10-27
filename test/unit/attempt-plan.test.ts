@@ -229,6 +229,56 @@ describe("attemptLimits: a Gauger's tests (ADR 0170)", () => {
   });
 });
 
+describe("attemptLimits: a plan's sub-orders (ADR 0233)", () => {
+  const planner = brewer({ name: 'brewmaster', output: { doc: 'plan.md', schema: 'plan' } });
+  const ended = (frontmatter: Record<string, unknown>) =>
+    settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc(frontmatter),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+      },
+      attemptLimits(planner),
+    );
+
+  it('fails a done plan without its sub-orders retryably, naming the field', () => {
+    const ending = ended({ status: 'done', summary: 'A plan' });
+    assert.equal(ending.kind, 'failed');
+    assert.ok(ending.kind === 'failed' && ending.retryable);
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /^the out doc plan\.md is invalid: .*subOrders/s,
+    );
+  });
+
+  it('succeeds with a done plan, its sub-orders in the output', () => {
+    const subOrders = [
+      {
+        id: 'api',
+        title: 'Build the API',
+        repo: 'acme/api',
+        size: { lines: 200, mechanism: 'one handler' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src/api.ts' }],
+        dependencies: [],
+        recipe: 'tdd',
+        why: 'testable',
+        ready: true,
+      },
+    ];
+    const ending = ended({ status: 'done', summary: 'A plan', subOrders });
+    assert.equal(ending.kind, 'succeeded');
+    assert.deepEqual(ending.kind === 'succeeded' && ending.output, {
+      status: 'done',
+      summary: 'A plan',
+      assumptions: [],
+      subOrders,
+    });
+  });
+});
+
 describe("attemptLimits: a Taster's verdict (ADR 0161)", () => {
   const taster = brewer({ name: 'taster', output: { doc: 'taste.md', schema: 'tasting' } });
   const finding = {

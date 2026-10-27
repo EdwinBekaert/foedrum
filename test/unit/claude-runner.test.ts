@@ -35,9 +35,11 @@ import type {
   CommitsScanned,
   CommitsSeen,
 } from '../../src/engine/brewer-runner.ts';
+import type { PathsRead, PlanRepository } from '../../src/engine/plan-touches.ts';
 import type { StreamOptions, StreamResult } from '../../src/platform/processes.ts';
 import type { AttemptSettings } from '../../src/schemas/attempt-settings.ts';
 import { FiningOutDoc, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { PlanOutDoc } from '../../src/schemas/plan.ts';
 import {
   documentedUsageLimits,
   limitResults,
@@ -115,6 +117,8 @@ const setup = (
     scanned?: CommitsScanned;
     /** Runs while the commits are scanned, before the scan answers. */
     whileScanning?: () => void;
+    /** The paths git finds at a plan's commit (ADR 0233); default every path asked for. */
+    touched?: PathsRead;
     /** Runs while the commits are counted, before the count answers. */
     whileCounting?: () => void;
     /** Why removing the out doc a run before left fails, if it does. */
@@ -129,6 +133,7 @@ const setup = (
 ) => {
   const scans: { clone: string; branch: string; since: string; signal: AbortSignal | undefined }[] =
     [];
+  const pathReads: { clone: string; commit: string; paths: readonly string[] }[] = [];
   const counts: {
     clone: string;
     branch: string;
@@ -216,6 +221,10 @@ const setup = (
       more.whileScanning?.();
       return more.scanned ?? { kind: 'scanned', findings: [] };
     },
+    touches: async (clone, commit, paths) => {
+      pathReads.push({ clone, commit, paths });
+      return more.touched ?? { kind: 'read', present: new Set(paths) };
+    },
   };
   return {
     calls,
@@ -228,6 +237,7 @@ const setup = (
     waits,
     counts,
     scans,
+    pathReads,
     runner: claudeBrewerRunnerWith(deps),
   };
 };
@@ -1187,6 +1197,57 @@ const renameRetrying = (from: string, to: string): void => {
     }
   }
 };
+
+describe("claudeBrewerRunner: the touches check of a plan's done (ADR 0233)", () => {
+  const commit = 'c'.repeat(40);
+  const repositories: PlanRepository[] = [{ repo: 'acme/api', clone: '/work/api.git', commit }];
+  const planning: AttemptStart = {
+    ...attempt,
+    limits: { ...limits, outDoc: { file: 'plan.md', schema: PlanOutDoc } },
+  };
+  const planDone = outDoc({
+    status: 'done',
+    summary: 'Planned',
+    subOrders: [
+      {
+        id: 'api',
+        title: 'Build the API',
+        repo: 'acme/api',
+        size: { lines: 200, mechanism: 'one handler' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src/api.ts' }],
+        recipe: 'tdd',
+        why: 'testable',
+        ready: true,
+      },
+    ],
+  });
+  const touching = async () => ({ ...plan(), touches: repositories });
+
+  it('reads the paths of a done plan in its repository at its commit, and succeeds when they exist', async () => {
+    const { pathReads, runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: touching, outDoc: planDone },
+    );
+    const { ending } = await runner.start(planning).ended;
+    assert.equal(ending.kind, 'succeeded');
+    assert.deepEqual(pathReads, [{ clone: '/work/api.git', commit, paths: ['src/api.ts'] }]);
+  });
+
+  it('fails the attempt retryably when a path does not exist, naming the sub-order and the path', async () => {
+    const { runner } = setup(
+      { lines: fixture('success.jsonl'), result: exited(0) },
+      { plan: touching, outDoc: planDone, touched: { kind: 'read', present: new Set() } },
+    );
+    const { ending } = await runner.start(planning).ended;
+    assert.equal(ending.kind, 'failed');
+    assert.ok(ending.kind === 'failed' && ending.retryable);
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /sub-order api, src\/api\.ts in acme\/api at c{12}$/,
+    );
+  });
+});
 
 describe('readOutDocFile', () => {
   let dir: TempDir;
