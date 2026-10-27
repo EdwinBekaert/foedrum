@@ -18,16 +18,17 @@ ADR 0222 left "refusing it at once, with a line that names the driver holding it
   It exits 1 with one line.
 
 ### How open is known
-- A started attempt with `interactiveSince` and a live batch lease means the driver that runs claude in the foreground is alive and still waiting on it: brew's heartbeat renews the lease only while it waits ([ADR 0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md)).
-- With no live batch lease (the foedrum that opened the session died), foedrum cannot know whether the window still runs.
+- **Decided by the consultant (a /brew-review finding)**: a started attempt with `interactiveSince` and a live lease of that attempt means the driver that runs claude in the foreground is alive and still waiting on it: brew's heartbeat renews the attempt's lease only while it waits ([ADR 0044](0044-batch-leases-held-by-the-driver-and-one-command-log.md), [ADR 0055](0055-a-step-waits-for-the-lease-of-its-abandoned-attempt.md)).
+  The batch's lease does not tell: after a takeover (ADR 0124) the batch is another driver's while the person's session runs on in the brew that opened it (ADR 0222), and a serve may claim the batch of a dead brew before the attempt's lease lapses.
+- With no live lease of the attempt (the foedrum that opened the session died), foedrum cannot know whether the window still runs.
 
 ### The line
 - **Decided by the maintainer (2026-10-27)**: an open interactive session has to close with its out doc, and so report, before the batch can go on.
   Closing it settles the attempt, or, closed without a valid out doc, leaves the batch Stuck `waiting_for_session`, and a re-launch reopens the session: `foedrum brew <issue>`, with `--take` when another driver holds the batch (ADR 0222).
   So the line asks the person to close the session and names the re-launch; `foedrum resume <id> <step>#<n>` still opens the closed session for reading, but it is not the next step.
-- **With a live batch lease**: `foedrum resume: <step>#<n> of batch <id> is an interactive session still open in <owner> (since <interactiveSince>, lease until <lease expiry>): close it there so it reports; if it closes without its out doc, foedrum brew <issue> --take opens it again`.
-  The owner and the expiry are the batch's live lease's (`EventStore.batchLeases`), and the command is the status comment's (`sessionCommand`), a target issue's named by its repository's alias.
-- **With no live batch lease, decided by the maintainer (2026-10-27)**: `foedrum resume: <step>#<n> of batch <id> is an interactive session open since <interactiveSince>, and no driver holds the batch: it waits for a session again once the attempt's lease lapses, then foedrum brew <issue> --take opens a fresh one`.
+- **With a live lease of the attempt**: `foedrum resume: <step>#<n> of batch <id> is an interactive session still open in <owner> (since <interactiveSince>, lease until <lease expiry>): close it there so it reports; if it closes without its out doc, foedrum brew <issue> --take opens it again`.
+  The owner and the expiry are the attempt's live lease's (`EventStore.currentLeases`), and the command is the status comment's (`sessionCommand`), a target issue's named by its repository's alias.
+- **With no live lease of the attempt, decided by the maintainer (2026-10-27)**: `foedrum resume: <step>#<n> of batch <id> is an interactive session open since <interactiveSince>, and no driver holds the session: it waits for a session again once the attempt's lease lapses, then foedrum brew <issue> --take opens a fresh one`.
   It is still refused: the attempt stays started until its lease lapses and the supervisor loses it (ADR 0222), and a takeover would have nothing to stop.
 
 ### Unchanged
@@ -47,4 +48,5 @@ ADR 0222 left "refusing it at once, with a line that names the driver holding it
 - **Wait with a line**: still a hang, for as long as the person keeps the session open, with no deadline (ADR 0222).
 - **Refuse only the step named, and take over a headless step chosen with no step named**: the lease would move away from the driver that has the person's session all the same.
 - **Point the line at `foedrum resume <id> <step>#<n>` for reading**: true once closed, but the batch goes on only when the session reports, so closing it and re-launching is the next step.
-- **Take a batch with no live lease over**: nothing would stop the session's attempt, which stays started until the supervisor loses it, so resume would wait for that.
+- **Name the batch lease's holder**: after a takeover it is another driver than the one whose session it is, and the person would be sent to the wrong terminal.
+- **Take a batch with no live lease of the session over**: nothing would stop the session's attempt, which stays started until the supervisor loses it, so resume would wait for that.

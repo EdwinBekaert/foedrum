@@ -16,7 +16,7 @@ import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
-import type { BatchLease, EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
+import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
 import { type Batch, fold, type State } from '../engine/fold.ts';
 import { resumeOf } from '../engine/session-resume.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
@@ -297,17 +297,17 @@ const failed = (line: string): CliResult => ({
 
 /**
  * Why an open interactive session is refused (ADR 0231): it must close so it reports, and brew
- * opens it again when it closed without its out doc. Open for sure only while a driver holds the
- * batch, since brew renews its lease only while it waits on claude.
+ * opens it again when it closed without its out doc. Open for sure only while its attempt's lease
+ * lives, which brew renews while it waits on claude; the batch's may be another driver's.
  */
-const openLine = ({ ref, batch, since }: Open, leases: readonly BatchLease[]): string => {
-  const { batchId } = ref;
-  const of = `${labelOf(ref)} of batch ${batchId} is an interactive session`;
+const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string => {
+  const of = `${labelOf(ref)} of batch ${ref.batchId} is an interactive session`;
   const brew = sessionCommand(batch);
-  const lease = leases.find((held) => held.batchId === batchId);
+  const key = attemptKey.encode(ref);
+  const lease = leases.find((held) => held.attemptKey === key);
   if (lease === undefined) {
     const lapses = "it waits for a session again once the attempt's lease lapses";
-    return `${of} open since ${since}, and no driver holds the batch: ${lapses}, then ${brew} opens a fresh one`;
+    return `${of} open since ${since}, and no driver holds the session: ${lapses}, then ${brew} opens a fresh one`;
   }
   const until = lease.expiresAt.toISOString();
   const close = `close it there so it reports; if it closes without its out doc, ${brew} opens it again`;
@@ -324,7 +324,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const state = fold(events.map(({ event }) => event));
     const target = targetOf(events, state, input.batch, input.step);
     if ('refused' in target) return failed(target.refused);
-    if ('open' in target) return failed(openLine(target, store.batchLeases(shell.now())));
+    if ('open' in target) return failed(openLine(target, store.currentLeases(shell.now())));
     const { ref } = target;
     const session = 'running' in target ? target.session : target.session.id;
     const { batchId } = ref;
