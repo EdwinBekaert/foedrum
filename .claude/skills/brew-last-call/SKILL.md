@@ -1,6 +1,6 @@
 ---
 name: brew-last-call
-description: Before a Foedrum milestone closes - check what is left of it, audit Foedrum's own instruction files (CLAUDE.md, .claude/rules, .claude/skills, .claude/agents, defaults), measure them, and propose every change as one draft pull request.
+description: Before a Foedrum milestone closes - check what is left of it, audit Foedrum's own instruction files (CLAUDE.md, .claude/rules, .claude/skills, .claude/agents, defaults), measure them, audit the code since the last call with /brew-audit, and propose every change as one draft pull request.
 argument-hint: "<milestone, such as M1>"
 disable-model-invocation: true
 ---
@@ -67,7 +67,13 @@ MSYS_NO_PATHCONV=1 claude -p "/skill-doctor" --permission-mode dontAsk > .foedru
 
 (Claude Code ≥ 2.1.252; in `-p` mode it prints the report as text.) It covers every skill this machine loaded over the last 7 days, the user's own included. Report only the rows whose source is `projectSettings`, the skills in `.claude/skills/`: their uses, and each one never invoked. A skill that was never used is a question for the summary, not a deletion.
 
-## Stage 5: the pull request
+## Stage 5: code audit
+
+The prompt audit (stage 3) reads the instruction files; this one reads the code and the ADRs. Invoke the `brew-audit` skill through the Skill tool, with `--since <previous>` when stage 2 found a previous last call and an audit of that commit exists under the main checkout's `.foedrum/tmp/audits/`, and with no argument otherwise (it then picks the newest earlier audit, or audits everything). It writes its report under `.foedrum/tmp/audits/<sha>/` and files nothing.
+
+Every kept finding is a **follow-up** for the summary: this pull request changes instruction files, not code, so no audit finding is **apply**. Group them into proposed issues (one per mechanism or per file touched), each with the milestone it belongs to: a finding the exit criterion needs blocks the close; the rest go to the next milestone or later. File nothing. A security finding is named in the pull request only as "a security finding in <area>", with its severity, never with its file or what it is (the brew-audit skill's rule): its details stay in the local report until it is fixed.
+
+## Stage 6: the pull request
 
 1. Apply the edits marked **apply**, including the moves to `.claude/rules/`, in the worktree. Commit them by topic (one commit per file or per finding group), with imperative subjects. They are documentation and prompts: exempt from the red proof, not from review (CLAUDE.md, Tests).
 2. Rebuild the ADR index (#312): `node scripts/adr-index.ts > .foedrum/tmp/<issue>/adr-index.txt` in the worktree. Pull requests add their record as a new file only, so the table in `docs/adr/README.md` and the older records' "Amended by" lines lag until now; the script rebuilds both from the records' `Amends` and `Supersedes` links and prints one line per change. When it fails, it names the file and line of each record it cannot read; that is a finding for the summary, not something to fix by hand in the table. Commit what it changed alone (`Rebuild the ADR index`), unedited, then check that `node scripts/adr-index.ts --check` exits 0.
@@ -79,6 +85,7 @@ MSYS_NO_PATHCONV=1 claude -p "/skill-doctor" --permission-mode dontAsk > .foedru
    - **ADR index**: the lines `adr-index.txt` holds (rows added or changed, back links added or removed), or that nothing changed;
    - **Findings**: every audit finding with its file, line, disposition and reason; the follow-ups;
    - **Skill usage**: the project's skills and their uses;
+   - **Code audit**: the audit's mode (since which commit), its counts per severity and area, and the proposed issues grouped with their milestones (security findings only as counts);
    - what a person does next: merge, move or close the issues named, and close the milestone once no open issue blocks its exit criterion;
    - `Closes #<issue>`.
 5. Run the checks (`npm run check`), `git push -u origin docs/last-call-<m>`, and `gh pr create --draft --title "Last call for <M>" --body-file .foedrum/tmp/<issue>/pr-body.md`. Then the usual close: `/brew-review <n>`, address or dismiss every finding, and stop. Never mark it ready, merge it, or move an issue: that is the user's call.
