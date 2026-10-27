@@ -145,6 +145,16 @@ export const GitHubComment = z.object({
   /** null for an account that was deleted since. */
   user: Account.nullable().optional(),
   body: z.string().optional(),
+  /** The comment's GraphQL id, which `minimizeComment` takes (ADR 0229). */
+  node_id: z.string().min(1).optional(),
+});
+
+/** GraphQL's answer to whether a comment is hidden (ADR 0229). */
+export const CommentMinimized = z.object({ node: z.object({ isMinimized: z.boolean() }) });
+
+/** GraphQL's answer to `minimizeComment` (ADR 0229). */
+export const MinimizedComment = z.object({
+  minimizeComment: z.object({ minimizedComment: z.object({ isMinimized: z.boolean() }) }),
 });
 
 /** `GET /user`: the account gh is logged in as (ADR 0073). */

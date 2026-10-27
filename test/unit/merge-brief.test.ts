@@ -451,7 +451,8 @@ describe('the merge brief (ADR 0225)', () => {
       });
       nipFromImplement(2, fixed);
       finished([passed('ci/test'), passed('ci/late')], fixed);
-      assert.deepStrictEqual(await post(effects), ['brief.2']);
+      // The first head's brief is outdated (ADR 0229).
+      assert.deepStrictEqual(await post(effects), ['brief.1.hidden', 'brief.2']);
     });
 
     it('posts while its order is paused: a brief runs nothing', async () => {
@@ -1135,7 +1136,7 @@ describe('the merge brief (ADR 0225)', () => {
       });
       nipFromImplement(2, fixed);
       finished([passed('ci/test')], fixed);
-      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.2']);
+      assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden', 'brief.2']);
       assert.ok(
         (await statusText()).includes(`is ready to merge on \`ffffffff\`: <${url}#issuecomment-2>`),
       );

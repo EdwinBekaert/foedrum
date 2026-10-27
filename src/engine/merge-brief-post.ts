@@ -1,12 +1,13 @@
 // The merge brief on a ready pull request (ADR 0225): one comment through the ledger per ready
 // record, `[batch, "brief.<n>"]`, titled `Merge? <title> @ <short sha>`, with the verdict, what
 // changed since it opened, the evidence on its head and the last Taster's risk left, every fact
-// from the ledger and every model text filtered under its own heading.
+// from the ledger and every model text filtered under its own heading. And each brief outdated
+// by a moved head or a later brief, hidden as outdated, `[batch, "brief.<n>.hidden"]` (ADR 0229).
 
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading } from '../schemas/events.ts';
 import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
-import { MergeBrief } from '../schemas/status-comment.ts';
+import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
 import { pullRequestOf } from './base-check.ts';
 import { effectMarker } from './claim-effects.ts';
@@ -16,7 +17,15 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, State } from './fold.ts';
 import { type LensRound, lensRounds } from './lens-rounds.ts';
-import { briefKey, briefOf, latestBrief, type ReadyRecord, readyOf } from './merge-brief.ts';
+import {
+  briefKey,
+  currentBrief,
+  hiddenKey,
+  latestBrief,
+  outdatedBriefs,
+  type ReadyRecord,
+  readyOf,
+} from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { findingText, knownCommits, latestPush, recordedPushes, unlinked } from './pull-request.ts';
 import type { Recipe, Recipes } from './recipes.ts';
@@ -442,22 +451,47 @@ const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): 
   return parsed.data;
 };
 
+/** The repository and number of the pull request at `url`, when it is one. */
+const whereOf = (url: string): { repo: string; number: number } | undefined => {
+  try {
+    return pullRequestOf(url);
+  } catch {
+    return undefined;
+  }
+};
+
+/** A brief to hide that is due: where its comment is. */
+interface DueHide {
+  repo: string;
+  comment: number;
+}
+
 /**
  * The merge brief of each ready pull request, for the driver (ADR 0225): due when `readyOf` gives a
- * record the latest brief was not posted for, found among the Brewery's own comments by its record's
- * line and its marker, else posted.
+ * record the latest brief was not posted for, or whose brief was hidden, found among the Brewery's
+ * own comments by its record's line and its marker, else posted. And each outdated brief, hidden as
+ * outdated before the next brief is posted (ADR 0229): found when its comment is hidden or gone.
  */
 export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffects => {
   const { host, recipes, redProof = () => undefined } = options;
-  // The brief behind each key `due` gave; the driver asks `due` before it applies a key.
+  // The brief, or the brief to hide, behind each key `due` gave; the driver asks `due` before it
+  // applies a key.
   const briefs = new Map<string, DueBrief>();
+  const hides = new Map<string, DueHide>();
   const briefFor = (key: string): DueBrief => {
     const due = briefs.get(key);
     if (due === undefined) throw new Error(`No merge brief ${key} is due`);
     return due;
   };
+  const hidden = (comment: number, answer: 'hidden' | 'gone'): MergeBriefHidden =>
+    answer === 'hidden' ? { comment, hidden: 'outdated' } : { comment, gone: true };
   const target: EffectTarget = {
     find: async (key, signal) => {
+      const hide = hides.get(key);
+      if (hide !== undefined) {
+        const answer = await host.hidden(hide.repo, hide.comment, signal);
+        return answer === 'shown' ? undefined : { result: hidden(hide.comment, answer) };
+      }
       const { repo, number, ready } = briefFor(key);
       // By the record alone: another record's brief a killed driver posted under this key stays,
       // and a base that moved since changes the text, not the record.
@@ -465,6 +499,10 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
       return found === undefined ? undefined : { result: resultOf(found.id, ready) };
     },
     apply: async (key, signal) => {
+      const hide = hides.get(key);
+      if (hide !== undefined) {
+        return hidden(hide.comment, await host.hide(hide.repo, hide.comment, signal));
+      }
       const { repo, number, rest, ready } = briefFor(key);
       const title = await host.title(repo, number, signal);
       const body = `${titleLine(title, ready.head)}\n\n${rest}${endOf(key, ready)}`;
@@ -474,20 +512,23 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
-      const ready = batch === undefined ? undefined : readyOf(state, batch);
-      if (batch === undefined || ready === undefined) return [];
-      const { next, latest } = latestBrief(state, batchId);
-      if (briefOf(latest, ready)) return [];
-      let where: { repo: string; number: number };
-      try {
-        where = pullRequestOf(ready.pullRequest);
-      } catch {
-        return [];
-      }
-      const key = briefKey(batchId, next);
+      if (batch === undefined) return [];
+      // The outdated briefs first, so the pull request never shows two at once.
+      const outdated = outdatedBriefs(state, batch).flatMap(({ n, brief }) => {
+        const where = whereOf(brief.pullRequest);
+        if (where === undefined) return [];
+        const key = hiddenKey(batchId, n);
+        hides.set(effectKey.encode(key), { repo: where.repo, comment: brief.comment });
+        return [key];
+      });
+      const ready = readyOf(state, batch);
+      if (ready === undefined || currentBrief(state, batchId, ready) !== undefined) return outdated;
+      const where = whereOf(ready.pullRequest);
+      if (where === undefined) return outdated;
+      const key = briefKey(batchId, latestBrief(state, batchId).next);
       const rest = briefRest(state, batch, ready, recipes, redProof);
       briefs.set(effectKey.encode(key), { ...where, rest, ready });
-      return [key];
+      return [...outdated, key];
     },
     target,
   };

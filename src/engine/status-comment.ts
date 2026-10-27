@@ -14,7 +14,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Attempt, Batch, Lane, Pause, State, UsageWindows } from './fold.ts';
-import { briefNow } from './merge-brief.ts';
+import { briefLine } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
@@ -24,7 +24,10 @@ import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { usageWindowsText } from './usage-window.ts';
 
-/** What the status comment says of a pull request's merge brief: the current one, or that the open pull request has none (ADR 0229). */
+/**
+ * What the status comment says of a pull request's merge brief: the current one, or the open pull
+ * request that has none (ADR 0229).
+ */
 export type BriefLine = MergeBrief | { pullRequest: string };
 
 /** The status comments on the code host, as the Brewery's own identity sees and makes them. */
@@ -639,7 +642,8 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
  * The status comment's text for `batch`, without its marker: its lane, its recipe's `steps` (the
  * steps the batch has when the recipe is unknown) with the current one marked, the `sensitive`
  * files its pushed change touches (ADR 0201), the assumptions of its out docs and, on tap, its pull
- * requests, with a link to the `brief` that says one is ready to merge (ADR 0225). Every text a
+ * requests, with a link to the `brief` that says one is ready to merge (ADR 0225), or a line that
+ * none is (ADR 0229). Every text a
  * brewer or an issue wrote is one escaped line.
  */
 export const renderStatus = (
@@ -700,6 +704,10 @@ export const renderStatus = (
               : [
                   `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
                 ]),
+            // An open pull request with no current brief (ADR 0229).
+            ...(brief === undefined || 'comment' in brief
+              ? []
+              : [`- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief.`]),
           ],
     );
   }
@@ -786,7 +794,7 @@ const statusDue = (
     paused,
     sensitive,
     state.usageWindows,
-    briefNow(state, batch),
+    briefLine(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

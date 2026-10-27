@@ -18,7 +18,7 @@ And an effect is found on the code host before it is applied, so a kill between 
 
 ### When a brief is outdated
 - **Brief `n` is outdated** (`outdatedBriefs`, `src/engine/merge-brief.ts`) when it is recorded, not yet hidden, its pull request has no recorded end (`Batch.pullRequestEnds`), and either:
-  - the head of its pull request is no longer the brief's: the batch's latest push recorded another commit, or a base check of that pull request recorded `branchMoved` (a person's push); or
+  - the head of its pull request is no longer the brief's: the batch's latest push recorded another commit, found the branch at someone else's (`moved`) or gone, or a base check of that pull request recorded `branchMoved` (a person's push); a push that pushed nothing (`empty`, `refused`) left the head where it was; or
   - a later brief `m > n` is recorded: a re-run or a late check on the same head posted a newer record's brief, so only the latest brief stays open. Decided by the maintainer (2026-10-27).
 - **A brief whose pull request merged or closed is left as it is**: it is history, and on a merge it described the head that merged. Decided by the maintainer (2026-10-27).
 - **A record that goes pending or fails on the same head hides nothing**: the brief still names that head, and a pending record that finishes the same posts nothing again (ADR 0225), so hiding it then would leave no brief at all.
@@ -28,6 +28,7 @@ And an effect is found on the code host before it is applied, so a kill between 
 - **`[batch, "brief.<n>.hidden"]`**, beside the post in `mergeBriefEffects` (`src/engine/merge-brief-post.ts`), so one `DriverEffects` keeps both and the wiring changes only the host. The key never matches `latestBrief`'s `brief.<n>` loop.
 - **Found** when the comment the ledger's `MergeBrief.comment` names is already hidden (`isMinimized`), or gone (404, or no longer the Brewery's own).
 - **Applied** by reading the comment through REST (the Brewery's own, its `node_id`), then `minimizeComment` with `OUTDATED`.
+- **The GraphQL answers** are checked with schemas (`CommentMinimized`, `MinimizedComment`, `src/schemas/github.ts`), and `GitHubComment` gains `node_id`.
 - **Its ledger result** (`MergeBriefHidden`, `src/schemas/status-comment.ts`, beside `MergeBrief`): `{ comment, hidden: 'outdated' }`, or `{ comment, gone: true }` for a comment that is not there to hide.
 - **A failed read or mutation**, a GraphQL error included, fails the effect, which the next pass tries again, as the post does.
 - **The hides due come before the post**, and each has its own key and its own `find`, so a kill between them neither hides twice nor posts twice.
