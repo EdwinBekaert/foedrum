@@ -665,6 +665,24 @@ describe('renderStatus', () => {
         },
         /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> failed its checks on `c{40}` after 2 rounds: ci \/ test \(failure\) <https:\/\/github\.com\/acme\/api\/actions\/runs\/1\/job\/2>, &#64;bob &lt;b&gt;deploy&lt;\/b&gt; \(error\), and 3 more$/,
       ],
+      [
+        {
+          kind: 'pull_request_failed',
+          stepId: 'open-pull-request',
+          pullRequest: 'https://github.com/acme/api/pull/12',
+          head: 'c'.repeat(40),
+          rounds: 2,
+          failed: [],
+          more: 0,
+          cause: {
+            kind: 'merged_check',
+            branch: 'main',
+            tip: 'e'.repeat(40),
+            check: 'the check "<b>test</b>" (npm test)',
+          },
+        },
+        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> fails its checks on the merged tree with `main` at `eeeeeeee` after 2 rounds: the check "&lt;b&gt;test&lt;\/b&gt;" \(npm test\)$/,
+      ],
     ];
     for (const [reason, said] of cases) {
       const text = renderStatus(batch({ lane: stuck(reason) }), steps);

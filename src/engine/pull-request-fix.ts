@@ -1,9 +1,11 @@
-// What sends a batch on tap back to a fix step (ADR 0219): the latest record of the checks on its
-// open pull request's head, finished on the commit of its latest push, with a check that failed.
-// Pure: the supervisor reads it to issue the command, and decide reads it again to act on it.
+// What sends a batch on tap back to a fix step: the latest base check of its open pull request's
+// head, the commit of its latest push, failed on the merged tree (ADR 0226), else the latest record
+// of the checks on that head finished with a check that failed (ADR 0219). Pure: the supervisor
+// reads it to issue the command, and decide reads it again to act on it.
 
-import type { HeadCheck } from '../schemas/events.ts';
-import { type Batch, orderKey, type State } from './fold.ts';
+import type { GravityReading, HeadCheck } from '../schemas/events.ts';
+import type { FixCause } from './decide.ts';
+import { type BaseCheck, type Batch, baseChecksOn, orderKey, type State } from './fold.ts';
 import { orderOfBatch } from './pauses.ts';
 import { checkPassed } from './pr-checks.ts';
 import { openOf } from './pull-request.ts';
@@ -33,6 +35,39 @@ export const failedPullRequest = (state: State, batch: Batch): FailedPullRequest
   const failed = latest.checks.filter(({ conclusion }) => !checkPassed(conclusion));
   return failed.length === 0 ? undefined : { pullRequest: open.url, head: open.head, failed };
 };
+
+/**
+ * The first problem of the open pull request of `batch` on the head of its latest push (ADR 0226):
+ * its latest base check of that head failed on the merged tree, else its checks failed on the head.
+ */
+export type PullRequestProblem =
+  | ({ kind: 'checks' } & FailedPullRequest)
+  | {
+      kind: 'merged_check';
+      pullRequest: string;
+      head: string;
+      check: BaseCheck & { failed: GravityReading };
+    };
+
+export const pullRequestProblem = (state: State, batch: Batch): PullRequestProblem | undefined => {
+  const open = openOf(state, batch);
+  if (open === undefined) return undefined;
+  // A person's skip left this head as it is, whatever was wrong with it.
+  const left = batch.pullRequestLeft;
+  if (left?.pullRequest === open.url && left.head === open.head) return undefined;
+  // Only a check that names this head: one without a head may be of an older one.
+  const latest = baseChecksOn(batch, open.url, open.head).at(-1);
+  if (latest?.head === open.head && latest.failed !== undefined) {
+    const check = { ...latest, failed: latest.failed };
+    return { kind: 'merged_check', pullRequest: open.url, head: open.head, check };
+  }
+  const failed = failedPullRequest(state, batch);
+  return failed === undefined ? undefined : { kind: 'checks', ...failed };
+};
+
+/** The cause a fix command names for `problem`. */
+export const causeOf = (problem: PullRequestProblem): FixCause =>
+  problem.kind === 'checks' ? { kind: 'checks' } : { kind: 'merged_check', tip: problem.check.tip };
 
 /** The pull requests whose failure has sent `batch` back to brew a fix, each once (ADR 0219). */
 export const sentBackFrom = (batch: Batch): ReadonlySet<string> => {

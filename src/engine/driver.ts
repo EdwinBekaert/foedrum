@@ -12,7 +12,13 @@ import type {
   CleanReport,
 } from '../workspace/attempt-worktrees-git.ts';
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
-import { type BaseMerge, baseMergeKey, baseMergeTarget, mergeEnding } from './base-merge.ts';
+import {
+  type BaseMerge,
+  baseMergeKey,
+  baseMergeTarget,
+  mergeEnding,
+  routedMerge,
+} from './base-merge.ts';
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
@@ -602,7 +608,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   /**
    * Merges the base into the worktree of `ref` before it runs, when its step is the recipe's last
-   * check before the pull request (ADR 0164): through the ledger, under an effect's deadline, so a
+   * check before the pull request (ADR 0164), or a failing check on the pull request's merged tree
+   * sent it back (ADR 0226): through the ledger, under an effect's deadline, so a
    * kill on either side of it never merges twice. True when the attempt runs; otherwise it is
    * finished, Stuck on the files a merge conflicts in or failed retryably, and lets its lease go.
    */
@@ -613,8 +620,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     made: AttemptWorktree,
   ): Promise<boolean> => {
     if (merge === undefined) return true;
-    const name = log.state().batches.get(ref.batchId)?.recipe?.name;
-    if (name === undefined || recipes.find(name)?.mergesBase(ref.stepId) !== true) return true;
+    const batch = log.state().batches.get(ref.batchId);
+    const name = batch?.recipe?.name;
+    if (batch === undefined || name === undefined) return true;
+    // Also at the start of a fix the merged tree sent back: its failure is only there (ADR 0226).
+    const merges = recipes.find(name)?.mergesBase(ref.stepId) === true || routedMerge(batch, ref);
+    if (!merges) return true;
     let ending: Ending | undefined;
     // Renewed before it, as before every effect: none is renewed during one (ADR 0044).
     heartbeat();

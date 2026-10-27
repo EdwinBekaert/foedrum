@@ -12,7 +12,7 @@ import {
 import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import type { EffectTarget } from './effects.ts';
-import type { State } from './fold.ts';
+import type { Batch, State } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
 
 /** What a merge in a worktree came to: its commit, or the files it conflicts in, aborted. */
@@ -94,6 +94,22 @@ export const baseMergeTarget = (
     }
   },
 });
+
+/**
+ * Whether attempt `ref` of `batch` merges the base at its start (ADR 0226): a failing check on the
+ * pull request's merged tree sent it back, or it retries or answers an attempt that was.
+ */
+export const routedMerge = (batch: Batch, ref: AttemptRef): boolean => {
+  const attempts = batch.steps.get(ref.stepId)?.attempts;
+  let attempt = attempts?.get(ref.attempt);
+  // A retry, or an answer that starts fresh, starts as the attempt before it did (ADR 0117,
+  // ADR 0118).
+  while (attempt?.retry === true || attempt?.answered === true) {
+    attempt = attempts?.get(attempt.attempt - 1);
+  }
+  const route = attempt?.route;
+  return route?.why === 'pull_request' && route.cause === 'merged_check';
+};
 
 /**
  * How the attempt ends when its merge's `result` stops it: blocked on a divergence when it

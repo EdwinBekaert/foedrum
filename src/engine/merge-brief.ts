@@ -1,6 +1,6 @@
 // When a brewed pull request is ready to merge (ADR 0225): the latest record of the checks on the
-// head the batch pushed finished with none failed, its latest base check found no conflict and no
-// failing check on the merged tree, and the batch is On tap. And the merge briefs the ledger
+// head the batch pushed finished with none failed, its latest base check of that head (ADR 0226)
+// found no conflict and no failing check on the merged tree, and the batch is On tap. And the merge briefs the ledger
 // recorded, one per ready record. Pure: the brief's effect and the status comment read it.
 
 import { createHash } from 'node:crypto';
@@ -8,7 +8,7 @@ import type { HeadCheck } from '../schemas/events.ts';
 import { MergeBrief } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
-import { type Batch, headChecksText, type State } from './fold.ts';
+import { type Batch, baseChecksOn, headChecksText, type State } from './fold.ts';
 import { checkPassed } from './pr-checks.ts';
 import { openOf } from './pull-request.ts';
 
@@ -35,8 +35,9 @@ export const readyOf = (state: State, batch: Batch): ReadyRecord | undefined => 
   if (latest?.kind !== 'finished' || latest.head !== open.head) return undefined;
   // A record keeps the failed checks first, so the ones it left out passed too.
   if (!latest.checks.every(({ conclusion }) => checkPassed(conclusion))) return undefined;
-  // A conflict or a failing check on the merged tree is open; a merged tree not checked is not.
-  const base = batch.baseChecks?.filter((check) => check.pullRequest === open.url).at(-1);
+  // A conflict or a failing check on the merged tree of this head is open; a merged tree not
+  // checked is not, nor an older head's (ADR 0226).
+  const base = baseChecksOn(batch, open.url, open.head).at(-1);
   if (base?.conflicts !== undefined || base?.failed !== undefined) return undefined;
   const { checks, more } = latest;
   return {
