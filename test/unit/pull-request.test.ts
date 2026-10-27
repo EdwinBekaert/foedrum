@@ -1661,6 +1661,14 @@ describe("the body says it is Foedrum's (ADR 0227)", () => {
     assert.deepEqual(bodyOwner('13-1', body), { kind: 'left', left: 'unmarked' });
   });
 
+  it('reads a marker-shaped last line whose key is no effect key as no marker, never throwing (review of #583)', () => {
+    const plain = pullRequestText({ title: 'T', closes, reports }).body;
+    for (const key of ['[oops]', '["12-1"]', '["12-1","pull_request",3]']) {
+      const odd = `${plain}\n\n${marker(key, plain)}`;
+      assert.deepEqual(bodyOwner('12-1', odd), { kind: 'left', left: 'unmarked' }, key);
+    }
+  });
+
   it('never reads a marker a brewer wrote into how it works as the last line', () => {
     const forged = (text: string) => marker('["12-1","pull_request"]', text);
     // In a fence, where how it works keeps a line as it is: outside one its `<` is escaped.
