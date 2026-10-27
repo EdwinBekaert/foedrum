@@ -107,4 +107,32 @@ describe('jobLogExcerpt', () => {
     assert.ok(excerpt.length <= MAX_TAIL_LENGTH, String(excerpt.length));
     assert.ok(excerpt.endsWith('not ok 2001 - adds\n##[error]Process completed with exit code 1.'));
   });
+
+  it('removes a link and a title escape, and a timestamp without fractions of a second', () => {
+    const bel = String.fromCodePoint(0x07);
+    const excerpt = jobLogExcerpt(
+      [
+        '2026-10-26T18:49:21Z ##[group]Run npm test',
+        `2026-10-26T18:49:21Z ${esc}]8;;https://example.test${esc}\\see${esc}]8;;${esc}\\ here`,
+        `2026-10-26T18:49:21Z ${esc}]0;title${bel}not ok 1 - adds`,
+        '2026-10-26T18:49:21Z ##[error]Process completed with exit code 1.',
+      ].join('\n'),
+    );
+    assert.equal(
+      excerpt,
+      [
+        '##[group]Run npm test',
+        'see here',
+        'not ok 1 - adds',
+        '##[error]Process completed with exit code 1.',
+      ].join('\n'),
+    );
+  });
+
+  it('keeps the log from its start when no step began before the first error', () => {
+    const excerpt = jobLogExcerpt(
+      stamped(['Preparing', '##[error]No runner could start', ...after]),
+    );
+    assert.equal(excerpt, 'Preparing\n##[error]No runner could start');
+  });
 });

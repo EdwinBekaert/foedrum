@@ -126,6 +126,19 @@ describe('createGitHubClient', () => {
       );
     });
 
+    it("pauses for GitHub's rate limit, and asks nothing more until the pause ends", async () => {
+      const { client, gh } = capturedClient([captured.rateLimited as GhOutput]);
+      assert.equal(
+        await limited(client.text('/repos/acme/web/actions/jobs/9/logs', 1000)),
+        at(600_000),
+      );
+      assert.equal(
+        await limited(client.text('/repos/acme/web/actions/jobs/10/logs', 1000)),
+        at(600_000),
+      );
+      assert.equal(gh.calls.length, 1);
+    });
+
     it('never asks for a path that is not one', async () => {
       const { client } = capturedClient([]);
       await assert.rejects(client.text('--hostname=evil', 1000), /starts with \//);

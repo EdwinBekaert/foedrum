@@ -253,6 +253,30 @@ describe('githubCheckReader', () => {
     );
   });
 
+  it('names no job of an Actions check run whose id is missing, zero or not a whole number', async () => {
+    const actions = { slug: 'github-actions' };
+    const { id: _, ...noId } = run('none', 'completed', 'failure');
+    const { reader } = readerWith([
+      runsPage([
+        { ...noId, app: actions },
+        { ...run('zero', 'completed', 'failure', 0), app: actions },
+        { ...run('half', 'completed', 'failure', 1.5), app: actions },
+        { ...run('huge', 'completed', 'failure', 2 ** 53), app: actions },
+      ]),
+      statusPage([]),
+    ]);
+    const read = await reader.checks(pullRequest, head);
+    assert.deepStrictEqual(
+      read.map(({ name, job }) => [name, job]),
+      [
+        ['none', undefined],
+        ['zero', undefined],
+        ['half', undefined],
+        ['huge', undefined],
+      ],
+    );
+  });
+
   it("reads a job's log as text, escape sequences allowed, outside the cached reads, and keeps its failing step", async () => {
     const { reader, calls } = logReaderWith({ stdout: blob('200 OK', jobLog), exitCode: 0 });
     assert.deepStrictEqual(await reader.log(pullRequest, 9), {
