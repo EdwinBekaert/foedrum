@@ -72,7 +72,7 @@ export function tailOf(output: string): string {
  * the lines the tail can keep are read, from the end, and of a long line only its end, so output
  * written to stall the patterns costs no more than a tail's worth.
  */
-function withoutSecrets(output: string): string {
+export function withoutSecrets(output: string): string {
   const lines = output.split('\n');
   // Counted as kept once left out, so the tail never reaches a line that was not read.
   let kept = 0;

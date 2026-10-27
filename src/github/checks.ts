@@ -1,7 +1,9 @@
 // The checks GitHub runs on an open pull request's head (ADR 0213): its head from the pull request,
 // then the check runs and the commit statuses on that commit, each list page after page through
-// conditional reads (ADR 0052). Everything it reads is untrusted input, checked field by field.
+// conditional reads (ADR 0052), and a failed Actions job's log, read once as text (ADR 0228).
+// Everything it reads is untrusted input, checked field by field.
 
+import { jobLogExcerpt } from '../checks/job-log.ts';
 import type { PullRequestCheckReader, ReadCheck } from '../engine/pr-checks.ts';
 import { CheckConclusion, HeadCheck, MAX_HEAD_CHECK_NAME_LENGTH } from '../schemas/events.ts';
 import { GitHubCheckRun, GitHubCommitStatus, GitHubPullRequestHead } from '../schemas/github.ts';
@@ -26,6 +28,7 @@ const readCheck = (
   kind: ReadCheck['kind'],
   conclusion: CheckConclusion | undefined,
   url: string | null | undefined,
+  job?: number,
 ): ReadCheck => {
   let cut = name.slice(0, MAX_HEAD_CHECK_NAME_LENGTH);
   // Never half a character: a high surrogate cut from its pair is left out.
@@ -35,13 +38,31 @@ const readCheck = (
     kind,
     ...(conclusion === undefined ? {} : { conclusion }),
     ...(HeadCheck.shape.url.unwrap().safeParse(url).success ? { url: url as string } : {}),
+    ...(job === undefined ? {} : { job }),
   };
+};
+
+/** The most of a job's log it reads, in bytes: a test suite's job prints about a megabyte. */
+const MAX_LOG_BYTES = 32 * 1024 * 1024;
+
+/** Why a job's log GitHub answered `status` to could not be read. */
+const unreadOf = (status: number): string => {
+  switch (status) {
+    case 404:
+      return 'GitHub has no log of it (404)';
+    case 410:
+      return 'it has expired (410)';
+    case 403:
+      return "gh's login may not read it (403)";
+    default:
+      return `GitHub answered ${status}`;
+  }
 };
 
 /** GitHub's checks through the cached `reads`, and a job's log through `client` (ADR 0228). */
 export const githubCheckReader = (
   reads: GitHubReads,
-  _client: GitHubClient,
+  client: GitHubClient,
 ): PullRequestCheckReader => ({
   head: async (url, signal) => {
     const { repo, number } = pullRequestOf(url);
@@ -72,7 +93,12 @@ export const githubCheckReader = (
       ...runs.map((item) => {
         const run = checked(GitHubCheckRun, item, runsOf);
         const conclusion = run.status === 'completed' ? conclusionOf(run.conclusion) : undefined;
-        return readCheck(run.name, 'check_run', conclusion, run.html_url);
+        // Only a check run of GitHub Actions is a job, whose id is its own.
+        const job =
+          run.app?.slug === 'github-actions' && Number.isSafeInteger(run.id) && (run.id ?? 0) > 0
+            ? run.id
+            : undefined;
+        return readCheck(run.name, 'check_run', conclusion, run.html_url, job);
       }),
       ...statuses.map((item) => {
         const status = checked(GitHubCommitStatus, item, statusesOf);
@@ -81,7 +107,17 @@ export const githubCheckReader = (
       }),
     ];
   },
-  log: async () => {
-    throw new Error('not implemented');
+  log: async (url, job, signal) => {
+    const { repo } = pullRequestOf(url);
+    // Not through the cached reads: a log is read once, and would fill the cache (ADR 0068).
+    const answer = await client.text(
+      `/repos/${repoPath(repo)}/actions/jobs/${job}/logs`,
+      MAX_LOG_BYTES,
+      signal,
+    );
+    if (answer.status !== 200) return { unread: unreadOf(answer.status) };
+    // What gh printed of a log it refused for its escape sequences, or a log with nothing in it.
+    if (answer.text.trim() === '') return { unread: 'it came back empty' };
+    return { excerpt: jobLogExcerpt(answer.text) };
   },
 });
