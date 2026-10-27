@@ -341,6 +341,7 @@ describe('claudeBrewerRunner: the setup before claude (ADR 0163)', () => {
         return { kind: 'counted', count: 1 };
       },
       scan: async () => ({ kind: 'scanned', findings: [] }),
+      touches: async (_clone, _commit, paths) => ({ kind: 'read', present: new Set(paths) }),
     });
     return { runner, order, setups };
   };

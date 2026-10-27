@@ -191,7 +191,10 @@ const marker = (revision: number, batchId = '7-1'): string =>
   effectMarker(effectKey.encode({ batchId, effect: `plan.${revision}` }));
 const planned = (plan: PlanReport): Ending => ({
   kind: 'succeeded',
-  output: { status: 'done', summary: 'A plan', assumptions: [], ...plan },
+  // Through JSON, as the event log keeps an outcome.
+  output: JSON.parse(
+    JSON.stringify({ status: 'done', summary: 'A plan', assumptions: [], ...plan }),
+  ),
 });
 const second: PlanReport = { subOrders: [subOrder('api'), subOrder('docs')] };
 
@@ -252,7 +255,7 @@ describe('planEffects (ADR 0233)', () => {
   it('makes no comment before a plan succeeded, nor for a plan that asks a question', async () => {
     order();
     const driver = await open();
-    await driver.tick();
+    await driver.applyEffects();
     const question = { q: 'Two?', options: ['one', 'two'], recommended: 'two', whyBlocking: 'cut' };
     issue({
       kind: 'record',
@@ -265,7 +268,7 @@ describe('planEffects (ADR 0233)', () => {
       attempt: 1,
       ending: { kind: 'needs_input', questions: [question] },
     });
-    await driver.tick();
+    await driver.applyEffects();
     assert.deepEqual(comments.comments, []);
   });
 
@@ -273,7 +276,7 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     const driver = await open();
-    await driver.tick();
+    await driver.applyEffects();
     const comment = only();
     assert.equal(comment.repo, brewery);
     assert.equal(comment.issue, 7);
@@ -287,11 +290,11 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     const driver = await open();
-    await driver.tick();
-    await driver.tick();
+    await driver.applyEffects();
+    await driver.applyEffects();
     assert.equal(revision(2), undefined);
     step('replan', planned(second));
-    await driver.tick();
+    await driver.applyEffects();
     assert.equal(only().body, `${renderPlan('7-1', 'replan', second)}\n\n${marker(2)}`);
     assert.deepEqual(
       comments.calls.filter((call) => call !== 'read' && call !== 'find'),
@@ -303,10 +306,10 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     const driver = await open();
-    await driver.tick();
+    await driver.applyEffects();
     comments.comments.splice(0);
     step('replan', planned(second));
-    await driver.tick();
+    await driver.applyEffects();
     const comment = only();
     assert.equal(comment.id, 2);
     assert.ok(comment.body.endsWith(marker(2)));
@@ -320,16 +323,16 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     const driver = await open();
-    await driver.tick();
+    await driver.applyEffects();
     step('replan', planned(second));
     // A run that was killed had edited the comment to revision 2 and recorded nothing.
     only().body = `${renderPlan('7-1', 'replan', second)}\n\n${marker(2)}`;
-    await driver.tick();
+    await driver.applyEffects();
     assert.deepEqual(revision(2), {
       result: { comment: 1, digest: digest(renderPlan('7-1', 'replan', second)) },
     });
     assert.equal(comments.calls.includes('edit'), false);
-    await driver.tick();
+    await driver.applyEffects();
     assert.equal(revision(3), undefined);
   });
 
@@ -338,10 +341,10 @@ describe('planEffects (ADR 0233)', () => {
     step('plan', planned(three));
     step('replan', planned(three));
     const driver = await open();
-    await driver.tick();
+    await driver.applyEffects();
     order('7-2');
     step('plan', planned(second), '7-2');
-    await driver.tick();
+    await driver.applyEffects();
     assert.equal(only().body, `${renderPlan('7-2', 'plan', second)}\n\n${marker(1, '7-2')}`);
     assert.deepEqual(revision(1, '7-2')?.result, {
       comment: 1,

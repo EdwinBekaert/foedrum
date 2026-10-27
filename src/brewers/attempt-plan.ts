@@ -34,6 +34,7 @@ import {
   tastingOf,
   tastingOutDocOf,
 } from '../schemas/out-doc.ts';
+import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
@@ -118,8 +119,8 @@ export function attemptLimits(
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
-  // changes (ADR 0166), a Gauger's with its tests (ADR 0170); every other out doc against the
-  // contract's schema.
+  // changes (ADR 0166), a Gauger's with its tests (ADR 0170), a plan with its sub-orders (ADR 0233);
+  // every other out doc against the contract's schema.
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
@@ -132,7 +133,9 @@ export function attemptLimits(
           ? FiningOutDoc
           : name === GAUGE
             ? GaugeOutDoc
-            : OutDocFrontmatter;
+            : name === PLAN
+              ? PlanOutDoc
+              : OutDocFrontmatter;
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),

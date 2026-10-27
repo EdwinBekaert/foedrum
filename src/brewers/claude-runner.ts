@@ -34,6 +34,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import type { Ending } from '../engine/decide.ts';
+import { type PlanRepository, type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { pathInside } from '../platform/paths.ts';
 import {
@@ -54,6 +55,7 @@ import {
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
+import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { type AttemptSystemPrompt, outDocCopyOf } from './attempt-plan.ts';
 import {
   type AttemptPermissions,
@@ -93,6 +95,11 @@ export interface ClaudeAttemptPlan {
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
+  /**
+   * For a brewer whose out doc is a plan: each repository of the Brewery, its clone and the commit
+   * the plan's paths in it are checked at once it is done (ADR 0233).
+   */
+  touches?: readonly PlanRepository[];
   /**
    * For a resumed run after a turn overrun: the copy of the out doc the run before left. The
    * runner keeps the out doc in the worktree, or puts this copy back there (ADR 0175).
@@ -150,6 +157,8 @@ export interface ClaudeRunnerDeps {
    * (ADR 0187).
    */
   scan: ScanCommits;
+  /** Reads which paths of a done plan exist at a commit in a repository's clone (ADR 0233). */
+  touches: ReadPaths;
 }
 
 /**
@@ -594,9 +603,15 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         sessionStarted: seen.session !== undefined,
         ...(commits === undefined ? {} : { commits }),
       };
-      // Its retry can write another way what the push would refuse (ADR 0187).
-      const ending = await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal);
-      // A stop while scanning kills git: the attempt was stopped, git did not fail.
+      // Its retry can write another way what the push would refuse (ADR 0187), or a plan with
+      // the paths that exist (ADR 0233).
+      const ending = await touchesChecked(
+        deps.touches,
+        await scannedIfDone(deps.scan, facts, limits, plan, stopping.signal),
+        plan.touches,
+        stopping.signal,
+      );
+      // A stop while scanning or reading the plan's paths kills git: the attempt was stopped, git did not fail.
       if (!stopped && stopping.signal.aborted) return withReadings({ ...cancelled(), ...reported });
       // Its retry resumes in a worktree that may have to be recreated without it (ADR 0175).
       if (ending.kind === 'failed' && ending.overran === 'turns' && facts.outDoc !== undefined) {
@@ -643,5 +658,6 @@ export function claudeBrewerRunner(
     wait: waitFor,
     commits: countCommits(runGit),
     scan: scanAttemptCommits(runGit),
+    touches: readPathsAt(runGit),
   });
 }

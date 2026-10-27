@@ -29,7 +29,9 @@ const subOrder = (id: string, repo: string, touches: { path: string; new?: true 
 
 const succeeded = (...subOrders: unknown[]): Ending => ({
   kind: 'succeeded',
-  output: { status: 'done', summary: 'A plan', assumptions: [], subOrders },
+  output: JSON.parse(
+    JSON.stringify({ status: 'done', summary: 'A plan', assumptions: [], subOrders }),
+  ),
 });
 
 /** A fake read: the paths each clone has, and every call it was given. */

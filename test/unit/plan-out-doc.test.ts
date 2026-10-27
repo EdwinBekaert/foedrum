@@ -6,7 +6,7 @@ import { PlanOutDoc, planOf } from '../../src/schemas/plan.ts';
 const outDoc = (frontmatter: unknown): string =>
   `---\n${JSON.stringify(frontmatter, null, 2)}\n---\n# Plan\n`;
 
-const subOrder = (id: string, more: Record<string, unknown> = {}) => ({
+const subOrder = (id: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({
   id,
   title: `Build ${id}`,
   repo: 'acme/api',
