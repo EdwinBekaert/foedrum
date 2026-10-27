@@ -226,6 +226,13 @@ describe('PlanOutDoc (ADR 0233)', () => {
     });
     assert.equal(refused(done([reasoned])), undefined);
     assert.equal(refused(done(chain([]))), undefined);
+    // Regression test (review of #607): two sub-orders may wait for the same one.
+    const fanOut = [
+      subOrder('api'),
+      subOrder('ui', { dependencies: [{ on: 'api', kind: 'code' }] }),
+      subOrder('docs', { dependencies: [{ on: 'api', kind: 'code' }] }),
+    ];
+    assert.equal(refused(done(fanOut)), undefined);
     assert.equal(refused(done(many.slice(0, 100))), undefined);
   });
 

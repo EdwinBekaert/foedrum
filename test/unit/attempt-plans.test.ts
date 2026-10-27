@@ -745,6 +745,29 @@ describe('createAttemptPlans: plan', () => {
       });
     });
 
+    it("reads the base no more after a fetch that fails, and carries git's reason when the base is still missing after one that succeeds (regression test)", async () => {
+      const failing = planning(
+        () => none,
+        async () => {
+          throw new Error('offline');
+        },
+      );
+      await failing.plans.plan(start);
+      assert.deepEqual(failing.calls, [`${web} ${resolve.join(' ')}`, 'fetch acme/web']);
+      const missing = planning(() => none);
+      const [, other] = (await missing.plans.plan(start)).touches ?? [];
+      assert.deepEqual(other, {
+        repo: 'acme/web',
+        clone: web,
+        unread: `the base origin/trunk of acme/web was not read: git ${resolve.join(' ')} exited with code 128: fatal: Needed a single revision`,
+      });
+      assert.deepEqual(missing.calls, [
+        `${web} ${resolve.join(' ')}`,
+        'fetch acme/web',
+        `${web} ${resolve.join(' ')}`,
+      ]);
+    });
+
     it('keeps where the commits of a plan brewer that commits are counted', async () => {
       const { plans } = planning(() => at, undefined, {
         produces: 'commits',

@@ -129,6 +129,31 @@ describe('openAttemptWorktrees with a fake git', () => {
       await assert.rejects(open(fails.git).fetch(), /fetch/);
     });
 
+    it("runs one fetch at a time: a second waits for the first, as create's does (regression test)", async () => {
+      const seen: string[] = [];
+      let release = (): void => {};
+      const held = new Promise<void>((done) => {
+        release = done;
+      });
+      let fetches = 0;
+      const git: Git = async (_cwd, args) => {
+        if (args[0] !== 'fetch') return ok();
+        fetches += 1;
+        const n = fetches;
+        seen.push(`start ${n}`);
+        if (n === 1) await held;
+        seen.push(`end ${n}`);
+        return ok();
+      };
+      const worktrees = open(git);
+      const both = Promise.all([worktrees.fetch(), worktrees.fetch()]);
+      await new Promise((done) => setImmediate(done));
+      assert.deepEqual(seen, ['start 1']);
+      release();
+      await both;
+      assert.deepEqual(seen, ['start 1', 'end 1', 'start 2', 'end 2']);
+    });
+
     it('fetches by the remote it is given', async () => {
       const { calls, git } = fakeGit((_cwd, args) => {
         if (args.includes('upstream/main^{commit}')) return ok(`${BASE}\n`);
