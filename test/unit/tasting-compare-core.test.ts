@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
@@ -21,9 +21,12 @@ import {
   summarize,
   tableMarkdown,
 } from '../../scripts/tasting-compare/core.ts';
+import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
+import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const fixture = join(import.meta.dirname, '..', 'fixtures', 'tasting-compare');
 
@@ -176,6 +179,20 @@ describe('the setups', () => {
       assert.equal(recipe.name, name);
       const tasters = JSON.stringify(recipe.steps.slice(1));
       assert.doesNotMatch(tasters, /"brewer":"(?!taster")/, name);
+    }
+  });
+
+  it("give each a recipe a Brewery loads with Foedrum's defaults", () => {
+    const brewery = makeTempDir('tasting-compare');
+    try {
+      for (const name of ['apart-7', 'together-7', 'together-nip'] as const) {
+        mkdirSync(join(brewery.path, 'recipes'), { recursive: true });
+        writeFileSync(join(brewery.path, 'recipes', `${name}.jsonc`), recipeText(name));
+      }
+      const loaded = loadRecipes(readBreweryFiles(brewery.path));
+      assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
+    } finally {
+      brewery.remove();
     }
   });
 
