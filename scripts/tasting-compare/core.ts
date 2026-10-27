@@ -540,9 +540,20 @@ export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): str
 };
 
 /** The dry run's Tasters: each step reports the key's defects of its lenses (#567). */
-export const scriptedTastings = (
-  _setup: SetupName,
-  _key: Key,
-): Record<string, readonly Scripted[]> => {
-  throw new Error('not implemented');
-};
+export const scriptedTastings = (setup: SetupName, key: Key): Record<string, readonly Scripted[]> =>
+  Object.fromEntries(
+    [...tasterSteps(setup)].map(([stepId, lenses]) => {
+      // A one-lens step's findings are its lens's; a lenses step's each name theirs (ADR 0220).
+      const findings = defectsOf(key, lenses).map(({ lens, file, lines, what }) => ({
+        file,
+        line: lines[0]?.[0] ?? 1,
+        severity: 'major' as const,
+        why: what,
+        introduced: true,
+        ...(lenses.length > 1 ? { lens } : {}),
+      }));
+      const tasting = { verdict: findings.length === 0 ? 'approve' : 'changes', findings } as const;
+      const summary = `The dry run's scripted Taster: ${findings.length} planted defects.`;
+      return [stepId, [{ files: {}, message: '', summary, tasting }]];
+    }),
+  );
