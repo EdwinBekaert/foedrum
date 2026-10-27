@@ -63,15 +63,16 @@ jobs:
       # once per run, in the audit job (ADR 0119).
       - run: npm audit signatures
 
-      # The same command contributors run locally; npm test enforces the coverage thresholds and
-      # fails when one test file takes more than 5 s (scripts/test-budget-reporter.ts). The time
-      # it took goes to the summary: it should stay under 20 s on a developer machine (ADR 0021).
+      # The command contributors run locally, with --all: every test file, not only the ones the
+      # change reaches, through npm test, which enforces the coverage thresholds and fails when one
+      # test file takes more than 5 s (scripts/test-budget-reporter.ts). This is the full gate a
+      # merge waits for (ADR 0241). The time it took goes to the summary.
       - name: npm run check
         id: check
         run: |
           start=$(date +%s)
           status=0
-          npm run check 2>&1 | tee "$RUNNER_TEMP/check.log" || status=$?
+          npm run check -- --all 2>&1 | tee "$RUNNER_TEMP/check.log" || status=$?
           echo "npm run check took $(( $(date +%s) - start )) s" | tee "$RUNNER_TEMP/check-time.txt"
           exit "$status"
 
