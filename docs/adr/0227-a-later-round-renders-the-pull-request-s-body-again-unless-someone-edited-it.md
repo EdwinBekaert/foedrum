@@ -16,7 +16,7 @@ GitHub has no conditional update of a pull request: `PATCH /repos/{owner}/{repo}
 ## Decision
 
 ### The body says it is Foedrum's
-- **Every body Foedrum writes ends with a marker line** that names its effect's key and the digest of the text above it, as a status comment's revision does ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)): `<!-- foedrum:<key> sha256:<16 hex> -->`, the key `["<batch>","pull_request"]` for the open's body and `["<batch>","body.<n>"]` for round n's (`markedBody`, `src/engine/pull-request.ts`).
+- **Every body Foedrum writes ends with a marker line** that names its effect's key and the digest of the text above it, as a status comment's revision does ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)): `<!-- foedrum:<key> sha256:<16 hex> -->`, the key `["<batch>","pull_request"]` for the open's body and `["<batch>","body.<n>"]` for round n's (`pullRequestText` given its `key`, `src/engine/pull-request.ts`).
 - The digest is the first 16 hex digits of the SHA-256 of the text above the marker, its line endings made `\n` and its end trimmed.
 - `pullRequestText` keeps room for the marker under GitHub's limit, so a body cut to length still ends with it.
 - **A body is Foedrum's own when its last line is a marker of the batch and the digest of the text above it matches** (`bodyOwner`).
