@@ -18,7 +18,14 @@ import {
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { checkLines, renderStatus } from '../../src/engine/status-comment.ts';
-import { type CheckConclusion, type Event, MAX_HEAD_CHECKS } from '../../src/schemas/events.ts';
+import {
+  type CheckConclusion,
+  type CheckLog,
+  type Event,
+  MAX_HEAD_CHECKS,
+  MAX_LOG_UNREAD_LENGTH,
+  MOST_FAILED_CHECKS,
+} from '../../src/schemas/events.ts';
 import type { PushResult } from '../../src/schemas/store.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
@@ -49,8 +56,20 @@ const failing = (name: string, conclusion: CheckConclusion, url?: string): ReadC
   ...(url === undefined ? {} : { url }),
 });
 
-/** A reader whose pull request heads `state.head`, with the checks of each head in `checks`. */
-const fakeReader = (checks: Record<string, readonly ReadCheck[] | Error>) => {
+/** A failed Actions job: a check run with the id of its job, whose log the reader reads. */
+const failedJob = (name: string, job: number): ReadCheck => ({
+  ...failing(name, 'failure', `https://github.com/acme/web/actions/runs/1/job/${job}`),
+  job,
+});
+
+/**
+ * A reader whose pull request heads `state.head`, with the checks of each head in `checks`, and
+ * the log of each job in `logs`.
+ */
+const fakeReader = (
+  checks: Record<string, readonly ReadCheck[] | Error>,
+  logs: Record<number, CheckLog | Error> = {},
+) => {
   const state = { head: head as string | Error };
   const calls: string[] = [];
   const reader: PullRequestCheckReader = {
@@ -63,6 +82,13 @@ const fakeReader = (checks: Record<string, readonly ReadCheck[] | Error>) => {
       calls.push(`checks ${url} ${sha.slice(0, 1)}`);
       const found = checks[sha];
       if (found === undefined) throw new Error(`no checks for ${sha}`);
+      if (found instanceof Error) throw found;
+      return found;
+    },
+    log: async (url, job) => {
+      calls.push(`log ${url} ${job}`);
+      const found = logs[job];
+      if (found === undefined) throw new Error(`no log for ${job}`);
       if (found instanceof Error) throw found;
       return found;
     },
@@ -376,6 +402,7 @@ describe('recordChecks', () => {
         stop.abort();
         return [passed('build')];
       },
+      log: async () => ({ excerpt: 'never read' }),
     };
     await pass(reader, stop.signal);
     assert.deepStrictEqual(types(), []);
@@ -482,6 +509,133 @@ describe('recordChecks', () => {
     assert.deepStrictEqual(checkLines(batch()), [
       `- <${pullRequest}> passed its checks on \`aaaaaaaa\``,
     ]);
+  });
+
+  it("keeps each failed Actions job's log on its check, and reads none of anything else", async () => {
+    onTap();
+    const { reader, calls } = fakeReader(
+      {
+        [head]: [
+          { ...passed('build'), job: 1 },
+          failedJob('test', 9),
+          { name: 'deploy', kind: 'status', conclusion: 'error' },
+          failing('lint', 'failure'),
+        ],
+      },
+      { 9: { excerpt: 'not ok 1 - adds' } },
+    );
+    await pass(reader);
+    assert.deepStrictEqual(failures, []);
+    assert.deepStrictEqual(batch().pullRequestChecks?.[pullRequest], {
+      kind: 'finished',
+      head,
+      checks: [
+        {
+          name: 'test',
+          kind: 'check_run',
+          conclusion: 'failure',
+          url: 'https://github.com/acme/web/actions/runs/1/job/9',
+          log: { excerpt: 'not ok 1 - adds' },
+        },
+        { name: 'deploy', kind: 'status', conclusion: 'error' },
+        { name: 'lint', kind: 'check_run', conclusion: 'failure' },
+        { name: 'build', kind: 'check_run', conclusion: 'success' },
+      ],
+    });
+    assert.deepStrictEqual(
+      calls.filter((call) => call.startsWith('log')),
+      [`log ${pullRequest} 9`],
+    );
+  });
+
+  it('reads no log again on a pass whose record did not change', async () => {
+    onTap();
+    const { reader, calls } = fakeReader(
+      { [head]: [failedJob('test', 9)] },
+      { 9: { excerpt: 'not ok 1 - adds' } },
+    );
+    await pass(reader);
+    await pass(reader);
+    assert.deepStrictEqual(types(), ['pull_request.checks_finished']);
+    assert.equal(calls.filter((call) => call.startsWith('log')).length, 1);
+  });
+
+  it('records a re-run that turned the job green without a log, and reads none', async () => {
+    onTap();
+    await pass(
+      fakeReader({ [head]: [failedJob('test', 9)] }, { 9: { excerpt: 'not ok 1' } }).reader,
+    );
+    const green = fakeReader({ [head]: [{ ...passed('test'), job: 9 }] });
+    await pass(green.reader);
+    assert.deepStrictEqual(batch().pullRequestChecks?.[pullRequest], {
+      kind: 'finished',
+      head,
+      checks: [{ name: 'test', kind: 'check_run', conclusion: 'success' }],
+    });
+    assert.deepStrictEqual(
+      green.calls.filter((call) => call.startsWith('log')),
+      [],
+    );
+  });
+
+  it(`reads the logs of the first ${MOST_FAILED_CHECKS} failed jobs only`, async () => {
+    onTap();
+    const jobs = Array.from({ length: MOST_FAILED_CHECKS + 2 }, (_, n) => failedJob(`t${n}`, n));
+    const logs = Object.fromEntries(jobs.map((_, n) => [n, { excerpt: `log ${n}` }]));
+    const { reader, calls } = fakeReader({ [head]: jobs }, logs);
+    await pass(reader);
+    const record = batch().pullRequestChecks?.[pullRequest];
+    assert.equal(record?.kind, 'finished');
+    assert.deepStrictEqual(
+      record.checks.map(({ log }) => log),
+      [
+        ...jobs.slice(0, MOST_FAILED_CHECKS).map((_, n) => ({ excerpt: `log ${n}` })),
+        undefined,
+        undefined,
+      ],
+    );
+    assert.equal(calls.filter((call) => call.startsWith('log')).length, MOST_FAILED_CHECKS);
+  });
+
+  it('records the checks with why a log could not be read when its read fails', async () => {
+    onTap();
+    const token = ['ghp', 'B'.repeat(36)].join('_');
+    const { reader } = fakeReader(
+      { [head]: [failedJob('a', 1), failedJob('b', 2), failedJob('c', 3)] },
+      {
+        1: new Error("GitHub's answer to GET /x is longer than 33554432 bytes\nand more"),
+        2: new Error(`gh failed: ${token}`),
+        3: new Error('x'.repeat(500)),
+      },
+    );
+    await pass(reader);
+    assert.deepStrictEqual(failures, []);
+    const record = batch().pullRequestChecks?.[pullRequest];
+    assert.equal(record?.kind, 'finished');
+    const [a, b, c] = record.checks.map(({ log }) => log);
+    assert.deepStrictEqual(a, {
+      unread: "GitHub's answer to GET /x is longer than 33554432 bytes",
+    });
+    assert.ok(b !== undefined && 'unread' in b);
+    assert.doesNotMatch(b.unread, new RegExp(token));
+    assert.ok(c !== undefined && 'unread' in c);
+    assert.ok(c.unread.length <= MAX_LOG_UNREAD_LENGTH);
+  });
+
+  it('records nothing once its pass is given up while it reads a log', async () => {
+    onTap();
+    const stop = new AbortController();
+    const reader: PullRequestCheckReader = {
+      head: async () => head,
+      checks: async () => [failedJob('test', 9)],
+      log: async () => {
+        stop.abort();
+        throw new Error('stopped');
+      },
+    };
+    await pass(reader, stop.signal);
+    assert.deepStrictEqual(types(), []);
+    assert.deepStrictEqual(failures, []);
   });
 
   it('waits again for a check that registers on a head after its checks finished', async () => {

@@ -91,6 +91,47 @@ const capturedClient = (outputs: GhOutput[], options = {}) => {
 };
 
 describe('createGitHubClient', () => {
+  describe('an answer kept as text (ADR 0228)', () => {
+    it('asks with escape sequences allowed, under its own limit, and never parses the answer', async () => {
+      const esc = String.fromCodePoint(0x1b);
+      for (const body of ['true', '12', `${esc}[31mred${esc}[0m\nnext`]) {
+        const { client, gh } = capturedClient([
+          { stdout: printed('200 OK', ['Content-Type: text/plain'], body), exitCode: 0 },
+        ]);
+        const answer = await client.text('/repos/acme/web/actions/jobs/9/logs', 1000);
+        assert.equal(answer.status, 200);
+        assert.equal(answer.text, body);
+        assert.equal(answer.headers.get('content-type'), 'text/plain');
+        const call = gh.calls[0];
+        assert.ok(call !== undefined);
+        assert.equal(call.args.at(-1), '/repos/acme/web/actions/jobs/9/logs');
+        assert.equal(flagValue(call.args, '--method'), 'GET');
+        assert.ok(call.args.includes('--allow-escape-sequences'));
+        assert.ok((call.options.maxOutputBytes ?? 0) > 1000);
+        assert.ok((call.options.maxOutputBytes ?? 0) < 4 * 1024 * 1024);
+      }
+    });
+
+    it('answers a refusal with its status, and fails an answer longer than its limit', async () => {
+      const { client } = capturedClient([
+        captured.notFound as GhOutput,
+        { stdout: printed('200 OK', [], 'x'.repeat(1001)), exitCode: 0 },
+      ]);
+      const missing = await client.text('/repos/acme/web/actions/jobs/9/logs', 1000);
+      assert.equal(missing.status, 404);
+      assert.equal(missing.text, '{"message":"Not Found"}');
+      await assert.rejects(
+        client.text('/repos/acme/web/actions/jobs/9/logs', 1000),
+        /longer than 1000 bytes/,
+      );
+    });
+
+    it('never asks for a path that is not one', async () => {
+      const { client } = capturedClient([]);
+      await assert.rejects(client.text('--hostname=evil', 1000), /starts with \//);
+    });
+  });
+
   describe('through gh api (ADR 0073)', () => {
     it('runs gh api --include on the host with the method, the headers and the path', async () => {
       const { client, gh } = capturedClient([captured.ok as GhOutput]);

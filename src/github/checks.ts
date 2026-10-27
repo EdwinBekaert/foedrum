@@ -7,6 +7,7 @@ import { CheckConclusion, HeadCheck, MAX_HEAD_CHECK_NAME_LENGTH } from '../schem
 import { GitHubCheckRun, GitHubCommitStatus, GitHubPullRequestHead } from '../schemas/github.ts';
 import { CommitSha } from '../schemas/store.ts';
 import { checked, refused, repoPath } from './answers.ts';
+import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
 import { pullRequestOf } from './tracker.ts';
 
@@ -37,7 +38,11 @@ const readCheck = (
   };
 };
 
-export const githubCheckReader = (reads: GitHubReads): PullRequestCheckReader => ({
+/** GitHub's checks through the cached `reads`, and a job's log through `client` (ADR 0228). */
+export const githubCheckReader = (
+  reads: GitHubReads,
+  _client: GitHubClient,
+): PullRequestCheckReader => ({
   head: async (url, signal) => {
     const { repo, number } = pullRequestOf(url);
     const what = `the pull request ${repo}#${number}`;
@@ -75,5 +80,8 @@ export const githubCheckReader = (reads: GitHubReads): PullRequestCheckReader =>
         return readCheck(status.context, 'status', conclusion, status.target_url);
       }),
     ];
+  },
+  log: async () => {
+    throw new Error('not implemented');
   },
 });

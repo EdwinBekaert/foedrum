@@ -7,9 +7,10 @@ import { describe, it } from 'node:test';
 import { githubCheckReader } from '../../src/github/checks.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
+import type { ExecProcess } from '../../src/platform/processes.ts';
 import { MAX_HEAD_CHECK_URL_LENGTH } from '../../src/schemas/events.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
-import { ghOver } from '../helpers/fake-gh.ts';
+import { flagValue, ghOver } from '../helpers/fake-gh.ts';
 
 const api = 'https://api.github.com';
 const pullRequest = 'https://github.com/acme/web/pull/12';
@@ -20,8 +21,39 @@ const statuses = `${api}/repos/acme/web/commits/${head}/status?per_page=10`;
 const readerWith = (answers: Answer[]) => {
   const fake = fakeFetch(answers);
   const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
-  return { reader: githubCheckReader(createGitHubReads(client)), requests: fake.requests };
+  return { reader: githubCheckReader(createGitHubReads(client), client), requests: fake.requests };
 };
+
+/**
+ * A reader whose gh prints `printed` for a job's log, as `gh api --include` does: a log is plain
+ * text, served by the blob store GitHub redirects to.
+ */
+const logReaderWith = (
+  printed: { stdout: string; stderr?: string; exitCode: number } | 'too long',
+) => {
+  const calls: { args: readonly string[]; maxOutputBytes: number | undefined }[] = [];
+  const exec: ExecProcess = async (_file, args, options) => {
+    calls.push({ args, maxOutputBytes: options.maxOutputBytes });
+    if (printed === 'too long') {
+      return { exitCode: null, stdout: '', stderr: '', output: '', killed: 'too-much-output' };
+    }
+    const { stdout, stderr = '', exitCode } = printed;
+    return { exitCode, stdout, stderr, output: `${stdout}${stderr}` };
+  };
+  const client = createGitHubClient({ exec });
+  return { reader: githubCheckReader(createGitHubReads(client), client), calls };
+};
+const blob = (status: string, body: string) =>
+  `HTTP/1.1 ${status}\r\nContent-Type: text/plain\r\nServer: Windows-Azure-Blob/1.0\r\n\r\n${body}`;
+const esc = String.fromCodePoint(0x1b);
+const jobLog = [
+  '2026-10-26T18:47:17.4709227Z ##[group]Run npm test',
+  `2026-10-26T18:47:17.4709227Z ${esc}[36;1mnpm test${esc}[0m`,
+  '2026-10-26T18:47:17.4709227Z ##[endgroup]',
+  '2026-10-26T18:49:21.6668871Z not ok 1 - adds',
+  '2026-10-26T18:49:21.7159496Z ##[error]Process completed with exit code 1.',
+  '2026-10-26T18:49:28.2565322Z Post job cleanup.',
+].join('\n');
 
 const run = (name: string, status: string, conclusion: string | null, id = 1) => ({
   id,
@@ -198,6 +230,79 @@ describe('githubCheckReader', () => {
       // A context GitHub gives empty is still a check; it is named by its kind.
       { name: 'status', kind: 'status', conclusion: 'success', url: 'https://ci.example/2' },
     ]);
+  });
+
+  it('names the job of a GitHub Actions check run, and of no other check', async () => {
+    const { reader } = readerWith([
+      runsPage([
+        { ...run('test', 'completed', 'failure', 9), app: { slug: 'github-actions' } },
+        { ...run('scan', 'completed', 'failure', 10), app: { slug: 'some-app' } },
+        run('lint', 'completed', 'failure', 11),
+      ]),
+      statusPage([status('deploy', 'error', null)]),
+    ]);
+    const read = await reader.checks(pullRequest, head);
+    assert.deepStrictEqual(
+      read.map(({ name, job }) => [name, job]),
+      [
+        ['test', 9],
+        ['scan', undefined],
+        ['lint', undefined],
+        ['deploy', undefined],
+      ],
+    );
+  });
+
+  it("reads a job's log as text, escape sequences allowed, outside the cached reads, and keeps its failing step", async () => {
+    const { reader, calls } = logReaderWith({ stdout: blob('200 OK', jobLog), exitCode: 0 });
+    assert.deepStrictEqual(await reader.log(pullRequest, 9), {
+      excerpt: [
+        '##[group]Run npm test',
+        'npm test',
+        '##[endgroup]',
+        'not ok 1 - adds',
+        '##[error]Process completed with exit code 1.',
+      ].join('\n'),
+    });
+    assert.equal(calls.length, 1);
+    const [call] = calls;
+    assert.ok(call !== undefined);
+    assert.equal(call.args.at(-1), '/repos/acme/web/actions/jobs/9/logs');
+    assert.equal(flagValue(call.args, '--method'), 'GET');
+    assert.ok(call.args.includes('--allow-escape-sequences'));
+    assert.ok(!call.args.some((arg) => /^if-none-match/i.test(arg)));
+    assert.ok((call.maxOutputBytes ?? 0) >= 32 * 1024 * 1024);
+  });
+
+  for (const [status, why] of [
+    ['404 Not Found', 'GitHub has no log of it (404)'],
+    ['410 Gone', 'it has expired (410)'],
+    ['403 Forbidden', "gh's login may not read it (403)"],
+    ['500 Internal Server Error', 'GitHub answered 500'],
+  ] as const) {
+    it(`says why a log it cannot read could not be read: ${status}`, async () => {
+      const { reader } = logReaderWith({
+        stdout: blob(status, '{"message":"x"}'),
+        stderr: 'gh: HTTP error',
+        exitCode: 1,
+      });
+      assert.deepStrictEqual(await reader.log(pullRequest, 9), { unread: why });
+    });
+  }
+
+  it('says a log came back empty when gh refuses to print its escape sequences', async () => {
+    const { reader } = logReaderWith({
+      stdout: blob('200 OK', ''),
+      stderr:
+        'the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway\n',
+      exitCode: 1,
+    });
+    assert.deepStrictEqual(await reader.log(pullRequest, 9), { unread: 'it came back empty' });
+  });
+
+  it('fails a log longer than its limit', async () => {
+    const { reader } = logReaderWith('too long');
+    await assert.rejects(reader.log(pullRequest, 9), /longer than 33554432 bytes/);
   });
 
   it('refuses an answer that is not a list of checks, and a head that is no commit sha', async () => {

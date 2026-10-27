@@ -36,6 +36,13 @@ export interface GitHubAnswer {
   bytes: number;
 }
 
+/** What GitHub answered as text: its status, its body as gh printed it, and its headers. */
+export interface GitHubTextAnswer {
+  status: number;
+  text: string;
+  headers: Headers;
+}
+
 /**
  * GitHub's rate limit holds requests until `until` (ADR 0052): the request that met it, and every
  * request of this client before then, fails with it without reaching GitHub.
@@ -63,6 +70,11 @@ export interface GitHubClient {
     signal?: AbortSignal,
     headers?: Readonly<Record<string, string>>,
   ): Promise<GitHubAnswer>;
+  /**
+   * `GET path` with its answer kept as text, never parsed, escape sequences and all, up to
+   * `maxBytes`, which also bounds gh's output: a job's log (ADR 0228).
+   */
+  text(path: string, maxBytes: number, signal?: AbortSignal): Promise<GitHubTextAnswer>;
   /** A GraphQL request; an answer that is not 200 fails. */
   graphql(
     query: string,
@@ -305,6 +317,9 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
   return {
     baseUrl,
     rest: request,
+    text: async () => {
+      throw new Error('not implemented');
+    },
     graphql: async (query, variables, signal) => {
       const answer = await request('POST', GRAPHQL, { query, variables }, signal);
       if (answer.status !== 200)

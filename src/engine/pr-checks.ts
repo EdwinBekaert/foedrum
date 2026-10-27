@@ -3,14 +3,25 @@
 // records when it began to wait for them and, once they have all finished, how each one finished.
 // There is no deadline: the engine waits as long as they run, and the status comment says so.
 
-import { type CheckConclusion, type HeadCheck, MAX_HEAD_CHECKS } from '../schemas/events.ts';
+import {
+  type CheckConclusion,
+  type CheckLog,
+  type HeadCheck,
+  MAX_HEAD_CHECKS,
+} from '../schemas/events.ts';
 import type { CommandLog } from './command-log.ts';
 import type { RecordedEvent } from './decide.ts';
 import { sameHeadChecks } from './fold.ts';
 import { openOf } from './pull-request.ts';
 
-/** A check on a pull request's head as the code host has it now; no `conclusion` while it runs. */
-export type ReadCheck = Omit<HeadCheck, 'conclusion'> & { conclusion?: CheckConclusion };
+/**
+ * A check on a pull request's head as the code host has it now; no `conclusion` while it runs;
+ * `job`: the id of the GitHub Actions job it is, whose log the reader can read (ADR 0228).
+ */
+export type ReadCheck = Omit<HeadCheck, 'conclusion' | 'log'> & {
+  conclusion?: CheckConclusion;
+  job?: number;
+};
 
 /** What the pass reads of an open pull request's checks; GitHub's is `githubCheckReader`. */
 export interface PullRequestCheckReader {
@@ -18,6 +29,8 @@ export interface PullRequestCheckReader {
   head(url: string, signal?: AbortSignal): Promise<string>;
   /** Every check on `head` in the repository of the pull request at `url`, page after page. */
   checks(url: string, head: string, signal?: AbortSignal): Promise<readonly ReadCheck[]>;
+  /** The log of the Actions job `job` in the repository of the pull request at `url` (ADR 0228). */
+  log(url: string, job: number, signal?: AbortSignal): Promise<CheckLog>;
 }
 
 export interface CheckReadOptions {

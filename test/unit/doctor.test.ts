@@ -120,18 +120,20 @@ describe('diagnose: gh and its login (ADR 0073)', () => {
       {
         required: true,
         what: 'gh not found',
-        fix: 'install the GitHub CLI 2.26.0 or later, https://cli.github.com, then run gh auth login',
+        fix: 'install the GitHub CLI 2.97.0 or later, https://cli.github.com, then run gh auth login',
       },
     ]);
     assert.equal(diagnose(linux({ gh: undefined })).ok, false);
   });
 
-  it('is not ok with a gh older than 2.26.0, which keeps its login in the keyring', () => {
-    assert.deepEqual(
-      required(linux({ gh: ran('/usr/bin/gh', 'gh version 2.25.1 (2023-03-21)\n') })),
-      ['gh 2.25.1 is too old'],
-    );
-    for (const version of ['2.26.0', '2.26.1', '3.0.0']) {
+  it('is not ok with a gh older than 2.97.0, which cannot print a job log with escape sequences (ADR 0228)', () => {
+    for (const version of ['2.25.1', '2.26.0', '2.96.9']) {
+      assert.deepEqual(
+        required(linux({ gh: ran('/usr/bin/gh', `gh version ${version} (2026-01-01)\n`) })),
+        [`gh ${version} is too old`],
+      );
+    }
+    for (const version of ['2.97.0', '2.97.1', '2.102.0', '3.0.0']) {
       const facts = linux({ gh: ran('/usr/bin/gh', `gh version ${version} (2026-01-01)\n`) });
       assert.equal(diagnose(facts).ok, true, version);
     }

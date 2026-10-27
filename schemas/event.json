@@ -2441,6 +2441,37 @@
                 "type": "string",
                 "maxLength": 2000,
                 "format": "uri"
+              },
+              "log": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "excerpt": {
+                        "type": "string",
+                        "maxLength": 4000
+                      }
+                    },
+                    "required": [
+                      "excerpt"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "unread": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "required": [
+                      "unread"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "required": [
