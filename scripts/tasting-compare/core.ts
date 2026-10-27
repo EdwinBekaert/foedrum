@@ -145,9 +145,9 @@ export const keyProblems = (key: Key, patch: string): string[] => {
       continue;
     }
     for (const [from, to] of lines) {
-      let any = false;
-      for (let line = from; line <= to; line += 1) any ||= ours.has(line);
-      if (!any) problems.push(`${id}: ${file}:${from}-${to} has no line the change adds`);
+      if (![...ours].some((line) => from <= line && line <= to)) {
+        problems.push(`${id}: ${file}:${from}-${to} has no line the change adds`);
+      }
     }
   }
   return problems;
@@ -539,9 +539,9 @@ export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): str
     }
   }
   for (const s of summaries) {
+    if (s.setup === 'apart-nip') continue;
     for (const { run, why } of s.failed) {
-      if (s.setup !== 'apart-nip')
-        lines.push('', `Failed: ${s.setup} run ${run}: ${escapeCell(why)}`);
+      lines.push('', `Failed: ${s.setup} run ${run}: ${escapeCell(why)}`);
     }
   }
   return `${lines.join('\n')}\n`;
