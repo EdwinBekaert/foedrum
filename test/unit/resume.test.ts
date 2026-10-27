@@ -41,6 +41,8 @@ const pathOf = (ref: AttemptRef) => join(workRoot, 'attempts', ref.batchId, ref.
 
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+  // talk is a person's session (ADR 0222).
+  sip: fakeRecipe({ steps: ['plan', 'talk'], interactive: ['talk'] }),
 });
 
 const loaded = loadRecipes({
@@ -50,6 +52,13 @@ const loaded = loadRecipes({
       text: recipeText('pint', [
         { id: 'plan', brewer: 'planner' },
         { id: 'implement', brewer: 'coder' },
+      ]),
+    },
+    {
+      path: 'recipes/sip.jsonc',
+      text: recipeText('sip', [
+        { id: 'plan', brewer: 'planner' },
+        { id: 'talk', brewer: 'planner', interactive: true, prompt: 'Talk it through.' },
       ]),
     },
   ],
@@ -466,6 +475,70 @@ describe('foedrum resume (ADR 0126)', () => {
         refused('batch 29-1 has no attempt running or waiting to continue a session'),
       );
       assert.deepEqual(handed, []);
+    });
+
+    describe('an interactive step whose session is open (ADR 0231)', () => {
+      const since = '2026-10-22T11:30:00.000Z';
+      // 30-1 brews sip: plan ran headless in S1, and talk#1's session opened at `since`, in S2.
+      beforeEach(() => {
+        const log = createCommandLog({ store, recipes });
+        const issue = (command: Parameters<typeof log.issue>[0]) =>
+          assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+        issue({ kind: 'order', batchId: '30-1', order: { issue: 30 } });
+        issue({ kind: 'route', batchId: '30-1', recipe: 'sip', reason: 'label', source: 'label' });
+        for (const [stepId, id, at] of [
+          ['plan', S1, '8'],
+          ['talk', S2, '9'],
+        ] as const) {
+          const path = pathOf({ batchId: '30-1', stepId, attempt: 1 });
+          issue({
+            kind: 'record',
+            event: {
+              type: 'step.started',
+              batchId: '30-1',
+              stepId,
+              attempt: 1,
+              session: { id, worktree: path },
+              worktree: {
+                repo: 'acme/api',
+                path,
+                branch: `foedrum/30-1/${stepId}/1`,
+                commit: commit(at),
+              },
+              ...(stepId === 'talk' ? { interactiveSince: since } : {}),
+            },
+          });
+          if (stepId === 'plan') {
+            issue({
+              kind: 'finish',
+              batchId: '30-1',
+              stepId,
+              attempt: 1,
+              ending: { kind: 'succeeded', output: {} },
+            });
+          }
+        }
+      });
+      it('still hands a running headless step to the takeover', async () => {
+        assert.equal((await resumeOf('23-1', 'plan', takes)).exitCode, 0);
+        assert.deepEqual(handed, [{ batchId: '23-1', stepId: 'plan' }]);
+      });
+
+      it('opens a finished interactive attempt for reading once the batch waits for a session (ADR 0126)', async () => {
+        const log = createCommandLog({ store, recipes });
+        const ending = { kind: 'failed', retryable: true, reason: 'no out doc' } as const;
+        const finish = { kind: 'finish', batchId: '30-1', stepId: 'talk', attempt: 1 } as const;
+        assert.equal(log.issue({ ...finish, ending }, t0).kind, 'accepted');
+        const batch = fold(store.eventsAfter(0).map(({ event }) => event)).batches.get('30-1');
+        const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+        assert.deepEqual(reason, { kind: 'waiting_for_session', stepId: 'talk' });
+        assert.equal((await resumeOf('30-1', 'talk#1', takes)).exitCode, 0);
+        assert.deepEqual(handed, []);
+        assert.deepEqual(
+          started.map(({ args, cwd: folder }) => [args.includes(S2), folder]),
+          [[true, pathOf({ batchId: '30-1', stepId: 'talk', attempt: 1 })]],
+        );
+      });
     });
 
     it('refuses an Ordered batch, of which no step has run', async () => {
