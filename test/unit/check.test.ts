@@ -2,10 +2,11 @@
 // `npm run check` and in CI (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { Affected } from '../../scripts/affected-tests/core.ts';
-import { checkSteps, runCheck } from '../../scripts/check.ts';
+import { checkSteps, runCheck, TEST_COMMAND, TEST_GLOB } from '../../scripts/check.ts';
 import type { ReadText } from '../../scripts/deps-sync.ts';
 import type { ProcessOutcome, RunOptions, RunProcess } from '../../scripts/process-runner.ts';
 
@@ -155,6 +156,32 @@ describe('checkSteps for the test files a change reaches', () => {
         'npm run lint',
         'node scripts/check-test-layers.ts',
         'node scripts/check-deps.ts --offline',
+      ],
+    );
+  });
+});
+
+// The check runs the files a change reaches with npm test's own command, so the two must not
+// drift apart: the same preload and reporters, coverage only in npm test (ADR 0241).
+describe("npm test's script", () => {
+  const { scripts } = JSON.parse(
+    readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8'),
+  ) as { scripts: Record<string, string> };
+  const words = (scripts.test ?? '').split(' ');
+
+  it("is the check's test command with coverage and its thresholds, over every test file", () => {
+    const coverage = (word: string) => /^--(?:experimental-)?test-coverage/.test(word);
+    assert.deepEqual(
+      words.filter((word) => !coverage(word)),
+      ['node', ...TEST_COMMAND, `"${TEST_GLOB}"`],
+    );
+    assert.deepEqual(
+      words.filter(coverage).map((word) => word.split('=')[0]),
+      [
+        '--experimental-test-coverage',
+        '--test-coverage-lines',
+        '--test-coverage-branches',
+        '--test-coverage-functions',
       ],
     );
   });
