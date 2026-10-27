@@ -1,6 +1,6 @@
 # 0228. A failed Actions job's log goes with the batch back to its fix step
 
-Date: 2026-10-27 · Status: Accepted · Amends [0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md) (what the route input of a pull-request route holds) [0213](0213-an-open-pull-request-s-checks-on-its-head-are-recorded-once-they-finish.md) (a finished record may carry an excerpt of a failed job's log) and [0073](0073-github-only-through-gh-s-own-login.md) (doctor's minimum gh, now 2.97.0)
+Date: 2026-10-27 · Status: Accepted · Amends [0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md) (what the route input of a pull-request route holds), [0213](0213-an-open-pull-request-s-checks-on-its-head-are-recorded-once-they-finish.md) (a finished record may carry an excerpt of a failed job's log) and [0073](0073-github-only-through-gh-s-own-login.md) (doctor's minimum gh, now 2.97.0)
 
 ## Context
 Since [ADR 0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md) a failing check on a brewed pull request's head sends the batch back to a fix step whose route input names each failed check, its conclusion and a link the brewer cannot open.

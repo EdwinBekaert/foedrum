@@ -361,6 +361,18 @@ describe('githubCheckReader', () => {
     await assert.rejects(reader.log(pullRequest, 9), GitHubRateLimited);
   });
 
+  it('throws a read its pass stopped, never an unread line', async () => {
+    const stop = new AbortController();
+    const stopped = new Error('the pass was given up');
+    const exec: ExecProcess = async () => {
+      stop.abort(stopped);
+      return { exitCode: null, stdout: '', stderr: '', output: '', killed: 'stopped' };
+    };
+    const client = createGitHubClient({ exec });
+    const reader = githubCheckReader(createGitHubReads(client), client);
+    await assert.rejects(reader.log(pullRequest, 9, stop.signal), stopped);
+  });
+
   it('refuses an answer that is not a list of checks, and a head that is no commit sha', async () => {
     const odd = readerWith([{ status: 200, body: { check_runs: 'none' } }]);
     await assert.rejects(odd.reader.checks(pullRequest, head), /not what it should be/);

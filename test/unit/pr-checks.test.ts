@@ -654,6 +654,42 @@ describe('recordChecks', () => {
     assert.deepStrictEqual(read, [1, 2]);
   });
 
+  it('starts no read once the minute is up to the millisecond', async () => {
+    onTap();
+    const jobs = [failedJob('a', 1), failedJob('b', 2), failedJob('c', 3)];
+    const read: number[] = [];
+    const reader: PullRequestCheckReader = {
+      head: async () => head,
+      checks: async () => jobs,
+      log: async (_url, job) => {
+        read.push(job);
+        now = new Date(now.getTime() + 30_000);
+        return { excerpt: `log ${job}` };
+      },
+    };
+    await pass(reader);
+    assert.deepStrictEqual(read, [1, 2]);
+  });
+
+  it('goes on to the next pull request after a log read to try again', async () => {
+    onTap('web-7');
+    onTap('web-8', 8);
+    let reads = 0;
+    const reader: PullRequestCheckReader = {
+      head: async () => head,
+      checks: async () => [failedJob('test', 9)],
+      log: async () => {
+        reads++;
+        if (reads === 1) throw new Error("GitHub's rate limit holds requests");
+        return { excerpt: 'not ok 1 - adds' };
+      },
+    };
+    await pass(reader);
+    assert.equal(failures.length, 1);
+    assert.equal(batch('web-7').pullRequestChecks, undefined);
+    assert.equal(batch('web-8').pullRequestChecks?.[pullRequest]?.kind, 'finished');
+  });
+
   it('records nothing once its pass is given up while it reads a log', async () => {
     onTap();
     const stop = new AbortController();
