@@ -557,7 +557,11 @@ export function routeOf(
 ): PlannedRoute | undefined {
   const route = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
   if (route === undefined) return undefined;
-  if (route.why === 'pull_request') return pullRequestRouteOf(batch, ref.stepId, route);
+  if (route.why === 'pull_request') {
+    return route.cause === 'merged_check'
+      ? mergedCheckRouteOf(batch, ref.stepId, route)
+      : pullRequestRouteOf(batch, ref.stepId, route);
+  }
   const { from, why } = route;
   const source = { kind: 'route', step: ref.stepId, from, why } as const;
   // The attempt that routed: the latest of its step that finished, never an earlier round's.
@@ -627,6 +631,40 @@ function pullRequestRouteOf(
     ...more,
     "You cannot open these links. The recipe's own checks run on your change after this step.",
   ].join('\n');
+  return { source, text };
+}
+
+/**
+ * What sent a step back from its open pull request's merged tree (ADR 0226): the base check of
+ * that pull request, head and tip, from the event log, its tail as recorded, already cut and read
+ * for secrets (ADR 0209). Untrusted, as every route input is (ADR 0128).
+ */
+function mergedCheckRouteOf(
+  batch: Batch,
+  step: string,
+  route: Extract<ScheduleRoute, { why: 'pull_request' }>,
+): PlannedRoute {
+  const { from, why, pullRequest, head, tip } = route;
+  const source = { kind: 'route', step, from, why, pullRequest, cause: 'merged_check' } as const;
+  const check = batch.baseChecks?.findLast(
+    (each) =>
+      each.pullRequest === pullRequest &&
+      each.head === head &&
+      each.tip === tip &&
+      each.failed !== undefined,
+  );
+  if (check?.failed === undefined) {
+    const base = batch.baseChecks?.find((each) => each.pullRequest === pullRequest)?.branch;
+    return {
+      source,
+      text: `Pull request ${pullRequest} failed its checks on the merged tree with ${base ?? 'its base'} at ${tip}; the record of it is no longer there.`,
+    };
+  }
+  const text = [
+    `Pull request ${pullRequest} merges cleanly with ${check.branch} at ${tip} but fails its checks there:`,
+    ...failedReading(check.failed),
+    "The base is merged into this worktree. The recipe's own checks run on your change after this step.",
+  ].join('\n\n');
   return { source, text };
 }
 

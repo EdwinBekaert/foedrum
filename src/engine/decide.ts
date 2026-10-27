@@ -42,9 +42,16 @@ import {
 import { claimStanding, same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { openedPullRequest } from './pull-request.ts';
-import { failedPullRequest, fixHeld, pullRequestRoute } from './pull-request-fix.ts';
+import {
+  causeOf,
+  fixHeld,
+  type PullRequestProblem,
+  pullRequestProblem,
+  pullRequestRoute,
+} from './pull-request-fix.ts';
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
+import { checkOf } from './status-comment.ts';
 import { type Reopen, scopeOf } from './usage-window.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
@@ -173,8 +180,11 @@ export type EngineCommand =
       cause: FixCause;
     };
 
-/** What is wrong with an open pull request that sends its batch back (ADR 0219). */
-export type FixCause = { kind: 'checks' };
+/**
+ * What is wrong with an open pull request that sends its batch back: failed checks on its head
+ * (ADR 0219), or a failing check on its merged tree with the base at `tip` (ADR 0226).
+ */
+export type FixCause = { kind: 'checks' } | { kind: 'merged_check'; tip: string };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its
@@ -413,15 +423,16 @@ function run(draft: Draft, command: Command): Event[] {
       draft.push({ type: 'batch.resumed', batchId, by, via, action: 'retry' });
       // Back along the route once more: a person's round past its rounds (ADR 0219).
       if (reason.kind === 'pull_request_failed') {
-        const { stepId, pullRequest, head } = reason;
+        const { stepId, pullRequest, head, cause } = reason;
         const goto = recipeOf(draft, draft.batch(batchId)).routesTo(stepId, 'pull_request');
         if (goto === undefined) {
           throw new Refusal(
             `step ${stepId} of batch ${batchId} has no onPullRequestFail route any more`,
           );
         }
+        const tip = cause === undefined ? {} : routeCause(cause);
         schedule(draft, batchId, goto, {
-          route: { from: stepId, why: 'pull_request', pullRequest, head },
+          route: { from: stepId, why: 'pull_request', pullRequest, head, ...tip },
         });
         break;
       }
@@ -738,19 +749,28 @@ function goBack(draft: Draft, batchId: string, back: string, route: ScheduleRout
 
 /**
  * A batch on tap whose open pull request failed its checks on `head`, the commit of its latest
- * push, goes back along its recipe's onPullRequestFail route, or Stuck once its rounds are used
- * (ADR 0219). Every fact the supervisor read is checked again on the state decided on.
+ * push (ADR 0219), or on its merged tree with that head (ADR 0226), goes back along its recipe's
+ * onPullRequestFail route, or Stuck once its rounds are used. Every fact the supervisor read is
+ * checked again on the state decided on, the cause and its tip too.
  */
 function fixPullRequest(
   draft: Draft,
   command: Extract<Command, { kind: 'fix_pull_request' }>,
 ): void {
-  const { batchId, pullRequest, head } = command;
+  const { batchId, pullRequest, head, cause } = command;
   const batch = requireLane(draft.batch(batchId), 'fix_pull_request', ['on_tap']);
-  const failed = failedPullRequest(draft.state, batch);
-  if (failed?.pullRequest !== pullRequest || failed.head !== head) {
+  const problem = pullRequestProblem(draft.state, batch);
+  if (
+    problem?.pullRequest !== pullRequest ||
+    problem.head !== head ||
+    !sameCause(causeOf(problem), cause)
+  ) {
+    const what =
+      cause.kind === 'checks'
+        ? 'no failed checks'
+        : `no failed check on its merged tree with the base at ${cause.tip}`;
     throw new Refusal(
-      `pull request ${pullRequest} of batch ${batchId} has no failed checks on ${head}, the head of the batch's latest push`,
+      `pull request ${pullRequest} of batch ${batchId} has ${what} on ${head}, the head of the batch's latest push`,
     );
   }
   if (fixHeld(draft.state, batch)) {
@@ -767,23 +787,47 @@ function fixPullRequest(
   // A step its when skipped runs no round: the batch is Stuck on its pull request instead, which
   // the admission allows from on tap, where goBack's divergence is not (ADR 0219).
   if (back !== undefined && batch.skipped?.has(back) !== true) {
-    goBack(draft, batchId, back, { from, why: 'pull_request', pullRequest, head });
+    goBack(draft, batchId, back, {
+      from,
+      why: 'pull_request',
+      pullRequest,
+      head,
+      ...routeCause(cause),
+    });
     return;
   }
-  const shown = failed.failed.slice(0, MOST_FAILED_CHECKS).map(({ name, conclusion, url }) => ({
-    name,
-    conclusion,
-    ...(url === undefined ? {} : { url }),
-  }));
   stick(draft, batchId, {
     kind: 'pull_request_failed',
     stepId: from,
     pullRequest,
     head,
     rounds: recipe.rounds(batch, from, 'pull_request') ?? 0,
-    failed: shown,
-    more: failed.failed.length - shown.length,
+    ...stuckChecks(problem),
   });
+}
+
+const sameCause = (a: FixCause, b: FixCause): boolean =>
+  a.kind === 'checks' ? b.kind === 'checks' : b.kind === 'merged_check' && a.tip === b.tip;
+
+/** What a `pull_request` route says of `cause`: nothing for the head's checks (ADR 0226). */
+const routeCause = (cause: FixCause): { cause?: 'merged_check'; tip?: string } =>
+  cause.kind === 'checks' ? {} : { cause: 'merged_check', tip: cause.tip };
+
+/** What a batch Stuck on its pull request names of `problem`: the failed checks, or the one check. */
+function stuckChecks(
+  problem: PullRequestProblem,
+): Pick<Extract<StuckReason, { kind: 'pull_request_failed' }>, 'failed' | 'more' | 'cause'> {
+  if (problem.kind === 'merged_check') {
+    const { branch, tip, failed } = problem.check;
+    const cause = { kind: 'merged_check', branch, tip, check: checkOf(failed) } as const;
+    return { failed: [], more: 0, cause };
+  }
+  const shown = problem.failed.slice(0, MOST_FAILED_CHECKS).map(({ name, conclusion, url }) => ({
+    name,
+    conclusion,
+    ...(url === undefined ? {} : { url }),
+  }));
+  return { failed: shown, more: problem.failed.length - shown.length };
 }
 
 /** An Ordered batch past its routing deadline gets Stuck, so a human hears of it (ADR 0032). */
