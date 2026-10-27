@@ -36,6 +36,13 @@ export interface GitHubAnswer {
   bytes: number;
 }
 
+/** What GitHub answered as text: its status, its body as gh printed it, and its headers. */
+export interface GitHubTextAnswer {
+  status: number;
+  text: string;
+  headers: Headers;
+}
+
 /**
  * GitHub's rate limit holds requests until `until` (ADR 0052): the request that met it, and every
  * request of this client before then, fails with it without reaching GitHub.
@@ -63,6 +70,11 @@ export interface GitHubClient {
     signal?: AbortSignal,
     headers?: Readonly<Record<string, string>>,
   ): Promise<GitHubAnswer>;
+  /**
+   * `GET path` with its answer kept as text, never parsed, escape sequences and all, up to
+   * `maxBytes`, which also bounds gh's output: a job's log (ADR 0228).
+   */
+  text(path: string, maxBytes: number, signal?: AbortSignal): Promise<GitHubTextAnswer>;
   /** A GraphQL request; an answer that is not 200 fails. */
   graphql(
     query: string,
@@ -229,13 +241,17 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
   // One request through `gh api --include`, with an argument array and no shell; a body goes on
   // stdin. gh exits 1 on a status of 300 or more after printing the answer, so a 304 or a 404 is
   // an answer like a 200; without a status line, gh failed before GitHub answered (ADR 0073).
-  const request = async (
+  // `limit` bounds the answer; `escapes` lets gh print one with terminal escape sequences, which
+  // it refuses since 2.97.0 (ADR 0228).
+  const exchange = async (
     method: string,
     endpoint: string,
     body: unknown,
     signal: AbortSignal | undefined,
-    headers: Readonly<Record<string, string>> = {},
-  ): Promise<GitHubAnswer> => {
+    headers: Readonly<Record<string, string>>,
+    limit: number,
+    escapes: boolean,
+  ): Promise<GitHubTextAnswer> => {
     const what = `${method} ${endpoint}`;
     // Never an option of gh's: a path starts with `/`, and GraphQL is gh's name for its endpoint.
     if (endpoint !== GRAPHQL && !endpoint.startsWith('/')) {
@@ -251,6 +267,7 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
     const args = [
       'api',
       '--include',
+      ...(escapes ? ['--allow-escape-sequences'] : []),
       '--hostname',
       hostname,
       '--method',
@@ -259,14 +276,13 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
       endpoint,
       ...(body === undefined ? [] : ['--input', '-']),
     ];
-    const tooLong = () =>
-      new Error(`GitHub's answer to ${what} is longer than ${maxResponseBytes} bytes`);
+    const tooLong = () => new Error(`GitHub's answer to ${what} is longer than ${limit} bytes`);
     const ran = await exec('gh', args, {
       cwd,
       env,
       timeoutMs,
       signal,
-      maxOutputBytes: maxResponseBytes + HEADER_BYTES,
+      maxOutputBytes: limit + HEADER_BYTES,
       ...(body === undefined ? {} : { stdin: JSON.stringify(body) }),
     });
     switch (ran.killed) {
@@ -290,14 +306,23 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
       const login = ran.exitCode === 4 ? `; run gh auth login --hostname ${hostname}` : '';
       throw new Error(`gh could not ask GitHub for ${what}: ${said}${login}`);
     }
-    const bytes = Buffer.byteLength(printed.body);
-    if (bytes > maxResponseBytes) throw tooLong();
-    const answer = {
-      status: printed.status,
-      body: parse(printed.body),
-      bytes,
-      headers: printed.headers,
-    };
+    if (Buffer.byteLength(printed.body) > limit) throw tooLong();
+    return { status: printed.status, text: printed.body, headers: printed.headers };
+  };
+
+  const request = async (
+    method: string,
+    endpoint: string,
+    body: unknown,
+    signal: AbortSignal | undefined,
+    headers: Readonly<Record<string, string>> = {},
+  ): Promise<GitHubAnswer> => {
+    const {
+      status,
+      text,
+      headers: received,
+    } = await exchange(method, endpoint, body, signal, headers, maxResponseBytes, false);
+    const answer = { status, body: parse(text), bytes: Buffer.byteLength(text), headers: received };
     if (limitedBy(answer)) throw new GitHubRateLimited(new Date(pausedUntil));
     return answer;
   };
@@ -305,6 +330,16 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
   return {
     baseUrl,
     rest: request,
+    text: async (path, maxBytes, signal) => {
+      const answer = await exchange('GET', path, undefined, signal, {}, maxBytes, true);
+      // A refusal is GitHub's JSON, which says whether it is the rate limit; a log never is.
+      const body = answer.status === 200 ? null : parse(answer.text);
+      const { status, headers } = answer;
+      if (limitedBy({ status, body, headers, bytes: 0 })) {
+        throw new GitHubRateLimited(new Date(pausedUntil));
+      }
+      return answer;
+    },
     graphql: async (query, variables, signal) => {
       const answer = await request('POST', GRAPHQL, { query, variables }, signal);
       if (answer.status !== 200)

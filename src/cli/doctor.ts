@@ -161,10 +161,11 @@ const MIN_NODE = [24, 15] as const;
 // (ADR 0109).
 const MIN_GIT = [2, 38, 0] as const;
 const GIT_INSTALL = 'install git 2.38.0 or later, https://git-scm.com/downloads';
-// gh keeps its login in the OS keyring by default since 2.26.0 (ADR 0073).
-const MIN_GH = [2, 26, 0] as const;
+// gh keeps its login in the OS keyring by default since 2.26.0 (ADR 0073), and since 2.97.0 prints
+// an answer with terminal escape sequences, a job's log, only when asked to (ADR 0228).
+const MIN_GH = [2, 97, 0] as const;
 const GH_INSTALL =
-  'install the GitHub CLI 2.26.0 or later, https://cli.github.com, then run gh auth login';
+  'install the GitHub CLI 2.97.0 or later, https://cli.github.com, then run gh auth login';
 // The helper `gh auth setup-git` writes: `!gh auth git-credential`, with gh's path.
 // gh's token line, masked or not, and anything that looks like a token: never quoted in a report.
 const TOKEN_LINE = /token:|\b(?:gh[opsu]_|github_pat_)/i;

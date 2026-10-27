@@ -519,6 +519,9 @@ describe('createIntake', () => {
           if (checks !== undefined) throw checks;
           return [{ name: 'test', kind: 'check_run' }];
         },
+        log: async () => {
+          throw new Error('a running check has no log to read');
+        },
       };
       const { tracker, pullRequests } = fakeTracker(
         { [web]: [], [api]: [] },

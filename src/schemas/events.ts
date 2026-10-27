@@ -54,12 +54,31 @@ export const CheckConclusion = z.enum([
 ]);
 export type CheckConclusion = z.infer<typeof CheckConclusion>;
 
-/** A finished check on a pull request's head (ADR 0213); its link only when it is https. */
+/** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
+export const MAX_TAIL_LENGTH = 4000;
+/** The longest line a record keeps of why a failed job's log could not be read (ADR 0228). */
+export const MAX_LOG_UNREAD_LENGTH = 200;
+
+/**
+ * A failed GitHub Actions job's log as a record keeps it (ADR 0228): the end of its failing step up
+ * to its first error, read for secrets and cut to a tail, or one line why it could not be read.
+ */
+export const CheckLog = z.union([
+  z.strictObject({ excerpt: z.string().max(MAX_TAIL_LENGTH) }),
+  z.strictObject({ unread: z.string().min(1).max(MAX_LOG_UNREAD_LENGTH) }),
+]);
+export type CheckLog = z.infer<typeof CheckLog>;
+
+/**
+ * A finished check on a pull request's head (ADR 0213); its link only when it is https; `log` only
+ * on one of the first failed checks that is an Actions job (ADR 0228).
+ */
 export const HeadCheck = z.strictObject({
   name: z.string().min(1).max(MAX_HEAD_CHECK_NAME_LENGTH),
   kind: z.enum(['check_run', 'status']),
   conclusion: CheckConclusion,
   url: PullRequestUrl.max(MAX_HEAD_CHECK_URL_LENGTH).optional(),
+  log: CheckLog.optional(),
 });
 export type HeadCheck = z.infer<typeof HeadCheck>;
 
@@ -207,8 +226,6 @@ export const Receipt = z
   .transform(({ costUsd: _, ...receipt }) => receipt);
 export type Receipt = z.infer<typeof Receipt>;
 
-/** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
-export const MAX_TAIL_LENGTH = 4000;
 const Tail = z.string().max(MAX_TAIL_LENGTH);
 // A named check, or none for a Brewery's literal command or the repository's setup, which says so
 // (ADR 0140); the command line as it ran; and where no sandbox held it, that it ran unsandboxed:
