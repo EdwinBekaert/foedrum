@@ -522,10 +522,9 @@ describe('foedrum resume (ADR 0126)', () => {
       });
       const takenOver = () =>
         store.eventsAfter(0).filter(({ event }) => event.type === 'batch.taken_over');
-      const open = (where: string) =>
-        refused(`talk#1 of batch 30-1 is an interactive session open since ${since}, ${where}`);
-      const held = open(
-        `in brew-7 until ${expiresAt.toISOString()}: close it there, then foedrum resume 30-1 talk#1 opens it for reading`,
+      // Decided by the maintainer (2026-10-27): close the session so it reports, then brew again.
+      const held = refused(
+        `talk#1 of batch 30-1 is an interactive session still open in brew-7 (since ${since}, lease until ${expiresAt.toISOString()}): close it there so it reports; if it closes without its out doc, foedrum brew 30 --take opens it again`,
       );
 
       it('refuses it at once with the driver that holds the batch, by step and with no step named, and takes nothing over', async () => {
@@ -541,11 +540,11 @@ describe('foedrum resume (ADR 0126)', () => {
         nothingOpened();
       });
 
-      it('refuses it too when no driver holds the batch, which the supervisor loses once its lease lapses', async () => {
+      it('refuses it too when no driver holds the batch, which waits for a session again once the attempt lease lapses', async () => {
         assert.deepEqual(
           await resumeOf('30-1', 'talk', takes),
-          open(
-            'and no driver holds the batch: the supervisor loses the attempt once its lease lapses, and the batch waits for a session again',
+          refused(
+            `talk#1 of batch 30-1 is an interactive session open since ${since}, and no driver holds the batch: it waits for a session again once the attempt's lease lapses, then foedrum brew 30 --take opens a fresh one`,
           ),
         );
         assert.deepEqual([handed, takenOver()], [[], []]);
