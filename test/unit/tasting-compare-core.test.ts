@@ -161,6 +161,12 @@ describe('addedLines', () => {
     assert.deepEqual(addedLines(patch), new Map([['x.ts', new Set([1, 2, 3])]]));
   });
 
+  it('reads past a no-newline marker in the middle of a hunk', () => {
+    const marker = '\\ No newline at end of file';
+    const patch = ['+++ b/x.ts', '@@ -1 +1 @@', '-old', marker, '+new', marker, ''].join('\n');
+    assert.deepEqual(addedLines(patch), new Map([['x.ts', new Set([1])]]));
+  });
+
   it('reads a patch with CRLF line ends', () => {
     const patch = ['+++ b/x.ts', '@@ -0,0 +1,2 @@', '+a', '+b', ''].join('\r\n');
     assert.deepEqual(addedLines(patch), new Map([['x.ts', new Set([1, 2])]]));
@@ -701,6 +707,9 @@ describe('tableMarkdown', () => {
     assert.match(text, /\| apart-7 \| 1 \/ 2 \| 1 \| 1 \| 0 \|/);
     assert.match(text, /\| together-nip \| 0 \/ 2 \| 0 \| 0 \| 1 \|/);
     assert.match(text, /\| logic \| diff\/correctness \| 1\/1 \|/);
+    // Attempts, Tasting, Wall and the failed runs end each row; apart-nip never ran alone.
+    assert.match(text, /\| apart-7 \|[^\n]*\| 30 s \| 30 s \| 60 s \| 0 \|\n/);
+    assert.match(text, /\| apart-nip \|[^\n]*\| 30 s \| 30 s \| - \| 0 \|\n/);
     assert.match(
       text,
       /Other findings of together-nip, scored run 1:\n\n- taste: major in src\/q\.ts:1: too slow\n/,
