@@ -88,7 +88,7 @@ const isHidden = (state: State, batchId: string, n: number): boolean =>
   state.effects.has(effectKey.encode(hiddenKey(batchId, n)));
 
 /** Whether `brief` was posted for `record`: the same pull request, head and checks. */
-export const briefOf = (brief: MergeBrief | undefined, record: ReadyRecord): boolean =>
+const briefOf = (brief: MergeBrief | undefined, record: ReadyRecord): boolean =>
   brief?.pullRequest === record.pullRequest &&
   brief.head === record.head &&
   brief.digest === record.digest;
@@ -104,7 +104,7 @@ export const currentBrief = (
 };
 
 /** The latest merge brief of `batch` while it is of the record that makes it ready now. */
-export const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
+const briefNow = (state: State, batch: Batch): MergeBrief | undefined => {
   const ready = readyOf(state, batch);
   return ready === undefined ? undefined : currentBrief(state, batch.id, ready);
 };
