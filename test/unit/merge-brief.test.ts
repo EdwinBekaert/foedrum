@@ -945,6 +945,28 @@ describe('the merge brief (ADR 0225)', () => {
       assert.deepStrictEqual(hides, [1]);
     });
 
+    for (const nothing of [
+      { empty: true },
+      { refused: [{ commit: fixed, place: 'src/a.ts:1', kind: 'aws-key' }] },
+    ]) {
+      it(`hides a brief whose head a round moved, though a later round pushed nothing: ${Object.keys(nothing)[0]}`, async () => {
+        nip();
+        const { host, hides } = fakeHost();
+        finished([passed('ci/test')]);
+        assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+        // Round 2 moves the head, and its hide fails until round 3 pushes nothing.
+        fixRound();
+        ledger(pushKey('web-7', 3), {
+          branch: 'foedrum/web-7/acme.web',
+          commit: fixed,
+          from: 'start',
+          ...nothing,
+        });
+        assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden']);
+        assert.deepStrictEqual(hides, [1]);
+      });
+    }
+
     it('hides nothing while a record of the same head goes pending or fails (regression test)', async () => {
       nip();
       const { host, hides } = fakeHost();
