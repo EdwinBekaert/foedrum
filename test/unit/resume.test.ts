@@ -479,6 +479,7 @@ describe('foedrum resume (ADR 0126)', () => {
 
     describe('an interactive step whose session is open (ADR 0231)', () => {
       const since = '2026-10-22T11:30:00.000Z';
+      const expiresAt = new Date(t0.getTime() + 60_000);
       // 30-1 brews sip: plan ran headless in S1, and talk#1's session opened at `since`, in S2.
       beforeEach(() => {
         const log = createCommandLog({ store, recipes });
@@ -519,6 +520,38 @@ describe('foedrum resume (ADR 0126)', () => {
           }
         }
       });
+      const takenOver = () =>
+        store.eventsAfter(0).filter(({ event }) => event.type === 'batch.taken_over');
+      const open = (where: string) =>
+        refused(`talk#1 of batch 30-1 is an interactive session open since ${since}, ${where}`);
+      const held = open(
+        `in brew-7 until ${expiresAt.toISOString()}: close it there, then foedrum resume 30-1 talk#1 opens it for reading`,
+      );
+
+      it('refuses it at once with the driver that holds the batch, by step and with no step named, and takes nothing over', async () => {
+        store.withTransaction((tx) =>
+          tx.putBatchLease({ batchId: '30-1', owner: 'brew-7', expiresAt }),
+        );
+        assert.deepEqual(await resumeOf('30-1', 'talk', takes), held);
+        assert.deepEqual(await resumeOf('30-1', undefined, takes), held);
+        // Before the Claude Code and terminal checks: a terminal would wait the same.
+        const inClaudeCode = { ...takes, terminal: { claudeCode: true, tty: false } };
+        assert.deepEqual(await resumeOf('30-1', 'talk', inClaudeCode), held);
+        assert.deepEqual([handed, takenOver()], [[], []]);
+        nothingOpened();
+      });
+
+      it('refuses it too when no driver holds the batch, which the supervisor loses once its lease lapses', async () => {
+        assert.deepEqual(
+          await resumeOf('30-1', 'talk', takes),
+          open(
+            'and no driver holds the batch: the supervisor loses the attempt once its lease lapses, and the batch waits for a session again',
+          ),
+        );
+        assert.deepEqual([handed, takenOver()], [[], []]);
+        nothingOpened();
+      });
+
       it('still hands a running headless step to the takeover', async () => {
         assert.equal((await resumeOf('23-1', 'plan', takes)).exitCode, 0);
         assert.deepEqual(handed, [{ batchId: '23-1', stepId: 'plan' }]);
