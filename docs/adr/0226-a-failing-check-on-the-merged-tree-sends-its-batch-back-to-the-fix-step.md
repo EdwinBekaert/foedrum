@@ -46,7 +46,7 @@ And a post is due only On tap today: a tick that sends the batch back before the
 - **`retry` sends it back along the route with the same cause**; `skip`, `rewind`, `recipe` and `cancel` as for the head's checks.
 
 ### The posts stay and say so
-- **When the batch's recipe has the route, a failure's post says Foedrum sends the batch back to fix it**, at most `<maxRounds>` rounds, and that its status comment says how it goes; without the route it keeps today's text. `baseConflictEffects` gets the recipes for it, and the recipe's `maxRounds` (`Recipe.maxRounds`).
+- **When the batch's recipe has the route, a failure's post says Foedrum sends the batch back to fix it** while its rounds last, at most `<maxRounds>` rounds in all, unless a person holds or skips it (the post is made once, before the rounds it names are known to run), and that its status comment says how it goes; without the route it keeps today's text. `baseConflictEffects` gets the recipes for it, and the recipe's `maxRounds` (`Recipe.maxRounds`).
 - **A post is due On tap, and while the batch brews or is Stuck after a `pull_request` route on that pull request** (`sentBackFrom`), as `recordEnds` reads ended pull requests (ADR 0219): a tick that sends the batch back before the driver posts loses no post.
 - A conflict's post keeps its text: it sends nothing back yet.
 

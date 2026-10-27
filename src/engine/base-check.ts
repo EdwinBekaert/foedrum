@@ -243,7 +243,7 @@ const postText = (batchId: string, body: string[], rounds?: number): string =>
   [
     `### Foedrum · batch \`${batchId}\``,
     ...body,
-    `${rounds === undefined ? 'The batch stays On tap.' : `Foedrum sends the batch back to fix it, at most ${roundsText(rounds)}, and the batch's status comment says how it goes.`} Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
+    `${rounds === undefined ? 'The batch stays On tap.' : `While its rounds last, Foedrum sends the batch back to fix it, at most ${roundsText(rounds)} in all, unless a person holds or skips it. The batch's status comment says how it goes.`} Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
 
 /** The comment a conflict posts, without its marker. */
