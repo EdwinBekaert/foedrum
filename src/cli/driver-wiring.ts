@@ -29,6 +29,7 @@ import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
+import { planEffects } from '../engine/plan-comment.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
@@ -130,10 +131,13 @@ export const wireDriver = async (
   const stateBranch = shell.stateBranch(store);
   await stateBranch.start();
   const worktrees: RepositoryWorktrees[] = [];
+  // Each repository's fetch, by its worktree manager: a plan's base it has no ref of (ADR 0233).
+  const fetches = new Map<string, () => Promise<void>>();
   const pushes: PullRequestRepository[] = [];
   for (const repository of setup.repositories) {
     const { repo, base } = repository;
     const manager = await shell.worktrees(repository);
+    fetches.set(repo.toLowerCase(), () => manager.fetch());
     // The pull request goes into the branch the attempts start from (ADR 0071).
     const into = base.slice(base.indexOf('/') + 1);
     const push = shell.push(repository);
@@ -162,6 +166,8 @@ export const wireDriver = async (
   const claimant: Claimant = { brewery: setup.brewery, login };
   const comments = githubStatusComments({ client, reads, login });
   const status = statusEffects({ brewery: setup.brewery, comments, recipes: setup.recipes, clock });
+  // Each order's plan, one comment on its issue edited in place (ADR 0233).
+  const planComments = planEffects({ brewery: setup.brewery, comments });
   const marks = githubIssueMarks({ client, reads, login });
   // Each Brewery issue's lane label, through the ledger as its status comment (ADR 0154).
   const labels = laneLabelEffects({ brewery: setup.brewery, host: marks });
@@ -186,8 +192,15 @@ export const wireDriver = async (
   });
   const effects =
     setup.intake.repositories.length > 0 || claimed
-      ? combineEffects(status, labels, conflicts, briefs, claimEffects({ claimant, marks, claims }))
-      : combineEffects(status, labels, conflicts, briefs);
+      ? combineEffects(
+          status,
+          planComments,
+          labels,
+          conflicts,
+          briefs,
+          claimEffects({ claimant, marks, claims }),
+        )
+      : combineEffects(status, planComments, labels, conflicts, briefs);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
@@ -220,6 +233,14 @@ export const wireDriver = async (
     repoSetup: (repo) => repositoryNamed(repo)?.setup,
     // Where a commit-producing attempt's commits are counted (ADR 0074).
     clone,
+    // A plan's paths are checked in each repository once it is done (ADR 0233).
+    repositories: setup.repositories,
+    // A base its clone has no ref of yet is fetched once, by its worktree manager (ADR 0233).
+    fetchBase: async (repo) => {
+      const fetch = fetches.get(repo.toLowerCase());
+      if (fetch === undefined) throw new Error(`${repo} is no repository of this Brewery`);
+      await fetch();
+    },
     sandbox: setup.sandbox,
     ...(setup.configDirs === undefined ? {} : { configDirs: setup.configDirs }),
     workRoot: setup.workRoot,

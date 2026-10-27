@@ -645,6 +645,144 @@ describe('createAttemptPlans: plan', () => {
       );
     });
   }
+
+  describe("a plan brewer's repositories (ADR 0233)", () => {
+    const repositories = [
+      { repo: 'acme/api', base: 'origin/main' },
+      { repo: 'acme/web', base: 'origin/trunk' },
+    ];
+    const resolve = ['rev-parse', '--verify', '--end-of-options', 'origin/trunk^{commit}'];
+    /** Plans with a plan brewer whose frontmatter has `more`, a git and a fetch that record each call. */
+    const planning = (
+      answer: (call: number) => { code: number; stdout: string; stderr: string },
+      fetch: () => Promise<void> = async () => {},
+      more: Record<string, unknown> = {},
+    ) => {
+      const loaded = loadRecipes({
+        recipes: [
+          {
+            path: 'recipes/pale.jsonc',
+            // A brewer that commits needs a step that opens a pull request with them (ADR 0084).
+            text: recipeText(
+              'pale',
+              [
+                { id: 'brew', brewer: 'brewmaster' },
+                ...(more.produces === 'commits' ? [{ action: 'openPullRequest' }] : []),
+              ],
+              { testFirst: false },
+            ),
+          },
+        ],
+        brewers: [
+          {
+            path: 'brewers/brewmaster.md',
+            text: brewerText('brewmaster', {
+              output: { doc: 'plan.md', schema: 'plan' },
+              tools: { allow: ['Read'] },
+              ...more,
+            }),
+          },
+        ],
+      });
+      assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+      const calls: string[] = [];
+      const { plans } = setup([...ordered, started], {}, '', loaded.brewers, {
+        repositories,
+        git: async (cwd, args) => {
+          calls.push(`${cwd} ${args.join(' ')}`);
+          return answer(calls.length);
+        },
+        fetchBase: async (repo) => {
+          calls.push(`fetch ${repo}`);
+          await fetch();
+        },
+      });
+      return { plans, calls };
+    };
+    const web = join('/clones', 'acme/web');
+    const own = { repo: 'acme/api', clone: join('/clones', 'acme/api'), commit: 'c'.repeat(40) };
+    const at = { code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' };
+    const none = { code: 128, stdout: '', stderr: 'fatal: Needed a single revision' };
+
+    it('gives each repository of the Brewery and the commit its paths are checked at', async () => {
+      const { plans, calls } = planning(() => at);
+      assert.deepEqual((await plans.plan(start)).touches, [
+        own,
+        { repo: 'acme/web', clone: web, commit: 'd'.repeat(40) },
+      ]);
+      // Its own repository at its worktree's commit; another at its base, with no fetch.
+      assert.deepEqual(calls, [`${web} ${resolve.join(' ')}`]);
+      // Any other brewer's attempt has none.
+      assert.equal((await setup().plans.plan(start)).touches, undefined);
+    });
+
+    it('fetches a base the clone has no ref of once, through its worktree manager, then reads it', async () => {
+      const { plans, calls } = planning((call) => (call === 1 ? none : at));
+      assert.deepEqual((await plans.plan(start)).touches, [
+        own,
+        { repo: 'acme/web', clone: web, commit: 'd'.repeat(40) },
+      ]);
+      assert.deepEqual(calls, [
+        `${web} ${resolve.join(' ')}`,
+        'fetch acme/web',
+        `${web} ${resolve.join(' ')}`,
+      ]);
+    });
+
+    it('still plans the attempt when that fetch fails, with why for the check to report', async () => {
+      const { plans } = planning(
+        () => none,
+        async () => {
+          throw new Error('git fetch failed: could not read from remote');
+        },
+      );
+      const [, other] = (await plans.plan(start)).touches ?? [];
+      assert.deepEqual(other, {
+        repo: 'acme/web',
+        clone: web,
+        unread:
+          'its base origin/trunk could not be fetched: git fetch failed: could not read from remote',
+      });
+    });
+
+    it("reads the base no more after a fetch that fails, and carries git's reason when the base is still missing after one that succeeds (regression test)", async () => {
+      const failing = planning(
+        () => none,
+        async () => {
+          throw new Error('offline');
+        },
+      );
+      await failing.plans.plan(start);
+      assert.deepEqual(failing.calls, [`${web} ${resolve.join(' ')}`, 'fetch acme/web']);
+      const missing = planning(() => none);
+      const [, other] = (await missing.plans.plan(start)).touches ?? [];
+      assert.deepEqual(other, {
+        repo: 'acme/web',
+        clone: web,
+        unread: `the base origin/trunk of acme/web was not read: git ${resolve.join(' ')} exited with code 128: fatal: Needed a single revision`,
+      });
+      assert.deepEqual(missing.calls, [
+        `${web} ${resolve.join(' ')}`,
+        'fetch acme/web',
+        `${web} ${resolve.join(' ')}`,
+      ]);
+    });
+
+    it('keeps where the commits of a plan brewer that commits are counted', async () => {
+      const { plans } = planning(() => at, undefined, {
+        produces: 'commits',
+        access: 'write',
+        git: { commit: true },
+        tools: { allow: ['Read', 'Write'] },
+      });
+      const planned = await plans.plan(start);
+      assert.deepEqual(planned.commits, {
+        clone: join('/clones', 'acme/api'),
+        branch: 'foedrum/12-1/brew/1',
+      });
+      assert.equal(planned.touches?.length, 2);
+    });
+  });
 });
 
 describe('createAttemptPlans: limits', () => {

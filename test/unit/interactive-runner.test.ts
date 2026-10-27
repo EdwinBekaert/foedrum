@@ -18,6 +18,7 @@ import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
 import type { AttemptLimits, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { PlanOutDoc } from '../../src/schemas/plan.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
@@ -118,6 +119,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       },
       commits: async () => ({ kind: 'counted', count: 1 }),
       scan: async () => ({ kind: 'scanned', findings: [] }),
+      touches: async (_clone, _commit, paths) => ({ kind: 'read', present: new Set(paths) }),
       now: () => t0,
       say: (line) => calls.push(`say ${line}`),
       ...overrides,
@@ -213,6 +215,44 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         "the attempt's commits hold what looks like a secret, or what the scan cannot read (ADR 0187): commit ffffffffffff, GitHub token in test/keys.test.ts",
       secrets: true,
     });
+  });
+
+  it("checks the paths of a done session's plan, as any run (ADR 0233)", async () => {
+    const commit = 'c'.repeat(40);
+    written = {
+      kind: 'text',
+      text: outDoc({
+        status: 'done',
+        summary: 'Planned by hand',
+        subOrders: [
+          {
+            id: 'api',
+            title: 'Build the API',
+            repo: 'acme/api',
+            size: { lines: 200, mechanism: 'one handler' },
+            doneWhen: 'a test passes',
+            touches: [{ path: 'src/api.ts' }],
+            recipe: 'tdd',
+            why: 'testable',
+            ready: true,
+          },
+        ],
+      }),
+    };
+    const reads: string[][] = [];
+    const planning = { ...attempt, limits: { outDoc: { file: 'brew.md', schema: PlanOutDoc } } };
+    const touches = [{ repo: 'acme/api', clone: resolve('clone'), commit }];
+    const checked = runner('resume', {
+      plan: async () => ({ ...plan('resume'), touches }),
+      touches: async (clone, at, paths) => {
+        reads.push([clone, at, ...paths]);
+        return { kind: 'read', present: new Set() };
+      },
+    });
+    const { ending } = await checked.start(planning).ended;
+    assert.deepEqual(reads, [[resolve('clone'), commit, 'src/api.ts']]);
+    assert.equal(ending.kind, 'failed');
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /sub-order api, src\/api\.ts/);
   });
 
   it("is a failure that names claude's exit code when the session ends with one", async () => {

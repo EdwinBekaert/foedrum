@@ -585,7 +585,7 @@ const DIAGRAM_LEFT_OUT = '[left out: a diagram Foedrum could not check]';
  * A label in quotes, which Mermaid accepts whatever it holds once its `"` is `#quot;`, and its `#`
  * is `#35;`: Mermaid reads `#479;` as an entity in a quoted label too.
  */
-const quoted = (text: string): string =>
+export const quoted = (text: string): string =>
   `"${text.replaceAll('#', '#35;').replaceAll('"', '#quot;')}"`;
 /**
  * An edge's or a title's label, trimmed, in quotes unless it is quoted already, or `undefined` when

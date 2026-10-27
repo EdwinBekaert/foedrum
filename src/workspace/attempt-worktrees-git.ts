@@ -86,6 +86,11 @@ export interface AttemptWorktrees {
    */
   recreate(ref: AttemptRef, commit: string): Promise<AttemptWorktree>;
   /**
+   * Fetches the clone's remote, one fetch at a time with `create`'s: a plan's check reads a base
+   * the clone has no ref of yet (ADR 0233). Throws when the fetch fails.
+   */
+  fetch(): Promise<void>;
+  /**
    * Removes the worktrees, folders and local branches that nothing claims, stale index.lock
    * files of kept worktrees no attempt runs in, and the git directories of its own that a
    * stopped call left over an hour ago (ADR 0130). At engine start without `batchId` (crash
@@ -357,6 +362,9 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
 
   return {
     root,
+    async fetch() {
+      await fetchOnce();
+    },
     async create(ref, base) {
       attemptBranch(ref);
       await fetchOnce();

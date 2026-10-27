@@ -67,6 +67,7 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
       calls.flatMap((call) =>
         call.kind === 'clean' ? [{ claims: call.claims, scope: call.scope }] : [],
       ),
+    async fetch() {},
     async create(ref, base): Promise<AttemptWorktree> {
       calls.push({ kind: 'create', ref, base });
       const reason = options.refuse?.(ref);

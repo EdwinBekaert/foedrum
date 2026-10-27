@@ -445,8 +445,14 @@ const orderRanked = z.strictObject({
   why: NonEmpty.optional(),
 });
 
-// Removes sub-orders that wait for nothing still pending until none are left; whatever remains waits in a cycle.
-function hasCycle(dependencies: Dependency[]): boolean {
+/**
+ * Whether `dependencies` wait for each other in a cycle: it removes the ones that wait for nothing
+ * still pending until none are left; whatever remains waits in a cycle. A plan's checks reuse it
+ * (ADR 0233).
+ */
+export function hasCycle<K>(
+  dependencies: readonly { readonly subOrder: K; readonly blockedBy: K }[],
+): boolean {
   let pending = dependencies;
   for (;;) {
     const waiting = new Set(pending.map((dependency) => dependency.subOrder));

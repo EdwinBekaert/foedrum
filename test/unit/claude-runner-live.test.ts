@@ -127,6 +127,7 @@ const runnerOf = (lines: readonly string[], withSetup: boolean, setupPasses = fa
     wait: () => Promise.resolve(),
     commits: async () => ({ kind: 'counted', count: 0 }),
     scan: async () => ({ kind: 'scanned', findings: [] }),
+    touches: async (_clone, _commit, paths) => ({ kind: 'read', present: new Set(paths) }),
   });
   return { runner, setupRuns, claudeWrote };
 };

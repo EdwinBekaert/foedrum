@@ -16,6 +16,7 @@ import {
   type ProcessExit,
   settleAttempt,
 } from '../engine/brewer-runner.ts';
+import { type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -26,6 +27,7 @@ import {
   scanAttemptCommits,
 } from '../workspace/attempt-commits-git.ts';
 import { runGit } from '../workspace/git.ts';
+import { readPathsAt } from '../workspace/plan-paths-git.ts';
 import { attemptSettings, writeAttemptSettings } from './attempt-settings.ts';
 import { interactiveArgs, resumeArgs } from './claude-command.ts';
 import {
@@ -84,6 +86,8 @@ export interface InteractiveRunnerDeps {
    * (ADR 0187).
    */
   scan: ScanCommits;
+  /** Reads which paths of a done plan exist at a commit in a repository's clone (ADR 0233). */
+  touches: ReadPaths;
   now: () => Date;
   /** Writes a line to the terminal, before claude has it. */
   say: (line: string) => void;
@@ -239,13 +243,12 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
                 );
       }
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
-      // Scanned for secrets on the attempt's branch, as for every run (ADR 0187).
-      const ending = await scannedIfDone(
-        deps.scan,
-        facts,
-        limits,
-        plan,
-        new AbortController().signal,
+      // Scanned for secrets on the attempt's branch, and a plan's paths read, as for every run
+      // (ADR 0187, ADR 0233).
+      const ending = await touchesChecked(
+        deps.touches,
+        await scannedIfDone(deps.scan, facts, limits, plan, new AbortController().signal),
+        plan.touches,
       );
       return { ending, ...outDoc, ...readings };
     };
@@ -305,6 +308,7 @@ export function interactiveBrewerRunner(
     },
     commits: countCommits(runGit),
     scan: scanAttemptCommits(runGit),
+    touches: readPathsAt(runGit),
     now: () => new Date(),
   });
 }
