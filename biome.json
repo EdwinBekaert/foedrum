@@ -11,7 +11,8 @@
       "!**/dist",
       "!**/package-lock.json",
       "!schemas",
-      "!test/fixtures/test-layers"
+      "!test/fixtures/test-layers",
+      "!.claude/workflows"
     ]
   },
   "formatter": {
