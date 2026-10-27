@@ -654,6 +654,36 @@ describe('recordChecks', () => {
     assert.deepStrictEqual(read, [1, 2]);
   });
 
+  it("shares the minute among a pass's records, and a record that would start late waits for the next pass", async () => {
+    onTap('web-7');
+    onTap('web-8', 8);
+    const read: number[] = [];
+    const reader: PullRequestCheckReader = {
+      head: async () => head,
+      checks: async () => [failedJob('a', 1), failedJob('b', 2)],
+      log: async (_url, job) => {
+        read.push(job);
+        now = new Date(now.getTime() + 40_000);
+        return { excerpt: `log ${job}` };
+      },
+    };
+    await pass(reader);
+    // web-7 used the pass's minute; web-8 has no record yet, and no read of its own.
+    assert.deepStrictEqual(read, [1, 2]);
+    assert.equal(batch('web-8').pullRequestChecks, undefined);
+    const logsOf = (batchId: string) => {
+      const record = batch(batchId).pullRequestChecks?.[pullRequest];
+      assert.equal(record?.kind, 'finished');
+      return record.checks.map(({ log }) => log);
+    };
+    assert.deepStrictEqual(logsOf('web-7'), [{ excerpt: 'log 1' }, { excerpt: 'log 2' }]);
+    // The next pass has a minute of its own: web-7 is unchanged, web-8 reads its logs.
+    await pass(reader);
+    assert.deepStrictEqual(read, [1, 2, 1, 2]);
+    assert.deepStrictEqual(logsOf('web-8'), [{ excerpt: 'log 1' }, { excerpt: 'log 2' }]);
+    assert.deepStrictEqual(failures, []);
+  });
+
   it('starts no read once the minute is up to the millisecond', async () => {
     onTap();
     const jobs = [failedJob('a', 1), failedJob('b', 2), failedJob('c', 3)];
