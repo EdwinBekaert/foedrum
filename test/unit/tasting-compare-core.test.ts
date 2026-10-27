@@ -173,11 +173,17 @@ describe('readKey', () => {
 });
 
 describe('the setups', () => {
+  /** The taste step of a setup's recipe. */
+  const tasteOf = (name: RunRecord['setup']) =>
+    Recipe.parse(parseJsonc(recipeText(name))).steps.find(
+      (step) => 'id' in step && step.id === 'taste',
+    );
+
   it('give each a recipe the schema accepts, its Tasters the default taster', () => {
     for (const name of ['apart-7', 'together-7', 'together-nip'] as const) {
       const recipe = Recipe.parse(parseJsonc(recipeText(name)));
       assert.equal(recipe.name, name);
-      const tasters = JSON.stringify(recipe.steps.slice(1));
+      const tasters = JSON.stringify(tasteOf(name));
       assert.doesNotMatch(tasters, /"brewer":"(?!taster")/, name);
     }
   });
@@ -197,8 +203,7 @@ describe('the setups', () => {
   });
 
   it('taste apart-7 through a parallel group of the seven lenses, one step each', () => {
-    const recipe = Recipe.parse(parseJsonc(recipeText('apart-7')));
-    const group = recipe.steps[1];
+    const group = tasteOf('apart-7');
     assert.ok(group !== undefined && 'parallel' in group);
     assert.deepEqual(
       group.parallel.map(({ lens }) => lens),
@@ -207,8 +212,7 @@ describe('the setups', () => {
   });
 
   it("taste together-nip through Nip's two lenses in one step", () => {
-    const recipe = Recipe.parse(parseJsonc(recipeText('together-nip')));
-    const step = recipe.steps[1];
+    const step = tasteOf('together-nip');
     assert.ok(step !== undefined && 'brewer' in step);
     assert.deepEqual(step.lenses, ['diff/correctness', 'diff/acceptance']);
   });
