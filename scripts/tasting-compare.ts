@@ -33,13 +33,12 @@ import { nipBreweryFiles, type Scripted, scriptedNip } from '../test/helpers/nip
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
 import { BREWERY, gitConfig, gitEnvOf, LOGIN, localConfig, TARGET, USER } from './demo/core.ts';
 import {
-  attemptsOf,
-  type FinishedAttempt,
   IMPLEMENT,
   nextRun,
   type RunRecord,
   readKey,
   recipeText,
+  recordOf,
   SETUPS,
   type SetupName,
   scriptedTastings,
@@ -230,15 +229,7 @@ const brewRun = async (setup: SetupName, scratch: string): Promise<Omit<RunRecor
   } finally {
     store.close();
   }
-  let ended = 'not ended';
-  const finished: FinishedAttempt[] = [];
-  for (const { event } of events) {
-    if (event.type === 'batch.on_tap') ended = 'on_tap';
-    else if (event.type === 'batch.stuck') ended = `stuck: ${event.reason.kind}`;
-    else if (event.type === 'batch.cancelled') ended = 'cancelled';
-    else if (event.type === 'step.finished') finished.push(event);
-  }
-  return { setup, ended, wallMs, attempts: attemptsOf(finished, setup) };
+  return { setup, wallMs, ...recordOf(events, setup) };
 };
 
 mkdirSync(folder, { recursive: true });

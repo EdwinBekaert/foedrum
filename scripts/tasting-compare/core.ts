@@ -118,18 +118,32 @@ export const addedLines = (patch: string): Map<string, Set<number>> => {
   const added = new Map<string, Set<number>>();
   let file: string | undefined;
   let line = 0;
+  // The lines of the hunk still to come, by its header's counts: inside one, `+++ ` is a line.
+  let oldLeft = 0;
+  let newLeft = 0;
   for (const text of patch.split(/\r?\n/)) {
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
+    if (oldLeft > 0 || newLeft > 0) {
+      if (text.startsWith('+')) {
+        if (file !== undefined) added.set(file, (added.get(file) ?? new Set()).add(line));
+        line += 1;
+        newLeft -= 1;
+      } else if (text.startsWith('-')) oldLeft -= 1;
+      else if (!text.startsWith('\\')) {
+        // A context line; `\ No newline at end of file` counts as none.
+        line += 1;
+        oldLeft -= 1;
+        newLeft -= 1;
+      }
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(text);
     if (text.startsWith('diff --git ')) file = undefined;
     else if (text.startsWith('+++ ')) file = text.startsWith('+++ b/') ? text.slice(6) : undefined;
-    else if (hunk !== null) line = Number(hunk[1]);
-    else if (file === undefined) continue;
-    else if (text.startsWith('+')) {
-      added.set(file, (added.get(file) ?? new Set()).add(line));
-      line += 1;
-    } else if (text.startsWith(' ')) line += 1;
-    // A removed line, `\ No newline at end of file`, or the signature after the last hunk.
-    else if (!text.startsWith('-') && !text.startsWith('\\')) file = undefined;
+    else if (hunk !== null) {
+      oldLeft = Number(hunk[1] ?? '1');
+      line = Number(hunk[2]);
+      newLeft = Number(hunk[3] ?? '1');
+    }
   }
   return added;
 };
@@ -248,10 +262,19 @@ export const attemptsOf = (
 
 /** A run's record from its store's events: how its batch ended, and its Taster attempts. */
 export const recordOf = (
-  _events: readonly { event: Event }[],
-  _setup: SetupName,
+  events: readonly { event: Event }[],
+  setup: SetupName,
 ): Pick<RunRecord, 'ended' | 'attempts'> => {
-  throw new Error('not implemented');
+  // The last end counts: a Stuck batch that was resumed may go on tap after all.
+  let ended = 'not ended';
+  const finished: FinishedAttempt[] = [];
+  for (const { event } of events) {
+    if (event.type === 'batch.on_tap') ended = 'on_tap';
+    else if (event.type === 'batch.stuck') ended = `stuck: ${event.reason.kind}`;
+    else if (event.type === 'batch.cancelled') ended = 'cancelled';
+    else if (event.type === 'step.finished') finished.push(event);
+  }
+  return { ended, attempts: attemptsOf(finished, setup) };
 };
 
 /** Why a run failed, or undefined: its batch is not on tap, or one of its Taster attempts failed. */
@@ -332,7 +355,7 @@ export interface SetupSummary {
   meanTurns: number;
   meanAttemptMs: number;
   /** The tasting's time: a group's steps side by side, a step's attempts one after the other. */
-  meanTasteMs?: number;
+  meanTasteMs: number;
   meanWallMs: number;
   failed: { run: number; why: string }[];
 }
@@ -351,6 +374,19 @@ const tokensOf = (attempts: readonly TasterAttempt[]): Tokens => {
   }
   const total = sum.inputTokens + sum.outputTokens + sum.cacheReadTokens + sum.cacheWriteTokens;
   return { ...sum, total };
+};
+
+/**
+ * How long a run tasted: each step's attempts one after the other, the steps of a group side by
+ * side, so the longest step; the same measure in every setup, where a run's wall time also holds
+ * its implementer and its pull request.
+ */
+const tasteMsOf = (attempts: readonly TasterAttempt[]): number => {
+  const steps = new Map<string, number>();
+  for (const { stepId, durationMs } of attempts) {
+    steps.set(stepId, (steps.get(stepId) ?? 0) + (durationMs ?? 0));
+  }
+  return Math.max(0, ...steps.values());
 };
 
 /** A scored run's view for one shown setup: its attempts and its wall time. */
@@ -399,6 +435,7 @@ const summaryOf = (
     },
     meanTurns: mean(scored.map(({ attempts }) => sumOf(attempts, (a) => a.turns))),
     meanAttemptMs: mean(scored.map(({ attempts }) => sumOf(attempts, (a) => a.durationMs))),
+    meanTasteMs: mean(scored.map(({ attempts }) => tasteMsOf(attempts))),
     meanWallMs: mean(scored.map(({ wallMs }) => wallMs)),
     failed,
   };
@@ -407,7 +444,7 @@ const summaryOf = (
 /**
  * Each shown setup over its runs: per run number the run that did not fail is scored, and every
  * failed one is listed. Nip's two apart are apart-7's correctness and acceptance attempts, side by
- * side, so their wall time is the longer of the two.
+ * side: their tasting time is the longer of the two, and they have no wall time of their own.
  */
 export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary[] => {
   const ofSetup = (setup: SetupName) => {
@@ -435,8 +472,8 @@ export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary
     const nipSteps = new Set(NIP.map(stepIdOf));
     const runs = scored.map((record) => {
       const attempts = record.attempts.filter(({ stepId }) => nipSteps.has(stepId));
-      const wallMs = Math.max(0, ...attempts.map(({ durationMs }) => durationMs ?? 0));
-      return { record, attempts, wallMs };
+      // Its two steps never ran on their own, so it has no wall time of its own.
+      return { record, attempts, wallMs: Number.NaN };
     });
     return summaryOf(setup, NIP, runs, failed, key);
   });
@@ -502,17 +539,19 @@ const seconds = (ms: number): string => (Number.isNaN(ms) ? '-' : `${round(ms / 
 /** The one table of ADR 0224: per setup, per defect, the choice, and every other finding. */
 export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): string => {
   const lines = [
-    '| Setup | Found (mean) | Per run | Own lens (mean) | Other findings (mean) | Input | Output | Cache read | Cache write | Tokens | Turns | Attempts | Wall | Failed runs |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| Setup | Found (mean) | Per run | Own lens (mean) | Other findings (mean) | Input | Output | Cache read | Cache write | Tokens | Turns | Attempts | Tasting | Wall | Failed runs |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const s of summaries) {
     if (s.found.length === 0) {
-      lines.push(`| ${s.setup} | no runs |  |  |  |  |  |  |  |  |  |  |  | ${s.failed.length} |`);
+      lines.push(
+        `| ${s.setup} | no runs |  |  |  |  |  |  |  |  |  |  |  |  | ${s.failed.length} |`,
+      );
       continue;
     }
     const t = s.meanTokens;
     lines.push(
-      `| ${s.setup} | ${round(s.meanFound)} / ${s.defects} | ${s.found.join(', ')} | ${round(mean(s.ownLens))} | ${round(mean(s.others.map((o) => o.length)))} | ${thousands(t.inputTokens)} | ${thousands(t.outputTokens)} | ${thousands(t.cacheReadTokens)} | ${thousands(t.cacheWriteTokens)} | ${thousands(t.total)} | ${round(s.meanTurns)} | ${seconds(s.meanAttemptMs)} | ${seconds(s.meanWallMs)} | ${s.failed.length} |`,
+      `| ${s.setup} | ${round(s.meanFound)} / ${s.defects} | ${s.found.join(', ')} | ${round(mean(s.ownLens))} | ${round(mean(s.others.map((o) => o.length)))} | ${thousands(t.inputTokens)} | ${thousands(t.outputTokens)} | ${thousands(t.cacheReadTokens)} | ${thousands(t.cacheWriteTokens)} | ${thousands(t.total)} | ${round(s.meanTurns)} | ${seconds(s.meanAttemptMs)} | ${seconds(s.meanTasteMs)} | ${seconds(s.meanWallMs)} | ${s.failed.length} |`,
     );
   }
   lines.push('', `| Defect | Lens | ${summaries.map(({ setup }) => setup).join(' | ')} |`);
