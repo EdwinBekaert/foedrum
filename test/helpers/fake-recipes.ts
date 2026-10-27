@@ -81,6 +81,7 @@ export const fakeRecipe = ({
     },
     mayRetry: (batch, stepId) => (batch.steps.get(stepId)?.attempts.size ?? 0) < maxAttempts,
     rounds: roundsOf,
+    maxRounds: (stepId, why) => (routes[stepId]?.[why] === undefined ? undefined : maxRounds),
     loopBack: (batch, stepId, why) =>
       (roundsOf(batch, stepId, why) ?? 0) < maxRounds ? routes[stepId]?.[why] : undefined,
     routesTo: (stepId, why) => routes[stepId]?.[why],

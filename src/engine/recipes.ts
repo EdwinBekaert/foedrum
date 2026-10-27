@@ -87,6 +87,8 @@ export interface Recipe {
    * has no such route (ADR 0064, ADR 0192).
    */
   rounds(batch: Batch, stepId: string, why: RouteWhy): number | undefined;
+  /** How many rounds the `why` route of `stepId` may take, or `undefined` without one (ADR 0226). */
+  maxRounds(stepId: string, why: RouteWhy): number | undefined;
 }
 
 export interface Recipes {

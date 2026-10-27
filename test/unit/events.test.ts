@@ -6,6 +6,7 @@ import {
   Event,
   MAX_HEAD_CHECK_URL_LENGTH,
   MAX_HEAD_CHECKS,
+  ScheduleRoute,
   SessionRef,
   StuckReason,
   Surface,
@@ -864,4 +865,19 @@ describe('WaitCondition', () => {
     rejects(WaitCondition, { kind: 'release', repo: 'acme/lib-core', package: 'lib-core' }));
   it('rejects a merge without a pull request URL', () =>
     rejects(WaitCondition, { kind: 'merge', pullRequest: '' }));
+});
+
+describe("ScheduleRoute's merged-tree cause (ADR 0226)", () => {
+  const route = { from: 'open-pull-request', why: 'pull_request', pullRequest, head: sha };
+  const tip = 'b'.repeat(40);
+
+  it('takes a pull-request route with both its cause and tip, or neither', () => {
+    assert.equal(ScheduleRoute.safeParse(route).success, true);
+    assert.equal(ScheduleRoute.safeParse({ ...route, cause: 'merged_check', tip }).success, true);
+  });
+
+  it('refuses a cause without its tip, and a tip without its cause', () => {
+    assert.equal(ScheduleRoute.safeParse({ ...route, cause: 'merged_check' }).success, false);
+    assert.equal(ScheduleRoute.safeParse({ ...route, tip }).success, false);
+  });
 });
