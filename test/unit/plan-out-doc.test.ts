@@ -58,103 +58,95 @@ describe('PlanOutDoc (ADR 0233)', () => {
     assert.equal(refused(asking), undefined);
   });
 
-  it('refuses a done plan without sub-orders', () => {
-    const { subOrders: _, ...none } = done([]);
-    assert.match(refused(none) ?? '', /subOrders/);
-    assert.match(refused(done([])) ?? '', /subOrders/);
-  });
-
-  for (const field of [
-    'id',
-    'title',
-    'repo',
-    'size',
-    'doneWhen',
-    'touches',
-    'recipe',
-    'why',
-    'ready',
-  ]) {
-    it(`refuses a done sub-order without its ${field}, naming it`, () => {
-      const { [field]: _, ...without } = subOrder('api');
-      assert.match(refused(done([without])) ?? '', new RegExp(`subOrders\\[0\\]\\.${field}`));
+  const without = (field: string) => {
+    const { [field]: _, ...rest } = subOrder('api');
+    return rest;
+  };
+  const many = Array.from({ length: 101 }, (_, i) => subOrder(`s${i}`));
+  const chain = (first: unknown[]) => [
+    subOrder('a', { dependencies: first }),
+    subOrder('b', { dependencies: [{ on: 'a', kind: 'release' }] }),
+    subOrder('c', { dependencies: [{ on: 'b', kind: 'code' }] }),
+  ];
+  // Each refused plan, and the path its reason names.
+  const refusals: [string, unknown, RegExp][] = [
+    ['a done plan without sub-orders', { status: 'done', summary: 'None' }, /subOrders/],
+    ['a done plan with no sub-order', done([]), /subOrders/],
+    ...['id', 'title', 'repo', 'size', 'doneWhen', 'touches', 'recipe', 'why', 'ready'].map(
+      (field): [string, unknown, RegExp] => [
+        `a sub-order without its ${field}`,
+        done([without(field)]),
+        new RegExp(`subOrders\\[0\\]\\.${field}`),
+      ],
+    ),
+    [
+      'a size without its lines',
+      done([subOrder('api', { size: { mechanism: 'one endpoint' } })]),
+      /subOrders\[0\]\.size\.lines/,
+    ],
+    [
+      'a size without its mechanism',
+      done([subOrder('api', { size: { lines: 10 } })]),
+      /subOrders\[0\]\.size\.mechanism/,
+    ],
+    ...['/etc/passwd', '../up.ts', 'src/*.ts', 'src\\a.ts'].map(
+      (path): [string, unknown, RegExp] => [
+        `a touch of ${path}`,
+        done([subOrder('api', { touches: [{ path }] })]),
+        /subOrders\[0\]\.touches\[0\]\.path/,
+      ],
+    ),
+    ['no touch', done([subOrder('api', { touches: [] })]), /subOrders\[0\]\.touches/],
+    [
+      'a text of two lines',
+      done([subOrder('api', { doneWhen: 'a\nb' })]),
+      /subOrders\[0\]\.doneWhen/,
+    ],
+    ['an id that is no plain name', done([subOrder('API one')]), /subOrders\[0\]\.id/],
+    [
+      'testFirst false without a reason',
+      done([subOrder('docs', { testFirst: false })]),
+      /subOrders\[0\]\.testFirstOff/,
+    ],
+    [
+      'ready false without the reason it needs refining',
+      done([subOrder('api', { ready: false })]),
+      /subOrders\[0\]\.refinement/,
+    ],
+    ['two sub-orders with one id', done([subOrder('api'), subOrder('api')]), /subOrders\[1\]\.id/],
+    [
+      'a dependency on an unknown id',
+      done([subOrder('api'), subOrder('ui', { dependencies: [{ on: 'nowhere', kind: 'code' }] })]),
+      /subOrders\[1\]\.dependencies\[0\]\.on/,
+    ],
+    [
+      'a dependency on itself',
+      done([subOrder('api', { dependencies: [{ on: 'api', kind: 'code' }] })]),
+      /subOrders\[0\]\.dependencies\[0\]\.on/,
+    ],
+    ['dependencies that form a cycle', done(chain([{ on: 'c', kind: 'code' }])), /cycle/],
+    [
+      'a kind of dependency other than code or release',
+      done([subOrder('api'), subOrder('ui', { dependencies: [{ on: 'api', kind: 'merge' }] })]),
+      /subOrders\[1\]\.dependencies\[0\]\.kind/,
+    ],
+    ['more than 100 sub-orders', done(many), /subOrders/],
+  ];
+  for (const [what, frontmatter, path] of refusals) {
+    it(`refuses ${what}, naming the field`, () => {
+      assert.match(refused(frontmatter) ?? '', path);
     });
   }
 
-  it('refuses a size without its lines or its mechanism, and a touch that is no relative path', () => {
-    const noLines = subOrder('api', { size: { mechanism: 'one endpoint' } });
-    assert.match(refused(done([noLines])) ?? '', /subOrders\[0\]\.size\.lines/);
-    const noMechanism = subOrder('api', { size: { lines: 10 } });
-    assert.match(refused(done([noMechanism])) ?? '', /subOrders\[0\]\.size\.mechanism/);
-    for (const path of ['/etc/passwd', '../up.ts', 'src/*.ts', 'src\\a.ts']) {
-      const touching = subOrder('api', { touches: [{ path }] });
-      assert.match(refused(done([touching])) ?? '', /subOrders\[0\]\.touches\[0\]\.path/, path);
-    }
-    assert.match(
-      refused(done([subOrder('api', { touches: [] })])) ?? '',
-      /subOrders\[0\]\.touches/,
-    );
-  });
-
-  it('refuses a text of two lines and an id that is no plain name', () => {
-    assert.match(
-      refused(done([subOrder('api', { doneWhen: 'a\nb' })])) ?? '',
-      /subOrders\[0\]\.doneWhen/,
-    );
-    assert.match(refused(done([subOrder('API one')])) ?? '', /subOrders\[0\]\.id/);
-  });
-
-  it('refuses testFirst false without a reason, and takes it with one', () => {
-    const off = subOrder('docs', { testFirst: false });
-    assert.match(refused(done([off])) ?? '', /subOrders\[0\]\.testFirstOff/);
-    const reasoned = subOrder('docs', { testFirst: false, testFirstOff: 'documentation only' });
+  it('takes testFirst false and ready false with their reasons, a chain, and 100 sub-orders', () => {
+    const reasoned = subOrder('docs', {
+      testFirst: false,
+      testFirstOff: 'documentation only',
+      ready: false,
+      refinement: 'the API shape is open',
+    });
     assert.equal(refused(done([reasoned])), undefined);
-  });
-
-  it('refuses ready false without the reason it needs refining', () => {
-    const unready = subOrder('api', { ready: false });
-    assert.match(refused(done([unready])) ?? '', /subOrders\[0\]\.refinement/);
-    const reasoned = subOrder('api', { ready: false, refinement: 'the API shape is open' });
-    assert.equal(refused(done([reasoned])), undefined);
-  });
-
-  it('refuses two sub-orders with one id', () => {
-    assert.match(refused(done([subOrder('api'), subOrder('api')])) ?? '', /subOrders\[1\]\.id/);
-  });
-
-  it('refuses a dependency on an unknown id, naming it', () => {
-    const waiting = subOrder('ui', { dependencies: [{ on: 'nowhere', kind: 'code' }] });
-    assert.match(
-      refused(done([subOrder('api'), waiting])) ?? '',
-      /subOrders\[1\]\.dependencies\[0\]\.on/,
-    );
-  });
-
-  it('refuses a dependency on itself', () => {
-    const self = subOrder('api', { dependencies: [{ on: 'api', kind: 'code' }] });
-    assert.match(refused(done([self])) ?? '', /subOrders\[0\]\.dependencies\[0\]\.on/);
-  });
-
-  it('refuses dependencies that form a cycle, and takes a chain', () => {
-    const a = subOrder('a', { dependencies: [{ on: 'c', kind: 'code' }] });
-    const b = subOrder('b', { dependencies: [{ on: 'a', kind: 'release' }] });
-    const c = subOrder('c', { dependencies: [{ on: 'b', kind: 'code' }] });
-    assert.match(refused(done([a, b, c])) ?? '', /cycle/);
-    const first = subOrder('a');
-    assert.equal(refused(done([first, b, c])), undefined);
-  });
-
-  it('refuses a kind of dependency other than code or release', () => {
-    const waiting = subOrder('ui', { dependencies: [{ on: 'api', kind: 'merge' }] });
-    assert.match(
-      refused(done([subOrder('api'), waiting])) ?? '',
-      /subOrders\[1\]\.dependencies\[0\]\.kind/,
-    );
-  });
-
-  it('refuses more than 100 sub-orders', () => {
-    const many = Array.from({ length: 101 }, (_, i) => subOrder(`s${i}`));
-    assert.match(refused(done(many)) ?? '', /subOrders/);
+    assert.equal(refused(done(chain([]))), undefined);
     assert.equal(refused(done(many.slice(0, 100))), undefined);
   });
 });

@@ -142,34 +142,20 @@ describe('renderPlan (ADR 0233)', () => {
   });
 });
 
-/** A fake of the comments host: the comments of every issue, ids from 1, as `login` sees them. */
-const fakeComments = (login: string) => {
-  const comments: { id: number; repo: string; issue: number; author: string; body: string }[] = [];
+/** A fake of the comments host: the Brewery's own comments, ids from 1, and the writes it took. */
+const fakeComments = () => {
+  const comments: { id: number; repo: string; issue: number; body: string }[] = [];
   const calls: string[] = [];
   let ids = 0;
-  const byId = (repo: string, id: number) =>
-    comments.find((comment) => comment.repo === repo && comment.id === id);
+  const byId = (repo: string, id: number) => comments.find((c) => c.repo === repo && c.id === id);
   const host: StatusComments = {
-    find: async (repo, issue, marker) => {
-      calls.push('find');
-      const found = comments.find(
-        (comment) =>
-          comment.repo === repo &&
-          comment.issue === issue &&
-          comment.author === login &&
-          comment.body.endsWith(marker),
-      );
-      return found === undefined ? undefined : { id: found.id, body: found.body };
-    },
-    read: async (repo, id) => {
-      calls.push('read');
-      const found = byId(repo, id);
-      return found?.author === login ? found.body : undefined;
-    },
+    find: async (repo, issue, marker) =>
+      comments.find((c) => c.repo === repo && c.issue === issue && c.body.endsWith(marker)),
+    read: async (repo, id) => byId(repo, id)?.body,
     create: async (repo, issue, body) => {
       calls.push('create');
       ids += 1;
-      comments.push({ id: ids, repo, issue, author: login, body });
+      comments.push({ id: ids, repo, issue, body });
       return ids;
     },
     edit: async (repo, id, body) => {
@@ -208,7 +194,7 @@ describe('planEffects (ADR 0233)', () => {
   beforeEach(() => {
     store = openSqliteEventStore(':memory:');
     log = createCommandLog({ store, recipes });
-    comments = fakeComments('alice');
+    comments = fakeComments();
   });
   afterEach(() => {
     for (const driver of drivers.splice(0)) driver.close();
@@ -296,10 +282,7 @@ describe('planEffects (ADR 0233)', () => {
     step('replan', planned(second));
     await driver.applyEffects();
     assert.equal(only().body, `${renderPlan('7-1', 'replan', second)}\n\n${marker(2)}`);
-    assert.deepEqual(
-      comments.calls.filter((call) => call !== 'read' && call !== 'find'),
-      ['create', 'edit'],
-    );
+    assert.deepEqual(comments.calls, ['create', 'edit']);
   });
 
   it('makes the comment again when it was deleted by hand', async () => {
