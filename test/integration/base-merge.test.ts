@@ -132,11 +132,18 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
     then?: (driver: Awaited<ReturnType<typeof openDriver>>) => Promise<void>,
   ) => {
     const clock = () => new Date('2026-10-23T12:00:00.000Z');
+    // The pull request's body, which a later round renders again (ADR 0227).
+    let body: string | undefined;
     const host: PullRequestHost = {
       find: async () => undefined,
-      open: async () => url,
-      body: async () => assert.fail('the first round renders no body again'),
-      update: async () => assert.fail('the first round renders no body again'),
+      open: async (_repo, request) => {
+        body = request.body;
+        return url;
+      },
+      body: async () => body ?? assert.fail('no pull request was opened'),
+      update: async (_url, text) => {
+        body = text;
+      },
     };
     let driver: Awaited<ReturnType<typeof openDriver>> | undefined;
     const worktreeOf = (ref: AttemptRef): string => {
