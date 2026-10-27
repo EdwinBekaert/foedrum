@@ -489,8 +489,11 @@ describe('runBrew', () => {
     assert.equal(api.pulls.length, 1);
     const [pull] = api.pulls;
     assert.equal(pull?.draft, true);
+    // Its last line is the marker of the body (ADR 0227), after the layout.
+    const body = pull?.body ?? '';
+    assert.match(body, /\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/);
     assert.equal(
-      pull?.body,
+      body.slice(0, body.lastIndexOf('\n\n')),
       [
         '## How it works',
         '',
