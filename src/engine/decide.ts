@@ -1427,9 +1427,9 @@ function rescheduleWaiting(draft: Draft, batchId: string): void {
   if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') return;
   const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
   for (const [stepId, step] of batch.steps) {
-    const latest = latestAttempt(step);
+    const latest = runningAttempt(step);
     // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
-    if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
+    if (latest?.phase !== 'scheduled' || !recipe?.has(stepId)) {
       continue;
     }
     draft.push({

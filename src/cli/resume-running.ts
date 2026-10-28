@@ -70,7 +70,7 @@ const ranOut = (
   attempt: number,
 ): { attempt: number; outcome: StepOutcome } | undefined => {
   const step = batch?.steps.get(stepId);
-  if (step === undefined || step.attempts.size === 0) return undefined;
+  if (step === undefined) return undefined;
   // Its end may have scheduled a retry, the next driver's to start.
   const resumed = step.attempts.get(attempt);
   if (resumed?.phase === 'finished') return { attempt, outcome: resumed.outcome };
