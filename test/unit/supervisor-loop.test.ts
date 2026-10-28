@@ -374,6 +374,27 @@ describe('createSupervisor', () => {
       ]);
       assert.deepStrictEqual(store.expiredLeases(at(600)), []);
     });
+
+    it('waits for the tick in flight before it starts another', async () => {
+      let release = (): void => {};
+      let flushes = 0;
+      const stateBranch = {
+        flush: async (): Promise<FlushResult> => {
+          flushes++;
+          if (flushes === 1) await new Promise<void>((resolve) => (release = resolve));
+          return { kind: 'unchanged' };
+        },
+      };
+      const engine = supervisor({ stateBranch });
+      const first = engine.tick();
+      const second = engine.tick();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(flushes, 1, 'the second tick waits for the first');
+      release();
+      await first;
+      await second;
+      assert.equal(flushes, 2);
+    });
   });
 
   describe('invariants across ticks', () => {
@@ -481,6 +502,19 @@ describe('createSupervisor', () => {
       const stop = new StateBranchStopError('Another engine pushed to the state branch');
       const engine = supervisor({ stateBranch: fakeBranch(stop) });
       await assert.rejects(engine.tick(), (error) => error === stop);
+    });
+
+    it('ignores a report that throws: the tick still resolves', async () => {
+      const engine = supervisor({
+        stateBranch: fakeBranch({ kind: 'failed', reason: 'could not resolve host' }),
+        report: () => {
+          throw new Error('the logger is down');
+        },
+      });
+      assert.deepStrictEqual(await engine.tick(), {
+        appended: 0,
+        flush: { kind: 'failed', reason: 'could not resolve host' },
+      });
     });
   });
 });
