@@ -239,7 +239,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const [one, two] = sessions();
     assert.equal(two?.resumes, one?.id);
     assert.match(prompts[1] ?? '', /^The run before this one ended before the step was done\./);
-    assert.match(prompts[1] ?? '', /failed: [^\n]*subOrders\.0\.doneWhen/);
+    assert.match(prompts[1] ?? '', /failed: [^<]*subOrders\[0\]\.doneWhen/);
     assert.ok(planComment()?.includes('`schema`'));
   });
 
