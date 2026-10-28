@@ -519,6 +519,76 @@ describe('createAttemptPlans: plan', () => {
       );
     });
 
+    it('gives a retry of a routed fix what sent it back and why the attempt before it failed, once each (ADR 0244, ADR 0248)', async () => {
+      const pullRequest = 'https://github.com/acme/api/pull/12';
+      const route = {
+        from: 'open',
+        why: 'pull_request',
+        pullRequest,
+        head: 'd'.repeat(40),
+        cause: 'conflict',
+        tip: 'e'.repeat(40),
+      } as const;
+      const kept = {
+        base: 'e'.repeat(40),
+        kept: { files: [{ path: 'src/a.ts', status: 'both modified' }], more: 0 },
+      };
+      const checked: Event = {
+        type: 'pull_request.base_checked',
+        batchId: '12-1',
+        pullRequest,
+        branch: 'main',
+        tip: 'e'.repeat(40),
+        head: 'd'.repeat(40),
+        conflicts: ['src/a.ts'],
+      };
+      const before: Event[] = [
+        ...ordered.slice(0, 2),
+        { type: 'step.scheduled', ...ref, deadlineAt, route },
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+      ];
+      const merged: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode(baseMergeKey(second)),
+        result: kept,
+      };
+      const count = (text: string, part: string) => text.split(part).length - 1;
+      const conflict = `source="why step brew runs again: the conflict of pull request ${pullRequest} with main"`;
+      const failure = 'source="why step brew runs again: the failure of brew#1"';
+      const merging = 'source="the merge of main in progress in the worktree of step brew"';
+      // A fresh retry, in a worktree of its own.
+      const fresh: Event = {
+        type: 'step.started',
+        ...second,
+        session: { id: sessionId, worktree: recreated },
+        worktree: {
+          repo: 'acme/api',
+          path: recreated,
+          branch: 'foedrum/12-1/brew/2',
+          commit: 'c'.repeat(40),
+        },
+      };
+      const freshPlan = await setup([...before, fresh, checked, merged]).plans.plan({
+        ...start,
+        ref: second,
+      });
+      assert.deepEqual(
+        [conflict, failure, merging].map((part) => count(freshPlan.prompt, part)),
+        [1, 1, 0],
+      );
+      // A retry that resumes the session.
+      const resumedPlan = await setup([...before, resumed, checked, merged]).plans.plan({
+        ...start,
+        ref: second,
+      });
+      assert.deepEqual(
+        [conflict, failure, merging].map((part) => count(resumedPlan.prompt, part)),
+        [0, 1, 1],
+      );
+    });
+
     // ADR 0175: whatever the brewer's retryMode, the driver resumed it; the plan says why.
     it('tells a retry after a turn overrun to finish and end, and names the copy of the out doc it left', async () => {
       const overran: Event = {
