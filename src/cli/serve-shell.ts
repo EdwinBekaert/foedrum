@@ -127,29 +127,24 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       }),
     worktrees: async (repository) => {
       const { repo, source, clone } = repository;
+      const own = ownRemote(workRoot, repo);
       if (source === 'local') {
         return openAttemptWorktrees({
           git,
           workRoot,
           repo,
           clone: worktreeClonePath(workRoot, repository),
-          own: ownRemote(workRoot, repo),
+          own,
         });
       }
       const managed = await ensureManagedClone({
         git,
         workRoot,
         repo,
-        url: `https://github.com/${repo}.git`,
+        url: own.url,
         ...(clone === undefined ? {} : { reference: clone }),
       });
-      return openAttemptWorktrees({
-        git,
-        workRoot,
-        repo,
-        clone: managed,
-        own: ownRemote(workRoot, repo),
-      });
+      return openAttemptWorktrees({ git, workRoot, repo, clone: managed, own });
     },
     // From the objects of the clone the worktrees are added to.
     push: (repository) =>
