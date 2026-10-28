@@ -67,6 +67,22 @@ describe('mergedBase', () => {
     assert.equal(mergedBase(state, 'b1'), undefined);
   });
 
+  it('counts the kept merge of a resumed attempt that a later resume of its session carried on', () => {
+    const session = '0f8fad5b-d9cb-469f-a165-708677289500';
+    const path = '/work/implement-1';
+    const worktree = { repo: 'acme/app', path, branch: 'foedrum/b1/implement/1', commit: first };
+    const resumes = { session: { id: session, resumes: session, worktree: path } };
+    const newer = 'f'.repeat(40);
+    const state = fold([
+      ...ordered,
+      ...attempt(1, kept(tip), failed, { session: { id: session, worktree: path }, worktree }),
+      // The first resume merged a newer tip in the same worktree, then failed.
+      ...attempt(2, kept(newer), failed, resumes),
+      ...attempt(3, { base: newer }, succeeded, resumes),
+    ]);
+    assert.equal(mergedBase(state, 'b1'), newer);
+  });
+
   it("counts a merge commit whatever its attempt's outcome, as green's own while green runs", () => {
     const merged = { base: tip, merged: 'c'.repeat(40) };
     const running: Event[] = [
