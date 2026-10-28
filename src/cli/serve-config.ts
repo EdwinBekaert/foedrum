@@ -126,6 +126,9 @@ export interface ServeSetup {
   keepAwake: boolean;
 }
 
+/** The Brewery's event store: `.foedrum/index.db` in its root. */
+export const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
+
 export type ServeSetupResult =
   | { kind: 'ready'; setup: ServeSetup }
   | { kind: 'refused'; problems: string[] };
@@ -368,7 +371,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     setup: {
       brewery,
       workRoot,
-      store: join(root, '.foedrum', 'index.db'),
+      store: storePath(root),
       stateWorktree: join(workRoot, 'state'),
       repositories,
       models,

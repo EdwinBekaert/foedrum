@@ -27,7 +27,7 @@ import type { ResumeCommand } from '../schemas/commands.ts';
 import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { CliResult } from './run.ts';
-import type { ServeRepository, ServeSetup } from './serve-config.ts';
+import { type ServeRepository, type ServeSetup, storePath } from './serve-config.ts';
 
 /** What resume needs of serve's setup: where the attempts ran and how their brewers are set up. */
 export type ResumeSetup = Pick<
@@ -316,7 +316,7 @@ const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string
 
 /** Runs `foedrum resume`: claude's exit code, or one line on why it opened nothing. */
 export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promise<CliResult> => {
-  const path = join(shell.cwd, '.foedrum', 'index.db');
+  const path = storePath(shell.cwd);
   const store = shell.openStore(path);
   if (store === undefined) return failed(`no event store at ${path}`);
   try {
