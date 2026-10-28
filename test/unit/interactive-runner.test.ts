@@ -4,6 +4,7 @@
 // one runs headless. No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -12,6 +13,7 @@ import type { ClaudeAttemptPlan, OutDocRead } from '../../src/brewers/claude-run
 import {
   headlessRunner,
   type InteractiveRunnerDeps,
+  interactiveBrewerRunner,
   interactiveBrewerRunnerWith,
 } from '../../src/brewers/interactive-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
@@ -697,6 +699,45 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       calls.join('\n'),
     );
     assert.ok(!calls.some((call) => call.startsWith('clear ')), calls.join('\n'));
+  });
+
+  // ADR 0251, review of #629: the real machine's files put the overrun's copy back.
+  describe('interactiveBrewerRunner: the out doc of a session that ran out of turns', () => {
+    let dir: TempDir;
+    beforeEach(() => {
+      dir = makeTempDir('interactive-restore');
+    });
+    afterEach(() => dir.remove());
+
+    it('opens the session with the copy back in its worktree', async () => {
+      const worktree = join(dir.path, 'tree');
+      mkdirSync(worktree);
+      const outDocFrom = join(dir.path, '1.out.md');
+      writeFileSync(outDocFrom, 'the work the overrun wrote');
+      let seen: string | undefined;
+      const resume = interactiveBrewerRunner({
+        claude: '/bin/claude',
+        plan: async () => ({
+          ...plan('resume'),
+          cwd: worktree,
+          settingsFile: join(dir.path, 'settings.json'),
+          outDocFrom,
+        }),
+        foreground: async () => {
+          seen = readFileSync(join(worktree, 'brew.md'), 'utf8');
+          return 0;
+        },
+        terminalEnv: {},
+        platform: 'linux',
+        say: () => {},
+        setup: async () => {
+          throw new Error('no setup runs');
+        },
+      });
+      // No commits to count, so no git runs.
+      await resume.start({ ...attempt, limits: { outDoc: limits.outDoc } }).ended;
+      assert.equal(seen, 'the work the overrun wrote');
+    });
   });
 
   describe('headlessRunner: a fresh attempt of a resume (ADR 0163)', () => {
