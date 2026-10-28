@@ -78,10 +78,27 @@ export const AttemptKeyText = canonicalText(
   'Must be a canonical attempt key: ["batchId","stepId",attempt]',
 );
 
-/** A full commit hash (SHA-1 or SHA-256). */
+// A full commit id: 40 lowercase hex characters, a SHA-1 id. Foedrum supports SHA-1 repositories
+// (ADR 0254); a 64-character SHA-256 id is refused where it enters.
+const COMMIT_ID = /^[0-9a-f]{40}$/;
+const SHA256_ID = /^[0-9a-f]{64}$/;
+
+/** Whether `text` is a full commit id, the one check `CommitSha` and every git reader use. */
+export const isCommitSha = (text: string): boolean => COMMIT_ID.test(text);
+
+/** Why `text` is no full commit id: a SHA-256 one is named as not supported (ADR 0254). */
+export const noCommitSha = (text: string): string =>
+  SHA256_ID.test(text)
+    ? `${text} is a SHA-256 commit id: Foedrum supports SHA-1 repositories only`
+    : `${text} is no full commit sha`;
+
+/** A full commit id (ADR 0254). */
 export const CommitSha = z
   .string()
-  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, 'Must be a full commit sha');
+  .regex(
+    COMMIT_ID,
+    'Must be a full commit sha: 40 lowercase hex characters (SHA-1 repositories only)',
+  );
 
 /** The most findings the ledger keeps of one refused push (ADR 0079). */
 export const MAX_REFUSED = 50;

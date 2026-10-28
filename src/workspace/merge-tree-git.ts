@@ -8,6 +8,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
 import { removeTree } from '../platform/remove.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { firstLine, gitOutput, inClone, type OwnRemote, withOwnGitDir } from './clone-git.ts';
 import type { Git, GitResult } from './git.ts';
 
@@ -18,8 +19,6 @@ export interface MergeTreeOptions {
   /** The remote as Foedrum names it: a blobless clone's missing blobs come from there. */
   own?: OwnRemote;
 }
-
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** A merge of a large tree takes a while; the intake pass's deadline aborts it sooner. */
 const MERGE_TIMEOUT_MS = 120_000;
@@ -36,10 +35,15 @@ const FOEDRUM = {
 };
 
 /** A ref of the clone's that the merged tree's directory gets: a tag or a remote-tracking ref. */
-const COPIED_REF = /^(?:[0-9a-f]{40}|[0-9a-f]{64}) refs\/(?:tags|remotes)\/\S+$/;
+const COPIED_REF = /^refs\/(?:tags|remotes)\/\S+$/;
+/** Whether a line of `for-each-ref` names a full commit sha (ADR 0254) and such a ref. */
+const isCopiedRef = (line: string): boolean => {
+  const [sha = '', ref = '', ...rest] = line.split(' ');
+  return isCommitSha(sha) && COPIED_REF.test(ref) && rest.length === 0;
+};
 
 const fullSha = (sha: string): string => {
-  if (!SHA.test(sha)) throw new Error(`${JSON.stringify(sha)} is no full commit sha`);
+  if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
   return sha;
 };
 
@@ -133,7 +137,7 @@ export const openMergedTree =
       );
       const refs = listed
         .split(/\r?\n/)
-        .filter((line) => COPIED_REF.test(line))
+        .filter(isCopiedRef)
         .map((line) => `${line}\n`);
       await writeFile(join(dir.path, 'packed-refs'), refs.join(''));
       // git in the worktree runs without the call's object directory: it borrows the clone's.

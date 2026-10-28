@@ -13,6 +13,7 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import {
   firstLine,
   gitOutput,
@@ -105,7 +106,6 @@ const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan re
 /** A push or fetch of a large repository takes a while; the effect's deadline aborts it sooner. */
 const TRANSFER_TIMEOUT_MS = 300_000;
 
-const SHA = /^[0-9a-f]{40}$/;
 // A base branch as git reads it in a refspec: never an option, a second refspec or a range.
 const BRANCH_NAME = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 // A branch Foedrum pushes, so that nothing from outside reaches git as an option or a refspec.
@@ -129,7 +129,8 @@ const mergedPatches = async (
   for (const line of merges.split(/\r?\n/)) {
     const [merge, ...parents] = line.trim().split(' ');
     const last = parents.at(-1);
-    if (merge === undefined || last === undefined || !SHA.test(merge) || !SHA.test(last)) continue;
+    if (merge === undefined || last === undefined || !isCommitSha(merge) || !isCommitSha(last))
+      continue;
     const patch = await read(['diff', '--patch', ...DIFF, '--end-of-options', last, merge]);
     if (patch === undefined) return undefined;
     parts.push(`\0${merge}\n${patch}`);
@@ -168,14 +169,14 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', `${revision}^{commit}`];
       const result = await local(clone, args, aborts(signal));
       const commit = result.stdout.trim();
-      if (result.code !== 0 || !SHA.test(commit)) {
+      if (result.code !== 0 || !isCommitSha(commit)) {
         throw new Error(`The revision ${revision} is no commit in ${clone}`);
       }
       return commit;
     },
     isAncestor: async (commit, of, signal) => {
       for (const sha of [commit, of]) {
-        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+        if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
       }
       const args = ['merge-base', '--is-ancestor', commit, of];
       const result = await local(clone, args, aborts(signal));
@@ -206,12 +207,13 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
         // The ref starts at the clone's base: the fetch then brings only what the clone lacks, and
         // git's check of what it brought stops there instead of walking a blobless clone's history
         // to blobs it never had.
-        if (known.code === 0 && SHA.test(have)) await dir.run(['update-ref', ref, have]);
+        if (known.code === 0 && isCommitSha(have)) await dir.run(['update-ref', ref, have]);
         await dir.fetch(`+${ref}:${ref}`, TRANSFER_TIMEOUT_MS);
         const fetched = (
           await dir.run(['rev-parse', '--verify', '--quiet', '--end-of-options', ref])
         ).trim();
-        if (!SHA.test(fetched)) throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
+        if (!isCommitSha(fetched))
+          throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
         return fetched;
       });
     },
@@ -221,12 +223,12 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const listed = await gitOutput(local, clone, args, aborts(signal));
       for (const line of listed.split(/\r?\n/)) {
         const [commit, name] = line.split('\t');
-        if (name === ref && commit !== undefined && SHA.test(commit)) return commit;
+        if (name === ref && commit !== undefined && isCommitSha(commit)) return commit;
       }
       return undefined;
     },
     push: async (commit, branch, signal) => {
-      if (!SHA.test(commit)) throw new Error(`${commit} is no full commit sha`);
+      if (!isCommitSha(commit)) throw new Error(noCommitSha(commit));
       const refspec = `${commit}:refs/heads/${foedrumBranch(branch)}`;
       // Never by force, and by the commit's sha: no ref of the clone names what is pushed. No hook
       // of the clone's runs: `--no-verify` alone would skip only pre-push. Only this one ref goes,
@@ -239,7 +241,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     secretScan: async (base, commit, signal) => {
       for (const sha of [base, commit]) {
-        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+        if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
       }
       const range = ['--end-of-options', commit, `^${base}`];
       const options: GitOptions = { ...aborts(signal), ...AS_COMMITTED };
@@ -289,7 +291,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     touchedFiles: async (since, commit, signal) => {
       for (const sha of [since, commit]) {
-        if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
+        if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
       }
       // Each path once, a rename's two as a deletion and an addition, never quoted after -z.
       const args = [
