@@ -5,6 +5,7 @@
 import { basename, dirname, join } from 'node:path';
 import { checkName, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
+import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
@@ -36,7 +37,7 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
-import type { MergeResult } from '../schemas/store.ts';
+import type { KeptFile, MergeResult } from '../schemas/store.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
@@ -552,20 +553,31 @@ export interface PlannedRoute {
 
 /**
  * What sent attempt `ref` back, from the latest finished attempt of the step its route came from;
- * none when no route scheduled it (ADR 0128). `outDocOf` names a step's out doc file.
+ * none when no route scheduled it (ADR 0128). `outDocOf` names a step's out doc file, and
+ * `mergeOf` reads what the merge at an attempt's start recorded. A fresh retry or answer of a fix
+ * whose start merged the base gets what sent that fix back, since its worktree holds the merge too
+ * (ADR 0244).
  */
 export function routeOf(
   batch: Batch,
   ref: AttemptRef,
   outDocOf: (stepId: string) => string | undefined,
-  _mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
+  mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
 ): PlannedRoute | undefined {
-  const route = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
+  const route =
+    batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route ?? mergeRouteOf(batch, ref);
   if (route === undefined) return undefined;
   if (route.why === 'pull_request') {
-    return route.cause === 'merged_check'
-      ? mergedCheckRouteOf(batch, ref.stepId, route)
-      : pullRequestRouteOf(batch, ref.stepId, route);
+    switch (route.cause) {
+      case 'conflict':
+        return conflictRouteOf(batch, ref.stepId, route, mergeOf(ref));
+      case 'merged_check':
+        return mergedCheckRouteOf(batch, ref.stepId, route, mergeOf(ref));
+      case undefined:
+        return pullRequestRouteOf(batch, ref.stepId, route);
+      default:
+        return route.cause satisfies never;
+    }
   }
   const { from, why } = route;
   const source = { kind: 'route', step: ref.stepId, from, why } as const;
@@ -648,6 +660,7 @@ function mergedCheckRouteOf(
   batch: Batch,
   step: string,
   route: Extract<ScheduleRoute, { why: 'pull_request' }>,
+  merge: MergeResult | undefined,
 ): PlannedRoute {
   const { from, why, pullRequest, head, tip } = route;
   const source = { kind: 'route', step, from, why, pullRequest, cause: 'merged_check' } as const;
@@ -668,7 +681,83 @@ function mergedCheckRouteOf(
   const text = [
     `Pull request ${pullRequest} merges cleanly with ${check.branch} at ${tip} but fails its checks there:`,
     ...failedReading(check.failed),
-    "The base is merged into this worktree. The recipe's own checks run on your change after this step.",
+    // The base moved again into a conflict, which the start merge kept for the brewer (ADR 0244).
+    ...(merge?.kept === undefined
+      ? [
+          "The base is merged into this worktree. The recipe's own checks run on your change after this step.",
+        ]
+      : [keptLines(merge.kept), RESOLVE]),
+  ].join('\n\n');
+  return { source, text };
+}
+
+/** The base branch the latest base check of `pullRequest` names, as the remote names it. */
+export const baseBranchOf = (batch: Batch, pullRequest: string): string =>
+  batch.baseChecks?.findLast((each) => each.pullRequest === pullRequest)?.branch ?? 'its base';
+
+/** What a brewer does with a merge its start kept in progress (ADR 0244). */
+const RESOLVE =
+  "Resolve each file, git add it, and git commit to conclude the merge; never abort it. The recipe's own checks run on your change after this step.";
+
+/** A file a kept merge left unmerged, on one line: a name may hold a line break. */
+const keptLine = ({ path, status, unmarked }: KeptFile): string => {
+  const name = path.replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, '?');
+  const markers = (status === 'both modified' || status === 'both added') && unmarked === true;
+  const note =
+    unmarked !== true
+      ? ''
+      : markers
+        ? ', without conflict markers: binary or unmarked'
+        : ', without conflict markers';
+  return `- ${name} (${status}${note})`;
+};
+
+const keptFiles = ({ files, more }: NonNullable<MergeResult['kept']>): string =>
+  [...files.map(keptLine), ...(more > 0 ? [`- and ${more} more`] : [])].join('\n');
+
+/** The files a merge kept in progress left unmerged, as a route input names them (ADR 0244). */
+const keptLines = (kept: NonNullable<MergeResult['kept']>): string =>
+  `The merge is in progress in this worktree, with conflict markers in the files git could mark. It left these files unmerged:\n${keptFiles(kept)}`;
+
+/**
+ * What sent a step back from its open pull request's conflict with its base (ADR 0244): the files
+ * its start merge left unmerged, from the ledger's record of that merge, whose tip may be newer
+ * than the check's. A file's name is whoever wrote the branch's words: untrusted (ADR 0128).
+ */
+function conflictRouteOf(
+  batch: Batch,
+  step: string,
+  route: Extract<ScheduleRoute, { why: 'pull_request' }>,
+  merge: MergeResult | undefined,
+): PlannedRoute {
+  const { from, why, pullRequest, tip } = route;
+  const branch = baseBranchOf(batch, pullRequest);
+  const source = {
+    kind: 'route',
+    step,
+    from,
+    why,
+    pullRequest,
+    cause: 'conflict',
+    branch,
+  } as const;
+  if (merge?.kept !== undefined) {
+    const text = [
+      `Pull request ${pullRequest} no longer merges cleanly with ${branch} at ${merge.base}.`,
+      keptLines(merge.kept),
+      RESOLVE,
+    ].join('\n\n');
+    return { source, text };
+  }
+  const merged =
+    merge === undefined || merge.conflicts !== undefined
+      ? 'the base is not merged into this worktree'
+      : merge.merged !== undefined
+        ? `the base at ${merge.base} merged into this worktree without a conflict`
+        : `the base at ${merge.base} is in this worktree already`;
+  const text = [
+    `Pull request ${pullRequest} conflicted with ${branch} at ${tip}; ${merged}.`,
+    "The recipe's own checks run on your change after this step.",
   ].join('\n\n');
   return { source, text };
 }
@@ -678,11 +767,24 @@ function mergedCheckRouteOf(
  * files still unmerged, and to conclude it; none when the merge kept nothing.
  */
 export function keptMergeInput(
-  _merge: MergeResult | undefined,
-  _branch: string,
-  _step: string,
+  merge: MergeResult | undefined,
+  branch: string,
+  step: string,
 ): PromptInput | undefined {
-  throw new Error('not implemented');
+  if (merge?.kept === undefined) return undefined;
+  const { files, more } = merge.kept;
+  const left =
+    files.length === 0 && more === 0
+      ? 'Every file is resolved.'
+      : `These files are still unmerged:\n${keptFiles(merge.kept)}`;
+  return {
+    name: 'route',
+    source: { kind: 'merge', step, branch },
+    text: [
+      `The merge of ${branch} at ${merge.base} is still in progress in this worktree. ${left}`,
+      RESOLVE,
+    ].join('\n\n'),
+  };
 }
 
 const leftOutReason = '[left out: a reason that looks like a secret]';

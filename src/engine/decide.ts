@@ -772,7 +772,9 @@ function fixPullRequest(
     const what =
       cause.kind === 'checks'
         ? 'no failed checks'
-        : `no failed check on its merged tree with the base at ${cause.tip}`;
+        : cause.kind === 'conflict'
+          ? `no conflict with the base at ${cause.tip}`
+          : `no failed check on its merged tree with the base at ${cause.tip}`;
     throw new Refusal(
       `pull request ${pullRequest} of batch ${batchId} has ${what} on ${head}, the head of the batch's latest push`,
     );
@@ -811,16 +813,23 @@ function fixPullRequest(
 }
 
 const sameCause = (a: FixCause, b: FixCause): boolean =>
-  a.kind === 'checks' ? b.kind === 'checks' : b.kind === 'merged_check' && a.tip === b.tip;
+  a.kind === 'checks' ? b.kind === 'checks' : b.kind === a.kind && a.tip === b.tip;
 
 /** What a `pull_request` route says of `cause`: nothing for the head's checks (ADR 0226). */
-const routeCause = (cause: FixCause): { cause?: 'merged_check'; tip?: string } =>
-  cause.kind === 'checks' ? {} : { cause: 'merged_check', tip: cause.tip };
+const routeCause = (cause: FixCause): { cause?: 'merged_check' | 'conflict'; tip?: string } =>
+  cause.kind === 'checks' ? {} : { cause: cause.kind, tip: cause.tip };
 
-/** What a batch Stuck on its pull request names of `problem`: the failed checks, or the one check. */
+/**
+ * What a batch Stuck on its pull request names of `problem`: the failed checks, the one check, or
+ * the files it conflicts in (ADR 0244).
+ */
 function stuckChecks(
   problem: PullRequestProblem,
 ): Pick<Extract<StuckReason, { kind: 'pull_request_failed' }>, 'failed' | 'more' | 'cause'> {
+  if (problem.kind === 'conflict') {
+    const { branch, tip, conflicts } = problem.check;
+    return { failed: [], more: 0, cause: { kind: 'conflict', branch, tip, files: [...conflicts] } };
+  }
   if (problem.kind === 'merged_check') {
     const { branch, tip, failed } = problem.check;
     const cause = { kind: 'merged_check', branch, tip, check: checkOf(failed) } as const;

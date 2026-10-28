@@ -90,6 +90,9 @@ function describeSource(source: InputSource): string {
       return `answers to the questions of step ${source.step}`;
     case 'route': {
       if (source.why === 'pull_request') {
+        if (source.cause === 'conflict') {
+          return `why step ${source.step} runs again: the conflict of pull request ${source.pullRequest} with ${source.branch}`;
+        }
         const what = source.cause === 'merged_check' ? 'merged-tree check' : 'checks';
         return `why step ${source.step} runs again: the failed ${what} of pull request ${source.pullRequest}`;
       }
@@ -97,7 +100,7 @@ function describeSource(source: InputSource): string {
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }
     case 'merge':
-      throw new Error('not implemented');
+      return `the merge of ${source.branch} in progress in the worktree of step ${source.step}`;
     case 'scan':
       return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
     case 'findings':

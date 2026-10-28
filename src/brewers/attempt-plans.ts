@@ -8,7 +8,7 @@ import { dirname } from 'node:path';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import { mergedBase } from '../engine/base-merge.ts';
+import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
@@ -35,6 +35,7 @@ import type { Git, GitOptions } from '../workspace/git.ts';
 import {
   answersOf,
   attemptLimits,
+  baseBranchOf,
   changeInput,
   changeStart,
   type EarlierRound,
@@ -42,6 +43,7 @@ import {
   earlierRoundsOf,
   type InputRead,
   inputsOf,
+  keptMergeInput,
   type LaterRound,
   MAX_CHANGE_INPUT_BYTES,
   outDocCopyOf,
@@ -530,7 +532,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     if (rules !== undefined) inputs.push(...rules.inputs);
     const answers = answersOf(batch, ref.stepId);
     if (answers !== undefined) inputs.push(answers);
-    const route = routeOf(batch, ref, (id) => stepBrewer(id)?.brewer.output.doc);
+    const route = routeOf(
+      batch,
+      ref,
+      (id) => stepBrewer(id)?.brewer.output.doc,
+      (of) => startMergeOf(state(), of),
+    );
     if (route !== undefined) {
       const { outDoc } = route;
       const read =
@@ -584,10 +591,20 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
           ? outDocCopyOf(settingsFileOf(workRoot, { ...ref, attempt: attempt - 1 }))
           : undefined;
       const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
+      // A resumed fix is told the files its kept merge still has unmerged (ADR 0244).
+      const merging = mergeRouteOf(batch, ref);
+      const kept =
+        resumes === undefined || merging === undefined
+          ? undefined
+          : keptMergeInput(
+              startMergeOf(state(), ref),
+              baseBranchOf(batch, merging.pullRequest),
+              stepId,
+            );
       const { inputs, houseYeast, laterRound, earlierFindings } =
         resumes === undefined
           ? await inputsFor(batch, ref, found, worktree)
-          : { inputs: latest === undefined ? [] : [latest] };
+          : { inputs: [latest, kept].filter((input) => input !== undefined) };
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
       const planned = planAttempt({

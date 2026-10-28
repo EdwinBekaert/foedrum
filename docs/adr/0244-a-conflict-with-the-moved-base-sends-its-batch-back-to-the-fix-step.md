@@ -38,7 +38,7 @@ And today every start merge aborts a conflict and ends the attempt blocked on a 
 - Then that the merge is in progress in this worktree with its markers, to resolve, `git add` and `git commit`, never to abort, and that the recipe's checks run after the step.
 - It reads the start merge's ledger record, whose tip may be newer than the check's. A merge that found nothing to merge, or merged cleanly, says so. No record says the base is not merged.
 - A merged-tree route whose start merge kept a conflict gets the same lines after its own.
-- A retry or an answer that starts fresh gets the route input of the attempt it retries. A resumed session gets only the files still unmerged and what to do with them: it holds its first prompt ([ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).
+- A retry or an answer that starts fresh of an attempt whose start merged the base, for either cause, gets the route input of the attempt it retries, since its worktree holds the merge too (`routeOf` reads the route behind it, as `routedMerge` does). A resumed session gets only the files still unmerged and what to do with them: it holds its first prompt ([ADR 0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)).
 - Its source: `why step <goto> runs again: the conflict of pull request <url> with <branch>`, untrusted, in the nonce tags, held to 64 KiB ([ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)).
 
 ### Rounds and Stuck

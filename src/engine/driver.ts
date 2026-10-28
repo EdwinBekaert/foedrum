@@ -18,6 +18,8 @@ import {
   baseMergeTarget,
   mergeEnding,
   routedMerge,
+  startMergeOf,
+  unconcludedMerge,
 } from './base-merge.ts';
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
@@ -566,9 +568,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       if (resumed.kind === 'resumed') {
         // In the worktree of the session it continues, with none of its own (ADR 0029).
         const event = { ...started, session: resumed.session };
-        if (recordStart(event)) return true;
-        releaseAttempt(key);
-        return false;
+        if (!recordStart(event)) {
+          releaseAttempt(key);
+          return false;
+        }
+        // A routed fix's merge, kept in that worktree or made again in one recreated without it
+        // (ADR 0244).
+        if (!routedMerge(batch, ref)) return true;
+        const { worktree: path } = resumed.session;
+        return mergeBase(ref, key, repository, { path, commit: resumed.start });
       }
       fallback = resumed.fallback;
       // A fresh start would run out of the same budget: the retry ends here (ADR 0175).
@@ -617,20 +625,23 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     ref: AttemptRef,
     key: string,
     { merge }: RepositoryWorktrees,
-    made: AttemptWorktree,
+    made: Pick<AttemptWorktree, 'path' | 'commit'>,
   ): Promise<boolean> => {
     if (merge === undefined) return true;
     const batch = log.state().batches.get(ref.batchId);
     const name = batch?.recipe?.name;
     if (batch === undefined || name === undefined) return true;
-    // Also at the start of a fix the merged tree sent back: its failure is only there (ADR 0226).
-    const merges = recipes.find(name)?.mergesBase(ref.stepId) === true || routedMerge(batch, ref);
+    // Also at the start of a fix its pull request sent back, its conflict kept for the brewer: the
+    // failure, or the conflict, is only there (ADR 0226, ADR 0244).
+    const keep = routedMerge(batch, ref);
+    const merges = recipes.find(name)?.mergesBase(ref.stepId) === true || keep;
     if (!merges) return true;
     let ending: Ending | undefined;
     // Renewed before it, as before every effect: none is renewed during one (ADR 0044).
     heartbeat();
     try {
-      const target = baseMergeTarget(merge, { path: made.path, start: made.commit }, ref.stepId);
+      const tree = { path: made.path, start: made.commit };
+      const target = baseMergeTarget(merge, tree, ref.stepId, keep);
       const merging = baseMergeKey(ref);
       const { result } = await withinDeadline(merging, (signal) =>
         applyEffect(ledger, merging, target, signal),
@@ -648,6 +659,36 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /**
+   * How `ref` ended, with a `done` failed retryably while the conflict its start merge kept is
+   * unconcluded in its worktree (ADR 0244). Never throws: git that cannot answer fails it the same.
+   */
+  const concluded = async (ref: AttemptRef, end: AttemptEnd): Promise<AttemptEnd> => {
+    if (end.ending.kind !== 'succeeded' || worktrees.length === 0) return end;
+    try {
+      const state = log.state();
+      const result = startMergeOf(state, ref);
+      if (result?.kept === undefined) return end;
+      const { merge } = repositoryOf(state, ref.batchId, worktrees);
+      const attempt = state.batches
+        .get(ref.batchId)
+        ?.steps.get(ref.stepId)
+        ?.attempts.get(ref.attempt);
+      const path =
+        attempt?.phase === 'started'
+          ? (attempt.worktree?.path ?? attempt.session?.worktree)
+          : undefined;
+      if (merge === undefined || path === undefined) return end;
+      const reason = await unconcludedMerge(merge, path, result);
+      return reason === undefined
+        ? end
+        : { ...end, ending: { kind: 'failed', retryable: true, reason } };
+    } catch (error) {
+      const reason = `the merge of the base could not be read: ${(error as Error).message}`;
+      return { ...end, ending: { kind: 'failed', retryable: true, reason } };
+    }
+  };
+
+  /**
    * The session a retry of `ref` continues, in the worktree of the attempt that started it, given
    * back (ADR 0117); else a fresh start, with why when its brewer would have resumed one. A start
    * waits for the lease of the attempt before it anyway (ADR 0055).
@@ -656,7 +697,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     repository: RepositoryWorktrees,
     batch: Batch,
     ref: AttemptRef,
-  ): Promise<{ kind: 'resumed'; session: SessionRef } | { kind: 'fresh'; fallback?: string }> => {
+  ): Promise<
+    { kind: 'resumed'; session: SessionRef; start: string } | { kind: 'fresh'; fallback?: string }
+  > => {
     // After a turn overrun whatever the brewer's retryMode: a fresh start would meet the same
     // budget (ADR 0175).
     const found =
@@ -671,7 +714,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
     try {
       const back = await manager.recreate(from, found.worktree.commit);
-      return { kind: 'resumed', session: { id: session, resumes: session, worktree: back.path } };
+      const resumedIn = { id: session, resumes: session, worktree: back.path };
+      return { kind: 'resumed', session: resumedIn, start: found.worktree.commit };
     } catch (error) {
       const why = `the worktree of ${name} could not be recreated: ${(error as Error).message}`;
       return { kind: 'fresh', fallback: why };
@@ -782,20 +826,22 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           }
           const run = runner.start({ ref, limits: limitsOf(ref) });
           runs.set(key, { ref, run });
-          run.ended.then(
-            (end) => ended.push({ ref, end }),
-            // The runner broke, not the attempt: it is blocked on its environment, and its process,
-            // which may still run, is stopped before its lease goes (ADR 0099).
-            // Neither can throw, so the end always reaches the step boundary and nothing is left floating.
-            (error: unknown) => {
-              const summary = rejectionSummary(error);
-              const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
-              ended.push({ ref, end: { ending }, rejected: { error } });
-              try {
-                run.stop();
-              } catch {}
-            },
-          );
+          run.ended
+            .then((end) => concluded(ref, end))
+            .then(
+              (end) => ended.push({ ref, end }),
+              // The runner broke, not the attempt: it is blocked on its environment, and its process,
+              // which may still run, is stopped before its lease goes (ADR 0099).
+              // Neither can throw, so the end always reaches the step boundary and nothing is left floating.
+              (error: unknown) => {
+                const summary = rejectionSummary(error);
+                const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
+                ended.push({ ref, end: { ending }, rejected: { error } });
+                try {
+                  run.stop();
+                } catch {}
+              },
+            );
         }
       }
       // Let the runs that ended settle their promises.

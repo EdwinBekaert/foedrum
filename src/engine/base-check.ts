@@ -237,21 +237,30 @@ export const pullRequestOf = (url: string): { repo: string; number: number } => 
 
 /**
  * A post's comment without its marker: the batch's heading, `body`, and what the batch does: it
- * stays On tap, or with `rounds` Foedrum sends it back to fix it (ADR 0226).
+ * stays On tap, or with `rounds` Foedrum sends it back to `fix` it (ADR 0226, ADR 0244).
  */
-const postText = (batchId: string, body: string[], rounds?: number): string =>
+const postText = (batchId: string, body: string[], rounds?: number, fix = 'fix'): string =>
   [
     `### Foedrum · batch \`${batchId}\``,
     ...body,
-    `${rounds === undefined ? 'The batch stays On tap.' : `While its rounds last, Foedrum sends the batch back to fix it, at most ${roundsText(rounds)} in all, unless a person holds or skips it. The batch's status comment says how it goes.`} Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
+    `${rounds === undefined ? 'The batch stays On tap.' : `While its rounds last, Foedrum sends the batch back to ${fix} it, at most ${roundsText(rounds)} in all, unless a person holds or skips it. The batch's status comment says how it goes.`} Foedrum checks the commit it pushed: once someone else pushes to this branch, it checks it no more (ADR 0198).`,
   ].join('\n\n');
 
 /** The comment a conflict posts, without its marker. */
-const conflictText = (batchId: string, { branch, tip, conflicts = [] }: BaseCheck): string =>
-  postText(batchId, [
-    `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
-    conflicts.map((file) => `- ${plain(file)}`).join('\n'),
-  ]);
+const conflictText = (
+  batchId: string,
+  { branch, tip, conflicts = [] }: BaseCheck,
+  rounds: number | undefined,
+): string =>
+  postText(
+    batchId,
+    [
+      `\`${branch}\` moved to \`${tip}\`, and this pull request no longer merges with it cleanly: it conflicts in`,
+      conflicts.map((file) => `- ${plain(file)}`).join('\n'),
+    ],
+    rounds,
+    'resolve',
+  );
 
 /**
  * `text` in a fenced code block whose fence is longer than any run of backticks in it, each `<!--`
@@ -366,7 +375,7 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
         ...conflictPosts(batch).map(({ n, check }) => ({
           check,
           key: conflictKey(batchId, n),
-          text: conflictText(batchId, check),
+          text: conflictText(batchId, check, rounds),
         })),
         ...failurePosts(batch).map(({ n, check }) => ({
           check,
