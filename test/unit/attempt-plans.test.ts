@@ -407,12 +407,21 @@ describe('createAttemptPlans: plan', () => {
         failed,
         { type: 'step.scheduled', ...second, deadlineAt, retry: true },
         resumed,
+        {
+          type: 'pull_request.base_checked',
+          batchId: '12-1',
+          pullRequest,
+          branch: 'main',
+          tip: 'e'.repeat(40),
+          head: 'd'.repeat(40),
+          conflicts: ['src/a.ts'],
+        },
         { type: 'effect.applied', key: effectKey.encode(baseMergeKey(second)), result: kept },
       ];
       const plan = await setup(events).plans.plan({ ...start, ref: second });
       assert.match(
         plan.prompt,
-        /source="the merge of its base in progress in the worktree of step brew"[^>]*>\nThe merge of its base at e{40} is still in progress in this worktree\. These files are still unmerged:\n- src\/a\.ts \(both modified\)\n/,
+        /source="the merge of main in progress in the worktree of step brew"[^>]*>\nThe merge of main at e{40} is still in progress in this worktree\. These files are still unmerged:\n- src\/a\.ts \(both modified\)\n/,
       );
     });
 
