@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   dispositionsOf,
+  lensOfFinding,
   MAX_DISPOSITION_FILE,
   MAX_DISPOSITION_WHY,
   MAX_RISK_LEFT,
@@ -324,6 +325,17 @@ describe("a finding's lens (#560, ADR 0220)", () => {
     assert.equal(
       TastingOutDoc.safeParse({ ...doc, findings: [{ ...finding, lens: 'security' }] }).success,
       false,
+    );
+  });
+
+  it("reads a finding without a lens as its step's", () => {
+    assert.equal(
+      lensOfFinding({ ...finding, severity: 'major' }, 'diff/correctness'),
+      'diff/correctness',
+    );
+    assert.equal(
+      lensOfFinding({ ...finding, severity: 'major', lens: 'diff/security' }, 'diff/correctness'),
+      'diff/security',
     );
   });
 

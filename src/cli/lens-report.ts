@@ -8,7 +8,12 @@ import { cutFindingText } from '../engine/decide.ts';
 import type { Attempt, Batch, State } from '../engine/fold.ts';
 import { lensRounds } from '../engine/lens-rounds.ts';
 import type { Usage } from '../schemas/events.ts';
-import { type Disposition, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
+import {
+  type Disposition,
+  lensOfFinding,
+  type TastingFinding,
+  tastingOf,
+} from '../schemas/out-doc.ts';
 import { addUsage, byName, type LoadedBrewers, number, tokensLine } from './brewer-report.ts';
 
 /** The lenses in use and what each recipe's step reviews through now, from the loaded files. */
@@ -229,7 +234,7 @@ export const lensReport = (
           shared.set(names.join(','), row);
           return {
             tallies: [...byLens.values()],
-            of: (finding) => byLens.get(finding.lens ?? ''),
+            of: (finding) => byLens.get(lensOfFinding(finding, undefined) ?? ''),
             usage: row.usage,
             shared: row,
           };

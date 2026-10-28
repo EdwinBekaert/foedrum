@@ -4,7 +4,7 @@
 // scripts/tasting-compare.ts brews the runs with the real claude; nothing here starts a process.
 
 import type { Event, Usage } from '../../src/schemas/events.ts';
-import { TastingFinding } from '../../src/schemas/out-doc.ts';
+import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { z } from '../../src/schemas/zod.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
@@ -322,8 +322,7 @@ export const scoreRun = (record: RunRecord, key: Key, lenses = SETUPS[record.set
       const on = defects.filter((defect) => onDefect(finding, defect));
       if (on.length === 0) others.push({ stepId, finding });
       for (const defect of on) {
-        // A finding without a lens is its step's (ADR 0220).
-        const own = (finding.lens ?? stepLens) === defect.lens;
+        const own = lensOfFinding(finding, stepLens) === defect.lens;
         hits.set(defect.id, (hits.get(defect.id) ?? false) || own);
       }
     }
