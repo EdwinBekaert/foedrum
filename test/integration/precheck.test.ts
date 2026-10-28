@@ -99,12 +99,14 @@ describe('scripts/precheck.ts started by node', () => {
 
   // The hook runs before every Bash and PowerShell call, so a call that does not name git or gh
   // must cost no more than node, this file and the pre-filter it imports (#41, ADR 0252).
-  it('loads only the pre-filter for a call that does not name git or gh', async () => {
-    const recordLoads = `import { registerHooks } from 'node:module';
+  const recordLoads = `import { registerHooks } from 'node:module';
       registerHooks({ load(url, context, next) {
         if (url.startsWith('file:')) process.stderr.write('loaded ' + url + '\\n');
         return next(url, context);
       } });`;
+  const prefilter = join(root, 'scripts', 'precheck', 'prefilter.ts');
+
+  it('loads only the pre-filter for a call that does not name git or gh', async () => {
     const { code, stderr } = await run(
       process.execPath,
       ['--import', `data:text/javascript,${encodeURIComponent(recordLoads)}`, script],
@@ -112,7 +114,28 @@ describe('scripts/precheck.ts started by node', () => {
       { cwd: root, env: envWithoutNpm() },
     );
     assert.equal(code, 0);
-    const prefilter = join(root, 'scripts', 'precheck', 'prefilter.ts');
+    assert.deepEqual(stderr.trim().split(/\r?\n/), [
+      `loaded ${pathToFileURL(script).href}`,
+      `loaded ${pathToFileURL(prefilter).href}`,
+    ]);
+  });
+
+  // An input whose description names git passes the raw-input test and is parsed; the command
+  // test then lets it go, still before the reader and the policies load (#152, ADR 0252).
+  it('loads only the pre-filter for a command that does not name git or gh, whatever the input around it names', async () => {
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls -la src', description: 'List the files git tracks' },
+      cwd: root,
+    });
+    const { code, stderr } = await run(
+      process.execPath,
+      ['--import', `data:text/javascript,${encodeURIComponent(recordLoads)}`, script],
+      input,
+      { cwd: root, env: envWithoutNpm() },
+    );
+    assert.equal(code, 0);
     assert.deepEqual(stderr.trim().split(/\r?\n/), [
       `loaded ${pathToFileURL(script).href}`,
       `loaded ${pathToFileURL(prefilter).href}`,
