@@ -6,8 +6,8 @@
 import type { CommitsScanned, CommitsSeen } from '../engine/brewer-runner.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { openBranchPush } from './branch-push-git.ts';
-import { inClone } from './clone-git.ts';
-import type { Git, GitResult } from './git.ts';
+import { firstLine, inClone } from './clone-git.ts';
+import type { Git } from './git.ts';
 
 /**
  * Counts the commits on `branch` in `clone` after `since`; never throws, git's failure is
@@ -30,13 +30,6 @@ const unsafe = (since: string, branch: string): string | undefined => {
   if (!ATTEMPT_BRANCH.test(branch)) return `${JSON.stringify(branch)} is no attempt branch`;
   return undefined;
 };
-
-const firstLine = ({ code, stderr }: GitResult): string =>
-  stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line !== '') ??
-  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
 
 export const countCommits =
   (shared: Git): CountCommits =>
