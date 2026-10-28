@@ -34,6 +34,7 @@ import {
   latestBody,
   latestPush,
   openedPullRequest,
+  openOf,
 } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
@@ -712,7 +713,18 @@ export const renderStatus = (
   left?: LeftBody,
   /** The commit of the batch's latest push, whose base checks the status line shows (ADR 0226). */
   head?: string,
+  /**
+   * The pull request `openOf` reads, `null` when none: no other's checks or base checks are shown,
+   * since they are read no more (ADR 0213, ADR 0219).
+   */
+  open?: string | null,
 ): string => {
+  // A pull request someone else pushed to keeps its line: it says why it is read no more.
+  const shownBaseCheck = (url: string): string | undefined => {
+    const line = baseCheckLine(batch, url, head);
+    if (open === undefined || url === open) return line;
+    return line?.endsWith('since someone else pushed to its branch') === true ? line : undefined;
+  };
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
     const shown = text.replace(/\s+/g, ' ').trim().slice(0, scanned);
@@ -754,8 +766,8 @@ export const renderStatus = (
         ? [planned(batch) ? PLANNED : 'No pull request.']
         : [
             '**Pull requests**',
-            ...pullRequests.map((url) => baseCheckLine(batch, url, head) ?? `- ${link(url)}`),
-            ...checkLines(batch),
+            ...pullRequests.map((url) => shownBaseCheck(url) ?? `- ${link(url)}`),
+            ...(open === null ? [] : checkLines(batch)),
             // The merge brief of the record that makes it ready now (ADR 0225).
             ...(brief === undefined || !('comment' in brief)
               ? []
@@ -866,6 +878,7 @@ const statusDue = (
     briefLine(state, batch),
     leftBody(state, batch),
     pushed?.commit,
+    openOf(state, batch)?.url ?? null,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
