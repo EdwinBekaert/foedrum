@@ -45,7 +45,6 @@ Its worktree had been recreated from the attempt's branch, so the uncommitted `g
   A copy that cannot be written costs the attempt nothing: its retry resumes without it.
   Nor does an out doc whose folder the recreated worktree does not have, as when git does not track it: the session resumes without it.
   A copy that would be written outside the worktree, or cannot be read or written there, stops the attempt before claude starts, as an out doc that cannot be removed does ([ADR 0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md)).
-- **`foedrum resume`'s runner keeps it too**, amending [ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md) (2026-10-28, #614): a takeover whose session continues a run that ended on its budget opens with that out doc, or its copy put back, as the headless runner's resumed run does.
 
 ## Consequences
 - A brew whose brewer runs past `maxTurns` goes on by itself, within the step's `maxAttempts`, in the same session and worktree, out doc included.
@@ -53,7 +52,7 @@ Its worktree had been recreated from the attempt's branch, so the uncommitted `g
 - An overrun after claude's init report on a driver that can resume no longer goes Stuck at once: a person's `foedrum retry` is needed only when the attempts are used.
 - The mark is a new field of a failed outcome on `step.finished`; an event recorded before it still reads.
   An older Foedrum cannot read a `step.finished` that carries it: the outcome's schema is strict.
-- `foedrum resume` of a finished attempt ([ADR 0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)) is unchanged, and so is a takeover of a running batch ([ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)) whose session continues a run that has not ended on its budget: it removes the out doc before it as [ADR 0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) says.
+- `foedrum resume` of a finished attempt ([ADR 0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)) and a takeover of a running batch ([ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)) are unchanged: an engineer's session continues a run that has not ended on its budget, and removes the out doc before it as [ADR 0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) says.
 
 ## Alternatives considered
 - **Make every overrun retryable and let `retryMode` decide.** Every default brewer would retry fresh into the same budget.
