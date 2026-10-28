@@ -1368,6 +1368,10 @@ export type DeniedPush = (
 // read while it is set, or undefined (ADR 0132); files are read from `cwd`.
 export type DeniedTexts = (texts: readonly GhText[], cwd: string) => string | undefined;
 
+// The push and mirror settings of every remote in git's configuration in `dir`, as
+// `git config -z --get-regexp` prints them; rejects when git cannot read them (ADR 0246).
+export type PushConfig = (dir: string) => Promise<string>;
+
 // Whether a directory a command changes into is inside the project the session works in
 // (CLAUDE_PROJECT_DIR), so the gate may run that tree's code.
 export type InProject = (dir: string) => Promise<boolean>;
@@ -1467,6 +1471,7 @@ export const precheck = async (
   deniedPush: DeniedPush = async () => undefined,
   // Loaded only for a command with gh texts to read, so other calls load nothing for it.
   loadDeniedTexts: () => Promise<DeniedTexts> = async () => () => undefined,
+  _pushConfig: PushConfig = async () => '',
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(jsonLineBreaks(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1608,6 +1613,7 @@ export const precheck = async (
 
 // Type-only, so erased: the module still has no static imports.
 import type { NpmCliLookup } from '../src/platform/executables.ts';
+import type { ExecProcess } from '../src/platform/processes.ts';
 import type { GhText } from './denylist/core.ts';
 import type { ProcessOutcome, RunProcess } from './process-runner.ts';
 
@@ -1671,6 +1677,12 @@ export const gitHeadIsDetached =
       );
     }
     return isDetached(outcome);
+  };
+
+export const gitPushConfig =
+  (_exec: ExecProcess): PushConfig =>
+  async () => {
+    throw new Error('not implemented');
   };
 
 // The deadline of each gh call: GitHub answers in about a second, and a hung call must not hold

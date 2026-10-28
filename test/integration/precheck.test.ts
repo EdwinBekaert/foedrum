@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -83,7 +83,7 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', pushFrom.path),
-        { cwd: root, env: envWithoutNpm() },
+        { cwd: root, env: envWithoutNpm({ CLAUDE_PROJECT_DIR: pushFrom.path }) },
       );
       assert.equal(code, 2);
       assert.equal(stdout, '');
@@ -125,7 +125,7 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', project.path),
-        { cwd: root, env: envWithoutNpm() },
+        { cwd: root, env: envWithoutNpm({ CLAUDE_PROJECT_DIR: project.path }) },
       );
       assert.equal(code, 2);
       assert.equal(
@@ -152,7 +152,7 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', project.path),
-        { cwd: root, env: envWithoutNpm() },
+        { cwd: root, env: envWithoutNpm({ CLAUDE_PROJECT_DIR: project.path }) },
       );
       assert.equal(code, 2);
       assert.match(stderr, /^git push is blocked: HEAD is detached in .*detached-head-/);
@@ -186,7 +186,7 @@ describe('scripts/precheck.ts started by node', () => {
         writeFileSync(list, words);
         return run(process.execPath, [script], hookInput('git push', project.path), {
           cwd: root,
-          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
         });
       };
       const denied = await gate('# clients\nexamplecorp\n');
@@ -286,7 +286,10 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', project.path),
-        { cwd: root, env: envWithoutNpm({ FOEDRUM_DENYLIST: list }) },
+        {
+          cwd: root,
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
+        },
       );
       assert.equal(code, 2, stderr);
       for (const place of [
@@ -327,7 +330,7 @@ describe('scripts/precheck.ts started by node', () => {
       const gate = (command: string) =>
         run(process.execPath, [script], hookInput(command, project.path), {
           cwd: root,
-          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
         });
       const toPublic = await gate('git push public HEAD');
       assert.equal(toPublic.code, 2);
@@ -437,14 +440,15 @@ describe('the configured hook command', () => {
     return dir.path;
   };
   // A gated push whose check runs in a directory where `npm run check` passes at once, so the
-  // gate does not recurse into this repository's own check.
+  // gate does not recurse into this repository's own check. The push starts in the project the
+  // hook runs for (ADR 0246), which links this checkout's scripts so the hook finds precheck.
   let gatedPush = '';
+  let gatedProject = '';
   before(() => {
     assert.notEqual(hookCommand, '', 'no PreToolUse hook command');
-    gatedPush = hookInput(
-      'git push',
-      tempDir('safe-check', { private: true, scripts: { check: 'node -e ""' } }),
-    );
+    gatedProject = tempDir('safe-check', { private: true, scripts: { check: 'node -e ""' } });
+    symlinkSync(join(root, 'scripts'), join(gatedProject, 'scripts'), 'junction');
+    gatedPush = hookInput('git push', gatedProject);
   });
   after(() => {
     for (const dir of dirs) dir.remove();
@@ -475,7 +479,7 @@ describe('the configured hook command', () => {
     const elsewhere = tempDir('other-package', { private: true, scripts: {} });
     const { code, stderr } = await run('bash', ['-c', hookCommand], gatedPush, {
       cwd: elsewhere,
-      env: envWithoutNpm({ CLAUDE_PROJECT_DIR: root, npm_execpath: npmStub }),
+      env: envWithoutNpm({ CLAUDE_PROJECT_DIR: gatedProject, npm_execpath: npmStub }),
     });
     assert.equal(stderr, '');
     assert.equal(code, 0);

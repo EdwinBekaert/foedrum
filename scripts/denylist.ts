@@ -67,7 +67,11 @@ const PATCHES = [
  * push remote, or else to origin.
  */
 export const pushRefusal =
-  (readList: () => DenylistState, exec: ExecProcess) =>
+  (
+    readList: () => DenylistState,
+    exec: ExecProcess,
+    _destinations: readonly (string | null)[] = [],
+  ) =>
   async (dir: string, ...remotes: (string | null | undefined)[]): Promise<string | undefined> => {
     const state = readList();
     if (state.kind === 'none') return undefined;
