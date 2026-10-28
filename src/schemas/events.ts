@@ -28,6 +28,11 @@ export const PullRequestUrl = z
     return parsed?.username === '' && parsed.password === '';
   }, 'Must not contain credentials');
 
+/** `owner/name` and the number of the pull request at `url`; throws when it is no `PullRequestUrl`. */
+export const pullRequestOf = (_url: string): { repo: string; number: number } => {
+  throw new Error('not implemented');
+};
+
 /** The most checks a record of a pull request's head keeps (ADR 0213). */
 export const MAX_HEAD_CHECKS = 100;
 /** The longest name of a check on a pull request's head that a record keeps (ADR 0213). */

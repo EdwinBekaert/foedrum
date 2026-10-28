@@ -6,6 +6,8 @@ import {
   Event,
   MAX_HEAD_CHECK_URL_LENGTH,
   MAX_HEAD_CHECKS,
+  PullRequestUrl,
+  pullRequestOf,
   ScheduleRoute,
   SessionRef,
   StuckReason,
@@ -846,6 +848,52 @@ describe('StuckReason', () => {
   it('accepts stopped without a reason, and rejects it without who stopped it', () => {
     accepts(StuckReason, { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'plugin' });
     rejects(StuckReason, { kind: 'stopped', stepId: 'brew', via: 'plugin' });
+  });
+});
+
+describe('PullRequestUrl and pullRequestOf', () => {
+  it('reads the repository and number of a pull request URL', () => {
+    accepts(PullRequestUrl, 'https://github.com/o/n/pull/5');
+    assert.deepEqual(pullRequestOf('https://github.com/o/n/pull/5'), { repo: 'o/n', number: 5 });
+    assert.deepEqual(pullRequestOf('https://github.com/acme/lib.core-2/pull/120'), {
+      repo: 'acme/lib.core-2',
+      number: 120,
+    });
+  });
+
+  const refused: [string, string][] = [
+    ['a trailing slash', 'https://github.com/o/n/pull/5/'],
+    ['number 0', 'https://github.com/o/n/pull/0'],
+    ['a number with a leading zero', 'https://github.com/o/n/pull/05'],
+    ['an issue', 'https://github.com/o/n/issues/5'],
+    ['an owner that starts with -', 'https://github.com/-x/n/pull/5'],
+    ['a name ..', 'https://github.com/o/../pull/5'],
+    ['a name .', 'https://github.com/o/./pull/5'],
+    ['another path', 'https://github.com/o/n/pull/5/files'],
+    ['no repository', 'https://github.com/pull/5'],
+    ['a query', 'https://github.com/o/n/pull/5?tab=files'],
+    ['a fragment', 'https://github.com/o/n/pull/5#issuecomment-1'],
+    ['http', 'http://github.com/o/n/pull/5'],
+    ['credentials', 'https://token@github.com/o/n/pull/5'],
+    ['no URL', 'not a url'],
+  ];
+  for (const [what, url] of refused) {
+    it(`refuses ${what}: ${url}`, () => {
+      rejects(PullRequestUrl, url);
+      assert.throws(() => pullRequestOf(url), /is not a pull request URL/);
+    });
+  }
+
+  it("still takes a check run's link as a check's url", () => {
+    const finished = valid['pull_request.checks_finished'];
+    const check = { name: 'test', kind: 'check_run', conclusion: 'failure' };
+    for (const url of [
+      'https://github.com/acme/lib-core/actions/runs/1/job/2',
+      'https://github.com/acme/lib-core/runs/42?check_suite_focus=true',
+      'https://ci.example/build/7/',
+    ]) {
+      accepts(Event, { ...finished, checks: [{ ...check, url }] });
+    }
   });
 });
 
