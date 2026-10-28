@@ -1209,6 +1209,11 @@ describe('forbiddenReason on a push configured on its command line', () => {
     });
   }
 
+  // The line names every key it blocks, so a session can tell what to remove (review of #635).
+  it('names include settings in the line', () => {
+    assert.match(forbiddenReason('git -c include.path=mirror.cfg push') ?? '', /include\.\*/);
+  });
+
   it('forbids a push configured in PowerShell', () => {
     const command = '$env:GIT_CONFIG_PARAMETERS = "x"; git push';
     assert.match(forbiddenReason(command) ?? '', /git's configuration/);
