@@ -7,7 +7,7 @@
 
 import type { GravityReading } from '../schemas/events.ts';
 import { EffectKeyParts, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
-import { effectMarker, type IssueMarks } from './claim-effects.ts';
+import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
 import type { CommandLog } from './command-log.ts';
 import { type DriverEffects, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -299,14 +299,6 @@ export interface BaseConflictEffectsOptions {
   /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
   deadlineMs?: number;
 }
-
-// The id the code host answered for a comment, which the ledger keeps for good.
-const commentId = (id: number): number => {
-  if (!Number.isSafeInteger(id) || id < 1) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${id}`);
-  }
-  return id;
-};
 
 /**
  * The rounds the recipe of `batch` gives a pull request that failed, when it has the route back

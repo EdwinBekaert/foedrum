@@ -10,7 +10,7 @@ import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/o
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
 import { pullRequestOf } from './base-check.ts';
-import { effectMarker } from './claim-effects.ts';
+import { commentId, effectMarker } from './claim-effects.ts';
 import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -459,13 +459,8 @@ interface DueBrief {
 }
 
 /** A brief's ledger result, checked: the id comes from the code host, and the ledger keeps it. */
-const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): MergeBrief => {
-  const parsed = MergeBrief.safeParse({ comment, pullRequest, head, digest });
-  if (!parsed.success) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
-  }
-  return parsed.data;
-};
+const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): MergeBrief =>
+  MergeBrief.parse({ comment: commentId(comment), pullRequest, head, digest });
 
 /** The repository and number of the pull request at `url`, when it is one. */
 const whereOf = (url: string): { repo: string; number: number } | undefined => {
