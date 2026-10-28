@@ -108,7 +108,7 @@ const mashRefusal = (
   const choices = setup.brewers.find(MASH_IN, mashIn.firstStep)?.choices ?? [];
   // A question needs two options (ADR 0006).
   if (choices.length >= 2) return undefined;
-  const later = '(mash and decoction come with #586 and #587)';
+  const later = '(decoction comes with #587)';
   const [only] = choices;
   return only === undefined
     ? `the Brewery has no recipe to offer but ${MASH_IN} ${later}`

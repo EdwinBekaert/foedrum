@@ -38,11 +38,11 @@ Rejected: the engine knowing the name `mash-in` (a Brewery's own recipe could no
 - **Its choices are the Brewery's recipes**, but those with a step that chooses a recipe: `mash` (a quick plan) and `decoction` (a deep plan) once #586 and #587 add them, or a building recipe such as `nip` when the issue is small and clear.
   A recipe the Brewery does not have is never offered.
 - **It learns them from an input the engine builds**, a new input source `from: "recipes"`: one line per choice, `- <name>: <description>`, in the order the loader read them, between nonce tags as every input is ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)).
-  A brewer may name it only when it answers with `recipeChoice`.
+  Any brewer may name it: the Innkeeper offers its recipes, and #586's Brewmaster names them for a plan's sub-orders (ADR 0234: the second of the two to merge adds it).
   An input the engine fills is declared in the brewer's frontmatter as a source of its own, never handed to a brewer by its name; #586's `from: "repositories"` follows the same pattern (decided by the consultant).
 - **The engine holds it to them with the `recipeChoice` schema**, built per step from those names (`recipeChoiceOutDocOf`), as `tastingOutDocOf` is from lenses: `needs_input` with exactly one question, whose options are among the choices; `blocked` and `failed` as for any brewer.
   A `done`, a second question, or an option the Brewery lacks fails the attempt retryably, the reason naming it, and its retry asks again.
-- **A Brewery with fewer than two choices has nothing to choose**: `foedrum mash` refuses with a line that names the one recipe's label and says that `mash` and `decoction` come with #586 and #587, since a question needs two options ([ADR 0006](0006-no-mid-run-questions.md)).
+- **A Brewery with fewer than two choices has nothing to choose**: `foedrum mash` refuses with a line that names the one recipe's label and says that `decoction` comes with #587, since a question needs two options ([ADR 0006](0006-no-mid-run-questions.md)).
 
 Rejected: the Innkeeper reading the Brewery's recipe files (its worktree is the target repository's, which does not hold them); a list in its prompt (it would offer recipes a Brewery lacks); an out doc schema that accepts any name and a check in `decide` (the attempt would end and the batch go Stuck on a question that cannot be answered, where a retry can still ask a good one).
 
@@ -74,5 +74,5 @@ Rejected: `foedrum mash` routing only, and `foedrum brew` asking afterwards (two
 - An engineer gets a recipe suggested for a broad issue in one command, and the label on the issue records the choice for the next order of it.
 - `decide`'s `answer` has one more branch, keyed on the recipe's step; every other answer resumes the session that asked, as before.
 - `batch.recipe_chosen` gains `askedBy`, optional, so a choice without it reads as before; an older Foedrum cannot read a log with it (as [ADR 0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md) records for dispositions).
-- Until #586 and #587, Foedrum's defaults alone offer one choice, `nip`, and `foedrum mash` refuses there; the demo Brewery's own recipe makes a second.
+- Foedrum's defaults offer the Innkeeper `mash` (#586) and `nip`, and `decoction` once #587 adds it.
 - #592 decides whether `foedrum recipe` labels the issue too, and #586 gives the Innkeeper the other repositories an issue names.

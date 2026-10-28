@@ -7,7 +7,8 @@
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
-    { "name": "repositories", "from": "repositories" }
+    { "name": "repositories", "from": "repositories" },
+    { "name": "recipes", "from": "recipes" }
   ],
   "output": { "doc": "plan.md", "schema": "plan" },
   "produces": "report",
@@ -41,7 +42,7 @@ Plan the order in {order}: break it into sub-orders that other brewers build one
 - **Done when a test or a run can show it.** `doneWhen` names the test that passes or the result a person can observe, never "it works" or "the code is clean".
 - **Touches are paths you read.** List the files or folders each sub-order expects to change, as paths relative to its repository's root. Every path must exist at that repository's base, which Foedrum checks; mark a path the sub-order creates with `"new": true`. In your worktree's repository, check each path with your tools; in another, name only paths the order or the code you read names.
 - **Dependencies are real waits.** A sub-order that builds on another's code in the same repository depends on it with `code`; one that needs another repository's published library with `release`. No sub-order waits for one it does not need: sub-orders without a wait between them can be built side by side.
-- **A recipe for each.** Name the recipe each sub-order should run with, from those the order or the Brewery names (a recipe such as `nip` for a small, test-first change), and say in `why` what fits. Leave test-first on; turn it off with `"testFirst": false` only for work no test can show, such as prose, and give the reason in `testFirstOff`.
+- **A recipe for each.** Name the recipe each sub-order should run with, one of the Brewery's recipes in {recipes} (a recipe such as `nip` for a small, test-first change), and say in `why` what fits. Leave test-first on; turn it off with `"testFirst": false` only for work no test can show, such as prose, and give the reason in `testFirstOff`.
 - **Ready, or what is missing.** A sub-order is `ready` when a brewer could build it from its entry alone. When it needs a decision or a detail first, mark it `"ready": false` and say in `refinement` what needs refining.
 - **Say what else you considered.** When another cut was close (fewer sub-orders, another order, another seam), list it in `alternatives` with why not, and say why this one.
 

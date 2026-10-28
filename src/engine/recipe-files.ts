@@ -953,17 +953,19 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     );
   }
   if (problems.length > 0) return { valid: false, problems };
-  // A step that chooses offers every recipe but those that choose themselves (ADR 0232).
+  // Every recipe but those that choose a recipe themselves: what a step that chooses offers, and what
+  // the recipes input of any other brewer names, such as a plan's for its sub-orders (ADR 0232,
+  // ADR 0234).
   const choices = [...descriptions]
     .filter(([name]) => !choosingSteps.has(name))
     .map(([name, description]): RecipeChoice => ({ name, description }));
-  for (const [recipe, ids] of choosingSteps) {
-    const steps = new Map(stepBrewers.get(recipe));
-    for (const id of ids) {
-      const found = steps.get(id);
-      if (found !== undefined) steps.set(id, { ...found, choices });
-    }
-    stepBrewers.set(recipe, steps);
+  for (const [recipe, steps] of stepBrewers) {
+    const chooses = choosingSteps.get(recipe) ?? [];
+    const given = [...steps].map(([id, found]): [string, StepBrewer] => {
+      const names = found.brewer.inputs.some(({ from }) => from === 'recipes');
+      return names || chooses.includes(id) ? [id, { ...found, choices }] : [id, found];
+    });
+    stepBrewers.set(recipe, new Map(given));
   }
   return {
     valid: true,
