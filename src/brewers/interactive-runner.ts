@@ -160,8 +160,11 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
         // The whole prompt, inputs in their nonce tags, which the first message points at.
         if (interactive !== undefined) deps.files.writePrompt(interactive.file, plan.prompt);
-        // Read by the out doc this session writes, never one the run before left (ADR 0118).
-        deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
+        // Read by the out doc this session writes, never one the run before left (ADR 0118); after
+        // a turn overrun that out doc stays, or its copy comes back (ADR 0175).
+        const file = resolve(plan.cwd, limits.outDoc.file);
+        if (plan.outDocFrom === undefined) deps.files.clearOutDoc(file, plan.cwd);
+        else deps.files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
         const { model, effort, tools, session } = plan.call;
         const call = {
           model,
