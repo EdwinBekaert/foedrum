@@ -10,7 +10,7 @@ import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
-import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
+import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
@@ -116,6 +116,7 @@ export function attemptLimits(
   start?: string,
   blocking = false,
   lenses?: readonly string[],
+  _choices?: readonly string[],
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
@@ -231,6 +232,7 @@ export function inputsOf(
   stepBrewer: (stepId: string) => StepBrewer | undefined,
   worktree: string,
   lenses: ReadonlyMap<string, Lens> = new Map(),
+  _choices: readonly RecipeChoice[] = [],
 ): PlannedInput[] {
   const skipped = (from: string): boolean =>
     from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);

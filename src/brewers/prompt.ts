@@ -22,6 +22,8 @@ export type InputSource =
   | { kind: 'lenses'; lenses: readonly { lens: string; path: string }[] }
   /** Where the change a Taster reviews starts: the commit its batch started at (ADR 0161). */
   | { kind: 'change'; since: string }
+  /** The Brewery's recipes a step that chooses the recipe may offer (ADR 0232). */
+  | { kind: 'recipes' }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
   /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
@@ -78,6 +80,8 @@ function describeSource(source: InputSource): string {
       return `lens ${source.lens}, file ${source.path}`;
     case 'lenses':
       return `lenses ${source.lenses.map(({ lens, path }) => `${lens} (file ${path})`).join(', ')}`;
+    case 'recipes':
+      throw new Error('not implemented');
     case 'change':
       return `the change since commit ${source.since}`;
     case 'answers':

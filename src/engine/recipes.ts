@@ -54,6 +54,11 @@ export interface Recipe {
    * only a driver with a terminal opens (ADR 0222).
    */
   interactive(stepId: string): boolean;
+  /**
+   * Whether the answer to the question of `stepId` chooses the batch's recipe (`chooses: "recipe"`,
+   * ADR 0232).
+   */
+  choosesRecipe(stepId: string): boolean;
   /** The action `stepId` is, which the engine runs itself; `undefined` for any other step. */
   action(stepId: string): RecipeAction | undefined;
   /**

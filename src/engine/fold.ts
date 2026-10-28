@@ -158,7 +158,7 @@ export interface Batch {
   /** What chose the recipe; a human's choice also records who issued it and from where. */
   recipe?: { name: string; reason: string } & (
     | { source: 'label' | 'router' }
-    | { source: 'human'; by: string; via: Surface }
+    | { source: 'human'; by: string; via: Surface; askedBy?: string }
   );
   lane: Lane;
   steps: ReadonlyMap<string, Step>;

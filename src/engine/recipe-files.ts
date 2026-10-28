@@ -44,6 +44,12 @@ export interface BreweryFiles extends FilesByKind {
   };
 }
 
+/** A recipe a step that chooses the recipe may offer: its name and description (ADR 0232). */
+export interface RecipeChoice {
+  name: string;
+  description: string;
+}
+
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
 export interface Lens {
   /** Its folder and file name: `diff/<name>` or `plan/<name>` (ADR 0143). */
@@ -67,6 +73,8 @@ export interface StepBrewer {
   blocking?: boolean;
   /** On an interactive step: the recipe's first message to the session (ADR 0222). */
   interactive?: { prompt: string };
+  /** On a step that chooses the recipe: the Brewery's recipes it may offer, in order (ADR 0232). */
+  choices?: readonly RecipeChoice[];
 }
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
@@ -513,6 +521,9 @@ function lineRecipe(
     children: (id) => children.get(id),
     group: (id) => byId.get(id)?.group,
     interactive: (id) => byId.get(id)?.interactive === true,
+    choosesRecipe: () => {
+      throw new Error('not implemented');
+    },
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),

@@ -37,6 +37,8 @@ export interface BrewRequest {
   via: Surface;
   /** `--take`: take the batch over from the driver that holds it, instead of refusing it. */
   take?: true;
+  /** `foedrum mash`: route the batch to mash-in and drive it to its question (ADR 0232). */
+  mash?: true;
   /**
    * Why it opens no interactive step's session, when it does not (ADR 0222): it runs inside Claude
    * Code, or its stdin is no terminal. Its driver then parks such a step's attempt.
