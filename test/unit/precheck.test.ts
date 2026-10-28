@@ -97,8 +97,14 @@ describe('isGatedCommand', () => {
     });
   }
 
-  // git reads -h as help only when it is push's one argument.
-  for (const command of ['git push -h origin', 'git push origin -h']) {
+  // git reads -h as help only when it is push's one argument, and git's own -h only as its first
+  // word: after an option the gate does not know, -h may be that option's value (review of #635).
+  for (const command of [
+    'git push -h origin',
+    'git push origin -h',
+    'git --attr-source -h push origin',
+    'git --no-pager -h push origin',
+  ]) {
     it(`gates: ${command}`, () => {
       assert.equal(isGatedCommand(command), true);
     });
@@ -420,6 +426,19 @@ describe("precheck on a push that git's configuration makes delete, force or mir
     ['git push', 'remote.backup.mirror\ntrue\0', 'remote.backup.mirror true'],
     ['git push "$r" HEAD', 'remote.backup.mirror\ntrue\0', 'remote.backup.mirror true'],
     ['git push my.remote', 'remote.my.remote.push\n:x\0', 'remote.my.remote.push :x'],
+    // A value option given by prefix or as the next word does not move the remote (review of
+    // #635).
+    [
+      'git push --push-opt ci.skip origin',
+      'remote.origin.mirror\ntrue\0',
+      'remote.origin.mirror true',
+    ],
+    [
+      'git push --recurse-submodules check origin',
+      'remote.origin.mirror\ntrue\0',
+      'remote.origin.mirror true',
+    ],
+    ['git push --rep origin HEAD', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
     // What does not delete, force or mirror, or is another remote's.
     ['git push', ''],
     ['git push', 'remote.origin.mirror\nfalse\0'],
@@ -1052,6 +1071,7 @@ describe('forbiddenReason', () => {
     'git push --force-with=main origin x',
     'git push --force-i origin x',
     'git push --fo origin x',
+    'git --attr-source -h push -f origin x',
   ];
   for (const command of forcePushes) {
     it(`forbids force push: ${command}`, () => {
@@ -1138,6 +1158,9 @@ describe('forbiddenReason on a push configured on its command line', () => {
     'git -c core.quotePath=false -c remote.origin.push=+HEAD push',
     'git --config-env=remote.origin.mirror=MIRROR push',
     'git --config-env remote.origin.push=SPEC push',
+    // An included file may set a remote's settings (review of #635).
+    'git -c include.path=mirror.cfg push',
+    'git -c includeIf.onbranch:main.path=mirror.cfg push',
     'git -c "$setting" push',
     'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.mirror GIT_CONFIG_VALUE_0=true git push',
     `GIT_CONFIG_PARAMETERS="'remote.origin.mirror'='true'" git push`,
