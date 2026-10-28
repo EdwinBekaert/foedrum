@@ -433,13 +433,17 @@ export type WaitCondition = z.infer<typeof WaitCondition>;
 
 const step = { batchId: BatchId, stepId: StepId, attempt: Attempt };
 
+/** The most sub-orders and dependencies `order.decomposed` holds, and so a plan (ADR 0211). */
+export const MOST_SUB_ORDERS = 100;
+export const MOST_PLAN_DEPENDENCIES = 1_000;
+
 const orderDecomposed = z
   .strictObject({
     type: z.literal('order.decomposed'),
     batchId: BatchId,
     // Limits for a model-written breakdown; they also bound the cost of the checks below.
-    subOrders: z.array(SubOrderRef).min(1).max(100),
-    dependencies: z.array(Dependency).max(1000),
+    subOrders: z.array(SubOrderRef).min(1).max(MOST_SUB_ORDERS),
+    dependencies: z.array(Dependency).max(MOST_PLAN_DEPENDENCIES),
   })
   .superRefine(({ subOrders, dependencies }, ctx) => {
     const issues = new Set(subOrders.map((subOrder) => subOrder.issue));
