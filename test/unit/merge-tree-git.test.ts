@@ -169,6 +169,18 @@ describe('openMergedTree', () => {
     assert.equal(existsSync(join(root, 'one.git')), false);
   });
 
+  it('keeps no ref line with a field after the ref (review of #642, regression test)', async () => {
+    const root = nextFolder();
+    const listed = `${TAG} refs/tags/v1\n${TAG} refs/tags/v4 extra\n`;
+    const { git } = treeGit(ok(`${TREE}\0`), listed);
+    const packed = await openMergedTree({ git, clone, own: { url, root, id: () => 'one' } })(
+      HEAD,
+      TIP,
+      async () => readFileSync(join(root, 'one.git', 'packed-refs'), 'utf8'),
+    );
+    assert.equal(packed, `${TAG} refs/tags/v1\n`);
+  });
+
   it('keeps only the refs it can read as a commit and a tag or remote-tracking ref', async () => {
     const root = nextFolder();
     // A SHA-256 id is no commit Foedrum reads (ADR 0254).

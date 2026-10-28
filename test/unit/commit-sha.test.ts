@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { remoteCommitOf } from '../../src/engine/state-branch.ts';
 import { rawCommits } from '../../src/formats/commit-scan.ts';
-import { CommitSha } from '../../src/schemas/store.ts';
+import { CommitSha, isCommitSha, noCommitSha } from '../../src/schemas/store.ts';
 import { countCommits, scanAttemptCommits } from '../../src/workspace/attempt-commits-git.ts';
 import { openWorktreeMerge } from '../../src/workspace/base-merge-git.ts';
 import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
@@ -129,6 +129,25 @@ describe('a full commit id (ADR 0254)', () => {
       assert.equal(await answer(row, SHA1), 'accepted');
     });
   }
+});
+
+describe('isCommitSha (ADR 0254, regression tests)', () => {
+  it('takes 40 lowercase hex characters, and refuses each near miss, as CommitSha does', () => {
+    assert.equal(isCommitSha(SHA1), true);
+    assert.equal(CommitSha.safeParse(SHA1).success, true);
+    for (const near of ['C'.repeat(40), 'g'.repeat(40), 'c'.repeat(39), 'c'.repeat(41)]) {
+      assert.equal(isCommitSha(near), false, near);
+      assert.equal(CommitSha.safeParse(near).success, false, near);
+    }
+  });
+
+  it('names only a 64-character id as SHA-256, never 63 or 65 characters', () => {
+    for (const near of ['c'.repeat(63), 'c'.repeat(65), 'C'.repeat(64)]) {
+      assert.equal(noCommitSha(near), `${near} is no full commit sha`);
+    }
+    assert.equal(noCommitSha(SHA256, 'otherwise'), REFUSED);
+    assert.equal(noCommitSha('HEAD', 'otherwise'), 'otherwise');
+  });
 });
 
 describe('a commit id read from git (ADR 0254)', () => {
