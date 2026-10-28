@@ -74,6 +74,7 @@ The bigger the work, the bigger the vessel. Choose one with a label such as `rec
 | Recipe | Use |
 |---|---|
 | Nip | Quick fix |
+| Mash | A plan of sub-orders for an order, shown on its issue; nothing built |
 | Half-pint | Small feature |
 | Pint | Medium feature, with plan approval |
 | Growler | Large feature, split into sub-orders |

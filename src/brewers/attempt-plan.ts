@@ -12,6 +12,7 @@ import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
@@ -220,10 +221,27 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   return done?.phase === 'finished' ? (done.worktree?.path ?? done.session?.worktree) : undefined;
 };
 
+/** The Brewery's repositories and their bases, and the one an attempt's worktree holds. */
+interface BreweryRepositories {
+  repositories: readonly { repo: string; base: string }[];
+  own: string;
+}
+
+/** The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked. */
+const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
+  [
+    "The Brewery's repositories, each with the base its work starts from:",
+    ...repositories.map(({ repo, base }) =>
+      sameRepo(repo, own)
+        ? `- ${repo}, base ${base}: this attempt's repository, the one in your worktree`
+        : `- ${repo}, base ${base}`,
+    ),
+  ].join('\n');
+
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
  * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
- * the loader found for the brewer (ADR 0098).
+ * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -231,6 +249,7 @@ export function inputsOf(
   stepBrewer: (stepId: string) => StepBrewer | undefined,
   worktree: string,
   lenses: ReadonlyMap<string, Lens> = new Map(),
+  brewery?: BreweryRepositories,
 ): PlannedInput[] {
   const skipped = (from: string): boolean =>
     from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);
@@ -241,6 +260,11 @@ export function inputsOf(
         const { issue, repo } = batch;
         const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
         return { name, source: { kind: 'issue-body', issue }, read };
+      }
+      if (from === 'repositories') {
+        if (brewery === undefined) throw new Error(`the input "${name}" has no repositories`);
+        const read: InputRead = { kind: 'text', text: repositoriesText(brewery) };
+        return { name, source: { kind: 'repositories' }, read };
       }
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);
@@ -673,15 +697,22 @@ function mergedCheckRouteOf(
 
 const leftOutReason = '[left out: a reason that looks like a secret]';
 
+/** The attempt before `ref`, when `ref` is a retry of it and it failed. */
+function failedBefore(batch: Batch, ref: AttemptRef) {
+  const step = batch.steps.get(ref.stepId);
+  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
+  const before = step.attempts.get(ref.attempt - 1);
+  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  return { attempt: before.attempt, outcome: before.outcome };
+}
+
 /**
  * What a retry is told when the secret scan failed the attempt before it (ADR 0187): its reason,
  * and to write that text another way; none for any other attempt.
  */
 export function scanRetryOf(batch: Batch, ref: AttemptRef): PromptInput | undefined {
-  const step = batch.steps.get(ref.stepId);
-  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
-  const before = step.attempts.get(ref.attempt - 1);
-  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  const before = failedBefore(batch, ref);
+  if (before === undefined) return undefined;
   const { reason, secrets } = before.outcome;
   if (secrets !== true) return undefined;
   // Engine text naming commit, kind and place only, but a path can still look like a secret.
@@ -693,6 +724,25 @@ export function scanRetryOf(batch: Batch, ref: AttemptRef): PromptInput | undefi
       `The secret scan failed the attempt before this one, ${name}: ${said}`,
       "This attempt starts where that one started, without its commits. Write what the scan named so that it does not look like a secret: build a key-shaped value, such as a test fixture, at run time (['ghp', 'x'].join('_')), never as a literal.",
     ].join('\n\n'),
+  };
+}
+
+/**
+ * What a retry is told when the attempt before it failed (ADR 0248): that attempt's reason; none
+ * for any other attempt, nor a retry after the secret scan or a turn overrun, which have their own.
+ */
+export function retryInputOf(batch: Batch, ref: AttemptRef): PromptInput | undefined {
+  const before = failedBefore(batch, ref);
+  if (before === undefined) return undefined;
+  const { reason, secrets, overran } = before.outcome;
+  if (secrets === true || overran !== undefined) return undefined;
+  // The engine's text, which can quote what the brewer wrote.
+  const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
+  const text = `The attempt before this one, ${ref.stepId}#${before.attempt}, failed: ${said}`;
+  return {
+    name: 'retry',
+    source: { kind: 'retry', step: ref.stepId, attempt: before.attempt },
+    text: bounded(text, MAX_ROUTE_INPUT_BYTES, 'retry input'),
   };
 }
 

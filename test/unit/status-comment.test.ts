@@ -598,9 +598,43 @@ describe('renderStatus', () => {
     );
   });
 
-  it('says so when a batch on tap has no pull request', () => {
-    const text = renderStatus(batch({ lane: { kind: 'on_tap', pullRequests: [] } }), steps);
-    assert.match(text, /No pull request/);
+  it('says so when a batch on tap has no pull request, and points at the plan only when an attempt succeeded with one (ADR 0234)', () => {
+    const subOrder = {
+      id: 'one',
+      title: 'One',
+      repo: 'alice/web',
+      size: { lines: 10, mechanism: 'a flag' },
+      doneWhen: 'a test passes',
+      touches: [{ path: 'src' }],
+      recipe: 'nip',
+      why: 'small',
+      ready: true,
+    };
+    const planned: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Planned', assumptions: [], subOrders: [subOrder] },
+      },
+    };
+    const plain = /^No pull request\.$/m;
+    const plan =
+      /^No pull request: the plan is in its own comment on this issue, and nothing is built from it yet\.$/m;
+    const onTap = { kind: 'on_tap', pullRequests: [] } as const;
+    for (const [attempts, line] of [
+      [[], plain],
+      [[done(1)], plain],
+      [[failed(1, 'the out doc plan.md is invalid')], plain],
+      [[planned], plan],
+    ] as const) {
+      const text = renderStatus(
+        batch({ lane: onTap, steps: new Map([step('plan', ...attempts)]) }),
+        steps,
+      );
+      assert.match(text, line);
+    }
   });
 
   it('says the reason of every kind of Stuck on its line', () => {
