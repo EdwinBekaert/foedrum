@@ -5,8 +5,8 @@
 
 import type { WorktreeMerge } from '../engine/base-merge.ts';
 import { samePath } from '../platform/paths.ts';
-import { isCommitSha, type KeptFile, MAX_CONFLICTS, noCommitSha } from '../schemas/store.ts';
-import { aborts, firstLine, gitOutput, inClone } from './clone-git.ts';
+import { isCommitSha, type KeptFile, MAX_CONFLICTS } from '../schemas/store.ts';
+import { aborts, firstLine, fullSha, gitOutput, inClone } from './clone-git.ts';
 import type { Git } from './git.ts';
 import { readRecords } from './worktree-records.ts';
 
@@ -23,11 +23,6 @@ const UNMERGED: Readonly<Record<string, KeptFile['status']>> = {
 
 /** A merge of a large tree takes a while; the effect's deadline aborts it sooner. */
 const MERGE_TIMEOUT_MS = 120_000;
-
-const fullSha = (sha: string): string => {
-  if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
-  return sha;
-};
 
 export interface WorktreeMergeOptions {
   git: Git;

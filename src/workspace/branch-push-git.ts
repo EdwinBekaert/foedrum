@@ -13,10 +13,11 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
-import { isCommitSha, noCommitSha } from '../schemas/store.ts';
+import { isCommitSha } from '../schemas/store.ts';
 import {
   aborts,
   firstLine,
+  fullSha,
   gitOutput,
   inClone,
   type OwnGitDir,
@@ -173,7 +174,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     isAncestor: async (commit, of, signal) => {
       for (const sha of [commit, of]) {
-        if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
+        fullSha(sha);
       }
       const args = ['merge-base', '--is-ancestor', commit, of];
       const result = await local(clone, args, aborts(signal));
@@ -225,7 +226,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       return undefined;
     },
     push: async (commit, branch, signal) => {
-      if (!isCommitSha(commit)) throw new Error(noCommitSha(commit));
+      fullSha(commit);
       const refspec = `${commit}:refs/heads/${foedrumBranch(branch)}`;
       // Never by force, and by the commit's sha: no ref of the clone names what is pushed. No hook
       // of the clone's runs: `--no-verify` alone would skip only pre-push. Only this one ref goes,
@@ -238,7 +239,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     secretScan: async (base, commit, signal) => {
       for (const sha of [base, commit]) {
-        if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
+        fullSha(sha);
       }
       const range = ['--end-of-options', commit, `^${base}`];
       const options: GitOptions = { ...aborts(signal), ...AS_COMMITTED };
@@ -288,7 +289,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
     },
     touchedFiles: async (since, commit, signal) => {
       for (const sha of [since, commit]) {
-        if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
+        fullSha(sha);
       }
       // Each path once, a rename's two as a deletion and an addition, never quoted after -z.
       const args = [

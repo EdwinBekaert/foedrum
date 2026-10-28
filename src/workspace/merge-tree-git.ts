@@ -8,8 +8,15 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
 import { removeTree } from '../platform/remove.ts';
-import { isCommitSha, noCommitSha } from '../schemas/store.ts';
-import { firstLine, gitOutput, inClone, type OwnRemote, withOwnGitDir } from './clone-git.ts';
+import { isCommitSha } from '../schemas/store.ts';
+import {
+  firstLine,
+  fullSha,
+  gitOutput,
+  inClone,
+  type OwnRemote,
+  withOwnGitDir,
+} from './clone-git.ts';
 import type { Git, GitResult } from './git.ts';
 
 export interface MergeTreeOptions {
@@ -40,11 +47,6 @@ const COPIED_REF = /^refs\/(?:tags|remotes)\/\S+$/;
 const isCopiedRef = (line: string): boolean => {
   const [sha = '', ref = '', ...rest] = line.split(' ');
   return isCommitSha(sha) && COPIED_REF.test(ref) && rest.length === 0;
-};
-
-const fullSha = (sha: string): string => {
-  if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
-  return sha;
 };
 
 const mergeArgs = (head: string, tip: string): string[] => [

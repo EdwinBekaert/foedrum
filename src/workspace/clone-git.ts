@@ -7,6 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { removeTree } from '../platform/remove.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 /**
@@ -56,6 +57,12 @@ export const firstLine = ({ code, stderr }: GitResult): string =>
 /** The signal as git's options take it. */
 export const aborts = (signal: AbortSignal | undefined): GitOptions =>
   signal === undefined ? {} : { signal };
+
+/** `sha` when it is a full commit sha (ADR 0254); otherwise it throws the line that says why not. */
+export const fullSha = (sha: string): string => {
+  if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
+  return sha;
+};
 
 /** The output of a git call that must succeed; git's first line of why, when it fails. */
 export const gitOutput = async (
