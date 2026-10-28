@@ -6,7 +6,8 @@
 // sends the batch back to its fix step when its recipe has the route (ADR 0226).
 
 import type { GravityReading } from '../schemas/events.ts';
-import { EffectKeyParts, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
+import { MAX_CONFLICTS } from '../schemas/store.ts';
+import { mergeResults } from './base-merge.ts';
 import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
 import type { CommandLog } from './command-log.ts';
 import { type DriverEffects, repositoryOf } from './driver.ts';
@@ -51,9 +52,6 @@ export interface BaseCheckOptions {
   failed: (what: string, error: unknown) => void;
 }
 
-/** The ledger's effect name of the merge before a check attempt (ADR 0164). */
-const MERGE_BASE = 'merge_base';
-
 /**
  * The tip the pull request `url` of `batch` was last checked against on `head`, the latest push's:
  * its latest check of that head, else the base the batch's latest merge read (ADR 0164, ADR 0226);
@@ -62,16 +60,7 @@ const MERGE_BASE = 'merge_base';
 const lastTip = (state: State, batch: Batch, url: string, head: string): string | undefined => {
   const checked = baseChecksOn(batch, url, head).at(-1);
   if (checked !== undefined) return checked.tip;
-  let merged: string | undefined;
-  for (const [key, result] of state.effects) {
-    const parts = EffectKeyParts.safeParse(JSON.parse(key));
-    if (!parts.success || parts.data.length !== 4) continue;
-    const [batchId, , , effect] = parts.data;
-    if (batchId !== batch.id || effect !== MERGE_BASE) continue;
-    const merge = MergeResult.safeParse(result);
-    if (merge.success) merged = merge.data.base;
-  }
-  return merged;
+  return mergeResults(state, batch.id).at(-1)?.merge.base;
 };
 
 /** One pass: checks every open pull request whose base moved, and records each check. */
