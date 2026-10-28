@@ -222,7 +222,7 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
 };
 
 /** The Brewery's repositories and their bases, and the one an attempt's worktree holds. */
-export interface BreweryRepositories {
+interface BreweryRepositories {
   repositories: readonly { repo: string; base: string }[];
   own: string;
 }
@@ -697,15 +697,22 @@ function mergedCheckRouteOf(
 
 const leftOutReason = '[left out: a reason that looks like a secret]';
 
+/** The attempt before `ref`, when `ref` is a retry of it and it failed. */
+function failedBefore(batch: Batch, ref: AttemptRef) {
+  const step = batch.steps.get(ref.stepId);
+  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
+  const before = step.attempts.get(ref.attempt - 1);
+  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  return { attempt: before.attempt, outcome: before.outcome };
+}
+
 /**
  * What a retry is told when the secret scan failed the attempt before it (ADR 0187): its reason,
  * and to write that text another way; none for any other attempt.
  */
 export function scanRetryOf(batch: Batch, ref: AttemptRef): PromptInput | undefined {
-  const step = batch.steps.get(ref.stepId);
-  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
-  const before = step.attempts.get(ref.attempt - 1);
-  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  const before = failedBefore(batch, ref);
+  if (before === undefined) return undefined;
   const { reason, secrets } = before.outcome;
   if (secrets !== true) return undefined;
   // Engine text naming commit, kind and place only, but a path can still look like a secret.
@@ -725,10 +732,8 @@ export function scanRetryOf(batch: Batch, ref: AttemptRef): PromptInput | undefi
  * for any other attempt, nor a retry after the secret scan or a turn overrun, which have their own.
  */
 export function retryInputOf(batch: Batch, ref: AttemptRef): PromptInput | undefined {
-  const step = batch.steps.get(ref.stepId);
-  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
-  const before = step.attempts.get(ref.attempt - 1);
-  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  const before = failedBefore(batch, ref);
+  if (before === undefined) return undefined;
   const { reason, secrets, overran } = before.outcome;
   if (secrets === true || overran !== undefined) return undefined;
   // The engine's text, which can quote what the brewer wrote.
