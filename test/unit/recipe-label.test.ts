@@ -51,7 +51,9 @@ const fakeHost = (shown: string[] = []) => {
       removeLabel: async (_repo: string, issue: number, label: string) => {
         calls.push(`remove ${label} #${issue}`);
         const labels = onIssue.get(issue) ?? [];
-        labels.splice(labels.indexOf(label), 1);
+        const at = labels.indexOf(label);
+        assert.ok(at >= 0, `${label} is on #${issue} before it is removed`);
+        labels.splice(at, 1);
       },
     },
   };
@@ -85,10 +87,14 @@ describe('recipeLabelEffects (ADR 0232)', () => {
   });
 
   it("takes the issue's other recipe labels off, in any case, so its next order has one to route by", async () => {
-    for (const shown of [
-      ['recipe:stuot', 'foedrum:stuck'],
-      ['Recipe:Stout', 'recipe:nip'],
-    ]) {
+    // The labels the issue shows, and those it keeps: never one that only holds `recipe:`.
+    for (const [shown, kept] of [
+      [
+        ['recipe:stuot', 'foedrum:stuck', 'old-recipe:x'],
+        ['foedrum:stuck', 'old-recipe:x', 'recipe:nip'],
+      ],
+      [['Recipe:Stout', 'recipe:nip'], ['recipe:nip']],
+    ] as [string[], string[]][]) {
       const { host, onIssue } = fakeHost(shown);
       const effects = recipeLabelEffects({ brewery, host });
       assert.deepEqual(effects.due(fold([ordered, chose()]), '12-1'), [key]);
@@ -96,8 +102,7 @@ describe('recipeLabelEffects (ADR 0232)', () => {
       // Not shown while another recipe label is there, even beside its own.
       assert.equal(await effects.target.find(encoded), undefined, shown.join(', '));
       assert.deepEqual(await effects.target.apply(encoded), { label: 'recipe:nip' });
-      const recipes = onIssue.get(12)?.filter((label) => /^recipe:/i.test(label));
-      assert.deepEqual(recipes, ['recipe:nip'], shown.join(', '));
+      assert.deepEqual(onIssue.get(12), kept, shown.join(', '));
     }
   });
 
