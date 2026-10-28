@@ -4,13 +4,10 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
-import { StatusRevision } from '../schemas/status-comment.ts';
-import type { BatchEffectKey } from '../schemas/store.ts';
-import { effectMarker } from './claim-effects.ts';
+import type { StatusRevision } from '../schemas/status-comment.ts';
 import { breweryIssueOf } from './claim-orders.ts';
+import { commentRevisions, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
-import { effectKey, numberedEffects } from './effect-key.ts';
-import type { EffectTarget } from './effects.ts';
 import type { Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
@@ -128,24 +125,7 @@ export const renderPlan = (
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
 
-const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
-  batchId,
-  effect: `plan.${revision}`,
-});
-
-/** The latest revision of `batchId` recorded, if any, and the number of the next. */
-const latestRevision = (
-  state: State,
-  batchId: string,
-): { next: number; latest: StatusRevision | undefined } => {
-  const revisions = numberedEffects(
-    state,
-    (n) => revisionKey(batchId, n),
-    StatusRevision,
-    "a plan comment's revision",
-  );
-  return { next: revisions.length + 1, latest: revisions.at(-1) };
-};
+const revisions = commentRevisions('plan', 'plan comment');
 
 /** The plan of the latest attempt of `batch` that succeeded with one, and its step. */
 const latestPlan = (batch: Batch): { stepId: string; plan: PlanReport } | undefined => {
@@ -166,20 +146,10 @@ const orderRevision = (state: State, batch: Batch, issue: number): StatusRevisio
   let found: StatusRevision | undefined;
   for (const other of state.batches.values()) {
     if (other.id === batch.id || breweryIssueOf(state, other) !== issue) continue;
-    found = latestRevision(state, other.id).latest ?? found;
+    found = revisions.latest(state, other.id).latest ?? found;
   }
   return found;
 };
-
-/** A revision of a plan comment that is due. */
-interface DueRevision {
-  key: BatchEffectKey;
-  issue: number;
-  text: string;
-  digest: string;
-  /** The revision the comment shows now; absent for the order's first. */
-  previous?: StatusRevision;
-}
 
 /**
  * The revision of the plan comment of `batchId` that the recorded events call for: the next one
@@ -191,12 +161,12 @@ const planDue = (state: State, batchId: string): DueRevision | undefined => {
   const issue = breweryIssueOf(state, batch);
   const latest = latestPlan(batch);
   if (issue === undefined || latest === undefined) return undefined;
-  const { next, latest: own } = latestRevision(state, batchId);
+  const { next, latest: own } = revisions.latest(state, batchId);
   const previous = own ?? orderRevision(state, batch, issue);
   const text = renderPlan(batchId, latest.stepId, latest.plan, knownCommits(state, batchId));
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
-  const due = { key: revisionKey(batchId, next), issue, text, digest };
+  const due = { key: revisions.keyOf(batchId, next), issue, text, digest };
   return previous === undefined ? due : { ...due, previous };
 };
 
@@ -206,15 +176,6 @@ export interface PlanEffectsOptions {
   comments: StatusComments;
 }
 
-/** A revision's result, checked: the id comes from the code host, and the ledger keeps it. */
-const revisionOf = (comment: number, digest: string): StatusRevision => {
-  const parsed = StatusRevision.safeParse({ comment, digest });
-  if (!parsed.success) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
-  }
-  return parsed.data;
-};
-
 /**
  * The plan comment of every order whose batch has a succeeded plan, for the driver: a revision
  * whenever its text changed, edited in place, a later batch of the order editing the same comment.
@@ -222,49 +183,12 @@ const revisionOf = (comment: number, digest: string): StatusRevision => {
  */
 export const planEffects = (options: PlanEffectsOptions): DriverEffects => {
   const { brewery, comments } = options;
-  // The revision behind each key `due` gave; the driver asks `due` before it applies a key.
-  const revisions = new Map<string, DueRevision>();
-  const revisionFor = (key: string): DueRevision => {
-    const due = revisions.get(key);
-    if (due === undefined) throw new Error(`No plan comment revision ${key} is due`);
-    return due;
-  };
-  // The comment that already shows the revision of `key`, by the text before its marker.
-  const shown = (comment: number, body: string, marker: string) => ({
-    result: revisionOf(comment, digestOf(body.slice(0, -marker.length).trimEnd())),
-  });
-  const target: EffectTarget = {
-    find: async (key, signal) => {
-      const due = revisionFor(key);
-      const marker = effectMarker(key);
-      if (due.previous !== undefined) {
-        const body = await comments.read(brewery, due.previous.comment, signal);
-        // Still there: a run before would have edited it, not made another.
-        if (body !== undefined) {
-          return body.endsWith(marker) ? shown(due.previous.comment, body, marker) : undefined;
-        }
-      }
-      const found = await comments.find(brewery, due.issue, marker, signal);
-      return found === undefined ? undefined : shown(found.id, found.body, marker);
-    },
-    apply: async (key, signal) => {
-      const due = revisionFor(key);
-      const body = `${due.text}\n\n${effectMarker(key)}`;
-      if (due.previous !== undefined) {
-        const edited = await comments.edit(brewery, due.previous.comment, body, signal);
-        if (edited === 'edited') return revisionOf(due.previous.comment, due.digest);
-      }
-      // The order's first plan, or the comment was deleted by hand: it is made again.
-      return revisionOf(await comments.create(brewery, due.issue, body, signal), due.digest);
-    },
-  };
+  const plan = revisions.effects(brewery, comments);
   return {
     due: (state, batchId) => {
       const due = planDue(state, batchId);
-      if (due === undefined) return [];
-      revisions.set(effectKey.encode(due.key), due);
-      return [due.key];
+      return due === undefined ? [] : [plan.due(due)];
     },
-    target,
+    target: plan.target,
   };
 };

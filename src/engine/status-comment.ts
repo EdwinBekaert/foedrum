@@ -6,18 +6,15 @@ import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { planOf } from '../schemas/plan.ts';
-import { type MergeBrief, StatusRevision } from '../schemas/status-comment.ts';
-import type { BatchEffectKey, SensitiveFiles } from '../schemas/store.ts';
-import { effectMarker } from './claim-effects.ts';
+import type { MergeBrief } from '../schemas/status-comment.ts';
+import type { SensitiveFiles } from '../schemas/store.ts';
 import { breweryIssueOf } from './claim-orders.ts';
+import { commentRevisions, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
-import { effectKey, numberedEffects } from './effect-key.ts';
-import type { EffectTarget } from './effects.ts';
 import {
   type Attempt,
   type Batch,
   baseChecksOn,
-  type Lane,
   type Pause,
   type State,
   type UsageWindows,
@@ -790,31 +787,14 @@ export const renderStatus = (
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
 };
 
-const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
-  batchId,
-  effect: `status.${revision}`,
-});
+const revisions = commentRevisions('status', 'status comment');
 
 /**
  * The id of the status comment of `batchId` the latest recorded revision made or edited, or
  * undefined before its first: a comment deleted by hand is made again with a new id.
  */
 export const statusCommentOf = (state: State, batchId: string): number | undefined =>
-  latestRevision(state, batchId).latest?.comment;
-
-/** The latest revision of `batchId` recorded, if any, and the number of the next. */
-const latestRevision = (
-  state: State,
-  batchId: string,
-): { next: number; latest: StatusRevision | undefined } => {
-  const revisions = numberedEffects(
-    state,
-    (n) => revisionKey(batchId, n),
-    StatusRevision,
-    "a status comment's revision",
-  );
-  return { next: revisions.length + 1, latest: revisions.at(-1) };
-};
+  revisions.latest(state, batchId).latest?.comment;
 
 /** The open pull request of `batch` whose body its latest round left as it is (ADR 0227). */
 const leftBody = (state: State, batch: Batch): LeftBody | undefined => {
@@ -824,16 +804,6 @@ const leftBody = (state: State, batch: Batch): LeftBody | undefined => {
   if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
   return { pullRequest: url, left: body.left };
 };
-
-/** A revision of a status comment that is due. */
-interface DueRevision {
-  key: BatchEffectKey;
-  issue: number;
-  text: string;
-  digest: string;
-  /** The latest revision recorded; absent for the first. */
-  previous?: StatusRevision;
-}
 
 /**
  * The revision of the status comment of `batchId` that the recorded events call for: the next one
@@ -849,7 +819,7 @@ const statusDue = (
   if (batch === undefined) return undefined;
   const issue = breweryIssueOf(state, batch);
   if (issue === undefined) return undefined;
-  const { next: revision, latest: previous } = latestRevision(state, batchId);
+  const { next: revision, latest: previous } = revisions.latest(state, batchId);
   // The latest push of the pull request recorded the sensitive files (ADR 0201, ADR 0219).
   const pushed = latestPush(state, batchId);
   const paused = pauseOf(state, batch);
@@ -866,7 +836,7 @@ const statusDue = (
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
-  const due = { key: revisionKey(batchId, revision), issue, text, digest };
+  const due = { key: revisions.keyOf(batchId, revision), issue, text, digest };
   return previous === undefined ? due : { ...due, previous };
 };
 
@@ -880,15 +850,6 @@ export interface StatusEffectsOptions {
 
 const minuteMs = 60_000;
 
-/** A revision's result, checked: the id comes from the code host, and the ledger keeps it. */
-const revisionOf = (comment: number, digest: string): StatusRevision => {
-  const parsed = StatusRevision.safeParse({ comment, digest });
-  if (!parsed.success) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
-  }
-  return parsed.data;
-};
-
 /**
  * The status comment of every batch of a Brewery issue, a claimed batch's order included, for the
  * driver: a revision whenever its text changed, at most one a minute per batch, except its first
@@ -896,49 +857,11 @@ const revisionOf = (comment: number, digest: string): StatusRevision => {
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
   const { brewery, comments, recipes, clock } = options;
-  // The revision behind each key `due` gave; the driver asks `due` before it applies a key.
-  const revisions = new Map<string, DueRevision>();
   // When this driver last applied or found a revision of each batch.
   const lastAt = new Map<string, number>();
-  const revisionFor = (key: string): DueRevision => {
-    const due = revisions.get(key);
-    if (due === undefined) throw new Error(`No status comment revision ${key} is due`);
-    return due;
-  };
-  const done = (due: DueRevision, result: StatusRevision): StatusRevision => {
-    lastAt.set(due.key.batchId, clock().getTime());
-    return result;
-  };
-  // The comment that already shows the revision of `key`, by the text before its marker.
-  const shown = (due: DueRevision, comment: number, body: string, marker: string) => ({
-    result: done(due, revisionOf(comment, digestOf(body.slice(0, -marker.length).trimEnd()))),
-  });
-  const target: EffectTarget = {
-    find: async (key, signal) => {
-      const due = revisionFor(key);
-      const marker = effectMarker(key);
-      if (due.previous !== undefined) {
-        const body = await comments.read(brewery, due.previous.comment, signal);
-        // Still there: a run before would have edited it, not made another.
-        if (body !== undefined) {
-          return body.endsWith(marker) ? shown(due, due.previous.comment, body, marker) : undefined;
-        }
-      }
-      const found = await comments.find(brewery, due.issue, marker, signal);
-      return found === undefined ? undefined : shown(due, found.id, found.body, marker);
-    },
-    apply: async (key, signal) => {
-      const due = revisionFor(key);
-      const body = `${due.text}\n\n${effectMarker(key)}`;
-      if (due.previous !== undefined) {
-        const edited = await comments.edit(brewery, due.previous.comment, body, signal);
-        if (edited === 'edited') return done(due, revisionOf(due.previous.comment, due.digest));
-      }
-      // The first revision, or the comment was deleted by hand: it is made again.
-      const id = await comments.create(brewery, due.issue, body, signal);
-      return done(due, revisionOf(id, due.digest));
-    },
-  };
+  const status = revisions.effects(brewery, comments, (due) =>
+    lastAt.set(due.key.batchId, clock().getTime()),
+  );
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
@@ -954,9 +877,8 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
       if (due.previous !== undefined && !ended && last !== undefined) {
         if (clock().getTime() - last < minuteMs) return [];
       }
-      revisions.set(effectKey.encode(due.key), due);
-      return [due.key];
+      return [status.due(due)];
     },
-    target,
+    target: status.target,
   };
 };
