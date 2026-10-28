@@ -17,6 +17,7 @@ import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Batch, State } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
+import { ranIn } from './session-resume.ts';
 
 /**
  * What a merge in a worktree came to: its commit, or the files it conflicts in, aborted, or kept
@@ -224,9 +225,17 @@ export const mergedBase = (state: State, batchId: string): string | undefined =>
     if (batch !== batchId || effect !== MERGE_BASE) continue;
     const merge = MergeResult.safeParse(result);
     if (!merge.success) continue;
-    // A kept merge counts once its attempt concluded it, which only its success shows (ADR 0244).
-    const attempt = state.batches.get(batchId)?.steps.get(stepId)?.attempts.get(number);
-    const concluded = attempt?.phase === 'finished' && attempt.outcome.kind === 'succeeded';
+    // A kept merge counts once it was concluded, which only a success in its worktree shows: of
+    // its attempt, or of a retry that resumed its session there (ADR 0244, ADR 0117).
+    const step = state.batches.get(batchId)?.steps.get(stepId);
+    const concluded =
+      step !== undefined &&
+      [...step.attempts.values()].some(
+        (attempt) =>
+          attempt.phase === 'finished' &&
+          attempt.outcome.kind === 'succeeded' &&
+          (attempt.attempt === number || ranIn(step, attempt)?.attempt === number),
+      );
     if (merge.data.merged !== undefined || (merge.data.kept !== undefined && concluded)) {
       base = merge.data.base;
     }
