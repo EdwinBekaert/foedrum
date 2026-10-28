@@ -2060,6 +2060,24 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
   const files = (step?: Record<string, unknown>) =>
     brewery({ recipes: [pale, mashIn(step)], brewers: [maltster, brewmaster, innkeeper] });
 
+  it('gives the choices to a step that chooses and to one whose brewer names them, and to no other (ADR 0234)', () => {
+    // A recipe choice that names no input, and a brewer that names the recipes without choosing.
+    const silent = brewer('innkeeper', { output: { doc: 'mash-in.md', schema: 'recipeChoice' } });
+    const planner = brewer('planner', { inputs: [{ name: 'recipes', from: 'recipes' }] });
+    const result = loadRecipes(
+      brewery({
+        recipes: [pale, mashIn(), recipe('plans', [{ brewer: 'planner' }])],
+        brewers: [maltster, brewmaster, silent, planner],
+      }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const offered = (recipe: string, step: string) =>
+      result.brewers.find(recipe, step)?.choices?.map(({ name }) => name);
+    assert.deepEqual(offered('mash-in', 'innkeep'), ['pale', 'plans']);
+    assert.deepEqual(offered('plans', 'planner'), ['pale', 'plans']);
+    assert.equal(offered('pale', 'maltster'), undefined);
+  });
+
   it("marks the step, and gives its brewer the Brewery's other recipes to offer, in order", () => {
     const result = loadRecipes(files());
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
