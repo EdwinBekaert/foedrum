@@ -15,6 +15,7 @@ import {
 } from '../formats/commit-scan.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import {
+  aborts,
   firstLine,
   gitOutput,
   inClone,
@@ -137,10 +138,6 @@ const mergedPatches = async (
   }
   return parts.join('\n');
 };
-
-// The signal as git's options take it.
-const aborts = (signal: AbortSignal | undefined): GitOptions =>
-  signal === undefined ? {} : { signal };
 
 // A git directory of the call's own, reaching the remote by the URL Foedrum names (ADR 0090).
 const remotely = async <T>(

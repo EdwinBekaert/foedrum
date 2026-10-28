@@ -6,8 +6,8 @@
 import type { WorktreeMerge } from '../engine/base-merge.ts';
 import { samePath } from '../platform/paths.ts';
 import { isCommitSha, type KeptFile, MAX_CONFLICTS, noCommitSha } from '../schemas/store.ts';
-import { firstLine, gitOutput, inClone } from './clone-git.ts';
-import type { Git, GitOptions } from './git.ts';
+import { aborts, firstLine, gitOutput, inClone } from './clone-git.ts';
+import type { Git } from './git.ts';
 import { readRecords } from './worktree-records.ts';
 
 /** What `git status --porcelain=v2` calls each kind of unmerged file, by its XY. */
@@ -23,9 +23,6 @@ const UNMERGED: Readonly<Record<string, KeptFile['status']>> = {
 
 /** A merge of a large tree takes a while; the effect's deadline aborts it sooner. */
 const MERGE_TIMEOUT_MS = 120_000;
-
-const aborts = (signal: AbortSignal | undefined): GitOptions =>
-  signal === undefined ? {} : { signal };
 
 const fullSha = (sha: string): string => {
   if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
