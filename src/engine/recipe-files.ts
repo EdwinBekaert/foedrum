@@ -775,6 +775,133 @@ function loadStep({ step, group }: ListedStep, last: boolean, shelf: Shelf): Ste
   return brewerLine(runnable, group, shelf);
 }
 
+/** Where a step's route back goes, when it has one (ADR 0064, ADR 0219). */
+function routeBack(step: Step): string | undefined {
+  if ('onFail' in step) return step.onFail?.goto;
+  if ('onBlocked' in step) return step.onBlocked?.findings.goto;
+  if ('onPullRequestFail' in step) return step.onPullRequestFail?.goto;
+  return undefined;
+}
+
+/**
+ * Why a step of `recipe` routes back to a parallel group (ADR 0168): no attempt runs a group, so a
+ * route back to one would schedule nothing it could run.
+ */
+function groupRoutes(recipe: RecipeFile): string[] {
+  const groupIds = new Set(recipe.steps.flatMap((step) => ('parallel' in step ? [step.id] : [])));
+  return [...walk(recipe.steps, ['steps'])].flatMap(({ step }) => {
+    const goto = routeBack(step);
+    return goto === undefined || !groupIds.has(goto)
+      ? []
+      : [
+          `step "${stepId(step)}" routes back to the parallel group "${goto}": route to one of the steps before it (ADR 0168)`,
+        ];
+  });
+}
+
+/**
+ * Why a child of a parallel group of `recipe` routes back to a sibling (ADR 0168): it would run
+ * that sibling alone, and once its rounds are used up the group would wait for the child with
+ * nothing in flight.
+ */
+function siblingRoutes(recipe: RecipeFile): string[] {
+  return recipe.steps.flatMap((step) => {
+    if (!('parallel' in step)) return [];
+    const siblings = new Set(step.parallel.map(stepId));
+    return step.parallel.flatMap((child) => {
+      const goto = child.onBlocked?.findings.goto;
+      return goto === undefined || !siblings.has(goto)
+        ? []
+        : [
+            `step "${stepId(child)}" in the parallel group "${step.id}" routes back to "${goto}" in its own group: route to a step before the group (ADR 0168)`,
+          ];
+    });
+  });
+}
+
+/**
+ * The steps of `recipe` in a line, a parallel group's children as steps of their own in its place
+ * (ADR 0168), each group's `when`, and why a group's `when` cannot load.
+ */
+function listSteps(recipe: RecipeFile): {
+  listed: ListedStep[];
+  groups: Map<string, string | undefined>;
+  problems: string[];
+} {
+  const groups = new Map<string, string | undefined>();
+  const problems: string[] = [];
+  const listed = recipe.steps.flatMap((step, index): ListedStep[] => {
+    if (!('parallel' in step)) return [{ step, index }];
+    const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
+    if (unfollowed !== undefined) problems.push(unfollowed);
+    groups.set(step.id, step.when);
+    return step.parallel.map((child) => ({ step: child, index, group: step.id }));
+  });
+  return { listed, groups, problems };
+}
+
+/**
+ * Why a lens of a step in `order` is in the wrong folder (ADR 0143): a step with a lens reviews a
+ * diff once a step before it commits, else a plan, and each of its lenses (ADR 0220) must say the
+ * same.
+ */
+function misfolded(order: readonly Step[], commits: (step: Step) => boolean): string[] {
+  return order.flatMap((step, at) => {
+    if (!('brewer' in step)) return [];
+    const named = step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
+    const committed = order.slice(0, at).find(commits);
+    const reviews = committed === undefined ? 'plan' : 'diff';
+    const since =
+      committed === undefined
+        ? 'no step before it commits'
+        : `step "${stepId(committed)}" before it commits`;
+    const other = reviews === 'plan' ? 'diff' : 'plan';
+    return named
+      .filter((lens) => !lens.startsWith(`${reviews}/`))
+      .map(
+        (lens) =>
+          `step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${lens}", which reviews a ${other}: name a lens of lenses/${reviews}/ (ADR 0143)`,
+      );
+  });
+}
+
+/** The red proofs of `order` (ADR 0078), and the step whose tests each proves. */
+const proofsOf = (order: readonly Step[]): { id: string; of: string }[] =>
+  order.flatMap((step) => ('of' in step ? [{ id: stepId(step), of: step.of }] : []));
+
+/**
+ * Why a red proof of `order` cannot find its tests (ADR 0078): it finds them in what its step
+ * committed.
+ */
+function ofNothing(order: readonly Step[], commits: (step: Step) => boolean): string[] {
+  return proofsOf(order)
+    .filter(({ of }) => {
+      const proven = order.find((step) => stepId(step) === of);
+      return proven === undefined || !commits(proven);
+    })
+    .map(
+      ({ id, of }) =>
+        `step "${id}" proves the tests of step "${of}", whose brewer commits nothing (ADR 0078)`,
+    );
+}
+
+/**
+ * Why the commits of a step of `order` would be lost (ADR 0084): the cleanup of an ended batch
+ * deletes its attempt branches, and only a pull request keeps the commits. A recipe whose action
+ * is not last is refused for its place (ADR 0071).
+ */
+function unopened(
+  recipe: RecipeFile,
+  order: readonly Step[],
+  commits: (step: Step) => boolean,
+): string[] {
+  const opens = recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest');
+  return (opens ? [] : order.filter(commits)).map(
+    (step) =>
+      `step "${stepId(step)}" has the brewer "${stepBrewerName(step)}", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
+  );
+}
+
 /** The recipes of `files`, or every problem they have; never some of them. */
 export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const problems: string[] = [];
@@ -861,56 +988,13 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     (text) => readJsonc(text, RecipeFile),
     problems,
   )) {
-    // A parallel group's children load as steps of their own, in its place (ADR 0168).
-    const groups = new Map<string, string | undefined>();
-    let groupRefused = false;
-    const groupIds = new Set(value.steps.flatMap((step) => ('parallel' in step ? [step.id] : [])));
-    // No attempt runs a group, so a route back to one would schedule nothing it could run.
-    for (const { step } of walk(value.steps, ['steps'])) {
-      const goto =
-        'onFail' in step
-          ? step.onFail?.goto
-          : 'onBlocked' in step
-            ? step.onBlocked?.findings.goto
-            : 'onPullRequestFail' in step
-              ? step.onPullRequestFail?.goto
-              : undefined;
-      if (goto !== undefined && groupIds.has(goto)) {
-        problems.push(
-          `${path}: step "${stepId(step)}" routes back to the parallel group "${goto}": route to one of the steps before it (ADR 0168)`,
-        );
-        groupRefused = true;
-      }
-    }
-    // A child's route to a sibling would run that sibling alone, and once its rounds are used up
-    // the group would wait for the child with nothing in flight.
-    for (const step of value.steps) {
-      if (!('parallel' in step)) continue;
-      const siblings = new Set(step.parallel.map(stepId));
-      for (const child of step.parallel) {
-        const goto = child.onBlocked?.findings.goto;
-        if (goto === undefined || !siblings.has(goto)) continue;
-        problems.push(
-          `${path}: step "${stepId(child)}" in the parallel group "${step.id}" routes back to "${goto}" in its own group: route to a step before the group (ADR 0168)`,
-        );
-        groupRefused = true;
-      }
-    }
-    const listed = value.steps.flatMap((step, index): ListedStep[] => {
-      if (!('parallel' in step)) return [{ step, index }];
-      const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
-      if (unfollowed !== undefined) {
-        problems.push(`${path}: ${unfollowed}`);
-        groupRefused = true;
-      }
-      groups.set(step.id, step.when);
-      return step.parallel.map((child) => ({ step: child, index, group: step.id }));
-    });
+    const routes = [...groupRoutes(value), ...siblingRoutes(value)];
+    const { listed, groups, problems: unlisted } = listSteps(value);
     const loads = listed.map((entry) =>
       loadStep(entry, entry.index === value.steps.length - 1, shelf),
     );
     const refusals = loads.flatMap((load) => (Array.isArray(load) ? load : []));
-    problems.push(...refusals.map((line) => `${path}: ${line}`));
+    problems.push(...[...routes, ...unlisted, ...refusals].map((line) => `${path}: ${line}`));
     const steps = loads.filter((load): load is LoadedStep => !Array.isArray(load));
     for (const { brewer } of steps) {
       const reviewed = brewer?.together ?? (brewer?.lens === undefined ? [] : [brewer.lens]);
@@ -929,55 +1013,16 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       return name !== undefined && brewerOf(name)?.produces === 'commits';
     };
     const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
-    // A step with a lens reviews a diff once a step before it commits, else a plan; its lens's
-    // folder must say the same (ADR 0143).
-    // Each lens of a step that names several (ADR 0220).
-    const misfolded = order.flatMap((step, at) => {
-      if (!('brewer' in step)) return [];
-      const named = step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
-      const committed = order.slice(0, at).find(commits);
-      const reviews = committed === undefined ? 'plan' : 'diff';
-      const since =
-        committed === undefined
-          ? 'no step before it commits'
-          : `step "${stepId(committed)}" before it commits`;
-      const other = reviews === 'plan' ? 'diff' : 'plan';
-      return named
-        .filter((lens) => !lens.startsWith(`${reviews}/`))
-        .map(
-          (lens) =>
-            `${path}: step "${stepId(step)}" reviews a ${reviews}, since ${since}, and names the lens "${lens}", which reviews a ${other}: name a lens of lenses/${reviews}/ (ADR 0143)`,
-        );
-    });
-    for (const line of misfolded) problems.push(line);
-    // A red proof finds the tests in what its step committed (ADR 0078).
-    const proofs = order.flatMap((step) =>
-      'of' in step ? [{ id: stepId(step), of: step.of }] : [],
-    );
-    const ofNothing = proofs.filter(({ of }) => {
-      const proven = order.find((step) => stepId(step) === of);
-      return proven === undefined || !commits(proven);
-    });
-    for (const { id, of } of ofNothing) {
-      problems.push(
-        `${path}: step "${id}" proves the tests of step "${of}", whose brewer commits nothing (ADR 0078)`,
-      );
-    }
-    const unprovenLines = testFirst ? unproven(value, commits) : [];
-    for (const line of unprovenLines) problems.push(`${path}: ${line}`);
-    // The cleanup of an ended batch deletes its attempt branches: only a pull request keeps the
-    // commits (ADR 0084). A recipe whose action is not last is refused for its place (ADR 0071).
-    const opens = value.steps.some((step) => 'action' in step && step.action === 'openPullRequest');
-    const unopened = opens ? [] : order.filter(commits);
-    for (const step of unopened) {
-      problems.push(
-        `${path}: step "${stepId(step)}" has the brewer "${stepBrewerName(step)}", which produces commits, and no step opens a pull request with them: end the recipe with { "action": "openPullRequest" } (ADR 0084)`,
-      );
-    }
-    const refused =
-      misfolded.length + ofNothing.length + unprovenLines.length + unopened.length > 0;
-    if (steps.length < listed.length || groupRefused || refused) continue;
-    const [proof] = proofs;
+    const refused = [
+      ...misfolded(order, commits),
+      ...ofNothing(order, commits),
+      ...(testFirst ? unproven(value, commits) : []),
+      ...unopened(value, order, commits),
+    ];
+    problems.push(...refused.map((line) => `${path}: ${line}`));
+    const unloaded = steps.length < listed.length;
+    if (unloaded || routes.length + unlisted.length + refused.length > 0) continue;
+    const [proof] = proofsOf(order);
     if (proof !== undefined) redProofs.set(value.name, proof);
     recipes.set(
       value.name,
