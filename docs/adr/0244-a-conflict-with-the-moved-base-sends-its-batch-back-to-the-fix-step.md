@@ -1,6 +1,6 @@
 # 0244. A conflict with the moved base sends its batch back to the fix step
 
-Date: 2026-10-28 · Status: Accepted · Amends [0226](0226-a-failing-check-on-the-merged-tree-sends-its-batch-back-to-the-fix-step.md) (a third cause of the route back, and a routed start merge that leaves its conflicts in), [0164](0164-a-batch-merges-its-base-before-its-last-check.md) (a merge whose conflicts the brewer concludes counts as the base merged), [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) and [0209](0209-a-check-that-fails-on-an-open-pull-request-s-merged-tree-is-posted-on-it.md) (a conflict's post says Foedrum fixes it)
+Date: 2026-10-28 · Status: Accepted · Amends [0226](0226-a-failing-check-on-the-merged-tree-sends-its-batch-back-to-the-fix-step.md) (a third cause of the route back, and a routed start merge that leaves its conflicts in), [0164](0164-a-batch-merges-its-base-before-its-last-check.md) (a merge whose conflicts the brewer concludes counts as the base merged), [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) and [0209](0209-a-check-that-fails-on-an-open-pull-request-s-merged-tree-is-posted-on-it.md) (a conflict's post says Foedrum fixes it), [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) and [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (a resumed retry or answer of a routed fix runs the start merge in the worktree it continues, and its prompt names the files still unmerged)
 
 ## Context
 Since [ADR 0226](0226-a-failing-check-on-the-merged-tree-sends-its-batch-back-to-the-fix-step.md) a check that fails on an open brewed pull request's merged tree sends its batch back to the recipe's fix step, for the rounds the head's failed checks share ([ADR 0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md)).
@@ -31,7 +31,7 @@ And today every start merge aborts a conflict and ends the attempt blocked on a 
 - **It resolves each file, `git add`s it and `git commit`s**, which `git.commit` grants already ([ADR 0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)). The merge commit, with the start and the tip as parents, is the round's.
 - **A `done` with the merge unconcluded fails the attempt retryably**: the driver reads the worktree after the run. A merge still in progress names the files still unmerged. A HEAD that does not hold the tip, the merge aborted, says so.
 - **The commit count, `testsUnchanged` and the secret scan read the brewer's merge commit as they read ADR 0226's start merge commit**: from the worktree's start on, the merge commit included. The count sees at least the merge. The scan reads it as the push would. `testsUnchanged` compares the step's commits from its first attempt's start ([ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)), as for the merge Foedrum makes.
-- **`mergedBase` counts a kept merge as the base merged at its tip**, as it counts a merge commit. The attempt succeeded only once the merge was concluded, so green's merge finds nothing new.
+- **`mergedBase` counts a kept merge as the base merged at its tip once its attempt succeeded**, which it does only once the merge was concluded; a kept merge of an attempt that failed counts for nothing, since its worktree's commits are not the task tree's. Green's merge then finds nothing new.
 
 ### The route input
 - `Pull request <url> no longer merges cleanly with <branch> at <tip>.`, then the files the start merge left in conflict, each with its status (`both modified`, `deleted by them`, `added by us` and so on), a file without a conflict marker named so (binary or unmarked), at most `MAX_CONFLICTS` and a count of the rest, every name on one line.
@@ -43,7 +43,7 @@ And today every start merge aborts a conflict and ends the attempt blocked on a 
 
 ### Rounds and Stuck
 - **The same shared `maxRounds`.** When they are used, the batch is Stuck `pull_request_failed` with `cause: { kind: 'conflict', branch, tip, files }`, the files as the check recorded them.
-- The status comment and `foedrum status` say `<pr> conflicts with <branch> at <tip> after its rounds: <files>`.
+- The status comment says `<pr> conflicts with <branch> at <tip> after <n> rounds: <files>`, and `foedrum status` `<pr> conflicts with <branch> at <tip> in <files>, at <step> after <n> rounds`, as each says a merged-tree failure.
 - `retry` sends it back with the same cause; `skip`, `rewind`, `recipe` and `cancel` act as for the other causes.
 
 ### The post stays and says so
