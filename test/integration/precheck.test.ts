@@ -436,16 +436,15 @@ describe('the configured hook command', () => {
     }
     return dir.path;
   };
-  // A gated push whose check runs in a directory where `npm run check` passes at once, so the
-  // gate does not recurse into this repository's own check. The trailing `--` hands the gate's
-  // `--no-tests` to the script, not to node (ADR 0249).
+  // A gated push whose check runs in a directory where `npm run check -- --no-tests` passes at
+  // once, so the gate does not recurse into this repository's own check. The check fails unless
+  // npm hands the gate's `--no-tests` through to it (ADR 0249); the trailing `--` keeps node
+  // from reading it as its own option.
   let gatedPush = '';
   before(() => {
     assert.notEqual(hookCommand, '', 'no PreToolUse hook command');
-    gatedPush = hookInput(
-      'git push',
-      tempDir('safe-check', { private: true, scripts: { check: 'node -e "" --' } }),
-    );
+    const check = `node -e "process.exit(process.argv.includes('--no-tests') ? 0 : 1)" --`;
+    gatedPush = hookInput('git push', tempDir('safe-check', { private: true, scripts: { check } }));
   });
   after(() => {
     for (const dir of dirs) dir.remove();
