@@ -702,13 +702,9 @@ const RESOLVE =
 /** A file a kept merge left unmerged, on one line: a name may hold a line break. */
 const keptLine = ({ path, status, unmarked }: KeptFile): string => {
   const name = path.replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, '?');
-  const markers = (status === 'both modified' || status === 'both added') && unmarked === true;
+  const both = status === 'both modified' || status === 'both added';
   const note =
-    unmarked !== true
-      ? ''
-      : markers
-        ? ', without conflict markers: binary or unmarked'
-        : ', without conflict markers';
+    unmarked !== true ? '' : `, without conflict markers${both ? ': binary or unmarked' : ''}`;
   return `- ${name} (${status}${note})`;
 };
 
