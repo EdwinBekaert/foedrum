@@ -423,25 +423,45 @@ export function setUpFor(
   return runSetup(through, run, { cwd, env, deadlineAt, now, signal });
 }
 
+/**
+ * The commits on the attempt's branch in the clone the plan names, after `since`, counted by `count`
+ * (ADR 0074); none without a start.
+ */
+export async function commitsOf(
+  count: CountCommits,
+  plan: Pick<ClaudeAttemptPlan, 'commits'>,
+  since: string | undefined,
+  signal: AbortSignal,
+): Promise<CommitsSeen | undefined> {
+  if (since === undefined) return undefined;
+  if (plan.commits === undefined) {
+    return { kind: 'uncounted', reason: 'the plan names no clone to count them in' };
+  }
+  const { clone, branch } = plan.commits;
+  return count(clone, branch, since, signal).catch(
+    (error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }),
+  );
+}
+
+/**
+ * Readies the out doc `outDoc` in the plan's worktree for a session that resumes or opens there: a
+ * session is read by the out doc it writes, never the one the run before left, such as its
+ * needs_input (ADR 0118); after a turn overrun that out doc stays, or its copy comes back, since it
+ * is the work the session finishes (ADR 0175).
+ */
+export function outDocBefore(
+  files: Pick<ClaudeRunnerDeps['files'], 'clearOutDoc' | 'restoreOutDoc'>,
+  plan: Pick<ClaudeAttemptPlan, 'cwd' | 'outDocFrom'>,
+  outDoc: string,
+): void {
+  const file = resolve(plan.cwd, outDoc);
+  if (plan.outDocFrom === undefined) files.clearOutDoc(file, plan.cwd);
+  else files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
+}
+
 /** A brewer runner over the given stream process and files; unit tests pass fakes. */
 export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
   const running = new Map<string, () => AttemptProgress>();
-
-  /** The commits after `since` where the plan says to count them; none without a start. */
-  const commitsOf = async (
-    plan: ClaudeAttemptPlan,
-    since: string | undefined,
-    signal: AbortSignal,
-  ): Promise<CommitsSeen | undefined> => {
-    if (since === undefined) return undefined;
-    if (plan.commits === undefined) {
-      return { kind: 'uncounted', reason: 'the plan names no clone to count them in' };
-    }
-    const { clone, branch } = plan.commits;
-    return deps
-      .commits(clone, branch, since, signal)
-      .catch((error: unknown): CommitsSeen => ({ kind: 'uncounted', reason: messageOf(error) }));
-  };
 
   const start = (attempt: AttemptStart) => {
     const key = attemptKey.encode(attempt.ref);
@@ -486,14 +506,8 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
-        // A resumed run is read by the out doc it writes, never the one the run before left, such
-        // as its needs_input (ADR 0118); after a turn overrun that out doc stays, or its copy comes
-        // back, since it is the work the session finishes (ADR 0175).
-        if (plan.call.session.kind === 'resume') {
-          const file = resolve(plan.cwd, limits.outDoc.file);
-          if (plan.outDocFrom === undefined) deps.files.clearOutDoc(file, plan.cwd);
-          else deps.files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
-        }
+        // A run that starts a fresh session has no out doc before it.
+        if (plan.call.session.kind === 'resume') outDocBefore(deps.files, plan, limits.outDoc.file);
         args = claudeArgs({
           ...plan.call,
           settingsFile: plan.settingsFile,
@@ -577,7 +591,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       const stopped = stopping.signal.aborted;
       const commits = stopped
         ? undefined
-        : await commitsOf(plan, limits.commitsSince, stopping.signal);
+        : await commitsOf(deps.commits, plan, limits.commitsSince, stopping.signal);
       // What the stream reported stays with the attempt however it ends from here.
       const reported = {
         ...(seen.usage === undefined ? {} : { usage: seen.usage }),

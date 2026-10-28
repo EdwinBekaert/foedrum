@@ -34,7 +34,9 @@ import {
   type ClaudeAttemptPlan,
   claudeBrewerRunner,
   clearOutDocFile,
+  commitsOf,
   type OutDocRead,
+  outDocBefore,
   readOutDocFile,
   restoreOutDocFile,
   scannedIfDone,
@@ -160,11 +162,8 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
         // The whole prompt, inputs in their nonce tags, which the first message points at.
         if (interactive !== undefined) deps.files.writePrompt(interactive.file, plan.prompt);
-        // Read by the out doc this session writes, never one the run before left (ADR 0118); after
-        // a turn overrun that out doc stays, or its copy comes back (ADR 0175).
-        const file = resolve(plan.cwd, limits.outDoc.file);
-        if (plan.outDocFrom === undefined) deps.files.clearOutDoc(file, plan.cwd);
-        else deps.files.restoreOutDoc(file, plan.cwd, plan.outDocFrom);
+        // A new interactive session too: its worktree may hold the out doc of an attempt before.
+        outDocBefore(deps.files, plan, limits.outDoc.file);
         const { model, effort, tools, session } = plan.call;
         const call = {
           model,
@@ -240,22 +239,13 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       );
       const facts = factsOf({ kind: 'exited', code }, out);
       // Counted on the attempt's branch in the clone, as for every run (ADR 0074).
-      const since = limits.commitsSince;
-      if (since !== undefined) {
-        facts.commits =
-          plan.commits === undefined
-            ? { kind: 'uncounted', reason: 'the plan names no clone to count them in' }
-            : await deps
-                .commits(
-                  plan.commits.clone,
-                  plan.commits.branch,
-                  since,
-                  new AbortController().signal,
-                )
-                .catch(
-                  (error: unknown) => ({ kind: 'uncounted', reason: messageOf(error) }) as const,
-                );
-      }
+      const commits = await commitsOf(
+        deps.commits,
+        plan,
+        limits.commitsSince,
+        new AbortController().signal,
+      );
+      if (commits !== undefined) facts.commits = commits;
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
       // Scanned for secrets on the attempt's branch, and a plan's paths read, as for every run
       // (ADR 0187, ADR 0233).
