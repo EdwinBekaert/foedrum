@@ -2804,6 +2804,13 @@ describe('npmCheck', () => {
     );
   });
 
+  it('adds no merge line to a passing check whose output names the option', async () => {
+    const output = "ok 1 - refuses Unknown option '--no-tests'\n";
+    const { runProcess } = fakeProcess({ exitCode: 0, output });
+    const result = await npmCheck(execPath, found, runProcess)('/work/tree');
+    assert.deepEqual(result, { ok: true, output });
+  });
+
   it('fails when npm could not start or was killed', async () => {
     const { runProcess } = fakeProcess({ exitCode: null, output: 'spawn ENOENT' });
     const result = await npmCheck(execPath, found, runProcess)('/work/tree');
