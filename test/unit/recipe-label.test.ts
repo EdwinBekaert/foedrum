@@ -48,6 +48,11 @@ const fakeHost = (shown: string[] = []) => {
         calls.push(`add ${label} #${issue}`);
         onIssue.get(issue)?.push(label);
       },
+      removeLabel: async (_repo: string, issue: number, label: string) => {
+        calls.push(`remove ${label} #${issue}`);
+        const labels = onIssue.get(issue) ?? [];
+        labels.splice(labels.indexOf(label), 1);
+      },
     },
   };
 };
@@ -77,6 +82,23 @@ describe('recipeLabelEffects (ADR 0232)', () => {
       result: { label: 'recipe:nip' },
     });
     assert.deepEqual(calls, ['labels #12']);
+  });
+
+  it("takes the issue's other recipe labels off, in any case, so its next order has one to route by", async () => {
+    for (const shown of [
+      ['recipe:stuot', 'foedrum:stuck'],
+      ['Recipe:Stout', 'recipe:nip'],
+    ]) {
+      const { host, onIssue } = fakeHost(shown);
+      const effects = recipeLabelEffects({ brewery, host });
+      assert.deepEqual(effects.due(fold([ordered, chose()]), '12-1'), [key]);
+      const encoded = effectKey.encode(key);
+      // Not shown while another recipe label is there, even beside its own.
+      assert.equal(await effects.target.find(encoded), undefined, shown.join(', '));
+      assert.deepEqual(await effects.target.apply(encoded), { label: 'recipe:nip' });
+      const recipes = onIssue.get(12)?.filter((label) => /^recipe:/i.test(label));
+      assert.deepEqual(recipes, ['recipe:nip'], shown.join(', '));
+    }
   });
 
   it('is due once: never again after its record', () => {
