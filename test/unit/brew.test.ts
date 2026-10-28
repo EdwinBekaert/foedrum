@@ -1511,7 +1511,9 @@ describe('runBrew', () => {
         );
         assert.equal(answered.kind, 'accepted', JSON.stringify(answered));
         const brew = { ...request, target: { issue: 13 } };
-        assert.equal(await runBrew(brewing, shell(behave.succeed()), brew), 0, lines.join('\n'));
+        // The next process of the same owner takes the lock again.
+        const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
+        assert.equal(await runBrew(brewing, again, brew), 0, lines.join('\n'));
         assert.deepStrictEqual(started, ['innkeep#1', 'brew#1']);
         assert.equal(log().state().batches.get('13-1')?.recipe?.name, choice);
         const labels = api.issue('acme/brewery', 13)?.labels ?? [];
@@ -1529,7 +1531,9 @@ describe('runBrew', () => {
       it(`routes ${stuck ? 'a batch Stuck on routing' : 'an Ordered batch'}, ordering it not again: exit 4`, async () => {
         const id = `${issue}-1`;
         log().issue({ kind: 'order', batchId: id, order: { issue } }, t0);
-        if (stuck) log().issue({ kind: 'unrouted', batchId: id }, t0);
+        // Past its routing deadline (ADR 0032).
+        const late = new Date(t0.getTime() + 24 * 3_600_000);
+        if (stuck) log().issue({ kind: 'unrouted', batchId: id }, late);
         assert.equal(log().state().batches.get(id)?.lane.kind, stuck ? 'stuck' : 'ordered');
         const asks = shell(behave.needInput([which(issue)]));
         assert.equal(await runBrew(mashSetup(), asks, mash(issue)), 4, lines.join('\n'));
