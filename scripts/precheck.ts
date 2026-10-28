@@ -318,7 +318,7 @@ const readStdin = async (): Promise<string> => {
 };
 
 // Each module below loads only when a gated command needs it, so a call that does not name git
-// or gh starts nothing but this file (#41).
+// or gh starts nothing but this file and its pre-filter (#41, ADR 0252).
 if (import.meta.main) {
   const spawnProcess: RunProcess = async (file, args, cwd, options) =>
     (await import('./process-runner.ts')).spawnProcess(file, args, cwd, options);
