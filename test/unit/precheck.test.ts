@@ -438,7 +438,7 @@ describe("precheck on a push that git's configuration makes delete, force or mir
       'remote.origin.mirror\ntrue\0',
       'remote.origin.mirror true',
     ],
-    ['git push --rep origin HEAD', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
+    ['git push --rep origin', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
     // What does not delete, force or mirror, or is another remote's.
     ['git push', ''],
     ['git push', 'remote.origin.mirror\nfalse\0'],
