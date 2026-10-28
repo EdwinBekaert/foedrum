@@ -1703,8 +1703,7 @@ export const precheck = async (
   try {
     denied = await deniedPush(dir, [...remotes], [...destinations]);
   } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
-    denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
+    denied = `git push is blocked: could not check it against your denylist (${why(error)}) (ADR 0114).`;
   }
   if (denied !== undefined) return { exitCode: 2, stderr: `${denied}\n` };
   // A stale tree fails the check deep in an import; say why in one line instead.
