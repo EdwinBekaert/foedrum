@@ -55,7 +55,7 @@ export const messageOf = (error: unknown): string =>
 /**
  * One tick of the driver, as every command that runs one ticks it: a tick that fails is reported
  * and the next one runs anyway, but a stop of the engine, such as another engine's push of the
- * state branch, is thrown (ADR 0027).
+ * state branch, is thrown (ADR 0027, ADR 0250).
  */
 export const tick = async (
   driver: Pick<Driver, 'tick'>,
