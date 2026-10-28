@@ -99,7 +99,7 @@ function describeSource(source: InputSource): string {
     case 'retry':
       return `why step ${source.step} runs again: the failure of ${source.step}#${source.attempt}`;
     case 'repositories':
-      throw new Error('not implemented');
+      return "the Brewery's repositories";
     case 'findings':
       return `the earlier rounds' findings of step ${source.step}, with what was done with them`;
     default: {

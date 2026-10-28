@@ -490,7 +490,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
+    const repositories = { repositories: options.repositories ?? [], own: worktree.repo };
+    const planned = inputsOf(
+      found.brewer.inputs,
+      batch,
+      stepBrewer,
+      worktree.path,
+      found.lenses,
+      repositories,
+    );
     const inputs: PromptInput[] = [];
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });

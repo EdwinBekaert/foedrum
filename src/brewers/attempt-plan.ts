@@ -12,6 +12,7 @@ import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
@@ -220,10 +221,27 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   return done?.phase === 'finished' ? (done.worktree?.path ?? done.session?.worktree) : undefined;
 };
 
+/** The Brewery's repositories and their bases, and the one an attempt's worktree holds. */
+export interface BreweryRepositories {
+  repositories: readonly { repo: string; base: string }[];
+  own: string;
+}
+
+/** The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked. */
+const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
+  [
+    "The Brewery's repositories, each with the base its work starts from:",
+    ...repositories.map(({ repo, base }) =>
+      sameRepo(repo, own)
+        ? `- ${repo}, base ${base}: this attempt's repository, the one in your worktree`
+        : `- ${repo}, base ${base}`,
+    ),
+  ].join('\n');
+
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
  * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
- * the loader found for the brewer (ADR 0098).
+ * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -231,6 +249,7 @@ export function inputsOf(
   stepBrewer: (stepId: string) => StepBrewer | undefined,
   worktree: string,
   lenses: ReadonlyMap<string, Lens> = new Map(),
+  brewery?: BreweryRepositories,
 ): PlannedInput[] {
   const skipped = (from: string): boolean =>
     from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);
@@ -242,7 +261,11 @@ export function inputsOf(
         const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
         return { name, source: { kind: 'issue-body', issue }, read };
       }
-      if (from === 'repositories') throw new Error('not implemented');
+      if (from === 'repositories') {
+        if (brewery === undefined) throw new Error(`the input "${name}" has no repositories`);
+        const read: InputRead = { kind: 'text', text: repositoriesText(brewery) };
+        return { name, source: { kind: 'repositories' }, read };
+      }
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);
         const root = succeededIn(batch, step);
