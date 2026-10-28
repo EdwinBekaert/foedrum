@@ -2,7 +2,8 @@
 // (ADR 0232): `recipe:<name>` on its Brewery issue, or on the Brewery issue that is a claimed
 // batch's order (ADR 0156), set once through the ledger as the driver's effect
 // `[batchId, "recipe-label"]`, found on the issue before it is applied (ADR 0033), as the lane
-// labels are (ADR 0154). A label added after routing routes only the issue's next batch (ADR 0068).
+// labels are (ADR 0154): the issue's other recipe labels come off, so its next order has one to route
+// by. A label added after routing routes only the issue's next batch (ADR 0068).
 
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -14,7 +15,7 @@ import type { LaneLabelHost } from './lane-labels.ts';
 export interface RecipeLabelEffectsOptions {
   /** The Brewery's repository, `owner/name`, where its issues are. */
   brewery: string;
-  host: Omit<LaneLabelHost, 'removeLabel'>;
+  host: LaneLabelHost;
 }
 
 const keyOf = (batchId: string): BatchEffectKey => ({ batchId, effect: 'recipe-label' });
@@ -34,11 +35,13 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
     if (due === undefined) throw new Error(`No recipe label ${key} is due`);
     return due;
   };
+  // The issue's labels: whether it shows the due one, and its other recipe labels, to take off.
   // GitHub's label names are case-insensitive.
-  const shows = async (key: string, signal?: AbortSignal): Promise<boolean> => {
+  const read = async (key: string, signal?: AbortSignal) => {
     const { issue, label } = dueFor(key);
     const on = await host.labels(brewery, issue, signal);
-    return on.some((name) => same(name, label));
+    const others = on.filter((name) => /^recipe:/i.test(name) && !same(name, label));
+    return { shown: on.some((name) => same(name, label)), others };
   };
   return {
     due: (state, batchId) => {
@@ -57,14 +60,18 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
       return [key];
     },
     target: {
-      find: async (key, signal) =>
-        (await shows(key, signal)) ? { result: { label: dueFor(key).label } } : undefined,
+      find: async (key, signal) => {
+        const { shown, others } = await read(key, signal);
+        return shown && others.length === 0 ? { result: { label: dueFor(key).label } } : undefined;
+      },
       apply: async (key, signal) => {
         const { issue, label } = dueFor(key);
-        if (!(await shows(key, signal))) {
+        const { shown, others } = await read(key, signal);
+        if (!shown) {
           await host.createLabel(brewery, label, signal);
           await host.addLabel(brewery, issue, label, signal);
         }
+        for (const name of others) await host.removeLabel(brewery, issue, name, signal);
         return { label };
       },
     },

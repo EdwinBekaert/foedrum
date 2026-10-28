@@ -55,7 +55,7 @@ Rejected: the Innkeeper reading the Brewery's recipe files (its worktree is the 
 Rejected: reading the choice from the resumed session's out doc (one more model turn and its tokens, and the model could write a recipe nobody picked).
 
 ### The label
-- **`recipe:<name>` goes on the order's Brewery issue**, a claimed order's included (`breweryIssueOf`), set once through the ledger, `[batchId, "recipe-label"]`, as the lane labels are: found when the issue already shows it, made in the Brewery when it is missing, then added.
+- **`recipe:<name>` goes on the order's Brewery issue**, a claimed order's included (`breweryIssueOf`), set once through the ledger, `[batchId, "recipe-label"]`, as the lane labels are: found when the issue already shows it and no other, made in the Brewery when it is missing, then added; the issue's other `recipe:*` labels, in any case, come off, so its next order has one label to route by.
 - **Only for a choice made by answering a step that chooses**, the `batch.recipe_chosen` with `askedBy`; a choice by `foedrum recipe` labels nothing (#592 decides that one).
   A later choice in the same batch labels nothing more: the key is applied once.
 - **A label added after routing changes nothing** (ADR 0068): it routes the issue's next batch, ordered again, and never this one.
