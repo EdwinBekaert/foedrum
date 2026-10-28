@@ -163,6 +163,40 @@ describe('scripts/precheck.ts started by node', () => {
     }
   });
 
+  // git's configuration files, read by real git before the push (ADR 0246): a mirror remote, then
+  // a push refspec that deletes.
+  it("blocks a push that git's configuration makes mirror or delete, asking real git", async () => {
+    const project = makeTempDir('configured-push');
+    try {
+      const git = (args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          stdio: 'ignore',
+        });
+      git(['init', '-q', '-b', 'main']);
+      git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      const gate = () =>
+        run(process.execPath, [script], hookInput('git push', project.path), {
+          cwd: root,
+          env: envWithoutNpm({ CLAUDE_PROJECT_DIR: project.path }),
+        });
+      git(['config', 'remote.origin.mirror', 'true']);
+      const mirrored = await gate();
+      assert.equal(mirrored.code, 2);
+      assert.match(
+        mirrored.stderr,
+        /^git push is blocked: git's configuration makes it delete, force or mirror remote refs \(remote\.origin\.mirror true\)/,
+      );
+      git(['config', '--unset', 'remote.origin.mirror']);
+      git(['config', 'remote.origin.push', ':refs/heads/x']);
+      const deleting = await gate();
+      assert.equal(deleting.code, 2);
+      assert.match(deleting.stderr, /\(remote\.origin\.push :refs\/heads\/x\)/);
+    } finally {
+      await removeTree(project.path);
+    }
+  });
+
   // The commits no remote-tracking ref has, read by real git (ADR 0114): the word in the commit the
   // remote already has does not count.
   it('blocks a push whose commits hold a word on the denylist, naming the place only', async () => {
@@ -340,6 +374,11 @@ describe('scripts/precheck.ts started by node', () => {
         assert.equal(blocked.code, 2);
         assert.match(blocked.stderr, /^git push is blocked: its remote is .*name the remote/);
       }
+      // A branch name the refspec creates reaches the scan too (ADR 0246).
+      const named = await gate('git push origin HEAD:refs/heads/examplecorp-x');
+      assert.equal(named.code, 2);
+      assert.match(named.stderr, /^git push is blocked: it would send a word .* at branch name\. /);
+      assert.doesNotMatch(named.stderr, /example ?corp/i);
       // origin has the commit: the push to it passes on to the rest of the gate.
       assert.doesNotMatch((await gate('git push origin HEAD')).stderr, /denylist/);
     } finally {

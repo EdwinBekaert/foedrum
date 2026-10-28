@@ -471,6 +471,23 @@ describe("precheck on a push that git's configuration makes delete, force or mir
     });
     assert.deepEqual(checks, []);
   });
+
+  // The configuration of the tree the push runs in, not the hook's (review of #635).
+  it('reads the configuration of the tree the push runs in', async () => {
+    const { read } = await gate('git -C sub push', async () => '');
+    assert.deepEqual(read, [resolve('/work/tree', 'sub')]);
+  });
+
+  it('names a detached HEAD before a configuration it could not read', async () => {
+    const { result } = await gate(
+      'git push',
+      async () => {
+        throw new Error('git config exited 3');
+      },
+      true,
+    );
+    assert.match(result.stderr, /^git push is blocked: HEAD is detached in \/work\/tree/);
+  });
 });
 
 describe('gitPushConfig', () => {
@@ -927,6 +944,24 @@ describe('precheck on a push from outside the project', () => {
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
     assert.deepEqual(checks, []);
     assert.deepEqual(heads, []);
+  });
+
+  // A review's scratch clone is in the project but no tree to run (ADR 0104, ADR 0246).
+  it('blocks a push that starts in a review’s scratch clone, running nothing there', async () => {
+    const scratch = join(root, '.foedrum', 'tmp', '701', 'scratch', 'tree');
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const result = await precheck(
+      hookInput('git push', scratch),
+      runCheck,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (dir) => projectHolds(root, dir, process.platform, (path) => path),
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /^git push is blocked: it runs in .*scratch.*push from inside/);
+    assert.deepEqual(calls, []);
   });
 
   it('checks a tree inside the project', async () => {
