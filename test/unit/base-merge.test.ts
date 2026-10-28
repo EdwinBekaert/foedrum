@@ -26,6 +26,7 @@ const attempt = (
   attempt: number,
   result: unknown,
   outcome: Extract<Event, { type: 'step.finished' }>['outcome'],
+  started: Partial<Extract<Event, { type: 'step.started' }>> = {},
 ): Event[] => [
   {
     type: 'step.scheduled',
@@ -33,7 +34,7 @@ const attempt = (
     deadlineAt,
     ...(attempt === 1 ? {} : { retry: true }),
   },
-  { type: 'step.started', ...ref(attempt) },
+  { type: 'step.started', ...ref(attempt), ...started },
   {
     type: 'effect.applied',
     key: effectKey.encode(baseMergeKey(ref(attempt))),
@@ -64,6 +65,21 @@ describe('mergedBase', () => {
   it('never counts a kept merge whose attempt did not conclude it', () => {
     const state = fold([...ordered, ...attempt(1, kept(tip), failed)]);
     assert.equal(mergedBase(state, 'b1'), undefined);
+  });
+
+  it('counts a kept merge that a retry resuming its session carried on to a success', () => {
+    const session = '0f8fad5b-d9cb-469f-a165-708677289500';
+    const path = '/work/implement-1';
+    const worktree = { repo: 'acme/app', path, branch: 'foedrum/b1/implement/1', commit: first };
+    const state = fold([
+      ...ordered,
+      ...attempt(1, kept(tip), failed, { session: { id: session, worktree: path }, worktree }),
+      // The resumed attempt finds the tip in its HEAD already: nothing new to merge.
+      ...attempt(2, { base: tip }, succeeded, {
+        session: { id: session, resumes: session, worktree: path },
+      }),
+    ]);
+    assert.equal(mergedBase(state, 'b1'), tip);
   });
 });
 
