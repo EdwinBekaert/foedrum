@@ -21,6 +21,11 @@ The gate keeps no copy of git's option list: no harmless push option is exactly 
 Checked against `git push -h` of git 2.56: `--all`, `--atomic`, `--branches`, `--delete`, `--dry-run`, `--exec`, `--follow-tags`, `--force`, `--force-if-includes`, `--force-with-lease`, `--ipv4`, `--ipv6`, `--mirror`, `--porcelain`, `--progress`, `--prune`, `--push-option`, `--quiet`, `--receive-pack`, `--recurse-submodules`, `--repo`, `--set-upstream`, `--signed`, `--tags`, `--thin`, `--verbose`, `--verify`, each with its `--no-` form.
 Rejected: matching the whole words and adding the common abbreviations, which leaves the next one open.
 
+### Push's help is no push
+`git push --help` (git turns it into `git help push`), `git push -h` as the one argument beside the shell's redirections, and `git -h` or `git --help` before the subcommand print help and push nothing, so the gate runs no check and no scan for them; `git help push` never was a push.
+A help call ran a full `npm run check` during another session's quiet window, the observed failure behind this.
+`-h` beside any other argument is still read as a push, failing closed.
+
 ### `--prune`
 `--prune`, in any form above, blocks with the delete line, with or without a refspec: a session never needs it, and a maintainer deletes remote branches.
 

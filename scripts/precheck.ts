@@ -791,16 +791,29 @@ const pushTarget = (args: Word[]): PushTarget => {
 // A git setting that may change what a push does: a remote's or push's (ADR 0246).
 const PUSH_SETTING = /^(?:remote|push)\./i;
 
+// Whether a git subcommand's arguments only ask for its help: --help first, which git turns into
+// `git help <command>`, or -h as the one argument, beside the shell's redirections (2>&1); it then
+// pushes nothing (ADR 0246).
+const printsHelp = (args: Word[]): boolean => {
+  const [first, ...rest] = args;
+  if (first === undefined || first.dynamic) return false;
+  if (first.text === '--help') return true;
+  return first.text === '-h' && rest.every((arg) => !arg.quoted && REDIRECTION.test(arg.text));
+};
+
 const readGit = (args: Word[], literal: boolean, { found, place }: Reading): void => {
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
   let gitPlace = place;
   // Whether -c or --config-env sets a remote's or push's setting, or one computed at run time.
   let configured = false;
+  // Whether git only prints its help (git -h, git --help push).
+  let help = false;
   while (args[i]?.text.startsWith('-')) {
     const option = args[i]?.text ?? '';
     const value = args[i + 1]?.text ?? '';
     if (option === '-C') gitPlace = moveTo(gitPlace, args[i + 1]?.dynamic ? undefined : value);
+    if (option === '-h' || option === '--help') help = true;
     const setting =
       option === '-c' || option === '--config-env'
         ? args[i + 1]
@@ -814,6 +827,7 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
   }
   const subcommand = args[i];
   if (subcommand?.text === 'config' || subcommand?.text === 'remote') found.configures = true;
+  if (help || printsHelp(args.slice(i + 1))) return;
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
     found.places.push({ place: gitPlace, ...pushTarget(args.slice(i + 1)) });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
