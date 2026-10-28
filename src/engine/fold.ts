@@ -109,6 +109,26 @@ export interface Step {
   inputs: readonly Input[];
 }
 
+/** The attempt of `step` with the highest number, if it has one: the step's latest (I2). */
+export const latestAttempt = (_step: Step): Attempt | undefined => {
+  throw new Error('not implemented');
+};
+
+/**
+ * The latest attempt of `step` when it runs: neither finished nor abandoned by Stuck (I2,
+ * ADR 0025, ADR 0055).
+ */
+export const runningAttempt = (
+  _step: Step,
+): Exclude<Attempt, { phase: 'finished' }> | undefined => {
+  throw new Error('not implemented');
+};
+
+/** The attempt of `step` with the highest number below `n`, if any: the one attempt `n` follows. */
+export const attemptBefore = (_step: Step, _n: number): Attempt | undefined => {
+  throw new Error('not implemented');
+};
+
 export interface Rewind {
   toStepId: string;
   by: string;
