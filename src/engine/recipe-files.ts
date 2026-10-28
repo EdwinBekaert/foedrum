@@ -563,6 +563,218 @@ function lineRecipe(
   };
 }
 
+/** A step that loaded: its line, and the brewer or check it runs. */
+interface LoadedStep {
+  line: LineStep;
+  brewer?: StepBrewer;
+  check?: StepCheck;
+}
+
+/**
+ * A step that loaded, or the problems that refuse it, without its file's path: none when what
+ * refuses it is reported as a file of its own.
+ */
+type StepLoad = LoadedStep | string[];
+
+/** What a brewer step loads against: the brewers and lenses read. */
+interface Shelf {
+  brewers: ReadonlyMap<string, StepBrewer>;
+  /** The name of every brewer file, also one that did not load. */
+  brewerNames: ReadonlySet<string>;
+  lenses: ReadonlyMap<string, Lens>;
+  /** Whether a lens that did not load is not reported as its own file or folder. */
+  unreported: (lens: string) => boolean;
+}
+
+/**
+ * Why a step's deadline cannot load: the Duration schema has no upper bound, and a deadline past
+ * what a time can hold would throw when the step is scheduled, naming no file.
+ */
+function tooLong(id: string, deadline: string): string | undefined {
+  return durationMs(deadline) <= MAX_DEADLINE_MS
+    ? undefined
+    : `step "${id}" has a deadline of ${deadline}, longer than 365 days`;
+}
+
+/** The openPullRequest action's line, when it is the recipe's `last` step (ADR 0071). */
+function actionLine(step: ActionStep, last: boolean): StepLoad {
+  const id = stepId(step);
+  // The pull request holds the commits of the steps before it; none may come after it.
+  if (!last) {
+    return [
+      `step "${id}" opens the pull request, so it must be the last step of the recipe (ADR 0071)`,
+    ];
+  }
+  const line: LineStep = {
+    id,
+    when: step.when,
+    deadline: ACTION_DEADLINE,
+    // An action makes no progress the runner could see; its deadline covers it.
+    stall: undefined,
+    // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
+    mayRetry: (attempts) => {
+      const succeeded = attempts.findLastIndex(
+        (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+      );
+      return attempts.length - succeeded - 1 < ACTION_ATTEMPTS;
+    },
+    route:
+      step.onPullRequestFail === undefined
+        ? undefined
+        : { why: 'pull_request', ...step.onPullRequestFail },
+    action: 'openPullRequest',
+  };
+  return { line };
+}
+
+/** A check step's line and checks (ADR 0069). */
+function checkLine(step: CheckStep): StepLoad {
+  const id = stepId(step);
+  const deadline = step.deadline ?? CHECK_DEADLINE;
+  const long = tooLong(id, deadline);
+  if (long !== undefined) return [long];
+  const { onFail } = step;
+  const line: LineStep = {
+    id,
+    when: step.when,
+    deadline,
+    stall: undefined,
+    mayRetry: (attempts) => attempts.filter(readNothing).length < CHECK_RETRIES,
+    route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
+    ...(step.expect === 'fail' ? {} : { passes: true as const }),
+  };
+  const checks = Array.isArray(step.check) ? step.check : [step.check];
+  return { line, check: { checks, ...('of' in step ? { of: step.of } : {}) } };
+}
+
+/**
+ * Why a brewer step cannot be a child of a parallel group, or `undefined` when it can: no child
+ * writes the task tree beside its siblings (ADR 0168), nor holds the terminal while they run (ADR
+ * 0222).
+ */
+function ungrouped(step: BrewerStep, brewer: BrewerFrontmatter): string | undefined {
+  if (step.interactive === true) {
+    return 'is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)';
+  }
+  if (!isTaster(brewer)) {
+    return `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`;
+  }
+  if (brewer.produces === 'commits') {
+    return `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree (ADR 0168)`;
+  }
+  return undefined;
+}
+
+/** A brewer step's line and brewer, a Taster's with its lenses (ADR 0161), in `group` if any. */
+function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): StepLoad {
+  const id = stepId(step);
+  const found = shelf.brewers.get(step.brewer);
+  if (found === undefined) {
+    return shelf.brewerNames.has(step.brewer)
+      ? []
+      : [
+          `it names no brewer "${step.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
+        ];
+  }
+  const { brewer } = found;
+  const refused = unplannable(brewer);
+  if (refused.length > 0) {
+    return refused.map(
+      (what) =>
+        `step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
+    );
+  }
+  const apart = group === undefined ? undefined : ungrouped(step, brewer);
+  if (apart !== undefined) return [`step "${id}" in the parallel group "${group}" ${apart}`];
+  if (step.interactive === true && (step.lens ?? step.lenses) !== undefined) {
+    const field = step.lens === undefined ? 'lenses' : 'lens';
+    return [
+      `step "${id}" is interactive and has a "${field}": a lens step is a Taster's headless review (ADR 0222)`,
+    ];
+  }
+  // Only a person's answer to a recipe choice's question chooses the recipe (ADR 0232).
+  const choosing = brewer.output.schema === RECIPE_CHOICE;
+  if (choosing !== (step.chooses !== undefined)) {
+    return [
+      choosing
+        ? `step "${id}" has the brewer "${brewer.name}", which answers with the out doc schema "${RECIPE_CHOICE}": give the step "chooses": "recipe" (ADR 0232)`
+        : `step "${id}" has "chooses", but its brewer "${brewer.name}" does not answer with the out doc schema "${RECIPE_CHOICE}" (ADR 0232)`,
+    ];
+  }
+  const refusedLens = untasted(step, brewer);
+  // The step's one lens, or its lenses together (ADR 0220).
+  const named = step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
+  if (refusedLens.length === 0) {
+    for (const name of named) {
+      // A lens whose file or folder has a problem of its own is reported once, as that.
+      if (shelf.lenses.has(name) || !shelf.unreported(name)) continue;
+      refusedLens.push(
+        `step "${id}" names the lens "${name}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
+      );
+    }
+  }
+  const stepLensFiles = named.flatMap((name) => shelf.lenses.get(name) ?? []);
+  if (refusedLens.length > 0 || stepLensFiles.length < named.length) return refusedLens;
+  const deadline = step.deadline ?? brewer.deadline;
+  const long = tooLong(id, deadline);
+  if (long !== undefined) return [long];
+  const findings = step.onBlocked?.findings;
+  const line: LineStep = {
+    id,
+    when: step.when,
+    deadline,
+    stall: brewer.stall,
+    // Attempts are counted over the batch's whole life (ADR 0053).
+    mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
+    route: findings === undefined ? undefined : { why: 'findings', ...findings },
+    ...(group === undefined ? {} : { group }),
+    ...(step.interactive === true ? { interactive: true } : {}),
+    ...(choosing ? { chooses: true as const } : {}),
+  };
+  const [first] = stepLensFiles;
+  if (first === undefined) {
+    const { prompt } = step;
+    return { line, brewer: prompt === undefined ? found : { ...found, interactive: { prompt } } };
+  }
+  // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161), and a step's lenses
+  // together as that one input, which names each (ADR 0220): no lens name holds a comma.
+  const names = stepLensFiles.map(({ name }) => name);
+  const from = `lens:${names.join(',')}`;
+  const input = { name: LENS_INPUT, from, trusted: false } as const;
+  const tasting: StepBrewer = {
+    ...found,
+    brewer: { ...brewer, inputs: [...brewer.inputs, input] },
+    lenses: new Map([
+      ...(found.lenses ?? []),
+      ...stepLensFiles.map((lens): [string, Lens] => [lens.name, lens]),
+    ]),
+    ...(step.lenses === undefined ? { lens: first.name } : { together: names }),
+    blocking: step.blocking ?? false,
+  };
+  return { line, brewer: tasting };
+}
+
+/** A step of a recipe's line: its place in the recipe, and the parallel group it is a child of. */
+interface ListedStep {
+  step: Step;
+  index: number;
+  group?: string;
+}
+
+/** The step `listed` as the engine runs it, when it does; `last` when it is the recipe's last. */
+function loadStep({ step, group }: ListedStep, last: boolean, shelf: Shelf): StepLoad {
+  if (group !== undefined && step.when !== undefined) {
+    return [
+      `step "${stepId(step)}" in the parallel group "${group}" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)`,
+    ];
+  }
+  const runnable = runnableStep(step);
+  if (typeof runnable === 'string') return [runnable];
+  if ('action' in runnable) return actionLine(runnable, last);
+  if ('check' in runnable) return checkLine(runnable);
+  return brewerLine(runnable, group, shelf);
+}
+
 /** The recipes of `files`, or every problem they have; never some of them. */
 export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const problems: string[] = [];
@@ -627,6 +839,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   );
   // A brewer whose file is there but broken is reported once, as that file.
   const brewerNames = new Set(files.brewers.map(({ path }) => nameOf(path)));
+  // A lens whose file or folder has a problem of its own is reported once, as that.
+  const unreported = (name: string) => !lensFolderUnread && !brokenLenses.has(name);
+  const shelf: Shelf = { brewers, brewerNames, lenses, unreported };
   // The brewers the recipes' steps name, for doctor (ADR 0141).
   const namedBrewers = new Set<string>();
   // The lenses the recipes' lens steps name (ADR 0161).
@@ -646,13 +861,6 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     (text) => readJsonc(text, RecipeFile),
     problems,
   )) {
-    // The Duration schema has no upper bound; a deadline past what a time can hold would throw
-    // when the step is scheduled, naming no file.
-    const tooLong = (id: string, deadline: string): boolean => {
-      if (durationMs(deadline) <= MAX_DEADLINE_MS) return false;
-      problems.push(`${path}: step "${id}" has a deadline of ${deadline}, longer than 365 days`);
-      return true;
-    };
     // A parallel group's children load as steps of their own, in its place (ADR 0168).
     const groups = new Map<string, string | undefined>();
     let groupRefused = false;
@@ -688,186 +896,26 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         groupRefused = true;
       }
     }
-    const listed = value.steps.flatMap(
-      (step, index): { step: Step; index: number; group?: string }[] => {
-        if (!('parallel' in step)) return [{ step, index }];
-        const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
-        if (unfollowed !== undefined) {
-          problems.push(`${path}: ${unfollowed}`);
-          groupRefused = true;
-        }
-        groups.set(step.id, step.when);
-        return step.parallel.map((child) => ({ step: child, index, group: step.id }));
-      },
+    const listed = value.steps.flatMap((step, index): ListedStep[] => {
+      if (!('parallel' in step)) return [{ step, index }];
+      const unfollowed = step.when === undefined ? undefined : unfollowedWhen(step.id, step.when);
+      if (unfollowed !== undefined) {
+        problems.push(`${path}: ${unfollowed}`);
+        groupRefused = true;
+      }
+      groups.set(step.id, step.when);
+      return step.parallel.map((child) => ({ step: child, index, group: step.id }));
+    });
+    const loads = listed.map((entry) =>
+      loadStep(entry, entry.index === value.steps.length - 1, shelf),
     );
-    const steps = listed.flatMap(
-      ({ step, index, group }): { line: LineStep; brewer?: StepBrewer; check?: StepCheck }[] => {
-        if (group !== undefined && step.when !== undefined) {
-          problems.push(
-            `${path}: step "${stepId(step)}" in the parallel group "${group}" has a "when", which the engine does not follow in a parallel group yet (ADR 0168)`,
-          );
-          return [];
-        }
-        const runnable = runnableStep(step);
-        if (typeof runnable === 'string') {
-          problems.push(`${path}: ${runnable}`);
-          return [];
-        }
-        const id = stepId(step);
-        if ('action' in runnable) {
-          // The pull request holds the commits of the steps before it; none may come after it.
-          if (index < value.steps.length - 1) {
-            problems.push(
-              `${path}: step "${id}" opens the pull request, so it must be the last step of the recipe (ADR 0071)`,
-            );
-            return [];
-          }
-          const line: LineStep = {
-            id,
-            when: runnable.when,
-            deadline: ACTION_DEADLINE,
-            // An action makes no progress the runner could see; its deadline covers it.
-            stall: undefined,
-            // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
-            mayRetry: (attempts) => {
-              const succeeded = attempts.findLastIndex(
-                (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-              );
-              return attempts.length - succeeded - 1 < ACTION_ATTEMPTS;
-            },
-            route:
-              runnable.onPullRequestFail === undefined
-                ? undefined
-                : { why: 'pull_request', ...runnable.onPullRequestFail },
-            action: 'openPullRequest',
-          };
-          return [{ line }];
-        }
-        if ('check' in runnable) {
-          const deadline = runnable.deadline ?? CHECK_DEADLINE;
-          if (tooLong(id, deadline)) return [];
-          const { onFail } = runnable;
-          const line: LineStep = {
-            id,
-            when: runnable.when,
-            deadline,
-            stall: undefined,
-            mayRetry: (attempts) => attempts.filter(readNothing).length < CHECK_RETRIES,
-            route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
-            ...(runnable.expect === 'fail' ? {} : { passes: true as const }),
-          };
-          const checks = Array.isArray(runnable.check) ? runnable.check : [runnable.check];
-          return [{ line, check: { checks, ...('of' in runnable ? { of: runnable.of } : {}) } }];
-        }
-        const found = brewers.get(runnable.brewer);
-        if (found === undefined) {
-          if (!brewerNames.has(runnable.brewer)) {
-            problems.push(
-              `${path}: it names no brewer "${runnable.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
-            );
-          }
-          return [];
-        }
-        const { brewer } = found;
-        const refused = unplannable(brewer);
-        if (refused.length > 0) {
-          for (const what of refused) {
-            problems.push(
-              `${path}: step "${id}" has the brewer "${brewer.name}", with ${what}, which the engine does not follow yet (ADR 0059)`,
-            );
-          }
-          return [];
-        }
-        // No child writes the task tree beside its siblings (ADR 0168), nor holds the terminal
-        // while they run (ADR 0222).
-        const ungrouped =
-          group === undefined
-            ? undefined
-            : runnable.interactive === true
-              ? 'is interactive: a parallel group runs its children side by side, and a session needs the terminal to itself (ADR 0222)'
-              : !isTaster(brewer)
-                ? `has the brewer "${brewer.name}", which is no Taster: a parallel group runs Tasters' lens steps (ADR 0168)`
-                : brewer.produces === 'commits'
-                  ? `has the Taster "${brewer.name}", which produces commits: no child of a parallel group writes the task tree (ADR 0168)`
-                  : undefined;
-        if (ungrouped !== undefined) {
-          problems.push(`${path}: step "${id}" in the parallel group "${group}" ${ungrouped}`);
-          return [];
-        }
-        if (runnable.interactive === true && (runnable.lens ?? runnable.lenses) !== undefined) {
-          const field = runnable.lens === undefined ? 'lenses' : 'lens';
-          problems.push(
-            `${path}: step "${id}" is interactive and has a "${field}": a lens step is a Taster's headless review (ADR 0222)`,
-          );
-          return [];
-        }
-        // Only a person's answer to a recipe choice's question chooses the recipe (ADR 0232).
-        const choosing = brewer.output.schema === RECIPE_CHOICE;
-        if (choosing !== (runnable.chooses !== undefined)) {
-          problems.push(
-            choosing
-              ? `${path}: step "${id}" has the brewer "${brewer.name}", which answers with the out doc schema "${RECIPE_CHOICE}": give the step "chooses": "recipe" (ADR 0232)`
-              : `${path}: step "${id}" has "chooses", but its brewer "${brewer.name}" does not answer with the out doc schema "${RECIPE_CHOICE}" (ADR 0232)`,
-          );
-          return [];
-        }
-        const refusedLens = untasted(runnable, brewer);
-        // The step's one lens, or its lenses together (ADR 0220).
-        const named = runnable.lenses ?? (runnable.lens === undefined ? [] : [runnable.lens]);
-        // A lens whose file or folder has a problem of its own is reported once, as that.
-        const unreported = (name: string) => !lensFolderUnread && !brokenLenses.has(name);
-        if (refusedLens.length === 0) {
-          for (const name of named) {
-            if (lenses.has(name) || !unreported(name)) continue;
-            refusedLens.push(
-              `step "${id}" names the lens "${name}", which neither the Brewery's lenses/ nor Foedrum's defaults have (ADR 0161)`,
-            );
-          }
-        }
-        for (const line of refusedLens) problems.push(`${path}: ${line}`);
-        const stepLensFiles = named.flatMap((name) => lenses.get(name) ?? []);
-        if (refusedLens.length > 0 || stepLensFiles.length < named.length) return [];
-        const deadline = runnable.deadline ?? brewer.deadline;
-        if (tooLong(id, deadline)) return [];
-        const findings = runnable.onBlocked?.findings;
-        const line: LineStep = {
-          id,
-          when: runnable.when,
-          deadline,
-          stall: brewer.stall,
-          // Attempts are counted over the batch's whole life (ADR 0053).
-          mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
-          route: findings === undefined ? undefined : { why: 'findings', ...findings },
-          ...(group === undefined ? {} : { group }),
-          ...(runnable.interactive === true ? { interactive: true } : {}),
-          ...(choosing ? { chooses: true as const } : {}),
-        };
-        const [first] = stepLensFiles;
-        if (first === undefined) {
-          const { prompt } = runnable;
-          return [
-            { line, brewer: prompt === undefined ? found : { ...found, interactive: { prompt } } },
-          ];
-        }
-        // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161), and a step's lenses
-        // together as that one input, which names each (ADR 0220): no lens name holds a comma.
-        const names = stepLensFiles.map(({ name }) => name);
-        for (const name of names) stepLenses.add(name);
-        const from = `lens:${names.join(',')}`;
-        const input = { name: LENS_INPUT, from, trusted: false } as const;
-        const tasting: StepBrewer = {
-          ...found,
-          brewer: { ...brewer, inputs: [...brewer.inputs, input] },
-          lenses: new Map([
-            ...(found.lenses ?? []),
-            ...stepLensFiles.map((lens): [string, Lens] => [lens.name, lens]),
-          ]),
-          ...(runnable.lenses === undefined ? { lens: first.name } : { together: names }),
-          blocking: runnable.blocking ?? false,
-        };
-        return [{ line, brewer: tasting }];
-      },
-    );
+    const refusals = loads.flatMap((load) => (Array.isArray(load) ? load : []));
+    problems.push(...refusals.map((line) => `${path}: ${line}`));
+    const steps = loads.filter((load): load is LoadedStep => !Array.isArray(load));
+    for (const { brewer } of steps) {
+      const reviewed = brewer?.together ?? (brewer?.lens === undefined ? [] : [brewer.lens]);
+      for (const name of reviewed) stepLenses.add(name);
+    }
     // resolveRecipe (ADR 0028) needs every brewer the recipe names; a missing one is reported
     // above. The red proofs are checked even when a step did not load, so every problem is named
     // at once.
