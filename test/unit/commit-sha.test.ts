@@ -1,10 +1,13 @@
 // A full commit id, checked one way everywhere (ADR 0254): Foedrum supports SHA-1 repositories, so
 // `CommitSha` and every git reader take 40 lowercase hex characters and refuse a 64-character
-// SHA-256 id before git runs, with a line that names it. Git is a fake that counts its calls
-// (ADR 0021).
+// SHA-256 id before git runs, with a line that names it, and so do the readers of git's own
+// output. Git is a fake (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { remoteCommitOf } from '../../src/engine/state-branch.ts';
 import { rawCommits } from '../../src/formats/commit-scan.ts';
 import { CommitSha } from '../../src/schemas/store.ts';
 import { countCommits, scanAttemptCommits } from '../../src/workspace/attempt-commits-git.ts';
@@ -13,6 +16,7 @@ import { openBranchPush } from '../../src/workspace/branch-push-git.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { openMergedTree, openMergeTree } from '../../src/workspace/merge-tree-git.ts';
 import { readPathsAt } from '../../src/workspace/plan-paths-git.ts';
+import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
 const SHA1 = 'c'.repeat(40);
 const SHA256 = 'c'.repeat(64);
@@ -123,6 +127,49 @@ describe('a full commit id (ADR 0254)', () => {
     it(`${row.reader} refuses a SHA-256 id before git runs, and takes a SHA-1 one`, async () => {
       assert.deepEqual(await answer(row, SHA256), row.refusal);
       assert.equal(await answer(row, SHA1), 'accepted');
+    });
+  }
+});
+
+describe('a commit id read from git (ADR 0254)', () => {
+  const nextFolder = suiteFolders('commit-sha');
+
+  /** A reader of git's own output, where `id` is what git answers with; what it gives or throws. */
+  const READERS: { reader: string; read: (id: string) => Promise<unknown> }[] = [
+    {
+      reader: "the push's commit",
+      read: (id) => {
+        const git: Git = async () => ({ code: 0, stdout: `${id}\n`, stderr: '' });
+        return openBranchPush({ git, clone }).commit('refs/heads/main');
+      },
+    },
+    {
+      reader: "the base merge's HEAD",
+      read: async (id) => {
+        // The worktree's record under the clone, as git writes it.
+        const common = nextFolder();
+        const worktree = join(common, 'w');
+        mkdirSync(join(common, 'worktrees', 'w'), { recursive: true });
+        writeFileSync(join(common, 'worktrees', 'w', 'gitdir'), `${join(worktree, '.git')}\n`);
+        const git: Git = async (_, args) => ({
+          code: 0,
+          stdout: args.includes('--git-common-dir') ? `${common}\n` : `${id}\n`,
+          stderr: '',
+        });
+        return openWorktreeMerge({ git, clone }).head(worktree);
+      },
+    },
+    {
+      reader: "the state branch's remote commit",
+      read: async (id) =>
+        remoteCommitOf(`${id}\trefs/heads/foedrum/state\n`, 'refs/heads/foedrum/state'),
+    },
+  ];
+
+  for (const { reader, read } of READERS) {
+    it(`${reader} refuses a SHA-256 id with the line that names it, and takes a SHA-1 one`, async () => {
+      await assert.rejects(read(SHA256), { message: REFUSED });
+      assert.equal(await read(SHA1), SHA1);
     });
   }
 });

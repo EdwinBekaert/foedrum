@@ -805,7 +805,7 @@ describe('remoteCommitOf', () => {
   it('accepts CRLF, and refuses a SHA-256 commit: Foedrum supports SHA-1 repositories (ADR 0254)', () => {
     assert.equal(remoteCommitOf(`${a}\t${ref}\r\n`, ref), a);
     const long = 'c'.repeat(64);
-    assert.throws(() => remoteCommitOf(`${long}\t${ref}\r\n`, ref), /not a commit sha/);
+    assert.throws(() => remoteCommitOf(`${long}\t${ref}\r\n`, ref), /SHA-1 repositories only/);
   });
 
   it('refuses an object name that is not a full commit sha', () => {
