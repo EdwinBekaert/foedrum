@@ -46,7 +46,7 @@ And a recipe has no time budget ([ADR 0194](0194-a-recipe-has-no-time-budget.md)
 - Rejected: an input the engine builds for every plan brewer beside `{change}` (a Brewery's brewer could not ask for it, nor a plan brewer leave it out), and naming no repository (the `touches` check would fail every plan that names another).
 
 ### A retry is told why
-- A retry after an invalid plan resumes the Brewmaster's session with the engine's reason, as every retry after a failed attempt gets it ([ADR 0248](0248-a-retry-is-told-why-the-attempt-before-it-failed.md)), so the session that wrote the plan fixes the field the engine named.
+- A retry after an invalid plan resumes the Brewmaster's session with the engine's reason, as a retry after a failed attempt gets it, but after the secret scan or a turn overrun ([ADR 0248](0248-a-retry-is-told-why-the-attempt-before-it-failed.md)), so the session that wrote the plan fixes the field the engine named.
 
 ### Which repository it reads in
 - The Brewmaster reads the attempt's repository, the Brewery's only one for a Brewery order and the claimed order's own for a claimed one, as `repositoryOf` gives it; it names the others from its `repositories` input and the order, and the `touches` check reads them at their bases (ADR 0233).
