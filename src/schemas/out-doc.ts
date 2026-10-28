@@ -158,12 +158,6 @@ export const tastingOutDocOf = (lenses: readonly string[]): typeof TastingOutDoc
     }
   });
 
-/** The lens a finding was found through: its own, or else its step's (ADR 0220). */
-export const lensOfFinding = (
-  finding: TastingFinding,
-  stepLens: string | undefined,
-): string | undefined => finding.lens ?? stepLens;
-
 /** A finding's lens before the rest of its line, when it names one (ADR 0220). */
 export const lensFirst = ({ lens }: { lens?: string | undefined }): string =>
   lens === undefined ? '' : `${lens}, `;

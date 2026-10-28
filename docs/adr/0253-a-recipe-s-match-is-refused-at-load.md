@@ -11,7 +11,7 @@ Every other field the engine does not follow is refused at load, as `budget` is 
 ## Decision
 - **`match` leaves the recipe.** The recipe schema has no `match`, and neither does Nip.
 - **A recipe that still has it is refused, by name.** The schema refuses the field with one line that says how an order is routed (`a recipe has no "match" any more: remove it, an order is routed by its recipe:<name> label or by foedrum mash (ADR 0068, ADR 0232, ADR 0253)`), so the load (ADR 0053) and doctor name the file and the field.
-- **`lensOfFinding` goes.** Its one caller read only findings that the schema makes name their lens, so it reads `finding.lens`. ADR 0220's rule stands: a finding without a lens is its step's lens's.
+- **`lensOfFinding` goes.** The lens report read only findings that the schema makes name their lens, so it reads `finding.lens`; the tasting comparison script writes the fallback where it reads a one-lens step. ADR 0220's rule stands: a finding without a lens is its step's lens's.
 
 ## Consequences
 - The recipe file says only what the engine does: no field promises routing that is not there.
