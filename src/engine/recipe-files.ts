@@ -902,18 +902,24 @@ function unopened(
   );
 }
 
-/** The recipes of `files`, or every problem they have; never some of them. */
-export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
+/**
+ * The lenses of `files` by name, whether a lens that did not load is not reported as its own file
+ * or folder, and the problems of the files.
+ */
+function readLenses(files: readonly BreweryFile[]): {
+  lenses: Map<string, Lens>;
+  unreported: (lens: string) => boolean;
+  problems: string[];
+} {
   const problems: string[] = [];
-  const files = filesInUse(breweryFiles);
   // A lens has no frontmatter: its folder and file name are its name (ADR 0143), and its text is
   // all of it.
   const lenses = new Map<string, Lens>();
   // A lens whose file has a problem of its own is reported once, as that file.
   const brokenLenses = new Set<string>();
   // A lens folder that could not be read may hold any lens: no brewer is told it lacks one.
-  const lensFolderUnread = files.lenses.some((file) => 'unreadable' in file && isFolder(file));
-  for (const file of files.lenses) {
+  const lensFolderUnread = files.some((file) => 'unreadable' in file && isFolder(file));
+  for (const file of files) {
     const name = keyOf(file.path);
     if (!isFolder(file) && !name.includes('/')) {
       // A lens directly in lenses/: its folder says what it reviews, and it has none (ADR 0143).
@@ -933,8 +939,22 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       lenses.set(name, { name, path: file.path, text: file.text });
     }
   }
-  const brewerFiles = readAll(
-    files.brewers,
+  const unreported = (name: string) => !lensFolderUnread && !brokenLenses.has(name);
+  return { lenses, unreported, problems };
+}
+
+/**
+ * The brewers of `files`, each with the lenses its inputs name, and the problems of the files: an
+ * input from a lens `lenses` lacks, unless that lens is reported as its own file or folder.
+ */
+function readBrewers(
+  files: readonly BreweryFile[],
+  lenses: ReadonlyMap<string, Lens>,
+  unreported: (lens: string) => boolean,
+): { read: { path: string; value: StepBrewer & { name: string } }[]; problems: string[] } {
+  const problems: string[] = [];
+  const read = readAll(
+    files,
     'brewer',
     (text) => {
       const doc = readDoc(text, BrewerFrontmatter);
@@ -944,7 +964,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       const unknown: string[] = [];
       for (const input of brewer.inputs) {
         const lens = lensOf(input.from);
-        if (lens === undefined || lensFolderUnread || brokenLenses.has(lens)) continue;
+        if (lens === undefined || !unreported(lens)) continue;
         const found = lenses.get(lens);
         if (found !== undefined) named.set(lens, found);
         else {
@@ -961,13 +981,24 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     },
     problems,
   );
+  return { read, problems };
+}
+
+/** The recipes of `files`, or every problem they have; never some of them. */
+export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
+  const files = filesInUse(breweryFiles);
+  const { lenses, unreported, problems: lensProblems } = readLenses(files.lenses);
+  const { read: brewerFiles, problems: brewerProblems } = readBrewers(
+    files.brewers,
+    lenses,
+    unreported,
+  );
+  const problems = [...lensProblems, ...brewerProblems];
   const brewers = new Map(
     brewerFiles.map(({ value: { name, ...found } }): [string, StepBrewer] => [name, found]),
   );
   // A brewer whose file is there but broken is reported once, as that file.
   const brewerNames = new Set(files.brewers.map(({ path }) => nameOf(path)));
-  // A lens whose file or folder has a problem of its own is reported once, as that.
-  const unreported = (name: string) => !lensFolderUnread && !brokenLenses.has(name);
   const shelf: Shelf = { brewers, brewerNames, lenses, unreported };
   // The brewers the recipes' steps name, for doctor (ADR 0141).
   const namedBrewers = new Set<string>();
