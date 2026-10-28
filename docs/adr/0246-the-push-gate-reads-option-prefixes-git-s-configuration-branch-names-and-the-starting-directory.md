@@ -18,6 +18,7 @@ Each is a form the gate's own rules cover ("force pushes in any form", "pushes t
 A long option of `git push`, its name before any `=`, counts as `--delete`, `--mirror`, `--prune`, `--force`, `--force-with-lease` or `--force-if-includes` when it is that option or a prefix of it, three characters or more with the dashes: `--del`, `--mirr`, `--pru`, `--forc`, `--force-w`.
 A prefix that two options share (`--d` for `--delete` and `--dry-run`, `--pr` for `--prune` and `--progress`) blocks too: git would refuse it as ambiguous, and the gate never counts on git's own refusal.
 The gate keeps no copy of git's option list: no harmless push option is exactly a prefix of one of those six, so "a prefix of a blocked option" is the same test as "a unique or ambiguous prefix that may expand to it", and there is no list to drift from git's.
+Checked against `git push -h` of git 2.56, the newest at the time of writing: `--all`, `--atomic`, `--branches`, `--delete`, `--dry-run`, `--exec`, `--follow-tags`, `--force`, `--force-if-includes`, `--force-with-lease`, `--ipv4`, `--ipv6`, `--mirror`, `--porcelain`, `--progress`, `--prune`, `--push-option`, `--quiet`, `--receive-pack`, `--recurse-submodules`, `--repo`, `--set-upstream`, `--signed`, `--tags`, `--thin`, `--verbose`, `--verify`, each with its `--no-` form.
 Rejected: matching the whole words and adding the common abbreviations, which leaves the next one open.
 
 ### `--prune`
@@ -41,7 +42,8 @@ A refspec computed at run time blocks while a list is set, as a remote computed 
 ### The directory a push starts in
 A `git push` that changes no directory runs in the hook's working directory, and that directory now takes the same test as one it changes into (`projectHolds`): outside `CLAUDE_PROJECT_DIR` by real path, or in a review's scratch folder under `.foedrum/tmp/`, the push blocks with the same line, before anything runs there.
 Without `CLAUDE_PROJECT_DIR` every push blocks, as every change of directory already did; Claude Code always sets it for a hook.
-`gh pr ready` and `gh pr create` are unchanged: the gate runs none of a tree's code for them ([ADR 0135](0135-the-gate-drops-the-check-on-gh-pr-create-the-graphql-readers-and-the-alias-rule.md)), and `gh pr ready`'s lookup already blocks without a number where it cannot tell the directory.
+`gh pr create` is unchanged, though the issue named it beside the push: it runs no tree code ([ADR 0135](0135-the-gate-drops-the-check-on-gh-pr-create-the-graphql-readers-and-the-alias-rule.md)), and the rule exists because the gate would run a tree's code.
+`gh pr ready` is unchanged for the same reason; its lookup already blocks without a number where it cannot tell the directory.
 
 ## Consequences
 - `git push --del`, `--mirr`, `--forc`, `--prune` in any form, a mirror or a deleting or forcing push refspec from configuration, and a push from a scratch clone all block with one line; `git push -u origin <branch>`, `--dry-run`, `--set-upstream` and `--follow-tags` pass as before.
