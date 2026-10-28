@@ -1,5 +1,5 @@
 // The local gate's pre-filter (ADR 0056, ADR 0252): whether a hook input or a command may need
-// the gate, and the quote folding it shares with the lexer, so the two never drift.
+// the gate, and the quote folding it shares with the lexer in read.ts, so the two never drift.
 // scripts/precheck.ts imports it statically, so it imports nothing.
 
 // Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter;
