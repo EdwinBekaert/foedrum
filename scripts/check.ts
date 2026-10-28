@@ -45,7 +45,7 @@ const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
     case 'coverage':
       return [{ label: 'npm test', args: [npmCli, 'test'] }];
     case 'none':
-      throw new Error('not implemented');
+      return [];
     case 'all':
       return [
         {
@@ -82,7 +82,7 @@ const testsLine = (tests: TestRun): string => {
     case 'coverage':
       return '';
     case 'none':
-      throw new Error('not implemented');
+      return 'No tests run here: CI runs them (npm run check -- --all).\n';
     case 'all':
       return `Every test file runs, without coverage: ${tests.why}\n`;
     case 'some':
@@ -97,7 +97,11 @@ const testsLine = (tests: TestRun): string => {
 };
 
 // The test files the change reaches, or every test file when the change cannot be read.
-const findTests = async (affected: (() => Promise<Affected>) | undefined): Promise<TestRun> => {
+const findTests = async (
+  affected: (() => Promise<Affected>) | undefined,
+  noTests: boolean,
+): Promise<TestRun> => {
+  if (noTests) return { kind: 'none' };
   if (affected === undefined) return { kind: 'coverage' };
   try {
     return await affected();
@@ -137,16 +141,22 @@ const STEP_TIMEOUT_MS = 300_000;
 
 /**
  * The check's options from its arguments: with --all, every test file with coverage, as CI runs
- * it; without, the test files the change reaches, found by `affected` (ADR 0241).
+ * it; with --no-tests, no tests, as the push gate runs it (ADR 0249); with neither, the test
+ * files the change reaches, found by `affected` (ADR 0241).
  */
 export const checkMode = (
   argv: string[],
   affected: () => Promise<Affected>,
-): Pick<CheckOptions, 'affected'> => {
-  const { all } = parseArgs({
+): Pick<CheckOptions, 'affected' | 'noTests'> => {
+  const { all, 'no-tests': noTests } = parseArgs({
     args: argv,
-    options: { all: { type: 'boolean', default: false } },
+    options: {
+      all: { type: 'boolean', default: false },
+      'no-tests': { type: 'boolean', default: false },
+    },
   }).values;
+  if (all && noTests) throw new Error('--all and --no-tests do not go together');
+  if (noTests) return { noTests: true };
   return all ? {} : { affected };
 };
 
@@ -165,6 +175,7 @@ export const runCheck = async ({
   signal,
   lowerPriority,
   affected,
+  noTests = false,
 }: CheckOptions): Promise<number> => {
   lowerPriority?.();
   // A worktree without node_modules of its own would run every step against the packages of the
@@ -179,7 +190,7 @@ export const runCheck = async ({
     write('npm_execpath is not set: run this as `npm run check`.\n');
     return 1;
   }
-  const tests = await findTests(affected);
+  const tests = await findTests(affected, noTests);
   write(testsLine(tests));
   // The runner kills a step's whole tree at the deadline or when the check is stopped. A runner
   // that rejects counts as a failed step, so the other steps are still waited for.

@@ -1621,7 +1621,8 @@ const HEAD_CHECK_TIMEOUT_MS = 10_000;
 // Finds npm's CLI script next to the node at the given path (findNpmCli in the platform module).
 export type FindNpmCli = (execPath: string) => Promise<NpmCliLookup>;
 
-// `npm run check` through npm's own CLI script, found next to this node, run by this node, so
+// `npm run check -- --no-tests` (typecheck, lint and the guards; CI runs the tests, ADR 0249)
+// through npm's own CLI script, found next to this node, run by this node, so
 // the check starts without a shell. Outside Windows the check leads a process group of its own,
 // which a Ctrl+C on the push does not reach: `stop` kills its tree.
 export const npmCheck =
@@ -1639,13 +1640,24 @@ export const npmCheck =
         output: `npm's CLI was not found next to node (${execPath}), so the check cannot run. Tried:\n${tried.map((path) => `  ${path}\n`).join('')}Install npm with this node, or run npm run check yourself.`,
       };
     }
-    const { exitCode, output, killed } = await runProcess(execPath, [npmCli, 'run', 'check'], cwd, {
-      timeoutMs: CHECK_TIMEOUT_MS,
-      signal: stop,
-    });
+    const { exitCode, output, killed } = await runProcess(
+      execPath,
+      [npmCli, 'run', 'check', '--', '--no-tests'],
+      cwd,
+      { timeoutMs: CHECK_TIMEOUT_MS, signal: stop },
+    );
     const { whyKilled } = await import('../src/platform/processes.ts');
     const why = whyKilled(killed, CHECK_TIMEOUT_MS);
-    if (why === undefined) return { ok: exitCode === 0, output };
+    if (why === undefined) {
+      // A branch that has not merged main since ADR 0249: its check refuses the argument.
+      if (exitCode !== 0 && output.includes("Unknown option '--no-tests'")) {
+        return {
+          ok: false,
+          output: `${output.trimEnd()}\nThis branch's scripts/check.ts does not know --no-tests (ADR 0249): merge origin/main and push again.`,
+        };
+      }
+      return { ok: exitCode === 0, output };
+    }
     const what = killed === 'stopped' ? 'npm run check was stopped' : `npm run check ${why}`;
     return { ok: false, output: `${output.trimEnd()}\n${what}` };
   };
