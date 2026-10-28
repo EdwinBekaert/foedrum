@@ -10,7 +10,9 @@ The audit of `b01300bb` ([ADR 0245](0245-brew-audit-a-read-only-audit-of-the-cod
 - the denylist scan reads what the commits hold, never the name of the branch a push creates on the remote, which shows on the pull request page and in notification emails;
 - ADR 0104 puts a directory a command changes into to the project test, but never the directory the command starts in: Claude Code keeps a session's directory between commands, so after `cd .foedrum/tmp/review-701` a plain `git push` runs that scratch clone's check script before anyone approves the command.
 
-Each is a form the gate's own rules cover ("force pushes in any form", "pushes that delete or mirror remote refs", "a listed word stays on the machine", "the tree a command pushes"), so reading it is reading the command as git does, not a new safeguard.
+Each is a form the gate's own rules cover ("force pushes in any form", "pushes that delete or mirror remote refs", "a listed word stays on the machine", "the tree a command pushes"), so reading it is reading the command as git does, not a new safeguard; the one reading of state outside the command, git's configuration files, stays with the owner of the risk, the local gate ([docs/trust-boundaries.md](../trust-boundaries.md), "A session skipping the procedure").
+
+While this was built, the gate also read `git push -h` as a push and ran a full `npm run check` for it, during another session's quiet window: that sixth form, the other way round, is settled here too.
 
 ## Decision
 
@@ -22,7 +24,8 @@ Checked against `git push -h` of git 2.56: `--all`, `--atomic`, `--branches`, `-
 Rejected: matching the whole words and adding the common abbreviations, which leaves the next one open.
 
 ### Push's help is no push
-`git push --help` (git turns it into `git help push`), `git push -h` as the one argument beside the shell's redirections, and `git -h` or `git --help` before the subcommand print help and push nothing, so the gate runs no check and no scan for them; `git help push` never was a push.
+`git push --help` (git turns it into `git help push`), `git push -h` as the one argument beside the shell's redirections, and `git -h` or `git --help` as git's first word print help and push nothing, so the gate runs no check and no scan for them; `git help push` never was a push.
+After another git option, `-h` may be that option's value (`git --attr-source -h push -f`), so it counts as help only as git's first word.
 A help call ran a full `npm run check` during another session's quiet window, the observed failure behind this.
 `-h` beside any other argument is still read as a push, failing closed.
 
@@ -31,11 +34,13 @@ A help call ran a full `npm run check` during another session's quiet window, th
 
 ### git's configuration
 The gate reads where a push's configuration can come from, and blocks a push that git's configuration makes delete, force or mirror:
-- **On the command line.** A `git … push` whose git options set `remote.*` or `push.*` (`-c remote.origin.mirror=true`, `-c push.default=matching`, `--config-env=…`, the key's case ignored, as git ignores it) blocks, and so does a `-c` or `--config-env` whose value is computed at run time. `--config-env` takes its value after `=` or as the next word, as git reads it; today `git --config-env k=V push` was not even read as a push.
+- **On the command line.** A `git … push` whose git options set `remote.*` or `push.*`, or `include.*` or `includeIf.*`, which can pull in a file that sets them (`-c remote.origin.mirror=true`, `-c push.default=matching`, `-c include.path=…`, `--config-env=…`, the key's case ignored, as git ignores it) blocks, and so does a `-c` or `--config-env` whose value is computed at run time. `--config-env` takes its value after `=` or as the next word, as git reads it; today `git --config-env k=V push` was not even read as a push.
 - **In the environment.** A pushing command that mentions `GIT_CONFIG` anywhere (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`, …) blocks, as `GH_REPO` does for `gh pr ready`: these route configuration in by the same path as `-c`, and the gate's own git calls would not see them.
 - **Written in the same command.** A pushing command that also runs `git config` or `git remote` blocks: the gate reads the configuration before the command runs, so it would read the old one. Run them in commands of their own.
 - **In the configuration files.** Before the push, in the tree it pushes, the gate runs one `git config -z --get-regexp '^remote\..*\.(push|mirror)$'`, which reads every scope (system, global, the repository's, includes), with the same 10 s deadline as the HEAD check and at the same time as it, so the hook's 600 s budget is unchanged. A `remote.<r>.mirror` that is not false, or a `remote.<r>.push` that starts with `+` or `:`, blocks, for the remote the push names, or for every configured remote when it names none or one computed at run time: finding the push remote of the branch would take another git call, and reading every remote is the stricter answer. A read that fails or is killed blocks; exit 1 (nothing matched) is no configuration.
   This read is the gate's own, beside the HEAD check, not the denylist scan's, so the rule holds without a denylist set.
+  The remote the push names is read as git reads it: push's options that take a value (`--repo`, `--push-option`, `--receive-pack`, `--exec`, `--recurse-submodules`) are read by prefix too and take the next word when they have no `=`, so `git push --push-opt ci.skip origin` is held to origin's settings.
+- **Not read.** Other ways a command can change what git reads, such as `HOME=…` or `XDG_CONFIG_HOME=…` before the push, or a write into `.git/config` by another program in the same command, are not read: the gate guards against a session's mistakes, not a determined adversary (CLAUDE.md), and these take a deliberate step.
 
 Rejected: leaving the configuration to git's own refusals (there are none: a mirror push is what the setting asks for); reading only `-c`, which leaves `git config remote.origin.push` one command earlier.
 
