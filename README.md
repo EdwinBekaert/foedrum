@@ -17,6 +17,15 @@ Foedrum is a GitHub-native orchestrator for Claude agents. You file an issue in 
 
 > 🚧 **Status: early development.** Milestone M1 (First pour) takes an issue in a Brewery to a pull request end to end: the Nip recipe, the `claude` CLI runner, `foedrum serve` and `foedrum brew`, and the Claude Code plugin. It is not on npm yet. See it in [M1's "See it"](docs/milestones/m1.md#see-it), and what comes next in [ROADMAP.md](ROADMAP.md).
 
+## Requirements
+
+- **Node 24.15** or later (`package.json`'s `engines`).
+- **git 2.38** or later: the check of an open pull request against a moved base runs `git merge-tree --write-tree`, and a brewer's git is configured through `GIT_CONFIG_COUNT`.
+- **GitHub CLI (gh) 2.97** or later, logged in with `gh auth login`: Foedrum reaches GitHub through gh's own login, and reads a failed CI job's log without terminal escape sequences.
+- **Claude Code** (`claude`), logged in.
+
+`foedrum doctor` checks each of them, and `foedrum serve` does not start on a required problem doctor finds.
+
 ## Set up a Brewery
 
 Create an empty repository for the Brewery on GitHub (private, say `<you>/foedrum-brewery`), clone it, and in the clone run (with `foedrum` on your PATH, as below):
