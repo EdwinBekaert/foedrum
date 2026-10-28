@@ -67,6 +67,17 @@ describe('mergedBase', () => {
     assert.equal(mergedBase(state, 'b1'), undefined);
   });
 
+  it("counts a merge commit whatever its attempt's outcome, as green's own while green runs", () => {
+    const merged = { base: tip, merged: 'c'.repeat(40) };
+    const running: Event[] = [
+      { type: 'step.scheduled', ...ref(1), deadlineAt },
+      { type: 'step.started', ...ref(1) },
+      { type: 'effect.applied', key: effectKey.encode(baseMergeKey(ref(1))), result: merged },
+    ];
+    assert.equal(mergedBase(fold([...ordered, ...running]), 'b1'), tip);
+    assert.equal(mergedBase(fold([...ordered, ...attempt(1, merged, failed)]), 'b1'), tip);
+  });
+
   it('counts a kept merge that a retry resuming its session carried on to a success', () => {
     const session = '0f8fad5b-d9cb-469f-a165-708677289500';
     const path = '/work/implement-1';
