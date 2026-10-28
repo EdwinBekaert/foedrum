@@ -15,7 +15,7 @@ import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Batch, State } from './fold.ts';
+import type { Attempt, Batch, State, Step } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
 import { ranIn } from './session-resume.ts';
 
@@ -212,6 +212,23 @@ export const mergeEnding = (result: unknown, base: string): Ending | undefined =
 };
 
 /**
+ * Whether a success in the worktree attempt `number` of `step` ran in concluded what it did there:
+ * of that attempt, or of any that resumed its session in that worktree (ADR 0244, ADR 0117). A
+ * worktree is named by the attempt that made it, which every resume of its session runs in.
+ */
+const concludedIn = (step: Step | undefined, number: number): boolean => {
+  const recorded = step?.attempts.get(number);
+  if (step === undefined || recorded === undefined) return false;
+  const worktreeOf = (attempt: Attempt): number => ranIn(step, attempt)?.attempt ?? attempt.attempt;
+  return [...step.attempts.values()].some(
+    (attempt) =>
+      attempt.phase === 'finished' &&
+      attempt.outcome.kind === 'succeeded' &&
+      worktreeOf(attempt) === worktreeOf(recorded),
+  );
+};
+
+/**
  * The base the latest merge of `batchId` brought in, when one made a commit: where the batch's own
  * change starts once its task tree holds that merge, so a review of the change never reads what
  * the base added while the batch brewed (ADR 0164). `undefined` when nothing was merged.
@@ -225,18 +242,12 @@ export const mergedBase = (state: State, batchId: string): string | undefined =>
     if (batch !== batchId || effect !== MERGE_BASE) continue;
     const merge = MergeResult.safeParse(result);
     if (!merge.success) continue;
-    // A kept merge counts once it was concluded, which only a success in its worktree shows: of
-    // its attempt, or of a retry that resumed its session there (ADR 0244, ADR 0117).
+    // A kept merge counts once a success in its worktree concluded it (ADR 0244).
     const step = state.batches.get(batchId)?.steps.get(stepId);
-    const concluded =
-      step !== undefined &&
-      [...step.attempts.values()].some(
-        (attempt) =>
-          attempt.phase === 'finished' &&
-          attempt.outcome.kind === 'succeeded' &&
-          (attempt.attempt === number || ranIn(step, attempt)?.attempt === number),
-      );
-    if (merge.data.merged !== undefined || (merge.data.kept !== undefined && concluded)) {
+    if (
+      merge.data.merged !== undefined ||
+      (merge.data.kept !== undefined && concludedIn(step, number))
+    ) {
       base = merge.data.base;
     }
   }
