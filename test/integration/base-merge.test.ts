@@ -27,6 +27,7 @@ import { defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const git = (cwd: string, args: string[]): string =>
@@ -389,7 +390,24 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
           intake.issue({ kind: 'record', event }, new Date('2026-10-23T12:00:00.000Z')).kind,
           'accepted',
         );
-        await driver.tick();
+        // The driver reads the fix's worktree with git after its run, so its end reaches a later
+        // tick: tick until the round is On tap again.
+        let ticking = true;
+        const ticks = (async () => {
+          while (ticking) {
+            await driver.tick();
+            await new Promise((settle) => setTimeout(settle, 50));
+          }
+        })();
+        await waitUntil('the fix round to end On tap', () => {
+          const lane = driver.state().batches.get('12-1')?.lane.kind;
+          return (
+            lane === 'on_tap' &&
+            driver.state().effects.has(effectKey.encode({ batchId: '12-1', effect: 'push.2' }))
+          );
+        });
+        ticking = false;
+        await ticks;
       },
     );
     assert.ok(markers, 'the fix saw the conflict markers');
@@ -483,9 +501,11 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       git(user, ['fetch', '-q', 'origin']);
       const tree = worktree('readme.txt', 'mine\n');
       writeFileSync(join(tree.path, 'logo.png'), Buffer.from([0, 1, 2, 9]));
+      git(tree.path, ['add', 'logo.png']);
       commit(tree.path, 'old.txt', 'changed\n');
       tree.start = git(tree.path, ['rev-parse', 'HEAD']).trim();
       writeFileSync(join(other, 'logo.png'), Buffer.from([0, 1, 2, 7]));
+      git(other, ['add', 'logo.png']);
       git(other, ['rm', '-q', 'old.txt']);
       const base = mergeIntoMain('readme.txt', 'theirs\n');
       const files = [
@@ -501,7 +521,8 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       assert.deepEqual(await target(tree, true).find(key), { result: kept });
       assert.equal(git(tree.path, ['rev-parse', 'MERGE_HEAD']).trim(), base);
       // Half resolved, the rest is still named.
-      commit(tree.path, 'readme.txt', 'both\n');
+      writeFileSync(join(tree.path, 'readme.txt'), 'both\n');
+      git(tree.path, ['add', 'readme.txt']);
       assert.deepEqual(await target(tree, true).find(key), {
         result: { base, kept: { files: files.slice(0, 2), more: 0 } },
       });
