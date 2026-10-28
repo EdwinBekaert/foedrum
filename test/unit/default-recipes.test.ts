@@ -55,3 +55,19 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
     );
   });
 });
+
+describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () => {
+  it('is given the recipes a sub-order may run with, those that choose a recipe left out', () => {
+    const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const step = loaded.brewers.find('mash', 'plan');
+    assert.ok(
+      step?.brewer.inputs.some(({ from }) => from === 'recipes'),
+      'the Brewmaster names the recipes input',
+    );
+    assert.deepEqual(
+      step?.choices?.map(({ name }) => name),
+      ['mash', 'nip'],
+    );
+  });
+});

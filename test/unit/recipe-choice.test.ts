@@ -141,12 +141,11 @@ describe('inputsOf: the recipes a step may offer (ADR 0232)', () => {
     });
   });
 
-  it('is named only by a brewer that answers with recipeChoice', () => {
+  it('may be named by a brewer of any out doc schema, such as a plan brewer (ADR 0234)', () => {
     const read = BrewerFrontmatter.safeParse({
       ...innkeeperFields,
-      output: { doc: 'out.md', schema: 'outDoc' },
+      output: { doc: 'plan.md', schema: 'plan' },
     });
-    assert.equal(read.success, false);
-    assert.match(JSON.stringify(read.error?.issues), /recipeChoice/);
+    assert.ok(read.success, JSON.stringify(read.error?.issues));
   });
 });
