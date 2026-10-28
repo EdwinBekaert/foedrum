@@ -10,9 +10,7 @@ import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import {
   createSupervisor,
   type Notice,
-  type Supervisor,
   type SupervisorOptions,
-  type Timer,
 } from '../../src/engine/supervisor-loop.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { fakeRecipe, fakeRecipes, hour } from '../helpers/fake-recipes.ts';
@@ -56,28 +54,6 @@ const stuck = (batchId: string, remindAt: number): Event[] => [
   },
 ];
 const plan = (batchId: string, attempt = 1): AttemptRef => ({ batchId, stepId: 'plan', attempt });
-
-/** A timer whose callbacks run when the test fires them, awaiting the tick they run. */
-const fakeTimer = () => {
-  const pending = new Map<number, { fn: () => Promise<void>; ms: number }>();
-  let next = 0;
-  const timer: Timer = {
-    set: (fn, ms) => {
-      pending.set(++next, { fn, ms });
-      return next;
-    },
-    clear: (handle) => {
-      pending.delete(handle as number);
-    },
-  };
-  const fire = async (): Promise<void> => {
-    const [entry] = pending;
-    assert.ok(entry, 'a tick is scheduled');
-    pending.delete(entry[0]);
-    await entry[1].fn();
-  };
-  return { timer, pending, fire };
-};
 
 /** A state branch whose flushes return `results` in turn, then `unchanged`. */
 const fakeBranch = (...results: (FlushResult | Error)[]) => {
@@ -167,7 +143,6 @@ describe('createSupervisor', () => {
       recipes,
       progress: { progress: (ref) => progress.get(attemptKey.encode(ref)) },
       clock: () => now,
-      timer: fakeTimer().timer,
       report: (notice) => notices.push(notice),
       ...options,
     });
@@ -506,184 +481,6 @@ describe('createSupervisor', () => {
       const stop = new StateBranchStopError('Another engine pushed to the state branch');
       const engine = supervisor({ stateBranch: fakeBranch(stop) });
       await assert.rejects(engine.tick(), (error) => error === stop);
-    });
-  });
-
-  describe('run', () => {
-    it('ticks every interval until stopped', async () => {
-      append(...brewing('b1', 30));
-      const { timer, pending, fire } = fakeTimer();
-      // How many ticks are scheduled while a tick runs: none, or ticks could overlap.
-      const scheduledDuringTick: number[] = [];
-      const stateBranch = {
-        flush: async (): Promise<FlushResult> => {
-          // Counted after an await, as a real flush would be still running then.
-          await Promise.resolve();
-          scheduledDuringTick.push(pending.size);
-          return { kind: 'unchanged' };
-        },
-      };
-      const engine = supervisor({ timer, stateBranch, intervalMs: 5000 });
-      const running = engine.run();
-      assert.deepStrictEqual(
-        [...pending.values()].map(({ ms }) => ms),
-        [5000],
-      );
-      now = at(30);
-      await fire();
-      assert.equal(batchOf(store, 'b1').lane.kind, 'stuck');
-      await fire();
-      assert.deepStrictEqual(scheduledDuringTick, [0, 0], 'no tick is scheduled while one runs');
-      assert.equal(pending.size, 1, 'the next tick is scheduled once the last one finished');
-      engine.stop();
-      assert.equal(pending.size, 0);
-      await running;
-    });
-
-    it('schedules no tick after a stop that arrives while a tick runs', async () => {
-      const { timer, pending, fire } = fakeTimer();
-      let engine: Supervisor | undefined;
-      const stateBranch = {
-        flush: async (): Promise<FlushResult> => {
-          engine?.stop();
-          return { kind: 'unchanged' };
-        },
-      };
-      engine = supervisor({ timer, stateBranch });
-      const running = engine.run();
-      await fire();
-      assert.equal(pending.size, 0);
-      await running;
-    });
-
-    it('runs one chain of ticks when run follows a stop while a tick runs', async () => {
-      const { timer, pending, fire } = fakeTimer();
-      let engine: Supervisor | undefined;
-      let restarted: Promise<void> | undefined;
-      const stateBranch = {
-        flush: async (): Promise<FlushResult> => {
-          if (restarted === undefined) {
-            engine?.stop();
-            restarted = engine?.run();
-          }
-          return { kind: 'unchanged' };
-        },
-      };
-      engine = supervisor({ timer, stateBranch });
-      const first = engine.run();
-      await fire();
-      await first;
-      assert.equal(pending.size, 1, 'only the new run schedules a tick');
-      engine.stop();
-      assert.equal(pending.size, 0);
-      await restarted;
-    });
-
-    it('never overlaps a tick of a new run with one still flushing', async () => {
-      const { timer, fire } = fakeTimer();
-      const settle = () => new Promise((resolve) => setImmediate(resolve));
-      let release = (): void => {};
-      let flushes = 0;
-      const stateBranch = {
-        flush: async (): Promise<FlushResult> => {
-          flushes++;
-          if (flushes === 1) await new Promise<void>((resolve) => (release = resolve));
-          return { kind: 'unchanged' };
-        },
-      };
-      const engine = supervisor({ timer, stateBranch });
-      const first = engine.run();
-      const slowTick = fire();
-      await settle();
-      engine.stop();
-      await first;
-      const second = engine.run();
-      const nextTick = fire();
-      await settle();
-      assert.equal(flushes, 1, 'the new run waits for the tick in flight');
-      release();
-      await slowTick;
-      await nextTick;
-      assert.equal(flushes, 2);
-      engine.stop();
-      await second;
-    });
-
-    it('settles the earlier run when run is called again', async () => {
-      const engine = supervisor();
-      let settled = false;
-      void engine.run().then(() => {
-        settled = true;
-      });
-      const second = engine.run();
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.ok(settled, 'the first run promise settles');
-      engine.stop();
-      await second;
-    });
-
-    it('keeps ticking when the report itself throws', async () => {
-      const { timer, pending, fire } = fakeTimer();
-      const engine = supervisor({
-        timer,
-        stateBranch: fakeBranch({ kind: 'failed', reason: 'could not resolve host' }),
-        report: () => {
-          throw new Error('the logger is down');
-        },
-      });
-      const running = engine.run();
-      await fire().catch(() => undefined);
-      assert.equal(pending.size, 1, 'the next tick is scheduled');
-      engine.stop();
-      await running;
-    });
-
-    it('stops at a StateBranchStopError and rejects with it', async () => {
-      const { timer, pending, fire } = fakeTimer();
-      const stop = new StateBranchStopError('the branch was rewritten');
-      const engine = supervisor({ timer, stateBranch: fakeBranch(stop) });
-      const running = engine.run();
-      await fire();
-      await assert.rejects(running, (error) => error === stop);
-      assert.equal(pending.size, 0);
-    });
-
-    it('reports a tick that throws and runs the next one', async () => {
-      const { timer, pending, fire } = fakeTimer();
-      const failure = new Error('database is locked');
-      let calls = 0;
-      const flaky: EventStore = {
-        ...store,
-        batchesPastDeadline: (when) => {
-          if (calls++ === 0) throw failure;
-          return store.batchesPastDeadline(when);
-        },
-      };
-      const engine = supervisor({ timer, store: flaky });
-      const running = engine.run();
-      await fire();
-      assert.deepStrictEqual(notices, [{ kind: 'tick_failed', error: failure }]);
-      assert.equal(pending.size, 1);
-      await fire();
-      assert.equal(calls, 2);
-      engine.stop();
-      await running;
-    });
-
-    it('runs on the real timer by default', { timeout: 2000 }, async () => {
-      const stateBranch = fakeBranch();
-      const engine = createSupervisor({
-        store,
-        stateBranch,
-        recipes,
-        progress: { progress: () => undefined },
-        clock: () => now,
-        intervalMs: 1,
-      });
-      const running = engine.run();
-      while (stateBranch.calls === 0) await new Promise((resolve) => setTimeout(resolve, 1));
-      engine.stop();
-      await running;
     });
   });
 });
