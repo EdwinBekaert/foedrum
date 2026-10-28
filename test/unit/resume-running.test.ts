@@ -15,6 +15,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
@@ -304,6 +305,23 @@ describe('runResumeRunning (ADR 0127)', () => {
       'foedrum resume: stopped; batch 12-1 is left for the driver that takes it',
     );
     assert.equal(resumeLease(t0), undefined);
+  });
+
+  it('stops and lets the batch go when a tick must stop the engine: another engine pushed the state branch (ADR 0027)', async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup);
+    const stopping = shell(behave.succeed(), cellarStops(setup), {
+      stateBranch: () => ({
+        start: async () => ({ decision: 'ready' }),
+        flush: async () => {
+          throw new StateBranchStopError('the push was rejected: another engine wrote');
+        },
+      }),
+    });
+    assert.equal(await runResumeRunning(setup, stopping, request), 1);
+    assert.equal(lines.at(-1), 'foedrum resume: the push was rejected: another engine wrote');
+    assert.equal(resumeLease(t0), undefined);
+    assert.equal(lock.held, false);
   });
 
   it("says how the resumed attempt failed, and leaves its retry to the batch's next driver: exit 0", async () => {
