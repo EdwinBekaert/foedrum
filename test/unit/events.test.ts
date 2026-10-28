@@ -875,6 +875,9 @@ describe('PullRequestUrl and pullRequestOf', () => {
     ['a fragment', 'https://github.com/o/n/pull/5#issuecomment-1'],
     ['http', 'http://github.com/o/n/pull/5'],
     ['credentials', 'https://token@github.com/o/n/pull/5'],
+    ['a password only', 'https://:pw@github.com/o/n/pull/5'],
+    ['a URL the parser writes otherwise', 'HTTPS://github.com/o/n/pull/5'],
+    ['a URL with one slash after the scheme', 'https:/github.com/o/n/pull/5'],
     ['no URL', 'not a url'],
   ];
   for (const [what, url] of refused) {
