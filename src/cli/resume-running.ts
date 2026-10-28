@@ -12,7 +12,7 @@ import {
   takeOver,
 } from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
-import type { Batch } from '../engine/fold.ts';
+import { type Batch, latestAttempt } from '../engine/fold.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
@@ -53,10 +53,10 @@ const endedAs = (outcome: StepOutcome): string => {
 
 /** The attempt of `stepId` that continues the session: the one waiting, or the one after the run. */
 const resumedAttempt = (batch: Batch | undefined, stepId: string): number => {
-  const attempts = batch?.steps.get(stepId)?.attempts;
-  if (attempts === undefined || attempts.size === 0) return 1;
-  const latest = Math.max(...attempts.keys());
-  return attempts.get(latest)?.phase === 'scheduled' ? latest : latest + 1;
+  const step = batch?.steps.get(stepId);
+  const latest = step && latestAttempt(step);
+  if (latest === undefined) return 1;
+  return latest.phase === 'scheduled' ? latest.attempt : latest.attempt + 1;
 };
 
 /**
@@ -69,12 +69,12 @@ const ranOut = (
   stepId: string,
   attempt: number,
 ): { attempt: number; outcome: StepOutcome } | undefined => {
-  const attempts = batch?.steps.get(stepId)?.attempts;
-  if (attempts === undefined || attempts.size === 0) return undefined;
+  const step = batch?.steps.get(stepId);
+  if (step === undefined || step.attempts.size === 0) return undefined;
   // Its end may have scheduled a retry, the next driver's to start.
-  const resumed = attempts.get(attempt);
+  const resumed = step.attempts.get(attempt);
   if (resumed?.phase === 'finished') return { attempt, outcome: resumed.outcome };
-  const latest = attempts.get(Math.max(...attempts.keys()));
+  const latest = latestAttempt(step);
   if (latest?.phase !== 'finished') return undefined;
   const { outcome } = latest;
   // The stop's own end schedules the retry that continues the session, or leaves the batch Stuck.
