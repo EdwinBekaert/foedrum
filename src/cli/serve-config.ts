@@ -140,8 +140,8 @@ const DEFAULT_CONCURRENCY = 1;
 /** ADR 0052's interval. */
 const DEFAULT_POLL = '60s';
 
-/** A reason in one line, as doctor prints it. */
-const oneLine = (reason: string): string =>
+/** A reason's lines joined with spaces, as doctor prints it; brew's `oneLine` escapes them. */
+const joinedLines = (reason: string): string =>
   reason
     .split('\n')
     .map((line) => line.trim())
@@ -162,7 +162,7 @@ const read = <T>(
   }
   const result = readJsonc(text, schema);
   if (result.valid) return result.value;
-  problems.push(`${file}: ${oneLine(result.reason)}`);
+  problems.push(`${file}: ${joinedLines(result.reason)}`);
   return undefined;
 };
 
