@@ -1,5 +1,6 @@
 // Claude Code PreToolUse hook: blocks force pushes, deleting or mirroring pushes and
-// `gh pr merge` and pushes from a detached HEAD, runs `npm run check` before `git push`, and lets
+// `gh pr merge` and pushes from a detached HEAD, runs `npm run check -- --no-tests` (typecheck,
+// lint and the guards; CI runs the tests, ADR 0249) before `git push`, and lets
 // `gh pr ready` through only when the pull request has the /brew-review summary for its head (#154) or changes only plain documentation (#183). It also blocks npx and
 // its relatives when they would run a package the lockfile did not install (#175), and a recursive
 // delete of a path built from a variable or a substitution (#281), and a push whose commits hold a
