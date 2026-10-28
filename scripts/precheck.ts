@@ -88,7 +88,7 @@ const FORCE_PUSH_BLOCKED =
 const DELETE_PUSH_BLOCKED =
   'Deleting or mirroring remote refs with git push is blocked: ask a maintainer to delete remote branches.';
 const CONFIGURED_PUSH_BLOCKED =
-  "git push is blocked in a command that sets git's configuration (-c or --config-env with remote.* or push.*, a GIT_CONFIG variable, git config or git remote): it can make the push delete, force or mirror remote refs, and the gate reads git's configuration before the command runs; run that setting or command in a command of its own, and git push without it (ADR 0246).";
+  "git push is blocked in a command that sets git's configuration (-c or --config-env with remote.*, push.*, include.* or includeIf.*, a GIT_CONFIG variable, git config or git remote): it can make the push delete, force or mirror remote refs, and the gate reads git's configuration before the command runs; run that setting or command in a command of its own, and git push without it (ADR 0246).";
 const configuredPushBlocked = (setting: string): string =>
   `git push is blocked: git's configuration makes it delete, force or mirror remote refs (${setting}); push without that setting, or ask a maintainer.`;
 const PR_MERGE_BLOCKED =
@@ -823,7 +823,7 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
   let gitPlace = place;
-  // Whether -c or --config-env sets a remote's or push's setting, or one computed at run time.
+  // Whether -c or --config-env sets a remote's, push's or include setting, or one computed at run time.
   let configured = false;
   // Whether git only prints its help (git -h, git --help push).
   let help = false;
