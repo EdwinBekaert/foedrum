@@ -97,11 +97,7 @@ const testsLine = (tests: TestRun): string => {
 };
 
 // The test files the change reaches, or every test file when the change cannot be read.
-const findTests = async (
-  affected: (() => Promise<Affected>) | undefined,
-  noTests: boolean,
-): Promise<TestRun> => {
-  if (noTests) return { kind: 'none' };
+const findTests = async (affected: (() => Promise<Affected>) | undefined): Promise<TestRun> => {
   if (affected === undefined) return { kind: 'coverage' };
   try {
     return await affected();
@@ -125,8 +121,9 @@ export interface CheckOptions {
   /** Stops the check: every step still running is killed with the processes it started. */
   signal?: AbortSignal;
   /**
-   * Finds the test files the change reaches, which the check runs without coverage; without it,
-   * every test file runs with coverage, as npm test (`npm run check -- --all`, ADR 0241).
+   * Finds the test files the change reaches, which the check runs without coverage; without it
+   * and without `noTests`, every test file runs with coverage, as npm test (`npm run check --
+   * --all`, ADR 0241).
    */
   affected?: () => Promise<Affected>;
   /** Runs no tests, finding no change: the push gate's check (`npm run check -- --no-tests`, ADR 0249). */
@@ -190,7 +187,7 @@ export const runCheck = async ({
     write('npm_execpath is not set: run this as `npm run check`.\n');
     return 1;
   }
-  const tests = await findTests(affected, noTests);
+  const tests: TestRun = noTests ? { kind: 'none' } : await findTests(affected);
   write(testsLine(tests));
   // The runner kills a step's whole tree at the deadline or when the check is stopped. A runner
   // that rejects counts as a failed step, so the other steps are still waited for.
