@@ -68,7 +68,7 @@ A project hook in `.claude/settings.json` runs `npm run check` (the affected tes
 
 ## Read guard
 
-The read-only agents (`taster`, `brett`) read only inside the checkout ([ADR 0049](docs/adr/0049-reviewers-read-only-inside-the-checkout.md)). A `PreToolUse` hook in their frontmatter runs `scripts/read-guard.ts` before every `Read`, `Grep` and `Glob`, failing closed like the local gate.
+The read-only agents (`taster`, `brett`, `auditor`) read only inside the checkout ([ADR 0049](docs/adr/0049-reviewers-read-only-inside-the-checkout.md)). A `PreToolUse` hook in their frontmatter runs `scripts/read-guard.ts` before every `Read`, `Grep` and `Glob`, failing closed like the local gate.
 
 - A path gets through only when it resolves inside `CLAUDE_PROJECT_DIR`. `~` and the working directory are applied first, and then the real path of its deepest existing part (`src/platform/real-path.ts`), which resolves links, junctions, short names and case. On Windows, network, device and drive-less paths, and paths on another drive than the checkout's, are blocked without touching them. Anything else is blocked with one line.
 - Every agent whose only tools are `Read`, `Grep` and `Glob` must carry the same hook block; a unit test checks it. Main sessions do not run the guard: they have a shell, and they read Claude Code's own files outside the checkout.
