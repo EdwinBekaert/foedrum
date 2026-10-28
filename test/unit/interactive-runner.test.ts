@@ -629,18 +629,32 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         env: { PATH: '/usr/bin' },
       },
     });
-    /** A step whose plan, or setup, waits until `release`. */
+    const passed = {
+      result: 'exited',
+      setup: true,
+      command: 'npm ci',
+      exitCode: 0,
+      tail: 'added 7',
+    };
+    /**
+     * A step whose plan, or setup, waits until `release`; stopped while it plans, it writes no file
+     * in the worktree, and stopped during its setup it keeps the setup's reading.
+     */
     const cases: {
       name: string;
       deps: (release: Promise<void>) => Partial<InteractiveRunnerDeps>;
+      untouched: boolean;
+      readings?: readonly object[];
     }[] = [
       {
         name: 'an interactive step stopped while its plan is made',
         deps: (release) => ({ plan: () => release.then(interactive) }),
+        untouched: true,
       },
       {
         name: 'a resumed step stopped while its plan is made',
         deps: (release) => ({ plan: () => release.then(() => plan('resume')) }),
+        untouched: true,
       },
       {
         name: 'a resumed step stopped during a setup that passes all the same',
@@ -649,9 +663,11 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
           setup: () =>
             release.then(() => ({ exitCode: 0, stdout: '', stderr: '', output: 'added 7' })),
         }),
+        untouched: false,
+        readings: [passed],
       },
     ];
-    for (const { name, deps } of cases) {
+    for (const { name, deps, untouched, readings } of cases) {
       it(`${name} ends cancelled, without opening claude`, async () => {
         let release = () => {};
         const released = new Promise<void>((settle) => {
@@ -661,9 +677,11 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         await new Promise((settle) => setImmediate(settle));
         running.stop();
         release();
-        const { ending } = await running.ended;
+        const end = await running.ended;
         assert.deepEqual(foreground, []);
-        assert.deepEqual(ending, { kind: 'cancelled' });
+        assert.deepEqual(end.ending, { kind: 'cancelled' });
+        assert.deepEqual(end.readings, readings);
+        if (untouched) assert.deepEqual(calls, []);
       });
     }
   });
