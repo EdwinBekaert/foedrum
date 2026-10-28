@@ -8,6 +8,8 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -382,6 +384,36 @@ describe('createAttemptPlans: plan', () => {
       assert.doesNotMatch(plan.prompt, /untrusted-input/);
       // Its out doc goes before the run, so the run is read by what it writes (ADR 0118).
       assert.equal(plan.outDocFrom, undefined);
+    });
+
+    it('tells a resumed fix the files its kept merge still has unmerged (ADR 0244)', async () => {
+      const pullRequest = 'https://github.com/acme/api/pull/12';
+      const route = {
+        from: 'open',
+        why: 'pull_request',
+        pullRequest,
+        head: 'd'.repeat(40),
+        cause: 'conflict',
+        tip: 'e'.repeat(40),
+      } as const;
+      const kept = {
+        base: 'e'.repeat(40),
+        kept: { files: [{ path: 'src/a.ts', status: 'both modified' }], more: 0 },
+      };
+      const events: Event[] = [
+        ...ordered.slice(0, 2),
+        { type: 'step.scheduled', ...ref, deadlineAt, route },
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+        resumed,
+        { type: 'effect.applied', key: effectKey.encode(baseMergeKey(second)), result: kept },
+      ];
+      const plan = await setup(events).plans.plan({ ...start, ref: second });
+      assert.match(
+        plan.prompt,
+        /source="the merge of its base in progress in the worktree of step brew"[^>]*>\nThe merge of its base at e{40} is still in progress in this worktree\. These files are still unmerged:\n- src\/a\.ts \(both modified\)\n/,
+      );
     });
 
     // ADR 0175: whatever the brewer's retryMode, the driver resumed it; the plan says why.
