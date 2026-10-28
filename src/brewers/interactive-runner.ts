@@ -130,6 +130,11 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
       return { ending: settleAttempt(factsOf(exit, undefined), limits) };
     };
+    // As a headless run that was stopped: the engine stopped the attempt, so no session opens
+    // for it, since nothing the person did there would be read (ADR 0222).
+    const cancelled = (): AttemptEnd => ({
+      ending: settleAttempt(factsOf({ kind: 'stopped' }, undefined), limits),
+    });
 
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
@@ -148,6 +153,7 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           if (stopped) running.stop();
           return await running.ended;
         }
+        if (stopped) return cancelled();
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
@@ -186,6 +192,8 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
         if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
       }
       const readings = before.length === 0 ? {} : { readings: before };
+      // A stop during a setup that passed all the same.
+      if (stopped) return { ...cancelled(), ...readings };
       const label = `${ref.batchId} ${ref.stepId}#${ref.attempt}`;
       const doc = limits.outDoc.file;
       const [command, what] =
@@ -259,8 +267,8 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
     const ended = run().finally(() => headless.delete(key));
     return {
       ended,
-      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127)
-      // and the setup before a resumed session (ADR 0163).
+      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127),
+      // the setup before a resumed session (ADR 0163), and an attempt whose session has not opened.
       stop: () => {
         stopped = true;
         fresh?.stop();
