@@ -242,6 +242,7 @@ export function inputsOf(
         const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
         return { name, source: { kind: 'issue-body', issue }, read };
       }
+      if (from === 'repositories') throw new Error('not implemented');
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);
         const root = succeededIn(batch, step);

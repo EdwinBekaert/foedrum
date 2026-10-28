@@ -342,6 +342,38 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
+    const planning = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'plan.md', schema: 'plan' },
+            inputs: [{ name: 'repositories', from: 'repositories' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(planning.valid, planning.valid ? '' : planning.problems.join('\n'));
+    const repositories = [
+      { repo: 'acme/web', base: 'origin/develop' },
+      { repo: 'acme/api', base: 'origin/main' },
+    ];
+    const git = async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' });
+    const { plans } = setup(undefined, {}, undefined, planning.brewers, { repositories, git });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /source="the Brewery's repositories" name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/develop\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n<\/untrusted-input-[0-9a-f]+>/,
+    );
+  });
+
   it('tells a fresh retry why the attempt before it failed, last, with its inputs (ADR 0248)', async () => {
     const second = { ...ref, attempt: 2 };
     const events: Event[] = [

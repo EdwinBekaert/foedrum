@@ -76,13 +76,13 @@ describe('readBreweryFiles', () => {
     });
   });
 
-  it("has a defaults/models.jsonc in Foedrum's install that maps builder to the family sonnet (ADR 0153)", () => {
+  it("has a defaults/models.jsonc in Foedrum's install that maps builder to the family sonnet and planner to opus (ADR 0153, ADR 0234)", () => {
     const found = readBreweryFiles(brewery.path).defaults?.models;
     assert.ok(found !== undefined && 'text' in found, 'no defaults/models.jsonc was read');
     assert.equal(found.path, 'defaults/models.jsonc');
     const read = readJsonc(found.text, ModelsConfig);
     assert.ok(read.valid, read.valid ? '' : read.reason);
-    assert.deepEqual(read.value.models, { builder: 'sonnet' });
+    assert.deepEqual(read.value.models, { builder: 'sonnet', planner: 'opus' });
     assert.deepEqual(read.value.brewers, {});
   });
 

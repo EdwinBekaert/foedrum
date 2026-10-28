@@ -38,6 +38,8 @@ export type InputSource =
   | { kind: 'scan'; step: string; attempt: number }
   /** Why a retry runs: the attempt before it, `attempt`, failed (ADR 0248). */
   | { kind: 'retry'; step: string; attempt: number }
+  /** The Brewery's repositories and their bases, an input `from: "repositories"` (ADR 0234). */
+  | { kind: 'repositories' }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
   | { kind: 'findings'; step: string };
 
@@ -96,6 +98,8 @@ function describeSource(source: InputSource): string {
       return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
     case 'retry':
       return `why step ${source.step} runs again: the failure of ${source.step}#${source.attempt}`;
+    case 'repositories':
+      throw new Error('not implemented');
     case 'findings':
       return `the earlier rounds' findings of step ${source.step}, with what was done with them`;
     default: {
