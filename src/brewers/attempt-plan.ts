@@ -251,12 +251,7 @@ export function inputsOf(
         return { name, source: { kind: 'issue-body', issue }, read };
       }
       if (from === 'recipes') {
-        const text = choices
-          .map(
-            (choice) => `- ${choice.name}: ${choice.description}
-`,
-          )
-          .join('');
+        const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
         return { name, source: { kind: 'recipes' }, read: { kind: 'text', text } };
       }
       if (from.startsWith('step:')) {

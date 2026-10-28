@@ -185,16 +185,16 @@ export type TakeoverCommand = z.infer<typeof TakeoverCommand>;
 /** The Cellar's driver owner (ADR 0037), which no other driver may take (ADR 0123). */
 export const CELLAR_OWNER = 'cellar';
 
-/**
- * `foedrum brew <issue> [--as <name>]` (ADR 0123): the issue as `order` takes it, and the name of
- * its driver, one path segment that is not the Cellar's.
- */
 /** A driver's name for `--as`: one path segment that is not the Cellar's (ADR 0123). */
 const DriverName = PathSafeId.refine(
   (name) => name !== CELLAR_OWNER,
   "Must not be cellar, the Cellar's own",
 );
 
+/**
+ * `foedrum brew <issue> [--as <name>]` (ADR 0123): the issue as `order` takes it, and the name of
+ * its driver, one path segment that is not the Cellar's.
+ */
 export const BrewCommand = z.strictObject({
   command: z.literal('brew'),
   issue: IssueTarget,

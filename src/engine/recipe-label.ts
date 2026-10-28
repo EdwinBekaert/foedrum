@@ -43,7 +43,7 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
-      const { recipe } = batch ?? {};
+      const recipe = batch?.recipe;
       if (batch === undefined || recipe?.source !== 'human' || recipe.askedBy === undefined) {
         return [];
       }
