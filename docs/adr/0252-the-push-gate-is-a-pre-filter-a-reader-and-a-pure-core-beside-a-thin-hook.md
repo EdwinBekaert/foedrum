@@ -1,6 +1,6 @@
 # 0252. The push gate is a pre-filter, a reader and a pure core beside a thin hook
 
-Date: 2026-10-28 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (where the gate's code lives) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (what loads before the pre-filter lets a command go)
+Date: 2026-10-28 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (where the gate's code lives), [0132](0132-the-gate-reads-what-gh-posts-against-the-personal-denylist.md) (where the gh texts are read and `forbiddenReason` lives) and [0056](0056-the-gate-pre-filter-reads-the-command.md) (what loads before the pre-filter lets a command go)
 
 ## Context
 The local gate (`scripts/precheck.ts`, [ADR 0045](0045-the-local-gate-reads-commands-as-the-shells-would.md)) was one file of 2,049 lines: the pre-filter, the shell-word lexer, the reader that finds each `git push`, `gh` and `npx` call and where it runs, every policy on what the reader found (the tree a push comes from, git's push configuration, the denylist hand-off, `npx`, `gh pr ready`'s review summary) and the hook's shell, which starts git, gh and npm.
@@ -18,13 +18,13 @@ A split does not need one file for that: precheck already loads its other module
 - **One static import.** `scripts/precheck.ts` imports `prefilter.ts` statically, a file with no imports of its own, so a command the pre-filter lets go loads those two files and nothing else.
   The pre-filter has to be a superset of the lexer's reading, so the two share one copy of the quote folding rather than two that could drift.
   `read.ts` cannot import it from `precheck.ts`: the hook's main block awaits at the top level, and a module loaded by its dynamic import that imports the entry module back would wait for it forever.
-- **A pure move.** No rule, message or order of checks changes; the gate's tests change only their imports.
+- **A pure move.** No rule, message or order of checks changes; the gate's tests change only their imports, except the integration test of what a call the pre-filter lets go loads, which now expects the pre-filter too.
 - **Tests import a name from the module that holds it.** `scripts/precheck.ts` re-exports nothing from `read.ts` or `core.ts`, which would need a static import of them.
 
 ## Consequences
 - A rule is judged in the file that holds it: a reading rule in `read.ts`, a policy in `core.ts`, a process in `precheck.ts`.
 - A command the pre-filter lets go loads one more small file than before; the pull request measures the hook's time for `ls` and for a command it reads, before and after.
-- CLAUDE.md's gate lines ("the module has no static imports") follow in a docs pull request after this one.
+- CLAUDE.md's gate lines follow in a docs pull request after this one: "The logic lives in `scripts/precheck.ts`" (Local gate), which now has its parts in `scripts/precheck/`.
 
 ## Alternatives considered
 - **The pre-filter's helpers copied into `read.ts`:** no static import, but a pre-filter that must stay a superset of the lexer's quote reading could drift from it.
