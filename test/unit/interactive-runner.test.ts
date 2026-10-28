@@ -116,6 +116,9 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         clearOutDoc: (file, root) => {
           calls.push(`clear ${file} in ${root}`);
         },
+        restoreOutDoc: (file, root, copy) => {
+          calls.push(`restore ${file} in ${root} from ${copy}`);
+        },
       },
       commits: async () => ({ kind: 'counted', count: 1 }),
       scan: async () => ({ kind: 'scanned', findings: [] }),
@@ -273,6 +276,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       writePrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
+      restoreOutDoc: () => {},
     };
     const { ending } = await runner('resume', { files }).start(attempt).ended;
     assert.deepEqual(ending, {
@@ -294,6 +298,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       writePrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
+      restoreOutDoc: () => {},
     };
     const resumed = { ...plan('resume'), systemPrompt };
     const { ending } = await runner('resume', { files, plan: async () => resumed }).start(attempt)
@@ -481,6 +486,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
           },
           readOutDoc: () => written,
           clearOutDoc: () => {},
+          restoreOutDoc: () => {},
         },
       });
       const { ending } = await failing.start(attempt).ended;
@@ -606,6 +612,73 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
       ]);
     });
+  });
+
+  // An attempt the engine stopped opens no session in the person's terminal: what they did there
+  // would never be read (ADR 0222, #614).
+  describe('a stop before the session opens', () => {
+    const interactive = (): ClaudeAttemptPlan => ({
+      ...plan('new'),
+      interactive: { file: resolve('work', 'settings.prompt.md'), firstMessage: 'Read it.' },
+    });
+    const withSetup = (): ClaudeAttemptPlan => ({
+      ...plan('resume'),
+      setup: {
+        run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+        deadlineAt: '2026-10-23T13:00:00.000Z',
+        env: { PATH: '/usr/bin' },
+      },
+    });
+    /** A step whose plan, or setup, waits until `release`. */
+    const cases: {
+      name: string;
+      deps: (release: Promise<void>) => Partial<InteractiveRunnerDeps>;
+    }[] = [
+      {
+        name: 'an interactive step stopped while its plan is made',
+        deps: (release) => ({ plan: () => release.then(interactive) }),
+      },
+      {
+        name: 'a resumed step stopped while its plan is made',
+        deps: (release) => ({ plan: () => release.then(() => plan('resume')) }),
+      },
+      {
+        name: 'a resumed step stopped during a setup that passes all the same',
+        deps: (release) => ({
+          plan: async () => withSetup(),
+          setup: () =>
+            release.then(() => ({ exitCode: 0, stdout: '', stderr: '', output: 'added 7' })),
+        }),
+      },
+    ];
+    for (const { name, deps } of cases) {
+      it(`${name} ends cancelled, without opening claude`, async () => {
+        let release = () => {};
+        const released = new Promise<void>((settle) => {
+          release = settle;
+        });
+        const running = runner('resume', deps(released)).start(attempt);
+        await new Promise((settle) => setImmediate(settle));
+        running.stop();
+        release();
+        const { ending } = await running.ended;
+        assert.deepEqual(foreground, []);
+        assert.deepEqual(ending, { kind: 'cancelled' });
+      });
+    }
+  });
+
+  // ADR 0175: the session resumed after a turn overrun finishes the out doc it wrote.
+  it('puts back the out doc of a session that ran out of turns, and clears none', async () => {
+    const outDocFrom = resolve('work', 'attempt', '1.out.md');
+    const resumed = plan('resume');
+    await runner('resume', { plan: async () => ({ ...resumed, outDocFrom }) }).start(attempt).ended;
+    const outFile = resolve(resumed.cwd, 'brew.md');
+    assert.ok(
+      calls.includes(`restore ${outFile} in ${resumed.cwd} from ${outDocFrom}`),
+      calls.join('\n'),
+    );
+    assert.ok(!calls.some((call) => call.startsWith('clear ')), calls.join('\n'));
   });
 
   describe('headlessRunner: a fresh attempt of a resume (ADR 0163)', () => {

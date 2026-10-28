@@ -36,6 +36,7 @@ import {
   clearOutDocFile,
   type OutDocRead,
   readOutDocFile,
+  restoreOutDocFile,
   scannedIfDone,
   setUpFor,
   writeSystemPromptFile,
@@ -78,6 +79,8 @@ export interface InteractiveRunnerDeps {
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
     /** Removes the out doc a run before left, only inside `root` (ADR 0118). */
     clearOutDoc: (file: string, root: string) => void;
+    /** Puts back the copy of the out doc of a session that ran out of turns (ADR 0175). */
+    restoreOutDoc: (file: string, root: string, copy: string) => void;
   };
   /** The commits on the attempt's branch in its clone after the limits' `commitsSince`. */
   commits: CountCommits;
@@ -305,6 +308,7 @@ export function interactiveBrewerRunner(
       writePrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
+      restoreOutDoc: restoreOutDocFile,
     },
     commits: countCommits(runGit),
     scan: scanAttemptCommits(runGit),
