@@ -181,7 +181,9 @@ export const unconcludedMerge = async (
   if (pending !== undefined) {
     if (pending.files.length === 0)
       return `${merging} is resolved but not committed: git commit it`;
-    const files = pending.files.map((file) => file.path).join(', ');
+    // Named as the ledger names them: at most MAX_CONFLICTS, and how many more.
+    const { files: named, more } = keptOf(pending.files);
+    const files = `${named.map((file) => file.path).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
     return `${merging} is still in progress, with ${files} unmerged: resolve each file, git add it and git commit the merge`;
   }
   const head = await worktree.head(path, signal);
@@ -218,11 +220,14 @@ export const mergedBase = (state: State, batchId: string): string | undefined =>
   for (const [key, result] of state.effects) {
     const parts = EffectKeyParts.safeParse(JSON.parse(key));
     if (!parts.success || parts.data.length !== 4) continue;
-    const [batch, , , effect] = parts.data;
+    const [batch, stepId, number, effect] = parts.data;
     if (batch !== batchId || effect !== MERGE_BASE) continue;
     const merge = MergeResult.safeParse(result);
-    // A kept merge counts once its attempt concluded it (ADR 0244).
-    if (merge.success && (merge.data.merged ?? merge.data.kept) !== undefined) {
+    if (!merge.success) continue;
+    // A kept merge counts once its attempt concluded it, which only its success shows (ADR 0244).
+    const attempt = state.batches.get(batchId)?.steps.get(stepId)?.attempts.get(number);
+    const concluded = attempt?.phase === 'finished' && attempt.outcome.kind === 'succeeded';
+    if (merge.data.merged !== undefined || (merge.data.kept !== undefined && concluded)) {
       base = merge.data.base;
     }
   }
