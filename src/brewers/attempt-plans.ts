@@ -489,7 +489,14 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
+    const planned = inputsOf(
+      found.brewer.inputs,
+      batch,
+      stepBrewer,
+      worktree.path,
+      found.lenses,
+      found.choices,
+    );
     const inputs: PromptInput[] = [];
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
@@ -646,7 +653,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const batch = state().batches.get(ref.batchId);
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
-      return attemptLimits(found.brewer, start, found.blocking, lenses);
+      const choices = found.choices?.map(({ name }) => name);
+      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

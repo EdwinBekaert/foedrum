@@ -7,7 +7,7 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
-import { breweryIssueOf } from '../engine/claim-orders.ts';
+import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch, State } from '../engine/fold.ts';
@@ -17,7 +17,7 @@ import { StateBranchStopError } from '../engine/state-branch.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
-import { githubOrderLabels } from '../github/order-text.ts';
+import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { type OrderClaim, orderIssue } from './commands.ts';
@@ -85,6 +85,34 @@ const questionLines = (batchId: string, stepId: string, batch: Batch): string[] 
     ]),
     `answer them in order with foedrum answer ${batchId} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then brew again`,
   ];
+};
+
+/** The recipe `foedrum mash` routes an issue to: the Innkeeper's question (ADR 0232). */
+export const MASH_IN = 'mash-in';
+
+/**
+ * Why `foedrum mash` cannot route the issue's batch to mash-in (ADR 0232), or undefined: the batch
+ * already started a recipe, the Brewery has no mash-in, or fewer than two recipes for it to offer.
+ */
+const mashRefusal = (
+  setup: ServeSetup,
+  latest: Batch | undefined,
+  named: string,
+): string | undefined => {
+  if (latest?.recipe !== undefined) {
+    const { id, recipe } = latest;
+    return `batch ${id} of ${named} already brews the recipe ${recipe.name}; foedrum recipe ${id} <recipe> <reason> brews it with another`;
+  }
+  const mashIn = setup.recipes.find(MASH_IN);
+  if (mashIn === undefined) return `the Brewery has no recipe ${MASH_IN}`;
+  const choices = setup.brewers.find(MASH_IN, mashIn.firstStep)?.choices ?? [];
+  // A question needs two options (ADR 0006).
+  if (choices.length >= 2) return undefined;
+  const later = '(mash and decoction come with #586 and #587)';
+  const [only] = choices;
+  return only === undefined
+    ? `the Brewery has no recipe to offer but ${MASH_IN} ${later}`
+    : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it ${later}`;
 };
 
 /** The line feed and the Unicode line and paragraph separators, which end a line. */
@@ -215,7 +243,7 @@ export const runBrew = async (
   const say = (line: string): void => {
     const wasOnScreen = onScreen;
     clearLive();
-    out(oneLine(printable(`foedrum brew: ${line}`)));
+    out(oneLine(printable(`foedrum ${request.mash === true ? 'mash' : 'brew'}: ${line}`)));
     if (wasOnScreen) draw();
   };
   const refuse = (reason: string): number => {
@@ -231,7 +259,7 @@ export const runBrew = async (
   if (alias !== undefined && repository === undefined) {
     return refuse(`foedrum.jsonc names no repository with the alias ${alias} and an intake`);
   }
-  const order = repository === undefined ? { issue } : { issue, repo: repository.repo };
+  let order: OrderIssue = repository === undefined ? { issue } : { issue, repo: repository.repo };
   // As `foedrum status` names it.
   const named = `${order.repo ?? ''}#${issue}`;
   const asGiven = `${alias ?? ''}#${issue}`;
@@ -266,7 +294,14 @@ export const runBrew = async (
     const heldElsewhere = (id: string): BatchLease | undefined =>
       store.batchLeases(clock()).find((lease) => lease.batchId === id && lease.owner !== owner);
 
-    const latest = latestBatch(log.state().batches.values(), issue, order.repo);
+    // A claimed issue is mashed by its Brewery issue, its order (ADR 0232).
+    const claimed =
+      request.mash === true &&
+      latestBatch(log.state().batches.values(), issue, undefined) === undefined
+        ? claimOfOrder(log.state(), issue)
+        : undefined;
+    if (claimed?.repo !== undefined) order = { issue: claimed.issue, repo: claimed.repo };
+    const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
     if (
       latest !== undefined &&
       (latest.lane.kind === 'on_tap' || latest.lane.kind === 'cancelled')
@@ -298,7 +333,10 @@ export const runBrew = async (
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068).
     let recipe: string | undefined;
-    if (latest === undefined || latest.lane.kind === 'ordered') {
+    if (request.mash === true) {
+      const refused = mashRefusal(setup, latest, named);
+      if (refused !== undefined) return refuse(refused);
+    } else if (latest === undefined || latest.lane.kind === 'ordered') {
       const names = recipeLabels(await githubOrderLabels(reads, setup.brewery)(order, signal));
       if (names.length === 0) {
         return refuse(
@@ -342,9 +380,22 @@ export const runBrew = async (
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`ordered ${named} as batch ${command.batchId}`);
     }
-    const batch = latestBatch(log.state().batches.values(), issue, order.repo);
+    const batch = latestBatch(log.state().batches.values(), order.issue, order.repo);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
+    if (request.mash === true && batch.recipe === undefined) {
+      const mashIn = {
+        kind: 'recipe',
+        batchId,
+        recipe: MASH_IN,
+        reason: 'the engineer ran foedrum mash',
+        by,
+        via,
+      } as const;
+      const decision = log.issue(mashIn, clock());
+      if (decision.kind === 'refused') return refuse(decision.reason);
+      say(`routed batch ${batchId} to the recipe ${MASH_IN}`);
+    }
     if (recipe !== undefined && batch.lane.kind === 'ordered') {
       const route = {
         kind: 'route',

@@ -52,7 +52,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 | Brewer | Role |
 |---|---|
-| Innkeeper | Router |
+| Innkeeper | Suggests a recipe for an order and asks which brews it (`mash-in`, `foedrum mash`) |
 | Maltster | Context gathering |
 | Brewmaster | Planning |
 | Gauger | Failing tests first |

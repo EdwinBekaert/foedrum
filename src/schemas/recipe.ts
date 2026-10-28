@@ -83,6 +83,12 @@ const BrewerStep = z
       .max(MAX_PROMPT_LENGTH)
       .optional()
       .describe("An interactive step's first message to its session (ADR 0222)"),
+    chooses: z
+      .literal('recipe')
+      .optional()
+      .describe(
+        "The answer to the step's question chooses the batch's recipe; for a brewer whose out doc schema is recipeChoice, and required there (ADR 0232)",
+      ),
   })
   .refine(({ lens, lenses }) => lens === undefined || lenses === undefined, {
     message: 'Name "lens" or "lenses", not both (ADR 0220)',

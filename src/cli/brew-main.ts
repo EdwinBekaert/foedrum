@@ -8,7 +8,7 @@ import type { BrewerRunner } from '../engine/brewer-runner.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
 import { openInNewWindow, type WindowFacts } from '../platform/new-window.ts';
 import { foregroundProcess, type LaunchProcess, launchProcess } from '../platform/processes.ts';
-import type { BrewCommand } from '../schemas/commands.ts';
+import type { BrewCommand, MashCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
 import { type BrewRequest, runBrew } from './brew.ts';
@@ -53,7 +53,7 @@ export const brewShellOf = (
 
 /** What brew is asked to brew, as whom and who asked, and why it opens no session, if it does not. */
 export const brewRequestOf = (
-  input: BrewCommand,
+  input: BrewCommand | MashCommand,
   owner: string,
   issued: { by: string; via: Surface },
   noSessions: BrewRequest['noSessions'],
@@ -62,6 +62,7 @@ export const brewRequestOf = (
   owner,
   ...issued,
   ...(input.take === true ? { take: true } : {}),
+  ...(input.command === 'mash' ? { mash: true } : {}),
   ...(noSessions === undefined ? {} : { noSessions }),
 });
 
@@ -129,18 +130,18 @@ export const brewInNewWindow = async (
  */
 export const brewFromCheckout = async (
   cwd: string,
-  input: BrewCommand,
+  input: BrewCommand | MashCommand,
   issued: { by: string; via: Surface },
   options?: StartOptions,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<CliResult> => {
   const owner = brewOwner(input.as, env);
   if ('refused' in owner) {
-    return { exitCode: 2, stdout: '', stderr: `foedrum brew: ${owner.refused}\n` };
+    return { exitCode: 2, stdout: '', stderr: `foedrum ${input.command}: ${owner.refused}\n` };
   }
-  if (input['new-window'] === true)
+  if (input.command === 'brew' && input['new-window'] === true)
     return brewInNewWindow(cwd, input, owner.owner, thisMachine(env));
-  const ready = await readServeSetup(cwd, 'brew', options);
+  const ready = await readServeSetup(cwd, input.command, options);
   if (ready.kind === 'refused') return ready.result;
   const { setup } = ready;
   // The stop signals are listened for while brew runs, and no longer once it returns.
@@ -169,7 +170,7 @@ export const brewFromCheckout = async (
       git: runGit,
       out: gate.out,
       listen: gate.listen,
-      command: 'brew',
+      command: input.command,
       keepAwake: thisMachineAwake(options),
     });
     const shell = brewShellOf(

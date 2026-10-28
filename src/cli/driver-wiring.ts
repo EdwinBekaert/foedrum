@@ -31,6 +31,7 @@ import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { planEffects } from '../engine/plan-comment.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
+import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -171,6 +172,8 @@ export const wireDriver = async (
   const marks = githubIssueMarks({ client, reads, login });
   // Each Brewery issue's lane label, through the ledger as its status comment (ADR 0154).
   const labels = laneLabelEffects({ brewery: setup.brewery, host: marks });
+  // The recipe an answer to the Innkeeper chose, as a label on the issue, once (ADR 0232).
+  const recipeLabels = recipeLabelEffects({ brewery: setup.brewery, host: marks });
   // A claimed batch the store has keeps its marks and release due, intake or not (ADR 0050).
   const claimed = [
     ...createCommandLog({ store, recipes: setup.recipes }).state().batches.values(),
@@ -196,11 +199,12 @@ export const wireDriver = async (
           status,
           planComments,
           labels,
+          recipeLabels,
           conflicts,
           briefs,
           claimEffects({ claimant, marks, claims }),
         )
-      : combineEffects(status, planComments, labels, conflicts, briefs);
+      : combineEffects(status, planComments, labels, recipeLabels, conflicts, briefs);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,

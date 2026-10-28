@@ -81,7 +81,7 @@ function describeSource(source: InputSource): string {
     case 'lenses':
       return `lenses ${source.lenses.map(({ lens, path }) => `${lens} (file ${path})`).join(', ')}`;
     case 'recipes':
-      throw new Error('not implemented');
+      return "the Brewery's recipes to offer";
     case 'change':
       return `the change since commit ${source.since}`;
     case 'answers':

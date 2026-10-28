@@ -139,6 +139,11 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 4096
+            },
+            "chooses": {
+              "description": "The answer to the step's question chooses the batch's recipe; for a brewer whose out doc schema is recipeChoice, and required there (ADR 0232)",
+              "type": "string",
+              "const": "recipe"
             }
           },
           "required": [
@@ -482,6 +487,11 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 4096
+                  },
+                  "chooses": {
+                    "description": "The answer to the step's question chooses the batch's recipe; for a brewer whose out doc schema is recipeChoice, and required there (ADR 0232)",
+                    "type": "string",
+                    "const": "recipe"
                   }
                 },
                 "required": [

@@ -476,7 +476,14 @@ function apply(state: State, event: Event): State {
         ...batch,
         recipe:
           event.source === 'human'
-            ? { name, reason, source: event.source, by: event.by, via: event.via }
+            ? {
+                name,
+                reason,
+                source: event.source,
+                by: event.by,
+                via: event.via,
+                ...(event.askedBy === undefined ? {} : { askedBy: event.askedBy }),
+              }
             : { name, reason, source: event.source },
       }));
     }

@@ -3,6 +3,7 @@
 import { LensName, PathSafeId } from './ids.ts';
 import { ModelAlias } from './models.ts';
 import { BrewerAllowedTool, BrewerDeniedTool, Duration, RelativePath } from './primitives.ts';
+import { RECIPE_CHOICE } from './recipe-choice.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
 
@@ -11,7 +12,7 @@ const Count = z.int().positive();
 /** A camelCase name: a `{variable}` in the prompt, or a named out-doc schema. */
 const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase name');
 
-const source = /^(?:order|step:(.+)|file:(.+)|lens:(.+))$/;
+const source = /^(?:order|recipes|step:(.+)|file:(.+)|lens:(.+))$/;
 
 const Input = z.strictObject({
   name: Identifier,
@@ -19,7 +20,7 @@ const Input = z.strictObject({
     .string()
     .regex(
       source,
-      'Must be "order", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
+      'Must be "order", "recipes", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
     )
     .refine((from) => {
       const [, step, file, lens] = source.exec(from) ?? [];
@@ -136,6 +137,15 @@ export const BrewerFrontmatter = z
         code: 'custom',
         message: 'A brewer that produces commits needs write access and git.commit',
         path: ['produces'],
+      });
+    }
+    // The engine fills it with the recipes a step that chooses the recipe offers (ADR 0232).
+    const recipes = brewer.inputs.findIndex(({ from }) => from === 'recipes');
+    if (recipes >= 0 && brewer.output.schema !== RECIPE_CHOICE) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `The recipes input is for a brewer whose out doc schema is ${RECIPE_CHOICE} (ADR 0232)`,
+        path: ['inputs', recipes, 'from'],
       });
     }
     if (brewer.guards.includes('requiresCommits') && brewer.produces !== 'commits') {
