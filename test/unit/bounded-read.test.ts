@@ -52,6 +52,15 @@ describe('readOutDocFile', () => {
     assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), { kind: 'missing' });
   });
 
+  // Review of #629: the limit is the most it reads, not one byte past it.
+  it('reads an out doc of exactly its limit', () => {
+    writeFileSync(join(dir.path, 'plan.md'), 'x'.repeat(100));
+    assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
+      kind: 'text',
+      text: 'x'.repeat(100),
+    });
+  });
+
   it('does not read an out doc past its limit', () => {
     writeFileSync(join(dir.path, 'plan.md'), 'x'.repeat(101));
     assert.deepEqual(readOutDocFile(join(dir.path, 'plan.md'), 100, dir.path), {
