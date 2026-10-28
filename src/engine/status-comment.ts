@@ -233,19 +233,22 @@ export const shortSha = (sha: string): string => sha.slice(0, 8);
  * tip and the files of a conflict, or that it merges cleanly again after an earlier conflict; on
  * the merged tree (ADR 0203), the check that failed and how, why the checks did not run, or that
  * they pass again after either; `undefined` when every check was clean or none ran. Only the checks
- * of `head`, the latest push's, when it is given: an older head's failure is not this one's
- * (ADR 0226).
+ * of the head of `open`, the pull request `openOf` reads, when it is `url`: an older head's failure
+ * is not this one's (ADR 0226).
  */
-const baseCheckLine = (batch: Batch, url: string, head?: string): string | undefined => {
-  const checks = baseChecksOn(batch, url, head);
+const baseCheckLine = (batch: Batch, url: string, open?: OpenPullRequest): string | undefined => {
+  const checks = baseChecksOn(batch, url, open?.head);
   const latest = checks.at(-1);
   // An ended pull request is checked no more: its last check says nothing now.
   if (latest === undefined || batch.pullRequestEnds?.[url] !== undefined) return undefined;
   // The branch comes from the Brewery's config; a file's name from whoever committed it.
   const branch = code(latest.branch);
+  // Before the filter below: `openOf` passes this pull request over, and this line says why.
   if (latest.branchMoved !== undefined) {
     return `- ${link(url)} is not checked against ${branch} since someone else pushed to its branch`;
   }
+  // A pull request `openOf` passes over is checked no more: its last check says nothing now.
+  if (url !== open?.url) return undefined;
   const tip = code(shortSha(latest.tip));
   if (latest.conflicts !== undefined) {
     const files = latest.conflicts.map(plain).join(', ');
@@ -311,32 +314,32 @@ export const readingText = (reading: GravityReading): string => {
   }
 };
 
+/** The pull request of a batch that `openOf` reads, and the commit its latest push recorded. */
+type OpenPullRequest = { url: string; head: string };
+
 /** The lines of the pull requests of a batch on tap that its base checks have something to say of. */
-export const baseCheckLines = (batch: Batch, head?: string): string[] =>
-  batch.lane.kind === 'on_tap'
-    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url, head) ?? [])
+export const baseCheckLines = (state: State, batch: Batch): string[] => {
+  const open = openOf(state, batch);
+  return batch.lane.kind === 'on_tap'
+    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url, open) ?? [])
     : [];
+};
 
 /**
- * The lines of the open pull requests of a batch on tap whose checks on their head were recorded
+ * The line of the open pull request of a batch on tap whose checks on its head were recorded
  * (ADR 0213): waiting for them since when, passed, failed with a link to a failing one, or none.
  */
-export const checkLines = (batch: Batch): string[] =>
-  batch.lane.kind === 'on_tap'
-    ? batch.lane.pullRequests.flatMap((url) => checkLine(batch, url) ?? [])
-    : [];
+export const checkLines = (state: State, batch: Batch): string[] =>
+  openCheckLines(batch, openOf(state, batch));
+
+/** The check line of `open`, the pull request `openOf` reads: no other is read any more. */
+const openCheckLines = (batch: Batch, open?: OpenPullRequest): string[] =>
+  open === undefined ? [] : [open.url].flatMap((url) => checkLine(batch, url) ?? []);
 
 /** What the latest record of the checks on the head of the pull request `url` says (ADR 0213). */
 const checkLine = (batch: Batch, url: string): string | undefined => {
   const record = batch.pullRequestChecks?.[url];
-  // An ended pull request, and one someone else pushed to, are read no more (`openOf`): its last
-  // record says nothing now.
-  const moved = batch.baseChecks?.some(
-    (check) => check.pullRequest === url && check.branchMoved !== undefined,
-  );
-  if (record === undefined || batch.pullRequestEnds?.[url] !== undefined || moved === true) {
-    return undefined;
-  }
+  if (record === undefined) return undefined;
   const head = code(shortSha(record.head));
   if (record.kind === 'pending') {
     return `- ${link(url)} waits for its checks on ${head} since ${record.since}`;
@@ -711,20 +714,12 @@ export const renderStatus = (
   usageWindows: UsageWindows = {},
   brief?: BriefLine,
   left?: LeftBody,
-  /** The commit of the batch's latest push, whose base checks the status line shows (ADR 0226). */
-  head?: string,
   /**
-   * The pull request `openOf` reads, `null` when none: no other's checks or base checks are shown,
-   * since they are read no more (ADR 0213, ADR 0219).
+   * The pull request `openOf` reads, with the commit of its latest push, whose checks and base
+   * checks the comment shows (ADR 0213, ADR 0226): no other is read any more.
    */
-  open?: string | null,
+  open?: OpenPullRequest,
 ): string => {
-  // A pull request someone else pushed to keeps its line: it says why it is read no more.
-  const shownBaseCheck = (url: string): string | undefined => {
-    const line = baseCheckLine(batch, url, head);
-    if (open === undefined || url === open) return line;
-    return line?.endsWith('since someone else pushed to its branch') === true ? line : undefined;
-  };
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
     const shown = text.replace(/\s+/g, ' ').trim().slice(0, scanned);
@@ -766,8 +761,8 @@ export const renderStatus = (
         ? [planned(batch) ? PLANNED : 'No pull request.']
         : [
             '**Pull requests**',
-            ...pullRequests.map((url) => shownBaseCheck(url) ?? `- ${link(url)}`),
-            ...(open === null ? [] : checkLines(batch)),
+            ...pullRequests.map((url) => baseCheckLine(batch, url, open) ?? `- ${link(url)}`),
+            ...openCheckLines(batch, open),
             // The merge brief of the record that makes it ready now (ADR 0225).
             ...(brief === undefined || !('comment' in brief)
               ? []
@@ -877,8 +872,7 @@ const statusDue = (
     state.usageWindows,
     briefLine(state, batch),
     leftBody(state, batch),
-    pushed?.commit,
-    openOf(state, batch)?.url ?? null,
+    openOf(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
