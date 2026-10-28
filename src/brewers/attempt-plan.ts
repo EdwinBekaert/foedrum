@@ -248,7 +248,7 @@ const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
  * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
- * the recipes input's in `choices`, the recipes its step may offer (ADR 0232).
+ * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],

@@ -74,7 +74,10 @@ export interface StepBrewer {
   blocking?: boolean;
   /** On an interactive step: the recipe's first message to the session (ADR 0222). */
   interactive?: { prompt: string };
-  /** On a step that chooses the recipe: the Brewery's recipes it may offer, in order (ADR 0232). */
+  /**
+   * On a step that chooses the recipe, or whose brewer names the recipes input: the Brewery's recipes
+   * but those that choose one, in order (ADR 0232, ADR 0234).
+   */
   choices?: readonly RecipeChoice[];
 }
 

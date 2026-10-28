@@ -34,8 +34,8 @@ Rejected: the engine knowing the name `mash-in` (a Brewery's own recipe could no
 - **`defaults/brewers/innkeeper.md`**, read-only as the Taster is (`Read`, `Grep`, `Glob`, and `Edit` of its out doc only, `access: "read"`, `tree: "task"`), on `builder` (decided with the maintainer, 2026-10-27), `effort: "low"`, `maxTurns: 30`, a `deadline` of `10m`, `maxAttempts: 2`.
 - **It reads the issue (`{order}`) and the repository its attempt runs in**, and asks exactly one question: which recipe brews the issue, `recommended` its suggestion, and the reason in the question's text, for example "Which recipe brews #12? Suggested: decoction: it touches three areas and a credential."
 - **Its attempt runs where every attempt of the batch runs** (`repositoryOf`, [ADR 0063](0063-foedrum-serve-its-configuration-and-wiring.md)): a claimed issue's repository, or the Brewery's only one for a Brewery issue; in a Brewery of several repositories a Brewery issue's attempt fails with `repositoryOf`'s reason, as any Brewery order's does today.
-  Reading the other repositories an issue names comes with #586's input of the Brewery's repositories.
-- **Its choices are the Brewery's recipes**, but those with a step that chooses a recipe: `mash` (a quick plan) and `decoction` (a deep plan) once #586 and #587 add them, or a building recipe such as `nip` when the issue is small and clear.
+  Reading the other repositories an issue names is left to a later change: #586's `from: "repositories"` input names the Brewery's repositories, but an attempt reads only its own worktree.
+- **Its choices are the Brewery's recipes**, but those with a step that chooses a recipe: `mash` (a quick plan, #586), and `decoction` (a deep plan) once #587 adds it, or a building recipe such as `nip` when the issue is small and clear.
   A recipe the Brewery does not have is never offered.
 - **It learns them from an input the engine builds**, a new input source `from: "recipes"`: one line per choice, `- <name>: <description>`, in the order the loader read them, between nonce tags as every input is ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)).
   Any brewer may name it: the Innkeeper offers its recipes, and #586's Brewmaster names them for a plan's sub-orders (ADR 0234: the second of the two to merge adds it).
@@ -75,4 +75,4 @@ Rejected: `foedrum mash` routing only, and `foedrum brew` asking afterwards (two
 - `decide`'s `answer` has one more branch, keyed on the recipe's step; every other answer resumes the session that asked, as before.
 - `batch.recipe_chosen` gains `askedBy`, optional, so a choice without it reads as before; an older Foedrum cannot read a log with it (as [ADR 0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md) records for dispositions).
 - Foedrum's defaults offer the Innkeeper `mash` (#586) and `nip`, and `decoction` once #587 adds it.
-- #592 decides whether `foedrum recipe` labels the issue too, and #586 gives the Innkeeper the other repositories an issue names.
+- #592 decides whether `foedrum recipe` labels the issue too; reading the other repositories an issue names is left to a later change.
