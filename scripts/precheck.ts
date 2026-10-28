@@ -11,13 +11,15 @@
 // without a shell.
 // Exit 0 lets the tool call through; exit 2 blocks it and shows stderr to Claude.
 // It runs before every Bash and PowerShell call, so input that cannot name git or gh exits
-// before any parsing, and the module has no static imports.
+// before any parsing, and the module imports only the pre-filter (ADR 0252).
 //
 // The command is read the way bash and PowerShell would read it, both ways, and blocked when
 // either reading pushes or merges (#42). Quotes are honoured; wrapper words (env, time, xargs,
 // Start-Process, …) are skipped; what other shells and evaluators run (bash -c, pwsh -Command,
 // cmd /c, iex, eval) is read as a command too; and a program or subcommand computed at run time
 // is assumed to be the worst it could be. Arguments computed at run time are not evaluated.
+
+import { foldQuotes, jsonLineBreaks, mayNeedTheGate, normalised } from './precheck/prefilter.ts';
 
 export interface CheckResult {
   ok: boolean;
@@ -32,41 +34,7 @@ export interface HookResult {
 }
 
 const MAX_OUTPUT_CHARS = 4000;
-// Case-insensitive because `GIT push` works on Windows; \u because JSON can escape any letter;
-// push, merge and ready for a git or gh whose name is computed at run time; pwsh and powershell
-// for an encoded command; npx, npm, dlx and bun for a package runner (#175).
-const MAY_NEED_THE_GATE = /git|gh|push|merge|ready|pwsh|powershell|npx|npm|dlx|bun|\\u/i;
-// A delete (rm, rd, ri, del, erase, Remove-Item) of a path that may hold a variable or a
-// substitution ($, %, a backtick or PowerShell's ( ), read before the shells' characters are
-// dropped) (#281), or a splat (@, #296).
-const MAY_DELETE = /rm|rd|ri|del|erase|remove/i;
-const MAY_COMPUTE = /[$%`(@]/;
-const mayNeedTheGate = (text: string): boolean => {
-  const plain = normalised(text);
-  return MAY_NEED_THE_GATE.test(plain) || (MAY_DELETE.test(plain) && MAY_COMPUTE.test(text));
-};
 
-// PowerShell reads typographic quotes as quotes; bash does not.
-const foldQuotes = (text: string): string => text.replace(/[‘’‚‛]/g, "'").replace(/[“”„]/g, '"');
-
-// The raw hook input, or its command, without the quotes and escape characters that bash,
-// PowerShell and cmd drop, so a name they split (gi''t, g\it, g`it, g^h) still matches the
-// pre-filter. A backslash before u stays, for a JSON escape. A line continuation (\, ` or ^ before
-// a newline, also \r\n) goes first (#158).
-const normalised = (input: string): string =>
-  foldQuotes(input)
-    .replace(/[\\`^]\r?\n/g, '')
-    .replace(/["'`^]|\\(?!u)/g, '');
-
-// The raw hook input with JSON's \\, \n and \r escapes decoded, one escape at a time, so the
-// pre-filter sees the line breaks of the command and never takes the n of \\npx for one (#158).
-const JSON_ESCAPES = new Map([
-  ['\\\\', '\\'],
-  ['\\n', '\n'],
-  ['\\r', '\r'],
-]);
-const jsonLineBreaks = (input: string): string =>
-  input.replace(/\\[\\nr]/g, (pair) => JSON_ESCAPES.get(pair) ?? pair);
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const GIT_OPTIONS_WITH_VALUE = new Set([
   '-C',
