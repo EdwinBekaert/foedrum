@@ -171,7 +171,8 @@ describe('openMergedTree', () => {
 
   it('keeps only the refs it can read as a commit and a tag or remote-tracking ref', async () => {
     const root = nextFolder();
-    const listed = `${TAG} refs/tags/v1\nnot-a-sha refs/tags/v2\n${MAIN} refs/heads/main\n${MAIN} refs/remotes/origin/main\n`;
+    // A SHA-256 id is no commit Foedrum reads (ADR 0254).
+    const listed = `${TAG} refs/tags/v1\nnot-a-sha refs/tags/v2\n${'d'.repeat(64)} refs/tags/v3\n${MAIN} refs/heads/main\n${MAIN} refs/remotes/origin/main\n`;
     const { git } = treeGit(ok(`${TREE}\0`), listed);
     const packed = await openMergedTree({ git, clone, own: { url, root, id: () => 'one' } })(
       HEAD,
