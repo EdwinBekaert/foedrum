@@ -1001,10 +1001,53 @@ function answer(draft: Draft, command: Extract<Command, { kind: 'answer' }>): vo
     if (!answered.has(q)) throw new Refusal(`question "${q}" has no answer`);
   }
   const { stepId } = reason;
+  // The answer to a recipe choice chooses the recipe; its session is done (ADR 0232).
+  if (recipeOf(draft, draft.batch(batchId)).choosesRecipe(stepId)) {
+    chooseRecipe(draft, command, reason);
+    return;
+  }
   draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
   draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
   schedule(draft, batchId, stepId, { answered: true });
   resumeGroup(draft, batchId, stepId);
+}
+
+/**
+ * The answer to the one question of a step that chooses the recipe (ADR 0232): one of its options,
+ * a recipe the Brewery has, which the batch starts from its first step, as the recipe command does.
+ * The step asked its one question and its job ended there, so its session is not resumed.
+ */
+function chooseRecipe(
+  draft: Draft,
+  { batchId, by, via, answers }: Extract<Command, { kind: 'answer' }>,
+  { stepId, questions }: Extract<StuckReason, { kind: 'needs_input' }>,
+): void {
+  const [question] = questions;
+  const recipe = answers[0]?.answer;
+  if (question === undefined || recipe === undefined) {
+    throw new Refusal(`batch ${batchId} has no question to answer at ${stepId}`);
+  }
+  const { options, recommended } = question;
+  if (!options.includes(recipe)) {
+    throw new Refusal(
+      `step ${stepId} chooses the recipe: answer one of the options: ${options.join(', ')}`,
+    );
+  }
+  const { firstStep } = find(draft, recipe);
+  const taken = recipe === recommended ? 'as suggested' : `not the suggested ${recommended}`;
+  draft.push({ type: 'input.received', batchId, stepId, by, via, answers: [...answers] });
+  draft.push({
+    type: 'batch.recipe_chosen',
+    batchId,
+    recipe,
+    reason: `the answer at ${stepId}: ${recipe}, ${taken}`,
+    source: 'human',
+    by,
+    via,
+    askedBy: stepId,
+  });
+  draft.push({ type: 'batch.resumed', batchId, by, via, action: 'answer' });
+  enter(draft, batchId, firstStep);
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import { type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
+import { readOutDocFile } from '../platform/bounded-read.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -34,8 +35,10 @@ import {
   type ClaudeAttemptPlan,
   claudeBrewerRunner,
   clearOutDocFile,
+  commitsOf,
   type OutDocRead,
-  readOutDocFile,
+  outDocBefore,
+  restoreOutDocFile,
   scannedIfDone,
   setUpFor,
   writeSystemPromptFile,
@@ -78,6 +81,8 @@ export interface InteractiveRunnerDeps {
     readOutDoc: (file: string, maxBytes: number, root: string) => OutDocRead;
     /** Removes the out doc a run before left, only inside `root` (ADR 0118). */
     clearOutDoc: (file: string, root: string) => void;
+    /** Puts back the copy of the out doc of a session that ran out of turns (ADR 0175). */
+    restoreOutDoc: (file: string, root: string, copy: string) => void;
   };
   /** The commits on the attempt's branch in its clone after the limits' `commitsSince`. */
   commits: CountCommits;
@@ -127,6 +132,11 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       const exit = { kind: 'unstartable', reason: messageOf(error) } as const;
       return { ending: settleAttempt(factsOf(exit, undefined), limits) };
     };
+    // As a headless run that was stopped: the engine stopped the attempt, so no session opens
+    // for it, since nothing the person did there would be read (ADR 0222).
+    const cancelled = (): AttemptEnd => ({
+      ending: settleAttempt(factsOf({ kind: 'stopped' }, undefined), limits),
+    });
 
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
@@ -145,14 +155,15 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
           if (stopped) running.stop();
           return await running.ended;
         }
+        if (stopped) return cancelled();
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
           deps.files.writeSystemPrompt(systemPrompt.file, systemPrompt.text);
         // The whole prompt, inputs in their nonce tags, which the first message points at.
         if (interactive !== undefined) deps.files.writePrompt(interactive.file, plan.prompt);
-        // Read by the out doc this session writes, never one the run before left (ADR 0118).
-        deps.files.clearOutDoc(resolve(plan.cwd, limits.outDoc.file), plan.cwd);
+        // A new interactive session too: its worktree may hold the out doc of an attempt before.
+        outDocBefore(deps.files, plan, limits.outDoc.file);
         const { model, effort, tools, session } = plan.call;
         const call = {
           model,
@@ -183,6 +194,8 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
         if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
       }
       const readings = before.length === 0 ? {} : { readings: before };
+      // A stop during a setup that passed all the same.
+      if (stopped) return { ...cancelled(), ...readings };
       const label = `${ref.batchId} ${ref.stepId}#${ref.attempt}`;
       const doc = limits.outDoc.file;
       const [command, what] =
@@ -226,22 +239,13 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
       );
       const facts = factsOf({ kind: 'exited', code }, out);
       // Counted on the attempt's branch in the clone, as for every run (ADR 0074).
-      const since = limits.commitsSince;
-      if (since !== undefined) {
-        facts.commits =
-          plan.commits === undefined
-            ? { kind: 'uncounted', reason: 'the plan names no clone to count them in' }
-            : await deps
-                .commits(
-                  plan.commits.clone,
-                  plan.commits.branch,
-                  since,
-                  new AbortController().signal,
-                )
-                .catch(
-                  (error: unknown) => ({ kind: 'uncounted', reason: messageOf(error) }) as const,
-                );
-      }
+      const commits = await commitsOf(
+        deps.commits,
+        plan,
+        limits.commitsSince,
+        new AbortController().signal,
+      );
+      if (commits !== undefined) facts.commits = commits;
       const outDoc = facts.outDoc === undefined ? {} : { outDoc: facts.outDoc };
       // Scanned for secrets on the attempt's branch, and a plan's paths read, as for every run
       // (ADR 0187, ADR 0233).
@@ -256,8 +260,8 @@ export function interactiveBrewerRunnerWith(deps: InteractiveRunnerDeps): Brewer
     const ended = run().finally(() => headless.delete(key));
     return {
       ended,
-      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127)
-      // and the setup before a resumed session (ADR 0163).
+      // The engineer's session is theirs to end: a stop reaches only a headless run (ADR 0127),
+      // the setup before a resumed session (ADR 0163), and an attempt whose session has not opened.
       stop: () => {
         stopped = true;
         fresh?.stop();
@@ -305,6 +309,7 @@ export function interactiveBrewerRunner(
       writePrompt: writeSystemPromptFile,
       readOutDoc: readOutDocFile,
       clearOutDoc: clearOutDocFile,
+      restoreOutDoc: restoreOutDocFile,
     },
     commits: countCommits(runGit),
     scan: scanAttemptCommits(runGit),

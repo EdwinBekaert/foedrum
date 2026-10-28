@@ -86,7 +86,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 }
 ```
 
-The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet`, and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
+The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet` and `planner`, the Brewmaster's, to `opus` ([ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md)), and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
 
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 

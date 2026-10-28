@@ -16,6 +16,7 @@ import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
+import { readOutDocFile } from '../platform/bounded-read.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
@@ -51,6 +52,7 @@ import {
   planAttempt,
   type RegressionTests,
   type Resumed,
+  retryInputOf,
   roundBefore,
   routeInput,
   routeOf,
@@ -58,7 +60,7 @@ import {
   settingsFileOf,
 } from './attempt-plan.ts';
 import type { ConfigDirs } from './attempt-settings.ts';
-import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claude-runner.ts';
+import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   blobTexts,
   breweryRules,
@@ -491,7 +493,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    const planned = inputsOf(found.brewer.inputs, batch, stepBrewer, worktree.path, found.lenses);
+    const repositories = { repositories: options.repositories ?? [], own: worktree.repo };
+    const planned = inputsOf(
+      found.brewer.inputs,
+      batch,
+      stepBrewer,
+      worktree.path,
+      found.lenses,
+      repositories,
+      found.choices,
+    );
     const inputs: PromptInput[] = [];
     for (const input of planned) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
@@ -547,6 +558,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // Its commits are gone: it writes what the scan named another way (ADR 0187).
     const scanned = scanRetryOf(batch, ref);
     if (scanned !== undefined) inputs.push(scanned);
+    // Any other failure: its reason, which only the engine may know (ADR 0248).
+    const failed = retryInputOf(batch, ref);
+    if (failed !== undefined) inputs.push(failed);
     return {
       inputs,
       ...(rules === undefined ? {} : { houseYeast: rules.record }),
@@ -590,7 +604,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         resumes === 'turns'
           ? outDocCopyOf(settingsFileOf(workRoot, { ...ref, attempt: attempt - 1 }))
           : undefined;
-      const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
+      // A retry's session is told why the attempt before it failed (ADR 0248).
+      const latest = answered ? answersOf(batch, stepId, 'latest') : retryInputOf(batch, ref);
       // A resumed fix is told the files its kept merge still has unmerged (ADR 0244).
       const merging = mergeRouteOf(batch, ref);
       const kept =
@@ -663,7 +678,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const batch = state().batches.get(ref.batchId);
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
-      return attemptLimits(found.brewer, start, found.blocking, lenses);
+      const choices = found.choices?.map(({ name }) => name);
+      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

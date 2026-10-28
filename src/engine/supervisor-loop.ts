@@ -1,7 +1,7 @@
-// The supervisor's thin shell (ADR 0021, ADR 0027): runs the tick on an interval. It reads the
-// store, asks the core (supervisor.ts) for commands, has the command log decide and append them,
-// releases expired leases and retries the state branch's flush. The clock, timer and store are
-// injected.
+// The supervisor's thin shell (ADR 0021, ADR 0027): one tick, which the commands that run the
+// driver call on their own interval. It reads the store, asks the core (supervisor.ts) for
+// commands, has the command log decide and append them, releases expired leases and retries the
+// state branch's flush. The clock and store are injected.
 
 import { attemptKey } from './attempt-key.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
@@ -31,22 +31,12 @@ export type Notice =
   /** A tick threw; the next tick runs anyway. */
   | { kind: 'tick_failed'; error: unknown };
 
-/** Schedules `fn` once after `ms`. The fake in tests awaits what `fn` returns. */
-export interface Timer {
-  set(fn: () => Promise<void>, ms: number): unknown;
-  clear(handle: unknown): void;
-}
-
 export interface SupervisorOptions {
   store: EventStore;
   stateBranch: Pick<StateBranch, 'flush'>;
   recipes: Recipes;
   progress: ProgressSource;
   clock: () => Date;
-  /** Default `setTimeout`. */
-  timer?: Timer;
-  /** Time between ticks; default 5 s. */
-  intervalMs?: number;
   /** Time between Conditioning and Stuck reminders; default 2 days (architecture §4.3). */
   reminderMs?: number;
   /** How long an Ordered batch may wait to be routed; default 1 hour (ADR 0032). */
@@ -70,18 +60,7 @@ export interface TickReport {
 export interface Supervisor {
   /** Runs one tick. Rejects with `StateBranchStopError` when the engine must stop. */
   tick(): Promise<TickReport>;
-  /**
-   * Runs a tick every interval until `stop`, which resolves it, or a `StateBranchStopError`,
-   * which rejects it. Any other error is reported, and the next tick runs.
-   */
-  run(): Promise<void>;
-  stop(): void;
 }
-
-const realTimer: Timer = {
-  set: (fn, ms) => setTimeout(fn, ms),
-  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
 
 export const createSupervisor = (options: SupervisorOptions): Supervisor => {
   const {
@@ -90,8 +69,6 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     recipes,
     progress,
     clock,
-    timer = realTimer,
-    intervalMs = 5000,
     reminderMs = defaultReminderMs,
     routingMs = defaultRoutingMs,
     flushDeadlineMs = 10 * 60_000,
@@ -186,46 +163,5 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     return { appended, flush: flushed };
   };
 
-  let handle: unknown;
-  let stopped = true;
-  // Each run has its own number, so a tick of an earlier run never schedules another.
-  let current = 0;
-  let finish: { resolve: () => void; reject: (error: unknown) => void } | undefined;
-
-  const loopOf = (run: number) => {
-    const loop = async (): Promise<void> => {
-      try {
-        await tick();
-      } catch (error) {
-        if (error instanceof StateBranchStopError) {
-          if (run === current) {
-            stopped = true;
-            finish?.reject(error);
-          }
-          return;
-        }
-        report({ kind: 'tick_failed', error });
-      }
-      // The next tick waits for this one, so ticks never overlap.
-      if (!stopped && run === current) handle = timer.set(loop, intervalMs);
-    };
-    return loop;
-  };
-
-  return {
-    tick,
-    run: () =>
-      new Promise<void>((resolve, reject) => {
-        // A new run replaces the one before; that one's promise settles, never left waiting.
-        finish?.resolve();
-        finish = { resolve, reject };
-        stopped = false;
-        handle = timer.set(loopOf(++current), intervalMs);
-      }),
-    stop: () => {
-      stopped = true;
-      timer.clear(handle);
-      finish?.resolve();
-    },
-  };
+  return { tick };
 };

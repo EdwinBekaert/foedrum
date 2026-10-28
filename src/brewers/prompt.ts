@@ -22,6 +22,8 @@ export type InputSource =
   | { kind: 'lenses'; lenses: readonly { lens: string; path: string }[] }
   /** Where the change a Taster reviews starts: the commit its batch started at (ADR 0161). */
   | { kind: 'change'; since: string }
+  /** The Brewery's recipes a step that chooses the recipe may offer (ADR 0232). */
+  | { kind: 'recipes' }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
   | { kind: 'answers'; step: string }
   /** What sent a step back along a route: the failed checks or the findings of `from` (ADR 0128). */
@@ -42,6 +44,10 @@ export type InputSource =
   | { kind: 'merge'; step: string; branch: string }
   /** Why a retry runs: the secret scan failed the attempt before it, `attempt` (ADR 0187). */
   | { kind: 'scan'; step: string; attempt: number }
+  /** Why a retry runs: the attempt before it, `attempt`, failed (ADR 0248). */
+  | { kind: 'retry'; step: string; attempt: number }
+  /** The Brewery's repositories and their bases, an input `from: "repositories"` (ADR 0234). */
+  | { kind: 'repositories' }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
   | { kind: 'findings'; step: string };
 
@@ -84,6 +90,8 @@ function describeSource(source: InputSource): string {
       return `lens ${source.lens}, file ${source.path}`;
     case 'lenses':
       return `lenses ${source.lenses.map(({ lens, path }) => `${lens} (file ${path})`).join(', ')}`;
+    case 'recipes':
+      return "the Brewery's recipes to offer";
     case 'change':
       return `the change since commit ${source.since}`;
     case 'answers':
@@ -103,6 +111,10 @@ function describeSource(source: InputSource): string {
       return `the merge of ${source.branch} in progress in the worktree of step ${source.step}`;
     case 'scan':
       return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
+    case 'retry':
+      return `why step ${source.step} runs again: the failure of ${source.step}#${source.attempt}`;
+    case 'repositories':
+      return "the Brewery's repositories";
     case 'findings':
       return `the earlier rounds' findings of step ${source.step}, with what was done with them`;
     default: {

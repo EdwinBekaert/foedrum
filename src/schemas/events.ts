@@ -482,7 +482,14 @@ const chosen = {
 };
 const recipeChosen = z.discriminatedUnion('source', [
   z.strictObject({ ...chosen, source: z.enum(['label', 'router']) }),
-  z.strictObject({ ...chosen, source: z.literal('human'), by: NonEmpty, via: Surface }),
+  z.strictObject({
+    ...chosen,
+    source: z.literal('human'),
+    by: NonEmpty,
+    via: Surface,
+    // The step whose question the answer chose it by (ADR 0232); an older Foedrum cannot read it.
+    askedBy: StepId.optional(),
+  }),
 ]);
 
 /** The usage windows of a Claude subscription that claude names when one runs out (ADR 0091). */

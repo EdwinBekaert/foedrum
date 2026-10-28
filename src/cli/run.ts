@@ -9,7 +9,7 @@ import type { TargetTracker } from '../engine/intake.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { BrewCommand, InitCommand, ResumeCommand } from '../schemas/commands.ts';
+import type { BrewCommand, InitCommand, MashCommand, ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import type { BrewerSource } from './brewer-report.ts';
@@ -90,7 +90,11 @@ export interface CliContext {
    * owner, recording who issued it and from where on an order it makes; its lines go straight to
    * the terminal.
    */
-  brew: (input: BrewCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  /** `foedrum brew`, or `foedrum mash`, which brews the same way to its question (ADR 0232). */
+  brew: (
+    input: BrewCommand | MashCommand,
+    issued: { by: string; via: Surface },
+  ) => Promise<CliResult>;
   /**
    * Draws a board of the live batches until Ctrl+C (ADR 0188), for `foedrum status --watch`; it
    * draws straight on the terminal, and refuses where there is none.

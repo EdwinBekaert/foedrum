@@ -1,0 +1,12 @@
+// Mash, a plan of an order (ADR 0234): the Brewmaster reads the order and its repository and breaks
+// the order into sub-orders, one repository each, with the recipe each should run with. Nothing is
+// built: the plan is shown on the order's issue (ADR 0233), and the batch ends on tap. The plan
+// lenses come in #587, the gate that signs a plan off in #588.
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "mash",
+  "description": "Plan an order as sub-orders, shown on its issue; nothing is built",
+  // It commits nothing, so there is no test to write first.
+  "testFirst": false,
+  "steps": [{ "id": "plan", "brewer": "brewmaster" }]
+}

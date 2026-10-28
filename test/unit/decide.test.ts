@@ -65,6 +65,8 @@ const context: Context = {
       pullRequests: [pullRequest],
     }),
     nip: fakeRecipe({ steps: ['patch'], pullRequests: [pullRequest] }),
+    // Its one step's answer chooses the recipe (ADR 0232).
+    'mash-in': fakeRecipe({ steps: ['innkeep'], chooses: ['innkeep'] }),
   }),
 };
 const by = { by: 'octocat', via: 'comment' } as const;
@@ -1118,6 +1120,71 @@ describe('decide answer: Stuck → brewing', () => {
       refuses(events, answer(keep), new RegExp(`batch b1 is ${lane}; answer needs it stuck`));
     });
   }
+});
+
+describe('decide answer: the answer to a step that chooses the recipe (ADR 0232)', () => {
+  const which = {
+    q: 'Which recipe brews #100? Suggested: pint: it touches three areas',
+    options: ['nip', 'pint'],
+    recommended: 'pint',
+    whyBlocking: 'The recipe decides what runs next',
+  };
+  const asking: Event[] = [
+    ...brewing('innkeep', 1, 'mash-in'),
+    stuckEvent({ kind: 'needs_input', stepId: 'innkeep', questions: [which] }),
+  ];
+  const answer = (choice: string): Command => ({
+    kind: 'answer',
+    batchId: 'b1',
+    ...by,
+    answers: [{ q: which.q, answer: choice }],
+  });
+  const chose = (recipe: string, reason: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe,
+    reason,
+    source: 'human',
+    ...by,
+    askedBy: 'innkeep',
+  });
+
+  const answered: [string, string, string][] = [
+    ['pint', 'the answer at innkeep: pint, as suggested', 'plan'],
+    ['nip', 'the answer at innkeep: nip, not the suggested pint', 'patch'],
+  ];
+  for (const [choice, reason, first] of answered) {
+    it(`chooses ${choice} and starts it from its first step, ${first}`, () => {
+      accepts(asking, answer(choice), [
+        {
+          type: 'input.received',
+          batchId: 'b1',
+          stepId: 'innkeep',
+          ...by,
+          answers: [{ q: which.q, answer: choice }],
+        },
+        chose(choice, reason),
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'answer' },
+        next(first),
+      ]);
+    });
+  }
+
+  it('refuses an answer that is none of the options, naming them, so the batch still asks', () => {
+    refuses(asking, answer('stout'), /answer one of the options: nip, pint/);
+  });
+
+  it('refuses an option the Brewery no longer has', () => {
+    const gone = [
+      ...brewing('innkeep', 1, 'mash-in'),
+      stuckEvent({
+        kind: 'needs_input',
+        stepId: 'innkeep',
+        questions: [{ ...which, options: ['nip', 'stout'], recommended: 'nip' }],
+      }),
+    ];
+    refuses(gone, answer('stout'), /the Brewery has no recipe stout/);
+  });
 });
 
 describe('decide recipe: a human chooses the recipe', () => {

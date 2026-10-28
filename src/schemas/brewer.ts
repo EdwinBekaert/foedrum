@@ -11,7 +11,9 @@ const Count = z.int().positive();
 /** A camelCase name: a `{variable}` in the prompt, or a named out-doc schema. */
 const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase name');
 
-const source = /^(?:order|step:(.+)|file:(.+)|lens:(.+))$/;
+// `repositories`: the Brewery's repositories and their bases, which the engine fills (ADR 0234);
+// `recipes`: the Brewery's recipes but those that choose one, which the engine fills (ADR 0232).
+const source = /^(?:order|repositories|recipes|step:(.+)|file:(.+)|lens:(.+))$/;
 
 const Input = z.strictObject({
   name: Identifier,
@@ -19,7 +21,7 @@ const Input = z.strictObject({
     .string()
     .regex(
       source,
-      'Must be "order", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
+      'Must be "order", "repositories", "recipes", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
     )
     .refine((from) => {
       const [, step, file, lens] = source.exec(from) ?? [];

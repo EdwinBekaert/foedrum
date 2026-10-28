@@ -5,6 +5,7 @@
 import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
+import { planOf } from '../schemas/plan.ts';
 import { type MergeBrief, StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey, SensitiveFiles } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
@@ -394,6 +395,21 @@ const laneText = (batch: Batch, told: Told): string[] => {
   }
 };
 
+/** What a batch on tap with a plan and no pull request says: the plan comment shows it (ADR 0234). */
+const PLANNED =
+  'No pull request: the plan is in its own comment on this issue, and nothing is built from it yet.';
+
+/** Whether an attempt of `batch` succeeded with a plan (ADR 0233). */
+const planned = (batch: Batch): boolean =>
+  [...batch.steps.values()].some((step) =>
+    [...step.attempts.values()].some(
+      (attempt) =>
+        attempt.phase === 'finished' &&
+        attempt.outcome.kind === 'succeeded' &&
+        planOf(attempt.outcome.output) !== undefined,
+    ),
+  );
+
 /** Who paused the batch, from where and why, and when what still runs is stopped (ADR 0202). */
 const pauseText = ({ by, via, why, stopAt }: Pause): string => {
   const reason = why === undefined ? '' : `: ${plain(why)}`;
@@ -735,7 +751,7 @@ export const renderStatus = (
     const { pullRequests } = batch.lane;
     sections.push(
       pullRequests.length === 0
-        ? ['No pull request.']
+        ? [planned(batch) ? PLANNED : 'No pull request.']
         : [
             '**Pull requests**',
             ...pullRequests.map((url) => baseCheckLine(batch, url, head) ?? `- ${link(url)}`),

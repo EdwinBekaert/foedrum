@@ -18,6 +18,7 @@ import {
   stepKind,
   walk,
 } from '../schemas/recipe.ts';
+import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
 import type { Attempt } from './fold.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
@@ -44,6 +45,12 @@ export interface BreweryFiles extends FilesByKind {
   };
 }
 
+/** A recipe a step that chooses the recipe may offer: its name and description (ADR 0232). */
+export interface RecipeChoice {
+  name: string;
+  description: string;
+}
+
 /** A lens's text, from the Brewery's `lenses/` or Foedrum's defaults (ADR 0098). */
 export interface Lens {
   /** Its folder and file name: `diff/<name>` or `plan/<name>` (ADR 0143). */
@@ -67,6 +74,11 @@ export interface StepBrewer {
   blocking?: boolean;
   /** On an interactive step: the recipe's first message to the session (ADR 0222). */
   interactive?: { prompt: string };
+  /**
+   * On a step that chooses the recipe, or whose brewer names the recipes input: the Brewery's recipes
+   * but those that choose one, in order (ADR 0232, ADR 0234).
+   */
+  choices?: readonly RecipeChoice[];
 }
 
 /** Every brewer and lens in use, and what names them: what doctor reports on (ADR 0141). */
@@ -288,6 +300,8 @@ interface LineStep {
   group?: string;
   /** A brewer step whose attempts run as a person's session (ADR 0222). */
   interactive?: true;
+  /** A brewer step whose answer chooses the batch's recipe (ADR 0232). */
+  chooses?: true;
 }
 
 /**
@@ -513,6 +527,7 @@ function lineRecipe(
     children: (id) => children.get(id),
     group: (id) => byId.get(id)?.group,
     interactive: (id) => byId.get(id)?.interactive === true,
+    choosesRecipe: (id) => byId.get(id)?.chooses === true,
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),
@@ -621,6 +636,10 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
   const stepChecks = new Map<string, ReadonlyMap<string, StepCheck>>();
   const redProofs = new Map<string, { id: string; of: string }>();
+  // Each loaded recipe's description, in the order read, and the steps that choose a recipe, by
+  // recipe: what those steps may offer is known once every recipe loaded (ADR 0232).
+  const descriptions = new Map<string, string>();
+  const choosingSteps = new Map<string, readonly string[]>();
   for (const { path, value } of readAll(
     files.recipes,
     'recipe',
@@ -782,6 +801,16 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           );
           return [];
         }
+        // Only a person's answer to a recipe choice's question chooses the recipe (ADR 0232).
+        const choosing = brewer.output.schema === RECIPE_CHOICE;
+        if (choosing !== (runnable.chooses !== undefined)) {
+          problems.push(
+            choosing
+              ? `${path}: step "${id}" has the brewer "${brewer.name}", which answers with the out doc schema "${RECIPE_CHOICE}": give the step "chooses": "recipe" (ADR 0232)`
+              : `${path}: step "${id}" has "chooses", but its brewer "${brewer.name}" does not answer with the out doc schema "${RECIPE_CHOICE}" (ADR 0232)`,
+          );
+          return [];
+        }
         const refusedLens = untasted(runnable, brewer);
         // The step's one lens, or its lenses together (ADR 0220).
         const named = runnable.lenses ?? (runnable.lens === undefined ? [] : [runnable.lens]);
@@ -811,6 +840,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
           route: findings === undefined ? undefined : { why: 'findings', ...findings },
           ...(group === undefined ? {} : { group }),
           ...(runnable.interactive === true ? { interactive: true } : {}),
+          ...(choosing ? { chooses: true as const } : {}),
         };
         const [first] = stepLensFiles;
         if (first === undefined) {
@@ -911,6 +941,9 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         value.concurrency,
       ),
     );
+    descriptions.set(value.name, value.description);
+    const choosing = steps.flatMap(({ line }) => (line.chooses === true ? [line.id] : []));
+    if (choosing.length > 0) choosingSteps.set(value.name, choosing);
     stepBrewers.set(
       value.name,
       new Map(
@@ -923,6 +956,20 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     );
   }
   if (problems.length > 0) return { valid: false, problems };
+  // Every recipe but those that choose a recipe themselves: what a step that chooses offers, and what
+  // the recipes input of any other brewer names, such as a plan's for its sub-orders (ADR 0232,
+  // ADR 0234).
+  const choices = [...descriptions]
+    .filter(([name]) => !choosingSteps.has(name))
+    .map(([name, description]): RecipeChoice => ({ name, description }));
+  for (const [recipe, steps] of stepBrewers) {
+    const chooses = choosingSteps.get(recipe) ?? [];
+    const given = [...steps].map(([id, found]): [string, StepBrewer] => {
+      const names = found.brewer.inputs.some(({ from }) => from === 'recipes');
+      return names || chooses.includes(id) ? [id, { ...found, choices }] : [id, found];
+    });
+    stepBrewers.set(recipe, new Map(given));
+  }
   return {
     valid: true,
     defaults: defaultsInUse(breweryFiles),

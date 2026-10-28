@@ -1045,6 +1045,15 @@ describe('openDriver', () => {
       await driver.drive();
       assert.deepStrictEqual(started, []);
       assert.deepStrictEqual(store.currentLeases(now), []);
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'cancelled');
+      // After the repair at its start, the worktree it made is cleaned once its lease went.
+      assert.deepStrictEqual(
+        manager.cleans().map(({ claims, scope }) => [claims.leased, scope]),
+        [
+          [[], {}],
+          [[], { batchId: 'b1' }],
+        ],
+      );
     });
 
     it('cleans a cancelled batch again once the lease of a run that never ended expired (#144)', async () => {

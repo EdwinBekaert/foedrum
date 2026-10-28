@@ -1,0 +1,10 @@
+// Mash-in, the first step of a mash (ADR 0232): the Innkeeper reads the order and asks one question,
+// which recipe brews it, with a suggestion and the reason. The engineer's answer chooses the recipe:
+// the batch starts it from its first step, and the order's issue is labelled with it. Nobody labels
+// an issue recipe:mash-in; foedrum mash routes to it.
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "mash-in",
+  "description": "Suggest a recipe for an order and ask which one brews it",
+  "steps": [{ "id": "innkeep", "brewer": "innkeeper", "chooses": "recipe" }]
+}

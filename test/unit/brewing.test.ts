@@ -2,7 +2,6 @@
 // in-memory event store, with a clock the test moves. Each runner behaviour ends in its lane.
 
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptLimits } from '../../src/engine/brewer-runner.ts';
@@ -73,9 +72,7 @@ describe('brewing with the fake brewer runner', () => {
       recipes,
       clock: () => now,
       limits: () => ({ ...defaultLimits, ...options.limits }),
-      ...(options.worktrees === undefined
-        ? {}
-        : { worktrees: { repo: 'acme/app', base: 'origin/main', manager: options.worktrees } }),
+      ...(options.worktrees === undefined ? {} : { worktrees: options.worktrees }),
     });
     assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
     assert.ok(
@@ -449,52 +446,18 @@ describe('brewing with the fake brewer runner', () => {
     });
   });
 
-  describe('attempt worktrees (ADR 0029, ADR 0037)', () => {
-    const started = (events: readonly Event[]) =>
-      events.flatMap((event) => (event.type === 'step.started' ? [event] : []));
-    const worktreeOf = (stepId: string, attempt = 1) => ({
-      repo: 'acme/app',
-      path: join('work', 'acme.app', 'attempts', 'b1', stepId, String(attempt)),
-      branch: `foedrum/b1/${stepId}/${attempt}`,
-      commit: FAKE_COMMIT,
-    });
-
-    it('gives every attempt its worktree under its lease, and records it in its start', async () => {
-      const leasedAtCreate: string[][] = [];
-      const worktrees = fakeWorktrees({
-        refuse: () => {
-          leasedAtCreate.push(store.currentLeases(now).map((lease) => lease.attemptKey));
-          return undefined;
-        },
-      });
-      const { brewing } = await brew(
-        { plan: [behave.succeed()], implement: [behave.succeed()] },
-        { worktrees },
-      );
-      assert.deepStrictEqual(
-        started(brewing.events()).map((event) => event.worktree),
-        [worktreeOf('plan'), worktreeOf('implement')],
-      );
-      assert.deepStrictEqual(
-        worktrees.calls.flatMap((call) => (call.kind === 'create' ? [call.base] : [])),
-        // implement starts at the commits of plan (ADR 0066).
-        ['origin/main', 'refs/heads/foedrum/b1/plan/1'],
-      );
-      assert.deepStrictEqual(leasedAtCreate, [
-        [attemptKey.encode({ batchId: 'b1', stepId: 'plan', attempt: 1 })],
-        [attemptKey.encode({ batchId: 'b1', stepId: 'implement', attempt: 1 })],
-      ]);
-    });
-
+  describe('attempt worktrees (ADR 0037)', () => {
     it('cleans the batch once it is on tap, with no lease left', async () => {
       const worktrees = fakeWorktrees();
       await brew({ plan: [behave.succeed()], implement: [behave.succeed()] }, { worktrees });
-      // Its recipe opens no pull request, so the cleanup keeps its task tree's branch, at the
-      // commit the batch started from (ADR 0084).
-      const unpushed = new Map([['foedrum/b1/implement/1', FAKE_COMMIT]]);
       assert.deepStrictEqual(worktrees.cleans(), [
         {
-          claims: { batches: new Map([['b1', 'ended']]), leased: [], unpushed, open: new Set() },
+          claims: {
+            batches: new Map([['b1', 'ended']]),
+            leased: [],
+            unpushed: new Map(),
+            open: new Set(),
+          },
           scope: { batchId: 'b1' },
         },
       ]);
@@ -519,91 +482,6 @@ describe('brewing with the fake brewer runner', () => {
       assert.deepStrictEqual(store.currentLeases(now), []);
     });
 
-    it('fails an attempt that cannot get its worktree retryably, and the next one gets its own', async () => {
-      const worktrees = fakeWorktrees({
-        refuse: (ref) => (ref.attempt === 1 ? 'the worktree b1/plan/1 is in the way' : undefined),
-      });
-      const { brewing, runner } = await brew(
-        { plan: [behave.succeed()], implement: [behave.succeed()] },
-        { worktrees },
-      );
-      assert.deepStrictEqual(finished(brewing.events())[0]?.outcome, {
-        kind: 'failed',
-        retryable: true,
-        reason: 'the attempt could not get its worktree: the worktree b1/plan/1 is in the way',
-      });
-      assert.deepStrictEqual(
-        started(brewing.events()).map((event) => [event.stepId, event.attempt, event.worktree]),
-        [
-          ['plan', 1, undefined],
-          ['plan', 2, worktreeOf('plan', 2)],
-          ['implement', 1, undefined],
-          ['implement', 2, worktreeOf('implement', 2)],
-        ],
-      );
-      assert.deepStrictEqual(
-        runner.started.map(({ ref }) => `${ref.stepId}#${ref.attempt}`),
-        ['plan#2', 'implement#2'],
-      );
-      assert.equal(brewing.batch('b1').lane.kind, 'on_tap');
-    });
-
-    it('lets the lease of an attempt that cannot get its worktree go at once', async () => {
-      const leasedAtCreate: string[][] = [];
-      const worktrees = fakeWorktrees({
-        refuse: (ref) => {
-          leasedAtCreate.push(store.currentLeases(now).map((lease) => lease.attemptKey));
-          return ref.attempt === 1 ? 'in the way' : undefined;
-        },
-      });
-      await brew({ plan: [behave.succeed()], implement: [behave.succeed()] }, { worktrees });
-      const key = (stepId: string, attempt: number) =>
-        attemptKey.encode({ batchId: 'b1', stepId, attempt });
-      // Each create sees only its own attempt's lease: the refused attempt's went with it.
-      assert.deepStrictEqual(leasedAtCreate, [
-        [key('plan', 1)],
-        [key('plan', 2)],
-        [key('implement', 1)],
-        [key('implement', 2)],
-      ]);
-      assert.deepStrictEqual(store.currentLeases(now), []);
-    });
-
-    it('starts no run when its batch is cancelled while its worktree is made', async () => {
-      const runner = fakeBrewerRunner({ plan: [behave.succeed()] });
-      const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan'] }) });
-      const cancel = { kind: 'cancel', batchId: 'b1', by: 'edwin', via: 'terminal' } as const;
-      let cancelled = () => {};
-      const worktrees = fakeWorktrees({
-        refuse: () => {
-          cancelled();
-          return undefined;
-        },
-      });
-      const brewing = createBrewing({
-        store,
-        runner,
-        recipes,
-        clock: () => now,
-        worktrees: { repo: 'acme/app', base: 'origin/main', manager: worktrees },
-      });
-      cancelled = () => assert.ok(brewing.command(cancel));
-      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
-      const route = { kind: 'route', batchId: 'b1', recipe: 'pint', reason: 'label' } as const;
-      assert.ok(brewing.command({ ...route, source: 'label' }));
-      await brewing.drive();
-
-      assert.deepStrictEqual(runner.started, []);
-      assert.deepStrictEqual(store.currentLeases(now), []);
-      assert.equal(brewing.batch('b1').lane.kind, 'cancelled');
-      assert.ok(!trail(brewing.events()).includes('started plan#1'));
-      // The worktree it made is cleaned once its lease went.
-      assert.deepStrictEqual(
-        worktrees.cleans().map(({ claims, scope }) => [claims.leased, scope]),
-        [[[], { batchId: 'b1' }]],
-      );
-    });
-
     it('repairs the worktrees of every batch when the driver starts', async () => {
       const progress = { lastProgressAt: t0, turnsWithoutProgress: 3 };
       const { recipes } = await brew({ plan: [behave.hang(progress)] });
@@ -613,7 +491,7 @@ describe('brewing with the fake brewer runner', () => {
         runner: fakeBrewerRunner({}),
         recipes,
         clock: () => now,
-        worktrees: { repo: 'acme/app', base: 'origin/main', manager: worktrees },
+        worktrees,
       });
       const { repair } = await restarted.start();
       assert.deepStrictEqual(worktrees.cleans(), [

@@ -8,10 +8,12 @@ import { describe, it } from 'node:test';
 import { parseArgs } from 'node:util';
 import {
   type CheckResult,
+  type DeniedPush,
   type FindNpmCli,
   forbiddenReason,
   ghPullRequest,
   gitHeadIsDetached,
+  gitPushConfig,
   isDetached,
   isGatedCommand,
   type LookupPullRequest,
@@ -27,6 +29,7 @@ import {
   resolvePlace,
 } from '../../scripts/precheck.ts';
 import type { RunOptions } from '../../scripts/process-runner.ts';
+import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -80,12 +83,53 @@ describe('isGatedCommand', () => {
     'gh -R owner/repo pr create --draft',
     'npm run check',
     '',
+    // git prints push's help and pushes nothing (ADR 0246).
+    'git push -h',
+    'git push -h 2>&1',
+    'git push --help',
+    'git --help push',
+    'git -h',
+    'git help push',
   ];
   for (const command of ungated) {
     it(`lets through: ${command || '(empty)'}`, () => {
       assert.equal(isGatedCommand(command), false);
     });
   }
+
+  // git reads -h as help only when it is push's one argument, and git's own -h only as its first
+  // word: after an option the gate does not know, -h may be that option's value (review of #635).
+  for (const command of [
+    'git push -h origin',
+    'git push origin -h',
+    'git --attr-source -h push origin',
+    'git --no-pager -h push origin',
+  ]) {
+    it(`gates: ${command}`, () => {
+      assert.equal(isGatedCommand(command), true);
+    });
+  }
+
+  it('runs no check and no scan for push’s help', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: 'fails' });
+    const scans: string[] = [];
+    const result = await precheck(
+      hookInput('git push -h'),
+      runCheck,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (dir) => {
+        scans.push(dir);
+        return 'denied';
+      },
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+    assert.deepEqual(scans, []);
+  });
 });
 
 describe('precheck', () => {
@@ -209,20 +253,19 @@ describe('precheck with a personal denylist', () => {
   const fakeScan = (answer: () => Promise<string | undefined>) => {
     const calls: string[] = [];
     const remotes: (string | null | undefined)[] = [];
-    const deniedPush = async (dir: string, ...pushed: (string | null | undefined)[]) => {
+    const destinations: (string | null)[] = [];
+    const deniedPush: DeniedPush = async (dir, pushed, names) => {
       calls.push(dir);
       remotes.push(...pushed);
+      destinations.push(...names);
       return answer();
     };
-    return { calls, remotes, deniedPush };
+    return { calls, remotes, destinations, deniedPush };
   };
   const gate = (
     command: string,
     runCheck: (cwd: string) => Promise<CheckResult>,
-    deniedPush: (
-      dir: string,
-      ...remotes: (string | null | undefined)[]
-    ) => Promise<string | undefined>,
+    deniedPush: DeniedPush,
     detached = false,
   ) =>
     precheck(
@@ -275,6 +318,10 @@ describe('precheck with a personal denylist', () => {
     ['git push --set-upstream work HEAD', ['work']],
     ['git push -o ci.skip --repo=mirror', ['mirror']],
     ['git push --repo mirror', ['mirror']],
+    // Value options by prefix, an ambiguous one, and one whose value comes after `=` (ADR 0246).
+    ['git push --rep mirror', ['mirror']],
+    ['git push --re x origin', ['origin']],
+    ['git push --push-option=ci.skip origin', ['origin']],
     ['git push --push-option ci.skip origin', ['origin']],
     ['git push https://example.com/o/r.git HEAD', ['https://example.com/o/r.git']],
     ['git push "$remote" HEAD', [null]],
@@ -310,6 +357,28 @@ describe('precheck with a personal denylist', () => {
     assert.deepEqual(scan.remotes, ['origin', 'work']);
   });
 
+  // The branch names the push creates on the remote go to the scan too (ADR 0246): the part of
+  // each refspec after `:`, or the whole refspec, and null when it is computed at run time.
+  const destinations: [string, (string | null)[]][] = [
+    ['git push', []],
+    ['git push origin', []],
+    ['git push -u origin 613-x', ['613-x']],
+    ['git push origin 613-x 2>&1', ['613-x']],
+    ['git push origin HEAD:refs/heads/613-y', ['refs/heads/613-y']],
+    ['git push origin a b:c', ['a', 'c']],
+    ['git push -- origin 613-x', ['613-x']],
+    ['git push origin "$branch"', [null]],
+    ['git push origin "HEAD:$branch"', [null]],
+  ];
+  for (const [command, expected] of destinations) {
+    it(`scans the branch names the push creates: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const scan = fakeScan(async () => undefined);
+      await gate(command, runCheck, scan.deniedPush);
+      assert.deepEqual(scan.destinations, expected);
+    });
+  }
+
   it('does not scan a push from a detached HEAD, or what pushes nothing', async () => {
     const { runCheck } = fakeCheck({ ok: true, output: '' });
     const scan = fakeScan(async () => REFUSAL);
@@ -318,6 +387,156 @@ describe('precheck with a personal denylist', () => {
     await gate('git status', runCheck, scan.deniedPush);
     assert.deepEqual(scan.calls, []);
   });
+});
+
+// What git's configuration files make a push do, read before it in the tree it pushes, as
+// `git config -z --get-regexp` prints it: key, line break, value, NUL; a key alone when it has no
+// value (ADR 0246).
+describe("precheck on a push that git's configuration makes delete, force or mirror", () => {
+  const gate = async (command: string, config: () => Promise<string>, detached = false) => {
+    const { calls: checks, runCheck } = fakeCheck({ ok: true, output: '' });
+    const read: string[] = [];
+    const result = await precheck(
+      hookInput(command, '/work/tree'),
+      runCheck,
+      async () => undefined,
+      async () => detached,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (dir) => {
+        read.push(dir);
+        return config();
+      },
+    );
+    return { result, checks, read };
+  };
+  const blocked = (setting: string) =>
+    `git push is blocked: git's configuration makes it delete, force or mirror remote refs (${setting}); push without that setting, or ask a maintainer.\n`;
+
+  const cases: [command: string, config: string, setting?: string][] = [
+    ['git push', 'remote.origin.push\n:refs/heads/x\0', 'remote.origin.push :refs/heads/x'],
+    [
+      'git push origin',
+      'remote.origin.push\n+refs/heads/*:refs/heads/*\0',
+      'remote.origin.push +refs/heads/*:refs/heads/*',
+    ],
+    ['git push', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
+    ['git push origin', 'remote.origin.mirror\0', 'remote.origin.mirror'],
+    ['git push origin', 'remote.origin.mirror\nyes\0', 'remote.origin.mirror yes'],
+    // A push that names no remote, or one computed at run time, is held to every remote's.
+    ['git push', 'remote.backup.mirror\ntrue\0', 'remote.backup.mirror true'],
+    ['git push "$r" HEAD', 'remote.backup.mirror\ntrue\0', 'remote.backup.mirror true'],
+    ['git push my.remote', 'remote.my.remote.push\n:x\0', 'remote.my.remote.push :x'],
+    // A value option given by prefix or as the next word does not move the remote (review of
+    // #635).
+    [
+      'git push --push-opt ci.skip origin',
+      'remote.origin.mirror\ntrue\0',
+      'remote.origin.mirror true',
+    ],
+    [
+      'git push --recurse-submodules check origin',
+      'remote.origin.mirror\ntrue\0',
+      'remote.origin.mirror true',
+    ],
+    ['git push --rep origin', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
+    // What does not delete, force or mirror, or is another remote's.
+    ['git push', ''],
+    ['git push', 'remote.origin.mirror\nfalse\0'],
+    ['git push', 'remote.origin.mirror\n\0'],
+    ['git push', 'remote.origin.mirror\nOff\0'],
+    ['git push', 'remote.origin.push\nrefs/heads/main:refs/heads/main\0'],
+    ['git push origin', 'remote.backup.mirror\ntrue\0remote.backup.push\n:x\0'],
+    ['git push --rep backup', 'remote.origin.mirror\ntrue\0'],
+  ];
+  for (const [command, config, setting] of cases) {
+    it(`${setting === undefined ? 'lets through' : 'blocks'} ${command} with ${JSON.stringify(config)}`, async () => {
+      const { result, checks, read } = await gate(command, async () => config);
+      assert.deepEqual(read, ['/work/tree']);
+      if (setting === undefined) {
+        assert.deepEqual(result, { exitCode: 0, stderr: '' });
+      } else {
+        assert.deepEqual(result, { exitCode: 2, stderr: blocked(setting) });
+        assert.deepEqual(checks, []);
+      }
+    });
+  }
+
+  it('blocks the push when the configuration cannot be read', async () => {
+    const { result, checks } = await gate('git push', async () => {
+      throw new Error('git config exited 3');
+    });
+    assert.deepEqual(result, {
+      exitCode: 2,
+      stderr:
+        "git push is blocked: could not read git's push configuration in /work/tree (git config exited 3).\n",
+    });
+    assert.deepEqual(checks, []);
+  });
+
+  // The configuration of the tree the push runs in, not the hook's (review of #635).
+  it('reads the configuration of the tree the push runs in', async () => {
+    const { read } = await gate('git -C sub push', async () => '');
+    assert.deepEqual(read, [resolve('/work/tree', 'sub')]);
+  });
+
+  it('names a detached HEAD before a configuration it could not read', async () => {
+    const { result } = await gate(
+      'git push',
+      async () => {
+        throw new Error('git config exited 3');
+      },
+      true,
+    );
+    assert.match(result.stderr, /^git push is blocked: HEAD is detached in \/work\/tree/);
+  });
+});
+
+describe('gitPushConfig', () => {
+  const fakeGit = (answer: Partial<ExecResult>) => {
+    const calls: { file: string; args: readonly string[]; options: ExecOptions }[] = [];
+    const exec: ExecProcess = async (file, args, options) => {
+      calls.push({ file, args, options });
+      return { exitCode: 0, stdout: '', stderr: '', output: '', ...answer };
+    };
+    return { calls, exec };
+  };
+
+  it('reads every remote’s push and mirror settings in the tree, with a deadline', async () => {
+    const { calls, exec } = fakeGit({ stdout: 'remote.origin.mirror\ntrue\0', stderr: 'note' });
+    assert.equal(await gitPushConfig(exec)('/work/tree'), 'remote.origin.mirror\ntrue\0');
+    assert.deepEqual(
+      calls.map(({ file, args, options }) => [file, args, options.cwd, options.timeoutMs]),
+      [
+        [
+          'git',
+          ['config', '-z', '--get-regexp', '^remote\\..*\\.(push|mirror)$'],
+          '/work/tree',
+          10_000,
+        ],
+      ],
+    );
+  });
+
+  it('reads no settings when git finds none (exit 1)', async () => {
+    const { exec } = fakeGit({ exitCode: 1 });
+    assert.equal(await gitPushConfig(exec)('/work/tree'), '');
+  });
+
+  const failures: [name: string, answer: Partial<ExecResult>, why: RegExp][] = [
+    ['exits 3', { exitCode: 3, output: 'fatal: bad config line 4' }, /git config exited 3/],
+    ['cannot start', { exitCode: null }, /git config could not start/],
+    ['times out', { exitCode: null, killed: 'timed-out' }, /git config timed out after 10 s/],
+  ];
+  for (const [name, answer, why] of failures) {
+    it(`rejects when git ${name}`, async () => {
+      const { exec } = fakeGit(answer);
+      await assert.rejects(gitPushConfig(exec)('/work/tree'), why);
+    });
+  }
 });
 
 describe('precheck on a detached HEAD', () => {
@@ -672,13 +891,13 @@ describe('precheck on a push from outside the project', () => {
   // The project holds the hook's checkout and ../wt; ../other is someone else's tree, whose
   // check script the gate must not run before the command is approved (review of #301).
   const other = join(root, '..', 'other');
-  const gate = async (command: string) => {
+  const gate = async (command: string, cwd = root) => {
     const { calls: checks, runCheck } = fakeCheck({ ok: true, output: '' });
     const heads: string[] = [];
     const lookups: string[] = [];
     const asked: string[] = [];
     const result = await precheck(
-      hookInput(command, root),
+      hookInput(command, cwd),
       runCheck,
       async () => undefined,
       async (cwd) => {
@@ -732,6 +951,24 @@ describe('precheck on a push from outside the project', () => {
     assert.deepEqual(heads, []);
   });
 
+  // A review's scratch clone is in the project but no tree to run (ADR 0104, ADR 0246).
+  it('blocks a push that starts in a review’s scratch clone, running nothing there', async () => {
+    const scratch = join(root, '.foedrum', 'tmp', '701', 'scratch', 'tree');
+    const { calls, runCheck } = fakeCheck({ ok: true, output: '' });
+    const result = await precheck(
+      hookInput('git push', scratch),
+      runCheck,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (dir) => projectHolds(root, dir, process.platform, (path) => path),
+    );
+    assert.equal(result.exitCode, 2);
+    assert.match(result.stderr, /^git push is blocked: it runs in .*scratch.*push from inside/);
+    assert.deepEqual(calls, []);
+  });
+
   it('checks a tree inside the project', async () => {
     const { result, checks, asked } = await gate('git -C ../wt push');
     assert.deepEqual(result, { exitCode: 0, stderr: '' });
@@ -739,12 +976,40 @@ describe('precheck on a push from outside the project', () => {
     assert.deepEqual(checks, [join(root, '..', 'wt')]);
   });
 
-  // A command that changes no directory runs in the hook's working directory, as before.
-  for (const command of ['git push', 'gh pr ready 5']) {
-    it(`does not ask about the hook's own directory: ${command}`, async () => {
-      const { result, asked } = await gate(command);
+  // gh pr ready with a number looks the pull request up where the hook runs, as before.
+  it("does not ask about the hook's own directory: gh pr ready 5", async () => {
+    const { result, asked } = await gate('gh pr ready 5');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, []);
+  });
+
+  // A push that changes no directory runs in the hook's working directory, which takes the same
+  // test: a session's directory lasts between commands (ADR 0246).
+  it("checks the hook's own directory for a push", async () => {
+    const { result, asked, checks } = await gate('git push');
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(asked, [root]);
+    assert.deepEqual(checks, [root]);
+  });
+
+  for (const command of ['git push', 'git push -u origin 613-x', 'npm test && git push']) {
+    it(`blocks a push that starts outside the project, running nothing there: ${command}`, async () => {
+      const { result, checks, heads } = await gate(command, other);
+      assert.deepEqual(result, {
+        exitCode: 2,
+        stderr: `git push is blocked: it runs in ${other}, outside the project this session works in, so the gate does not run that tree's code: push from inside that checkout.\n`,
+      });
+      assert.deepEqual(checks, []);
+      assert.deepEqual(heads, []);
+    });
+  }
+
+  // gh runs none of that tree's code (ADR 0135, ADR 0246).
+  for (const command of ['gh pr create --draft', 'gh pr ready 5']) {
+    it(`lets ${command} through from a starting directory outside the project`, async () => {
+      const { result, checks } = await gate(command, other);
       assert.deepEqual(result, { exitCode: 0, stderr: '' });
-      assert.deepEqual(asked, []);
+      assert.deepEqual(checks, []);
     });
   }
 });
@@ -838,6 +1103,15 @@ describe('forbiddenReason', () => {
     'git -C ../foedrum push --force',
     'npm run check && git push -f',
     'cd repo; git push origin +main',
+    // git takes a unique prefix of a long option, and the gate also blocks an ambiguous one that
+    // may expand to a force (ADR 0246).
+    'git push --for origin x',
+    'git push --forc origin x',
+    'git push --force-w origin x',
+    'git push --force-with=main origin x',
+    'git push --force-i origin x',
+    'git push --fo origin x',
+    'git --attr-source -h push -f origin x',
   ];
   for (const command of forcePushes) {
     it(`forbids force push: ${command}`, () => {
@@ -869,6 +1143,16 @@ describe('forbiddenReason', () => {
     'git push origin --mirror',
     'git -C ../foedrum push origin --delete old-branch',
     'npm test && git push origin :old-branch',
+    // By prefix, and --prune in every form (ADR 0246).
+    'git push --del origin x',
+    'git push origin --dele x',
+    'git push --mirr',
+    'git push --mir origin',
+    'git push --d origin x',
+    'git push --prune origin',
+    "git push --prune origin 'refs/heads/*:refs/heads/*'",
+    'git push --pru origin',
+    'git push --pr origin',
   ];
   for (const command of deletingPushes) {
     it(`forbids deleting or mirroring remote refs: ${command}`, () => {
@@ -884,6 +1168,12 @@ describe('forbiddenReason', () => {
     'git push -o ci.skip origin main',
     'git push origin HEAD:main',
     'git push --dry-run origin main',
+    'git push --dry origin 613-x',
+    'git push --set-upstream origin 613-x',
+    'git push --follow-tags --progress --no-verify origin 613-x',
+    'git push --porcelain origin 613-x',
+    'git -c core.quotePath=false push origin 613-x',
+    'git config --get user.name',
     'git merge origin/main',
     'git commit -m "never force push: use git push -f only in emergencies"',
     'gh pr create --draft',
@@ -892,6 +1182,54 @@ describe('forbiddenReason', () => {
     'echo git push --force',
   ];
   for (const command of allowed) {
+    it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+});
+
+// git's configuration can make a push delete, force or mirror; the gate reads where it comes from on
+// the command line (ADR 0246). What the configuration files hold is read before the push.
+describe('forbiddenReason on a push configured on its command line', () => {
+  const configured = [
+    'git -c remote.origin.mirror=true push origin',
+    'git -c push.default=matching push',
+    'git -c Remote.origin.Push=:refs/heads/x push',
+    'git -c core.quotePath=false -c remote.origin.push=+HEAD push',
+    'git --config-env=remote.origin.mirror=MIRROR push',
+    'git --config-env remote.origin.push=SPEC push',
+    // An included file may set a remote's settings (review of #635).
+    'git -c include.path=mirror.cfg push',
+    'git -c includeIf.onbranch:main.path=mirror.cfg push',
+    'git -c "$setting" push',
+    'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.mirror GIT_CONFIG_VALUE_0=true git push',
+    `GIT_CONFIG_PARAMETERS="'remote.origin.mirror'='true'" git push`,
+    'GIT_CONFIG_GLOBAL=mirror.cfg git push',
+    'git config remote.origin.push :refs/heads/x && git push',
+    'git remote add --mirror=push backup ../b && git push backup',
+  ];
+  for (const command of configured) {
+    it(`forbids: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^git push is blocked .*git's configuration/);
+    });
+  }
+
+  // The line names every key it blocks, so a session can tell what to remove (review of #635).
+  it('names include settings in the line', () => {
+    assert.match(forbiddenReason('git -c include.path=mirror.cfg push') ?? '', /include\.\*/);
+  });
+
+  it('forbids a push configured in PowerShell', () => {
+    const command = '$env:GIT_CONFIG_PARAMETERS = "x"; git push';
+    assert.match(forbiddenReason(command) ?? '', /git's configuration/);
+  });
+
+  // Only a push is held to it: configuration alone sends nothing.
+  for (const command of [
+    'git -c remote.origin.mirror=true fetch',
+    'git config remote.origin.push refs/heads/main',
+    'GIT_CONFIG_COUNT=0 git status',
+  ]) {
     it(`does not forbid: ${command}`, () => {
       assert.equal(forbiddenReason(command), undefined);
     });

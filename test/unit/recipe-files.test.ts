@@ -2049,3 +2049,57 @@ describe('loadRecipes: a Taster step that names several lenses together (#560, A
     ]);
   });
 });
+
+describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () => {
+  const innkeeper = brewer('innkeeper', {
+    inputs: [{ name: 'recipes', from: 'recipes' }],
+    output: { doc: 'mash-in.md', schema: 'recipeChoice' },
+  });
+  const mashIn = (step: Record<string, unknown> = { chooses: 'recipe' }) =>
+    recipe('mash-in', [{ id: 'innkeep', brewer: 'innkeeper', ...step }]);
+  const files = (step?: Record<string, unknown>) =>
+    brewery({ recipes: [pale, mashIn(step)], brewers: [maltster, brewmaster, innkeeper] });
+
+  it('gives the choices to a step that chooses and to one whose brewer names them, and to no other (ADR 0234)', () => {
+    // A recipe choice that names no input, and a brewer that names the recipes without choosing.
+    const silent = brewer('innkeeper', { output: { doc: 'mash-in.md', schema: 'recipeChoice' } });
+    const planner = brewer('planner', { inputs: [{ name: 'recipes', from: 'recipes' }] });
+    const result = loadRecipes(
+      brewery({
+        recipes: [pale, mashIn(), recipe('plans', [{ brewer: 'planner' }])],
+        brewers: [maltster, brewmaster, silent, planner],
+      }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const offered = (recipe: string, step: string) =>
+      result.brewers.find(recipe, step)?.choices?.map(({ name }) => name);
+    assert.deepEqual(offered('mash-in', 'innkeep'), ['pale', 'plans']);
+    assert.deepEqual(offered('plans', 'planner'), ['pale', 'plans']);
+    assert.equal(offered('pale', 'maltster'), undefined);
+  });
+
+  it("marks the step, and gives its brewer the Brewery's other recipes to offer, in order", () => {
+    const result = loadRecipes(files());
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.equal(result.recipes.find('mash-in')?.choosesRecipe('innkeep'), true);
+    assert.equal(result.recipes.find('pale')?.choosesRecipe('plan'), false);
+    assert.deepEqual(result.brewers.find('mash-in', 'innkeep')?.choices, [
+      { name: 'pale', description: 'The pale.' },
+    ]);
+  });
+
+  it('refuses the step without "chooses", whose answer nothing would act on', () => {
+    assert.deepEqual(problemsOf(files({})), [
+      'recipes/mash-in.jsonc: step "innkeep" has the brewer "innkeeper", which answers with the out doc schema "recipeChoice": give the step "chooses": "recipe" (ADR 0232)',
+    ]);
+  });
+
+  it('refuses "chooses" on a step whose brewer does not answer with recipeChoice', () => {
+    const files = brewery({
+      recipes: [recipe('pale', [{ brewer: 'maltster', chooses: 'recipe' }])],
+    });
+    assert.deepEqual(problemsOf(files), [
+      'recipes/pale.jsonc: step "maltster" has "chooses", but its brewer "maltster" does not answer with the out doc schema "recipeChoice" (ADR 0232)',
+    ]);
+  });
+});

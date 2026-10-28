@@ -10,7 +10,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import { claudeBrewerRunner } from '../../src/brewers/claude-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -25,6 +24,7 @@ import { repoFolder } from '../../src/workspace/attempt-worktrees.ts';
 import { openAttemptWorktrees } from '../../src/workspace/attempt-worktrees-git.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { waitUntil } from '../helpers/load.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { type FakeMessagesApi, startFakeMessagesApi, type ToolCall } from './fake-messages-api.ts';
@@ -200,13 +200,12 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
       ],
     });
     const lane = () => driver?.state().batches.get(batchId)?.lane;
-    const brewing = async () => {
-      const deadline = Date.now() + 120_000;
-      while (lane()?.kind === 'brewing' && Date.now() < deadline) {
+    const brewing = () =>
+      waitUntil(`${batchId} to stop brewing`, async () => {
+        if (lane()?.kind !== 'brewing') return true;
         await driver?.tick();
-        await sleep(100);
-      }
-    };
+        return false;
+      });
     await brewing();
     const asked = lane();
     if (answers !== undefined && asked?.kind === 'stuck' && asked.reason.kind === 'needs_input') {

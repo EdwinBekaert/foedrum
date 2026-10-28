@@ -134,6 +134,42 @@ describe('createAttemptPlans: plan', () => {
     assert.equal(plain.interactive, undefined);
   });
 
+  it('puts the recipes a step that chooses may offer in its prompt, and holds its question to them (ADR 0232)', async () => {
+    const choosing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'innkeeper', chooses: 'recipe' }]),
+        },
+        { path: 'recipes/stout.jsonc', text: recipeText('stout', [{ brewer: 'brewmaster' }]) },
+        { path: 'recipes/ale.jsonc', text: recipeText('ale', [{ brewer: 'brewmaster' }]) },
+      ],
+      brewers: [
+        {
+          path: 'brewers/innkeeper.md',
+          text: brewerText('innkeeper', {
+            output: { doc: 'brew.md', schema: 'recipeChoice' },
+            inputs: [{ name: 'recipes', from: 'recipes' }],
+          }),
+        },
+        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster') },
+      ],
+    });
+    assert.ok(choosing.valid, choosing.valid ? '' : choosing.problems.join('\n'));
+    const { plans } = setup(undefined, {}, undefined, choosing.brewers);
+    const { prompt } = await plans.plan(start);
+    // In the order the loader read them, each with its own description.
+    assert.match(prompt, /name="recipes">\n- stout: The stout\.\n- ale: The ale\.\n\n<\//);
+    const { schema } = plans.limits(ref).outDoc;
+    const asking = (options: string[]) => ({
+      status: 'needs_input',
+      summary: 'A recipe to choose',
+      questions: [{ q: 'Which?', options, recommended: 'stout', whyBlocking: 'It decides' }],
+    });
+    assert.equal(schema.safeParse(asking(['stout', 'ale'])).success, true);
+    assert.equal(schema.safeParse(asking(['stout', 'porter'])).success, false);
+  });
+
   it('puts the text of a lens input in the prompt, tagged with the lens and its file (ADR 0098)', async () => {
     const withLens = loadRecipes({
       recipes: [
@@ -344,6 +380,59 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
+    const planning = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'plan.md', schema: 'plan' },
+            inputs: [{ name: 'repositories', from: 'repositories' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(planning.valid, planning.valid ? '' : planning.problems.join('\n'));
+    const repositories = [
+      { repo: 'acme/web', base: 'origin/develop' },
+      { repo: 'acme/api', base: 'origin/main' },
+    ];
+    const git = async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' });
+    const { plans } = setup(undefined, {}, undefined, planning.brewers, { repositories, git });
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /source="the Brewery's repositories" name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/develop\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n<\/untrusted-input-[0-9a-f]+>/,
+    );
+  });
+
+  it('tells a fresh retry why the attempt before it failed, last, with its inputs (ADR 0248)', async () => {
+    const second = { ...ref, attempt: 2 };
+    const events: Event[] = [
+      ...ordered,
+      started,
+      {
+        type: 'step.finished',
+        ...ref,
+        outcome: { kind: 'failed', retryable: true, reason: 'invalid out doc: summary: Required' },
+      },
+      { type: 'step.scheduled', ...second, deadlineAt: '2026-10-17T13:00:00.000Z', retry: true },
+      { ...started, attempt: 2 },
+    ];
+    const { plans } = setup(events);
+    const { prompt } = await plans.plan({ ...start, ref: second });
+    assert.match(
+      prompt,
+      /name="guide">[\s\S]*source="why step brew runs again: the failure of brew#1" name="retry">\nThe attempt before this one, brew#1, failed: invalid out doc: summary: Required\n<\/untrusted-input-[0-9a-f]+>$/,
+    );
+  });
+
   describe('a resumed attempt (ADR 0117)', () => {
     const deadlineAt = '2026-10-17T13:00:00.000Z';
     const second = { ...ref, attempt: 2 };
@@ -361,7 +450,7 @@ describe('createAttemptPlans: plan', () => {
       session: { id: sessionId, resumes: sessionId, worktree: recreated },
     };
 
-    it('resumes its session with --resume in the worktree it continues, told to go on, reading no input', async () => {
+    it('resumes its session with --resume in the worktree it continues, told to go on, reading no input but why it runs again (ADR 0248)', async () => {
       const events: Event[] = [
         ...ordered,
         started,
@@ -381,7 +470,12 @@ describe('createAttemptPlans: plan', () => {
         plan.prompt,
         /^The run before this one ended before the step was done\. Go on with the step where it stopped, then write brew\.md as your instructions say\./,
       );
-      assert.doesNotMatch(plan.prompt, /untrusted-input/);
+      // Its one input: why the attempt before it failed (ADR 0248).
+      assert.match(
+        plan.prompt,
+        /instructions say\.[\s\S]*source="why step brew runs again: the failure of brew#1" name="retry">\nThe attempt before this one, brew#1, failed: claude crashed\n<\/untrusted-input-[0-9a-f]+>$/,
+      );
+      assert.equal(plan.prompt.match(/source="/g)?.length, 1);
       // Its out doc goes before the run, so the run is read by what it writes (ADR 0118).
       assert.equal(plan.outDocFrom, undefined);
     });
@@ -503,7 +597,8 @@ describe('createAttemptPlans: plan', () => {
       const plan = await plans.plan({ ...start, ref: third });
       assert.deepEqual(plan.call.session, { kind: 'resume', id: sessionId });
       assert.match(plan.prompt, /^The run before this one ended before the step was done\./);
-      assert.doesNotMatch(plan.prompt, /untrusted-input|Which flag/);
+      assert.doesNotMatch(plan.prompt, /Which flag/);
+      assert.match(plan.prompt, /The attempt before this one, brew#2, failed: claude crashed/);
     });
 
     it("starts an answered attempt that fell back fresh with the brewer's inputs and every round's answers (ADR 0118)", async () => {

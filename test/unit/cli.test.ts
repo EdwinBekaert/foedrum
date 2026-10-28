@@ -722,6 +722,30 @@ describe('foedrum status', () => {
   });
 });
 
+describe('foedrum mash (ADR 0232)', () => {
+  it("hands a Brewery issue and the --as name to the terminal's brew, as a mash", async () => {
+    const asked: unknown[] = [];
+    const done = { exitCode: 4, stdout: '', stderr: '' };
+    const brew = async (input: unknown) => {
+      asked.push(input);
+      return done;
+    };
+    assert.deepEqual(await run(['mash', '#13', '--as', 'ann'], { brew }), done);
+    assert.deepEqual(await run(['mash', '14', '--take'], { brew }), done);
+    assert.deepEqual(asked, [
+      { command: 'mash', issue: { issue: 13 }, as: 'ann' },
+      { command: 'mash', issue: { issue: 14 }, take: true },
+    ]);
+  });
+
+  it("refuses a target repository's issue: its order is a Brewery issue", async () => {
+    assertUsageError(
+      await run(['mash', 'web#7']),
+      'foedrum mash: invalid <issue> "web#7": Must be #<n> of the Brewery: a claimed issue is mashed by its Brewery issue',
+    );
+  });
+});
+
 describe('foedrum brew (ADR 0123)', () => {
   it("hands the issue and the --as name to the terminal's brew, and answers with what it did", async () => {
     const asked: unknown[] = [];
