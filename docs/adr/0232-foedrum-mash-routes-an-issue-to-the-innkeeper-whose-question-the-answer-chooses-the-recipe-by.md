@@ -1,6 +1,6 @@
 # 0232. foedrum mash routes an issue to the Innkeeper, whose question the answer chooses the recipe by
 
-Date: 2026-10-28 · Status: Accepted · Narrows #388 (its 2026-10-26 decision: the first step suggests a recipe and asks) and #405 (its `mash` item)
+Date: 2026-10-28 · Status: Accepted · Narrows #388 (its 2026-10-26 decision: the first step suggests a recipe and asks) and #405 (its `mash` item) · Amends [0006](0006-no-mid-run-questions.md), [0019](0019-interactive-sessions-and-one-command-layer.md), [0025](0025-batch-lifecycle-stuck-reminders-and-rewind.md) and [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (the answer to a step that chooses the recipe starts the chosen recipe instead of resuming the step, and `batch.recipe_chosen` gains `askedBy`)
 
 ## Context
 An order gets its recipe from its Brewery issue's one `recipe:<name>` label, read only while it is Ordered ([ADR 0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md), [ADR 0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md)); without one it waits for the routing deadline and goes Stuck on routing ([ADR 0032](0032-routing-deadline-for-ordered-batches.md)).

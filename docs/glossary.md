@@ -69,10 +69,11 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 ## Default recipes — sized by the glass
 
-The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or let the router pick.
+The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or run `foedrum mash` and choose among the Innkeeper's suggestions ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).
 
 | Recipe | Use |
 |---|---|
+| Mash-in | Suggest a recipe for an order and ask which brews it (`foedrum mash`) |
 | Nip | Quick fix |
 | Half-pint | Small feature |
 | Pint | Medium feature, with plan approval |

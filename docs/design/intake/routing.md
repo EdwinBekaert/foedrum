@@ -1,6 +1,6 @@
 # Routing
 
-- **Routing:** a `recipe:<name>` label wins; otherwise a lean router call picks one and explains why; a human can override before work starts.
+- **Routing:** a `recipe:<name>` label routes an order; without one, `foedrum mash` has the Innkeeper suggest a recipe and a person choose it ([ADR 0232](../../adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)); a human can override before work starts.
   In M1 the intake orders a Brewery issue only when an allow-listed user opened it with a `recipe:<name>` label, and each pass routes every Ordered batch whose issue it read by its one such label, whoever ordered it (this pass, a pass killed before it routed, a retry from Stuck on routing).
   Two labels or a recipe the Brewery lacks is reported once; no label waits for the routing deadline, then Stuck on routing.
   A batch whose recipe brews its `concurrency` waits Ordered, is reported once and keeps its routing deadline ([limits](limits.md)).
