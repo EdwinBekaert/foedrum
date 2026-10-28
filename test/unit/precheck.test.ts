@@ -2763,7 +2763,7 @@ describe('npmCheck', () => {
     return { calls, runProcess };
   };
 
-  it('runs npm run check with this node and the npm CLI found next to it, in the given directory', async () => {
+  it('runs npm run check without tests with this node and the npm CLI found next to it, in the given directory', async () => {
     const { calls, runProcess } = fakeProcess({ exitCode: 0, output: '' });
     const looked: string[] = [];
     const findNpmCli: FindNpmCli = async (path) => {
@@ -2772,7 +2772,9 @@ describe('npmCheck', () => {
     };
     await npmCheck(execPath, findNpmCli, runProcess)('/work/tree');
     assert.deepEqual(looked, [execPath]);
-    assert.deepEqual(calls, [[execPath, [npmCli, 'run', 'check'], '/work/tree']]);
+    assert.deepEqual(calls, [
+      [execPath, [npmCli, 'run', 'check', '--', '--no-tests'], '/work/tree'],
+    ]);
   });
 
   it('passes when npm exits 0, keeping its output', async () => {
@@ -2785,6 +2787,21 @@ describe('npmCheck', () => {
     const { runProcess } = fakeProcess({ exitCode: 1, output: 'not ok 1 - café\n' });
     const result = await npmCheck(execPath, found, runProcess)('/work/tree');
     assert.deepEqual(result, { ok: false, output: 'not ok 1 - café\n' });
+  });
+
+  // A branch that has not merged main since ADR 0249 has a check that refuses the argument.
+  it("fails with a line to merge origin/main when the tree's check does not know --no-tests", async () => {
+    const { runProcess } = fakeProcess({
+      exitCode: 1,
+      output: "TypeError [ERR_PARSE_ARGS_UNKNOWN_OPTION]: Unknown option '--no-tests'\n",
+    });
+    const result = await npmCheck(execPath, found, runProcess)('/work/tree');
+    assert.equal(result.ok, false);
+    assert.match(result.output, /^TypeError \[ERR_PARSE_ARGS_UNKNOWN_OPTION\]/);
+    assert.match(
+      result.output,
+      /\nThis branch's scripts\/check\.ts does not know --no-tests \(ADR 0249\): merge origin\/main and push again\.$/,
+    );
   });
 
   it('fails when npm could not start or was killed', async () => {

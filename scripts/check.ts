@@ -20,9 +20,9 @@ export interface CheckStep {
   args: string[];
 }
 
-// Which tests the check runs: every test file with coverage, as npm test (--all), or the test
-// files a change reaches (ADR 0241).
-export type TestRun = { kind: 'coverage' } | Affected;
+// Which tests the check runs: every test file with coverage, as npm test (--all), the test
+// files a change reaches (ADR 0241), or none, at the push gate (--no-tests, ADR 0249).
+export type TestRun = { kind: 'coverage' } | { kind: 'none' } | Affected;
 
 // npm test's command without coverage and without its glob: the files go after it. A unit test
 // holds package.json's test script to it.
@@ -44,6 +44,8 @@ const testStep = (npmCli: string, tests: TestRun): CheckStep[] => {
   switch (tests.kind) {
     case 'coverage':
       return [{ label: 'npm test', args: [npmCli, 'test'] }];
+    case 'none':
+      throw new Error('not implemented');
     case 'all':
       return [
         {
@@ -79,6 +81,8 @@ const testsLine = (tests: TestRun): string => {
   switch (tests.kind) {
     case 'coverage':
       return '';
+    case 'none':
+      throw new Error('not implemented');
     case 'all':
       return `Every test file runs, without coverage: ${tests.why}\n`;
     case 'some':
@@ -121,6 +125,8 @@ export interface CheckOptions {
    * every test file runs with coverage, as npm test (`npm run check -- --all`, ADR 0241).
    */
   affected?: () => Promise<Affected>;
+  /** Runs no tests, finding no change: the push gate's check (`npm run check -- --no-tests`, ADR 0249). */
+  noTests?: boolean;
   /** Lowers this process's priority before the steps start, which inherit it (#140). */
   lowerPriority?: () => void;
 }
