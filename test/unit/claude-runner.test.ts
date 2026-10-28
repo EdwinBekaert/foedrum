@@ -978,9 +978,10 @@ describe('claudeBrewerRunner', () => {
     );
     const running = runner.start(attempt);
     running.stop();
-    const late = new Promise<'still running'>((answer) => {
-      setTimeout(() => answer('still running'), 1000).unref();
-    });
+    // It ends before the event loop turns once more: no wall time to compare (ADR 0070).
+    const late = new Promise<'still running'>((answer) =>
+      setImmediate(() => answer('still running')),
+    );
     const end = await Promise.race([running.ended, late]);
     assert.deepEqual(end === 'still running' ? end : end.ending, { kind: 'cancelled' });
     assert.deepEqual(calls, []);
@@ -1548,9 +1549,8 @@ describe('waitFor', () => {
   it('resolves at once when the signal had already aborted', async () => {
     const stop = new AbortController();
     stop.abort();
-    const late = new Promise<'late'>((answer) => {
-      setTimeout(() => answer('late'), 1000).unref();
-    });
+    // It resolves before the event loop turns once more: no wall time to compare (ADR 0070).
+    const late = new Promise<'late'>((answer) => setImmediate(() => answer('late')));
     const first = await Promise.race([
       waitFor(60_000, stop.signal).then(() => 'now' as const),
       late,
