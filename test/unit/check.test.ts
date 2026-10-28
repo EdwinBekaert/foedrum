@@ -148,6 +148,18 @@ describe('checkSteps for the test files a change reaches', () => {
     ]);
   });
 
+  it('has no test step with --no-tests, and keeps the others', () => {
+    assert.deepEqual(
+      checkSteps(npmCli, { kind: 'none' }).map(({ label }) => label),
+      [
+        'npm run typecheck',
+        'npm run lint',
+        'node scripts/check-test-layers.ts',
+        'node scripts/check-deps.ts --offline',
+      ],
+    );
+  });
+
   it('has no test step when the change reaches no test file, and keeps the others', () => {
     assert.deepEqual(
       checkSteps(npmCli, { kind: 'some', files: [] }).map(({ label }) => label),
@@ -196,6 +208,14 @@ describe('checkMode', () => {
 
   it('finds the test files the change reaches without --all', () => {
     assert.deepEqual(checkMode([], affected), { affected });
+  });
+
+  it('runs no tests with --no-tests, finding no change', () => {
+    assert.deepEqual(checkMode(['--no-tests'], affected), { noTests: true });
+  });
+
+  it('refuses --no-tests with --all', () => {
+    assert.throws(() => checkMode(['--all', '--no-tests'], affected), /--all and --no-tests/);
   });
 
   it('refuses an argument it does not know', () => {
@@ -261,6 +281,38 @@ describe('runCheck with the test files a change reaches', () => {
     assert.deepEqual(
       calls.filter((args) => args[0] === 'scripts/with-checkout-tmp.ts'),
       [[...testRun, 'test/{unit,property,chaos}/**/*.test.ts']],
+    );
+  });
+
+  it('runs no tests with --no-tests, saying CI runs them, without reading the change', async () => {
+    const calls: string[][] = [];
+    const runProcess: RunProcess = async (_file, args) => {
+      calls.push(args);
+      return green('');
+    };
+    let written = '';
+    const exitCode = await runCheck({
+      env,
+      execPath,
+      runProcess,
+      cwd,
+      read: upToDate,
+      write: (text) => {
+        written += text;
+      },
+      affected: async () => {
+        throw new Error('the change was read');
+      },
+      noTests: true,
+    });
+    assert.equal(exitCode, 0);
+    assert.ok(
+      written.startsWith('No tests run here: CI runs them (npm run check -- --all).\n'),
+      written,
+    );
+    assert.deepEqual(
+      calls,
+      checkSteps(npmCli, { kind: 'none' }).map(({ args }) => args),
     );
   });
 
