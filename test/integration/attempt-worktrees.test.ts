@@ -416,9 +416,7 @@ describe('the driver and attempt worktrees with real git', () => {
       runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
       recipes,
       clock: () => new Date('2026-10-16T12:00:00.000Z'),
-      ...(worktrees
-        ? { worktrees: { repo: 'acme/app', base: 'origin/main', manager: manager() } }
-        : {}),
+      ...(worktrees ? { worktrees: manager() } : {}),
     });
   const brewOnTap = async (brewing: ReturnType<typeof createBrewing>) => {
     assert.ok(brewing.command({ kind: 'order', batchId: '12-1', order: { issue: 12 } }));
@@ -429,13 +427,32 @@ describe('the driver and attempt worktrees with real git', () => {
   };
 
   it('records each attempt worktree, and leaves nothing behind once the batch is on tap', async () => {
-    const brewing = driver(true);
-    await brewing.start();
-    await brewOnTap(brewing);
+    const clock = () => new Date('2026-10-16T12:00:00.000Z');
+    const driver = await openDriver({
+      store,
+      runner: fakeBrewerRunner({ plan: [behave.succeed()], implement: [behave.succeed()] }),
+      recipes,
+      clock,
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: manager() }],
+    });
+    try {
+      const intake = createCommandLog({ store, recipes });
+      intake.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, clock());
+      const route = { kind: 'route', batchId: '12-1', recipe: 'pint', reason: 'label' } as const;
+      intake.issue({ ...route, source: 'label' }, clock());
+      await driver.drive();
+      assert.equal(driver.state().batches.get('12-1')?.lane.kind, 'on_tap');
+    } finally {
+      driver.close();
+    }
 
-    const recorded = brewing
-      .events()
-      .flatMap((event) =>
+    const recorded = store
+      .eventsAfter(0)
+      .flatMap(({ event }) =>
         event.type === 'step.started' && event.worktree !== undefined ? [event.worktree] : [],
       );
     assert.deepEqual(

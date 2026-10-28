@@ -10,6 +10,8 @@ import { attemptLimits, routeInput, routeOf } from '../../src/brewers/attempt-pl
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { createCommandLog } from '../../src/engine/command-log.ts';
+import { openDriver } from '../../src/engine/driver.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -18,6 +20,7 @@ import { Disposition, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
 import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner, outDoc } from '../helpers/fake-brewer-runner.ts';
+import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
 
 // A Brewery with no recipes/, brewers/ or lenses/ of its own: a folder that does not exist has
@@ -419,11 +422,13 @@ describe('the default Cellarman', () => {
       // The out docs the brewers wrote, by their path in the attempt's worktree.
       const written = new Map<string, string>();
       const outDocOf = (id: string) => brewers.find('nip', id)?.brewer.output.doc;
-      const brewing = createBrewing({
+      const clock = () => new Date('2026-10-21T12:00:00.000Z');
+      const events = () => store.eventsAfter(0).map(({ event }) => event);
+      const driver = await openDriver({
         store,
         runner: fakeBrewerRunner((attempt) => {
           const { stepId } = attempt.ref;
-          const batch = fold(brewing.events()).batches.get('b1');
+          const batch = fold(events()).batches.get('b1');
           assert.ok(batch !== undefined);
           if (stepId === 'implement' && attempt.ref.attempt === 1) {
             const running = batch.steps.get('implement')?.attempts.get(1);
@@ -446,29 +451,30 @@ describe('the default Cellarman', () => {
           }
           return scripts[stepId]?.shift();
         }),
-        worktrees: { repo: 'acme/api', base: 'origin/main', manager: fakeWorktrees() },
+        worktrees: [{ repo: 'acme/api', base: 'origin/main', manager: fakeWorktrees() }],
         recipes,
         // Implement's out doc read with the Cellarman's own schema, as the attempt plan reads it.
-        limits: (stepId) => {
+        limits: ({ stepId }) => {
           const found = stepId === 'implement' ? brewers.find('nip', stepId) : undefined;
           return found === undefined ? defaultLimits : attemptLimits(found.brewer);
         },
-        clock: () => new Date('2026-10-21T12:00:00.000Z'),
+        clock,
+        lock: () => fakeLock('cellar'),
+        takes: () => true,
+        stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       });
-      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
-      assert.ok(
-        brewing.command({
-          kind: 'route',
-          batchId: 'b1',
-          recipe: 'nip',
-          reason: 'label',
-          source: 'label',
-        }),
+      try {
+        const intake = createCommandLog({ store, recipes });
+        intake.issue({ kind: 'order', batchId: 'b1', order: { issue: 1 } }, clock());
+        const route = { kind: 'route', batchId: 'b1', recipe: 'nip', reason: 'label' } as const;
+        intake.issue({ ...route, source: 'label' }, clock());
+        await driver.drive();
+      } finally {
+        driver.close();
+      }
+      const started = events().flatMap((event) =>
+        event.type === 'step.started' ? [event.stepId] : [],
       );
-      await brewing.drive();
-      const started = brewing
-        .events()
-        .flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
       // An out doc the Cellarman's schema refused would retry implement instead of going to gauge.
       assert.deepEqual(started.slice(0, 4), ['gauge', 'red', 'implement', 'gauge']);
       assert.equal(told.length, 2);
