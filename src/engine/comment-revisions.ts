@@ -11,6 +11,21 @@ import type { State } from './fold.ts';
 import { digestOf } from './pull-request.ts';
 import type { StatusComments } from './status-comment.ts';
 
+/**
+ * How long the text of a comment may be: below GitHub's 65,536 characters for a comment, with room
+ * for its marker, and for a merge brief's title. Escaping can make each text a brewer wrote five
+ * times as long, so the caps on those texts alone do not keep it there.
+ */
+export const longestComment = 60_000;
+
+/** `text` cut to whole lines below `longestComment`, so no escape or entity is cut in half. */
+export const cutForComment = (text: string): string => {
+  if (text.length <= longestComment) return text;
+  const note = '\n\n… the rest is cut: GitHub keeps comments shorter.';
+  const kept = text.slice(0, longestComment - note.length);
+  return `${kept.slice(0, kept.lastIndexOf('\n'))}${note}`;
+};
+
 /** A revision of a comment that is due. */
 export interface DueRevision {
   key: BatchEffectKey;

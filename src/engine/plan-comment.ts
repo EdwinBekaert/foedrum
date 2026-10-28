@@ -6,18 +6,17 @@ import type { IsCommit } from '../formats/secrets.ts';
 import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
 import type { StatusRevision } from '../schemas/status-comment.ts';
 import { breweryIssueOf } from './claim-orders.ts';
-import { commentRevisions, type DueRevision } from './comment-revisions.ts';
+import {
+  commentRevisions,
+  cutForComment,
+  type DueRevision,
+  longestComment,
+} from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
 import type { Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { code, plain, type StatusComments } from './status-comment.ts';
-
-/**
- * How long the text may be: below GitHub's 65,536 characters for a comment, with room for the
- * marker, as the status comment's.
- */
-const longestText = 60_000;
 
 /** A text the brewer of `stepId` wrote, on one line, or a fixed line when it looks like a secret. */
 type Told = (text: string) => string;
@@ -114,15 +113,10 @@ export const renderPlan = (
   const joined = (sections: string[][]): string =>
     sections.map((lines) => lines.join('\n')).join('\n\n');
   const text = joined([title, table, order, ...others, ...after]);
-  if (text.length <= longestText) return text;
+  if (text.length <= longestComment) return text;
   // The graph goes first, so a cut never leaves its block open.
   const left = ['**Order**', '', 'The graph is left out: GitHub keeps comments shorter.'];
-  const shorter = joined([title, table, left, ...others, ...after]);
-  if (shorter.length <= longestText) return shorter;
-  // Whole lines only, so no escape or entity is cut in half.
-  const cutNote = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = shorter.slice(0, longestText - cutNote.length);
-  return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
+  return cutForComment(joined([title, table, left, ...others, ...after]));
 };
 
 const revisions = commentRevisions('plan', 'plan comment');

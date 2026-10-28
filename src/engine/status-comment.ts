@@ -9,7 +9,7 @@ import { planOf } from '../schemas/plan.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
 import { breweryIssueOf } from './claim-orders.ts';
-import { commentRevisions, type DueRevision } from './comment-revisions.ts';
+import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
 import {
   type Attempt,
@@ -78,12 +78,6 @@ const mostAssumptions = 10;
 /** How many questions of a batch Stuck for input the comment shows, and options of each. */
 const mostQuestions = 10;
 const mostOptions = 10;
-/**
- * How long the text may be: below GitHub's 65,536 characters for a comment, with room for the
- * marker. Escaping can make each text a brewer wrote five times as long, so the caps alone do not
- * keep it there.
- */
-const longestText = 60_000;
 
 /** HTML's characters and `@`, as the entities GitHub shows as themselves. */
 const entities: Readonly<Record<string, string>> = {
@@ -779,12 +773,7 @@ export const renderStatus = (
           ],
     );
   }
-  const text = sections.map((lines) => lines.join('\n')).join('\n\n');
-  if (text.length <= longestText) return text;
-  // Whole lines only, so no escape or entity is cut in half.
-  const cutNote = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = text.slice(0, longestText - cutNote.length);
-  return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
+  return cutForComment(sections.map((lines) => lines.join('\n')).join('\n\n'));
 };
 
 const revisions = commentRevisions('status', 'status comment');
