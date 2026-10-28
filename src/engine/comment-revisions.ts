@@ -36,10 +36,6 @@ export interface DueRevision {
   previous?: StatusRevision;
 }
 
-/** A revision's result, checked: the id comes from the code host, and the ledger keeps it. */
-const revisionOf = (comment: number, digest: string): StatusRevision =>
-  StatusRevision.parse({ comment: commentId(comment), digest });
-
 /** The revisions of the comment whose effects are `<prefix>.<n>`, the `what` errors name. */
 export const commentRevisions = (prefix: string, what: string) => {
   const keyOf = (batchId: string, revision: number): BatchEffectKey => ({
@@ -77,7 +73,8 @@ export const commentRevisions = (prefix: string, what: string) => {
       return due;
     };
     const applied = (due: DueRevision, comment: number, digest: string): StatusRevision => {
-      const result = revisionOf(comment, digest);
+      // Checked: the id comes from the code host, and the ledger keeps it.
+      const result = StatusRevision.parse({ comment: commentId(comment), digest });
       done(due);
       return result;
     };

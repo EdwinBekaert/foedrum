@@ -324,8 +324,10 @@ export const checkLines = (state: State, batch: Batch): string[] =>
   openCheckLines(batch, openOf(state, batch));
 
 /** The check line of `open`, the pull request `openOf` reads: no other is read any more. */
-const openCheckLines = (batch: Batch, open?: OpenPullRequest): string[] =>
-  open === undefined ? [] : [open.url].flatMap((url) => checkLine(batch, url) ?? []);
+const openCheckLines = (batch: Batch, open?: OpenPullRequest): string[] => {
+  const line = open === undefined ? undefined : checkLine(batch, open.url);
+  return line === undefined ? [] : [line];
+};
 
 /** What the latest record of the checks on the head of the pull request `url` says (ADR 0213). */
 const checkLine = (batch: Batch, url: string): string | undefined => {

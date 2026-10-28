@@ -68,7 +68,7 @@ export interface BaseMerge {
 }
 
 /** The ledger's effect name of the merge before a check attempt (ADR 0164). */
-export const MERGE_BASE = 'merge_base';
+const MERGE_BASE = 'merge_base';
 
 export const baseMergeKey = (ref: AttemptRef): AttemptEffectKey => ({ ...ref, effect: MERGE_BASE });
 
