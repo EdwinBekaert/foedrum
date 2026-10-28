@@ -82,12 +82,47 @@ describe('isGatedCommand', () => {
     'gh -R owner/repo pr create --draft',
     'npm run check',
     '',
+    // git prints push's help and pushes nothing (ADR 0246).
+    'git push -h',
+    'git push -h 2>&1',
+    'git push --help',
+    'git --help push',
+    'git -h',
+    'git help push',
   ];
   for (const command of ungated) {
     it(`lets through: ${command || '(empty)'}`, () => {
       assert.equal(isGatedCommand(command), false);
     });
   }
+
+  // git reads -h as help only when it is push's one argument.
+  for (const command of ['git push -h origin', 'git push origin -h']) {
+    it(`gates: ${command}`, () => {
+      assert.equal(isGatedCommand(command), true);
+    });
+  }
+
+  it('runs no check and no scan for push’s help', async () => {
+    const { calls, runCheck } = fakeCheck({ ok: false, output: 'fails' });
+    const scans: string[] = [];
+    const result = await precheck(
+      hookInput('git push -h'),
+      runCheck,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (dir) => {
+        scans.push(dir);
+        return 'denied';
+      },
+    );
+    assert.deepEqual(result, { exitCode: 0, stderr: '' });
+    assert.deepEqual(calls, []);
+    assert.deepEqual(scans, []);
+  });
 });
 
 describe('precheck', () => {
