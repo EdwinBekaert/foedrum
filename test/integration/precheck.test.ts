@@ -98,8 +98,8 @@ describe('scripts/precheck.ts started by node', () => {
   });
 
   // The hook runs before every Bash and PowerShell call, so a call that does not name git or gh
-  // must cost no more than node and this one file (#41).
-  it('loads no other module for a call that does not name git or gh', async () => {
+  // must cost no more than node, this file and the pre-filter it imports (#41, ADR 0252).
+  it('loads only the pre-filter for a call that does not name git or gh', async () => {
     const recordLoads = `import { registerHooks } from 'node:module';
       registerHooks({ load(url, context, next) {
         if (url.startsWith('file:')) process.stderr.write('loaded ' + url + '\\n');
@@ -112,7 +112,11 @@ describe('scripts/precheck.ts started by node', () => {
       { cwd: root, env: envWithoutNpm() },
     );
     assert.equal(code, 0);
-    assert.deepEqual(stderr.trim().split(/\r?\n/), [`loaded ${pathToFileURL(script).href}`]);
+    const prefilter = join(root, 'scripts', 'precheck', 'prefilter.ts');
+    assert.deepEqual(stderr.trim().split(/\r?\n/), [
+      `loaded ${pathToFileURL(script).href}`,
+      `loaded ${pathToFileURL(prefilter).href}`,
+    ]);
   });
 
   it('blocks a push from a checkout whose node_modules is out of date, before npm runs', async () => {
