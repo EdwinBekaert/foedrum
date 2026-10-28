@@ -716,4 +716,15 @@ describe('routeOf: a pull request that conflicts with the moved base (ADR 0244)'
       undefined,
     );
   });
+
+  it('tells a resumed session whose kept merge has every file resolved to commit it', () => {
+    const merge = { base: newer, kept: { files: [], more: 0 } };
+    assert.equal(
+      keptMergeInput(merge, 'main', 'implement')?.text,
+      [
+        `The merge of main at ${newer} is still in progress in this worktree. Every file is resolved.`,
+        resolve,
+      ].join('\n\n'),
+    );
+  });
 });

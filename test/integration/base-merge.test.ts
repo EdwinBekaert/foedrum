@@ -533,5 +533,25 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
       const head = git(tree.path, ['rev-parse', 'HEAD']).trim();
       assert.deepEqual(await target(tree, true).find(key), { result: { base, merged: head } });
     });
+
+    it('merges again from a HEAD that moved past the start without the merge, and finds nothing new once HEAD holds the tip (ADR 0244)', async () => {
+      const tree = worktree('readme.txt', 'mine\n');
+      // A resumed worktree recreated on its branch: the brewer's commit after the start, no merge.
+      commit(tree.path, 'plan.txt', 'more\n');
+      const base = mergeIntoMain('readme.txt', 'theirs\n');
+      assert.equal(await target(tree, true).find(key), undefined);
+      const again = await target(tree, true).apply(key);
+      assert.deepEqual(again, {
+        base,
+        kept: { files: [{ path: 'readme.txt', status: 'both modified' }], more: 0 },
+      });
+      // Concluded, then one more commit: HEAD holds the tip, so nothing is merged.
+      writeFileSync(join(tree.path, 'readme.txt'), 'both\n');
+      git(tree.path, ['add', 'readme.txt']);
+      git(tree.path, ['commit', '-q', '--no-edit']);
+      commit(tree.path, 'plan.txt', 'after\n');
+      assert.equal(await target(tree, true).find(key), undefined);
+      assert.deepEqual(await target(tree, true).apply(key), { base });
+    });
   });
 });

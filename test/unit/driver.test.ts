@@ -1164,6 +1164,10 @@ describe('openDriver', () => {
           pending = undefined;
           head = MERGED;
         },
+        /** HEAD moved to `commit`, a commit of the brewer's that is no merge. */
+        move: (commit: string) => {
+          head = commit;
+        },
         failFetch: (message: string) => {
           fetches = () => {
             throw new Error(message);
@@ -1604,6 +1608,67 @@ describe('openDriver', () => {
           assert.deepStrictEqual(fixLedger(driver, retry), {
             base: BASE,
             kept: { files: files.slice(2), more: 0 },
+          });
+        });
+
+        it('merges again, its conflict kept, for a resumed retry whose worktree moved past the start without the merge', async () => {
+          sentBack('conflict');
+          const { merge, calls, leave, move } = fakeMerge(kept);
+          const session = '0f8fad5b-d9cb-469f-a165-708677289500';
+          const thrice = fakeRecipe({
+            steps: ['implement', 'green', 'open'],
+            actions: { open: 'openPullRequest' },
+            merges: ['green'],
+            pullRequests: [],
+            maxAttempts: 3,
+          });
+          const { driver, hand } = await drive(merge, {
+            recipes: fakeRecipes({ nip: thrice }),
+            sessionId: () => session,
+            resumes: () => true,
+          });
+          // The worktree was recreated on its branch: the brewer's commit, no merge in progress.
+          leave(undefined);
+          move('f'.repeat(40));
+          const crashed = { kind: 'failed', retryable: true, reason: 'claude crashed' } as const;
+          const init = { sessionId: session, model: 'claude-sonnet-5-5', claudeVersion: '2.1.301' };
+          hand.end(fix, crashed, { session: init });
+          await driver.drive();
+          const retry = { ...fix, attempt: 3 };
+          assert.deepStrictEqual(hand.started, [fix, retry]);
+          assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 2);
+          assert.deepStrictEqual(fixLedger(driver, retry), keptRecord);
+        });
+
+        it('fails a done retryably when every file is resolved but the merge is not committed', async () => {
+          sentBack('conflict');
+          const { merge, leave } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          leave({ tip: BASE, files: [] });
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'failed',
+            retryable: true,
+            reason: `the merge of main at ${BASE} is resolved but not committed: git commit it`,
+          });
+        });
+
+        it('fails a done retryably when git cannot say whether the merge is concluded', async () => {
+          sentBack('conflict');
+          const { merge } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          merge.worktree.pending = async () => {
+            throw new Error('git status failed');
+          };
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'failed',
+            retryable: true,
+            reason: 'the merge of the base could not be read: git status failed',
           });
         });
       });
