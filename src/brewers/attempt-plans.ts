@@ -16,6 +16,7 @@ import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
+import { readOutDocFile } from '../platform/bounded-read.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
@@ -57,7 +58,7 @@ import {
   settingsFileOf,
 } from './attempt-plan.ts';
 import type { ConfigDirs } from './attempt-settings.ts';
-import { type ClaudeAttemptPlan, type OutDocRead, readOutDocFile } from './claude-runner.ts';
+import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
 import {
   blobTexts,
   breweryRules,

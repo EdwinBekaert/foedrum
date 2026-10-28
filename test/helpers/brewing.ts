@@ -1,8 +1,9 @@
 // A minimal driver for engine tests (ADR 0019): it starts every scheduled attempt on a brewer
 // runner, keeps the lease of every attempt the runner reports, finishes attempts as they end, and
-// runs the supervisor's ticks. With attempt worktrees, it gives each attempt its worktree and
-// records it, and cleans a batch's worktrees once the batch has ended (ADR 0037). Everything goes
-// through decide and an event store, with the clock the test controls.
+// runs the supervisor's ticks. With a worktree manager, it cleans a batch's worktrees once the batch
+// has ended and repairs them all at its start (ADR 0037); making an attempt's worktree is the real
+// driver's, tested through `openDriver` (#615). Everything goes through decide and an event store,
+// with the clock the test controls.
 
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type {
@@ -18,7 +19,6 @@ import type { EventStore, EventStoreTransaction } from '../../src/engine/event-s
 import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
 import type { Recipes } from '../../src/engine/recipes.ts';
 import { createSupervisor, type Notice } from '../../src/engine/supervisor-loop.ts';
-import { taskTreeStart } from '../../src/engine/task-tree.ts';
 import {
   batchIsOver,
   createWorktreeCleanup,
@@ -26,11 +26,7 @@ import {
 } from '../../src/engine/worktree-cleanup.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
-import type {
-  AttemptWorktree,
-  AttemptWorktrees,
-  CleanReport,
-} from '../../src/workspace/attempt-worktrees-git.ts';
+import type { AttemptWorktrees, CleanReport } from '../../src/workspace/attempt-worktrees-git.ts';
 import { fakeLock } from './fake-lock.ts';
 
 export interface BrewingOptions {
@@ -48,15 +44,8 @@ export interface BrewingOptions {
   routingMs?: number;
   /** The driver's lock, which names its owner; default a fake one of driver-1, held. */
   lock?: DriverLock;
-  /**
-   * The attempt worktrees of the one repository the attempts write in, and the base a batch starts
-   * from until its task tree moves (ADR 0066); without them, attempts get no worktree and nothing is cleaned.
-   */
-  worktrees?: {
-    repo: string;
-    base: string;
-    manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'>;
-  };
+  /** The attempt worktrees to clean and repair; without them, nothing is cleaned. */
+  worktrees?: Pick<AttemptWorktrees, 'root' | 'clean'>;
 }
 
 export const defaultLimits: AttemptLimits = {
@@ -109,7 +98,7 @@ export const createBrewing = (options: BrewingOptions) => {
   };
 
   const cleanup = createWorktreeCleanup({
-    worktrees: worktrees === undefined ? [] : [worktrees.manager],
+    worktrees: worktrees === undefined ? [] : [worktrees],
     state,
     leases: () => store.currentLeases(clock()),
   });
@@ -143,38 +132,9 @@ export const createBrewing = (options: BrewingOptions) => {
       expiresAt: new Date(clock().getTime() + leaseMs),
     });
 
-  /**
-   * Records the start of an attempt under its lease, with the worktree it was given; false when it
-   * cannot start. An attempt whose worktree cannot be made fails retryably: whatever is in the way
-   * stays, and the next attempt has names of its own (ADR 0029).
-   */
-  const startAttempt = async (ref: AttemptRef, key: string): Promise<boolean> => {
-    const started = { type: 'step.started', ...ref } as const;
-    if (worktrees === undefined) {
-      return command({ kind: 'record', event: started }, (tx) => lease(tx, key));
-    }
-    // The lease first: only the holder of an attempt's lease may make its worktree.
-    store.withTransaction((tx) => lease(tx, key));
-    let made: AttemptWorktree;
-    try {
-      const batch = state().batches.get(ref.batchId);
-      if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
-      // At the commits of the steps before it (ADR 0066).
-      made = await worktrees.manager.create(ref, taskTreeStart(batch, worktrees));
-    } catch (error) {
-      const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
-      const ending = { kind: 'failed', retryable: true, reason } as const;
-      if (command({ kind: 'record', event: started })) {
-        command({ kind: 'finish', ...ref, ending });
-      }
-      store.withTransaction((tx) => tx.releaseLease(key));
-      return false;
-    }
-    const worktree = { repo: worktrees.repo, ...made };
-    if (command({ kind: 'record', event: { ...started, worktree } })) return true;
-    store.withTransaction((tx) => tx.releaseLease(key));
-    return false;
-  };
+  /** Records the start of an attempt under its lease; false when it cannot start. */
+  const startAttempt = (ref: AttemptRef, key: string): boolean =>
+    command({ kind: 'record', event: { type: 'step.started', ...ref } }, (tx) => lease(tx, key));
 
   /**
    * Starts the scheduled attempts, finishes the ended ones and cleans the worktrees of batches that
@@ -199,7 +159,7 @@ export const createBrewing = (options: BrewingOptions) => {
           });
           if (waits) continue;
           moved = true;
-          if (!(await startAttempt(ref, key))) continue;
+          if (!startAttempt(ref, key)) continue;
           const run = runner.start({ ref, limits: limits(stepId) });
           runs.set(key, { ref, run });
           run.ended.then(
