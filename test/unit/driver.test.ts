@@ -8,7 +8,12 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
-import { type BaseMerge, baseMergeKey, type WorktreeMerged } from '../../src/engine/base-merge.ts';
+import {
+  type BaseMerge,
+  baseMergeKey,
+  type PendingMerge,
+  type WorktreeMerged,
+} from '../../src/engine/base-merge.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import type {
   AttemptEnd,
@@ -33,6 +38,7 @@ import { fold, type State } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ModelFamily } from '../../src/engine/usage-window.ts';
 import type { Event, UsageLimitName } from '../../src/schemas/events.ts';
+import type { KeptFile } from '../../src/schemas/store.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -1125,6 +1131,8 @@ describe('openDriver', () => {
     ) => {
       const calls: string[] = [];
       let head = FAKE_COMMIT;
+      // A merge left in progress (ADR 0244), which outlives the run that left it.
+      let pending: PendingMerge | undefined;
       let fetches: () => string = () => BASE;
       const merge: BaseMerge = {
         base: 'main',
@@ -1133,18 +1141,22 @@ describe('openDriver', () => {
             calls.push(`fetch ${base}`);
             return fetches();
           },
-          isAncestor: async (commit, of) => commit === of,
+          // The merge commit holds the base.
+          isAncestor: async (commit, of) => commit === of || (commit === BASE && of === MERGED),
         },
         worktree: {
           head: async () => head,
           parents: async (_path, commit) => (commit === MERGED ? [FAKE_COMMIT, BASE] : []),
           abort: async () => {
             calls.push('abort');
+            pending = undefined;
           },
-          merge: async (path, commit, message) => {
-            calls.push(`merge ${commit} into ${path}: ${message}`);
+          pending: async () => pending,
+          merge: async (path, commit, message, _signal, keep) => {
+            calls.push(`merge ${commit} into ${path}: ${message}${keep === true ? ', kept' : ''}`);
             const merged = merges();
             if (merged.kind === 'merged') head = merged.commit;
+            if (merged.kind === 'kept') pending = { tip: commit, files: merged.files };
             return merged;
           },
         },
@@ -1152,6 +1164,19 @@ describe('openDriver', () => {
       return {
         merge,
         calls,
+        /** A merge in progress in every worktree, as a killed run or a brewer left it. */
+        leave: (left: PendingMerge | undefined) => {
+          pending = left;
+        },
+        /** The brewer resolved the files and committed the merge. */
+        conclude: () => {
+          pending = undefined;
+          head = MERGED;
+        },
+        /** HEAD moved to `commit`, a commit of the brewer's that is no merge. */
+        move: (commit: string) => {
+          head = commit;
+        },
         failFetch: (message: string) => {
           fetches = () => {
             throw new Error(message);
@@ -1367,8 +1392,8 @@ describe('openDriver', () => {
         const decision = intake.issue(command, now);
         assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
       };
-      /** Nip's batch on tap with its pull request, sent back to implement by `route`. */
-      const sentBack = (cause: boolean): void => {
+      /** Nip's batch on tap with its pull request, sent back to implement for `cause`. */
+      const sentBack = (cause?: 'merged_check' | 'conflict'): void => {
         orderNip();
         for (const stepId of ['implement', 'green', 'open']) {
           const ref = { batchId: 'b1', stepId, attempt: 1 };
@@ -1395,15 +1420,16 @@ describe('openDriver', () => {
             why: 'pull_request',
             pullRequest: PULL,
             head: HEAD,
-            ...(cause ? { cause: 'merged_check', tip: TIP } : {}),
+            ...(cause === undefined ? {} : { cause, tip: TIP }),
           },
         });
       };
-      const drive = async (merge: BaseMerge) => {
+      const drive = async (merge: BaseMerge, more: Partial<DriverOptions> = {}) => {
         const hand = handRunner();
         const driver = await open({
           runner: hand.runner,
           worktrees: [{ repo: 'acme/app', base: 'origin/main', manager: fakeWorktrees(), merge }],
+          ...more,
         });
         await driver.drive();
         return { driver, hand };
@@ -1412,20 +1438,20 @@ describe('openDriver', () => {
         driver.state().effects.get(effectKey.encode(baseMergeKey(ref)));
 
       it('merges the base into the worktree of the fix before its brewer runs, through the ledger', async () => {
-        sentBack(true);
+        sentBack('merged_check');
         const { merge, calls } = fakeMerge();
         const { driver, hand } = await drive(merge);
         assert.deepStrictEqual(hand.started, [fix]);
+        // A merge in progress is kept, never aborted (ADR 0244).
         assert.deepStrictEqual(calls, [
-          'abort',
           'fetch main',
-          `merge ${BASE} into ${fixPath}: Merge main before implement`,
+          `merge ${BASE} into ${fixPath}: Merge main before implement, kept`,
         ]);
         assert.deepStrictEqual(fixLedger(driver), { base: BASE, merged: MERGED });
       });
 
       it('finds the merge a killed run made, and merges no second time', async () => {
-        sentBack(true);
+        sentBack('merged_check');
         const { merge, calls } = fakeMerge();
         merge.worktree.head = async () => MERGED;
         const { driver, hand } = await drive(merge);
@@ -1435,7 +1461,7 @@ describe('openDriver', () => {
       });
 
       it('merges again at the start of a retry of the fix', async () => {
-        sentBack(true);
+        sentBack('merged_check');
         const { merge, calls } = fakeMerge();
         append({ type: 'step.started', ...fix });
         const reason = 'the brewer broke';
@@ -1450,7 +1476,7 @@ describe('openDriver', () => {
       });
 
       it('merges again at the start of an answered fix that starts fresh', async () => {
-        sentBack(true);
+        sentBack('merged_check');
         const { merge, calls } = fakeMerge();
         // The fix asked a question and recorded no session to resume: its answer starts fresh.
         append({ type: 'step.started', ...fix });
@@ -1471,12 +1497,189 @@ describe('openDriver', () => {
       });
 
       it('merges nothing at the start of a fix the head checks sent back', async () => {
-        sentBack(false);
+        sentBack();
         const { merge, calls } = fakeMerge();
         const { driver, hand } = await drive(merge);
         assert.deepStrictEqual(hand.started, [fix]);
         assert.deepStrictEqual(calls, []);
         assert.equal(fixLedger(driver), undefined);
+      });
+
+      describe('a conflict at the start merge is kept for the brewer (ADR 0244)', () => {
+        const files: KeptFile[] = [
+          { path: 'src/a.ts', status: 'both modified' },
+          { path: 'logo.png', status: 'both modified', unmarked: true },
+          { path: 'old.ts', status: 'deleted by them', unmarked: true },
+        ];
+        const kept = (): WorktreeMerged => ({ kind: 'kept', files: [...files] });
+        const keptRecord = { base: BASE, kept: { files: [...files], more: 0 } };
+        const finishOf = (driver: Driver, ref: AttemptRef = fix) =>
+          driver.state().batches.get('b1')?.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+
+        for (const cause of ['conflict', 'merged_check'] as const) {
+          it(`leaves the conflict in progress and runs the brewer, sent back for ${cause}`, async () => {
+            sentBack(cause);
+            const { merge, calls } = fakeMerge(kept);
+            const { driver, hand } = await drive(merge);
+            assert.deepStrictEqual(hand.started, [fix]);
+            assert.ok(!calls.includes('abort'), calls.join(', '));
+            assert.deepStrictEqual(fixLedger(driver), keptRecord);
+          });
+        }
+
+        it('finds a merge a killed run left in progress and keeps it, merging no second time', async () => {
+          sentBack('conflict');
+          const { merge, calls, leave } = fakeMerge();
+          leave({ tip: BASE, files: files.slice(0, 1) });
+          const { driver, hand } = await drive(merge);
+          assert.deepStrictEqual(hand.started, [fix]);
+          assert.deepStrictEqual(calls, []);
+          assert.deepStrictEqual(fixLedger(driver), {
+            base: BASE,
+            kept: { files: files.slice(0, 1), more: 0 },
+          });
+        });
+
+        it('fails a done retryably while the merge is in progress, naming the files', async () => {
+          sentBack('conflict');
+          const { merge } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.equal(ended?.phase, 'finished');
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'failed',
+            retryable: true,
+            reason: `the merge of main at ${BASE} is still in progress, with src/a.ts, logo.png, old.ts unmerged: resolve each file, git add it and git commit the merge`,
+          });
+        });
+
+        it('fails a done retryably when the merge was aborted', async () => {
+          sentBack('conflict');
+          const { merge, leave } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          leave(undefined);
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'failed',
+            retryable: true,
+            reason: `the merge of main at ${BASE} is not in the worktree's HEAD: conclude it with git commit, never abort it`,
+          });
+        });
+
+        it('lets a done through once the brewer committed the merge', async () => {
+          sentBack('conflict');
+          const { merge, conclude } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          assert.deepStrictEqual(fixLedger(driver), keptRecord);
+          conclude();
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'succeeded',
+            output: succeeded.kind === 'succeeded' ? succeeded.output : null,
+          });
+        });
+
+        it('keeps a half-resolved merge for a retry that resumes the session in its worktree', async () => {
+          sentBack('conflict');
+          const { merge, calls, leave } = fakeMerge(kept);
+          const session = '0f8fad5b-d9cb-469f-a165-708677289500';
+          // A third attempt of implement, so the fix can be retried.
+          const thrice = fakeRecipe({
+            steps: ['implement', 'green', 'open'],
+            actions: { open: 'openPullRequest' },
+            merges: ['green'],
+            pullRequests: [],
+            maxAttempts: 3,
+          });
+          const { driver, hand } = await drive(merge, {
+            recipes: fakeRecipes({ nip: thrice }),
+            sessionId: () => session,
+            resumes: () => true,
+          });
+          // The brewer resolved two files before its run crashed.
+          leave({ tip: BASE, files: files.slice(2) });
+          const crashed = { kind: 'failed', retryable: true, reason: 'claude crashed' } as const;
+          const init = { sessionId: session, model: 'claude-sonnet-5-5', claudeVersion: '2.1.301' };
+          hand.end(fix, crashed, { session: init });
+          await driver.drive();
+          const retry = { ...fix, attempt: 3 };
+          assert.deepStrictEqual(hand.started, [fix, retry]);
+          const resumed = driver.state().batches.get('b1')?.steps.get('implement')?.attempts.get(3);
+          assert.ok(resumed?.phase === 'started' && resumed.session?.resumes === session);
+          assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 1);
+          assert.ok(!calls.includes('abort'), calls.join(', '));
+          assert.deepStrictEqual(fixLedger(driver, retry), {
+            base: BASE,
+            kept: { files: files.slice(2), more: 0 },
+          });
+        });
+
+        it('merges again, its conflict kept, for a resumed retry whose worktree moved past the start without the merge', async () => {
+          sentBack('conflict');
+          const { merge, calls, leave, move } = fakeMerge(kept);
+          const session = '0f8fad5b-d9cb-469f-a165-708677289500';
+          const thrice = fakeRecipe({
+            steps: ['implement', 'green', 'open'],
+            actions: { open: 'openPullRequest' },
+            merges: ['green'],
+            pullRequests: [],
+            maxAttempts: 3,
+          });
+          const { driver, hand } = await drive(merge, {
+            recipes: fakeRecipes({ nip: thrice }),
+            sessionId: () => session,
+            resumes: () => true,
+          });
+          // The worktree was recreated on its branch: the brewer's commit, no merge in progress.
+          leave(undefined);
+          move('f'.repeat(40));
+          const crashed = { kind: 'failed', retryable: true, reason: 'claude crashed' } as const;
+          const init = { sessionId: session, model: 'claude-sonnet-5-5', claudeVersion: '2.1.301' };
+          hand.end(fix, crashed, { session: init });
+          await driver.drive();
+          const retry = { ...fix, attempt: 3 };
+          assert.deepStrictEqual(hand.started, [fix, retry]);
+          assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 2);
+          assert.deepStrictEqual(fixLedger(driver, retry), keptRecord);
+        });
+
+        it('fails a done retryably when every file is resolved but the merge is not committed', async () => {
+          sentBack('conflict');
+          const { merge, leave } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          leave({ tip: BASE, files: [] });
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'failed',
+            retryable: true,
+            reason: `the merge of main at ${BASE} is resolved but not committed: git commit it`,
+          });
+        });
+
+        it('fails a done retryably when git cannot say whether the merge is concluded', async () => {
+          sentBack('conflict');
+          const { merge } = fakeMerge(kept);
+          const { driver, hand } = await drive(merge);
+          merge.worktree.pending = async () => {
+            throw new Error('git status failed');
+          };
+          hand.end(fix);
+          await driver.drive();
+          const ended = finishOf(driver);
+          assert.deepStrictEqual(ended?.phase === 'finished' ? ended.outcome : undefined, {
+            kind: 'failed',
+            retryable: true,
+            reason: 'the merge of the base could not be read: git status failed',
+          });
+        });
       });
     });
   });

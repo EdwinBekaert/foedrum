@@ -710,3 +710,41 @@ describe('planTick: a failing check on the merged tree (ADR 0226)', () => {
     ]);
   });
 });
+
+describe('planTick: a conflict with the moved base (ADR 0244)', () => {
+  const recipes = fakeRecipes({
+    ale: fakeRecipe({
+      steps: ['plan', OPEN],
+      actions: { [OPEN]: 'openPullRequest' },
+      routes: { [OPEN]: { pull_request: 'plan' } },
+      pullRequests: [],
+    }),
+  });
+  const tick = (events: Event[]) => planTick(input(events, { recipes })).commands;
+  const conflicted = (head: string, tip = baseTip) =>
+    baseChecked('b1', head, tip, { conflicts: ['src/a.ts'] });
+  const fix = {
+    kind: 'fix_pull_request',
+    batchId: 'b1',
+    pullRequest: fixPullRequest,
+    head: firstHead,
+    cause: { kind: 'conflict', tip: baseTip },
+  } as const;
+
+  for (const { name, events, sent } of [
+    {
+      name: 'its latest base check of the head conflicts',
+      events: [conflicted(firstHead)],
+      sent: [fix],
+    },
+    {
+      name: 'it conflicts and the checks on its head failed too',
+      events: [checksFinished('b1', firstHead), conflicted(firstHead)],
+      sent: [fix],
+    },
+  ]) {
+    it(`sends the batch back with the conflict when ${name}`, () => {
+      assert.deepStrictEqual(tick([...openedOnTap(), ...events]), sent);
+    });
+  }
+});

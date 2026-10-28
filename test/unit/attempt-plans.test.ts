@@ -8,6 +8,8 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -476,6 +478,115 @@ describe('createAttemptPlans: plan', () => {
       assert.equal(plan.prompt.match(/source="/g)?.length, 1);
       // Its out doc goes before the run, so the run is read by what it writes (ADR 0118).
       assert.equal(plan.outDocFrom, undefined);
+    });
+
+    it('tells a resumed fix the files its kept merge still has unmerged (ADR 0244)', async () => {
+      const pullRequest = 'https://github.com/acme/api/pull/12';
+      const route = {
+        from: 'open',
+        why: 'pull_request',
+        pullRequest,
+        head: 'd'.repeat(40),
+        cause: 'conflict',
+        tip: 'e'.repeat(40),
+      } as const;
+      const kept = {
+        base: 'e'.repeat(40),
+        kept: { files: [{ path: 'src/a.ts', status: 'both modified' }], more: 0 },
+      };
+      const events: Event[] = [
+        ...ordered.slice(0, 2),
+        { type: 'step.scheduled', ...ref, deadlineAt, route },
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+        resumed,
+        {
+          type: 'pull_request.base_checked',
+          batchId: '12-1',
+          pullRequest,
+          branch: 'main',
+          tip: 'e'.repeat(40),
+          head: 'd'.repeat(40),
+          conflicts: ['src/a.ts'],
+        },
+        { type: 'effect.applied', key: effectKey.encode(baseMergeKey(second)), result: kept },
+      ];
+      const plan = await setup(events).plans.plan({ ...start, ref: second });
+      assert.match(
+        plan.prompt,
+        /source="the merge of main in progress in the worktree of step brew"[^>]*>\nThe merge of main at e{40} is still in progress in this worktree\. These files are still unmerged:\n- src\/a\.ts \(both modified\)\n/,
+      );
+    });
+
+    it('gives a retry of a routed fix what sent it back and why the attempt before it failed, once each (ADR 0244, ADR 0248)', async () => {
+      const pullRequest = 'https://github.com/acme/api/pull/12';
+      const route = {
+        from: 'open',
+        why: 'pull_request',
+        pullRequest,
+        head: 'd'.repeat(40),
+        cause: 'conflict',
+        tip: 'e'.repeat(40),
+      } as const;
+      const kept = {
+        base: 'e'.repeat(40),
+        kept: { files: [{ path: 'src/a.ts', status: 'both modified' }], more: 0 },
+      };
+      const checked: Event = {
+        type: 'pull_request.base_checked',
+        batchId: '12-1',
+        pullRequest,
+        branch: 'main',
+        tip: 'e'.repeat(40),
+        head: 'd'.repeat(40),
+        conflicts: ['src/a.ts'],
+      };
+      const before: Event[] = [
+        ...ordered.slice(0, 2),
+        { type: 'step.scheduled', ...ref, deadlineAt, route },
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+      ];
+      const merged: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode(baseMergeKey(second)),
+        result: kept,
+      };
+      const count = (text: string, part: string) => text.split(part).length - 1;
+      const conflict = `source="why step brew runs again: the conflict of pull request ${pullRequest} with main"`;
+      const failure = 'source="why step brew runs again: the failure of brew#1"';
+      const merging = 'source="the merge of main in progress in the worktree of step brew"';
+      // A fresh retry, in a worktree of its own.
+      const fresh: Event = {
+        type: 'step.started',
+        ...second,
+        session: { id: sessionId, worktree: recreated },
+        worktree: {
+          repo: 'acme/api',
+          path: recreated,
+          branch: 'foedrum/12-1/brew/2',
+          commit: 'c'.repeat(40),
+        },
+      };
+      const freshPlan = await setup([...before, fresh, checked, merged]).plans.plan({
+        ...start,
+        ref: second,
+      });
+      assert.deepEqual(
+        [conflict, failure, merging].map((part) => count(freshPlan.prompt, part)),
+        [1, 1, 0],
+      );
+      // A retry that resumes the session.
+      const resumedPlan = await setup([...before, resumed, checked, merged]).plans.plan({
+        ...start,
+        ref: second,
+      });
+      assert.deepEqual(
+        [conflict, failure, merging].map((part) => count(resumedPlan.prompt, part)),
+        [0, 1, 1],
+      );
     });
 
     // ADR 0175: whatever the brewer's retryMode, the driver resumed it; the plan says why.

@@ -161,6 +161,42 @@ describe('assembleBrewerPrompt (#106, ADR 0041)', () => {
     ]);
   });
 
+  it('tags the conflict of a pull request with its base, and the merge a resumed session continues (ADR 0244)', () => {
+    const pullRequest = 'https://github.com/acme/api/pull/12';
+    const inputs: PromptInput[] = [
+      {
+        name: 'route',
+        source: {
+          kind: 'route',
+          step: 'implement',
+          from: 'open-pull-request',
+          why: 'pull_request',
+          pullRequest,
+          cause: 'conflict',
+          branch: 'main',
+        },
+        text: 'src/a.ts conflicts',
+      },
+      {
+        name: 'route',
+        source: { kind: 'merge', step: 'implement', branch: 'main' },
+        text: 'still unmerged',
+      },
+    ];
+    const { prompt } = assembled(assembleBrewerPrompt(instructions, inputs, fixed));
+    assert.deepStrictEqual(blocks(prompt, nonce), [
+      {
+        attributes: `source="why step implement runs again: the conflict of pull request ${pullRequest} with main" name="route"`,
+        text: 'src/a.ts conflicts',
+      },
+      {
+        attributes:
+          'source="the merge of main in progress in the worktree of step implement" name="route"',
+        text: 'still unmerged',
+      },
+    ]);
+  });
+
   it('keeps an input text exactly as it is, line endings included', () => {
     const text = '﻿line one\r\nline two\r\n\r\n';
     const { prompt } = assembled(

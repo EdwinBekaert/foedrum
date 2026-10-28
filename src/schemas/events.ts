@@ -142,7 +142,8 @@ export type OrderRef = z.infer<typeof OrderRef>;
  * The route back that scheduled an attempt (ADR 0064): from the step whose check failed
  * (`onFail`) or whose brewer was blocked by findings (`onBlocked`), or from the openPullRequest
  * step whose pull request failed its checks on `head` (`onPullRequestFail`, ADR 0219), or on its
- * merged tree with the base at `tip` (`cause: 'merged_check'`, ADR 0226).
+ * merged tree with the base at `tip` (`cause: 'merged_check'`, ADR 0226), or conflicts with the
+ * base at `tip` (`cause: 'conflict'`, ADR 0244).
  */
 export const ScheduleRoute = z.discriminatedUnion('why', [
   z.strictObject({ from: StepId, why: z.enum(['failed', 'findings']) }),
@@ -152,11 +153,11 @@ export const ScheduleRoute = z.discriminatedUnion('why', [
       why: z.literal('pull_request'),
       pullRequest: PullRequestUrl,
       head: CommitSha,
-      cause: z.literal('merged_check').optional(),
+      cause: z.enum(['merged_check', 'conflict']).optional(),
       tip: CommitSha.optional(),
     })
     .refine((route) => (route.cause === undefined) === (route.tip === undefined), {
-      message: 'A merged-tree route names its tip, and only it does',
+      message: 'A route with a cause names its tip, and only it does',
     }),
 ]);
 export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
@@ -339,7 +340,8 @@ export const StuckReason = z.discriminatedUnion('kind', [
   // The openPullRequest step `stepId`'s pull request failed its checks on `head` with its
   // onPullRequestFail rounds used: the first failed checks, and how many more (ADR 0219); or,
   // with `cause`, the check that fails on its merged tree with `branch` at `tip`, as the status
-  // line names it (ADR 0226).
+  // line names it (ADR 0226); or the files it conflicts in with `branch` at `tip`, as the check
+  // recorded them (ADR 0244).
   z.strictObject({
     kind: z.literal('pull_request_failed'),
     stepId: StepId,
@@ -349,12 +351,20 @@ export const StuckReason = z.discriminatedUnion('kind', [
     failed: z.array(FailedCheck).max(MOST_FAILED_CHECKS),
     more: Count,
     cause: z
-      .strictObject({
-        kind: z.literal('merged_check'),
-        branch: NonEmpty,
-        tip: CommitSha,
-        check: NonEmpty,
-      })
+      .discriminatedUnion('kind', [
+        z.strictObject({
+          kind: z.literal('merged_check'),
+          branch: NonEmpty,
+          tip: CommitSha,
+          check: NonEmpty,
+        }),
+        z.strictObject({
+          kind: z.literal('conflict'),
+          branch: NonEmpty,
+          tip: CommitSha,
+          files: z.array(NonEmpty).min(1).max(MAX_CONFLICTS),
+        }),
+      ])
       .optional(),
   }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.

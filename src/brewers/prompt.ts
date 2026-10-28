@@ -33,9 +33,15 @@ export type InputSource =
       from: string;
       why: ScheduleRoute['why'];
       pullRequest?: string;
-      /** Sent back by a failing check on the pull request's merged tree (ADR 0226). */
-      cause?: 'merged_check';
+      /**
+       * Sent back by a failing check on the pull request's merged tree (ADR 0226), or by its
+       * conflict with the base `branch` (ADR 0244).
+       */
+      cause?: 'merged_check' | 'conflict';
+      branch?: string;
     }
+  /** The merge of the base `branch` a resumed session continues in its worktree (ADR 0244). */
+  | { kind: 'merge'; step: string; branch: string }
   /** Why a retry runs: the secret scan failed the attempt before it, `attempt` (ADR 0187). */
   | { kind: 'scan'; step: string; attempt: number }
   /** Why a retry runs: the attempt before it, `attempt`, failed (ADR 0248). */
@@ -92,12 +98,17 @@ function describeSource(source: InputSource): string {
       return `answers to the questions of step ${source.step}`;
     case 'route': {
       if (source.why === 'pull_request') {
+        if (source.cause === 'conflict') {
+          return `why step ${source.step} runs again: the conflict of pull request ${source.pullRequest} with ${source.branch}`;
+        }
         const what = source.cause === 'merged_check' ? 'merged-tree check' : 'checks';
         return `why step ${source.step} runs again: the failed ${what} of pull request ${source.pullRequest}`;
       }
       const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }
+    case 'merge':
+      return `the merge of ${source.branch} in progress in the worktree of step ${source.step}`;
     case 'scan':
       return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
     case 'retry':

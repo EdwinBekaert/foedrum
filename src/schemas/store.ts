@@ -142,19 +142,48 @@ export type BodyResult = z.infer<typeof BodyResult>;
 export const MAX_CONFLICTS = 50;
 
 /**
+ * A file a merge left unmerged, as `git status` names it (ADR 0244): its status, and whether it
+ * holds no conflict marker, as a binary file or one a side deleted does not.
+ */
+export const KeptFile = z.strictObject({
+  path: Filled,
+  status: z.enum([
+    'both modified',
+    'both added',
+    'both deleted',
+    'added by us',
+    'added by them',
+    'deleted by us',
+    'deleted by them',
+  ]),
+  unmarked: z.literal(true).optional(),
+});
+export type KeptFile = z.infer<typeof KeptFile>;
+
+/**
  * The result the ledger keeps for the merge of the base into a batch's last check attempt before
  * its pull request (ADR 0164): the base's commit as fetched, and the merge commit made, or the
- * files the merge conflicts in, so it was aborted; neither when the base had nothing new.
+ * files the merge conflicts in, so it was aborted; neither when the base had nothing new. A merge
+ * at the start of a routed fix keeps its conflicts in progress for the brewer (`kept`, ADR 0244):
+ * the files still unmerged, at most `MAX_CONFLICTS`, and how many more.
  */
 export const MergeResult = z
   .strictObject({
     base: CommitSha,
     merged: CommitSha.optional(),
     conflicts: z.array(Filled).min(1).max(MAX_CONFLICTS).optional(),
+    kept: z
+      .strictObject({
+        files: z.array(KeptFile).max(MAX_CONFLICTS),
+        more: z.int().nonnegative(),
+      })
+      .optional(),
   })
-  .refine((result) => result.merged === undefined || result.conflicts === undefined, {
-    message: 'A merge either made a commit or conflicts, never both',
-  });
+  .refine(
+    (result) =>
+      [result.merged, result.conflicts, result.kept].filter((one) => one !== undefined).length <= 1,
+    { message: 'A merge made a commit, conflicts, or keeps its conflicts, never two of them' },
+  );
 export type MergeResult = z.infer<typeof MergeResult>;
 
 /**

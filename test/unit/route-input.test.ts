@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  keptMergeInput,
   MAX_ROUTE_INPUT_BYTES,
   type PlannedRoute,
   routeInput,
@@ -13,6 +14,7 @@ import {
 } from '../../src/brewers/attempt-plan.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { type Event, type GravityReading, MAX_TAIL_LENGTH } from '../../src/schemas/events.ts';
+import type { KeptFile, MergeResult } from '../../src/schemas/store.ts';
 
 const deadlineAt = '2026-10-22T13:00:00.000Z';
 const worktreeOf = (name: string) => ({
@@ -557,5 +559,172 @@ describe('routeOf: a pull request that fails its checks on the merged tree (ADR 
       source,
       text: `Pull request ${pullRequest} failed its checks on the merged tree with main at ${tip}; the record of it is no longer there.`,
     });
+  });
+});
+
+describe('routeOf: a pull request that conflicts with the moved base (ADR 0244)', () => {
+  const pullRequest = 'https://github.com/acme/api/pull/12';
+  const head = 'c'.repeat(40);
+  const tip = 'e'.repeat(40);
+  const newer = 'f'.repeat(40);
+  const open = 'open-pull-request';
+  const checked: Event = {
+    type: 'pull_request.base_checked',
+    batchId: '12-1',
+    pullRequest,
+    branch: 'main',
+    tip,
+    head,
+    conflicts: ['src/a.ts', 'logo.png'],
+  };
+  const route = { from: open, why: 'pull_request', pullRequest, head, cause: 'conflict', tip };
+  const sentBack: Event = {
+    type: 'step.scheduled',
+    batchId: '12-1',
+    stepId: 'implement',
+    attempt: 2,
+    deadlineAt,
+    route,
+  } as Event;
+  const opened = [...attempt('implement', 1), ...attempt(open, 1), checked];
+  const source = {
+    kind: 'route',
+    step: 'implement',
+    from: open,
+    why: 'pull_request',
+    pullRequest,
+    cause: 'conflict',
+    branch: 'main',
+  } as const;
+  const files: KeptFile[] = [
+    { path: 'src/a.ts', status: 'both modified' },
+    { path: 'logo.png', status: 'both modified', unmarked: true },
+    { path: 'old.ts', status: 'deleted by them', unmarked: true },
+    { path: 'new.ts', status: 'added by us' },
+  ];
+  const head1 = `Pull request ${pullRequest} no longer merges cleanly with main at ${newer}.`;
+  const resolve =
+    "Resolve each file, git add it, and git commit to conclude the merge; never abort it. The recipe's own checks run on your change after this step.";
+  const plannedWith = (merge: MergeResult | undefined, events: Event[] = [sentBack]) =>
+    routeOf(
+      batchOf([...opened, ...events]),
+      { batchId: '12-1', stepId: 'implement', attempt: 2 },
+      outDocOf,
+      () => merge,
+    );
+
+  for (const { name, merge, text } of [
+    {
+      name: 'names each file the kept merge left unmerged with its status, and the rest by count',
+      merge: { base: newer, kept: { files, more: 3 } },
+      text: [
+        head1,
+        [
+          'The merge is in progress in this worktree, with conflict markers in the files git could mark. It left these files unmerged:',
+          '- src/a.ts (both modified)',
+          '- logo.png (both modified, without conflict markers: binary or unmarked)',
+          '- old.ts (deleted by them, without conflict markers)',
+          '- new.ts (added by us)',
+          '- and 3 more',
+        ].join('\n'),
+        resolve,
+      ],
+    },
+    {
+      name: 'says so when the base merged cleanly at its start',
+      merge: { base: newer, merged: 'a'.repeat(40) },
+      text: [
+        `Pull request ${pullRequest} conflicted with main at ${tip}; the base at ${newer} merged into this worktree without a conflict.`,
+        "The recipe's own checks run on your change after this step.",
+      ],
+    },
+    {
+      name: 'says so when nothing was merged',
+      merge: undefined,
+      text: [
+        `Pull request ${pullRequest} conflicted with main at ${tip}; the base is not merged into this worktree.`,
+        "The recipe's own checks run on your change after this step.",
+      ],
+    },
+  ] as const) {
+    it(name, () => {
+      assert.deepEqual(plannedWith(merge), { source, text: text.join('\n\n') });
+    });
+  }
+
+  it('gives a fresh retry of the routed attempt the same input', () => {
+    const merge = { base: newer, kept: { files: files.slice(0, 1), more: 0 } };
+    const retried: Event[] = [
+      sentBack,
+      { type: 'step.started', batchId: '12-1', stepId: 'implement', attempt: 2 },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'implement',
+        attempt: 2,
+        outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+      },
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'implement',
+        attempt: 3,
+        deadlineAt,
+        retry: true,
+      },
+    ];
+    const got = routeOf(
+      batchOf([...opened, ...retried]),
+      { batchId: '12-1', stepId: 'implement', attempt: 3 },
+      outDocOf,
+      () => merge,
+    );
+    assert.deepEqual(got?.source, source);
+    assert.match(got?.text ?? '', /- src\/a\.ts \(both modified\)/);
+  });
+
+  it('adds the kept files to a merged-tree route whose start merge conflicted', () => {
+    const failed: Event = {
+      ...checked,
+      conflicts: undefined,
+      failed: { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: 'not ok' },
+    } as Event;
+    const merged = { ...sentBack, route: { ...route, cause: 'merged_check' } } as Event;
+    const got = routeOf(
+      batchOf([...attempt('implement', 1), ...attempt(open, 1), failed, merged]),
+      { batchId: '12-1', stepId: 'implement', attempt: 2 },
+      outDocOf,
+      () => ({ base: newer, kept: { files: files.slice(0, 1), more: 0 } }),
+    );
+    assert.match(got?.text ?? '', /fails its checks there/);
+    assert.match(got?.text ?? '', /It left these files unmerged:\n- src\/a\.ts \(both modified\)/);
+    assert.doesNotMatch(got?.text ?? '', /The base is merged into this worktree\./);
+  });
+
+  it('tells a resumed session the files still unmerged, and nothing once none are', () => {
+    const merge = { base: newer, kept: { files: files.slice(2, 3), more: 0 } };
+    assert.deepEqual(keptMergeInput(merge, 'main', 'implement'), {
+      name: 'route',
+      source: { kind: 'merge', step: 'implement', branch: 'main' },
+      text: [
+        `The merge of main at ${newer} is still in progress in this worktree. These files are still unmerged:\n- old.ts (deleted by them, without conflict markers)`,
+        resolve,
+      ].join('\n\n'),
+    });
+    assert.equal(
+      keptMergeInput({ base: newer, merged: 'a'.repeat(40) }, 'main', 'implement'),
+      undefined,
+    );
+  });
+
+  it('tells a resumed session whose kept merge has every file resolved to commit it', () => {
+    const merge = { base: newer, kept: { files: [], more: 0 } };
+    assert.equal(
+      keptMergeInput(merge, 'main', 'implement')?.text,
+      [
+        `The merge of main at ${newer} is still in progress in this worktree. Every file is resolved.`,
+        resolve,
+      ].join('\n\n'),
+    );
   });
 });

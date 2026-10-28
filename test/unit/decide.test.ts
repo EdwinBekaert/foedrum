@@ -2839,3 +2839,107 @@ describe('decide: a failing check on the merged tree sends the batch back (ADR 0
     });
   });
 });
+
+describe('decide: a conflict with the moved base sends the batch back (ADR 0244)', () => {
+  const ale = (maxRounds = 2) => ({
+    ...context,
+    recipes: fakeRecipes({
+      ale: fakeRecipe({
+        steps: ['plan', OPEN],
+        actions: { [OPEN]: 'openPullRequest' },
+        routes: { [OPEN]: { pull_request: 'plan' } },
+        maxRounds,
+        pullRequests: [],
+      }),
+    }),
+  });
+  const files = ['src/a.ts', 'logo.png'];
+  const conflicted = (head: string, tip = baseTip) =>
+    baseChecked('b1', head, tip, { conflicts: files });
+  const fix = (head = firstHead, tip = baseTip) =>
+    ({
+      kind: 'fix_pull_request',
+      batchId: 'b1',
+      pullRequest: fixPullRequest,
+      head,
+      cause: { kind: 'conflict', tip },
+    }) as const;
+  const route = (head = firstHead, tip = baseTip) =>
+    ({
+      from: OPEN,
+      why: 'pull_request',
+      pullRequest: fixPullRequest,
+      head,
+      cause: 'conflict',
+      tip,
+    }) as const;
+  const onTap = [...openedOnTap(), conflicted(firstHead)];
+
+  it('schedules the route goto with the conflict and its tip, and refuses a second command or another cause', () => {
+    const decided = decide(fold(onTap), fix(), ale());
+    assert.deepStrictEqual(decided, {
+      kind: 'accepted',
+      events: [
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 2,
+          deadlineAt: inAnHour,
+          route: route(),
+        },
+      ],
+    });
+    const sent = decided.kind === 'accepted' ? decided.events : [];
+    assert.equal(decide(fold([...onTap, ...sent]), fix(), ale()).kind, 'refused');
+    assert.equal(decide(fold(onTap), fix(firstHead, 'f'.repeat(40)), ale()).kind, 'refused');
+    const merged = { ...fix(), cause: { kind: 'merged_check', tip: baseTip } } as const;
+    assert.equal(decide(fold(onTap), merged, ale()).kind, 'refused');
+  });
+
+  const tip2 = 'f'.repeat(40);
+  const second = [
+    ...onTap,
+    ...fixRound('b1', firstHead, secondHead, 2, fixPullRequest, baseTip),
+    conflicted(secondHead, tip2),
+  ];
+  const stuck: StuckReason = {
+    kind: 'pull_request_failed',
+    stepId: OPEN,
+    pullRequest: fixPullRequest,
+    head: secondHead,
+    rounds: 1,
+    failed: [],
+    more: 0,
+    cause: { kind: 'conflict', branch: 'main', tip: tip2, files },
+  };
+
+  it('makes the batch Stuck naming the files once its rounds are used, and retry sends it back with the cause', () => {
+    const stuckEvent: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: stuck,
+      options: [...withoutAnswer],
+      remindAt: inTwoDays,
+    };
+    assert.deepStrictEqual(decide(fold(second), fix(secondHead, tip2), ale(1)), {
+      kind: 'accepted',
+      events: [stuckEvent],
+    });
+    const retry = { kind: 'retry', batchId: 'b1', ...by } as const;
+    assert.deepStrictEqual(decide(fold([...second, stuckEvent]), retry, ale(1)), {
+      kind: 'accepted',
+      events: [
+        { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
+        {
+          type: 'step.scheduled',
+          batchId: 'b1',
+          stepId: 'plan',
+          attempt: 3,
+          deadlineAt: inAnHour,
+          route: route(secondHead, tip2),
+        },
+      ],
+    });
+  });
+});
