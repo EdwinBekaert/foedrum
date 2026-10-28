@@ -20,7 +20,9 @@ const IssueNumber = z.int().positive();
 export const Repo = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[\w.][\w.-]*$/, 'Must be owner/name');
-export const PullRequestUrl = z
+
+/** An https URL without credentials. */
+const HttpsUrl = z
   .url({ protocol: /^https$/ })
   // Checked on the parsed URL: the parser also finds credentials in `HTTPS://`, `https:\\` or `https:/`.
   .refine((url) => {
@@ -28,9 +30,38 @@ export const PullRequestUrl = z
     return parsed?.username === '' && parsed.password === '';
   }, 'Must not contain credentials');
 
+/**
+ * The repository and number of `url` when it is a pull request's web URL as GitHub writes it:
+ * `https://<host>/<owner>/<name>/pull/<n>`, nothing after the number, written as the URL parser
+ * would write it again.
+ */
+const pullRequestParts = (url: string): { repo: string; number: number } | undefined => {
+  const parsed = URL.parse(url);
+  if (parsed === null || parsed.href !== url || parsed.protocol !== 'https:') return undefined;
+  if (
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  ) {
+    return undefined;
+  }
+  const [, repo = '', number] = /^\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/.exec(parsed.pathname) ?? [];
+  if (!Repo.safeParse(repo).success) return undefined;
+  return { repo, number: Number(number) };
+};
+
+/** A pull request's web URL: `https://<host>/<owner>/<name>/pull/<n>`, with a valid `Repo`. */
+export const PullRequestUrl = HttpsUrl.refine(
+  (url) => pullRequestParts(url) !== undefined,
+  'Must be a pull request URL: https://<host>/<owner>/<name>/pull/<n>',
+);
+
 /** `owner/name` and the number of the pull request at `url`; throws when it is no `PullRequestUrl`. */
-export const pullRequestOf = (_url: string): { repo: string; number: number } => {
-  throw new Error('not implemented');
+export const pullRequestOf = (url: string): { repo: string; number: number } => {
+  const parts = pullRequestParts(url);
+  if (parts === undefined) throw new Error(`${url} is not a pull request URL`);
+  return parts;
 };
 
 /** The most checks a record of a pull request's head keeps (ADR 0213). */
@@ -82,7 +113,7 @@ export const HeadCheck = z.strictObject({
   name: z.string().min(1).max(MAX_HEAD_CHECK_NAME_LENGTH),
   kind: z.enum(['check_run', 'status']),
   conclusion: CheckConclusion,
-  url: PullRequestUrl.max(MAX_HEAD_CHECK_URL_LENGTH).optional(),
+  url: HttpsUrl.max(MAX_HEAD_CHECK_URL_LENGTH).optional(),
   log: CheckLog.optional(),
 });
 export type HeadCheck = z.infer<typeof HeadCheck>;
