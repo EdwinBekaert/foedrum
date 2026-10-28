@@ -1,6 +1,6 @@
 # 0249. The push gate runs no tests: typecheck, lint and the guards, and CI runs the tests
 
-Date: 2026-10-28 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate runs before `git push`) and [0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md) (the push stage runs no tests)
+Date: 2026-10-28 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (what the gate runs before `git push`), [0054](0054-test-runs-below-normal-priority-and-review-runs-scoped-to-the-question.md) (the gate no longer runs the tests a change reaches before the push), [0135](0135-the-gate-drops-the-check-on-gh-pr-create-the-graphql-readers-and-the-alias-rule.md) (what `git push` gets: the check without tests) and [0241](0241-each-test-runs-at-the-stage-where-it-pays-the-check-runs-the-test-files-a-change-reaches.md) (the push stage runs no tests)
 
 ## Context
 The local gate runs `npm run check` in the pushed tree before every `git push` and blocks the push when it fails or times out.
