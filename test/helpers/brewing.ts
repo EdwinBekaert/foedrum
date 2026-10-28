@@ -87,7 +87,6 @@ export const createBrewing = (options: BrewingOptions) => {
     recipes,
     progress: runner,
     clock,
-    timer: { set: () => 0, clear: () => {} },
     reminderMs,
     routingMs,
     report: (notice) => notices.push(notice),
