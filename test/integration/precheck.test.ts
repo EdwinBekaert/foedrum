@@ -175,10 +175,17 @@ describe('scripts/precheck.ts started by node', () => {
         });
       git(['init', '-q', '-b', 'main']);
       git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      // Only the repository's own configuration, so no machine's system or global one counts.
+      const global = join(project.path, '.git', 'empty-global-config');
+      writeFileSync(global, '');
       const gate = () =>
         run(process.execPath, [script], hookInput('git push', project.path), {
           cwd: root,
-          env: envWithoutNpm({ CLAUDE_PROJECT_DIR: project.path }),
+          env: envWithoutNpm({
+            CLAUDE_PROJECT_DIR: project.path,
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: global,
+          }),
         });
       git(['config', 'remote.origin.mirror', 'true']);
       const mirrored = await gate();
