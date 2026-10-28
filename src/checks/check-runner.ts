@@ -6,7 +6,6 @@
 // proven step committed, never the exit code (ADR 0078).
 
 import { basename, dirname, join } from 'node:path';
-import { type OutDocRead, readOutDocFile } from '../brewers/claude-runner.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
@@ -15,6 +14,7 @@ import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
+import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
@@ -40,7 +40,7 @@ export interface ReportFiles {
   /** Clears the report only inside `root`, the worktree. */
   clear: (file: string, root: string) => void | Promise<void>;
   /** Reads the report only inside `root`, the worktree. */
-  read: (file: string, root: string) => OutDocRead;
+  read: (file: string, root: string) => BoundedRead;
 }
 
 export type { RepositorySetup };
