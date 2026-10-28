@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { readOutDocFile } from '../../src/brewers/claude-runner.ts';
+import { readOutDocFile } from '../../src/platform/bounded-read.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 /**

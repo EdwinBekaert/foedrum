@@ -17,6 +17,7 @@ import {
   settleAttempt,
 } from '../engine/brewer-runner.ts';
 import { type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
+import { readOutDocFile } from '../platform/bounded-read.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -37,7 +38,6 @@ import {
   commitsOf,
   type OutDocRead,
   outDocBefore,
-  readOutDocFile,
   restoreOutDocFile,
   scannedIfDone,
   setUpFor,
