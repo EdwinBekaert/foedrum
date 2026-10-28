@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, posix, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
+import { parseArgs } from 'node:util';
 import {
   type CheckResult,
   type FindNpmCli,
@@ -2791,13 +2792,17 @@ describe('npmCheck', () => {
 
   // A branch that has not merged main since ADR 0249 has a check that refuses the argument.
   it("fails with a line to merge origin/main when the tree's check does not know --no-tests", async () => {
-    const { runProcess } = fakeProcess({
-      exitCode: 1,
-      output: "TypeError [ERR_PARSE_ARGS_UNKNOWN_OPTION]: Unknown option '--no-tests'\n",
-    });
+    // The error an old check.ts throws: its strict parseArgs knows only --all.
+    let refused = '';
+    try {
+      parseArgs({ args: ['--no-tests'], options: { all: { type: 'boolean' } } });
+    } catch (error) {
+      refused = String(error);
+    }
+    const { runProcess } = fakeProcess({ exitCode: 1, output: `${refused}\n` });
     const result = await npmCheck(execPath, found, runProcess)('/work/tree');
     assert.equal(result.ok, false);
-    assert.match(result.output, /^TypeError \[ERR_PARSE_ARGS_UNKNOWN_OPTION\]/);
+    assert.ok(result.output.startsWith(refused), result.output);
     assert.match(
       result.output,
       /\nThis branch's scripts\/check\.ts does not know --no-tests \(ADR 0249\): merge origin\/main and push again\.$/,
