@@ -26,6 +26,7 @@ import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
+import { waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const git = (cwd: string, args: string[]): string =>
@@ -214,11 +215,11 @@ describe('a test-first recipe with real git and a real test run', () => {
       const route = { kind: 'route', batchId: '12-1', recipe: 'nip', reason: 'label' } as const;
       intake.issue({ ...route, source: 'label' }, clock());
       // Checks are real processes: drive() returns while they run, and finishes them once ended.
-      const until = Date.now() + 120_000;
-      while (state().batches.get('12-1')?.lane.kind === 'brewing' && Date.now() < until) {
-        await driver.drive();
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+      await waitUntil('the batch to stop brewing', async () => {
+        if (state().batches.get('12-1')?.lane.kind !== 'brewing') return true;
+        await driver?.drive();
+        return false;
+      });
       // Every step ran; the pull request has no code host to open on.
       const lane = state().batches.get('12-1')?.lane;
       assert.equal(

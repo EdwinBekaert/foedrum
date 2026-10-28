@@ -33,6 +33,7 @@ import { createBrewing, defaultLimits } from '../helpers/brewing.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { makeReadOnly } from './read-only.ts';
 
@@ -628,11 +629,11 @@ describe('the driver and attempt worktrees with real git', () => {
       const route = { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label' } as const;
       intake.issue({ ...route, source: 'label' }, clock());
       // A check is a real process: drive() returns while it runs, and finishes it once it ended.
-      const until = Date.now() + 60_000;
-      while (state().batches.get('12-1')?.lane.kind === 'brewing' && Date.now() < until) {
-        await driver.drive();
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+      await waitUntil('the batch to stop brewing', async () => {
+        if (state().batches.get('12-1')?.lane.kind !== 'brewing') return true;
+        await driver?.drive();
+        return false;
+      });
       assert.equal(state().batches.get('12-1')?.lane.kind, 'on_tap');
     } finally {
       driver.close();
