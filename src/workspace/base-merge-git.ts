@@ -5,7 +5,7 @@
 
 import type { WorktreeMerge } from '../engine/base-merge.ts';
 import { samePath } from '../platform/paths.ts';
-import { isCommitSha, type KeptFile, MAX_CONFLICTS } from '../schemas/store.ts';
+import { isCommitSha, type KeptFile, MAX_CONFLICTS, noCommitSha } from '../schemas/store.ts';
 import { aborts, firstLine, fullSha, gitOutput, inClone } from './clone-git.ts';
 import type { Git } from './git.ts';
 import { readRecords } from './worktree-records.ts';
@@ -49,7 +49,9 @@ export const openWorktreeMerge = ({ git, clone }: WorktreeMergeOptions): Worktre
   const head = async (path: string, signal?: AbortSignal): Promise<string> => {
     const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', 'HEAD^{commit}'];
     const sha = (await gitOutput(local, path, args, aborts(signal))).trim();
-    if (!isCommitSha(sha)) throw new Error(`The HEAD of ${path} names no commit: ${sha}`);
+    if (!isCommitSha(sha)) {
+      throw new Error(noCommitSha(sha, `The HEAD of ${path} names no commit: ${sha}`));
+    }
     return sha;
   };
   /** The commit a merge in progress merges: MERGE_HEAD is there while one is. */

@@ -86,11 +86,14 @@ const SHA256_ID = /^[0-9a-f]{64}$/;
 /** Whether `text` is a full commit id, the one check `CommitSha` and every git reader use. */
 export const isCommitSha = (text: string): boolean => COMMIT_ID.test(text);
 
-/** Why `text` is no full commit id: a SHA-256 one is named as not supported (ADR 0254). */
-export const noCommitSha = (text: string): string =>
+/**
+ * Why `text` is no full commit id: a SHA-256 one is named as not supported (ADR 0254), any other
+ * gets `otherwise`.
+ */
+export const noCommitSha = (text: string, otherwise = `${text} is no full commit sha`): string =>
   SHA256_ID.test(text)
     ? `${text} is a SHA-256 commit id: Foedrum supports SHA-1 repositories only`
-    : `${text} is no full commit sha`;
+    : otherwise;
 
 /** A full commit id (ADR 0254). */
 export const CommitSha = z

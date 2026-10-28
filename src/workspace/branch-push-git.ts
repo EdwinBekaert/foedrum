@@ -13,7 +13,7 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
-import { isCommitSha } from '../schemas/store.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import {
   aborts,
   firstLine,
@@ -168,7 +168,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       const result = await local(clone, args, aborts(signal));
       const commit = result.stdout.trim();
       if (result.code !== 0 || !isCommitSha(commit)) {
-        throw new Error(`The revision ${revision} is no commit in ${clone}`);
+        throw new Error(noCommitSha(commit, `The revision ${revision} is no commit in ${clone}`));
       }
       return commit;
     },
@@ -211,7 +211,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
           await dir.run(['rev-parse', '--verify', '--quiet', '--end-of-options', ref])
         ).trim();
         if (!isCommitSha(fetched))
-          throw new Error(`The fetch of ${name} named no commit: ${fetched}`);
+          throw new Error(noCommitSha(fetched, `The fetch of ${name} named no commit: ${fetched}`));
         return fetched;
       });
     },
