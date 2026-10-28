@@ -439,14 +439,17 @@ describe('the configured hook command', () => {
     }
     return dir.path;
   };
-  // A gated push whose check runs in a directory where `npm run check` passes at once, so the
-  // gate does not recurse into this repository's own check. The push starts in the project the
-  // hook runs for (ADR 0246), which links this checkout's scripts so the hook finds precheck.
+  // A gated push whose check runs in a directory where `npm run check -- --no-tests` passes at
+  // once, so the gate does not recurse into this repository's own check. The check fails unless
+  // npm hands the gate's `--no-tests` through to it (ADR 0249); the trailing `--` keeps node
+  // from reading it as its own option. The push starts in the project the hook runs for (ADR
+  // 0246), which links this checkout's scripts so the hook finds precheck.
   let gatedPush = '';
   let gatedProject = '';
   before(() => {
     assert.notEqual(hookCommand, '', 'no PreToolUse hook command');
-    gatedProject = tempDir('safe-check', { private: true, scripts: { check: 'node -e ""' } });
+    const check = `node -e "process.exit(process.argv.includes('--no-tests') ? 0 : 1)" --`;
+    gatedProject = tempDir('safe-check', { private: true, scripts: { check } });
     symlinkSync(join(root, 'scripts'), join(gatedProject, 'scripts'), 'junction');
     gatedPush = hookInput('git push', gatedProject);
   });
