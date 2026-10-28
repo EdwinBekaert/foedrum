@@ -1576,7 +1576,16 @@ describe('openDriver', () => {
           sentBack('conflict');
           const { merge, calls, leave } = fakeMerge(kept);
           const session = '0f8fad5b-d9cb-469f-a165-708677289500';
+          // A third attempt of implement, so the fix can be retried.
+          const thrice = fakeRecipe({
+            steps: ['implement', 'green', 'open'],
+            actions: { open: 'openPullRequest' },
+            merges: ['green'],
+            pullRequests: [],
+            maxAttempts: 3,
+          });
           const { driver, hand } = await drive(merge, {
+            recipes: fakeRecipes({ nip: thrice }),
             sessionId: () => session,
             resumes: () => true,
           });
@@ -1588,6 +1597,8 @@ describe('openDriver', () => {
           await driver.drive();
           const retry = { ...fix, attempt: 3 };
           assert.deepStrictEqual(hand.started, [fix, retry]);
+          const resumed = driver.state().batches.get('b1')?.steps.get('implement')?.attempts.get(3);
+          assert.ok(resumed?.phase === 'started' && resumed.session?.resumes === session);
           assert.equal(calls.filter((call) => call.startsWith('merge ')).length, 1);
           assert.ok(!calls.includes('abort'), calls.join(', '));
           assert.deepStrictEqual(fixLedger(driver, retry), {
