@@ -1045,7 +1045,6 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     close: () => {
       // Their ends are not recorded: the next start of this owner loses them (ADR 0033, ADR 0063).
       for (const { run } of runs.values()) run.stop();
-      supervisor.stop();
       lock.release();
     },
   };

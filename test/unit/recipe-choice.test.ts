@@ -128,6 +128,7 @@ describe('inputsOf: the recipes a step may offer (ADR 0232)', () => {
       () => undefined,
       'worktree',
       new Map(),
+      undefined,
       choices,
     );
     assert.deepEqual(recipes, {

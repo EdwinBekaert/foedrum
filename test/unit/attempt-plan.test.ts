@@ -17,6 +17,7 @@ import {
   outDocContract,
   planAttempt,
   promptFileOf,
+  retryInputOf,
   scanRetryOf,
   settingsFileOf,
   systemPromptFileOf,
@@ -1444,5 +1445,59 @@ describe('scanRetryOf: why a retry after the secret scan runs (ADR 0187)', () =>
       scanRetryOf(batch, second)?.text,
       `The secret scan failed the attempt before this one, gauge#1: [left out: a reason that looks like a secret]\n\n${advice}`,
     );
+  });
+});
+
+describe('retryInputOf: why a retry after a failed attempt runs (ADR 0248)', () => {
+  const deadlineAt = '2026-10-28T13:00:00.000Z';
+  const first = { batchId: 'b1', stepId: 'plan', attempt: 1 };
+  const second = { ...first, attempt: 2 };
+  const batchOf = (outcome: StepOutcome, retry = true) => {
+    const events: Event[] = [
+      { type: 'batch.ordered', batchId: 'b1', order: { issue: 1 }, routeBy: deadlineAt },
+      { type: 'step.scheduled', ...first, deadlineAt },
+      { type: 'step.started', ...first },
+      { type: 'step.finished', ...first, outcome },
+      { type: 'step.scheduled', ...second, deadlineAt, ...(retry ? { retry: true } : {}) },
+    ];
+    const batch = fold(events).batches.get('b1');
+    assert.ok(batch !== undefined);
+    return batch;
+  };
+  const failed = (reason: string, more: Partial<Extract<StepOutcome, { kind: 'failed' }>> = {}) =>
+    batchOf({ kind: 'failed', retryable: true, reason, ...more });
+
+  it('tells the retry the reason the attempt before it failed, as untrusted data', () => {
+    const reason = 'invalid out doc: subOrders.0.doneWhen: Invalid input';
+    assert.deepEqual(retryInputOf(failed(reason), second), {
+      name: 'retry',
+      source: { kind: 'retry', step: 'plan', attempt: 1 },
+      text: `The attempt before this one, plan#1, failed: ${reason}`,
+    });
+  });
+
+  it('tells nothing to the first attempt, to an attempt no failure scheduled, nor after the secret scan or a turn overrun', () => {
+    const reason = 'claude crashed';
+    for (const [batch, ref] of [
+      [failed(reason), first],
+      [batchOf({ kind: 'failed', retryable: true, reason }, false), second],
+      [failed(reason, { secrets: true }), second],
+      [failed(reason, { overran: 'turns' }), second],
+    ] as const) {
+      assert.equal(retryInputOf(batch, ref), undefined);
+    }
+  });
+
+  it('leaves out a reason that looks like a secret, and holds a long one to the route bound', () => {
+    assert.equal(
+      retryInputOf(
+        failed('the out doc says token=ghp_0123456789abcdef0123456789abcdef0123'),
+        second,
+      )?.text,
+      'The attempt before this one, plan#1, failed: [left out: a reason that looks like a secret]',
+    );
+    const long = retryInputOf(failed('x '.repeat(40_000)), second)?.text ?? '';
+    assert.ok(Buffer.byteLength(long, 'utf8') <= 64 * 1024, String(long.length));
+    assert.match(long, /\[cut: the rest is past the retry input's limit of 65536 bytes\]$/);
   });
 });

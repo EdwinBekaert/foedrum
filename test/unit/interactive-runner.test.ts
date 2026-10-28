@@ -4,6 +4,7 @@
 // one runs headless. No process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings } from '../../src/brewers/attempt-settings.ts';
@@ -12,6 +13,7 @@ import type { ClaudeAttemptPlan, OutDocRead } from '../../src/brewers/claude-run
 import {
   headlessRunner,
   type InteractiveRunnerDeps,
+  interactiveBrewerRunner,
   interactiveBrewerRunnerWith,
 } from '../../src/brewers/interactive-runner.ts';
 import { assembleBrewerPrompt } from '../../src/brewers/prompt.ts';
@@ -115,6 +117,9 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
         },
         clearOutDoc: (file, root) => {
           calls.push(`clear ${file} in ${root}`);
+        },
+        restoreOutDoc: (file, root, copy) => {
+          calls.push(`restore ${file} in ${root} from ${copy}`);
         },
       },
       commits: async () => ({ kind: 'counted', count: 1 }),
@@ -273,6 +278,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       writePrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
+      restoreOutDoc: () => {},
     };
     const { ending } = await runner('resume', { files }).start(attempt).ended;
     assert.deepEqual(ending, {
@@ -294,6 +300,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       writePrompt: () => {},
       readOutDoc: () => written,
       clearOutDoc: () => {},
+      restoreOutDoc: () => {},
     };
     const resumed = { ...plan('resume'), systemPrompt };
     const { ending } = await runner('resume', { files, plan: async () => resumed }).start(attempt)
@@ -481,6 +488,7 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
           },
           readOutDoc: () => written,
           clearOutDoc: () => {},
+          restoreOutDoc: () => {},
         },
       });
       const { ending } = await failing.start(attempt).ended;
@@ -605,6 +613,130 @@ describe('interactiveBrewerRunnerWith (ADR 0127)', () => {
       assert.deepEqual(end.readings, [
         { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: 'added 7 packages' },
       ]);
+    });
+  });
+
+  // An attempt the engine stopped opens no session in the person's terminal: what they did there
+  // would never be read (ADR 0222, #614).
+  describe('a stop before the session opens', () => {
+    const interactive = (): ClaudeAttemptPlan => ({
+      ...plan('new'),
+      interactive: { file: resolve('work', 'settings.prompt.md'), firstMessage: 'Read it.' },
+    });
+    const withSetup = (): ClaudeAttemptPlan => ({
+      ...plan('resume'),
+      setup: {
+        run: { command: 'npm ci', timeoutMs: 600_000, unsandboxed: false },
+        deadlineAt: '2026-10-23T13:00:00.000Z',
+        env: { PATH: '/usr/bin' },
+      },
+    });
+    const passed = {
+      result: 'exited',
+      setup: true,
+      command: 'npm ci',
+      exitCode: 0,
+      tail: 'added 7',
+    };
+    /**
+     * A step whose plan, or setup, waits until `release`; stopped while it plans, it writes no file
+     * in the worktree, and stopped during its setup it keeps the setup's reading.
+     */
+    const cases: {
+      name: string;
+      deps: (release: Promise<void>) => Partial<InteractiveRunnerDeps>;
+      untouched: boolean;
+      readings?: readonly object[];
+    }[] = [
+      {
+        name: 'an interactive step stopped while its plan is made',
+        deps: (release) => ({ plan: () => release.then(interactive) }),
+        untouched: true,
+      },
+      {
+        name: 'a resumed step stopped while its plan is made',
+        deps: (release) => ({ plan: () => release.then(() => plan('resume')) }),
+        untouched: true,
+      },
+      {
+        name: 'a resumed step stopped during a setup that passes all the same',
+        deps: (release) => ({
+          plan: async () => withSetup(),
+          setup: () =>
+            release.then(() => ({ exitCode: 0, stdout: '', stderr: '', output: 'added 7' })),
+        }),
+        untouched: false,
+        readings: [passed],
+      },
+    ];
+    for (const { name, deps, untouched, readings } of cases) {
+      it(`${name} ends cancelled, without opening claude`, async () => {
+        let release = () => {};
+        const released = new Promise<void>((settle) => {
+          release = settle;
+        });
+        const running = runner('resume', deps(released)).start(attempt);
+        await new Promise((settle) => setImmediate(settle));
+        running.stop();
+        release();
+        const end = await running.ended;
+        assert.deepEqual(foreground, []);
+        assert.deepEqual(end.ending, { kind: 'cancelled' });
+        assert.deepEqual(end.readings, readings);
+        if (untouched) assert.deepEqual(calls, []);
+      });
+    }
+  });
+
+  // ADR 0175: the session resumed after a turn overrun finishes the out doc it wrote.
+  it('puts back the out doc of a session that ran out of turns, and clears none', async () => {
+    const outDocFrom = resolve('work', 'attempt', '1.out.md');
+    const resumed = plan('resume');
+    await runner('resume', { plan: async () => ({ ...resumed, outDocFrom }) }).start(attempt).ended;
+    const outFile = resolve(resumed.cwd, 'brew.md');
+    assert.ok(
+      calls.includes(`restore ${outFile} in ${resumed.cwd} from ${outDocFrom}`),
+      calls.join('\n'),
+    );
+    assert.ok(!calls.some((call) => call.startsWith('clear ')), calls.join('\n'));
+  });
+
+  // ADR 0251, review of #629: the real machine's files put the overrun's copy back.
+  describe('interactiveBrewerRunner: the out doc of a session that ran out of turns', () => {
+    let dir: TempDir;
+    beforeEach(() => {
+      dir = makeTempDir('interactive-restore');
+    });
+    afterEach(() => dir.remove());
+
+    it('opens the session with the copy back in its worktree', async () => {
+      const worktree = join(dir.path, 'tree');
+      mkdirSync(worktree);
+      const outDocFrom = join(dir.path, '1.out.md');
+      writeFileSync(outDocFrom, 'the work the overrun wrote');
+      let seen: string | undefined;
+      const resume = interactiveBrewerRunner({
+        claude: '/bin/claude',
+        plan: async () => ({
+          ...plan('resume'),
+          cwd: worktree,
+          settingsFile: join(dir.path, 'settings.json'),
+          outDocFrom,
+        }),
+        foreground: async () => {
+          seen = readFileSync(join(worktree, 'brew.md'), 'utf8');
+          return 0;
+        },
+        terminalEnv: {},
+        platform: 'linux',
+        say: () => {},
+        setup: async () => {
+          throw new Error('no setup runs');
+        },
+      });
+      // No commits to count, so no git runs.
+      await resume.start({ ...attempt, limits: { outDoc: limits.outDoc } }).ended;
+      assert.equal(seen, 'the work the overrun wrote');
     });
   });
 

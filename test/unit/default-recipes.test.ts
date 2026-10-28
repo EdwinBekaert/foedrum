@@ -51,7 +51,7 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
     );
     assert.deepEqual(
       step?.choices?.map(({ name }) => name),
-      ['nip'],
+      ['mash', 'nip'],
     );
   });
 });

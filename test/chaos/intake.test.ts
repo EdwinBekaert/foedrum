@@ -205,11 +205,7 @@ const run = async (seed: number): Promise<void> => {
       clock: () => tickAt,
       routingMs,
     });
-    try {
-      await supervisor.tick();
-    } finally {
-      supervisor.stop();
-    }
+    await supervisor.tick();
     const after = new Map(batches().map((batch) => [batch.id, batch.lane]));
     for (const batchId of ordered) {
       const lane = after.get(batchId);

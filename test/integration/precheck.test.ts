@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -83,7 +83,7 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', pushFrom.path),
-        { cwd: root, env: envWithoutNpm() },
+        { cwd: root, env: envWithoutNpm({ CLAUDE_PROJECT_DIR: pushFrom.path }) },
       );
       assert.equal(code, 2);
       assert.equal(stdout, '');
@@ -125,7 +125,7 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', project.path),
-        { cwd: root, env: envWithoutNpm() },
+        { cwd: root, env: envWithoutNpm({ CLAUDE_PROJECT_DIR: project.path }) },
       );
       assert.equal(code, 2);
       assert.equal(
@@ -152,13 +152,54 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', project.path),
-        { cwd: root, env: envWithoutNpm() },
+        { cwd: root, env: envWithoutNpm({ CLAUDE_PROJECT_DIR: project.path }) },
       );
       assert.equal(code, 2);
       assert.match(stderr, /^git push is blocked: HEAD is detached in .*detached-head-/);
       assert.doesNotMatch(stderr, /stub npm/);
     } finally {
       // A real repository: removeTree clears git's read-only objects and retries busy files.
+      await removeTree(project.path);
+    }
+  });
+
+  // git's configuration files, read by real git before the push (ADR 0246): a mirror remote, then
+  // a push refspec that deletes.
+  it("blocks a push that git's configuration makes mirror or delete, asking real git", async () => {
+    const project = makeTempDir('configured-push');
+    try {
+      const git = (args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
+          cwd: project.path,
+          stdio: 'ignore',
+        });
+      git(['init', '-q', '-b', 'main']);
+      git(['commit', '-q', '--allow-empty', '-m', 'Initial commit']);
+      // Only the repository's own configuration, so no machine's system or global one counts.
+      const global = join(project.path, '.git', 'empty-global-config');
+      writeFileSync(global, '');
+      const gate = () =>
+        run(process.execPath, [script], hookInput('git push', project.path), {
+          cwd: root,
+          env: envWithoutNpm({
+            CLAUDE_PROJECT_DIR: project.path,
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: global,
+          }),
+        });
+      git(['config', 'remote.origin.mirror', 'true']);
+      const mirrored = await gate();
+      assert.equal(mirrored.code, 2);
+      assert.match(
+        mirrored.stderr,
+        /^git push is blocked: git's configuration makes it delete, force or mirror remote refs \(remote\.origin\.mirror true\)/,
+      );
+      git(['config', '--unset', 'remote.origin.mirror']);
+      git(['config', 'remote.origin.push', ':refs/heads/x']);
+      const deleting = await gate();
+      assert.equal(deleting.code, 2);
+      assert.match(deleting.stderr, /\(remote\.origin\.push :refs\/heads\/x\)/);
+    } finally {
       await removeTree(project.path);
     }
   });
@@ -186,7 +227,7 @@ describe('scripts/precheck.ts started by node', () => {
         writeFileSync(list, words);
         return run(process.execPath, [script], hookInput('git push', project.path), {
           cwd: root,
-          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
         });
       };
       const denied = await gate('# clients\nexamplecorp\n');
@@ -286,7 +327,10 @@ describe('scripts/precheck.ts started by node', () => {
         process.execPath,
         [script],
         hookInput('git push', project.path),
-        { cwd: root, env: envWithoutNpm({ FOEDRUM_DENYLIST: list }) },
+        {
+          cwd: root,
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
+        },
       );
       assert.equal(code, 2, stderr);
       for (const place of [
@@ -327,7 +371,7 @@ describe('scripts/precheck.ts started by node', () => {
       const gate = (command: string) =>
         run(process.execPath, [script], hookInput(command, project.path), {
           cwd: root,
-          env: envWithoutNpm({ FOEDRUM_DENYLIST: list }),
+          env: envWithoutNpm({ FOEDRUM_DENYLIST: list, CLAUDE_PROJECT_DIR: project.path }),
         });
       const toPublic = await gate('git push public HEAD');
       assert.equal(toPublic.code, 2);
@@ -337,6 +381,11 @@ describe('scripts/precheck.ts started by node', () => {
         assert.equal(blocked.code, 2);
         assert.match(blocked.stderr, /^git push is blocked: its remote is .*name the remote/);
       }
+      // A branch name the refspec creates reaches the scan too (ADR 0246).
+      const named = await gate('git push origin HEAD:refs/heads/examplecorp-x');
+      assert.equal(named.code, 2);
+      assert.match(named.stderr, /^git push is blocked: it would send a word .* at branch name\. /);
+      assert.doesNotMatch(named.stderr, /example ?corp/i);
       // origin has the commit: the push to it passes on to the rest of the gate.
       assert.doesNotMatch((await gate('git push origin HEAD')).stderr, /denylist/);
     } finally {
@@ -439,12 +488,16 @@ describe('the configured hook command', () => {
   // A gated push whose check runs in a directory where `npm run check -- --no-tests` passes at
   // once, so the gate does not recurse into this repository's own check. The check fails unless
   // npm hands the gate's `--no-tests` through to it (ADR 0249); the trailing `--` keeps node
-  // from reading it as its own option.
+  // from reading it as its own option. The push starts in the project the hook runs for (ADR
+  // 0246), which links this checkout's scripts so the hook finds precheck.
   let gatedPush = '';
+  let gatedProject = '';
   before(() => {
     assert.notEqual(hookCommand, '', 'no PreToolUse hook command');
     const check = `node -e "process.exit(process.argv.includes('--no-tests') ? 0 : 1)" --`;
-    gatedPush = hookInput('git push', tempDir('safe-check', { private: true, scripts: { check } }));
+    gatedProject = tempDir('safe-check', { private: true, scripts: { check } });
+    symlinkSync(join(root, 'scripts'), join(gatedProject, 'scripts'), 'junction');
+    gatedPush = hookInput('git push', gatedProject);
   });
   after(() => {
     for (const dir of dirs) dir.remove();
@@ -475,7 +528,7 @@ describe('the configured hook command', () => {
     const elsewhere = tempDir('other-package', { private: true, scripts: {} });
     const { code, stderr } = await run('bash', ['-c', hookCommand], gatedPush, {
       cwd: elsewhere,
-      env: envWithoutNpm({ CLAUDE_PROJECT_DIR: root, npm_execpath: npmStub }),
+      env: envWithoutNpm({ CLAUDE_PROJECT_DIR: gatedProject, npm_execpath: npmStub }),
     });
     assert.equal(stderr, '');
     assert.equal(code, 0);
