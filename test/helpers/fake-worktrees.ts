@@ -50,6 +50,7 @@ export const fakeWorktreeMerge = (merged = 'c'.repeat(40)): WorktreeMerge => {
     parents: async (path, commit) =>
       commit === heads.get(path) ? [FAKE_COMMIT, 'b'.repeat(40)] : [],
     abort: async () => {},
+    pending: async () => undefined,
     merge: async (path) => {
       heads.set(path, merged);
       return { kind: 'merged', commit: merged };

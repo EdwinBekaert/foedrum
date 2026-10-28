@@ -182,9 +182,13 @@ export type EngineCommand =
 
 /**
  * What is wrong with an open pull request that sends its batch back: failed checks on its head
- * (ADR 0219), or a failing check on its merged tree with the base at `tip` (ADR 0226).
+ * (ADR 0219), a failing check on its merged tree with the base at `tip` (ADR 0226), or a conflict
+ * with the base at `tip` (ADR 0244).
  */
-export type FixCause = { kind: 'checks' } | { kind: 'merged_check'; tip: string };
+export type FixCause =
+  | { kind: 'checks' }
+  | { kind: 'merged_check'; tip: string }
+  | { kind: 'conflict'; tip: string };
 
 /**
  * A person's pause of an order, or with no `order` of the whole Brewery and its intake, and its

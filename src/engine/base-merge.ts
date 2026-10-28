@@ -6,6 +6,7 @@
 import {
   type AttemptEffectKey,
   EffectKeyParts,
+  type KeptFile,
   MAX_CONFLICTS,
   MergeResult,
 } from '../schemas/store.ts';
@@ -15,10 +16,20 @@ import type { EffectTarget } from './effects.ts';
 import type { Batch, State } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
 
-/** What a merge in a worktree came to: its commit, or the files it conflicts in, aborted. */
+/**
+ * What a merge in a worktree came to: its commit, or the files it conflicts in, aborted, or kept
+ * in progress with the files it left unmerged (ADR 0244).
+ */
 export type WorktreeMerged =
   | { kind: 'merged'; commit: string }
-  | { kind: 'conflicts'; files: string[] };
+  | { kind: 'conflicts'; files: string[] }
+  | { kind: 'kept'; files: KeptFile[] };
+
+/** A merge in progress in a worktree: the commit it merges, and the files still unmerged. */
+export interface PendingMerge {
+  tip: string;
+  files: KeptFile[];
+}
 
 /** git in an attempt's worktree. Every call stops when `signal` aborts. */
 export interface WorktreeMerge {
@@ -28,15 +39,19 @@ export interface WorktreeMerge {
   parents(path: string, commit: string, signal?: AbortSignal): Promise<string[]>;
   /** Aborts a merge a killed run left in progress; nothing when none is. */
   abort(path: string, signal?: AbortSignal): Promise<void>;
+  /** The merge in progress in the worktree, with the files still unmerged; none when none is. */
+  pending(path: string, signal?: AbortSignal): Promise<PendingMerge | undefined>;
   /**
    * Merges `commit` into HEAD as a commit of its own with `message`; on a conflict, the files it
-   * conflicts in, with the merge aborted.
+   * conflicts in, with the merge aborted, or with `keep` the merge left in progress with the
+   * files it left unmerged (ADR 0244).
    */
   merge(
     path: string,
     commit: string,
     message: string,
     signal?: AbortSignal,
+    keep?: boolean,
   ): Promise<WorktreeMerged>;
 }
 
@@ -63,6 +78,7 @@ export const baseMergeTarget = (
   { base, push, worktree }: BaseMerge,
   { path, start }: { path: string; start: string },
   stepId: string,
+  _keep = false,
 ): EffectTarget => ({
   find: async (_key, signal) => {
     const head = await worktree.head(path, signal);
@@ -89,6 +105,8 @@ export const baseMergeTarget = (
         return { base: tip, merged: merged.commit };
       case 'conflicts':
         return { base: tip, conflicts: merged.files.slice(0, MAX_CONFLICTS) };
+      case 'kept':
+        throw new Error('not implemented');
       default:
         return merged satisfies never;
     }

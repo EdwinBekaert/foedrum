@@ -671,6 +671,7 @@ const mergedRun = async (kills: readonly AnyPoint[]) => {
       head: async (at) => heads.get(at) ?? FAKE_COMMIT,
       parents: async (at, commit) => (commit === heads.get(at) ? [FAKE_COMMIT, TIP] : []),
       abort: async () => {},
+      pending: async () => undefined,
       merge: async (at) => {
         code.point('before the start merge');
         heads.set(at, MERGED);

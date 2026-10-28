@@ -1140,6 +1140,32 @@ describe('checkBases', () => {
       assert.doesNotMatch(body, /stays On tap/);
     });
 
+    it('posts a conflict saying Foedrum sends the batch back to resolve it, once it was sent back (ADR 0244)', async () => {
+      onTapFixed();
+      take({
+        kind: 'record',
+        event: {
+          type: 'pull_request.base_checked',
+          batchId: 'web-7',
+          pullRequest,
+          branch: 'main',
+          tip: tip1,
+          head,
+          conflicts: ['src/a.ts'],
+        },
+      });
+      take({ ...fixCommand(tip1), cause: { kind: 'conflict', tip: tip1 } });
+      assert.equal(fixedBatch().lane.kind, 'brewing');
+      const github = fakeGitHub();
+      assert.deepStrictEqual(await drain(github), ['base_conflict.1']);
+      const [body] = github.issue(web, 12).comments.map((comment) => comment.body);
+      assert.match(
+        body ?? '',
+        /While its rounds last, Foedrum sends the batch back to resolve it, at most 2 rounds in all, unless a person holds or skips it\./,
+      );
+      assert.doesNotMatch(body ?? '', /stays On tap/);
+    });
+
     it("checks the new head of a round the head's checks sent back, at the tip the old head was checked at", async () => {
       onTapFixed();
       // The old head merged cleanly at tip1, but its own checks failed: a round with no merge.

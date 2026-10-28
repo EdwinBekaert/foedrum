@@ -179,6 +179,7 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch): string => {
       const after = `after ${roundsText(reason.rounds)}`;
       // The check's name and command are the Brewery's configuration (ADR 0209).
       if (reason.cause !== undefined) {
+        if (reason.cause.kind === 'conflict') throw new Error('not implemented');
         const { branch, tip, check } = reason.cause;
         return `${code(reason.stepId)}: ${link(reason.pullRequest)} fails its checks on the merged tree with ${code(branch)} at ${code(shortSha(tip))} ${after}: ${plain(check)}`;
       }

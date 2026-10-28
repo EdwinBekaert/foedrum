@@ -46,6 +46,7 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
       if (reason.cause === undefined) {
         return `${reason.pullRequest} failed its checks on ${reason.head} ${after}`;
       }
+      if (reason.cause.kind === 'conflict') throw new Error('not implemented');
       const { branch, tip, check } = reason.cause;
       return `${reason.pullRequest} fails its checks on the merged tree with ${branch} at ${tip}: ${check}, ${after}`;
     }

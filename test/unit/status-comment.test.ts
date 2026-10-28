@@ -683,6 +683,25 @@ describe('renderStatus', () => {
         },
         /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> fails its checks on the merged tree with `main` at `eeeeeeee` after 2 rounds: the check "&lt;b&gt;test&lt;\/b&gt;" \(npm test\)$/,
       ],
+      // The files are the repository's names, shown as plain text (ADR 0244).
+      [
+        {
+          kind: 'pull_request_failed',
+          stepId: 'open-pull-request',
+          pullRequest: 'https://github.com/acme/api/pull/12',
+          head: 'c'.repeat(40),
+          rounds: 2,
+          failed: [],
+          more: 0,
+          cause: {
+            kind: 'conflict',
+            branch: 'main',
+            tip: 'e'.repeat(40),
+            files: ['src/a.ts', '<b>x</b>.ts'],
+          },
+        },
+        /`open-pull-request`: <https:\/\/github\.com\/acme\/api\/pull\/12> conflicts with `main` at `eeeeeeee` after 2 rounds: src\/a\.ts, &lt;b&gt;x&lt;\/b&gt;\.ts$/,
+      ],
     ];
     for (const [reason, said] of cases) {
       const text = renderStatus(batch({ lane: stuck(reason) }), steps);

@@ -36,6 +36,7 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
+import type { MergeResult } from '../schemas/store.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
@@ -557,6 +558,7 @@ export function routeOf(
   batch: Batch,
   ref: AttemptRef,
   outDocOf: (stepId: string) => string | undefined,
+  _mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
 ): PlannedRoute | undefined {
   const route = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
   if (route === undefined) return undefined;
@@ -669,6 +671,18 @@ function mergedCheckRouteOf(
     "The base is merged into this worktree. The recipe's own checks run on your change after this step.",
   ].join('\n\n');
   return { source, text };
+}
+
+/**
+ * What a resumed session is told of the merge its start merge kept in progress (ADR 0244): the
+ * files still unmerged, and to conclude it; none when the merge kept nothing.
+ */
+export function keptMergeInput(
+  _merge: MergeResult | undefined,
+  _branch: string,
+  _step: string,
+): PromptInput | undefined {
+  throw new Error('not implemented');
 }
 
 const leftOutReason = '[left out: a reason that looks like a secret]';

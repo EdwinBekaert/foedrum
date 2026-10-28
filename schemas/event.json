@@ -223,7 +223,10 @@
                 },
                 "cause": {
                   "type": "string",
-                  "const": "merged_check"
+                  "enum": [
+                    "merged_check",
+                    "conflict"
+                  ]
                 },
                 "tip": {
                   "type": "string",
@@ -1441,32 +1444,69 @@
                   "maximum": 9007199254740991
                 },
                 "cause": {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "const": "merged_check"
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "merged_check"
+                        },
+                        "branch": {
+                          "type": "string",
+                          "pattern": "\\S"
+                        },
+                        "tip": {
+                          "type": "string",
+                          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                        },
+                        "check": {
+                          "type": "string",
+                          "pattern": "\\S"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "branch",
+                        "tip",
+                        "check"
+                      ],
+                      "additionalProperties": false
                     },
-                    "branch": {
-                      "type": "string",
-                      "pattern": "\\S"
-                    },
-                    "tip": {
-                      "type": "string",
-                      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
-                    },
-                    "check": {
-                      "type": "string",
-                      "pattern": "\\S"
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "conflict"
+                        },
+                        "branch": {
+                          "type": "string",
+                          "pattern": "\\S"
+                        },
+                        "tip": {
+                          "type": "string",
+                          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                        },
+                        "files": {
+                          "minItems": 1,
+                          "maxItems": 50,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "\\S"
+                          }
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "branch",
+                        "tip",
+                        "files"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "kind",
-                    "branch",
-                    "tip",
-                    "check"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               },
               "required": [

@@ -31,9 +31,15 @@ export type InputSource =
       from: string;
       why: ScheduleRoute['why'];
       pullRequest?: string;
-      /** Sent back by a failing check on the pull request's merged tree (ADR 0226). */
-      cause?: 'merged_check';
+      /**
+       * Sent back by a failing check on the pull request's merged tree (ADR 0226), or by its
+       * conflict with the base `branch` (ADR 0244).
+       */
+      cause?: 'merged_check' | 'conflict';
+      branch?: string;
     }
+  /** The merge of the base `branch` a resumed session continues in its worktree (ADR 0244). */
+  | { kind: 'merge'; step: string; branch: string }
   /** Why a retry runs: the secret scan failed the attempt before it, `attempt` (ADR 0187). */
   | { kind: 'scan'; step: string; attempt: number }
   /** The earlier rounds' findings of a lens step, with their dispositions (ADR 0191). */
@@ -90,6 +96,8 @@ function describeSource(source: InputSource): string {
       const what = source.why === 'failed' ? 'the failed checks' : 'the findings';
       return `why step ${source.step} runs again: ${what} of step ${source.from}`;
     }
+    case 'merge':
+      throw new Error('not implemented');
     case 'scan':
       return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
     case 'findings':

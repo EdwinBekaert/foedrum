@@ -65,6 +65,9 @@ export const openWorktreeMerge = ({ git, clone }: WorktreeMergeOptions): Worktre
       return parents;
     },
     abort,
+    pending: async () => {
+      throw new Error('not implemented');
+    },
     merge: async (path, commit, message, signal) => {
       // A commit of its own, also when the start is behind the base, and no editor.
       const args = ['merge', '--no-ff', '--no-edit', '--no-verify', '-m', message];
