@@ -1356,10 +1356,12 @@ export type BinaryInstalled = (cwd: string, name: string) => Promise<boolean>;
 
 // Why a command's pushes from `dir` to `remotes` would send a word on the personal denylist, or
 // undefined (ADR 0114); rejects when it cannot tell. Each remote is the one a push names, undefined
-// when it names none, and null when it is computed at run time.
+// when it names none, and null when it is computed at run time; each destination is a branch name
+// a refspec pushes to, null when it is computed at run time (ADR 0246).
 export type DeniedPush = (
   dir: string,
-  ...remotes: (string | null | undefined)[]
+  remotes: readonly (string | null | undefined)[],
+  destinations: readonly (string | null)[],
 ) => Promise<string | undefined>;
 
 // Why the texts a command's gh calls would send hold a word on the personal denylist, or cannot be
@@ -1582,7 +1584,7 @@ export const precheck = async (
   const remotes = new Set(found.places.map(({ remote }) => remote));
   let denied: string | undefined;
   try {
-    denied = await deniedPush(dir, ...remotes);
+    denied = await deniedPush(dir, [...remotes], []);
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
@@ -1839,7 +1841,7 @@ if (import.meta.main) {
       );
     },
     // The personal denylist, FOEDRUM_DENYLIST or ~/.config/foedrum/denylist.txt (ADR 0114).
-    async (dir, ...remotes) => {
+    async (dir, remotes) => {
       const [{ pushRefusal }, { readDenylist }, { execProcess }, { homedir }, { readFileSync }] =
         await Promise.all([
           import('./denylist.ts'),

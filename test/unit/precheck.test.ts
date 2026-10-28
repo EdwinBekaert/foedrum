@@ -7,6 +7,7 @@ import { join, posix, resolve, win32 } from 'node:path';
 import { describe, it } from 'node:test';
 import {
   type CheckResult,
+  type DeniedPush,
   type FindNpmCli,
   forbiddenReason,
   ghPullRequest,
@@ -208,20 +209,19 @@ describe('precheck with a personal denylist', () => {
   const fakeScan = (answer: () => Promise<string | undefined>) => {
     const calls: string[] = [];
     const remotes: (string | null | undefined)[] = [];
-    const deniedPush = async (dir: string, ...pushed: (string | null | undefined)[]) => {
+    const destinations: (string | null)[] = [];
+    const deniedPush: DeniedPush = async (dir, pushed, names) => {
       calls.push(dir);
       remotes.push(...pushed);
+      destinations.push(...names);
       return answer();
     };
-    return { calls, remotes, deniedPush };
+    return { calls, remotes, destinations, deniedPush };
   };
   const gate = (
     command: string,
     runCheck: (cwd: string) => Promise<CheckResult>,
-    deniedPush: (
-      dir: string,
-      ...remotes: (string | null | undefined)[]
-    ) => Promise<string | undefined>,
+    deniedPush: DeniedPush,
     detached = false,
   ) =>
     precheck(
