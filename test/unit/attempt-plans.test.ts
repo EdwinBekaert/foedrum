@@ -132,6 +132,42 @@ describe('createAttemptPlans: plan', () => {
     assert.equal(plain.interactive, undefined);
   });
 
+  it('puts the recipes a step that chooses may offer in its prompt, and holds its question to them (ADR 0232)', async () => {
+    const choosing = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'innkeeper', chooses: 'recipe' }]),
+        },
+        { path: 'recipes/stout.jsonc', text: recipeText('stout', [{ brewer: 'brewmaster' }]) },
+        { path: 'recipes/ale.jsonc', text: recipeText('ale', [{ brewer: 'brewmaster' }]) },
+      ],
+      brewers: [
+        {
+          path: 'brewers/innkeeper.md',
+          text: brewerText('innkeeper', {
+            output: { doc: 'brew.md', schema: 'recipeChoice' },
+            inputs: [{ name: 'recipes', from: 'recipes' }],
+          }),
+        },
+        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster') },
+      ],
+    });
+    assert.ok(choosing.valid, choosing.valid ? '' : choosing.problems.join('\n'));
+    const { plans } = setup(undefined, {}, undefined, choosing.brewers);
+    const { prompt } = await plans.plan(start);
+    // In the order the loader read them, each with its own description.
+    assert.match(prompt, /name="recipes">\n- stout: The stout\.\n- ale: The ale\.\n\n<\//);
+    const { schema } = plans.limits(ref).outDoc;
+    const asking = (options: string[]) => ({
+      status: 'needs_input',
+      summary: 'A recipe to choose',
+      questions: [{ q: 'Which?', options, recommended: 'stout', whyBlocking: 'It decides' }],
+    });
+    assert.equal(schema.safeParse(asking(['stout', 'ale'])).success, true);
+    assert.equal(schema.safeParse(asking(['stout', 'porter'])).success, false);
+  });
+
   it('puts the text of a lens input in the prompt, tagged with the lens and its file (ADR 0098)', async () => {
     const withLens = loadRecipes({
       recipes: [

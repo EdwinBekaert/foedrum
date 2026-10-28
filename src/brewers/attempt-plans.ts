@@ -499,6 +499,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       worktree.path,
       found.lenses,
       repositories,
+      found.choices,
     );
     const inputs: PromptInput[] = [];
     for (const input of planned) {
@@ -660,7 +661,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const batch = state().batches.get(ref.batchId);
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
-      return attemptLimits(found.brewer, start, found.blocking, lenses);
+      const choices = found.choices?.map(({ name }) => name);
+      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

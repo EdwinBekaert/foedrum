@@ -52,7 +52,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 | Brewer | Role |
 |---|---|
-| Innkeeper | Router |
+| Innkeeper | Suggests a recipe for an order and asks which brews it (`mash-in`, `foedrum mash`) |
 | Maltster | Context gathering |
 | Brewmaster | Planning |
 | Gauger | Failing tests first |
@@ -69,10 +69,11 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 
 ## Default recipes — sized by the glass
 
-The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or let the router pick.
+The bigger the work, the bigger the vessel. Choose one with a label such as `recipe:pint`, or let the router pick (planned, #227), or run `foedrum mash` and choose with the Innkeeper's suggestion ([ADR 0232](adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).
 
 | Recipe | Use |
 |---|---|
+| Mash-in | Suggest a recipe for an order and ask which brews it (`foedrum mash`) |
 | Nip | Quick fix |
 | Mash | A plan of sub-orders for an order, shown on its issue; nothing built |
 | Half-pint | Small feature |

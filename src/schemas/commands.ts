@@ -185,6 +185,12 @@ export type TakeoverCommand = z.infer<typeof TakeoverCommand>;
 /** The Cellar's driver owner (ADR 0037), which no other driver may take (ADR 0123). */
 export const CELLAR_OWNER = 'cellar';
 
+/** A driver's name for `--as`: one path segment that is not the Cellar's (ADR 0123). */
+const DriverName = PathSafeId.refine(
+  (name) => name !== CELLAR_OWNER,
+  "Must not be cellar, the Cellar's own",
+);
+
 /**
  * `foedrum brew <issue> [--as <name>]` (ADR 0123): the issue as `order` takes it, and the name of
  * its driver, one path segment that is not the Cellar's.
@@ -192,16 +198,28 @@ export const CELLAR_OWNER = 'cellar';
 export const BrewCommand = z.strictObject({
   command: z.literal('brew'),
   issue: IssueTarget,
-  as: PathSafeId.refine(
-    (name) => name !== CELLAR_OWNER,
-    "Must not be cellar, the Cellar's own",
-  ).optional(),
+  as: DriverName.optional(),
   /** `--take`: take the batch over from the driver that holds it (ADR 0124). */
   take: z.literal(true).optional(),
   /** `--new-window`: run `foedrum brew <issue> --take` in a new terminal window (ADR 0222). */
   'new-window': z.literal(true).optional(),
 });
 export type BrewCommand = z.infer<typeof BrewCommand>;
+
+/**
+ * `foedrum mash <issue> [--as <name>] [--take]` (ADR 0232): a Brewery issue, a claimed issue's
+ * order included, routed to mash-in and brewed as `brew` does until its question.
+ */
+export const MashCommand = z.strictObject({
+  command: z.literal('mash'),
+  issue: IssueTarget.refine(
+    ({ alias }) => alias === undefined,
+    'Must be #<n> of the Brewery: a claimed issue is mashed by its Brewery issue',
+  ),
+  as: DriverName.optional(),
+  take: z.literal(true).optional(),
+});
+export type MashCommand = z.infer<typeof MashCommand>;
 
 /** A local time `HH:MM` on a 24-hour clock, such as `17:30` (ADR 0202). */
 export const LocalTime = z.string().regex(/^([01][0-9]|2[0-3]):([0-5][0-9])$/);

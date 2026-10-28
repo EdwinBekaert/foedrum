@@ -26,6 +26,8 @@ export interface FakeRecipe {
   groups?: Readonly<Record<string, readonly string[]>>;
   /** The interactive steps, whose attempts run as a person's session (ADR 0222); default none. */
   interactive?: readonly string[];
+  /** The steps whose answer chooses the batch's recipe (ADR 0232); default none. */
+  chooses?: readonly string[];
 }
 
 export const hour = 3_600_000;
@@ -41,6 +43,7 @@ export const fakeRecipe = ({
   merges = [],
   groups = {},
   interactive = [],
+  chooses = [],
   maxRounds = Number.POSITIVE_INFINITY,
 }: FakeRecipe): Recipe => {
   const [firstStep] = steps;
@@ -63,6 +66,7 @@ export const fakeRecipe = ({
     children: (stepId) => groups[stepId],
     group: groupOf,
     interactive: (stepId) => interactive.includes(stepId),
+    choosesRecipe: (stepId) => chooses.includes(stepId),
     action: (stepId) => actions[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
     // As the loaded recipe does, a parallel group has no deadline: only its children are scheduled.

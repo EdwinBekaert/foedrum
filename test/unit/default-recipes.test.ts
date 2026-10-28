@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { readJsonc } from '../../src/schemas/read.ts';
 import { DefaultRecipe } from '../../src/schemas/recipe.ts';
 
@@ -25,4 +27,47 @@ describe('the recipes under defaults/', () => {
       assert.equal(result.valid, true, result.valid ? '' : result.reason);
     });
   }
+});
+
+describe('mash-in and the Innkeeper (ADR 0232)', () => {
+  it("asks at its one step, through a read-only Innkeeper on builder, offering Foedrum's other recipes", () => {
+    const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const mashIn = loaded.recipes.find('mash-in');
+    assert.equal(mashIn?.firstStep, 'innkeep');
+    assert.deepEqual(mashIn?.steps, ['innkeep']);
+    assert.equal(mashIn?.choosesRecipe('innkeep'), true);
+    const step = loaded.brewers.find('mash-in', 'innkeep');
+    const { name, model, access, tools, output } = step?.brewer ?? {};
+    assert.deepEqual(
+      { name, model, access, allow: tools?.allow, schema: output?.schema },
+      {
+        name: 'innkeeper',
+        model: 'builder',
+        access: 'read',
+        allow: ['Read', 'Grep', 'Glob', 'Edit(mash-in.md)'],
+        schema: 'recipeChoice',
+      },
+    );
+    assert.deepEqual(
+      step?.choices?.map(({ name }) => name),
+      ['mash', 'nip'],
+    );
+  });
+});
+
+describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () => {
+  it('is given the recipes a sub-order may run with, those that choose a recipe left out', () => {
+    const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const step = loaded.brewers.find('mash', 'plan');
+    assert.ok(
+      step?.brewer.inputs.some(({ from }) => from === 'recipes'),
+      'the Brewmaster names the recipes input',
+    );
+    assert.deepEqual(
+      step?.choices?.map(({ name }) => name),
+      ['mash', 'nip'],
+    );
+  });
 });

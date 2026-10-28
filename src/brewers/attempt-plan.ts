@@ -10,7 +10,7 @@ import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { Batch } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
-import type { Lens, StepBrewer } from '../engine/recipe-files.ts';
+import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
@@ -37,6 +37,7 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
+import { RECIPE_CHOICE, recipeChoiceOutDocOf } from '../schemas/recipe-choice.ts';
 import { attemptFolder } from '../workspace/attempt-worktrees.ts';
 import { type AttemptPermissions, type ConfigDirs, toolchainOf } from './attempt-settings.ts';
 import type { ClaudeAttemptPlan, OutDocRead } from './claude-runner.ts';
@@ -110,18 +111,21 @@ export interface PlanFacts {
  * `start`: a brewer that produces commits needs one after it for a `done` (ADR 0074). A Taster's
  * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
  * blocks it by findings (ADR 0161). Each finding that names a lens names one of the step's `lenses`,
- * and on a step of several together each finding names one (ADR 0220).
+ * and on a step of several together each finding names one (ADR 0220). A recipe choice's question
+ * offers only the step's `choices` (ADR 0232).
  */
 export function attemptLimits(
   brewer: BrewerFrontmatter,
   start?: string,
   blocking = false,
   lenses?: readonly string[],
+  choices: readonly string[] = [],
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
-  // changes (ADR 0166), a Gauger's with its tests (ADR 0170), a plan with its sub-orders (ADR 0233);
-  // every other out doc against the contract's schema.
+  // changes (ADR 0166), a Gauger's with its tests (ADR 0170), a plan with its sub-orders (ADR 0233),
+  // a recipe choice with its one question (ADR 0232); every other out doc against the contract's
+  // schema.
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
@@ -136,7 +140,9 @@ export function attemptLimits(
             ? GaugeOutDoc
             : name === PLAN
               ? PlanOutDoc
-              : OutDocFrontmatter;
+              : name === RECIPE_CHOICE
+                ? recipeChoiceOutDocOf(choices)
+                : OutDocFrontmatter;
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),
@@ -241,7 +247,8 @@ const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
  * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
- * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234).
+ * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
+ * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -250,6 +257,7 @@ export function inputsOf(
   worktree: string,
   lenses: ReadonlyMap<string, Lens> = new Map(),
   brewery?: BreweryRepositories,
+  choices: readonly RecipeChoice[] = [],
 ): PlannedInput[] {
   const skipped = (from: string): boolean =>
     from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);
@@ -265,6 +273,10 @@ export function inputsOf(
         if (brewery === undefined) throw new Error(`the input "${name}" has no repositories`);
         const read: InputRead = { kind: 'text', text: repositoriesText(brewery) };
         return { name, source: { kind: 'repositories' }, read };
+      }
+      if (from === 'recipes') {
+        const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
+        return { name, source: { kind: 'recipes' }, read: { kind: 'text', text } };
       }
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);
