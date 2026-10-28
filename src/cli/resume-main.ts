@@ -3,33 +3,26 @@
 // claude in the foreground with the terminal. main.ts runs it through the command layer; the logic
 // is resume.ts's, tested with fakes.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir, release } from 'node:os';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import { writeAttemptSettings } from '../brewers/attempt-settings.ts';
 import { writeSystemPromptFile } from '../brewers/claude-runner.ts';
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
-import { readBreweryFiles } from '../engine/brewery-files.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
-import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
-import { execProcess, foregroundProcess } from '../platform/processes.ts';
+import { environmentVariable } from '../platform/executables.ts';
+import { foregroundProcess } from '../platform/processes.ts';
 import type { ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import { openAttemptWorktrees, worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import { runGit } from '../workspace/git.ts';
-import { diagnose, githubHostOfConfig } from './doctor.ts';
-import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
 import { foregroundGate } from './foreground-gate.ts';
 import { claudeConfigDir, runResume, sessionFoundIn, terminalEnv } from './resume.ts';
 import { runResumeRunning } from './resume-running.ts';
 import type { CliResult } from './run.ts';
-import { serveSetup } from './serve-config.ts';
-import { readServeSetup, type StartOptions } from './serve-main.ts';
+import { readServeSetup, type StartOptions, serveSetupIn } from './serve-main.ts';
 import { listenWhileServing, serveShell } from './serve-shell.ts';
-
-const readIfThere = (path: string): string | undefined =>
-  existsSync(path) ? readFileSync(path, 'utf8') : undefined;
 
 // A folder's subfolders, none when it is missing.
 const folders = (path: string): string[] =>
@@ -93,41 +86,14 @@ export const resumeFromCheckout = async (
   cwd: string,
   input: ResumeCommand,
   issued: { by: string; via: Surface },
-  options?: Partial<Pick<DoctorShell, 'exec' | 'resolve'>>,
+  options?: StartOptions,
 ): Promise<CliResult> => {
-  const { exec = execProcess, resolve = resolveExecutable } = options ?? {};
-  const config = readIfThere(join(cwd, 'foedrum.jsonc'));
-  const setup = async () => {
-    const facts = await gatherDoctorFacts({
-      exec,
-      resolve,
-      platform: process.platform,
-      kernelRelease: release(),
-      node: process.versions.node,
-      execPath: process.execPath,
-      cwd,
-      githubHost: githubHostOfConfig(config),
-    });
-    return serveSetup({
-      root: cwd,
-      home: homedir(),
-      platform: process.platform,
-      env: process.env,
-      files: {
-        config,
-        local: readIfThere(join(cwd, '.foedrum', 'local.jsonc')),
-        models: readIfThere(join(cwd, 'models.jsonc')),
-        brewery: readBreweryFiles(cwd),
-      },
-      diagnosis: diagnose(facts),
-    });
-  };
   // Ctrl+C is claude's while it runs; foedrum waits to let the lease go.
   const ignore = () => {};
   return runResume(input, {
     cwd,
     openStore: (path) => (existsSync(path) ? openSqliteEventStore(path) : undefined),
-    setup,
+    setup: () => serveSetupIn(cwd, options),
     worktrees: async (repository, workRoot) => {
       const { repo } = repository;
       // The clone the attempt's worktree was added to, a managed one included: it ran there.
