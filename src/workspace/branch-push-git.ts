@@ -13,7 +13,7 @@ import {
   scanMessages,
   scanPatches,
 } from '../formats/commit-scan.ts';
-import { isCommitSha, noCommitSha } from '../schemas/store.ts';
+import { COMMIT_HEX, isCommitSha, noCommitSha } from '../schemas/store.ts';
 import {
   aborts,
   firstLine,
@@ -104,6 +104,8 @@ const PATCHES = ['log', ...SHOWN, '--format=%x00%H', '--patch', '--no-merges', .
 const MERGES = ['rev-list', '--merges', '--parents'];
 /** Past the runner's output limit (ADR 0035), the scan reads no further and refuses. */
 const TOO_LARGE = 'more than 4 MiB of messages or changes, past what the scan reads';
+/** The sha after each NUL of the patches: the commit each patch is of. */
+const PATCH_COMMIT = new RegExp(String.raw`\0${COMMIT_HEX}`, 'g');
 
 /** A push or fetch of a large repository takes a while; the effect's deadline aborts it sooner. */
 const TRANSFER_TIMEOUT_MS = 300_000;
@@ -262,7 +264,7 @@ export const openBranchPush = (options: BranchPushOptions): BranchPush => {
       // own hashes, after each NUL, and the headers read's commit, tree and parent lines are not
       // read. A message's own `commit <sha>` line is asked as any other word.
       const hashes = headers.replace(/^(?:commit|tree|parent) [0-9a-f]+$/gm, '');
-      const shown = `${messages}\n${hashes}\n${patches}`.replace(/\0[0-9a-f]{40}/g, '');
+      const shown = `${messages}\n${hashes}\n${patches}`.replace(PATCH_COMMIT, '');
       const candidates = commitCandidates(shown);
       const commits = new Set<string>();
       if (candidates.length > 0) {

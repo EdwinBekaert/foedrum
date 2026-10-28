@@ -3,7 +3,7 @@
 // A finding names the commit, the file (or the message, or the header) and the kind, never the
 // text it matched.
 
-import { isCommitSha, type ScanFinding } from '../schemas/store.ts';
+import { COMMIT_HEX, isCommitSha, type ScanFinding } from '../schemas/store.ts';
 import { findSecrets, type IsCommit } from './secrets.ts';
 
 /** The place of a finding in a commit's message. */
@@ -195,7 +195,10 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
   return found.list();
 };
 
+/** A word of text that has a full commit id's length, in either case. */
+const COMMIT_WORD = new RegExp(String.raw`\b${COMMIT_HEX}\b`, 'gi');
+
 /** Every 40-character hexadecimal word of `text`: what may be a commit rather than a key. */
 export const commitCandidates = (text: string): string[] => [
-  ...new Set(text.match(/\b[0-9a-f]{40}\b/gi) ?? []),
+  ...new Set(text.match(COMMIT_WORD) ?? []),
 ];

@@ -80,7 +80,9 @@ export const AttemptKeyText = canonicalText(
 
 // A full commit id: 40 lowercase hex characters, a SHA-1 id. Foedrum supports SHA-1 repositories
 // (ADR 0254); a 64-character SHA-256 id is refused where it enters.
-const COMMIT_ID = /^[0-9a-f]{40}$/;
+/** A full commit id as a pattern, which the scans for ids in other text build on too. */
+export const COMMIT_HEX = '[0-9a-f]{40}';
+const COMMIT_ID = new RegExp(`^${COMMIT_HEX}$`);
 const SHA256_ID = /^[0-9a-f]{64}$/;
 
 /** Whether `text` is a full commit id, the one check `CommitSha` and every git reader use. */
