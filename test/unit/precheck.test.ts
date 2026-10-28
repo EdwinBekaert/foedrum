@@ -318,6 +318,10 @@ describe('precheck with a personal denylist', () => {
     ['git push --set-upstream work HEAD', ['work']],
     ['git push -o ci.skip --repo=mirror', ['mirror']],
     ['git push --repo mirror', ['mirror']],
+    // Value options by prefix, an ambiguous one, and one whose value comes after `=` (ADR 0246).
+    ['git push --rep mirror', ['mirror']],
+    ['git push --re x origin', ['origin']],
+    ['git push --push-option=ci.skip origin', ['origin']],
     ['git push --push-option ci.skip origin', ['origin']],
     ['git push https://example.com/o/r.git HEAD', ['https://example.com/o/r.git']],
     ['git push "$remote" HEAD', [null]],
@@ -446,6 +450,7 @@ describe("precheck on a push that git's configuration makes delete, force or mir
     ['git push', 'remote.origin.mirror\nOff\0'],
     ['git push', 'remote.origin.push\nrefs/heads/main:refs/heads/main\0'],
     ['git push origin', 'remote.backup.mirror\ntrue\0remote.backup.push\n:x\0'],
+    ['git push --rep backup', 'remote.origin.mirror\ntrue\0'],
   ];
   for (const [command, config, setting] of cases) {
     it(`${setting === undefined ? 'lets through' : 'blocks'} ${command} with ${JSON.stringify(config)}`, async () => {
