@@ -101,6 +101,15 @@ describe('recipeLabelEffects (ADR 0232)', () => {
     }
   });
 
+  it('labels nothing yet for a claimed batch whose Brewery issue is not recorded', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const claimed: Event[] = [
+      { type: 'batch.ordered', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' }, routeBy },
+      { ...chose(), batchId: 'web-7' } as Event,
+    ];
+    assert.deepEqual(effects.due(fold(claimed), 'web-7'), []);
+  });
+
   it('is due once: never again after its record', () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     const applied: Event = {

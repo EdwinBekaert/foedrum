@@ -28,7 +28,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { FlushResult } from '../../src/engine/state-branch-git.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { launchProcess } from '../../src/platform/processes.ts';
-import { BrewCommand } from '../../src/schemas/commands.ts';
+import { BrewCommand, MashCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import {
   type Behaviour,
@@ -185,6 +185,17 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       noSessions: 'no-terminal',
     });
     assert.equal('noSessions' in brewRequestOf(command, 'ann', issued, undefined), false);
+  });
+
+  it('asks runBrew to mash for foedrum mash, and for foedrum brew not (ADR 0232)', () => {
+    const mash = MashCommand.parse({ command: 'mash', issue: '#13' });
+    assert.deepStrictEqual(brewRequestOf(mash, 'ann', issued, undefined), {
+      target: { issue: 13 },
+      owner: 'ann',
+      ...issued,
+      mash: true,
+    });
+    assert.equal('mash' in brewRequestOf(command, 'ann', issued, undefined), false);
   });
 
   it("keeps serve's runner without sessions, and with them runs every attempt through the interactive runner, a resumed one headless", () => {
@@ -1433,7 +1444,11 @@ describe('runBrew', () => {
      * The test Brewery with Foedrum's defaults under it, mash-in and the Innkeeper among them; with
      * `only`, the Brewery's recipes are that one, and Foedrum's are mash-in alone.
      */
-    const mashSetup = (fields: { config?: string; only?: string } = {}): ServeSetup => {
+    const mashSetup = (
+      fields: { config?: string; only?: string; keep?: string } = {},
+    ): ServeSetup => {
+      // With `only`, the one default recipe kept: mash-in, unless `keep` names another.
+      const kept = `/${fields.keep ?? 'mash-in'}.jsonc`;
       const inputs = serveInputs();
       const { defaults = {} } = readBreweryFiles(join(dir.path, 'no-brewery'));
       const own = [
@@ -1457,9 +1472,7 @@ describe('runBrew', () => {
                   ? defaults
                   : {
                       ...defaults,
-                      recipes: (defaults.recipes ?? []).filter(({ path }) =>
-                        path.endsWith('/mash-in.jsonc'),
-                      ),
+                      recipes: (defaults.recipes ?? []).filter(({ path }) => path.endsWith(kept)),
                     },
             },
           },
@@ -1585,6 +1598,60 @@ describe('runBrew', () => {
         lines.at(-1),
         'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it (mash and decoction come with #586 and #587)',
       );
+    });
+
+    const refusals: [string, Parameters<typeof mashSetup>[0], string][] = [
+      ['without mash-in', { only: 'stout', keep: 'nip' }, 'the Brewery has no recipe mash-in'],
+      [
+        'with no recipe to offer',
+        { only: 'none' },
+        'the Brewery has no recipe to offer but mash-in (mash and decoction come with #586 and #587)',
+      ],
+    ];
+    for (const [what, fields, line] of refusals) {
+      it(`refuses a Brewery ${what}, ordering nothing: exit 5`, async () => {
+        const refusing = mashSetup(fields);
+        assert.equal(await runBrew(refusing, shell(behave.succeed()), mash(13)), 5);
+        assert.equal(log().state().batches.size, 0);
+        assert.equal(lines.at(-1), `foedrum mash: ${line}`);
+      });
+    }
+
+    it("labels a claimed order's Brewery issue once its question is answered, never the target issue", async () => {
+      const web = { alias: 'web', intake: { labels: ['foedrum'] } };
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 40, labels: [], author: 'ann', title: 'Dark theme', body: 'web#7' },
+          ],
+          'acme/web': [
+            { number: 7, labels: ['foedrum'], author: 'ann', title: 'Dark theme', body: 'Dark.' },
+          ],
+        },
+      });
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
+      const claimed = mashSetup({ config: config({}, web) });
+      assert.equal(await runBrew(claimed, shell(behave.needInput([which(40)])), mash(40)), 4);
+      const answers = [{ q: which(40).q, answer: 'stout' }];
+      const answer = {
+        kind: 'answer',
+        batchId: 'web-7',
+        by: 'ann',
+        via: 'terminal',
+        answers,
+      } as const;
+      const answered = createCommandLog({ store, recipes: claimed.recipes }).issue(answer, t0);
+      assert.equal(answered.kind, 'accepted', JSON.stringify(answered));
+      const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
+      const brew = { ...request, target: { alias: 'web', issue: 7 } };
+      assert.equal(await runBrew(claimed, again, brew), 0, lines.join('\n'));
+      const recipes = (repo: string, issue: number) =>
+        (api.issue(repo, issue)?.labels ?? []).filter((label) => label.startsWith('recipe:'));
+      assert.deepStrictEqual(recipes('acme/brewery', 40), ['recipe:stout']);
+      assert.deepStrictEqual(recipes('acme/web', 7), []);
     });
   });
 
