@@ -9,8 +9,8 @@ import type { BatchEffectKey } from '../schemas/store.ts';
 import type { IssueMarks } from './claim-effects.ts';
 import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
-import { effectKey } from './effect-key.ts';
-import type { Lane, State } from './fold.ts';
+import { effectKey, numberedEffects } from './effect-key.ts';
+import type { Lane } from './fold.ts';
 import { same } from './issue-claims.ts';
 
 /** The labels of the lanes, in the order a batch moves through them. */
@@ -46,19 +46,6 @@ const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
   batchId,
   effect: `label.${revision}`,
 });
-
-/** What revision `revision` of `batchId` recorded, or undefined when it is not in the ledger. */
-const recorded = (
-  state: State,
-  batchId: string,
-  revision: number,
-): LaneLabelRevision | undefined => {
-  const key = effectKey.encode(revisionKey(batchId, revision));
-  if (!state.effects.has(key)) return undefined;
-  const parsed = LaneLabelRevision.safeParse(state.effects.get(key));
-  if (!parsed.success) throw new Error(`The ledger's ${key} is not a lane label's revision`);
-  return parsed.data;
-};
 
 /** A revision of a lane label that is due: the issue, and the label it leaves, or none. */
 interface DueLabel {
@@ -99,13 +86,14 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
       const issue = breweryIssueOf(state, batch);
       // An issue ordered again shows its latest batch: an older one never touches its labels.
       if (issue === undefined || !latestOf(state, batch, issue)) return [];
-      let revision = 1;
-      let previous: LaneLabelRevision | undefined;
-      for (let found = recorded(state, batchId, revision); found !== undefined; ) {
-        previous = found;
-        revision += 1;
-        found = recorded(state, batchId, revision);
-      }
+      const revisions = numberedEffects(
+        state,
+        (n) => revisionKey(batchId, n),
+        LaneLabelRevision,
+        "a lane label's revision",
+      );
+      const revision = revisions.length + 1;
+      const previous = revisions.at(-1);
       const label = laneLabel(batch.lane) ?? null;
       // Nothing to show, or shown already; a batch cancelled before its first label has none.
       if (previous === undefined ? label === null : previous.label === label) return [];

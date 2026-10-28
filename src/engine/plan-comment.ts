@@ -9,7 +9,7 @@ import type { BatchEffectKey } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
 import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
-import { effectKey } from './effect-key.ts';
+import { effectKey, numberedEffects } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
@@ -133,28 +133,18 @@ const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
   effect: `plan.${revision}`,
 });
 
-/** What revision `revision` of `batchId` recorded, or undefined when it is not in the ledger. */
-const recorded = (state: State, batchId: string, revision: number): StatusRevision | undefined => {
-  const key = effectKey.encode(revisionKey(batchId, revision));
-  if (!state.effects.has(key)) return undefined;
-  const parsed = StatusRevision.safeParse(state.effects.get(key));
-  if (!parsed.success) throw new Error(`The ledger's ${key} is not a plan comment's revision`);
-  return parsed.data;
-};
-
 /** The latest revision of `batchId` recorded, if any, and the number of the next. */
 const latestRevision = (
   state: State,
   batchId: string,
 ): { next: number; latest: StatusRevision | undefined } => {
-  let next = 1;
-  let latest: StatusRevision | undefined;
-  for (let found = recorded(state, batchId, next); found !== undefined; ) {
-    latest = found;
-    next += 1;
-    found = recorded(state, batchId, next);
-  }
-  return { next, latest };
+  const revisions = numberedEffects(
+    state,
+    (n) => revisionKey(batchId, n),
+    StatusRevision,
+    "a plan comment's revision",
+  );
+  return { next: revisions.length + 1, latest: revisions.at(-1) };
 };
 
 /** The plan of the latest attempt of `batch` that succeeded with one, and its step. */

@@ -11,7 +11,7 @@ import type { BatchEffectKey, SensitiveFiles } from '../schemas/store.ts';
 import { effectMarker } from './claim-effects.ts';
 import { breweryIssueOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
-import { effectKey } from './effect-key.ts';
+import { effectKey, numberedEffects } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import {
   type Attempt,
@@ -795,15 +795,6 @@ const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
   effect: `status.${revision}`,
 });
 
-/** What revision `revision` of `batchId` recorded, or undefined when it is not in the ledger. */
-const recorded = (state: State, batchId: string, revision: number): StatusRevision | undefined => {
-  const key = effectKey.encode(revisionKey(batchId, revision));
-  if (!state.effects.has(key)) return undefined;
-  const parsed = StatusRevision.safeParse(state.effects.get(key));
-  if (!parsed.success) throw new Error(`The ledger's ${key} is not a status comment's revision`);
-  return parsed.data;
-};
-
 /**
  * The id of the status comment of `batchId` the latest recorded revision made or edited, or
  * undefined before its first: a comment deleted by hand is made again with a new id.
@@ -816,14 +807,13 @@ const latestRevision = (
   state: State,
   batchId: string,
 ): { next: number; latest: StatusRevision | undefined } => {
-  let next = 1;
-  let latest: StatusRevision | undefined;
-  for (let found = recorded(state, batchId, next); found !== undefined; ) {
-    latest = found;
-    next += 1;
-    found = recorded(state, batchId, next);
-  }
-  return { next, latest };
+  const revisions = numberedEffects(
+    state,
+    (n) => revisionKey(batchId, n),
+    StatusRevision,
+    "a status comment's revision",
+  );
+  return { next: revisions.length + 1, latest: revisions.at(-1) };
 };
 
 /** The open pull request of `batch` whose body its latest round left as it is (ADR 0227). */

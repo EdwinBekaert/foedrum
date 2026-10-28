@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import type { HeadCheck } from '../schemas/events.ts';
 import { MergeBrief } from '../schemas/status-comment.ts';
 import { type BatchEffectKey, PushResult } from '../schemas/store.ts';
-import { effectKey } from './effect-key.ts';
+import { effectKey, numberedEffects } from './effect-key.ts';
 import { type Batch, baseChecksOn, headChecksText, type State } from './fold.ts';
 import { checkPassed } from './pr-checks.ts';
 import { openOf, recordedPushes } from './pull-request.ts';
@@ -64,16 +64,8 @@ export const hiddenKey = (batchId: string, n: number): BatchEffectKey => ({
 });
 
 /** The merge briefs the ledger recorded for `batchId`, the `n`th at `n - 1`. */
-const recordedBriefs = (state: State, batchId: string): MergeBrief[] => {
-  const briefs: MergeBrief[] = [];
-  for (let n = 1; ; n++) {
-    const key = effectKey.encode(briefKey(batchId, n));
-    if (!state.effects.has(key)) return briefs;
-    const parsed = MergeBrief.safeParse(state.effects.get(key));
-    if (!parsed.success) throw new Error(`The ledger's ${key} is not a merge brief`);
-    briefs.push(parsed.data);
-  }
-};
+const recordedBriefs = (state: State, batchId: string): MergeBrief[] =>
+  numberedEffects(state, (n) => briefKey(batchId, n), MergeBrief, 'a merge brief');
 
 /** The latest merge brief the ledger recorded for `batchId`, if any, and the number of the next. */
 export const latestBrief = (
