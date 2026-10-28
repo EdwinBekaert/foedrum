@@ -1,6 +1,6 @@
 # 0234. The Brewmaster writes a plan on the planner alias, and `mash` runs it
 
-Date: 2026-10-28 · Status: Accepted · Narrows #388 (its brewer and recipe items; with [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) it replaces #388's plan) · Amends [0153](0153-foedrum-s-defaults-map-their-own-model-aliases.md) (the defaults map a second alias)
+Date: 2026-10-28 · Status: Accepted · Narrows #388 (its brewer and recipe items; with [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) it replaces #388's plan) · Amends [0153](0153-foedrum-s-defaults-map-their-own-model-aliases.md) (the defaults map a second alias), [0100](0100-nip-ships-with-a-default-cellarman-and-the-default-brewers-name-the-builder-alias.md) (a default brewer may name `planner`) and [0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md) (an input may come from `repositories`)
 
 ## Context
 Since [ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) a plan can be read, its paths checked and shown as one comment on the order's issue, but no brewer writes one and no recipe runs one.
@@ -21,7 +21,7 @@ And a recipe has no time budget ([ADR 0194](0194-a-recipe-has-no-time-budget.md)
 - Rejected: a Maltster step before it, a second session whose findings are handed over as an out doc the Brewmaster reads again (twice the reading, and what the Maltster leaves out the Brewmaster never sees).
 
 ### The Brewmaster
-- `defaults/brewers/brewmaster.md`: `produces: "report"`, `access: "read"`, `tree: "task"`, `output: { doc: "plan.md", schema: "plan" }`, the order as its one input, tools `Read`, `Grep`, `Glob` and `Edit(plan.md)`, `WebFetch` and `WebSearch` denied, as the Taster.
+- `defaults/brewers/brewmaster.md`: `produces: "report"`, `access: "read"`, `tree: "task"`, `output: { doc: "plan.md", schema: "plan" }`, the order and the Brewery's repositories (`from: "repositories"`) as its inputs, tools `Read`, `Grep`, `Glob` and `Edit(plan.md)`, `WebFetch` and `WebSearch` denied, as the Taster.
 - `retryMode: "resume"`: a retry after an invalid plan, and an answer to its question, continue the session that read the code.
 - `model: "planner"`, effort `high` (a plan is the decision every later step builds on), deadline `30m`, `maxTurns` 100, stall `{ turns: 30, minutes: 10 }` as the Taster's, `maxAttempts` 2.
 - Rejected: effort `medium`, which the defaults table said before any Brewmaster existed (a plan read wrong costs every sub-order); `maxAttempts` 3 (a second invalid plan in the same session says the prompt is wrong, which a person should see).
