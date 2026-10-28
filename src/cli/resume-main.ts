@@ -14,7 +14,6 @@ import { environmentVariable } from '../platform/executables.ts';
 import { foregroundProcess } from '../platform/processes.ts';
 import type { ResumeCommand } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
-import { ownGitDirsRoot } from '../workspace/attempt-worktrees.ts';
 import { openAttemptWorktrees, worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import { runGit } from '../workspace/git.ts';
 import { foregroundGate } from './foreground-gate.ts';
@@ -22,7 +21,7 @@ import { claudeConfigDir, runResume, sessionFoundIn, terminalEnv } from './resum
 import { runResumeRunning } from './resume-running.ts';
 import type { CliResult } from './run.ts';
 import { readServeSetup, type StartOptions, serveSetupIn } from './serve-main.ts';
-import { listenWhileServing, serveShell } from './serve-shell.ts';
+import { listenWhileServing, ownRemote, serveShell } from './serve-shell.ts';
 
 // A folder's subfolders, none when it is missing.
 const folders = (path: string): string[] =>
@@ -103,7 +102,7 @@ export const resumeFromCheckout = async (
         workRoot,
         repo,
         clone: worktreeClonePath(workRoot, repository),
-        own: { url: `https://github.com/${repo}.git`, root: ownGitDirsRoot(workRoot, repo) },
+        own: ownRemote(workRoot, repo),
       });
     },
     sessionFound: (id) =>
