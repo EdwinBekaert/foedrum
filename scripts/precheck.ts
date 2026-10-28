@@ -746,8 +746,15 @@ interface Reading {
   place: Place;
 }
 
-// git push's options that take the next word as their value.
-const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack', '--exec']);
+// git push's long options that take a value, after `=` or as the next word; git reads each by a
+// unique prefix too (--push-opt). -o is the short one.
+const PUSH_OPTIONS_WITH_VALUE = [
+  '--repo',
+  '--push-option',
+  '--receive-pack',
+  '--exec',
+  '--recurse-submodules',
+];
 
 // A redirection word, and one that is only the operator, whose target is the next word.
 const REDIRECTION = /^(?:\d+|&)?[<>]/;
@@ -774,9 +781,18 @@ const pushTarget = (args: Word[]): PushTarget => {
       if (REDIRECTION_ONLY.test(arg.text)) i++;
     } else if (optionsEnd || !arg.text.startsWith('-')) operands.push(arg);
     else if (arg.text === '--') optionsEnd = true;
-    else if (arg.text === '--repo') repo = args[++i];
-    else if (arg.text.startsWith('--repo=')) repo = { ...arg, text: arg.text.slice(7) };
-    else if (PUSH_OPTIONS_WITH_VALUE.has(arg.text)) i++;
+    else if (arg.text === '-o') i++;
+    else {
+      // A long option or a prefix of it: one that may be --repo names the remote, and any other
+      // that may take a value takes the next word when it has no `=` (review of #635).
+      const [name = '', value] = arg.text.split(/=(.*)/s);
+      const longs = PUSH_OPTIONS_WITH_VALUE.filter(
+        (each) => name.length > 2 && each.startsWith(name),
+      );
+      const given = value === undefined ? args[i + 1] : { ...arg, text: value };
+      if (longs.length === 1 && longs[0] === '--repo') repo = given;
+      if (longs.length > 0 && value === undefined) i++;
+    }
   }
   const [first, ...refspecs] = operands;
   const remote = first ?? repo;
@@ -790,7 +806,8 @@ const pushTarget = (args: Word[]): PushTarget => {
 };
 
 // A git setting that may change what a push does: a remote's or push's (ADR 0246).
-const PUSH_SETTING = /^(?:remote|push)\./i;
+// An included file may hold either (review of #635).
+const PUSH_SETTING = /^(?:remote|push|include|includeif)\./i;
 
 // Whether a git subcommand's arguments only ask for its help: --help first, which git turns into
 // `git help <command>`, or -h as the one argument, beside the shell's redirections (2>&1); it then
@@ -814,7 +831,8 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
     const option = args[i]?.text ?? '';
     const value = args[i + 1]?.text ?? '';
     if (option === '-C') gitPlace = moveTo(gitPlace, args[i + 1]?.dynamic ? undefined : value);
-    if (option === '-h' || option === '--help') help = true;
+    // Only as git's first word: after an option the gate does not read, -h may be its value.
+    if (i === 0 && (option === '-h' || option === '--help')) help = true;
     const setting =
       option === '-c' || option === '--config-env'
         ? args[i + 1]
