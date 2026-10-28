@@ -665,6 +665,10 @@ function ungrouped(step: BrewerStep, brewer: BrewerFrontmatter): string | undefi
   return undefined;
 }
 
+/** The step's one lens, or its lenses together (ADR 0220). */
+const lensesOf = (step: BrewerStep): readonly string[] =>
+  step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
+
 /** A brewer step's line and brewer, a Taster's with its lenses (ADR 0161), in `group` if any. */
 function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): StepLoad {
   const id = stepId(step);
@@ -702,8 +706,7 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     ];
   }
   const refusedLens = untasted(step, brewer);
-  // The step's one lens, or its lenses together (ADR 0220).
-  const named = step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
+  const named = lensesOf(step);
   if (refusedLens.length === 0) {
     for (const name of named) {
       // A lens whose file or folder has a problem of its own is reported once, as that.
@@ -848,7 +851,7 @@ function listSteps(recipe: RecipeFile): {
 function misfolded(order: readonly Step[], commits: (step: Step) => boolean): string[] {
   return order.flatMap((step, at) => {
     if (!('brewer' in step)) return [];
-    const named = step.lenses ?? (step.lens === undefined ? [] : [step.lens]);
+    const named = lensesOf(step);
     const committed = order.slice(0, at).find(commits);
     const reviews = committed === undefined ? 'plan' : 'diff';
     const since =
@@ -1035,7 +1038,8 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     // above. The red proofs are checked even when a step did not load, so every problem is named
     // at once.
     const brewerOf = (name: string) => brewers.get(name)?.brewer;
-    const named = [...walk(value.steps, ['steps'])].map(({ step }) => stepBrewerName(step));
+    const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
+    const named = order.map((step) => stepBrewerName(step));
     for (const name of named) if (name !== undefined) namedBrewers.add(name);
     if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
     const { testFirst } = resolveRecipe(value, brewerOf);
@@ -1043,7 +1047,6 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       const name = stepBrewerName(step);
       return name !== undefined && brewerOf(name)?.produces === 'commits';
     };
-    const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
     const refused = [
       ...misfolded(order, commits),
       ...ofNothing(order, commits),
