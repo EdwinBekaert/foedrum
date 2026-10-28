@@ -95,7 +95,7 @@ function describeSource(source: InputSource): string {
     case 'scan':
       return `why step ${source.step} runs again: the secret scan of ${source.step}#${source.attempt}`;
     case 'retry':
-      throw new Error('not implemented');
+      return `why step ${source.step} runs again: the failure of ${source.step}#${source.attempt}`;
     case 'findings':
       return `the earlier rounds' findings of step ${source.step}, with what was done with them`;
     default: {

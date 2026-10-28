@@ -700,8 +700,21 @@ export function scanRetryOf(batch: Batch, ref: AttemptRef): PromptInput | undefi
  * What a retry is told when the attempt before it failed (ADR 0248): that attempt's reason; none
  * for any other attempt, nor a retry after the secret scan or a turn overrun, which have their own.
  */
-export function retryInputOf(_batch: Batch, _ref: AttemptRef): PromptInput | undefined {
-  throw new Error('not implemented');
+export function retryInputOf(batch: Batch, ref: AttemptRef): PromptInput | undefined {
+  const step = batch.steps.get(ref.stepId);
+  if (step?.attempts.get(ref.attempt)?.retry !== true) return undefined;
+  const before = step.attempts.get(ref.attempt - 1);
+  if (before?.phase !== 'finished' || before.outcome.kind !== 'failed') return undefined;
+  const { reason, secrets, overran } = before.outcome;
+  if (secrets === true || overran !== undefined) return undefined;
+  // The engine's text, which can quote what the brewer wrote.
+  const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
+  const text = `The attempt before this one, ${ref.stepId}#${before.attempt}, failed: ${said}`;
+  return {
+    name: 'retry',
+    source: { kind: 'retry', step: ref.stepId, attempt: before.attempt },
+    text: bounded(text, MAX_ROUTE_INPUT_BYTES, 'retry input'),
+  };
 }
 
 /** A reading that did not pass, as the route input shows it: the check, how it ended, its tail. */

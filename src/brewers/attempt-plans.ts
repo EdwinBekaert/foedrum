@@ -49,6 +49,7 @@ import {
   planAttempt,
   type RegressionTests,
   type Resumed,
+  retryInputOf,
   roundBefore,
   routeInput,
   routeOf,
@@ -540,6 +541,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // Its commits are gone: it writes what the scan named another way (ADR 0187).
     const scanned = scanRetryOf(batch, ref);
     if (scanned !== undefined) inputs.push(scanned);
+    // Any other failure: its reason, which only the engine may know (ADR 0248).
+    const failed = retryInputOf(batch, ref);
+    if (failed !== undefined) inputs.push(failed);
     return {
       inputs,
       ...(rules === undefined ? {} : { houseYeast: rules.record }),
@@ -583,7 +587,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         resumes === 'turns'
           ? outDocCopyOf(settingsFileOf(workRoot, { ...ref, attempt: attempt - 1 }))
           : undefined;
-      const latest = answered ? answersOf(batch, stepId, 'latest') : undefined;
+      // A retry's session is told why the attempt before it failed (ADR 0248).
+      const latest = answered ? answersOf(batch, stepId, 'latest') : retryInputOf(batch, ref);
       const { inputs, houseYeast, laterRound, earlierFindings } =
         resumes === undefined
           ? await inputsFor(batch, ref, found, worktree)
