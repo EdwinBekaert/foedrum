@@ -67,7 +67,14 @@ const JSON_ESCAPES = new Map([
 const jsonLineBreaks = (input: string): string =>
   input.replace(/\\[\\nr]/g, (pair) => JSON_ESCAPES.get(pair) ?? pair);
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const GIT_OPTIONS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace']);
+const GIT_OPTIONS_WITH_VALUE = new Set([
+  '-C',
+  '-c',
+  '--config-env',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+]);
 // gh flags that can appear before the `pr` action and take the next token as their value.
 const GH_OPTIONS_WITH_VALUE = new Set(['-R', '--repo', '--hostname']);
 // How deep commands may nest (a shell that runs a shell …) before the gate gives up and blocks,
@@ -79,6 +86,10 @@ const FORCE_PUSH_BLOCKED =
   'Force push is blocked: update a pushed branch by merging origin/main; never rebase or force-push a branch that has been pushed (CLAUDE.md).';
 const DELETE_PUSH_BLOCKED =
   'Deleting or mirroring remote refs with git push is blocked: ask a maintainer to delete remote branches.';
+const CONFIGURED_PUSH_BLOCKED =
+  "git push is blocked in a command that sets git's configuration (-c or --config-env with remote.* or push.*, a GIT_CONFIG variable, git config or git remote): it can make the push delete, force or mirror remote refs, and the gate reads git's configuration before the command runs; run that setting or command in a command of its own, and git push without it (ADR 0246).";
+const configuredPushBlocked = (setting: string): string =>
+  `git push is blocked: git's configuration makes it delete, force or mirror remote refs (${setting}); push without that setting, or ask a maintainer.`;
 const PR_MERGE_BLOCKED =
   '`gh pr merge` is blocked: pull requests are merged by a maintainer, never from a Claude Code session.';
 const COMPUTED_PR_ACTION_BLOCKED =
@@ -684,22 +695,31 @@ const invocation = (words: Word[], nested: string[], found: Findings): Invocatio
 
 const text = (words: Word[]): string => words.map((word) => word.text).join(' ');
 
-// --force, --force-with-lease[=…], -f alone or in a group such as -uf, or a +refspec.
-const isForceArg = (arg: string): boolean =>
-  arg.startsWith('--force') || /^-[A-Za-z]*f[A-Za-z]*$/.test(arg) || arg.startsWith('+');
+// Whether a word is one of push's long `options` as git reads it: the name before any `=`, whole or
+// a prefix of it (--del). A prefix two options share (--d) counts too: git refuses it as
+// ambiguous, and the gate does not count on that. No other push option is a prefix of one of
+// these, so git's own list is not needed (ADR 0246).
+const namesLong = (arg: string, options: readonly string[]): boolean => {
+  const [name = ''] = arg.split('=', 1);
+  return name.length > 2 && name.startsWith('--') && options.some((each) => each.startsWith(name));
+};
+const FORCE_OPTIONS = ['--force', '--force-with-lease', '--force-if-includes'];
+const DELETE_OPTIONS = ['--delete', '--mirror', '--prune'];
 
-// --delete, -d alone or in a group, a :branch refspec, or --mirror.
+// --force, --force-with-lease[=…], --force-if-includes or a prefix of one, -f alone or in a group
+// such as -uf, or a +refspec.
+const isForceArg = (arg: string): boolean =>
+  namesLong(arg, FORCE_OPTIONS) || /^-[A-Za-z]*f[A-Za-z]*$/.test(arg) || arg.startsWith('+');
+
+// --delete, --mirror, --prune or a prefix of one, -d alone or in a group, or a :branch refspec.
 const isDeleteOrMirrorArg = (arg: string): boolean =>
-  arg === '--delete' ||
-  arg === '--mirror' ||
-  /^-[A-Za-z]*d[A-Za-z]*$/.test(arg) ||
-  arg.startsWith(':');
+  namesLong(arg, DELETE_OPTIONS) || /^-[A-Za-z]*d[A-Za-z]*$/.test(arg) || arg.startsWith(':');
 
 // What the gate found in a command and everything nested in it.
 interface Findings {
   reasons: string[];
-  // Where each push runs, and the remote it names.
-  places: { place: Place; remote: string | null | undefined }[];
+  // Where each push runs, the remote it names and the branch names its refspecs create.
+  places: ({ place: Place } & PushTarget)[];
   // The pull requests `gh pr ready` marks ready, each needing its review summary, and where gh
   // runs.
   readies: { target: ReadyTarget; place: Place }[];
@@ -709,6 +729,9 @@ interface Findings {
   packages: PackageRun[];
   // Whether any command read changes directory, so npx may run in another package.
   movesDir: boolean;
+  // Whether any command read mentions GIT_CONFIG, or runs git config or git remote, any of which
+  // may change what a push in the same command does (ADR 0246).
+  configures: boolean;
   // The titles and bodies gh would post, for the personal denylist (ADR 0132).
   texts: GhText[];
   reads: number;
@@ -729,43 +752,74 @@ const PUSH_OPTIONS_WITH_VALUE = new Set(['-o', '--push-option', '--receive-pack'
 const REDIRECTION = /^(?:\d+|&)?[<>]/;
 const REDIRECTION_ONLY = /^(?:\d+|&)?(?:>>?|<<?<?|>\||[<>]&)$/;
 
-// The remote a push names, as git reads it: its first operand, else --repo; undefined when it names
-// none, and null when it is computed at run time (ADR 0114).
-const pushRemote = (args: Word[]): string | null | undefined => {
+// The remote a push names and the branch names its refspecs create on it (ADR 0114, ADR 0246).
+interface PushTarget {
+  // Its first operand, else --repo; undefined when it names none, null when computed at run time.
+  remote: string | null | undefined;
+  // Each refspec after the remote: the part after `:`, or the whole refspec, without a leading
+  // `+`; null when it is computed at run time.
+  destinations: (string | null)[];
+}
+
+const pushTarget = (args: Word[]): PushTarget => {
   let repo: Word | undefined;
-  let operand: Word | undefined;
-  for (let i = 0; i < args.length && operand === undefined; i++) {
+  const operands: Word[] = [];
+  let optionsEnd = false;
+  for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
     // A redirection is the shell's (2>&1, >out.txt, &>log, 2> err.txt), with its target in the
     // next word when the word is only the operator.
     if (!arg.quoted && REDIRECTION.test(arg.text)) {
       if (REDIRECTION_ONLY.test(arg.text)) i++;
-    } else if (arg.text === '--') operand = args[i + 1];
+    } else if (optionsEnd || !arg.text.startsWith('-')) operands.push(arg);
+    else if (arg.text === '--') optionsEnd = true;
     else if (arg.text === '--repo') repo = args[++i];
     else if (arg.text.startsWith('--repo=')) repo = { ...arg, text: arg.text.slice(7) };
-    else if (!arg.text.startsWith('-')) operand = arg;
     else if (PUSH_OPTIONS_WITH_VALUE.has(arg.text)) i++;
   }
-  const remote = operand ?? repo;
-  return remote === undefined ? undefined : remote.dynamic ? null : remote.text;
+  const [first, ...refspecs] = operands;
+  const remote = first ?? repo;
+  const destination = (refspec: string) => refspec.slice(refspec.indexOf(':') + 1);
+  return {
+    remote: remote === undefined ? undefined : remote.dynamic ? null : remote.text,
+    destinations: refspecs.map((refspec) =>
+      refspec.dynamic ? null : destination(refspec.text.replace(/^\+/, '')),
+    ),
+  };
 };
+
+// A git setting that may change what a push does: a remote's or push's (ADR 0246).
+const PUSH_SETTING = /^(?:remote|push)\./i;
 
 const readGit = (args: Word[], literal: boolean, { found, place }: Reading): void => {
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
   let gitPlace = place;
+  // Whether -c or --config-env sets a remote's or push's setting, or one computed at run time.
+  let configured = false;
   while (args[i]?.text.startsWith('-')) {
     const option = args[i]?.text ?? '';
     const value = args[i + 1]?.text ?? '';
     if (option === '-C') gitPlace = moveTo(gitPlace, args[i + 1]?.dynamic ? undefined : value);
+    const setting =
+      option === '-c' || option === '--config-env'
+        ? args[i + 1]
+        : option.startsWith('--config-env=')
+          ? { ...(args[i] as Word), text: option.slice('--config-env='.length) }
+          : undefined;
+    if (setting !== undefined && (setting.dynamic || PUSH_SETTING.test(setting.text))) {
+      configured = true;
+    }
     i += GIT_OPTIONS_WITH_VALUE.has(option) ? 2 : 1;
   }
   const subcommand = args[i];
+  if (subcommand?.text === 'config' || subcommand?.text === 'remote') found.configures = true;
   if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
-    found.places.push({ place: gitPlace, remote: pushRemote(args.slice(i + 1)) });
+    found.places.push({ place: gitPlace, ...pushTarget(args.slice(i + 1)) });
     const pushArgs = args.slice(i + 1).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
+    else if (configured) found.reasons.push(CONFIGURED_PUSH_BLOCKED);
   }
 };
 
@@ -1211,6 +1265,7 @@ const read = (
 ): void => {
   found.reads++;
   if (/GH_REPO|GH_HOST/i.test(normalised(command))) found.ghEnv = true;
+  if (/GIT_CONFIG/i.test(normalised(command))) found.configures = true;
   if (depth > MAX_DEPTH || found.reads > MAX_READS) {
     found.reasons.push(TOO_DEEP_BLOCKED);
     return;
@@ -1264,10 +1319,12 @@ const findings = (command: string, dialects: readonly Dialect[] = DIALECTS): Fin
     ghEnv: false,
     packages: [],
     movesDir: false,
+    configures: false,
     texts: [],
     reads: 0,
   };
   read(command, 0, found, dialects, []);
+  if (found.places.length > 0 && found.configures) found.reasons.push(CONFIGURED_PUSH_BLOCKED);
   return found;
 };
 
@@ -1324,6 +1381,31 @@ export const projectHolds = async (
 };
 
 export const isGatedCommand = (command: string): boolean => findings(command).places.length > 0;
+
+// What git's configuration says false is; a setting without a value is true.
+const FALSE = new Set(['false', 'no', 'off', '0', '']);
+
+// The first setting in `git config -z --get-regexp` output that makes a push to one of `remotes`
+// delete, force or mirror, as `<key> <value>`: a remote.<r>.mirror that is not false, or a
+// remote.<r>.push refspec that starts with + or :. A push that names no remote, or one computed at
+// run time, is held to every remote's (ADR 0246).
+const configuredDelete = (
+  config: string,
+  remotes: ReadonlySet<string | null | undefined>,
+): string | undefined => {
+  const everyRemote = remotes.has(undefined) || remotes.has(null);
+  for (const entry of config.split('\0')) {
+    const [key = '', value] = entry.split(/\n(.*)/s);
+    const setting = /^remote\.(.+)\.(push|mirror)$/s.exec(key);
+    if (setting === null || !(everyRemote || remotes.has(setting[1]))) continue;
+    const deletes =
+      setting[2] === 'mirror'
+        ? value === undefined || !FALSE.has(value.toLowerCase())
+        : /^[+:]/.test(value ?? '');
+    if (deletes) return value === undefined ? key : `${key} ${value}`;
+  }
+  return undefined;
+};
 
 // Why a command may not run: what the gate blocks outright, else what its gh calls would send
 // against the personal denylist, read where the hook runs (`cwd`) by `deniedTexts` (ADR 0132).
@@ -1471,7 +1553,7 @@ export const precheck = async (
   deniedPush: DeniedPush = async () => undefined,
   // Loaded only for a command with gh texts to read, so other calls load nothing for it.
   loadDeniedTexts: () => Promise<DeniedTexts> = async () => () => undefined,
-  _pushConfig: PushConfig = async () => '',
+  pushConfig: PushConfig = async () => '',
 ): Promise<HookResult> => {
   if (!mayNeedTheGate(jsonLineBreaks(input))) return { exitCode: 0, stderr: '' };
   let parsed: unknown;
@@ -1533,8 +1615,14 @@ export const precheck = async (
   // Where gh pr ready and the check run: the directory the command changes into, if any (#132). The gate
   // runs that tree's code (npm run check, git, gh) before the command is approved, so a
   // directory outside the project blocks the command instead.
-  const dirOf = async (dirs: readonly string[], what: string): Promise<string | HookResult> => {
-    if (dirs.length === 0) return cwd;
+  // A push is held to it also where the hook runs, which lasts between a session's commands (ADR
+  // 0246).
+  const dirOf = async (
+    dirs: readonly string[],
+    what: string,
+    always = false,
+  ): Promise<string | HookResult> => {
+    if (dirs.length === 0 && !always) return cwd;
     const [path, { homedir }] = await Promise.all([import('node:path'), import('node:os')]);
     const dir = resolvePlace(cwd, dirs, path, homedir());
     if (await inProject(dir)) return dir;
@@ -1559,7 +1647,7 @@ export const precheck = async (
   // Each directory a push runs in.
   const trees = new Set<string>();
   for (const { place } of found.places) {
-    const dir = await dirOf(place ?? [], 'git push');
+    const dir = await dirOf(place ?? [], 'git push', true);
     if (typeof dir !== 'string') return dir;
     trees.add(dir);
   }
@@ -1567,29 +1655,38 @@ export const precheck = async (
     return { exitCode: 2, stderr: `${manyPlacesBlocked([...trees])}\n` };
   }
   const [dir = cwd] = trees;
+  // Two local reads at once, so the second costs the hook's budget nothing (ADR 0246).
+  const [detached, config] = await Promise.allSettled([headIsDetached(dir), pushConfig(dir)]);
+  const why = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
   // A session pushes a branch; commits made on a detached HEAD are on none (#80).
-  let detached: boolean;
-  try {
-    detached = await headIsDetached(dir);
-  } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
+  if (detached.status === 'rejected') {
     return {
       exitCode: 2,
-      stderr: `git push is blocked: could not tell whether HEAD is detached in ${dir} (${why}).\n`,
+      stderr: `git push is blocked: could not tell whether HEAD is detached in ${dir} (${why(detached.reason)}).\n`,
     };
   }
-  if (detached) {
+  if (detached.value) {
     return {
       exitCode: 2,
       stderr: `git push is blocked: HEAD is detached in ${dir}, so new commits are on no branch; switch to your branch, move it to those commits, and push again.\n`,
     };
   }
-  // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
-  // nothing runs. One scan for the command, with every remote it pushes to.
   const remotes = new Set(found.places.map(({ remote }) => remote));
+  if (config.status === 'rejected') {
+    return {
+      exitCode: 2,
+      stderr: `git push is blocked: could not read git's push configuration in ${dir} (${why(config.reason)}).\n`,
+    };
+  }
+  const setting = configuredDelete(config.value, remotes);
+  if (setting !== undefined) return { exitCode: 2, stderr: `${configuredPushBlocked(setting)}\n` };
+  // What each push sends to its remote, against the personal denylist (ADR 0114); without one,
+  // nothing runs. One scan for the command, with every remote it pushes to and every branch name
+  // its refspecs create.
+  const destinations = new Set(found.places.flatMap((each) => each.destinations));
   let denied: string | undefined;
   try {
-    denied = await deniedPush(dir, [...remotes], []);
+    denied = await deniedPush(dir, [...remotes], [...destinations]);
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     denied = `git push is blocked: could not check it against your denylist (${why}) (ADR 0114).`;
@@ -1679,10 +1776,25 @@ export const gitHeadIsDetached =
     return isDetached(outcome);
   };
 
+// Every remote's push and mirror settings, from every scope of git's configuration.
+const PUSH_CONFIG = ['config', '-z', '--get-regexp', '^remote\\..*\\.(push|mirror)$'];
+
+// git config's output, or '' when no setting matches (exit 1); rejects, saying why, when git
+// fails or is killed. A local read, with the HEAD check's deadline (ADR 0246).
 export const gitPushConfig =
-  (_exec: ExecProcess): PushConfig =>
-  async () => {
-    throw new Error('not implemented');
+  (exec: ExecProcess): PushConfig =>
+  async (dir) => {
+    const { exitCode, stdout, killed } = await exec('git', PUSH_CONFIG, {
+      cwd: dir,
+      timeoutMs: HEAD_CHECK_TIMEOUT_MS,
+    });
+    if (exitCode === 0) return stdout;
+    if (exitCode === 1) return '';
+    const { whyKilled } = await import('../src/platform/processes.ts');
+    const why =
+      whyKilled(killed, HEAD_CHECK_TIMEOUT_MS) ??
+      (exitCode === null ? 'could not start' : `exited ${exitCode}`);
+    throw new Error(`git config ${why}`);
   };
 
 // The deadline of each gh call: GitHub answers in about a second, and a hung call must not hold
@@ -1853,7 +1965,7 @@ if (import.meta.main) {
       );
     },
     // The personal denylist, FOEDRUM_DENYLIST or ~/.config/foedrum/denylist.txt (ADR 0114).
-    async (dir, remotes) => {
+    async (dir, remotes, destinations) => {
       const [{ pushRefusal }, { readDenylist }, { execProcess }, { homedir }, { readFileSync }] =
         await Promise.all([
           import('./denylist.ts'),
@@ -1864,7 +1976,7 @@ if (import.meta.main) {
         ]);
       const readList = () =>
         readDenylist(process.env, homedir(), (path) => readFileSync(path, 'utf8'));
-      return pushRefusal(readList, execProcess)(dir, ...remotes);
+      return pushRefusal(readList, execProcess, destinations)(dir, ...remotes);
     },
     // The same list for what gh posts (ADR 0132), its files read where gh runs.
     async () => {
@@ -1886,6 +1998,7 @@ if (import.meta.main) {
       };
       return textRefusal(readList, ghFileReader(files, process.platform));
     },
+    async (dir) => gitPushConfig((await import('../src/platform/processes.ts')).execProcess)(dir),
   );
   if (stderr !== '') process.stderr.write(stderr);
   process.exitCode = exitCode;

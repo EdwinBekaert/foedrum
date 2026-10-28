@@ -3,7 +3,7 @@
 // decides.
 
 import type { DenylistState } from '../src/platform/denylist.ts';
-import { type ExecProcess, whyKilled } from '../src/platform/processes.ts';
+import { type ExecProcess, type ExecResult, whyKilled } from '../src/platform/processes.ts';
 import { windowsPathProblem } from '../src/platform/real-path.ts';
 import {
   deniedRefusal,
@@ -28,11 +28,12 @@ const GIT = ['--no-replace-objects', '-c', 'core.quotePath=false', '-c', 'log.sh
 const commits = (remote: string): string[] => ['HEAD', '--not', `--remotes=${remote}`];
 // A remote's name, which git reads as a pattern of its tracking refs: no glob, URL or path.
 const REMOTE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
-// The current branch's push remote by name, as git works it out (branch.<name>.pushRemote,
-// remote.pushDefault, branch.<name>.remote); a configured name may hold a slash.
-const PUSH_REMOTE = [
+// The current branch's name and, after a tab, its push remote by name, as git works it out
+// (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote); a configured name may hold
+// a slash. A branch name holds no tab.
+const CURRENT_BRANCH = [
   'for-each-ref',
-  '--format=%(if)%(HEAD)%(then)%(push:remotename)%(end)',
+  '--format=%(if)%(HEAD)%(then)%(refname:lstrip=2)%09%(push:remotename)%(end)',
   'refs/heads/',
 ];
 const CONFIGURED_REMOTE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
@@ -60,17 +61,24 @@ const PATCHES = [
   ...PLAIN,
 ];
 
+// Why git failed, or undefined when it answered.
+const failure = ({ exitCode, killed }: ExecResult): string | undefined =>
+  whyKilled(killed, DENYLIST_GIT_TIMEOUT_MS) ??
+  (exitCode === null ? 'could not start' : exitCode === 0 ? undefined : `exited ${exitCode}`);
+
 /**
- * Why a command's `git push` in `dir` to `remotes` may not run: the commits it would send hold a
- * word on the list, the list cannot be read, it pushes to more than one remote, the remote is
- * computed at run time or no name, or git cannot show the commits. Undefined without a list. A push that names no remote goes to the current branch's
+ * Why a command's `git push` in `dir` to `remotes` may not run: the commits it would send, the
+ * current branch's name or a branch name its refspecs create (`destinations`, ADR 0246) hold a word
+ * on the list, the list cannot be read, it pushes to more than one remote, the remote or a refspec
+ * is computed at run time (null) or the remote is no name, or git cannot show the branch or the
+ * commits. Undefined without a list. A push that names no remote goes to the current branch's
  * push remote, or else to origin.
  */
 export const pushRefusal =
   (
     readList: () => DenylistState,
     exec: ExecProcess,
-    _destinations: readonly (string | null)[] = [],
+    destinations: readonly (string | null)[] = [],
   ) =>
   async (dir: string, ...remotes: (string | null | undefined)[]): Promise<string | undefined> => {
     const state = readList();
@@ -88,29 +96,34 @@ export const pushRefusal =
     if (remote === null || (remote !== undefined && !REMOTE_NAME.test(remote))) {
       return `git push is blocked: its remote is ${remote === null ? 'computed at run time' : 'a URL or a path'}, so the gate cannot tell which commits it sends to check them against your denylist (ADR 0114); name the remote, such as origin.`;
     }
-    const options = { cwd: dir, timeoutMs: DENYLIST_GIT_TIMEOUT_MS };
-    let target = remote;
-    if (target === undefined) {
-      const pushRemote = await exec('git', PUSH_REMOTE, options);
-      const named = pushRemote.exitCode === 0 ? pushRemote.stdout.trim() : '';
-      target = CONFIGURED_REMOTE.test(named) ? named : 'origin';
+    if (destinations.includes(null)) {
+      return 'git push is blocked: a refspec is computed at run time, so the gate cannot tell which branch name it creates to check it against your denylist (ADR 0114, ADR 0246); give the branch name as it is.';
     }
+    const options = { cwd: dir, timeoutMs: DENYLIST_GIT_TIMEOUT_MS };
+    const current = await exec('git', CURRENT_BRANCH, options);
+    const line = current.stdout.split(/\r?\n/).find((each) => each.includes('\t'));
+    const unread = failure(current) ?? (line === undefined ? 'found no current branch' : undefined);
+    if (unread !== undefined || line === undefined) {
+      return `git push is blocked: could not read the branch it pushes to check its name against your denylist (git for-each-ref ${unread}) (ADR 0246).`;
+    }
+    const [branch = '', named = ''] = line.split('\t');
+    const target = remote ?? (CONFIGURED_REMOTE.test(named) ? named : 'origin');
     const outputs: string[] = [];
     for (const args of [MESSAGES, PATCHES]) {
-      const { exitCode, stdout, killed } = await exec('git', [...args, ...commits(target)], {
-        cwd: dir,
-        timeoutMs: DENYLIST_GIT_TIMEOUT_MS,
-      });
-      const why =
-        whyKilled(killed, DENYLIST_GIT_TIMEOUT_MS) ??
-        (exitCode === null ? 'could not start' : exitCode === 0 ? undefined : `exited ${exitCode}`);
+      const outcome = await exec('git', [...args, ...commits(target)], options);
+      const why = failure(outcome);
       if (why !== undefined) {
         return `git push is blocked: could not read the commits it would send to check them against your denylist (git log ${why}) (ADR 0114).`;
       }
-      outputs.push(stdout);
+      outputs.push(outcome.stdout);
     }
     const [messages = '', patches = ''] = outputs;
-    const places = [...scanMessages(messages, list), ...scanPatches(patches, list)];
+    const names = [branch, ...destinations].filter((name) => name !== null);
+    const places = [
+      ...(names.some((name) => holdsEntry(name, list)) ? ['branch name'] : []),
+      ...scanMessages(messages, list),
+      ...scanPatches(patches, list),
+    ];
     return places.length === 0 ? undefined : deniedRefusal('git push', places);
   };
 
