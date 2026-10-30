@@ -918,22 +918,27 @@ describe('formatLensReport', () => {
     );
   });
 
-  it('prints no rounds-to-pass line for a lens without rounds, or whose steps never approved (#673)', () => {
+  it('prints no rounds-to-pass line for a lens whose steps never approved (#673)', () => {
     const events = [
       ...ordered('b1', 1),
       ...attempt('b1', 'correctness', 1, blocked, { findings: kept(finding('src/a.ts', 1)) }),
     ];
     assert.equal(
-      formatLensReport(report(events, { ...source, lenses: source.lenses.slice(1) })),
+      formatLensReport(report(events, { ...source, lenses: source.lenses.slice(1, 2) })),
       [
         'diff/correctness  defaults/lenses/diff/correctness.md',
         '  1 round, 1 finding: 1 major',
         '  ended: 1 open',
         '  tokens: none reported',
-        'diff/security  lenses/diff/security.md',
-        '  no rounds',
         '',
       ].join('\n'),
+    );
+  });
+
+  it('prints a lens without rounds as before rounds to pass (#673)', () => {
+    assert.equal(
+      formatLensReport(report(ordered('b1', 1), { ...source, lenses: source.lenses.slice(2) })),
+      ['diff/security  lenses/diff/security.md', '  no rounds', ''].join('\n'),
     );
   });
 
