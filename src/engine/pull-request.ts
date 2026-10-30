@@ -26,8 +26,9 @@ import {
   tastingOf,
 } from '../schemas/out-doc.ts';
 import { type BatchEffectKey, BodyResult, PushResult } from '../schemas/store.ts';
+import { z } from '../schemas/zod.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
-import { effectKey } from './effect-key.ts';
+import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 
@@ -56,16 +57,11 @@ export const pullRequestRound = (batch: Batch): number => {
 
 /**
  * What the ledger recorded for each push of `batchId`, round by round from the first, as far as
- * they go: a round pushes only after the one before (ADR 0219).
+ * they go: a round pushes only after the one before (ADR 0219). Unread here: each reader passes
+ * over a result that is no push.
  */
-export const recordedPushes = (state: State, batchId: string): unknown[] => {
-  const recorded: unknown[] = [];
-  for (let round = 1; ; round++) {
-    const key = effectKey.encode(pushKey(batchId, round));
-    if (!state.effects.has(key)) return recorded;
-    recorded.push(state.effects.get(key));
-  }
-};
+export const recordedPushes = (state: State, batchId: string): unknown[] =>
+  numberedEffects(state, (round) => pushKey(batchId, round), z.unknown(), 'a push');
 
 /** The latest push the ledger recorded for `batchId` (ADR 0219), when it is one the engine records. */
 export const latestPush = (state: State, batchId: string): PushResult | undefined => {

@@ -3,10 +3,13 @@
 
 import {
   type AttemptEffectKey,
+  type BatchEffectKey,
   type EffectKey,
   EffectKeyParts,
   EffectKeyText,
 } from '../schemas/store.ts';
+import type { z } from '../schemas/zod.ts';
+import type { State } from './fold.ts';
 
 const invalid = (detail: string): Error => new Error(`Invalid effect key: ${detail}`);
 
@@ -40,4 +43,25 @@ export const effectKey = {
   encode,
   /** The key of a canonical text; throws for any other text, so one key has exactly one text. */
   decode,
+};
+
+/**
+ * What the ledger recorded for the numbered effects of a batch, `keyOf(1)`, `keyOf(2)` and on, as
+ * far as they go: each is due only after the one before, so the first not recorded ends them.
+ * Throws for a recorded result that `schema` does not take, naming it `what`.
+ */
+export const numberedEffects = <T>(
+  state: State,
+  keyOf: (n: number) => BatchEffectKey,
+  schema: z.ZodType<T>,
+  what: string,
+): T[] => {
+  const recorded: T[] = [];
+  for (let n = 1; ; n++) {
+    const key = encode(keyOf(n));
+    if (!state.effects.has(key)) return recorded;
+    const parsed = schema.safeParse(state.effects.get(key));
+    if (!parsed.success) throw new Error(`The ledger's ${key} is not ${what}`);
+    recorded.push(parsed.data);
+  }
 };

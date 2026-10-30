@@ -15,7 +15,7 @@ import {
   type ReadCheck,
   recordChecks,
 } from '../../src/engine/pr-checks.ts';
-import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
+import { openOf, pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { checkLines, renderStatus } from '../../src/engine/status-comment.ts';
 import {
@@ -154,7 +154,7 @@ describe('recordChecks', () => {
       [pullRequest]: { kind: 'pending', head, since: first.toISOString() },
     });
     assert.deepStrictEqual(types(), ['pull_request.checks_pending']);
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:00:00.000Z`,
     ]);
     assert.deepStrictEqual(failures, []);
@@ -189,7 +189,7 @@ describe('recordChecks', () => {
       `head ${pullRequest}`,
       `checks ${pullRequest} a`,
     ]);
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> passed its checks on \`aaaaaaaa\``,
     ]);
   });
@@ -224,7 +224,7 @@ describe('recordChecks', () => {
       await pass(
         fakeReader({ [head]: [passed('build'), failing('test', conclusion, url)] }).reader,
       );
-      assert.deepStrictEqual(checkLines(batch()), [
+      assert.deepStrictEqual(checkLines(log.state(), batch()), [
         `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: test (${conclusion}) <${url}>`,
       ]);
     });
@@ -244,7 +244,7 @@ describe('recordChecks', () => {
     ];
     await pass(fakeReader({ [head]: checks }).reader);
     // The first failing check with a link is named; a name is escaped, as every text from GitHub.
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: ci/&lt;b&gt;lint&lt;/b&gt; (failure) <https://ci.example/1>, and 2 more`,
     ]);
   });
@@ -254,7 +254,7 @@ describe('recordChecks', () => {
     const { reader } = fakeReader({ [head]: [] });
     await pass(reader);
     assert.deepStrictEqual(types(), ['pull_request.checks_pending']);
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:00:00.000Z`,
     ]);
     await pass(reader);
@@ -269,7 +269,7 @@ describe('recordChecks', () => {
       head,
       checks: [],
     });
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> has no checks on \`aaaaaaaa\``,
     ]);
   });
@@ -306,7 +306,7 @@ describe('recordChecks', () => {
       { name: 'ci/coverage', kind: 'status', conclusion: 'error' },
     ];
     await pass(fakeReader({ [head]: checks }).reader);
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: test (failure), and 1 more`,
     ]);
   });
@@ -318,7 +318,7 @@ describe('recordChecks', () => {
       kind: 'record',
       event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'merged' },
     });
-    assert.deepStrictEqual(checkLines(batch()), []);
+    assert.deepStrictEqual(checkLines(log.state(), batch()), []);
   });
 
   it('reads a head that moved from the start, and an old record never counts for it', async () => {
@@ -336,7 +336,7 @@ describe('recordChecks', () => {
       head: moved,
       since: '2026-10-26T11:00:00.000Z',
     });
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> waits for its checks on \`ffffffff\` since 2026-10-26T11:00:00.000Z`,
     ]);
     // Back on the first head: read again, since the latest record names another.
@@ -431,7 +431,7 @@ describe('recordChecks', () => {
     ];
     await pass(fakeReader({ [head]: checks }).reader);
     // 120 failed, but the record keeps 100 and counts 30 left out, failed or not: at least 99 more.
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: job 0 (failure), and at least 99 more`,
     ]);
   });
@@ -506,7 +506,7 @@ describe('recordChecks', () => {
       'pull_request.checks_finished',
       'pull_request.checks_finished',
     ]);
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> passed its checks on \`aaaaaaaa\``,
     ]);
   });
@@ -746,7 +746,7 @@ describe('recordChecks', () => {
       head,
       since: '2026-10-26T09:01:00.000Z',
     });
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> waits for its checks on \`aaaaaaaa\` since 2026-10-26T09:01:00.000Z`,
     ]);
     await pass(fakeReader({ [head]: [passed('build'), failing('test', 'failure')] }).reader);
@@ -755,7 +755,7 @@ describe('recordChecks', () => {
       'pull_request.checks_pending',
       'pull_request.checks_finished',
     ]);
-    assert.deepStrictEqual(checkLines(batch()), [
+    assert.deepStrictEqual(checkLines(log.state(), batch()), [
       `- <${pullRequest}> failed its checks on \`aaaaaaaa\`: test (failure)`,
     ]);
   });
@@ -774,13 +774,23 @@ describe('recordChecks', () => {
         branchMoved: moved,
       },
     });
-    assert.deepStrictEqual(checkLines(batch()), []);
+    assert.deepStrictEqual(checkLines(log.state(), batch()), []);
   });
 
   it('shows its line in the status comment and its events in replay', async () => {
     onTap();
     await pass(fakeReader({ [head]: [running('build')] }).reader);
-    const text = renderStatus(batch());
+    const text = renderStatus(
+      batch(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      openOf(log.state(), batch()),
+    );
     assert.match(
       text,
       /\*\*Pull requests\*\*\n- <https:\/\/github\.com\/acme\/web\/pull\/12>\n- <https:\/\/github\.com\/acme\/web\/pull\/12> waits for its checks on `aaaaaaaa` since 2026-10-26T09:00:00\.000Z/,

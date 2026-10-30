@@ -1,25 +1,20 @@
 // The plan out doc (ADR 0233): an order broken into sub-orders, one repository each, with what each
 // touches, how they depend on each other, and the recipe each should run with.
 
-import { hasCycle, Repo } from './events.ts';
+import { Dependency, hasCycle, MOST_PLAN_DEPENDENCIES, MOST_SUB_ORDERS, Repo } from './events.ts';
 import { PathSafeId } from './ids.ts';
-import { outDocFrontmatter } from './out-doc.ts';
+import { lineOf, outDocFrontmatter } from './out-doc.ts';
 import { RelativePath } from './primitives.ts';
-import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
 
 /** The name of a plan's out doc schema (`output.schema`, ADR 0233). */
 export const PLAN = 'plan';
 
-/** The bounds `order.decomposed` has, which the plan becomes once signed off (ADR 0211). */
-export const MOST_SUB_ORDERS = 100;
-export const MOST_PLAN_DEPENDENCIES = 1_000;
 /** The most paths one sub-order touches, and the most other cuts a plan lists. */
 export const MOST_TOUCHES = 20;
 export const MOST_ALTERNATIVES = 10;
 
-/** One line of at most `max` characters, so the plan comment stays within GitHub's length. */
-const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
+// One line, so the plan comment stays within GitHub's length.
 const line = lineOf(300);
 
 /** A sub-order's name in its plan: dependencies and the graph name it, since no issue exists yet. */
@@ -38,7 +33,7 @@ export const Touch = z.strictObject({
 export type Touch = z.infer<typeof Touch>;
 
 /** A sub-order of the plan waits for another's code or for its release, as `Dependency` does. */
-export const PlanDependency = z.strictObject({ on: PlanId, kind: z.enum(['code', 'release']) });
+export const PlanDependency = z.strictObject({ on: PlanId, kind: Dependency.shape.kind });
 export type PlanDependency = z.infer<typeof PlanDependency>;
 
 /** One sub-order of a plan (ADR 0233). */

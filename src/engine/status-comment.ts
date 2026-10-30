@@ -6,18 +6,15 @@ import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { planOf } from '../schemas/plan.ts';
-import { type MergeBrief, StatusRevision } from '../schemas/status-comment.ts';
-import type { BatchEffectKey, SensitiveFiles } from '../schemas/store.ts';
-import { effectMarker } from './claim-effects.ts';
+import type { MergeBrief } from '../schemas/status-comment.ts';
+import type { SensitiveFiles } from '../schemas/store.ts';
 import { breweryIssueOf } from './claim-orders.ts';
+import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
-import { effectKey } from './effect-key.ts';
-import type { EffectTarget } from './effects.ts';
 import {
   type Attempt,
   type Batch,
   baseChecksOn,
-  type Lane,
   type Pause,
   type State,
   type UsageWindows,
@@ -34,6 +31,7 @@ import {
   latestBody,
   latestPush,
   openedPullRequest,
+  openOf,
 } from './pull-request.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
@@ -80,12 +78,6 @@ const mostAssumptions = 10;
 /** How many questions of a batch Stuck for input the comment shows, and options of each. */
 const mostQuestions = 10;
 const mostOptions = 10;
-/**
- * How long the text may be: below GitHub's 65,536 characters for a comment, with room for the
- * marker. Escaping can make each text a brewer wrote five times as long, so the caps alone do not
- * keep it there.
- */
-const longestText = 60_000;
 
 /** HTML's characters and `@`, as the entities GitHub shows as themselves. */
 const entities: Readonly<Record<string, string>> = {
@@ -232,19 +224,22 @@ export const shortSha = (sha: string): string => sha.slice(0, 8);
  * tip and the files of a conflict, or that it merges cleanly again after an earlier conflict; on
  * the merged tree (ADR 0203), the check that failed and how, why the checks did not run, or that
  * they pass again after either; `undefined` when every check was clean or none ran. Only the checks
- * of `head`, the latest push's, when it is given: an older head's failure is not this one's
- * (ADR 0226).
+ * of the head of `open`, the pull request `openOf` reads, when it is `url`: an older head's failure
+ * is not this one's (ADR 0226).
  */
-const baseCheckLine = (batch: Batch, url: string, head?: string): string | undefined => {
-  const checks = baseChecksOn(batch, url, head);
+const baseCheckLine = (batch: Batch, url: string, open?: OpenPullRequest): string | undefined => {
+  const checks = baseChecksOn(batch, url, open?.head);
   const latest = checks.at(-1);
   // An ended pull request is checked no more: its last check says nothing now.
   if (latest === undefined || batch.pullRequestEnds?.[url] !== undefined) return undefined;
   // The branch comes from the Brewery's config; a file's name from whoever committed it.
   const branch = code(latest.branch);
+  // Before the filter below: `openOf` passes this pull request over, and this line says why.
   if (latest.branchMoved !== undefined) {
     return `- ${link(url)} is not checked against ${branch} since someone else pushed to its branch`;
   }
+  // A pull request `openOf` passes over is checked no more: its last check says nothing now.
+  if (url !== open?.url) return undefined;
   const tip = code(shortSha(latest.tip));
   if (latest.conflicts !== undefined) {
     const files = latest.conflicts.map(plain).join(', ');
@@ -310,32 +305,34 @@ export const readingText = (reading: GravityReading): string => {
   }
 };
 
+/** The pull request of a batch that `openOf` reads, and the commit its latest push recorded. */
+type OpenPullRequest = { url: string; head: string };
+
 /** The lines of the pull requests of a batch on tap that its base checks have something to say of. */
-export const baseCheckLines = (batch: Batch, head?: string): string[] =>
-  batch.lane.kind === 'on_tap'
-    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url, head) ?? [])
+export const baseCheckLines = (state: State, batch: Batch): string[] => {
+  const open = openOf(state, batch);
+  return batch.lane.kind === 'on_tap'
+    ? batch.lane.pullRequests.flatMap((url) => baseCheckLine(batch, url, open) ?? [])
     : [];
+};
 
 /**
- * The lines of the open pull requests of a batch on tap whose checks on their head were recorded
+ * The line of the open pull request of a batch on tap whose checks on its head were recorded
  * (ADR 0213): waiting for them since when, passed, failed with a link to a failing one, or none.
  */
-export const checkLines = (batch: Batch): string[] =>
-  batch.lane.kind === 'on_tap'
-    ? batch.lane.pullRequests.flatMap((url) => checkLine(batch, url) ?? [])
-    : [];
+export const checkLines = (state: State, batch: Batch): string[] =>
+  openCheckLines(batch, openOf(state, batch));
+
+/** The check line of `open`, the pull request `openOf` reads: no other is read any more. */
+const openCheckLines = (batch: Batch, open?: OpenPullRequest): string[] => {
+  const line = open === undefined ? undefined : checkLine(batch, open.url);
+  return line === undefined ? [] : [line];
+};
 
 /** What the latest record of the checks on the head of the pull request `url` says (ADR 0213). */
 const checkLine = (batch: Batch, url: string): string | undefined => {
   const record = batch.pullRequestChecks?.[url];
-  // An ended pull request, and one someone else pushed to, are read no more (`openOf`): its last
-  // record says nothing now.
-  const moved = batch.baseChecks?.some(
-    (check) => check.pullRequest === url && check.branchMoved !== undefined,
-  );
-  if (record === undefined || batch.pullRequestEnds?.[url] !== undefined || moved === true) {
-    return undefined;
-  }
+  if (record === undefined) return undefined;
   const head = code(shortSha(record.head));
   if (record.kind === 'pending') {
     return `- ${link(url)} waits for its checks on ${head} since ${record.since}`;
@@ -710,8 +707,11 @@ export const renderStatus = (
   usageWindows: UsageWindows = {},
   brief?: BriefLine,
   left?: LeftBody,
-  /** The commit of the batch's latest push, whose base checks the status line shows (ADR 0226). */
-  head?: string,
+  /**
+   * The pull request `openOf` reads, with the commit of its latest push, whose checks and base
+   * checks the comment shows (ADR 0213, ADR 0226): no other is read any more.
+   */
+  open?: OpenPullRequest,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -754,8 +754,8 @@ export const renderStatus = (
         ? [planned(batch) ? PLANNED : 'No pull request.']
         : [
             '**Pull requests**',
-            ...pullRequests.map((url) => baseCheckLine(batch, url, head) ?? `- ${link(url)}`),
-            ...checkLines(batch),
+            ...pullRequests.map((url) => baseCheckLine(batch, url, open) ?? `- ${link(url)}`),
+            ...openCheckLines(batch, open),
             // The merge brief of the record that makes it ready now (ADR 0225).
             ...(brief === undefined || !('comment' in brief)
               ? []
@@ -775,49 +775,17 @@ export const renderStatus = (
           ],
     );
   }
-  const text = sections.map((lines) => lines.join('\n')).join('\n\n');
-  if (text.length <= longestText) return text;
-  // Whole lines only, so no escape or entity is cut in half.
-  const cutNote = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = text.slice(0, longestText - cutNote.length);
-  return `${kept.slice(0, kept.lastIndexOf('\n'))}${cutNote}`;
+  return cutForComment(sections.map((lines) => lines.join('\n')).join('\n\n'));
 };
 
-const revisionKey = (batchId: string, revision: number): BatchEffectKey => ({
-  batchId,
-  effect: `status.${revision}`,
-});
-
-/** What revision `revision` of `batchId` recorded, or undefined when it is not in the ledger. */
-const recorded = (state: State, batchId: string, revision: number): StatusRevision | undefined => {
-  const key = effectKey.encode(revisionKey(batchId, revision));
-  if (!state.effects.has(key)) return undefined;
-  const parsed = StatusRevision.safeParse(state.effects.get(key));
-  if (!parsed.success) throw new Error(`The ledger's ${key} is not a status comment's revision`);
-  return parsed.data;
-};
+const revisions = commentRevisions('status', 'status comment');
 
 /**
  * The id of the status comment of `batchId` the latest recorded revision made or edited, or
  * undefined before its first: a comment deleted by hand is made again with a new id.
  */
 export const statusCommentOf = (state: State, batchId: string): number | undefined =>
-  latestRevision(state, batchId).latest?.comment;
-
-/** The latest revision of `batchId` recorded, if any, and the number of the next. */
-const latestRevision = (
-  state: State,
-  batchId: string,
-): { next: number; latest: StatusRevision | undefined } => {
-  let next = 1;
-  let latest: StatusRevision | undefined;
-  for (let found = recorded(state, batchId, next); found !== undefined; ) {
-    latest = found;
-    next += 1;
-    found = recorded(state, batchId, next);
-  }
-  return { next, latest };
-};
+  revisions.latest(state, batchId).latest?.comment;
 
 /** The open pull request of `batch` whose body its latest round left as it is (ADR 0227). */
 const leftBody = (state: State, batch: Batch): LeftBody | undefined => {
@@ -827,16 +795,6 @@ const leftBody = (state: State, batch: Batch): LeftBody | undefined => {
   if (batch.pullRequestEnds?.[url] !== undefined) return undefined;
   return { pullRequest: url, left: body.left };
 };
-
-/** A revision of a status comment that is due. */
-interface DueRevision {
-  key: BatchEffectKey;
-  issue: number;
-  text: string;
-  digest: string;
-  /** The latest revision recorded; absent for the first. */
-  previous?: StatusRevision;
-}
 
 /**
  * The revision of the status comment of `batchId` that the recorded events call for: the next one
@@ -852,7 +810,7 @@ const statusDue = (
   if (batch === undefined) return undefined;
   const issue = breweryIssueOf(state, batch);
   if (issue === undefined) return undefined;
-  const { next: revision, latest: previous } = latestRevision(state, batchId);
+  const { next: revision, latest: previous } = revisions.latest(state, batchId);
   // The latest push of the pull request recorded the sensitive files (ADR 0201, ADR 0219).
   const pushed = latestPush(state, batchId);
   const paused = pauseOf(state, batch);
@@ -865,11 +823,11 @@ const statusDue = (
     state.usageWindows,
     briefLine(state, batch),
     leftBody(state, batch),
-    pushed?.commit,
+    openOf(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
-  const due = { key: revisionKey(batchId, revision), issue, text, digest };
+  const due = { key: revisions.keyOf(batchId, revision), issue, text, digest };
   return previous === undefined ? due : { ...due, previous };
 };
 
@@ -883,15 +841,6 @@ export interface StatusEffectsOptions {
 
 const minuteMs = 60_000;
 
-/** A revision's result, checked: the id comes from the code host, and the ledger keeps it. */
-const revisionOf = (comment: number, digest: string): StatusRevision => {
-  const parsed = StatusRevision.safeParse({ comment, digest });
-  if (!parsed.success) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
-  }
-  return parsed.data;
-};
-
 /**
  * The status comment of every batch of a Brewery issue, a claimed batch's order included, for the
  * driver: a revision whenever its text changed, at most one a minute per batch, except its first
@@ -899,49 +848,11 @@ const revisionOf = (comment: number, digest: string): StatusRevision => {
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
   const { brewery, comments, recipes, clock } = options;
-  // The revision behind each key `due` gave; the driver asks `due` before it applies a key.
-  const revisions = new Map<string, DueRevision>();
   // When this driver last applied or found a revision of each batch.
   const lastAt = new Map<string, number>();
-  const revisionFor = (key: string): DueRevision => {
-    const due = revisions.get(key);
-    if (due === undefined) throw new Error(`No status comment revision ${key} is due`);
-    return due;
-  };
-  const done = (due: DueRevision, result: StatusRevision): StatusRevision => {
-    lastAt.set(due.key.batchId, clock().getTime());
-    return result;
-  };
-  // The comment that already shows the revision of `key`, by the text before its marker.
-  const shown = (due: DueRevision, comment: number, body: string, marker: string) => ({
-    result: done(due, revisionOf(comment, digestOf(body.slice(0, -marker.length).trimEnd()))),
-  });
-  const target: EffectTarget = {
-    find: async (key, signal) => {
-      const due = revisionFor(key);
-      const marker = effectMarker(key);
-      if (due.previous !== undefined) {
-        const body = await comments.read(brewery, due.previous.comment, signal);
-        // Still there: a run before would have edited it, not made another.
-        if (body !== undefined) {
-          return body.endsWith(marker) ? shown(due, due.previous.comment, body, marker) : undefined;
-        }
-      }
-      const found = await comments.find(brewery, due.issue, marker, signal);
-      return found === undefined ? undefined : shown(due, found.id, found.body, marker);
-    },
-    apply: async (key, signal) => {
-      const due = revisionFor(key);
-      const body = `${due.text}\n\n${effectMarker(key)}`;
-      if (due.previous !== undefined) {
-        const edited = await comments.edit(brewery, due.previous.comment, body, signal);
-        if (edited === 'edited') return done(due, revisionOf(due.previous.comment, due.digest));
-      }
-      // The first revision, or the comment was deleted by hand: it is made again.
-      const id = await comments.create(brewery, due.issue, body, signal);
-      return done(due, revisionOf(id, due.digest));
-    },
-  };
+  const status = revisions.effects(brewery, comments, (due) =>
+    lastAt.set(due.key.batchId, clock().getTime()),
+  );
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
@@ -957,9 +868,8 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
       if (due.previous !== undefined && !ended && last !== undefined) {
         if (clock().getTime() - last < minuteMs) return [];
       }
-      revisions.set(effectKey.encode(due.key), due);
-      return [due.key];
+      return [status.due(due)];
     },
-    target,
+    target: status.target,
   };
 };

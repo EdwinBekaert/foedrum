@@ -9,11 +9,11 @@ import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
+import type { DriverNotice } from '../engine/driver.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
-import { StateBranchStopError } from '../engine/state-branch.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -21,7 +21,7 @@ import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { type OrderClaim, orderIssue } from './commands.ts';
-import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
+import { closeOpened, messageOf, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -275,6 +275,10 @@ export const runBrew = async (
   // Another driver's lease of the batch, once this driver lost it or never got it.
   let holder: BatchLease | undefined;
   let stopResize: (() => void) | undefined;
+  const report = (notice: DriverNotice): void => {
+    if (notice.kind === 'batch_lost' && notice.batchId === batchId) holder = notice.holder;
+    say(formatNotice(notice));
+  };
   try {
     const { store, driver, reads, claims } = await wireDriver(setup, shell, opened, {
       // This batch alone, once it is known (ADR 0044).
@@ -284,10 +288,7 @@ export const runBrew = async (
       // An interactive step's session opens on a terminal outside Claude Code (ADR 0222).
       sessions: request.noSessions === undefined,
       say,
-      report: (notice) => {
-        if (notice.kind === 'batch_lost' && notice.batchId === batchId) holder = notice.holder;
-        say(formatNotice(notice));
-      },
+      report,
     });
     progressOf = (ref) => driver.progress(ref);
     const log = createCommandLog({ store, recipes: setup.recipes });
@@ -470,12 +471,7 @@ export const runBrew = async (
           );
       while (running() && clock().getTime() < until && !signal.aborted) {
         await pause();
-        try {
-          await driver.tick();
-        } catch (error) {
-          if (error instanceof StateBranchStopError) throw error;
-          say(formatNotice({ kind: 'tick_failed', error }));
-        }
+        await tick(driver, report);
       }
     };
 
@@ -485,12 +481,7 @@ export const runBrew = async (
     let linked = false;
     stopResize = terminal?.onResize(draw);
     for (;;) {
-      try {
-        await driver.tick();
-      } catch (error) {
-        if (error instanceof StateBranchStopError) throw error;
-        say(formatNotice({ kind: 'tick_failed', error }));
-      }
+      await tick(driver, report);
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
         await endStoppedRuns(batchId, other);

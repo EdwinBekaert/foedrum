@@ -81,6 +81,16 @@ export const listenWhileServing = (
   };
 };
 
+/**
+ * The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
+ * it by this URL, never through the clone's configuration, with Foedrum's own git directories for
+ * it under `workRoot` (ADR 0090, ADR 0096).
+ */
+export const ownRemote = (workRoot: string, repo: string): OwnRemote => ({
+  url: `https://github.com/${repo}.git`,
+  root: ownGitDirsRoot(workRoot, repo),
+});
+
 export const serveShell = (setup: ServeSetup, options: ServeShellOptions): ServeShell => {
   const { root, git, out, listen, checks, keepAwake: awake, command = 'serve' } = options;
   const { workRoot } = setup;
@@ -95,12 +105,6 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
   };
   // A repository's setup installs, so its sandbox keeps the network (ADR 0158).
   const setupExec = sandboxedChecks({ exec: execProcess, ...sandbox, network: true });
-  // The repository on GitHub, where its pull request goes: every fetch, push and ls-remote reaches
-  // it by this URL, never through the clone's configuration (ADR 0090, ADR 0096).
-  const ownRemote = (repo: string): OwnRemote => ({
-    url: `https://github.com/${repo}.git`,
-    root: ownGitDirsRoot(workRoot, repo),
-  });
   return {
     out,
     // Ctrl+C, a kill, a closed terminal, Ctrl+Break: each stops the runs through the driver, whose
@@ -123,44 +127,45 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
       }),
     worktrees: async (repository) => {
       const { repo, source, clone } = repository;
+      const own = ownRemote(workRoot, repo);
       if (source === 'local') {
         return openAttemptWorktrees({
           git,
           workRoot,
           repo,
           clone: worktreeClonePath(workRoot, repository),
-          own: ownRemote(repo),
+          own,
         });
       }
       const managed = await ensureManagedClone({
         git,
         workRoot,
         repo,
-        url: `https://github.com/${repo}.git`,
+        url: own.url,
         ...(clone === undefined ? {} : { reference: clone }),
       });
-      return openAttemptWorktrees({ git, workRoot, repo, clone: managed, own: ownRemote(repo) });
+      return openAttemptWorktrees({ git, workRoot, repo, clone: managed, own });
     },
     // From the objects of the clone the worktrees are added to.
     push: (repository) =>
       openBranchPush({
         git,
         clone: worktreeClonePath(workRoot, repository),
-        own: ownRemote(repository.repo),
+        own: ownRemote(workRoot, repository.repo),
       }),
     // In a git directory of its own with the clone's objects, as the base fetch (ADR 0198).
     mergeTree: (repository) =>
       openMergeTree({
         git,
         clone: worktreeClonePath(workRoot, repository),
-        own: ownRemote(repository.repo),
+        own: ownRemote(workRoot, repository.repo),
       }),
     // A worktree of the merged tree from such a directory, for the checks on it (ADR 0203).
     mergedTree: (repository) =>
       openMergedTree({
         git,
         clone: worktreeClonePath(workRoot, repository),
-        own: ownRemote(repository.repo),
+        own: ownRemote(workRoot, repository.repo),
       }),
     // In the worktree of the check attempt, git as the engine's calls in the clone (ADR 0137).
     merge: (repository) =>

@@ -5,17 +5,17 @@
 // by a moved head or a later brief, hidden as outdated, `[batch, "brief.<n>.hidden"]` (ADR 0229).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import type { GravityReading } from '../schemas/events.ts';
+import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
 import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
-import { pullRequestOf } from './base-check.ts';
-import { effectMarker } from './claim-effects.ts';
+import { commentId, effectMarker } from './claim-effects.ts';
+import { cutForComment } from './comment-revisions.ts';
 import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import { type Attempt, type Batch, baseChecksOn, type State } from './fold.ts';
+import { type Attempt, type Batch, baseChecksOn, latestAttempt, type State } from './fold.ts';
 import { type LensRound, lensRounds } from './lens-rounds.ts';
 import {
   briefKey,
@@ -71,25 +71,14 @@ const scanned = 1_000;
 /** How many findings of one step, and dispositions in all, the brief lists. */
 const mostFindings = 10;
 const mostDispositions = 30;
-/**
- * How long the brief after its title may be: below GitHub's 65,536 characters for a comment, with
- * room for the title (`plain` keeps it to 200 characters, five times as long escaped) and the
- * marker. The title is left out, so a brief found by its marker can be told by the rest.
- */
-const longestRest = 60_000;
 
 /** A text a brewer wrote at `stepId` as one inert line (ADR 0088, ADR 0184). */
 type Told = (text: string, stepId: string) => string;
 
-/** The attempt of `stepId` with the highest number. */
-const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
-  const attempts = batch.steps.get(stepId)?.attempts;
-  return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
-};
-
 /** The output of the latest attempt of `stepId` when it finished and succeeded. */
 const succeededOutput = (batch: Batch, stepId: string): { output: unknown } | undefined => {
-  const latest = latestOf(batch, stepId);
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
   return latest?.phase === 'finished' && latest.outcome.kind === 'succeeded'
     ? { output: latest.outcome.output }
     : undefined;
@@ -171,7 +160,8 @@ const baseLine = (batch: Batch, url: string, head: string): string => {
 
 /** The readings of a check step's latest success, its repository's setup left out (ADR 0163). */
 const checkReadings = (batch: Batch, stepId: string): readonly GravityReading[] | undefined => {
-  const latest = latestOf(batch, stepId);
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
   if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return undefined;
   const readings = (latest.readings ?? []).filter(
     (reading) => reading.result === 'skipped' || reading.setup !== true,
@@ -255,7 +245,8 @@ const notRunLines = (steps: Steps, proof: string | undefined): string[] =>
     if (stepId === proof || steps.recipe?.action(stepId) !== undefined) return [];
     const skipped = skippedBy(steps, stepId);
     if (skipped !== undefined) return [`- ${code(stepId)}: ${notRunText(skipped)}.`];
-    const latest = latestOf(steps.batch, stepId);
+    const step = steps.batch.steps.get(stepId);
+    const latest = step && latestAttempt(step);
     if (latest === undefined) return [`- ${code(stepId)}: not run.`];
     if (latest.phase === 'finished' && latest.outcome.kind === 'succeeded') return [];
     if (latest.phase === 'finished' && onFindings(latest.outcome)) return [];
@@ -291,7 +282,8 @@ const lastTasters = (steps: Steps): string[] => {
 /** Where the last Taster tasted, and the fix rounds since, from the log alone. */
 const tastedLine = (steps: Steps, ready: ReadyRecord): string => {
   const [last] = lastTasters(steps);
-  const attempt = last === undefined ? undefined : latestOf(steps.batch, last);
+  const step = last === undefined ? undefined : steps.batch.steps.get(last);
+  const attempt = step && latestAttempt(step);
   if (last === undefined || attempt === undefined) return '- No Taster tasted this change.';
   const commit = attempt.phase === 'scheduled' ? undefined : attempt.worktree?.commit;
   if (commit === undefined) return '- Tasted at a commit the log does not record.';
@@ -349,7 +341,8 @@ const openLines = (steps: Steps, told: Told): string[] =>
  */
 const skippedOpenLines = (steps: Steps, told: Told): string[] =>
   steps.ids.flatMap((stepId) => {
-    const latest = latestOf(steps.batch, stepId);
+    const step = steps.batch.steps.get(stepId);
+    const latest = step && latestAttempt(step);
     if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return [];
     const left = `- ${code(stepId)}: left open by a skip`;
     const { kept = [], more = 0 } = latest.findings ?? {};
@@ -371,14 +364,6 @@ const riskLines = (steps: Steps, told: Told): string[] =>
       (risk) => `- ${code(stepId)}: ${told(risk, stepId)}`,
     ),
   );
-
-/** `text` cut to whole lines below `longestRest`, as `renderStatus` cuts. */
-const cut = (text: string): string => {
-  if (text.length <= longestRest) return text;
-  const note = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = text.slice(0, longestRest - note.length);
-  return `${kept.slice(0, kept.lastIndexOf('\n'))}${note}`;
-};
 
 /** The brief after its title line, for `ready`, the record that makes `batch` ready. */
 const briefRest = (
@@ -431,7 +416,10 @@ const briefRest = (
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
   ];
-  return cut(sections.map((lines) => lines.join('\n')).join('\n\n'));
+  // Below the length a comment may be with room for the title (`plain` keeps it to 200
+  // characters, five times as long escaped), which is left out, so a brief found by its marker
+  // can be told by the rest.
+  return cutForComment(sections.map((lines) => lines.join('\n')).join('\n\n'));
 };
 
 /** The brief's title line: the pull request's title, which anyone who can edit it wrote. */
@@ -459,13 +447,8 @@ interface DueBrief {
 }
 
 /** A brief's ledger result, checked: the id comes from the code host, and the ledger keeps it. */
-const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): MergeBrief => {
-  const parsed = MergeBrief.safeParse({ comment, pullRequest, head, digest });
-  if (!parsed.success) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
-  }
-  return parsed.data;
-};
+const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): MergeBrief =>
+  MergeBrief.parse({ comment: commentId(comment), pullRequest, head, digest });
 
 /** The repository and number of the pull request at `url`, when it is one. */
 const whereOf = (url: string): { repo: string; number: number } | undefined => {

@@ -5,9 +5,10 @@
 // files change, and a check that fails on the merged tree when it first fails (ADR 0209), which
 // sends the batch back to its fix step when its recipe has the route (ADR 0226).
 
-import type { GravityReading } from '../schemas/events.ts';
-import { EffectKeyParts, MAX_CONFLICTS, MergeResult } from '../schemas/store.ts';
-import { effectMarker, type IssueMarks } from './claim-effects.ts';
+import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
+import { MAX_CONFLICTS } from '../schemas/store.ts';
+import { mergeResults } from './base-merge.ts';
+import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
 import type { CommandLog } from './command-log.ts';
 import { type DriverEffects, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -51,9 +52,6 @@ export interface BaseCheckOptions {
   failed: (what: string, error: unknown) => void;
 }
 
-/** The ledger's effect name of the merge before a check attempt (ADR 0164). */
-const MERGE_BASE = 'merge_base';
-
 /**
  * The tip the pull request `url` of `batch` was last checked against on `head`, the latest push's:
  * its latest check of that head, else the base the batch's latest merge read (ADR 0164, ADR 0226);
@@ -62,16 +60,7 @@ const MERGE_BASE = 'merge_base';
 const lastTip = (state: State, batch: Batch, url: string, head: string): string | undefined => {
   const checked = baseChecksOn(batch, url, head).at(-1);
   if (checked !== undefined) return checked.tip;
-  let merged: string | undefined;
-  for (const [key, result] of state.effects) {
-    const parts = EffectKeyParts.safeParse(JSON.parse(key));
-    if (!parts.success || parts.data.length !== 4) continue;
-    const [batchId, , , effect] = parts.data;
-    if (batchId !== batch.id || effect !== MERGE_BASE) continue;
-    const merge = MergeResult.safeParse(result);
-    if (merge.success) merged = merge.data.base;
-  }
-  return merged;
+  return mergeResults(state, batch.id).at(-1)?.merge.base;
 };
 
 /** One pass: checks every open pull request whose base moved, and records each check. */
@@ -225,16 +214,6 @@ export const failurePosts = (batch: Batch): { n: number; check: FailedCheck }[] 
 const conflictKey = (batchId: string, n: number) => ({ batchId, effect: `base_conflict.${n}` });
 const failureKey = (batchId: string, n: number) => ({ batchId, effect: `base_check_failed.${n}` });
 
-/** The repository and number of a pull request at `url`: `https://<host>/<owner>/<name>/pull/<n>`. */
-export const pullRequestOf = (url: string): { repo: string; number: number } => {
-  const found = /^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)\/?$/.exec(new URL(url).pathname);
-  const [, owner, name, number] = found ?? [];
-  if (owner === undefined || name === undefined || number === undefined) {
-    throw new Error(`${url} is no pull request URL of a repository`);
-  }
-  return { repo: `${owner}/${name}`, number: Number(number) };
-};
-
 /**
  * A post's comment without its marker: the batch's heading, `body`, and what the batch does: it
  * stays On tap, or with `rounds` Foedrum sends it back to `fix` it (ADR 0226, ADR 0244).
@@ -299,14 +278,6 @@ export interface BaseConflictEffectsOptions {
   /** How long one effect may take; the driver's default when left out (`DriverEffects`). */
   deadlineMs?: number;
 }
-
-// The id the code host answered for a comment, which the ledger keeps for good.
-const commentId = (id: number): number => {
-  if (!Number.isSafeInteger(id) || id < 1) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${id}`);
-  }
-  return id;
-};
 
 /**
  * The rounds the recipe of `batch` gives a pull request that failed, when it has the route back

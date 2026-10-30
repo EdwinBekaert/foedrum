@@ -8,7 +8,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
-import type { Batch } from '../engine/fold.ts';
+import { attemptBefore, type Batch } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
@@ -405,8 +405,7 @@ ${diff}`;
 export function roundBefore(batch: Batch, ref: AttemptRef): RoundBefore | undefined {
   const step = batch.steps.get(ref.stepId);
   if (step === undefined) return undefined;
-  const before = (n: number) =>
-    step.attempts.get(Math.max(0, ...[...step.attempts.keys()].filter((each) => each < n)));
+  const before = (n: number) => attemptBefore(step, n);
   let first = step.attempts.get(ref.attempt);
   while (first !== undefined && (first.retry === true || first.answered === true)) {
     first = before(first.attempt);

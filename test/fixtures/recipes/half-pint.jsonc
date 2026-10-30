@@ -3,7 +3,6 @@
   "$schema": "../../../schemas/recipe.json",
   "name": "half-pint",
   "description": "Small feature in one repository",
-  "match": { "labels": ["feature"] },
   "testFirst": true,
   "steps": [
     { "id": "plan", "brewer": "brewmaster" },

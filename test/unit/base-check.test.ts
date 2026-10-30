@@ -18,7 +18,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
 import type { MergedCheckDue } from '../../src/engine/merged-checks.ts';
-import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
+import { openOf, pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
   baseCheckLines,
@@ -196,7 +196,7 @@ describe('checkBases', () => {
     await pass(repository);
     assert.deepStrictEqual(batch().baseChecks, [{ pullRequest, branch: 'main', tip: tip1, head }]);
     assert.deepStrictEqual(conflictPosts(batch()), []);
-    assert.deepStrictEqual(baseCheckLines(batch()), []);
+    assert.deepStrictEqual(baseCheckLines(log.state(), batch()), []);
     state.at = tip2;
     await pass(repository);
     state.at = tip3;
@@ -320,7 +320,7 @@ describe('checkBases', () => {
       conflictPosts(batch()).map(({ n }) => n),
       [1],
     );
-    assert.deepStrictEqual(baseCheckLines(batch()), [
+    assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
       `- <${pullRequest}> is not checked against \`main\` since someone else pushed to its branch`,
     ]);
   });
@@ -563,8 +563,18 @@ describe('checkBases', () => {
         kind: 'record',
         event: { type: 'pull_request.ended', batchId: 'web-7', pullRequest, state: 'merged' },
       });
-      assert.deepStrictEqual(baseCheckLines(batch()), []);
-      const text = renderStatus(batch());
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), []);
+      const text = renderStatus(
+        batch(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        undefined,
+        openOf(log.state(), batch()),
+      );
       assert.ok(text.includes(`- <${pullRequest}>`), text);
       assert.doesNotMatch(text, /conflicts with/);
     });
@@ -576,17 +586,39 @@ describe('checkBases', () => {
         [tip2]: clean,
       });
       await pass(repository);
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> conflicts with \`main\` at \`cccccccc\` in src/a.ts, src/b\\_c.ts`,
       ]);
-      const text = renderStatus(batch());
-      assert.ok(text.includes(baseCheckLines(batch())[0] ?? 'missing'), text);
+      const text = renderStatus(
+        batch(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {},
+        undefined,
+        undefined,
+        openOf(log.state(), batch()),
+      );
+      assert.ok(text.includes(baseCheckLines(log.state(), batch())[0] ?? 'missing'), text);
       state.at = tip2;
       await pass(repository);
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> merges cleanly with \`main\` again at \`dddddddd\``,
       ]);
-      assert.ok(renderStatus(batch()).includes('merges cleanly with `main` again'));
+      assert.ok(
+        renderStatus(
+          batch(),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {},
+          undefined,
+          undefined,
+          openOf(log.state(), batch()),
+        ).includes('merges cleanly with `main` again'),
+      );
     });
 
     const checked = (tip: string, found: Record<string, unknown> = {}): void =>
@@ -612,12 +644,24 @@ describe('checkBases', () => {
     it('shows a failing check on the merged tree with its name and how it failed, then that it passes again', () => {
       onTap();
       checked(tip1, { failed: failing });
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the check "test" (npm test) failed with exit code 1`,
       ]);
-      assert.ok(renderStatus(batch()).includes('fails on the merged tree'));
+      assert.ok(
+        renderStatus(
+          batch(),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {},
+          undefined,
+          undefined,
+          openOf(log.state(), batch()),
+        ).includes('fails on the merged tree'),
+      );
       checked(tip2);
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> passes its checks on the merged tree with \`main\` again at \`dddddddd\``,
       ]);
     });
@@ -627,15 +671,15 @@ describe('checkBases', () => {
       checked(tip1, {
         failed: { result: 'exited', setup: true, command: 'npm ci', exitCode: 2, tail: '' },
       });
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the setup "npm ci" failed with exit code 2`,
       ]);
       checked(tip2, { unchecked: 'git worktree add failed: fatal: *disk* full' });
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> is not checked on the merged tree with \`main\` at \`dddddddd\`: git worktree add failed: fatal: \\*disk\\* full`,
       ]);
       checked(tip3);
-      assert.deepStrictEqual(baseCheckLines(batch()), [
+      assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
         `- <${pullRequest}> passes its checks on the merged tree with \`main\` again at \`eeeeeeee\``,
       ]);
     });
@@ -656,13 +700,13 @@ describe('checkBases', () => {
       for (const [n, [reading, how]] of cases.entries()) {
         checked(String(n).repeat(40).slice(0, 40), { failed: reading });
         assert.match(
-          baseCheckLines(batch())[0] ?? '',
+          baseCheckLines(log.state(), batch())[0] ?? '',
           new RegExp(`: the check "test" \\(npm test\\) ${how.replace(/[.()]/g, '\\$&')}$`),
         );
       }
       checked(tip1, { failed: { result: 'exited', command: 'make e2e', exitCode: 2, tail: '' } });
       assert.match(
-        baseCheckLines(batch())[0] ?? '',
+        baseCheckLines(log.state(), batch())[0] ?? '',
         /: the check "make e2e" failed with exit code 2$/,
       );
     });
@@ -1105,10 +1149,13 @@ describe('checkBases', () => {
     it("shows no failure of the old head on the fixed head's status line", () => {
       onTapFixed();
       failedAt(tip1);
-      assert.match(baseCheckLines(fixedBatch(), head)[0] ?? '', /fails on the merged tree/);
+      assert.match(
+        baseCheckLines(fixLog.state(), fixedBatch())[0] ?? '',
+        /fails on the merged tree/,
+      );
       take(fixCommand(tip1));
       fixRoundTo(head2, tip1);
-      assert.deepStrictEqual(baseCheckLines(fixedBatch(), head2), []);
+      assert.deepStrictEqual(baseCheckLines(fixLog.state(), fixedBatch()), []);
       const text = renderStatus(
         fixedBatch(),
         undefined,
@@ -1118,7 +1165,7 @@ describe('checkBases', () => {
         {},
         undefined,
         undefined,
-        head2,
+        { url: pullRequest, head: head2 },
       );
       assert.doesNotMatch(text, /fails on the merged tree/);
     });

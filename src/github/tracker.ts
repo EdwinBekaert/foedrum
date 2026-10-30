@@ -4,7 +4,7 @@
 
 import type { TargetTracker } from '../engine/intake.ts';
 import type { PullRequestState, TargetIssue } from '../engine/issue-claims.ts';
-import { Repo } from '../schemas/events.ts';
+import { pullRequestOf } from '../schemas/events.ts';
 import { GitHubListedIssue, GitHubPullRequest } from '../schemas/github.ts';
 import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
@@ -23,14 +23,6 @@ const targetIssue = (body: unknown, what: string): TargetIssue => {
     author: issue.user?.login ?? '',
     created: new Date(issue.created_at).toISOString(),
   };
-};
-
-/** `owner/name` and the number of the pull request at `url`, a web URL such as a batch records. */
-export const pullRequestOf = (url: string): { repo: string; number: number } => {
-  const match = /^\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/.exec(URL.parse(url)?.pathname ?? '');
-  const [, repo = '', number] = match ?? [];
-  if (!Repo.safeParse(repo).success) throw new Error(`${url} is not a pull request`);
-  return { repo, number: Number(number) };
 };
 
 export const githubTargetTracker = (reads: GitHubReads): TargetTracker => ({

@@ -67,13 +67,26 @@ describe('Recipe', () => {
     assert.deepEqual(step, { id: 'green', check: 'test', expect: 'pass' });
   });
 
-  it('accepts a $schema reference and a match', () => {
-    const value = recipe([plan], {
-      $schema: '../.foedrum/schemas/recipe.json',
-      match: { labels: ['feature'] },
-      testFirst: false,
-    });
+  it('accepts a $schema reference', () => {
+    const value = recipe([plan], { $schema: '../.foedrum/schemas/recipe.json', testFirst: false });
     assert.equal(accepted(value), true);
+  });
+
+  it('refuses a match with one line that says how an order is routed (ADR 0253)', () => {
+    for (const match of [{ labels: ['feature'] }, { labels: [] }]) {
+      const result = Recipe.safeParse(recipe([plan], { match }));
+      assert.equal(result.success, false);
+      assert.deepEqual(
+        result.error?.issues.map(({ message, path }) => ({ message, path })),
+        [
+          {
+            message:
+              'a recipe has no "match" any more: remove it, an order is routed by its recipe:<name> label or by foedrum mash (ADR 0068, ADR 0232, ADR 0253)',
+            path: ['match'],
+          },
+        ],
+      );
+    }
   });
 
   it('refuses a budget with one line that says the field is gone (ADR 0194)', () => {
@@ -96,7 +109,6 @@ describe('Recipe', () => {
     ['an unknown field', recipe([plan], { bottling: 'perRepo' })],
     ['a name that is not path-safe', recipe([plan], { name: 'Half Pint' })],
     ['an empty description', recipe([plan], { description: ' ' })],
-    ['a match without labels', recipe([plan], { match: { labels: [] } })],
     ['a testFirst that is not a boolean', recipe([plan], { testFirst: 'yes' })],
     ['an array', [recipe([plan])]],
   ];

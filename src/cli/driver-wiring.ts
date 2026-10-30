@@ -32,6 +32,7 @@ import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { planEffects } from '../engine/plan-comment.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
+import { StateBranchStopError } from '../engine/state-branch.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -50,6 +51,23 @@ import type { ServeSetup } from './serve-config.ts';
 
 export const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/**
+ * One tick of the driver, as every command that runs one ticks it: a tick that fails is reported
+ * and the next one runs anyway, but a stop of the engine, such as another engine's push of the
+ * state branch, is thrown (ADR 0027, ADR 0250).
+ */
+export const tick = async (
+  driver: Pick<Driver, 'tick'>,
+  report: (notice: DriverNotice) => void,
+): Promise<void> => {
+  try {
+    await driver.tick();
+  } catch (error) {
+    if (error instanceof StateBranchStopError) throw error;
+    report({ kind: 'tick_failed', error });
+  }
+};
 
 /** The runner that tells `awake` of each attempt it starts and when that attempt ends (ADR 0195). */
 const heldAwake = (runner: BrewerRunner, awake: AwakeHold): BrewerRunner => ({

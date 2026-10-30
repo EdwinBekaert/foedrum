@@ -20,6 +20,7 @@ import {
   type StepChecks,
 } from '../engine/recipe-files.ts';
 import type { Recipes } from '../engine/recipes.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import {
@@ -126,6 +127,9 @@ export interface ServeSetup {
   keepAwake: boolean;
 }
 
+/** The Brewery's event store: `.foedrum/index.db` in its root. */
+export const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
+
 export type ServeSetupResult =
   | { kind: 'ready'; setup: ServeSetup }
   | { kind: 'refused'; problems: string[] };
@@ -137,8 +141,8 @@ const DEFAULT_CONCURRENCY = 1;
 /** ADR 0052's interval. */
 const DEFAULT_POLL = '60s';
 
-/** A reason in one line, as doctor prints it. */
-const oneLine = (reason: string): string =>
+/** A reason's lines joined with spaces, as doctor prints it; brew's `oneLine` escapes them. */
+const joinedLines = (reason: string): string =>
   reason
     .split('\n')
     .map((line) => line.trim())
@@ -159,7 +163,7 @@ const read = <T>(
   }
   const result = readJsonc(text, schema);
   if (result.valid) return result.value;
-  problems.push(`${file}: ${oneLine(result.reason)}`);
+  problems.push(`${file}: ${joinedLines(result.reason)}`);
   return undefined;
 };
 
@@ -219,12 +223,9 @@ export const readBreweryConfig = (text: string | undefined, root: string): Brewe
   return config;
 };
 
-// GitHub names are case-insensitive: the two files may spell one differently.
-const sameName = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase();
-
 /** The user's clone of `repo` that .foedrum/local.jsonc names. */
 const userClone = (local: LocalConfig, repo: string): string | undefined =>
-  Object.entries(local.clones).find(([name]) => sameName(name, repo))?.[1];
+  Object.entries(local.clones).find(([name]) => sameRepo(name, repo))?.[1];
 
 const workRootOf = (local: LocalConfig | undefined, home: string, brewery: string): string =>
   local?.workRoot ?? join(home, '.foedrum', repoFolder(brewery));
@@ -243,7 +244,7 @@ export const attemptClone = (
   const config = read('foedrum.jsonc', files.config, BreweryConfig, undefined, problems);
   const local = read('.foedrum/local.jsonc', files.local ?? '{}', LocalConfig, undefined, problems);
   if (config === undefined || local === undefined) return undefined;
-  const repository = Object.entries(config.repositories).find(([name]) => sameName(name, repo));
+  const repository = Object.entries(config.repositories).find(([name]) => sameRepo(name, repo));
   if (repository === undefined) return undefined;
   if ((repository[1].source ?? 'local') === 'local') return userClone(local, repo);
   if (config.brewery === undefined) return undefined;
@@ -368,7 +369,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
     setup: {
       brewery,
       workRoot,
-      store: join(root, '.foedrum', 'index.db'),
+      store: storePath(root),
       stateWorktree: join(workRoot, 'state'),
       repositories,
       models,
