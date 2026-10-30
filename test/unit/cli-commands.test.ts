@@ -1873,6 +1873,38 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.deepStrictEqual(events(before)[1], chosen('31-2', 'stout'));
     });
 
+    it('says it ordered the issue when the recipe is then refused, as when the intake routed it first', async () => {
+      // The intake routes 21-2 between the order and the choice: the second transaction.
+      let transactions = 0;
+      const racing: EventStore = {
+        ...store,
+        close: () => {},
+        withTransaction: (use) => {
+          transactions += 1;
+          if (transactions === 2) {
+            const route = { batchId: '21-2', recipe: 'pint', reason: 'label' };
+            createCommandLog({ store, recipes }).issue(
+              { kind: 'route', ...route, source: 'label' },
+              t0,
+            );
+          }
+          return store.withTransaction(use);
+        },
+      };
+      assert.deepStrictEqual(
+        await run(['recipe', '#21', 'stout', 'the plan has one sub-order'], {
+          ...noConfig,
+          openWritableStore: () => racing,
+        }),
+        {
+          exitCode: 1,
+          stdout: 'ordered #21 as batch 21-2\n',
+          stderr:
+            'foedrum recipe: batch 21-2 is brewing; recipe needs it ordered, conditioning or stuck\n',
+        },
+      );
+    });
+
     it('orders an issue it never brewed with the recipe', async () => {
       assert.deepStrictEqual(
         await run(['recipe', '30', 'pint', 'the plan has one sub-order'], noConfig),

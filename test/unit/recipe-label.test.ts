@@ -129,6 +129,20 @@ describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
     ]);
   });
 
+  it('counts the label an older Foedrum applied under recipe-label as applied for its recipe', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const legacy: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect: 'recipe-label' }),
+      result: { label: 'recipe:nip' },
+    };
+    assert.deepEqual(effects.due(fold([ordered, chose(), legacy]), '12-1'), []);
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    assert.deepEqual(effects.due(fold([ordered, chose(), legacy, stout]), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:stout' },
+    ]);
+  });
+
   it('labels the recipe a person chose with foedrum recipe, as an answer does (ADR 0240)', () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     assert.deepEqual(effects.due(fold([ordered, chose({})]), '12-1'), [key]);
