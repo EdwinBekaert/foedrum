@@ -28,6 +28,7 @@ import {
 } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { findingText, knownCommits, latestPush, recordedPushes, unlinked } from './pull-request.ts';
+import { pairsOf } from './pull-request-pairs.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import {
   capped,
@@ -156,6 +157,20 @@ const baseLine = (batch: Batch, url: string, head: string): string => {
     return `- The latest check against its base, which names no head, merged cleanly with ${at}.`;
   }
   return `- Merged cleanly with ${at}.`;
+};
+
+/**
+ * How the head merges with the other open pull requests of its repository (ADR 0230): each it
+ * conflicts with, else that it merges cleanly with all once every one was checked; else nothing.
+ */
+const pairLines = (state: State, batch: Batch): string[] => {
+  const { conflicts, clean } = pairsOf(state, batch);
+  if (clean) return ['- Merges cleanly with the other open pull requests.'];
+  // A file's name comes from whoever committed it.
+  return conflicts.map(
+    ({ other, conflicts: files }) =>
+      `- Conflicts with the open pull request ${link(other)} in ${files.map(plain).join(', ')}.`,
+  );
 };
 
 /** The readings of a check step's latest success, its repository's setup left out (ADR 0163). */
@@ -407,6 +422,7 @@ const briefRest = (
       `**Evidence on ${head}**`,
       ...checkLines(ready),
       baseLine(batch, ready.pullRequest, ready.head),
+      ...pairLines(state, batch),
       redProofLine(steps, proof),
       ...checkStepLines(steps, proof),
       ...notRunLines(steps, proof),

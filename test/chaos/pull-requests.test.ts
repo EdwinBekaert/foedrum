@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
-import { baseConflictEffects } from '../../src/engine/base-check.ts';
+import { type BaseCheckRepository, baseConflictEffects } from '../../src/engine/base-check.ts';
 import type { BaseMerge } from '../../src/engine/base-merge.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -21,6 +21,7 @@ import {
   type PullRequestHost,
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
+import { checkPairs } from '../../src/engine/pull-request-pairs.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
@@ -823,6 +824,127 @@ describe('chaos: a fix the merged tree sent back killed around its merge, push a
       assert.deepEqual(
         state.effects.get(JSON.stringify(['12-1', 'plan', fix.attempt, 'merge_base'])),
         { base: TIP, merged: MERGED },
+      );
+    });
+  }
+});
+
+describe('chaos: the pair check of open pull requests killed between its records (ADR 0230)', () => {
+  const urls = [12, 13, 14].map((n) => `https://github.com/acme/api/pull/${n}`);
+  const pairRecipes = fakeRecipes(
+    Object.fromEntries(
+      urls.map((url) => [url, fakeRecipe({ steps: ['plan'], pullRequests: [url] })]),
+    ),
+  );
+  const headOf = (i: number): string => String(i + 1).repeat(40);
+  const repository: BaseCheckRepository = {
+    repo: 'acme/api',
+    base: 'main',
+    tip: async () => TIP,
+    mergeTree: async (one, two) =>
+      one === headOf(0) && two === headOf(1)
+        ? { kind: 'conflicts', files: ['a.ts'] }
+        : { kind: 'clean' },
+    branchTip: async (branch) => headOf(Number(branch.split('/')[1])),
+  };
+
+  /** Three open pull requests, and a pass killed after each record whose number `kills` names. */
+  const pairRun = async (kills: readonly number[]) => {
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const setup = createCommandLog({ store, recipes: pairRecipes });
+      const accept = (command: Parameters<typeof setup.issue>[0]): void =>
+        assert.equal(setup.issue(command, t0).kind, 'accepted');
+      for (const [i, url] of urls.entries()) {
+        const batchId = `${i}`;
+        accept({ kind: 'order', batchId: `b${batchId}`, order: { issue: 12 + i } });
+        accept({
+          kind: 'route',
+          batchId: `b${batchId}`,
+          recipe: url,
+          reason: 'label',
+          source: 'label',
+        });
+        const ref = { batchId: `b${batchId}`, stepId: 'plan', attempt: 1 };
+        accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+        accept({ kind: 'finish', ...ref, ending: { kind: 'succeeded', output: null } });
+        const pushed = { branch: `foedrum/${i}/acme.api`, commit: headOf(i), from: 'start' };
+        for (const [effect, result] of [
+          ['push', pushed],
+          ['pull_request', url],
+        ] as const) {
+          accept({
+            kind: 'record',
+            event: { type: 'effect.applied', key: JSON.stringify([`b${batchId}`, effect]), result },
+          });
+        }
+      }
+      let records = 0;
+      const failures: string[] = [];
+      const left = [...kills];
+      let lives = 0;
+      for (;;) {
+        lives++;
+        const log = createCommandLog({ store, recipes: pairRecipes });
+        const dying: typeof log = {
+          ...log,
+          issue: (command, at) => {
+            const decision = log.issue(command, at);
+            const pair =
+              typeof command !== 'function' &&
+              command.kind === 'record' &&
+              command.event.type === 'pull_request.pair_checked';
+            if (pair && decision.kind === 'accepted') {
+              records++;
+              if (left[0] === records) {
+                left.shift();
+                throw new Killed();
+              }
+            }
+            return decision;
+          },
+        };
+        try {
+          await checkPairs(
+            {
+              log: dying,
+              repositories: [repository],
+              clock: () => t0,
+              failed: (what) => failures.push(what),
+            },
+            new AbortController().signal,
+          );
+          break;
+        } catch (error) {
+          if (!(error instanceof Killed)) throw error;
+        }
+      }
+      const pairs = store
+        .eventsAfter(0)
+        .flatMap(({ event }) => (event.type === 'pull_request.pair_checked' ? [event] : []));
+      return { pairs, lives, failures };
+    } finally {
+      store.close();
+    }
+  };
+
+  for (const kills of [[], [1], [2], [3], [5], [1, 2], [2, 4]]) {
+    it(`records each pair of heads once on each batch: killed after record ${kills.join(', then ') || 'none'}`, async () => {
+      const { pairs, lives, failures } = await pairRun(kills);
+      // A side issued again would be refused and reported: only the sides left out are issued.
+      assert.deepEqual(failures, []);
+      assert.equal(lives, kills.length + 1, 'a new pass after each kill');
+      const sides = pairs.map(({ batchId, other, head, otherHead }) =>
+        JSON.stringify([batchId, other, head, otherHead]),
+      );
+      assert.equal(new Set(sides).size, sides.length, 'no side twice');
+      assert.equal(sides.length, 6);
+      assert.deepEqual(
+        pairs
+          .filter(({ conflicts }) => conflicts !== undefined)
+          .map(({ batchId }) => batchId)
+          .sort(),
+        ['b0', 'b1'],
       );
     });
   }

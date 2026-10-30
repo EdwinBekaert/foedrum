@@ -2439,6 +2439,53 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "pull_request.pair_checked"
+        },
+        "batchId": {
+          "type": "string",
+          "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "pullRequest": {
+          "type": "string",
+          "format": "uri"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "other": {
+          "type": "string",
+          "format": "uri"
+        },
+        "otherHead": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "conflicts": {
+          "minItems": 1,
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "batchId",
+        "pullRequest",
+        "head",
+        "other",
+        "otherHead"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "pull_request.checks_pending"
         },
         "batchId": {

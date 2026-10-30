@@ -14,6 +14,7 @@ import {
   Surface,
   WaitCondition,
 } from '../../src/schemas/events.ts';
+import { MAX_CONFLICTS } from '../../src/schemas/store.ts';
 
 const sha = 'a'.repeat(40);
 const pullRequest = 'https://github.com/acme/lib-core/pull/7';
@@ -150,6 +151,15 @@ const valid: Record<Event['type'], Event> = {
     pullRequest,
     branch: 'main',
     tip: 'c'.repeat(40),
+    conflicts: ['src/app.ts'],
+  },
+  'pull_request.pair_checked': {
+    type: 'pull_request.pair_checked',
+    batchId: 'app-7',
+    pullRequest,
+    head: sha,
+    other: 'https://github.com/acme/lib-core/pull/8',
+    otherHead: 'b'.repeat(40),
     conflicts: ['src/app.ts'],
   },
   'pull_request.checks_pending': {
@@ -342,6 +352,24 @@ describe('Event', () => {
     rejects(Event, { ...finished, more: 0 });
     rejects(Event, { ...finished, head: 'main' });
     rejects(Event, { ...valid['pull_request.checks_pending'], since: 'yesterday' });
+  });
+
+  it('bounds a pair check of two open pull requests (ADR 0230)', () => {
+    const paired = valid['pull_request.pair_checked'];
+    accepts(Event, without(paired, 'conflicts'));
+    accepts(Event, {
+      ...paired,
+      conflicts: Array.from({ length: MAX_CONFLICTS }, (_, i) => `f${i}`),
+    });
+    rejects(Event, { ...paired, conflicts: [] });
+    rejects(Event, { ...paired, conflicts: [''] });
+    rejects(Event, {
+      ...paired,
+      conflicts: Array.from({ length: MAX_CONFLICTS + 1 }, (_, i) => `f${i}`),
+    });
+    rejects(Event, { ...paired, otherHead: 'main' });
+    rejects(Event, { ...paired, other: 'https://github.com/acme/lib-core/issues/8' });
+    rejects(Event, without(paired, 'otherHead'));
   });
 
   it('accepts a rank marked first, and refuses a place it cannot sort by (ADR 0208)', () => {

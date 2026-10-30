@@ -33,6 +33,7 @@ import {
   openedPullRequest,
   openOf,
 } from './pull-request.ts';
+import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
@@ -304,6 +305,10 @@ export const readingText = (reading: GravityReading): string => {
     }
   }
 };
+
+/** A conflict of two open pull requests' heads (ADR 0230); a file's name is whoever committed it. */
+const pairLine = ({ pullRequest, other, conflicts }: PairConflict): string =>
+  `- ${link(pullRequest)} conflicts with the open pull request ${link(other)} in ${conflicts.map(plain).join(', ')}`;
 
 /** The pull request of a batch that `openOf` reads, and the commit its latest push recorded. */
 type OpenPullRequest = { url: string; head: string };
@@ -712,6 +717,8 @@ export const renderStatus = (
    * checks the comment shows (ADR 0213, ADR 0226): no other is read any more.
    */
   open?: OpenPullRequest,
+  /** The other open pull requests its open pull request conflicts with (ADR 0230). */
+  pairs: readonly PairConflict[] = [],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId) => {
@@ -755,6 +762,7 @@ export const renderStatus = (
         : [
             '**Pull requests**',
             ...pullRequests.map((url) => baseCheckLine(batch, url, open) ?? `- ${link(url)}`),
+            ...pairs.map(pairLine),
             ...openCheckLines(batch, open),
             // The merge brief of the record that makes it ready now (ADR 0225).
             ...(brief === undefined || !('comment' in brief)
@@ -824,6 +832,7 @@ const statusDue = (
     briefLine(state, batch),
     leftBody(state, batch),
     openOf(state, batch),
+    pairsOf(state, batch).conflicts,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
