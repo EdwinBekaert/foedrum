@@ -104,6 +104,12 @@ describe('judgeRed', () => {
       'add.c:3: compile error',
       'AddTest.java: compilation failed',
       'error: failed to compile add.c',
+      // .NET's assembly and type load failures, as xunit writes them (#679).
+      "System.IO.FileLoadException : Could not load file or assembly 'C:\\work\\app\\bin\\Calc.dll'. This file is blocked by an application control policy. (0x800711C7)",
+      "System.IO.FileLoadException : Could not load file or assembly 'C:\\work\\app\\bin\\Calc.dll'. Dit bestand is geblokkeerd door een beleid voor toepassingsbeheer. (0x800711C7)",
+      "System.IO.FileNotFoundException : Could not load file or assembly 'Calc, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null'. The system cannot find the file specified.",
+      "System.BadImageFormatException : Bad IL format. The format of the file 'C:\\work\\app\\bin\\Calc.dll' is invalid.",
+      "System.TypeLoadException : Could not resolve type 'Calc.Missing' in assembly 'Calc.Tests, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.",
     ];
     for (const line of loadErrors) {
       const report = tap(
