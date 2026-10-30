@@ -599,15 +599,26 @@ const pathLine = (batch: Batch, told: Told): string[] => {
   return [`Path: ${shown.join(' → ')}`];
 };
 
+/** The number and output of the latest attempt of `stepId` that succeeded; else undefined. */
+const latestSucceeded = (
+  batch: Batch,
+  stepId: string,
+): { attempt: number; output: unknown } | undefined => {
+  for (const attempt of latestFirst(batch, stepId)) {
+    if (attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded') {
+      return { attempt: attempt.attempt, output: attempt.outcome.output };
+    }
+  }
+  return undefined;
+};
+
 /** The assumptions of the latest out doc of `stepId` that succeeded. */
 const assumptionsOf = (batch: Batch, stepId: string, told: Told): string[] => {
-  for (const attempt of latestFirst(batch, stepId)) {
-    if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') continue;
-    const parsed = OutDocAssumptions.safeParse(attempt.outcome.output);
-    if (!parsed.success) return [];
-    return parsed.data.assumptions.map((text) => told(text, stepId)).filter((text) => text !== '');
-  }
-  return [];
+  const done = latestSucceeded(batch, stepId);
+  if (done === undefined) return [];
+  const parsed = OutDocAssumptions.safeParse(done.output);
+  if (!parsed.success) return [];
+  return parsed.data.assumptions.map((text) => told(text, stepId)).filter((text) => text !== '');
 };
 
 /** The first `most` of `all` as lines of `stepId`, and a line that counts the rest, as `rest`. */
@@ -629,11 +640,8 @@ export const capped = <T>(
  */
 const fullPlanLine = (batch: Batch, stepId: string, stateBranch?: string): string[] => {
   if (stateBranch === undefined) return [];
-  const done = latestFirst(batch, stepId).find(
-    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-  );
-  if (done?.phase !== 'finished' || done.outcome.kind !== 'succeeded') return [];
-  if (planOf(done.outcome.output) === undefined) return [];
+  const done = latestSucceeded(batch, stepId);
+  if (done === undefined || planOf(done.output) === undefined) return [];
   const url = outDocLink(stateBranch, { batchId: batch.id, stepId, attempt: done.attempt });
   return [`- ${code(stepId)}: full plan: ${link(url)}`];
 };
@@ -671,13 +679,8 @@ const mostTests = 10;
  */
 const testLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
   stepIds.flatMap((stepId) => {
-    const done = latestFirst(batch, stepId).find(
-      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-    );
-    const named =
-      done?.phase === 'finished' && done.outcome.kind === 'succeeded'
-        ? gaugeOf(done.outcome.output)
-        : undefined;
+    const done = latestSucceeded(batch, stepId);
+    const named = done === undefined ? undefined : gaugeOf(done.output);
     if (named === undefined) return [];
     const kind = (names: readonly string[], what: string): string[] =>
       capped(stepId, names, mostTests, (name) => `${what}: ${told(name, stepId)}`, ` ${what}s`);
