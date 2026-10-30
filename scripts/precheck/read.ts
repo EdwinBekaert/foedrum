@@ -732,14 +732,15 @@ const pushTarget = (args: Word[]): PushTarget => {
   let optionsEnd = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? { text: '', dynamic: false, quoted: false };
+    const shortValue = SHORT_PUSH_OPTION.exec(arg.text)?.[1];
     // A redirection is the shell's (2>&1, >out.txt, &>log, 2> err.txt), with its target in the
     // next word when the word is only the operator.
     if (!arg.quoted && REDIRECTION.test(arg.text)) {
       if (REDIRECTION_ONLY.test(arg.text)) i++;
     } else if (optionsEnd || !arg.text.startsWith('-')) operands.push(arg);
     else if (arg.text === '--') optionsEnd = true;
-    else if (SHORT_PUSH_OPTION.test(arg.text)) {
-      if (SHORT_PUSH_OPTION.exec(arg.text)?.[1] === '') i++;
+    else if (shortValue !== undefined) {
+      if (shortValue === '') i++;
     } else {
       // A long option or a prefix of it: one that may be --repo names the remote, and any other
       // that may take a value takes the next word when it has no `=` (review of #635).
@@ -822,9 +823,10 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
   if (help || printsHelp(args.slice(i + 1))) return;
   const pushes = subcommand?.text === 'push' || (literal && subcommand?.dynamic);
   if (pushes || unknown !== undefined) {
-    const target = unknown === undefined ? pushTarget(after.slice(1)) : unreadTarget;
+    const pushWords = unknown === undefined ? after.slice(1) : after;
+    const target = unknown === undefined ? pushTarget(pushWords) : unreadTarget;
     found.places.push({ place: gitPlace, ...target });
-    const pushArgs = after.slice(unknown === undefined ? 1 : 0).map((word) => word.text);
+    const pushArgs = pushWords.map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
     else if (configured) found.reasons.push(CONFIGURED_PUSH_BLOCKED);
