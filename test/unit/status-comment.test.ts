@@ -2293,6 +2293,12 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
     assert.doesNotMatch(text, /full plan|foedrum\/state/);
   });
 
+  it('links no plan that succeeded without assumptions, which has no section to end: regression test', () => {
+    const text = rendered(batch({ steps: new Map([step('plan', planned(1, []))]) }), stateBranch);
+    assert.deepEqual(section(text), []);
+    assert.doesNotMatch(text, /full plan|foedrum\/state/);
+  });
+
   it('reads as before without a plan: regression test', () => {
     const plain = batch({ steps: new Map([step('plan', done(1, ['Kept the flag']))]) });
     assert.equal(rendered(plain, stateBranch), rendered(plain));

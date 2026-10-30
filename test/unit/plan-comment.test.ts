@@ -198,6 +198,40 @@ describe('renderPlan (ADR 0233)', () => {
     assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nFull plan: <[^>]+>$/);
   });
 
+  it('counts the link in the length, for a text that fits only without it: regression test (#659)', () => {
+    const link = `\n\nFull plan: <${outDoc}>`;
+    const sized = (n: number, extra: number): PlanReport => ({
+      subOrders: Array.from({ length: n }, (_, i) =>
+        subOrder(`s${i}`, { title: i === 0 ? 'y'.repeat(extra) : 'Build' }),
+      ),
+    });
+    const length = (plan: PlanReport) => renderPlan('7-1', 'plan', plan).length;
+    // A text past the limit comes back cut, without its graph: the most sub-orders kept whole.
+    const whole = (plan: PlanReport) => renderPlan('7-1', 'plan', plan).includes('```mermaid');
+    let [n, over] = [1, 10_000];
+    while (over - n > 1) {
+      const middle = Math.floor((n + over) / 2);
+      if (whole(sized(middle, 0))) n = middle;
+      else over = middle;
+    }
+    // The shortest first title that brings the text within the link's length of the limit.
+    let [short, long] = [-1, 200];
+    while (long - short > 1) {
+      const middle = Math.floor((short + long) / 2);
+      const tried = sized(n, middle);
+      if (!whole(tried) || length(tried) > 60_000 - link.length) long = middle;
+      else short = middle;
+    }
+    const plan = sized(n, long);
+    // Within the link's length of the limit: whole without it, too long with it.
+    assert.ok(whole(plan));
+    assert.ok(length(plan) <= 60_000, `${length(plan)}`);
+    assert.ok(length(plan) + link.length > 60_000, `${length(plan)}`);
+    const text = renderPlan('7-1', 'plan', plan, undefined, outDoc);
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.ok(text.endsWith(link), text.slice(-200));
+  });
+
   it('reads as before without a link: regression test (#659)', () => {
     assert.doesNotMatch(renderPlan('7-1', 'plan', three), /Full plan/);
   });
