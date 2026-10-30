@@ -16,14 +16,13 @@ import { userName } from '../platform/env.ts';
 import { stopOnSignals } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { brewerSource } from './brewer-report.ts';
-import { storePath } from './commands.ts';
 import type { DoctorShell } from './doctor-facts.ts';
 import { doctorFromCheckout } from './doctor-main.ts';
 import { readKeptBranches } from './kept-branches-git.ts';
 import { lensSource } from './lens-report.ts';
 import { boardTerminal, type TerminalStream } from './live-terminal.ts';
 import { type CliResult, runCli } from './run.ts';
-import { attemptClone, githubHostname, readBreweryConfig } from './serve-config.ts';
+import { attemptClone, githubHostname, readBreweryConfig, storePath } from './serve-config.ts';
 
 /**
  * Runs one command (`argv`) of the command layer in the Brewery checkout `cwd`. doctor's and

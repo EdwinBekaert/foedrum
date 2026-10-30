@@ -12,12 +12,12 @@ import {
   takeOver,
 } from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
+import type { DriverNotice } from '../engine/driver.ts';
 import { type Batch, latestAttempt } from '../engine/fold.ts';
-import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { drivenBy, oneLine } from './brew.ts';
-import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
+import { closeOpened, messageOf, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -92,6 +92,7 @@ export const runResumeRunning = async (
   const { batchId, stepId, owner, by, via } = request;
   // Notices may carry text a model wrote: one line each, as brew's (ADR 0123).
   const say = (line: string): void => out(oneLine(printable(`foedrum resume: ${line}`)));
+  const report = (notice: DriverNotice): void => say(formatNotice(notice));
   let lock: Opened['lock'];
   try {
     lock = shell.lock(setup.workRoot, { brewery: setup.brewery, owner });
@@ -114,7 +115,7 @@ export const runResumeRunning = async (
       // attempt is the batch's next driver's to start (ADR 0127).
       holds: (id) => id !== batchId || ranOut(now?.(), stepId, attempt) === undefined,
       say,
-      report: (notice) => say(formatNotice(notice)),
+      report,
     });
     const log = createCommandLog({ store, recipes: setup.recipes });
     const heldElsewhere = () =>
@@ -142,12 +143,7 @@ export const runResumeRunning = async (
       for (;;) {
         // Held from the takeover on, also before the driver claims it for an attempt or an effect.
         store.withTransaction((tx) => holdBatch(tx, { batchId, owner, now: clock(), leaseMs }));
-        try {
-          await driver.tick();
-        } catch (error) {
-          if (error instanceof StateBranchStopError) throw error;
-          say(formatNotice({ kind: 'tick_failed', error }));
-        }
+        await tick(driver, report);
         const batch = driver.state().batches.get(batchId) as Batch;
         const resumed = batch.steps.get(stepId)?.attempts.get(attempt);
         const { lane, detail } = describeLane(batch);

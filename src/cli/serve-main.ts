@@ -16,7 +16,7 @@ import { diagnose, githubHostOfConfig } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
 import type { CliResult } from './run.ts';
 import { runServe } from './serve.ts';
-import { type ServeSetup, serveSetup } from './serve-config.ts';
+import { type ServeSetup, type ServeSetupResult, serveSetup } from './serve-config.ts';
 import { listenWhileServing, type ServeShellOptions, serveShell } from './serve-shell.ts';
 
 const readIfThere = (path: string): string | undefined =>
@@ -26,15 +26,14 @@ const readIfThere = (path: string): string | undefined =>
 export type StartOptions = Partial<Pick<DoctorShell, 'exec' | 'resolve'>>;
 
 /**
- * What `foedrum <command>` sets up from the Brewery checkout `cwd`, as serve does (ADR 0063,
- * ADR 0123), or its refusal with one line per problem. Its starting facts, gh's login among them,
- * come through `exec` and `resolve`, default the real runner and PATH; a test gives fakes.
+ * Serve's setup of the Brewery checkout `cwd` (ADR 0063, ADR 0123), or its problems. Its starting
+ * facts, gh's login among them, come through `exec` and `resolve`, default the real runner and
+ * PATH; a test gives fakes.
  */
-export const readServeSetup = async (
+export const serveSetupIn = async (
   cwd: string,
-  command: string,
   options?: StartOptions,
-): Promise<{ kind: 'ready'; setup: ServeSetup } | { kind: 'refused'; result: CliResult }> => {
+): Promise<ServeSetupResult> => {
   const { exec = execProcess, resolve = resolveExecutable } = options ?? {};
   const config = readIfThere(join(cwd, 'foedrum.jsonc'));
   // Doctor's tools, isolation and gh's login only: serve reads and checks the Brewery's files
@@ -49,7 +48,7 @@ export const readServeSetup = async (
     cwd,
     githubHost: githubHostOfConfig(config),
   });
-  const ready = serveSetup({
+  return serveSetup({
     root: cwd,
     home: homedir(),
     platform: process.platform,
@@ -63,6 +62,18 @@ export const readServeSetup = async (
     },
     diagnosis: diagnose(facts),
   });
+};
+
+/**
+ * What `foedrum <command>` sets up from the Brewery checkout `cwd`, as serve does, or its refusal
+ * with one line per problem.
+ */
+export const readServeSetup = async (
+  cwd: string,
+  command: string,
+  options?: StartOptions,
+): Promise<{ kind: 'ready'; setup: ServeSetup } | { kind: 'refused'; result: CliResult }> => {
+  const ready = await serveSetupIn(cwd, options);
   if (ready.kind === 'ready') return ready;
   const stderr = ready.problems.map((problem) => `foedrum ${command}: ${problem}\n`).join('');
   return { kind: 'refused', result: { exitCode: 1, stdout: '', stderr } };

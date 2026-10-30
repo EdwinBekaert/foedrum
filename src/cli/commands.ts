@@ -5,7 +5,6 @@
 // append its events through the command log, recorded with who issued it and from where
 // (ADR 0025).
 
-import { join } from 'node:path';
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
@@ -76,7 +75,7 @@ import { formatLensReport, lensReport } from './lens-report.ts';
 import { stopInstant } from './pause-time.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
-import { NAME_THE_BREWERY } from './serve-config.ts';
+import { NAME_THE_BREWERY, storePath } from './serve-config.ts';
 import { describeLane, formatStatus } from './status.ts';
 import { formatStuck } from './stuck.ts';
 
@@ -136,9 +135,6 @@ const define = <S extends z.ZodType>({
     return parsed.success ? handler(parsed.data, context) : { invalid: parsed.error };
   },
 });
-
-/** The Brewery's event store: `.foedrum/index.db` in its root. */
-export const storePath = (root: string): string => join(root, '.foedrum', 'index.db');
 
 const done = (stdout: string): CliResult => ({ exitCode: 0, stdout, stderr: '' });
 
