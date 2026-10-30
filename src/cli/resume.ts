@@ -17,7 +17,14 @@ import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
-import { type Batch, fold, latestAttempt, runningAttempt, type State } from '../engine/fold.ts';
+import {
+  attemptRecipeOf,
+  type Batch,
+  fold,
+  latestAttempt,
+  runningAttempt,
+  type State,
+} from '../engine/fold.ts';
 import { resumeOf } from '../engine/session-resume.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -367,7 +374,8 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     if (repository === undefined) {
       return failed(`${worktree.repo} is no repository of this Brewery`);
     }
-    const recipe = state.batches.get(batchId)?.recipe?.name ?? '';
+    // The recipe the attempt ran under, which the batch may have left since (ADR 0260, #670).
+    const recipe = attemptRecipeOf(state, ref) ?? '';
     const found = setup.brewers.find(recipe, ref.stepId);
     if (found === undefined) return failed(`recipe ${recipe} has no step ${ref.stepId}`);
 
