@@ -132,7 +132,11 @@ export interface PairConflict {
   conflicts: readonly string[];
 }
 
-/** The repository a batch writes in, as the log names it; `undefined` in a one-repository Brewery. */
+/**
+ * The repository a batch writes in, as the log names it; `undefined` for a Brewery issue's batch,
+ * which opens a pull request only in a one-repository Brewery (`repositoryOf`), so it shares that
+ * repository with every other.
+ */
 const repoOf = (state: State, batch: Batch): string | undefined =>
   batch.repo ?? state.subOrders.get(batch.issue)?.repo;
 
@@ -151,7 +155,7 @@ export const pairsOf = (
   const others = [...state.batches.values()].flatMap((each) => {
     if (each.id === batch.id) return [];
     const other = repoOf(state, each);
-    const same = repo === undefined || other === undefined ? repo === other : sameRepo(repo, other);
+    const same = repo === undefined || other === undefined || sameRepo(repo, other);
     const found = same ? openIn(state, each.id) : undefined;
     return found === undefined ? [] : [found];
   });
