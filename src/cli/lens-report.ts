@@ -1,7 +1,8 @@
 // `foedrum lenses` (ADR 0221): per lens, the findings of its steps' rounds by severity and by how
-// they ended, and the tokens of its steps' attempts, from the folded events. A step's lens comes
-// from the recipe its batch chose, as the files are now; a step they no longer have, or no longer
-// give a lens, is listed apart when a round of it shows a Taster (a verdict, or recorded findings).
+// they ended, the rounds its steps took to pass (#673), and the tokens of its steps' attempts, from
+// the folded events. A step's lens comes from the recipe its batch chose, as the files are now; a
+// step they no longer have, or no longer give a lens, is listed apart when a round of it shows a
+// Taster (a verdict, or recorded findings).
 
 import { attemptKey } from '../engine/attempt-key.ts';
 import { cutFindingText } from '../engine/decide.ts';
