@@ -159,6 +159,18 @@ describe('judgeRed', () => {
     });
   });
 
+  it("proves red an xunit assertion whose expected value quotes .NET's load message", () => {
+    // xunit's text when a test expects the message and the stub returns another one.
+    const report = junit(`<testsuite>
+      <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Strings differ&#10;           ↓ (pos 0)&#10;Expected: &quot;Could not load file or assembly 'Plugin'&quot;&#10;Actual:   &quot;not implemented&quot;&#10;           ↑ (pos 0)"/></testcase>
+      <testcase name="adds a negative number"><failure message="not implemented"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
   it('proves red an xunit assertion failure in a JUnit report', () => {
     const report = junit(`<testsuite>
       <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Values differ&#10;Expected: 3&#10;Actual:   0">   at Calc.Tests.AddTests.AddsTwoNumbers() in C:\\work\\app\\AddTests.cs:line 4</failure></testcase>
