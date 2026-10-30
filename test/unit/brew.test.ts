@@ -1589,6 +1589,35 @@ describe('runBrew', () => {
       });
     }
 
+    it("links a plan's out doc on the Brewery's own GitHub host: regression test (#659)", async () => {
+      const subOrder = {
+        id: 'one',
+        title: 'One',
+        repo: 'acme/web',
+        size: { lines: 10, mechanism: 'a flag' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src' }],
+        recipe: 'stout',
+        why: 'small',
+        ready: true,
+      };
+      const brewing = { ...mashSetup(), github: { hostname: 'github.localhost' } };
+      const mashLog = createCommandLog({ store, recipes: brewing.recipes });
+      mashLog.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
+      mashLog.issue(
+        { kind: 'route', batchId: '13-1', recipe: 'mash', reason: 'label', source: 'label' },
+        t0,
+      );
+      const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
+      await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
+      const bodies = (api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
+      const link = `<https://github.localhost/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md?plain=1>`;
+      assert.ok(
+        bodies.some((body) => body.includes(`Full plan: ${link}`)),
+        bodies.join('\n---\n'),
+      );
+    });
+
     it("links a plan's out doc on the Brewery's state branch from its comments (#659)", async () => {
       const subOrder = {
         id: 'one',

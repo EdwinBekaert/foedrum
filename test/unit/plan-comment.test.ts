@@ -468,4 +468,32 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.ok(only().body.endsWith(`${link('replan-1.md')}\n\n${marker(2)}`), only().body);
   });
+
+  it('links the attempt of the plan that succeeded, not the one before it: regression test (#659)', async () => {
+    const stateBranch = 'https://github.example/alice/brewery/blob/foedrum/state';
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => new Date(at),
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: planEffects({ brewery, comments: comments.host, stateBranch }),
+      report: () => {},
+    });
+    drivers.push(driver);
+    order();
+    const first = { batchId: '7-1', stepId: 'plan', attempt: 1 };
+    issue({ kind: 'record', event: { type: 'step.started', ...first } });
+    const lost: Ending = { kind: 'failed', retryable: true, reason: 'the session ended' };
+    issue({ kind: 'finish', ...first, ending: lost });
+    const retried = { ...first, attempt: 2 };
+    issue({ kind: 'record', event: { type: 'step.started', ...retried } });
+    issue({ kind: 'finish', ...retried, ending: planned(three) });
+    await driver.applyEffects();
+    const link = `Full plan: <${stateBranch}/batches/7-1/plan-2.md?plain=1>`;
+    assert.ok(only().body.endsWith(`${link}\n\n${marker(1)}`), only().body);
+  });
 });
