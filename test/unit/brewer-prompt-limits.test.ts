@@ -108,7 +108,7 @@ const brewers: Record<string, Expected> = {
     ],
     unstated: {
       'dispositions.file':
-        "it copies the Taster's file, a path the finding names, so it writes none longer",
+        "it copies the Taster's file exactly and cannot shorten it; a finding's file has no cap of its own yet",
     },
   },
   finer: {
