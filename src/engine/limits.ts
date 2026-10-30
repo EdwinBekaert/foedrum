@@ -4,7 +4,7 @@
 // state, the pass's listing of the Brewery's issues and the limits, so a restart holds the same.
 
 import { breweryIssueOf, orderName } from './claim-orders.ts';
-import { type Batch, orderKey, type State } from './fold.ts';
+import { type Batch, orderKey, type State, type SubOrder } from './fold.ts';
 import { recipeLabels } from './intake.ts';
 import type { TargetIssue } from './issue-claims.ts';
 import { orderOfBatch } from './pauses.ts';
@@ -75,41 +75,28 @@ export const openOrders = (state: State): Map<string, string> => {
   return open;
 };
 
-/** A sub-order with the paths its plan touches, in the repository it writes in. */
-interface Touching {
-  issue: number;
-  repo: string;
-  touches: readonly string[];
-}
-
-const touchingOf = (state: State, issue: number): Touching | undefined => {
-  const subOrder = state.subOrders.get(issue);
-  const touches = subOrder?.touches;
-  return subOrder === undefined || touches === undefined
-    ? undefined
-    : { issue, repo: subOrder.repo, touches };
-};
-
 const under = (path: string, folder: string): boolean =>
   path === folder || path.startsWith(`${folder}/`);
 
-/** Whether two sub-orders share a path, or one a path under a folder the other touches. */
-const overlap = (one: Touching, other: Touching): boolean =>
+/**
+ * Whether two sub-orders share a path, or one a path under a folder the other touches. One without
+ * `touches` overlaps none.
+ */
+const overlap = (one: SubOrder, other: SubOrder): boolean =>
   sameRepo(one.repo, other.repo) &&
-  one.touches.some((a) => other.touches.some((b) => under(a, b) || under(b, a)));
+  (one.touches ?? []).some((a) => (other.touches ?? []).some((b) => under(a, b) || under(b, a)));
 
 /**
- * The sub-orders with touches that have a batch Ordered or Brewing, with that batch's id. An Ordered
- * one counts, as a recipe's concurrency counts it: its route may be held, and it brews once routed.
+ * The sub-orders that have a batch Ordered or Brewing, with that batch's id. An Ordered one counts,
+ * as a recipe's concurrency counts it: its route may be held, and it brews once routed.
  */
-const activeTouching = (state: State): { subOrder: Touching; batchId: string }[] =>
-  [...state.subOrders.values()].flatMap(({ issue, batchIds }) => {
-    const subOrder = touchingOf(state, issue);
-    const batchId = batchIds.find((id) => {
+const activeSubOrders = (state: State): { subOrder: SubOrder; batchId: string }[] =>
+  [...state.subOrders.values()].flatMap((subOrder) => {
+    const batchId = subOrder.batchIds.find((id) => {
       const kind = state.batches.get(id)?.lane.kind;
       return kind === 'ordered' || kind === 'brewing';
     });
-    return subOrder === undefined || batchId === undefined ? [] : [{ subOrder, batchId }];
+    return batchId === undefined ? [] : [{ subOrder, batchId }];
   });
 
 /** The one recipe an issue's labels name, or undefined for none or more than one. */
@@ -157,10 +144,10 @@ export const startTally = (
     if (name !== undefined) counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   let open = openOrders(state).size;
-  // The sub-orders with touches that are Ordered or Brewing, or that this walk started.
-  const active = activeTouching(state).map(({ subOrder }) => subOrder);
-  const touchingOfEntry = ({ subOrder }: QueuedOrder): Touching | undefined =>
-    subOrder === undefined ? undefined : touchingOf(state, subOrder.issue);
+  // The sub-orders that are Ordered or Brewing, or that this walk started.
+  const active = activeSubOrders(state).map(({ subOrder }) => subOrder);
+  const subOrderOf = ({ subOrder }: QueuedOrder): SubOrder | undefined =>
+    subOrder === undefined ? undefined : state.subOrders.get(subOrder.issue);
   // A target issue's recipe is its Brewery issue's, which exists only once it is claimed (ADR 0156).
   const entryRecipe = ({ order, subOrder }: QueuedOrder): string | undefined =>
     order.repo === undefined ? recipeOf(subOrder?.issue ?? order.issue) : undefined;
@@ -175,7 +162,7 @@ export const startTally = (
       if (entry.subOrder === undefined && open >= limits.openOrders) {
         return { kind: 'open_orders', limit: limits.openOrders };
       }
-      const own = touchingOfEntry(entry);
+      const own = subOrderOf(entry);
       const holder = own === undefined ? undefined : active.find((other) => overlap(own, other));
       return holder === undefined ? undefined : { kind: 'touches', holder: holder.issue };
     },
@@ -183,7 +170,7 @@ export const startTally = (
       const name = entryRecipe(entry);
       if (name !== undefined) counts.set(name, (counts.get(name) ?? 0) + 1);
       if (entry.subOrder === undefined) open++;
-      const own = touchingOfEntry(entry);
+      const own = subOrderOf(entry);
       if (own !== undefined) active.push(own);
     },
   };
@@ -231,9 +218,9 @@ export const limitLines = (state: State, limits: Limits): string[] => {
       `open orders: ${open.length} of ${limits.openOrders} (${open.join(', ')}); new orders wait`,
     );
   }
-  const active = activeTouching(state);
+  const active = activeSubOrders(state);
   for (const { issue } of readySubOrders(state)) {
-    const own = touchingOf(state, issue);
+    const own = state.subOrders.get(issue);
     const holder = own === undefined ? undefined : active.find((it) => overlap(own, it.subOrder));
     if (holder === undefined) continue;
     lines.push(
