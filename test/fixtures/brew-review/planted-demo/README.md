@@ -1,6 +1,6 @@
 # Planted-defect sample for /brew-review
 
-Thirteen commits, eight with known defects and five that check how the red proof classes commits, used to check the review skill and the default lenses after a prompt changes (CLAUDE.md, Tests). The patches are data, not tests: `npm test` never applies them, but `test/unit/planted-demo.test.ts` reads them. Once applied, the sample's own tests pass at its head, so the mutation check compares the review, not a broken fixture. That test keeps one part of this true: it runs the layer guard of `npm run check` on the lines the patches add, so no patch gives a test in a layer `npm test` runs an import of `child_process` or the process runner. A test that starts a process through a module it imports passes that guard and fails only when the sample's tests run (ADR 0038), so check the baseline after changing a patch.
+Fourteen commits, eight with known defects and six that check how the red proof classes commits, used to check the review skill and the default lenses after a prompt changes (CLAUDE.md, Tests). The patches are data, not tests: `npm test` never applies them, but `test/unit/planted-demo.test.ts` reads them. Once applied, the sample's own tests pass at its head, so the mutation check compares the review, not a broken fixture. That test keeps one part of this true: it runs the layer guard of `npm run check` on the lines the patches add, so no patch gives a test in a layer `npm test` runs an import of `child_process` or the process runner. A test that starts a process through a module it imports passes that guard and fails only when the sample's tests run (ADR 0038), so check the baseline after changing a patch.
 
 ## Apply
 
@@ -40,6 +40,7 @@ If a patch no longer applies because those files now exist, rebase the sample on
 | `0011` Round retry delays up to whole seconds | implementation | Control: green step |
 | `0012` Remove backoffSeconds: nothing calls it | remove | Control: deletes `backoffSeconds` and only its test, with its import |
 | `0013` Refactor: name the doubled delay in backoffMs | refactor subject, mixed | **Planted:** the code change is a refactor, but the "never exceeds the cap" test changes its expected value (`10_000` to `5_000`) |
+| `0014` Remove the doubled-delay name from backoffMs | remove subject, mixed | **Planted:** deletes a line of `backoffMs`, which it keeps, and with it the kept "never exceeds the cap" test |
 
 ## Expected findings
 
@@ -62,6 +63,7 @@ A run should report at least these. Line numbers are in `src/engine/wait-for-mer
 | A red/green pair (`0010` → `0011`) | Red proof | passes: red at `0010` (1 of 1 `not implemented`), green at `0011` |
 | A Remove of code and only its tests (`0012`) | Red proof | **remove**: all `ok` at `0012^` (3 of 3) and `0012` (2 of 2), the leaf names at `0012` are those at `0012^` less "backoffSeconds > rounds the delay up to whole seconds"; no red step needed |
 | An expected value changed in a Refactor (`0013`) | Red proof | **fail**: `0013` is **mixed**, since it changes the expected value of "never exceeds the cap", though its tests are all `ok` at `0013^` and `0013` |
+| A kept test deleted in a Remove (`0014`) | Red proof | **fail**: `0014` is **mixed**, since the "never exceeds the cap" test it deletes exercises `backoffMs`, which it keeps, though its tests are all `ok` at `0014^` (2 of 2) and `0014` (1 of 1) |
 | String-built path (line 20) | cross-platform | **blocker**: mixed separators on Windows, citing the CLAUDE.md paths rule |
 | | security | unvalidated Brewery name allows `../` traversal out of `~/.foedrum` |
 | | design-conformance | the same paths rule; the store location also contradicts the Brewery layout in the architecture document and ADR 0011 |
