@@ -1915,7 +1915,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     pullRequestChecks: { [pr]: { kind: 'finished', head, checks: [] } },
     baseChecks: [{ pullRequest: pr, branch: 'main', tip: 'd'.repeat(40), head, conflicts: ['a'] }],
   });
-  const shown = async (latest: unknown): Promise<string> => {
+  const shown = async (latest: unknown, shownBatch = checked): Promise<string> => {
     const comments = fakeComments('alice');
     const recipes = fakeRecipes({ nip: fakeRecipe({ steps }) });
     const status = statusEffects({
@@ -1926,7 +1926,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     });
     const state: State = {
       ...emptyState,
-      batches: new Map([['7-1', checked]]),
+      batches: new Map([['7-1', shownBatch]]),
       effects: new Map([
         [key('pull_request'), pr],
         [key('push'), pushed],
@@ -1955,5 +1955,26 @@ describe('statusEffects: the checks of a pull request its latest push left alone
       assert.ok(body.split('\n').includes(`- <${pr}>`), body);
       assert.doesNotMatch(body, /has no checks|conflicts with/, JSON.stringify(latest));
     }
+  });
+
+  it('shows neither for another pull request of the lane while openOf reads one (regression test)', async () => {
+    const other = 'https://github.com/alice/web/pull/9';
+    const both = batch({
+      lane: { kind: 'on_tap', pullRequests: [other, pr] },
+      pullRequestChecks: {
+        [other]: { kind: 'finished', head, checks: [] },
+        [pr]: { kind: 'pending', head, since: at },
+      },
+      baseChecks: [
+        { pullRequest: other, branch: 'main', tip: 'd'.repeat(40), head, conflicts: ['a'] },
+        { pullRequest: pr, branch: 'main', tip: 'd'.repeat(40), head, conflicts: ['b'] },
+      ],
+    });
+    const body = await shown(pushed, both);
+    const lines = body.split('\n');
+    assert.ok(lines.includes(`- <${other}>`), body);
+    assert.ok(!lines.some((line) => line.startsWith(`- <${other}> `)), body);
+    assert.ok(lines.includes(`- <${pr}> conflicts with \`main\` at \`dddddddd\` in b`));
+    assert.ok(lines.includes(`- <${pr}> waits for its checks on \`cccccccc\` since ${at}`));
   });
 });
