@@ -4,7 +4,7 @@
 
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { AttemptRef } from './attempt-key.ts';
-import type { Attempt, Batch, Step } from './fold.ts';
+import { type Attempt, attemptBefore, type Batch, type Step } from './fold.ts';
 
 /** How attempt `ref` starts when its brewer resumes: in a session it continues, or fresh, and why. */
 export type Resumption =
@@ -48,10 +48,6 @@ export function ranIn(
   if (worktree !== undefined) return { attempt: attempt.attempt, worktree };
   return session?.resumes === undefined ? undefined : worktreeOf(step, session.id);
 }
-
-/** The attempt of `step` before attempt `n`, if any. */
-const attemptBefore = (step: Step, n: number): Attempt | undefined =>
-  step.attempts.get(Math.max(...[...step.attempts.keys()].filter((each) => each < n)));
 
 /**
  * Whether `ref` of `batch` is the retry of an attempt that ran out of its turns, by the mark on

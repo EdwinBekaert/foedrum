@@ -109,6 +109,25 @@ export interface Step {
   inputs: readonly Input[];
 }
 
+/** The attempt of `step` with the highest number, if it has one: the step's latest (I2). */
+export const latestAttempt = (step: Step): Attempt | undefined =>
+  step.attempts.get(Math.max(...step.attempts.keys()));
+
+/**
+ * The latest attempt of `step` when it runs: neither finished nor abandoned by Stuck (I2,
+ * ADR 0025, ADR 0055).
+ */
+export const runningAttempt = (step: Step): Exclude<Attempt, { phase: 'finished' }> | undefined => {
+  const latest = latestAttempt(step);
+  return latest === undefined || latest.phase === 'finished' || latest.abandoned === true
+    ? undefined
+    : latest;
+};
+
+/** The attempt of `step` with the highest number below `n`, if any: the one attempt `n` follows. */
+export const attemptBefore = (step: Step, n: number): Attempt | undefined =>
+  step.attempts.get(Math.max(...[...step.attempts.keys()].filter((each) => each < n)));
+
 export interface Rewind {
   toStepId: string;
   by: string;
