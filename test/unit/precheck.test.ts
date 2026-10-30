@@ -899,6 +899,8 @@ describe('precheck on a push from another directory', () => {
     ['Set-Location $env:WT; git push', 'PowerShell'],
     ['Pop-Location; git push', 'PowerShell'],
     ['D:; git push', 'PowerShell'],
+    // Behind an option the gate does not know, -C may be git's own or a value (review of #651).
+    ['git --frobnicate x -C ../wt push'],
   ];
   for (const [command, tool = 'Bash'] of computed) {
     it(`blocks a push from a directory computed at run time in ${tool}: ${command}`, async () => {
@@ -1262,6 +1264,11 @@ describe('forbiddenReason on a push configured on its command line', () => {
     'GIT_CONFIG_GLOBAL=mirror.cfg git push',
     'git config remote.origin.push :refs/heads/x && git push',
     'git remote add --mirror=push backup ../b && git push backup',
+    // Behind an option the gate does not know, git's own options may still follow its value
+    // (review of #651).
+    'git --frobnicate x -c remote.origin.mirror=true push origin',
+    'git --frobnicate x --config-env=remote.origin.mirror=MIRROR push',
+    'git --frobnicate x --config-env remote.origin.push=SPEC push',
   ];
   for (const command of configured) {
     it(`forbids: ${command}`, () => {
