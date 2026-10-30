@@ -292,29 +292,43 @@ interface Ordering {
   claim?: OrderClaim & { config: BreweryConfig };
 }
 
-/**
- * What `order` and `recipe` act on for `target` (ADR 0240): a Brewery issue, which needs no
- * foedrum.jsonc; a target issue by its alias; or the Brewery issue of a claimed order, which names
- * that claimed issue (ADR 0144).
- */
-const orderingOf = (
-  target: OrderTarget,
-  state: State,
-  config: () => BreweryConfig,
+/** What `order` and `recipe` act on for the target issue `<alias>#<issue>`, claimed in its repository. */
+const aliasedOrdering = (
+  alias: string,
+  issue: number,
+  config: BreweryConfig,
 ): Ordering | { refused: string } => {
-  let { alias, issue } = target;
-  if (alias === undefined) {
-    const own = latestBatch(state.batches.values(), issue, undefined);
-    const claimed = own === undefined ? claimOfOrder(state, issue) : undefined;
-    alias = claimed === undefined ? undefined : aliasOf(claimed.id);
-    if (claimed === undefined || alias === undefined)
-      return { order: { issue }, name: `#${issue}` };
-    issue = claimed.issue;
-  }
-  const claim = claimOf(alias, config());
+  const claim = claimOf(alias, config);
   if ('refused' in claim) return claim;
   return { order: { issue, repo: claim.repo }, name: `${alias}#${issue}`, claim };
 };
+
+/**
+ * What `order` and `recipe` act on for the Brewery issue `#<issue>` (ADR 0240): its own batches,
+ * which need no foedrum.jsonc, or, when it is the Brewery issue of a claimed order, that claimed
+ * issue (ADR 0144).
+ */
+const breweryOrdering = (
+  issue: number,
+  state: State,
+  config: () => BreweryConfig,
+): Ordering | { refused: string } => {
+  const own = latestBatch(state.batches.values(), issue, undefined);
+  const claimed = own === undefined ? claimOfOrder(state, issue) : undefined;
+  const alias = claimed === undefined ? undefined : aliasOf(claimed.id);
+  if (claimed === undefined || alias === undefined) return { order: { issue }, name: `#${issue}` };
+  return aliasedOrdering(alias, claimed.issue, config());
+};
+
+/**
+ * The ordering of `target` that needs no store: a target issue's, read from foedrum.jsonc before
+ * the store opens; undefined for a Brewery issue, which the folded state settles.
+ */
+const aliasedTarget = (
+  { alias, issue }: OrderTarget,
+  context: CliContext,
+): Ordering | { refused: string } | undefined =>
+  alias === undefined ? undefined : aliasedOrdering(alias, issue, context.config());
 
 /** An order as a person wrote it: `<alias>#<n>` or `#<n>`. */
 const givenName = ({ alias, issue }: OrderTarget): string => `${alias ?? ''}#${issue}`;
@@ -695,6 +709,8 @@ export const commands: readonly RegisteredCommand[] = [
           reason,
         }));
       }
+      const aliased = aliasedTarget(target, context);
+      if (aliased !== undefined && 'refused' in aliased) return failed('recipe', aliased.refused);
       return writeBrewery('recipe', context, async (log) => {
         const { user, surface, now } = context;
         const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
@@ -702,7 +718,7 @@ export const commands: readonly RegisteredCommand[] = [
         if (context.recipes().find(recipe) === undefined) {
           return failed('recipe', `the Brewery has no recipe ${recipe}`);
         }
-        const ordering = orderingOf(target, log.state(), context.config);
+        const ordering = aliased ?? breweryOrdering(target.issue, log.state(), context.config);
         if ('refused' in ordering) return failed('recipe', ordering.refused);
         const { order, name, claim } = ordering;
         const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
@@ -879,10 +895,12 @@ export const commands: readonly RegisteredCommand[] = [
     changesState: true,
     positionals: ['issue'],
     schema: OrderCommand,
-    handler: async ({ issue: target }, context) =>
-      changeBrewery('order', context, (state, issued) => {
-        // A Brewery issue is never claimed, so it needs neither foedrum.jsonc nor GitHub.
-        const ordering = orderingOf(target, state(), context.config);
+    handler: async ({ issue: target }, context) => {
+      const aliased = aliasedTarget(target, context);
+      if (aliased !== undefined && 'refused' in aliased) return failed('order', aliased.refused);
+      return changeBrewery('order', context, (state, issued) => {
+        // A Brewery issue's own batches need neither foedrum.jsonc nor GitHub.
+        const ordering = aliased ?? breweryOrdering(target.issue, state(), context.config);
         if ('refused' in ordering) return ordering;
         const { order, claim } = ordering;
         return orderIssue(state, order, claim, {
@@ -891,7 +909,8 @@ export const commands: readonly RegisteredCommand[] = [
           now: context.now(),
           issued,
         });
-      }),
+      });
+    },
   }),
   define({
     name: 'brew',
