@@ -1589,6 +1589,42 @@ describe('runBrew', () => {
       });
     }
 
+    it("links a plan's out doc on the Brewery's state branch from its comments (#659)", async () => {
+      const subOrder = {
+        id: 'one',
+        title: 'One',
+        repo: 'acme/web',
+        size: { lines: 10, mechanism: 'a flag' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src' }],
+        recipe: 'stout',
+        why: 'small',
+        ready: true,
+      };
+      const brewing = mashSetup();
+      const mashLog = createCommandLog({ store, recipes: brewing.recipes });
+      for (const command of [
+        { kind: 'order', batchId: '13-1', order: { issue: 13 } },
+        { kind: 'route', batchId: '13-1', recipe: 'mash', reason: 'label', source: 'label' },
+      ] as const) {
+        const decision = mashLog.issue(command, t0);
+        assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      }
+      const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
+      await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
+      const link = `<https://github.com/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md?plain=1>`;
+      const bodies = (api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
+      const shown = bodies.join('\n---\n');
+      assert.ok(
+        bodies.some((body) => body.includes(`- \`plan\`: full plan: ${link}`)),
+        shown,
+      );
+      assert.ok(
+        bodies.some((body) => body.includes(`Full plan: ${link}`)),
+        shown,
+      );
+    });
+
     it('routes a claimed order through its Brewery issue: exit 4', async () => {
       const web = { alias: 'web', intake: { labels: ['foedrum'] } };
       api = fakeGitHubApi({
