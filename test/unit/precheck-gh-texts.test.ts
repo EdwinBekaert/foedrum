@@ -9,8 +9,8 @@ import {
   type CheckResult,
   type DeniedTexts,
   forbiddenReason,
-  precheck,
-} from '../../scripts/precheck.ts';
+} from '../../scripts/precheck/core.ts';
+import { precheck } from '../../scripts/precheck.ts';
 import type { DenylistState } from '../../src/platform/denylist.ts';
 
 const PATH = '/lists/denylist.txt';

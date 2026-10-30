@@ -9,24 +9,26 @@ import { parseArgs } from 'node:util';
 import {
   type CheckResult,
   type DeniedPush,
-  type FindNpmCli,
   forbiddenReason,
+  isGatedCommand,
+  type LookupPullRequest,
+  type PathModule,
+  type PullRequestFacts,
+  projectHolds,
+  resolvePlace,
+} from '../../scripts/precheck/core.ts';
+import type { ReadyTarget } from '../../scripts/precheck/read.ts';
+import {
+  type FindNpmCli,
   ghPullRequest,
   gitHeadIsDetached,
   gitPushConfig,
   isDetached,
-  isGatedCommand,
-  type LookupPullRequest,
   lockfileBinary,
   npmCheck,
-  type PathModule,
   type ProcessOutcome,
-  type PullRequestFacts,
   precheck,
-  projectHolds,
-  type ReadyTarget,
   type RunProcess,
-  resolvePlace,
 } from '../../scripts/precheck.ts';
 import type { RunOptions } from '../../scripts/process-runner.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
