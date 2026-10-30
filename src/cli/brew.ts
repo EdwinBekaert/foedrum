@@ -559,7 +559,8 @@ export const runBrew = async (
       const running = runningAttempts(now);
       for (const { label } of running) if (!seenAt.has(label)) seenAt.set(label, at);
       brewing = running;
-      if (line !== shown) {
+      // On tap, the last line says it once its effects are applied (#662).
+      if (line !== shown && now.lane.kind !== 'on_tap') {
         shown = line;
         saidAt = at;
         say(line);
