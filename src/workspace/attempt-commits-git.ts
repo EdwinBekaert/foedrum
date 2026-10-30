@@ -4,9 +4,10 @@
 // runs only through the injected `Git`, so unit tests pass a fake one (ADR 0021).
 
 import type { CommitsScanned, CommitsSeen } from '../engine/brewer-runner.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { openBranchPush } from './branch-push-git.ts';
-import { inClone } from './clone-git.ts';
-import type { Git, GitResult } from './git.ts';
+import { firstLine, inClone } from './clone-git.ts';
+import type { Git } from './git.ts';
 
 /**
  * Counts the commits on `branch` in `clone` after `since`; never throws, git's failure is
@@ -19,24 +20,16 @@ export type CountCommits = (
   signal?: AbortSignal,
 ) => Promise<CommitsSeen>;
 
-// A full sha, SHA-1 or SHA-256 as `CommitSha` allows, and an attempt's branch (`attemptBranch`),
-// so that nothing reaches git as an option or a revision expression.
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+// An attempt's branch (`attemptBranch`), and a full sha (ADR 0254), so that nothing reaches git as
+// an option or a revision expression.
 const ATTEMPT_BRANCH = /^foedrum\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*\/\d+$/;
 
 /** Why `since` or `branch` must not reach git, or nothing when both may. */
 const unsafe = (since: string, branch: string): string | undefined => {
-  if (!SHA.test(since)) return `${since} is no full commit sha`;
+  if (!isCommitSha(since)) return noCommitSha(since);
   if (!ATTEMPT_BRANCH.test(branch)) return `${JSON.stringify(branch)} is no attempt branch`;
   return undefined;
 };
-
-const firstLine = ({ code, stderr }: GitResult): string =>
-  stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line !== '') ??
-  (code === null ? 'git did not finish in time' : `git exited with ${code}`);
 
 export const countCommits =
   (shared: Git): CountCommits =>

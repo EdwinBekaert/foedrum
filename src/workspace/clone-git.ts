@@ -7,6 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { removeTree } from '../platform/remove.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
 
 /**
@@ -52,6 +53,16 @@ export const firstLine = ({ code, stderr }: GitResult): string =>
     .map((line) => line.trim())
     .find((line) => line !== '') ??
   (code === null ? 'git did not finish in time' : `git exited with ${code}`);
+
+/** The signal as git's options take it. */
+export const aborts = (signal: AbortSignal | undefined): GitOptions =>
+  signal === undefined ? {} : { signal };
+
+/** `sha` when it is a full commit sha (ADR 0254); otherwise it throws the line that says why not. */
+export const fullSha = (sha: string): string => {
+  if (!isCommitSha(sha)) throw new Error(noCommitSha(sha));
+  return sha;
+};
 
 /** The output of a git call that must succeed; git's first line of why, when it fails. */
 export const gitOutput = async (
@@ -105,12 +116,12 @@ export const withOwnGitDir = async <T>(
   signal: AbortSignal | undefined,
   use: (dir: OwnGitDir) => Promise<T>,
 ): Promise<T> => {
-  const aborts: GitOptions = signal === undefined ? {} : { signal };
+  const signalled = aborts(signal);
   const named = await gitOutput(
     inClone(git),
     clone,
     ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-object-format'],
-    aborts,
+    signalled,
   );
   const [common, format] = named.split(/\r?\n/);
   if (common === undefined || format === undefined || common === '' || format === '') {
@@ -121,7 +132,7 @@ export const withOwnGitDir = async <T>(
   const prefix = [`--git-dir=${gitDir}`];
   // git's options in the directory: the clone's objects, and its own configuration over the call's.
   const inDir = (options: GitOptions): GitOptions => ({
-    ...aborts,
+    ...signalled,
     ...options,
     env: { ...options.env, GIT_OBJECT_DIRECTORY: join(common, 'objects') },
     config: { ...options.config, ...OWN_CONFIG },
@@ -138,7 +149,7 @@ export const withOwnGitDir = async <T>(
       const promisor = await inClone(git)(
         clone,
         ['config', '--get-regexp', String.raw`^(extensions\.partialclone|remote\..*\.promisor)$`],
-        aborts,
+        signalled,
       );
       const partial =
         promisor.code === 0 &&
@@ -196,7 +207,7 @@ export const withOwnGitDir = async <T>(
       git,
       root,
       [...prefix, 'init', '--bare', '--quiet', '--template=', `--object-format=${format}`],
-      aborts,
+      signalled,
     );
     return await use({ url, path: gitDir, objects: join(common, 'objects'), run, fetch, read });
   } finally {

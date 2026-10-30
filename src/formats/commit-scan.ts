@@ -3,7 +3,7 @@
 // A finding names the commit, the file (or the message, or the header) and the kind, never the
 // text it matched.
 
-import type { ScanFinding } from '../schemas/store.ts';
+import { COMMIT_HEX, isCommitSha, type ScanFinding } from '../schemas/store.ts';
 import { findSecrets, type IsCommit } from './secrets.ts';
 
 /** The place of a finding in a commit's message. */
@@ -16,7 +16,12 @@ const BINARY = 'binary file';
 
 // A commit's headers in `git log --format=raw`: the tree and parents are hashes the push needs,
 // the author and committer are named by their header, and any other header by `header <name>`.
-const COMMIT_LINE = /^commit ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/;
+const COMMIT_LINE = 'commit ';
+/** The commit a `commit <sha>` line starts, a full sha (ADR 0254); undefined for any other line. */
+const commitOf = (line: string): string | undefined => {
+  const sha = line.startsWith(COMMIT_LINE) ? line.slice(COMMIT_LINE.length) : '';
+  return isCommitSha(sha) ? sha : undefined;
+};
 const UNREAD_HEADERS = new Set(['tree', 'parent']);
 const PEOPLE = new Set(['author', 'committer']);
 const SIGNATURES = new Set(['gpgsig', 'gpgsig-sha256']);
@@ -84,10 +89,10 @@ export const scanHeaders = (log: string, isCommit: IsCommit): ScanFinding[] => {
   for (const stored of log.split('\n')) {
     // git ends the headers only at an empty line, so a line that is only a CR is still a header.
     const line = stored.endsWith('\r') ? stored.slice(0, -1) : stored;
-    const start = COMMIT_LINE.exec(line);
-    if (start !== null) {
+    const start = commitOf(line);
+    if (start !== undefined) {
       flush();
-      commit = start[1] ?? '';
+      commit = start;
       inHeaders = true;
     } else if (!inHeaders) {
       // The message, indented, is scanMessages' to read.
@@ -113,7 +118,7 @@ export const messageCommits = (log: string): string[] =>
 
 /** The commits of the output of `git log --format=raw`, in order. */
 export const rawCommits = (log: string): string[] =>
-  log.split('\n').flatMap((line) => COMMIT_LINE.exec(line.replace(/\r$/, ''))?.[1] ?? []);
+  log.split('\n').flatMap((line) => commitOf(line.replace(/\r$/, '')) ?? []);
 
 // The path of `diff --git a/<path> b/<path>`, quoted as git quotes it: renames are off, so both
 // halves name the same file and the line splits in the middle, spaces in the path or not.
@@ -190,7 +195,10 @@ export const scanPatches = (log: string, isCommit: IsCommit): ScanFinding[] => {
   return found.list();
 };
 
+/** A word of text that has a full commit id's length, in either case. */
+const COMMIT_WORD = new RegExp(String.raw`\b${COMMIT_HEX}\b`, 'gi');
+
 /** Every 40-character hexadecimal word of `text`: what may be a commit rather than a key. */
 export const commitCandidates = (text: string): string[] => [
-  ...new Set(text.match(/\b[0-9a-f]{40}\b/gi) ?? []),
+  ...new Set(text.match(COMMIT_WORD) ?? []),
 ];
