@@ -266,7 +266,13 @@ describe('runServe', () => {
       description: 'Gauges, proves red and brews an order.',
       steps: [
         { id: 'gauge', brewer: 'gauger' },
-        { id: 'red', check: 'test', expect: 'fail', of: 'gauge', onFail: { goto: 'gauge', maxRounds: 1 } },
+        {
+          id: 'red',
+          check: 'test',
+          expect: 'fail',
+          of: 'gauge',
+          onFail: { goto: 'gauge', maxRounds: 1 },
+        },
         { id: 'brew', brewer: 'cellarman' },
         { action: 'openPullRequest' },
       ],
