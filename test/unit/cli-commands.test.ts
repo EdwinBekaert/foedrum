@@ -1758,6 +1758,11 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         refused('batch 22-1 of #22 is still brewing'),
       );
     });
+
+    it('orders an issue it never brewed as <n>-1, as its first order (ADR 0240)', async () => {
+      assert.deepStrictEqual(await run(['order', '#30'], noConfig), ok(`30-1 ${ordered}
+`));
+    });
   });
 
   it('records the surface and the user it is given, as every command does', async () => {
