@@ -61,33 +61,23 @@ const cellsOf = (line: string): string[] =>
 const SEVERITIES: readonly Severity[] = ['blocker', 'major', 'minor'];
 const ENDS: readonly End[] = ['fixed', 'dismissed', 'pre-existing', 'split', 'other'];
 
-const WORDS: Readonly<Record<string, number>> = {
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  first: 1,
-  second: 2,
-  third: 3,
-  fourth: 4,
-  fifth: 5,
-  sixth: 6,
-  seventh: 7,
-  eighth: 8,
-};
-const NUMBER = `(\\d+|${Object.keys(WORDS).join('|')})`;
-// "Round 2", "round two", "(r3)", "second round", "2nd pass", "four rounds".
+const CARDINALS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
+const CARDINAL = `(\\d+|${CARDINALS.join('|')})`;
+// "Round 2", "round two", "(r3)", "second round", "2nd pass", "four rounds"; never "815 pass" or
+// "10 runs", which count tests.
 const ROUND_FORMS = [
-  new RegExp(`\\brounds? ${NUMBER}\\b`, 'gi'),
+  new RegExp(`\\brounds? ${CARDINAL}\\b`, 'gi'),
   /\(r(\d+)\b/gi,
-  new RegExp(`\\b${NUMBER}(?:st|nd|rd|th)? (?:rounds?|pass|run)\\b`, 'gi'),
+  new RegExp(`\\b(${ORDINALS.join('|')}|\\d+(?:st|nd|rd|th)) (?:round|pass|run)\\b`, 'gi'),
+  new RegExp(`\\b${CARDINAL} rounds\\b`, 'gi'),
 ];
 
-const numberOf = (word: string): number => WORDS[word.toLowerCase()] ?? Number(word);
+const numberOf = (word: string): number => {
+  const lower = word.toLowerCase();
+  const named = Math.max(CARDINALS.indexOf(lower), ORDINALS.indexOf(lower));
+  return named >= 0 ? named + 1 : Number.parseInt(lower, 10);
+};
 
 /** The highest round `text` states, if it states one. */
 const statedRound = (text: string): number | undefined => {
