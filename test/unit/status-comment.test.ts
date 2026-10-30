@@ -428,6 +428,21 @@ describe('renderStatus', () => {
     );
   });
 
+  it('cuts a long reason with no space within 48 characters: regression test (#656)', () => {
+    const word = `src/${'path-'.repeat(12)}end.ts`;
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('plan', failed(1, word), running(2))]),
+        path: [
+          { stepId: 'plan', attempt: 1 },
+          { stepId: 'plan', attempt: 2 },
+        ],
+      }),
+      ['plan'],
+    );
+    assert.equal(pathOf(text), `Path: \`plan #1\` ❌ ${word.slice(0, 47)}… → \`plan #2\` ▶️`);
+  });
+
   it('drops a parenthesised part of a long reason whole, though another is nested in it (#656)', () => {
     const reason = 'the check "test" (sh -c "npm test (unit)") failed with exit code 1';
     const text = renderStatus(
