@@ -880,6 +880,7 @@ describe('chaos: the pair check of open pull requests killed between its records
         }
       }
       let records = 0;
+      const failures: string[] = [];
       const left = [...kills];
       let lives = 0;
       for (;;) {
@@ -905,7 +906,12 @@ describe('chaos: the pair check of open pull requests killed between its records
         };
         try {
           await checkPairs(
-            { log: dying, repositories: [repository], clock: () => t0, failed: () => {} },
+            {
+              log: dying,
+              repositories: [repository],
+              clock: () => t0,
+              failed: (what) => failures.push(what),
+            },
             new AbortController().signal,
           );
           break;
@@ -916,7 +922,7 @@ describe('chaos: the pair check of open pull requests killed between its records
       const pairs = store
         .eventsAfter(0)
         .flatMap(({ event }) => (event.type === 'pull_request.pair_checked' ? [event] : []));
-      return { pairs, lives };
+      return { pairs, lives, failures };
     } finally {
       store.close();
     }
@@ -924,7 +930,9 @@ describe('chaos: the pair check of open pull requests killed between its records
 
   for (const kills of [[], [1], [2], [3], [5], [1, 2], [2, 4]]) {
     it(`records each pair of heads once on each batch: killed after record ${kills.join(', then ') || 'none'}`, async () => {
-      const { pairs, lives } = await pairRun(kills);
+      const { pairs, lives, failures } = await pairRun(kills);
+      // A side issued again would be refused and reported: only the sides left out are issued.
+      assert.deepEqual(failures, []);
       assert.equal(lives, kills.length + 1, 'a new pass after each kill');
       const sides = pairs.map(({ batchId, other, head, otherHead }) =>
         JSON.stringify([batchId, other, head, otherHead]),

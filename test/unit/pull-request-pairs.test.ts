@@ -271,6 +271,8 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
         pairEvents().map(({ batchId }) => batchId),
         ['web-12', 'web-13'],
       );
+      // Only the side left out was issued: a side issued again would be refused and reported.
+      assert.deepStrictEqual(failures, []);
       // A record of a pull request that is not the batch's open one is refused.
       assert.equal(record({ ...side, batchId: 'web-13', pullRequest: a }).kind, 'refused');
     });
@@ -378,6 +380,9 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
         record({ ...conflicted, other: c, otherHead: hc, conflicts: ['lib.ts'] }).kind,
         'accepted',
       );
+      const before = await statusText('web-12');
+      assert.ok(before.includes(`conflicts with the open pull request <${b}> in src/app.ts`));
+      assert.ok(before.includes(`conflicts with the open pull request <${c}> in lib.ts`));
       push('web-13', hb2, 2);
       accept({
         kind: 'record',
