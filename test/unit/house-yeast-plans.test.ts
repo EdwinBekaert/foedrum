@@ -408,11 +408,65 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
   });
   assert.ok(writers.valid, writers.valid ? '' : writers.problems.join('\n'));
   const brewers = writers.valid ? writers.brewers : assert.fail();
+  /** The Cellarman's attempt, after the Gauger's commits. */
+  const implementing: Event[] = [
+    ...ordered,
+    scheduled('gauge'),
+    startedAt('gauge', base),
+    {
+      type: 'step.finished',
+      batchId: '12-1',
+      stepId: 'gauge',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions: [] } },
+    },
+    scheduled('implement'),
+    startedAt('implement', head),
+  ];
+  const implement = (git: Git) =>
+    planOf(git, 'implement', implementing, undefined, 1, brewers).plan;
   const NEAR_MISS = rule(
     'near-miss',
     { globs: ['test/**/*.ts'], lens: 'diff/test-design' },
     'Every rule of a text form has a near miss.',
   );
+
+  it('loads the default Gauger and Cellarman asking for house yeast, with their prompts referring to it', () => {
+    for (const step of ['gauge', 'implement']) {
+      const found = brewers.find('amber', step);
+      assert.equal(found?.brewer.houseYeast, true, step);
+      assert.ok(found?.instructions.includes('{houseYeast}'), step);
+    }
+  });
+
+  it('gives a Cellarman attempt the rule whose globs match a file the Gauger committed', async () => {
+    const keys = rule('keys', { globs: ['src/schemas/**'] }, 'A key part has a second value.');
+    const git = repository('A\ttest/unit/limit.test.ts\nM\tsrc/schemas/events.ts\n', {
+      keys,
+      'docs-tone': DOCS,
+    });
+    const { prompt, houseYeast } = await implement(git);
+    assert.deepEqual(houseYeast, { selected: ['keys'], cut: [] });
+    assert.ok(prompt.includes(`${ruleInput('keys', '.foedrum/house-yeast/keys.md')}A key part`));
+  });
+
+  it('gives a writer the rule of a lens no step of its recipe runs', async () => {
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS });
+    assert.deepEqual((await implement(git)).houseYeast, { selected: ['near-miss'], cut: [] });
+  });
+
+  it('gives a writer the rules of every lens within one budget, not one per lens', async () => {
+    const long = (id: string, lens: string) =>
+      rule(id, { globs: ['src/**'], lens }, 'x'.repeat(4800));
+    const git = repository('M\tsrc/wait.ts\n', {
+      'a-first': long('a-first', 'diff/security'),
+      'b-second': long('b-second', 'diff/test-design'),
+    });
+    assert.deepEqual((await implement(git)).houseYeast, {
+      selected: ['a-first'],
+      cut: ['b-second'],
+    });
+  });
 
   it('gives a Taster no rule of a lens its step does not run (regression test, #671)', async () => {
     const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS });
