@@ -173,6 +173,68 @@ describe('renderPlan (ADR 0233)', () => {
     const lines = text.split('\n');
     assert.match(lines.at(-3) ?? '', /^\| `s\d+`: .* \|$/);
   });
+
+  const outDoc =
+    'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md?plain=1';
+
+  it("ends with a link to the plan's out doc on the state branch, as written (#659)", () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    assert.ok(text.startsWith(`${renderPlan('7-1', 'plan', three)}\n\n`), text);
+    assert.ok(text.endsWith(`\n\nFull plan: <${outDoc}>`), text);
+  });
+
+  it('keeps the link when the text is cut to length (#659)', () => {
+    const long = 'x'.repeat(300);
+    const many = Array.from({ length: 100 }, (_, i) =>
+      subOrder(`s${i}`, {
+        title: long,
+        doneWhen: long,
+        why: long,
+        touches: Array.from({ length: 20 }, (_, j) => ({ path: `${'d'.repeat(280)}/${j}` })),
+      }),
+    );
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc);
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nFull plan: <[^>]+>$/);
+  });
+
+  it('counts the link in the length, for a text that fits only without it: regression test (#659)', () => {
+    const link = `\n\nFull plan: <${outDoc}>`;
+    const sized = (n: number, extra: number): PlanReport => ({
+      subOrders: Array.from({ length: n }, (_, i) =>
+        subOrder(`s${i}`, { title: i === 0 ? 'y'.repeat(extra) : 'Build' }),
+      ),
+    });
+    const length = (plan: PlanReport) => renderPlan('7-1', 'plan', plan).length;
+    // A text past the limit comes back cut, without its graph: the most sub-orders kept whole.
+    const whole = (plan: PlanReport) => renderPlan('7-1', 'plan', plan).includes('```mermaid');
+    let [n, over] = [1, 10_000];
+    while (over - n > 1) {
+      const middle = Math.floor((n + over) / 2);
+      if (whole(sized(middle, 0))) n = middle;
+      else over = middle;
+    }
+    // The shortest first title that brings the text within the link's length of the limit.
+    let [short, long] = [-1, 200];
+    while (long - short > 1) {
+      const middle = Math.floor((short + long) / 2);
+      const tried = sized(n, middle);
+      if (!whole(tried) || length(tried) > 60_000 - link.length) long = middle;
+      else short = middle;
+    }
+    const plan = sized(n, long);
+    // Within the link's length of the limit: whole without it, too long with it.
+    assert.ok(whole(plan));
+    assert.ok(length(plan) <= 60_000, `${length(plan)}`);
+    assert.ok(length(plan) + link.length > 60_000, `${length(plan)}`);
+    const text = renderPlan('7-1', 'plan', plan, undefined, outDoc);
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.ok(text.endsWith(link), text.slice(-200));
+  });
+
+  it('reads as before without a link: regression test (#659)', () => {
+    assert.doesNotMatch(renderPlan('7-1', 'plan', three), /Full plan/);
+  });
 });
 
 /** A fake of the comments host: the Brewery's own comments, ids from 1, and the writes it took. */
@@ -414,5 +476,58 @@ describe('planEffects (ADR 0233)', () => {
       ],
     );
     assert.deepEqual(comments.calls, ['create', 'create']);
+  });
+
+  it("links the latest plan's own out doc on the state branch the driver was given (#659)", async () => {
+    const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => new Date(at),
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: planEffects({ brewery, comments: comments.host, stateBranchUrl }),
+      report: () => {},
+    });
+    drivers.push(driver);
+    order();
+    step('plan', planned(three));
+    await driver.applyEffects();
+    const link = (path: string) => `\n\nFull plan: <${stateBranchUrl}/batches/7-1/${path}?plain=1>`;
+    assert.ok(only().body.endsWith(`${link('plan-1.md')}\n\n${marker(1)}`), only().body);
+    step('replan', planned(second));
+    await driver.applyEffects();
+    assert.ok(only().body.endsWith(`${link('replan-1.md')}\n\n${marker(2)}`), only().body);
+  });
+
+  it('links the attempt of the plan that succeeded, not the one before it: regression test (#659)', async () => {
+    const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => new Date(at),
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: planEffects({ brewery, comments: comments.host, stateBranchUrl }),
+      report: () => {},
+    });
+    drivers.push(driver);
+    order();
+    const first = { batchId: '7-1', stepId: 'plan', attempt: 1 };
+    issue({ kind: 'record', event: { type: 'step.started', ...first } });
+    const lost: Ending = { kind: 'failed', retryable: true, reason: 'the session ended' };
+    issue({ kind: 'finish', ...first, ending: lost });
+    const retried = { ...first, attempt: 2 };
+    issue({ kind: 'record', event: { type: 'step.started', ...retried } });
+    issue({ kind: 'finish', ...retried, ending: planned(three) });
+    await driver.applyEffects();
+    const link = `Full plan: <${stateBranchUrl}/batches/7-1/plan-2.md?plain=1>`;
+    assert.ok(only().body.endsWith(`${link}\n\n${marker(1)}`), only().body);
   });
 });

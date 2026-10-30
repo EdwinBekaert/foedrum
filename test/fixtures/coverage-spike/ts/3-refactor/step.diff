@@ -1,0 +1,33 @@
+diff --git a/src/calc.ts b/src/calc.ts
+index a2f5f76..219f857 100644
+--- a/src/calc.ts
++++ b/src/calc.ts
+@@ -1,5 +1,6 @@
+ export function add(a: number, b: number): number {
+-  return Math.round((a + b) * 1e10) / 1e10;
++  const sum = a + b;
++  return Math.round(sum * 1e10) / 1e10;
+ }
+ 
+ export function clamp(value: number, low: number, high: number): number {
+@@ -10,7 +11,7 @@ export function clamp(value: number, low: number, high: number): number {
+ 
+ export function multiply(a: number, b: number): number {
+   if (!Number.isFinite(a) || !Number.isFinite(b)) {
+-    throw new RangeError('multiply takes finite numbers');
++    return Number.NaN;
+   }
+   return a * b;
+ }
+diff --git a/src/legacy.ts b/src/legacy.ts
+index f7ac157..159f0b6 100644
+--- a/src/legacy.ts
++++ b/src/legacy.ts
+@@ -1,5 +1,5 @@
+ // No test imports this file.
+ export function percent(part: number, whole: number): string {
+-  const ratio = part / whole;
+-  return `${Math.round(ratio * 100)}%`;
++  if (whole === 0) return '0%';
++  return `${Math.round((part / whole) * 100)}%`;
+ }

@@ -133,9 +133,14 @@ const lensMatches = (ruleLens: string | undefined, given: string | undefined): b
   );
 };
 
-const matches = ({ rule }: Rule, files: readonly string[], lens?: string): boolean =>
+const matches = (
+  { rule }: Rule,
+  files: readonly string[],
+  lens: string | undefined,
+  everyLens: boolean,
+): boolean =>
   rule.status === 'active' &&
-  lensMatches(rule.scope.lens, lens) &&
+  (everyLens || lensMatches(rule.scope.lens, lens)) &&
   (unscoped(rule) || files.some((file) => fileMatches(rule.scope, file)));
 
 // Lower comes first: a rule for this lens, then globs, a language alone, the whole repository.
@@ -166,17 +171,21 @@ export const section = ({ rule, body }: Rule): string =>
 const price = (rule: Rule): number => Math.ceil(section(rule).length / 4);
 
 /**
- * The active rules whose scope matches the change and the lens, in order of priority, within the
- * budget: a rule that would pass what is left is cut, and the next one is tried.
+ * The active rules whose scope matches the change and the lens, or with `everyLens` whatever lens
+ * they name (ADR 0268), in order of priority, within the budget: a rule that would pass what is left
+ * is cut, and the next one is tried.
  */
 export const selectRules = (
   rules: readonly Rule[],
-  change: { files: readonly string[]; lens?: string },
+  change: { files: readonly string[]; lens?: string; everyLens?: boolean },
   budget: number = defaultBudget,
 ): Selection => {
   const selection: Selection = { selected: [], cut: [] };
   let left = budget;
-  for (const rule of rules.filter((r) => matches(r, change.files, change.lens)).sort(byPriority)) {
+  const matching = rules.filter((r) =>
+    matches(r, change.files, change.lens, change.everyLens === true),
+  );
+  for (const rule of matching.sort(byPriority)) {
     const tokens = price(rule);
     if (tokens <= left) {
       selection.selected.push({ rule, tokens });
@@ -296,7 +305,12 @@ const readLayer = (files: readonly RuleSource[]): Rules => {
  */
 export const pickRules = (
   layers: { repository: readonly RuleSource[]; brewery: readonly RuleSource[] },
-  change: { files: readonly string[]; lens?: string; lenses?: readonly string[] },
+  change: {
+    files: readonly string[];
+    lens?: string;
+    lenses?: readonly string[];
+    everyLens?: boolean;
+  },
   budget: number = defaultBudget,
 ): PickedRules => {
   const repository = readLayer(layers.repository);
@@ -304,10 +318,17 @@ export const pickRules = (
   const own = new Set(repository.rules.map(({ rule }) => rule.id));
   const rules = [...repository.rules, ...brewery.rules.filter(({ rule }) => !own.has(rule.id))];
   // A step's lenses together get the rules each would get apart, each once, in their order, and
-  // a rule one lens cut and another selected counts as selected (ADR 0220).
-  const each = (change.lenses ?? [change.lens]).map((lens) =>
-    selectRules(rules, { files: change.files, ...(lens === undefined ? {} : { lens }) }, budget),
-  );
+  // a rule one lens cut and another selected counts as selected (ADR 0220). Every lens's rules
+  // share one budget (ADR 0268).
+  const each = change.everyLens
+    ? [selectRules(rules, change, budget)]
+    : (change.lenses ?? [change.lens]).map((lens) =>
+        selectRules(
+          rules,
+          { files: change.files, ...(lens === undefined ? {} : { lens }) },
+          budget,
+        ),
+      );
   const once = (priced: readonly Priced[]): Priced[] => [
     ...new Map(priced.map((found) => [found.rule.rule.id, found])).values(),
   ];

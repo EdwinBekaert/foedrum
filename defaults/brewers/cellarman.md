@@ -22,6 +22,7 @@
   "maxTurns": 120,
   "stall": { "turns": 60, "minutes": 20 },
   "maxAttempts": 2,
+  "houseYeast": true,
   "guards": ["requiresOutDoc", "requiresCommits", "testsUnchanged"]
 }
 ---
@@ -36,6 +37,7 @@ Implement the order in {order}. The Gauger's failing tests, listed in its out do
 - **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`). Decide anything smaller yourself and list it as an assumption.
 - **The least code.** Write the least code that makes the tests pass and does what the order asks: no option, layer or abstraction the order does not ask for.
 - **Only what the order needs.** Do not refactor or reformat code you do not have to change, however much it needs it: name it in your out doc instead.
+- **Follow the house rules.** {houseYeast}, when there are any, holds the rules this repository and its Brewery learned from earlier reviews, chosen for the files the batch has changed so far; a repository rule wins over a Brewery rule it contradicts. Follow each where your change meets it, so that no review has to find it again.
 
 Follow the repository's conventions.
 

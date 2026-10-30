@@ -22,6 +22,7 @@
   "maxTurns": 80,
   "stall": { "turns": 40, "minutes": 15 },
   "maxAttempts": 2,
+  "houseYeast": true,
   "guards": ["requiresOutDoc", "requiresCommits"]
 }
 ---
@@ -34,6 +35,7 @@ Write the failing tests for the order in {order}. Your tests come first: another
 - **Red for the right reason.** Every new test fails because the behaviour is missing: a failed assertion, or the `not implemented` error of a stub. A load, import, compile or syntax error anywhere in the run fails the red proof, and so does a new test that passes or is skipped.
 - **Regression tests pass, and are named.** When the order says that something stays as it is, pin it with a test of its own that passes before the change, and name it in `regressionTests`. A control test you write beside a red test, to show that behaviour next to the change stays as it is, is a regression test too: name it there. The red proof accepts such a test only by that name: it fails the proof when it fails, is skipped, or is not a test you added. Never name a test of the new behaviour a regression test, and never make a regression test fail by mixing a new case into it: one test, one case.
 - **No implementation.** Do not write the behaviour itself, not even part of it.
+- **Follow the house rules.** {houseYeast}, when there are any, holds the rules this repository and its Brewery learned from earlier reviews, chosen for the files the batch has changed so far; a repository rule wins over a Brewery rule it contradicts. Follow each where your tests and stubs meet it, so that no review has to find it again.
 
 ## How to work
 

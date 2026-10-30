@@ -18,11 +18,15 @@ import type { StatusComments } from './status-comment.ts';
  */
 export const longestComment = 60_000;
 
-/** `text` cut to whole lines below `longestComment`, so no escape or entity is cut in half. */
-export const cutForComment = (text: string): string => {
-  if (text.length <= longestComment) return text;
+/**
+ * `text` cut to whole lines below `longestComment`, less `room` for what follows it, so no escape
+ * or entity is cut in half.
+ */
+export const cutForComment = (text: string, room = 0): string => {
+  const most = longestComment - room;
+  if (text.length <= most) return text;
   const note = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = text.slice(0, longestComment - note.length);
+  const kept = text.slice(0, most - note.length);
   return `${kept.slice(0, kept.lastIndexOf('\n'))}${note}`;
 };
 

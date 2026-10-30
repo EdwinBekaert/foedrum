@@ -1,0 +1,1 @@
+C:\spike\cs\test\Text.Tests\LabelTests.cs(14,56): error CS0117: 'Label' does not contain a definition for 'Badge' [C:\spike\cs\test\Text.Tests\Text.Tests.csproj]

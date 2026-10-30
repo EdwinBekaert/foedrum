@@ -24,6 +24,7 @@ import type {
   WorktreeRef,
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
+import type { AttemptRef } from './attempt-key.ts';
 import { effectKey } from './effect-key.ts';
 import { ranIn } from './session-resume.ts';
 import { scopeOf } from './usage-window.ts';
@@ -146,6 +147,15 @@ export const roundRouteOf = (step: Step, n: number): ScheduleRoute | undefined =
     attempt = step.attempts.get(attempt.attempt - 1);
   }
   return attempt?.route;
+};
+
+/**
+ * The recipe an attempt was scheduled under, which its batch may have left since (ADR 0260); its
+ * batch's recipe for an attempt that recorded none, undefined without either.
+ */
+export const attemptRecipeOf = (state: State, ref: AttemptRef): string | undefined => {
+  const batch = state.batches.get(ref.batchId);
+  return batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe ?? batch?.recipe?.name;
 };
 
 export interface Rewind {
@@ -328,6 +338,8 @@ export interface Order {
 export interface SubOrder {
   issue: number;
   repo: string;
+  /** The paths its plan says it changes, when the breakdown names them. */
+  touches?: readonly string[];
   /** The order it was split from. */
   order: number;
   batchIds: readonly string[];
@@ -689,7 +701,7 @@ function apply(state: State, event: Event): State {
           subOrders.set(subIssue, { ...subOrder, cancelled: true });
         }
       }
-      for (const { issue: subIssue, repo } of event.subOrders) {
+      for (const { issue: subIssue, repo, touches } of event.subOrders) {
         if (state.orders.has(subIssue)) {
           throw reject(`issue ${subIssue} is an order, so it cannot be a sub-order`);
         }
@@ -700,6 +712,7 @@ function apply(state: State, event: Event): State {
         subOrders.set(subIssue, {
           issue: subIssue,
           repo,
+          ...(touches === undefined ? {} : { touches }),
           order: issue,
           batchIds: earlier?.batchIds ?? [],
           cancelled: false,

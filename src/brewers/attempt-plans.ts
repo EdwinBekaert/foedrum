@@ -11,7 +11,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import { type Batch, roundRouteOf, type State } from '../engine/fold.ts';
+import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import {
   MAX_INPUT_BYTES,
@@ -199,9 +199,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   // The out doc of an attempt's brewer in the recipe it was scheduled under, which the batch may
   // have left since (#657); in its batch's recipe for an attempt that recorded none.
   const outDocOf = (ref: AttemptRef) => {
-    const batch = state().batches.get(ref.batchId);
-    const scheduled = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe;
-    const recipe = scheduled ?? batch?.recipe?.name;
+    const recipe = attemptRecipeOf(state(), ref);
     return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId)?.brewer.output.doc;
   };
 
@@ -429,7 +427,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /**
    * The house-yeast rules for an attempt with `stepLenses` in `repo`, whose change runs from
-   * `since` to `head` (ADR 0169): the rules each lens would get apart, each once (ADR 0220): the Brewery's, and the repository's, from the Brewery or with git in the
+   * `since` to `head` (ADR 0169): the rules each lens would get apart, each once (ADR 0220), or
+   * with no lens those of every lens (ADR 0268): the Brewery's, and the repository's, from the Brewery or with git in the
    * clone at `since`, so the batch's own commits never add or remove one. The files the change
    * touched are read in the clone too; with no `since`, it touched none.
    */
@@ -442,7 +441,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   ): Promise<PickedRules> => {
     const keptIn = houseYeast.keptIn(repo);
     const fromBrewery = breweryRules(houseYeast.files, repo, keptIn);
-    const lens = stepLenses.length === 0 ? {} : { lenses: stepLenses };
+    // A brewer with no lens writes the change: it follows every lens's rules (ADR 0268).
+    const lens = stepLenses.length === 0 ? { everyLens: true } : { lenses: stepLenses };
     // Before an attempt recorded where the batch started, nothing changed, and no commit holds
     // the repository's own rules.
     if (since === undefined) return pickRules(fromBrewery, { files: [], ...lens });

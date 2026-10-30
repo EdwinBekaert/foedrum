@@ -1667,6 +1667,15 @@
               "repo": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*\\/(?!\\.\\.?$)[\\w.][\\w.-]*$"
+              },
+              "touches": {
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|(?:[cC][oO][mM]|[lL][pP][tT])[1-9])(?:\\.|\\/|$))[^/\\\\:*?\"<>|\\x00-\\x1f]*[^/\\\\:*?\"<>|\\x00-\\x1f. ](?:\\/(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|(?:[cC][oO][mM]|[lL][pP][tT])[1-9])(?:\\.|\\/|$))[^/\\\\:*?\"<>|\\x00-\\x1f]*[^/\\\\:*?\"<>|\\x00-\\x1f. ])*$"
+                }
               }
             },
             "required": [
