@@ -14,8 +14,12 @@ export const PLAN = 'plan';
 export const MOST_TOUCHES = 20;
 export const MOST_ALTERNATIVES = 10;
 
+/** The longest sub-order title, and the longest of every other line of a plan. */
+export const MAX_TITLE = 120;
+export const MAX_PLAN_LINE = 300;
+
 // One line, so the plan comment stays within GitHub's length.
-const line = lineOf(300);
+const line = lineOf(MAX_PLAN_LINE);
 
 /** A sub-order's name in its plan: dependencies and the graph name it, since no issue exists yet. */
 export const PlanId = z
@@ -40,7 +44,7 @@ export type PlanDependency = z.infer<typeof PlanDependency>;
 export const PlannedSubOrder = z
   .strictObject({
     id: PlanId,
-    title: lineOf(120),
+    title: lineOf(MAX_TITLE),
     repo: Repo,
     // An estimate, with no cap: the sizing lens and the gate judge it (#587, #588).
     size: z.strictObject({ lines: z.int().positive(), mechanism: line }),
