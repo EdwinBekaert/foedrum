@@ -458,8 +458,9 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
   });
 
   it('gives a Taster no rule of a lens its step does not run (regression test, #671)', async () => {
-    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS });
+    const plain = rule('plain', { globs: ['test/**'] }, 'Name things plainly.');
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS, plain });
     const { plan } = planOf(git, 'correctness', tasting, undefined, 1, brewers);
-    assert.deepEqual((await plan).houseYeast, { selected: [], cut: [] });
+    assert.deepEqual((await plan).houseYeast, { selected: ['plain'], cut: [] });
   });
 });
