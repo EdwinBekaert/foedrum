@@ -28,6 +28,7 @@ export interface RunDeps {
   exists: (path: string) => boolean;
   writeFile: (path: string, text: string) => void;
   appendFile: (path: string, text: string) => void;
+  removeFile: (path: string) => void;
   out: (text: string) => void;
   err: (text: string) => void;
 }
@@ -211,6 +212,9 @@ if (import.meta.main) {
     appendFile: (path, text) => {
       mkdirSync(dirname(path), { recursive: true });
       appendFileSync(path, text);
+    },
+    removeFile: () => {
+      throw new Error('not implemented');
     },
     out: (text) => process.stdout.write(text),
     err: (text) => process.stderr.write(text),

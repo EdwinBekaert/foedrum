@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { sessionRuleFiles } from '../../scripts/house-yeast/session-rules.ts';
 import { run } from '../../scripts/house-yeast.ts';
 
 const fixtures = join(import.meta.dirname, '..', 'fixtures', 'house-yeast');
@@ -49,6 +50,9 @@ const runWith = (args: string[], start: Record<string, string>, denied: string[]
     },
     appendFile: (path, text) => {
       files[path] = (files[path] ?? '') + text;
+    },
+    removeFile: (path) => {
+      delete files[path];
     },
     out: (text) => out.push(text),
     err: (text) => err.push(text),
@@ -147,6 +151,49 @@ describe('node scripts/house-yeast.ts record', () => {
   const store = 'main/.foedrum/house-yeast-candidates.jsonl';
   const record = ['record', store, 'c.json', 'head/.foedrum/house-yeast'];
   const rulePath = 'head/.foedrum/house-yeast/deadline-on-every-wait.md';
+  const sessionDir = 'head/.claude/rules/house-yeast';
+  const sessionFiles = (files: Record<string, string>) =>
+    Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${sessionDir}/`)));
+  const headRules = Object.fromEntries(
+    Object.entries(fixtureRules).map(([path, text]) => [path.replace(/^base\//, 'head/'), text]),
+  );
+
+  it('regenerates the session rule files beside the rules when it proposes one (ADR 0271)', () => {
+    const result = runWith([...record, '--asked'], {
+      ...headRules,
+      'c.json': candidate('1-engine-waits'),
+      [`${sessionDir}/stale.md`]: 'from an older set of rules',
+    });
+    assert.equal(result.code, 0, result.err);
+    const rules = Object.entries(result.files)
+      .filter(([path]) => path.startsWith('head/.foedrum/house-yeast/'))
+      .map(([path, text]) => ({ path, text }));
+    const expected = sessionRuleFiles(rules);
+    assert.deepEqual(expected.invalid, []);
+    assert.deepEqual(
+      sessionFiles(result.files),
+      Object.fromEntries(expected.files.map(({ name, text }) => [`${sessionDir}/${name}`, text])),
+    );
+    assert.match(result.files[`${sessionDir}/src-engine.md`] ?? '', /## deadline-on-every-wait \(/);
+    assert.ok(
+      result.out.endsWith(`\nregenerated ${sessionDir}: ${expected.files.length} files\n`),
+      result.out,
+    );
+  });
+
+  it('exits 1 naming an invalid rule beside the new one, and writes no session rule file', () => {
+    const result = runWith([...record, '--asked'], {
+      'c.json': candidate('1-engine-waits'),
+      'head/.foedrum/house-yeast/broken.md': 'no frontmatter\n',
+    });
+    assert.equal(result.code, 1);
+    assert.equal(rulePath in result.files, true);
+    assert.match(
+      result.out,
+      /^cannot regenerate the session rules: head\/\.foedrum\/house-yeast\/broken\.md: /m,
+    );
+    assert.deepEqual(sessionFiles(result.files), {});
+  });
 
   it('records a lesson seen once, and proposes nothing', () => {
     const pr1 = '1-engine-waits';
@@ -165,7 +212,10 @@ describe('node scripts/house-yeast.ts record', () => {
       'c.json': JSON.stringify(JSON.parse(candidate(pr2)), null, 2),
     });
     assert.equal(result.code, 0, result.err);
-    assert.equal(result.out, `proposed ${rulePath}: seen in 2 reviews\n`);
+    assert.equal(
+      result.out,
+      `proposed ${rulePath}: seen in 2 reviews\nregenerated ${sessionDir}: 1 file\n`,
+    );
     assert.equal((result.files[store] ?? '').split('\n').filter(Boolean).length, 2);
     assert.match(result.files[rulePath] ?? '', /"id": "deadline-on-every-wait"/);
     assert.match(result.files[rulePath] ?? '', /Every wait in the engine has a deadline\.\n$/);
@@ -174,7 +224,7 @@ describe('node scripts/house-yeast.ts record', () => {
   it('proposes a rule asked for, and never overwrites an existing rule file', () => {
     const pr1 = '1-engine-waits';
     const asked = runWith([...record, '--asked'], { 'c.json': candidate(pr1) });
-    assert.equal(asked.out, `proposed ${rulePath}: asked for\n`);
+    assert.equal(asked.out, `proposed ${rulePath}: asked for\nregenerated ${sessionDir}: 1 file\n`);
     const kept = runWith([...record, '--asked'], { 'c.json': candidate(pr1), [rulePath]: 'mine' });
     assert.equal(kept.out, `exists ${rulePath}: not overwritten\n`);
     assert.equal(kept.files[rulePath], 'mine');
