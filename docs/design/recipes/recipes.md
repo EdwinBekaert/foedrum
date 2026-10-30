@@ -9,7 +9,6 @@ Foedrum's own recipes are checked as `DefaultRecipe`, which also rejects literal
   "$schema": "../.foedrum/schemas/recipe.json",          // for editors; `foedrum init` writes none yet
   "name": "half-pint",
   "description": "Small feature in one repository",
-  "match": { "labels": ["feature"] },
   "testFirst": true,                                         // the router may switch it off, with a reason
   "concurrency": 2,                                          // at most 2 of its batches at once; none by default (ADR 0217)
   "steps": [
@@ -71,8 +70,9 @@ A batch whose step left its recipe file goes Stuck on a divergence when that ste
 A step has exactly one of these kind fields.
 ADR 0019's `session` step is gone: the schema refuses it with a line that names `"interactive": true` on a brewer step ([ADR 0222](../../adr/0222-a-recipe-s-brewer-step-may-be-interactive.md)).
 
-**Recipe fields:** `name`, `description`, `match` (`labels`), `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
+**Recipe fields:** `name`, `description`, `steps`, and `testFirst` (default `true` for recipes that write code, decided when the recipe is loaded for a batch, since it depends on the brewers the recipe uses: unset, it is `true` when any brewer the recipe names produces `commits`, else `false` (`resolveRecipe`, [ADR 0028](../../adr/0028-brewer-runner-outcomes-environment-and-test-first.md)); the router may switch it off for documentation-only or pure refactoring orders and records why in the status comment).
 A recipe has no time budget: the load refuses a `budget` field with a line that says it is gone, since each step's deadline, stall limit and attempts already bound a batch ([ADR 0194](../../adr/0194-a-recipe-has-no-time-budget.md)).
+A recipe does not choose the orders it runs: the load refuses a `match` field with a line that says an order is routed by its `recipe:<name>` label or by `foedrum mash` ([routing](../intake/routing.md), [ADR 0253](../../adr/0253-a-recipe-s-match-is-refused-at-load.md)).
 
 **Step fields**
 

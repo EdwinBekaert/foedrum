@@ -4,6 +4,7 @@
 
 import { same } from '../engine/issue-claims.ts';
 import type { PullRequestHost } from '../engine/pull-request-actions.ts';
+import { pullRequestOf } from '../schemas/events.ts';
 import {
   GitHubOpenedPullRequest,
   GitHubPullRequest,
@@ -12,7 +13,6 @@ import {
 import { checked, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
-import { pullRequestOf } from './tracker.ts';
 
 export interface GitHubPullRequestsOptions {
   client: GitHubClient;

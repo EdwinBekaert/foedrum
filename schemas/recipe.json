@@ -15,21 +15,7 @@
       "pattern": "\\S"
     },
     "match": {
-      "type": "object",
-      "properties": {
-        "labels": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "\\S"
-          }
-        }
-      },
-      "required": [
-        "labels"
-      ],
-      "additionalProperties": false
+      "not": {}
     },
     "budget": {
       "not": {}

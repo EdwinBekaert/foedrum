@@ -11,13 +11,13 @@ import {
   HeadCheck,
   MAX_HEAD_CHECK_NAME_LENGTH,
   MAX_LOG_UNREAD_LENGTH,
+  pullRequestOf,
 } from '../schemas/events.ts';
 import { GitHubCheckRun, GitHubCommitStatus, GitHubPullRequestHead } from '../schemas/github.ts';
 import { CommitSha } from '../schemas/store.ts';
 import { checked, refused, repoPath } from './answers.ts';
 import { type GitHubClient, GitHubRateLimited, type GitHubTextAnswer } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
-import { pullRequestOf } from './tracker.ts';
 
 /** A check run's conclusion or a commit status's state as Foedrum names it; `unknown` otherwise. */
 const conclusionOf = (text: string | null | undefined): CheckConclusion => {

@@ -286,8 +286,13 @@ const RecipeFields = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
   name: PathSafeId,
   description: NonEmpty,
-  match: z.strictObject({ labels: z.array(NonEmpty).min(1) }).optional(),
-  // Gone (ADR 0194): refused by name, so a recipe that still has it says why.
+  // Gone (ADR 0194, ADR 0253): refused by name, so a recipe that still has one says why.
+  match: z
+    .never({
+      error:
+        'a recipe has no "match" any more: remove it, an order is routed by its recipe:<name> label or by foedrum mash (ADR 0068, ADR 0232, ADR 0253)',
+    })
+    .optional(),
   budget: z
     .never({
       error:
