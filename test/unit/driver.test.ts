@@ -918,7 +918,7 @@ describe('openDriver', () => {
       assert.deepStrictEqual(store.currentLeases(now), [other]);
     });
 
-    it('gives the cleanup the out doc of each step of the ended batch (ADR 0081)', async () => {
+    it('gives the cleanup the out doc of each attempt of the ended batch (ADR 0081)', async () => {
       const { runner, end } = handRunner();
       const manager = fakeWorktrees();
       order('b1');
@@ -935,8 +935,8 @@ describe('openDriver', () => {
       assert.deepStrictEqual(
         manager.cleans().at(-1)?.claims.outDocs,
         new Map([
-          ['b1/plan', 'plan.md'],
-          ['b1/implement', 'implement.md'],
+          ['b1/plan/1', 'plan.md'],
+          ['b1/implement/1', 'implement.md'],
         ]),
       );
     });

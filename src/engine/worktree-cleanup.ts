@@ -14,7 +14,10 @@ export interface WorktreeCleanupOptions {
   state: () => State;
   /** The leases alive now (`EventStore.currentLeases`). */
   leases: () => readonly Lease[];
-  /** The out doc of a step's brewer, which may be a worktree's only change (ADR 0081). */
+  /**
+   * The out doc of an attempt's brewer, in the recipe it was scheduled under, which may be a
+   * worktree's only change (ADR 0081, ADR 0260).
+   */
   outDoc?: OutDocOf;
 }
 

@@ -93,7 +93,7 @@ describe('createWorktreeCleanup', () => {
     });
   });
 
-  it("claims the out doc of each step of an ended batch, from the step's brewer (ADR 0081)", async () => {
+  it('claims the out doc of each attempt of an ended batch, from its brewer (ADR 0081)', async () => {
     const app = fakeWorktrees();
     const withSteps = fold([
       ordered('b-tap'),
@@ -111,7 +111,7 @@ describe('createWorktreeCleanup', () => {
 
     assert.deepStrictEqual(
       app.cleans().map(({ claims }) => claims.outDocs),
-      [new Map([['b-tap/brew', 'brew.md']])],
+      [new Map([['b-tap/brew/1', 'brew.md']])],
     );
   });
 

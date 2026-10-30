@@ -52,6 +52,8 @@ export type Attempt =
       retry?: true;
       /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
       answered?: true;
+      /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
+      recipe?: string;
       abandoned?: true;
     }
   | {
@@ -63,6 +65,8 @@ export type Attempt =
       retry?: true;
       /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
       answered?: true;
+      /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
+      recipe?: string;
       session?: SessionRef;
       worktree?: WorktreeRef;
       /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
@@ -78,6 +82,8 @@ export type Attempt =
       retry?: true;
       /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
       answered?: true;
+      /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
+      recipe?: string;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;
@@ -539,6 +545,7 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
+        const recipe = batch.recipe?.name;
         return {
           ...skipping(batch, stepId, false),
           lane: { kind: 'brewing' },
@@ -551,6 +558,7 @@ function apply(state: State, event: Event): State {
               ...(route === undefined ? {} : { route }),
               ...(retry === undefined ? {} : { retry }),
               ...(answered === undefined ? {} : { answered }),
+              ...(recipe === undefined ? {} : { recipe }),
             }),
           }),
         };

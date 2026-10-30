@@ -152,7 +152,7 @@ describe('attempt worktrees with real git', () => {
     assert.deepEqual(readdirSync(worktrees.root), []);
   });
 
-  it("removes a worktree whose only change is its step's out doc, and keeps one with another (ADR 0081)", async () => {
+  it("removes a worktree whose only change is its attempt's out doc, and keeps one with another (ADR 0081)", async () => {
     const worktrees = open();
     const done = await worktrees.create(attempt('12-1'), 'origin/main');
     const left = await worktrees.create(attempt('12-1', 'review'), 'origin/main');
@@ -162,8 +162,8 @@ describe('attempt worktrees with real git', () => {
     }
     writeFileSync(join(left.path, 'notes.txt'), 'work a brewer left\n');
     const outDocs = new Map([
-      ['12-1/implement', 'brew.md'],
-      ['12-1/review', 'brew.md'],
+      ['12-1/implement/1', 'brew.md'],
+      ['12-1/review/1', 'brew.md'],
     ]);
 
     const report = await worktrees.clean({ ...claims({ '12-1': 'ended' }), outDocs });
