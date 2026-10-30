@@ -1,0 +1,38 @@
+From ef9b476a4fe021a2f63df4ac6c6119b09d57f11a Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 11:06:20 +0100
+Subject: [PATCH 13/13] Refactor: name the doubled delay in backoffMs
+
+---
+ src/engine/backoff.ts     | 6 ++++--
+ test/unit/backoff.test.ts | 2 +-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index e72a95f5..02470da4 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -1,4 +1,6 @@
+ export type BackoffOptions = { readonly baseMs: number; readonly capMs: number };
+ 
+-export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
+-  Math.min(capMs, baseMs * 2 ** (attempt - 1));
++export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number => {
++  const doubled = baseMs * 2 ** (attempt - 1);
++  return Math.min(capMs, doubled);
++};
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+index 0aa7f947..8111e038 100644
+--- a/test/unit/backoff.test.ts
++++ b/test/unit/backoff.test.ts
+@@ -11,6 +11,6 @@ describe('backoffMs', () => {
+   });
+ 
+   it('never exceeds the cap', () => {
+-    assert.equal(backoffMs(20, { baseMs: 100, capMs: 10_000 }), 10_000);
++    assert.equal(backoffMs(20, { baseMs: 100, capMs: 5_000 }), 5_000);
+   });
+ });
+-- 
+2.56.0.windows.2
+

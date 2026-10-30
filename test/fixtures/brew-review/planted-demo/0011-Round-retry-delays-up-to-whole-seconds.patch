@@ -1,0 +1,25 @@
+From 9efbcdd8361465bc8cef15d49337a35f8e764cd7 Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 11:06:01 +0100
+Subject: [PATCH 11/13] Round retry delays up to whole seconds
+
+---
+ src/engine/backoff.ts | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index 69f0b262..3ff6dfad 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -3,6 +3,5 @@ export type BackoffOptions = { readonly baseMs: number; readonly capMs: number }
+ export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
+   Math.min(capMs, baseMs * 2 ** (attempt - 1));
+ 
+-export const backoffSeconds = (_attempt: number, _options: BackoffOptions): number => {
+-  throw new Error('not implemented');
+-};
++export const backoffSeconds = (attempt: number, options: BackoffOptions): number =>
++  Math.ceil(backoffMs(attempt, options) / 1000);
+-- 
+2.56.0.windows.2
+

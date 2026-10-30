@@ -1,10 +1,10 @@
 # Planted-defect sample for /brew-review
 
-Eight commits with known defects, used to check the review skill and the default lenses after a prompt changes (CLAUDE.md, Tests). The patches are data, not tests: `npm test` never applies them, but `test/unit/planted-demo.test.ts` reads them. Once applied, the sample's own tests pass at its head, so the mutation check compares the review, not a broken fixture. That test keeps one part of this true: it runs the layer guard of `npm run check` on the lines the patches add, so no patch gives a test in a layer `npm test` runs an import of `child_process` or the process runner. A test that starts a process through a module it imports passes that guard and fails only when the sample's tests run (ADR 0038), so check the baseline after changing a patch.
+Thirteen commits, eight with known defects and five that check how the red proof classes commits, used to check the review skill and the default lenses after a prompt changes (CLAUDE.md, Tests). The patches are data, not tests: `npm test` never applies them, but `test/unit/planted-demo.test.ts` reads them. Once applied, the sample's own tests pass at its head, so the mutation check compares the review, not a broken fixture. That test keeps one part of this true: it runs the layer guard of `npm run check` on the lines the patches add, so no patch gives a test in a layer `npm test` runs an import of `child_process` or the process runner. A test that starts a process through a module it imports passes that guard and fails only when the sample's tests run (ADR 0038), so check the baseline after changing a patch.
 
 ## Apply
 
-Apply the patches on top of the branch whose prompts you are checking (the skill, its agents or the lenses), so the run uses those prompts, not older ones. The patches only add files under `src/engine/`, `src/workspace/`, `test/unit/` and `test/integration/`, so they apply to any branch that does not have those files yet. In a clean checkout of that branch:
+Apply the patches on top of the branch whose prompts you are checking (the skill, its agents or the lenses), so the run uses those prompts, not older ones. The patches only add and change files under `src/engine/`, `src/workspace/`, `test/unit/` and `test/integration/` that the sample itself adds, so they apply to any branch that does not have those files yet. In a clean checkout of that branch:
 
 ```sh
 git switch -c planted/23-review-demo
@@ -17,7 +17,7 @@ Then start a new Claude Code session in that checkout (the skill and the `taster
 /brew-review planted/23-review-demo --base <branch> --no-comment
 ```
 
-`--base <branch>` limits the review to the eight planted commits and takes the review criteria from your branch. Without it, the review would also cover your branch's own commits, and lenses that are new on your branch would come from the planted branch instead. The summary is written to `.foedrum/tmp/branch-planted-23-review-demo/review/summary.md`.
+`--base <branch>` limits the review to the planted commits and takes the review criteria from your branch. Without it, the review would also cover your branch's own commits, and lenses that are new on your branch would come from the planted branch instead. The summary is written to `.foedrum/tmp/branch-planted-23-review-demo/review/summary.md`.
 
 Afterwards: `git switch <branch>` and `git branch -D planted/23-review-demo`.
 
@@ -35,6 +35,11 @@ If a patch no longer applies because those files now exist, rebase the sample on
 | `0006` Read the current branch with git | implementation | **Planted:** green step for `0005` that runs git directly with `execFileSync`, not through the process runner: no deadline, no tree kill, and no injected runner a unit test could fake |
 | `0007` Add failing tests for Brewery names | test + stub | **Planted:** only rejection tests, against a stub that rejects everything (`() => false`); all three pass before any implementation exists |
 | `0008` Check Brewery names | implementation | The implementation the rejection tests cannot tell from the stub |
+| `0009` Refactor: backoffMs takes its base and cap as one object | refactor | Control: a changed signature, with the tests' call arguments changed and no test name or expected value |
+| `0010` Add a failing test for retry delays in whole seconds | test + stub | Control: red step for `backoffSeconds` (`not implemented`), so that `0012` has code to remove |
+| `0011` Round retry delays up to whole seconds | implementation | Control: green step |
+| `0012` Remove backoffSeconds: nothing calls it | remove | Control: deletes `backoffSeconds` and only its test, with its import |
+| `0013` Refactor: name the doubled delay in backoffMs | refactor subject, mixed | **Planted:** the code change is a refactor, but the "never exceeds the cap" test changes its expected value (`10_000` to `5_000`) |
 
 ## Expected findings
 
@@ -53,6 +58,10 @@ A run should report at least these. Line numbers are in `src/engine/wait-for-mer
 | Rejection tests against a reject-everything stub (`test/unit/brewery-name.test.ts`, `src/workspace/brewery-name.ts` at `0007`) | test-design | **major**: every test passes against `() => false`, so none would fail if `isBreweryName` rejected valid names too; no test accepts a valid name |
 | | Red proof | **fail**: at `0007` all 3 new tests are `ok` (*not red, passing*), and the stub returns a value instead of throwing `not implemented`; `0008` has *no red step* |
 | | Brett | a mutant that makes `isBreweryName` return `false` for every input (for example `false && /…/.test(name)`) survives; the reviewer prompt asks for it, because every assertion on `isBreweryName` expects `false` |
+| A signature Refactor with call-only test edits (`0009`) | Red proof | **refactor**: `test/unit/backoff.test.ts` all `ok` at `0009^` and `0009` (2 of 2), the same leaf names, no expected value changed; no red step needed |
+| A red/green pair (`0010` → `0011`) | Red proof | passes: red at `0010` (1 of 1 `not implemented`), green at `0011` |
+| A Remove of code and only its tests (`0012`) | Red proof | **remove**: all `ok` at `0012^` (3 of 3) and `0012` (2 of 2), the leaf names at `0012` are those at `0012^` less "backoffSeconds > rounds the delay up to whole seconds"; no red step needed |
+| An expected value changed in a Refactor (`0013`) | Red proof | **fail**: `0013` is **mixed**, since it changes the expected value of "never exceeds the cap", though its tests are all `ok` at `0013^` and `0013` |
 | String-built path (line 20) | cross-platform | **blocker**: mixed separators on Windows, citing the CLAUDE.md paths rule |
 | | security | unvalidated Brewery name allows `../` traversal out of `~/.foedrum` |
 | | design-conformance | the same paths rule; the store location also contradicts the Brewery layout in the architecture document and ADR 0011 |
