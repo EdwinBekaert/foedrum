@@ -151,15 +151,15 @@ export const formatNotice = (notice: DriverNotice): string => {
     case 'cleaned': {
       const { done, kept, failed } = notice.report;
       // An attempt's worktree and branch, counted: the batch's path names each (ADR 0272).
-      const worktrees = done.filter((line) => line.startsWith('removed worktree ')).length;
-      const branches = done.filter((line) => line.startsWith('deleted branch ')).length;
+      const worktree = (line: string): boolean => line.startsWith('removed worktree ');
+      const branch = (line: string): boolean => line.startsWith('deleted branch ');
+      const worktrees = done.filter(worktree).length;
+      const branches = done.filter(branch).length;
       const counted = [
         ...(worktrees === 0 ? [] : [`removed ${worktrees} worktree${worktrees === 1 ? '' : 's'}`]),
         ...(branches === 0 ? [] : [`deleted ${branches} branch${branches === 1 ? '' : 'es'}`]),
       ];
-      const rest = done.filter(
-        (line) => !line.startsWith('removed worktree ') && !line.startsWith('deleted branch '),
-      );
+      const rest = done.filter((line) => !worktree(line) && !branch(line));
       const lines = [...counted, ...rest, ...kept, ...failed];
       return `cleaned batch ${notice.batchId}: ${lines.length === 0 ? 'nothing to remove' : lines.join('; ')}`;
     }
