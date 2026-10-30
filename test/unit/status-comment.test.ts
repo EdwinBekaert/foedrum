@@ -268,7 +268,7 @@ describe('renderStatus', () => {
       ['gauge', 'red', 'implement'],
     );
     const lines = text.split('\n');
-    const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ → `gauge #2` 🔔');
+    const path = lines.indexOf('Path: `gauge #1` ✅ → `red #1` ❌ passes → `gauge #2` 🔔');
     assert.ok(path >= 0, text);
     const firstStep = lines.findIndex((line) => line.startsWith('- ') && line.includes('`gauge`'));
     assert.ok(path < firstStep, 'the path comes before the steps');
@@ -320,8 +320,128 @@ describe('renderStatus', () => {
     deadlineAt: at,
     outcome: { kind: 'needs_input', questions: [which] },
   });
+  const answer = (attempt: number, text: string, by = 'ann'): Step['inputs'][number] => ({
+    by,
+    via: 'terminal',
+    answers: [{ q: 'Which?', answer: text }],
+    attempt,
+  });
   const pathOf = (text: string): string =>
     text.split('\n').find((line) => line.startsWith('Path: ')) ?? '';
+
+  it('shows the answer to a question on the path, with who gave it and from where (#656)', () => {
+    const [, innkeep] = step('innkeep', asking(1));
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          ['innkeep', { ...innkeep, inputs: [answer(1, 'mash')] }],
+          step('plan', failed(1, 'the out doc plan.md is invalid: no plan'), running(2)),
+        ]),
+        path: [
+          { stepId: 'innkeep', attempt: 1 },
+          { stepId: 'plan', attempt: 1 },
+          { stepId: 'plan', attempt: 2 },
+        ],
+      }),
+      ['innkeep', 'plan'],
+    );
+    assert.equal(
+      pathOf(text),
+      'Path: `innkeep #1` ❓ → mash (by ann via terminal) → `plan #1` ❌ the out doc plan.md is invalid → `plan #2` ▶️',
+    );
+  });
+
+  it("shows only an attempt's latest answer, escaped and cut to 40 characters (#656)", () => {
+    const long = `*${'x'.repeat(60)}`;
+    const [, plan] = step('plan', asking(1), asking(2), running(3));
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          ['plan', { ...plan, inputs: [answer(1, 'first'), answer(1, 'second'), answer(2, long)] }],
+        ]),
+        path: [
+          { stepId: 'plan', attempt: 1 },
+          { stepId: 'plan', attempt: 2 },
+          { stepId: 'plan', attempt: 3 },
+        ],
+      }),
+      ['plan'],
+    );
+    assert.equal(
+      pathOf(text),
+      `Path: \`plan #1\` ❓ → second (by ann via terminal) → \`plan #2\` ❓ → \\*${'x'.repeat(37)}… (by ann via terminal) → \`plan #3\` ▶️`,
+    );
+  });
+
+  it('says on its line that the question a step asked was answered, by whom and what (#656)', () => {
+    const [, innkeep] = step('innkeep', asking(1));
+    const text = renderStatus(
+      batch({ steps: new Map([['innkeep', { ...innkeep, inputs: [answer(1, 'mash')] }]]) }),
+      ['innkeep'],
+    );
+    assert.equal(
+      lineOf(text, 'innkeep'),
+      '- ❓ `innkeep`: attempt 1 asked for input, answered by ann (terminal): mash',
+    );
+  });
+
+  it("says why each failed attempt on the path failed: a lost lease, a failing check, a review's findings (#656)", () => {
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('gauge', failed(1, 'the attempt was lost: its lease expired at 09:00'), done(2)),
+          step('green', failed(1, 'the check "tests" (npm test) failed with exit code 1'), done(2)),
+          step('correctness', failed(1, 'blocked (findings): two findings in src/a.ts'), done(2)),
+        ]),
+        path: [
+          { stepId: 'gauge', attempt: 1 },
+          { stepId: 'gauge', attempt: 2 },
+          { stepId: 'green', attempt: 1 },
+          { stepId: 'green', attempt: 2 },
+          { stepId: 'correctness', attempt: 1 },
+          { stepId: 'correctness', attempt: 2 },
+        ],
+      }),
+      ['gauge', 'green', 'correctness'],
+    );
+    assert.equal(
+      pathOf(text),
+      'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅ → `green #1` ❌ the check "tests" failed with exit code 1 → `green #2` ✅ → `correctness #1` ❌ blocked (findings) → `correctness #2` ✅',
+    );
+  });
+
+  it("cuts a long reason on the path at a word, within 48 characters (#656)", () => {
+    const reason = 'the brewer wrote no out doc before its turns ran out, twice in a row';
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('plan', failed(1, reason), running(2))]),
+        path: [
+          { stepId: 'plan', attempt: 1 },
+          { stepId: 'plan', attempt: 2 },
+        ],
+      }),
+      ['plan'],
+    );
+    assert.equal(
+      pathOf(text),
+      'Path: `plan #1` ❌ the brewer wrote no out doc before its turns… → `plan #2` ▶️',
+    );
+  });
+
+  it("leaves out a failed attempt's reason on the path when it looks like a secret (#656)", () => {
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('gauge', failed(1, token), done(2))]),
+        path: [
+          { stepId: 'gauge', attempt: 1 },
+          { stepId: 'gauge', attempt: 2 },
+        ],
+      }),
+      ['gauge'],
+    );
+    noToken(text);
+    assert.match(pathOf(text), /^Path: `gauge #1` ❌ \[left out/);
+  });
 
   it('keeps the bare mark of an open question, and the bell where the batch is Stuck on it: regression test (#656)', () => {
     const steps = new Map([step('plan', asking(1))]);

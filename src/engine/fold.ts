@@ -100,6 +100,8 @@ export interface Input {
   by: string;
   via: Surface;
   answers: readonly Answer[];
+  /** The attempt whose questions it answers: the step's latest when it came (#656). */
+  attempt?: number;
 }
 
 export interface Step {

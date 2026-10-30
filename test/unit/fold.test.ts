@@ -374,7 +374,7 @@ describe('fold', () => {
     assert.deepStrictEqual([...(batch(state).steps.get('plan')?.attempts.keys() ?? [])], [1, 2]);
   });
 
-  it('records the answers a step received', () => {
+  it('records the answers a step received, and the attempt they answer (#656)', () => {
     const answers = [{ q: question.q, answer: 'keep' }];
     const state = fold([
       ordered,
@@ -389,7 +389,7 @@ describe('fold', () => {
       },
     ]);
     assert.deepStrictEqual(batch(state).steps.get('plan')?.inputs, [
-      { by: 'octocat', via: 'plugin', answers },
+      { by: 'octocat', via: 'plugin', answers, attempt: 1 },
     ]);
   });
 
