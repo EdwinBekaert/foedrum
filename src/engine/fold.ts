@@ -24,6 +24,7 @@ import type {
   WorktreeRef,
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
+import type { AttemptRef } from './attempt-key.ts';
 import { effectKey } from './effect-key.ts';
 import { ranIn } from './session-resume.ts';
 import { scopeOf } from './usage-window.ts';
@@ -152,10 +153,7 @@ export const roundRouteOf = (step: Step, n: number): ScheduleRoute | undefined =
  * The recipe an attempt was scheduled under, which its batch may have left since (ADR 0260); its
  * batch's recipe for an attempt that recorded none, undefined without either.
  */
-export const attemptRecipeOf = (
-  state: State,
-  ref: { batchId: string; stepId: string; attempt: number },
-): string | undefined => {
+export const attemptRecipeOf = (state: State, ref: AttemptRef): string | undefined => {
   const batch = state.batches.get(ref.batchId);
   return batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe ?? batch?.recipe?.name;
 };
