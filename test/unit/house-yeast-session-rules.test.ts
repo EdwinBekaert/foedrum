@@ -19,9 +19,9 @@ const ruleFile = (
 
 const generate = (...files: { path: string; text: string }[]) => sessionRuleFiles(files);
 
-// The `paths` list of a generated file's frontmatter.
+// The `paths` list of a generated file's frontmatter, the one key Claude Code reads.
 const pathsOf = (text: string): string[] => {
-  const [, front = ''] = /^---\n([\s\S]*?)\n---\n/.exec(text) ?? [];
+  const [, front = ''] = /^---\npaths:\n([\s\S]*?)\n---\n/.exec(text) ?? [];
   return [...front.matchAll(/^ {2}- (".*")$/gm)].map(([, path]) => JSON.parse(path as string));
 };
 
@@ -50,6 +50,14 @@ describe('sessionRuleFiles', () => {
     assert.ok(test.indexOf('## beta-rule') < test.indexOf('## zeta-rule'), test);
     assert.ok(!test.includes('alpha-rule'), test);
     assert.deepEqual(pathsOf(named(files, 'src-ts.md')), ['**/src/**/*.ts']);
+  });
+
+  it('names a file in lower case, without a dash at either end', () => {
+    const { files } = generate(ruleFile('named', { globs: ['docs/design/**', 'CLAUDE.md'] }, 'N.'));
+    assert.deepEqual(
+      files.map((f) => f.name),
+      ['claude-md-docs-design.md'],
+    );
   });
 
   it('puts rules whose globs differ only in order in one file', () => {
