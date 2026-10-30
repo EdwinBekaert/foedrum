@@ -636,7 +636,7 @@ export const capped = <T>(
 
 /**
  * The out doc of the latest attempt of `stepId` that succeeded, on `stateBranchUrl`, when it is a
- * plan: where its assumptions read whole (#659).
+ * plan: where its assumptions read whole (ADR 0266).
  */
 const fullPlanLine = (batch: Batch, stepId: string, stateBranchUrl?: string): string[] => {
   if (stateBranchUrl === undefined) return [];
@@ -819,7 +819,7 @@ export const renderStatus = (
   open?: OpenPullRequest,
   /** The other open pull requests its open pull request conflicts with (ADR 0230). */
   pairs: readonly PairConflict[] = [],
-  /** The state branch on the code host, whose out doc of the plan the Assumptions link (#659). */
+  /** The state branch on the code host, whose out doc of the plan the Assumptions link (ADR 0266). */
   stateBranchUrl?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
@@ -951,7 +951,7 @@ export interface StatusEffectsOptions {
   comments: StatusComments;
   recipes: Recipes;
   clock: () => Date;
-  /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (#659). */
+  /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (ADR 0266). */
   stateBranchUrl?: string;
 }
 

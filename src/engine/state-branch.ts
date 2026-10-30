@@ -107,7 +107,7 @@ export const outDocPath = ({
  * written (`?plain=1`): GitHub's rendered view does not show its JSON frontmatter readably. The
  * branch, not a commit: an attempt's path is its own, and a flush writes it with the same text.
  * The driver applies its effects after the tick's flush, so a link a comment shows for a
- * `step.finished` just recorded works from the next tick's push (#659).
+ * `step.finished` just recorded works from the next tick's push (ADR 0266).
  */
 export const outDocLink = (
   stateBranchUrl: string,

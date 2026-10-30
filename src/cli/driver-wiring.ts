@@ -185,7 +185,7 @@ export const wireDriver = async (
   const login = await githubLogin(client, signal);
   const claimant: Claimant = { brewery: setup.brewery, login };
   const comments = githubStatusComments({ client, reads, login });
-  // Where both comments link a plan's out doc, on the Brewery's state branch (ADR 0024, #659).
+  // Where both comments link a plan's out doc, on the Brewery's state branch (ADR 0266).
   const stateBranchUrl = `https://${setup.github.hostname}/${setup.brewery}/blob/${STATE_BRANCH}`;
   const status = statusEffects({
     brewery: setup.brewery,
