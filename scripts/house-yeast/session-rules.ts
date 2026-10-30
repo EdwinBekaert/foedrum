@@ -3,6 +3,7 @@
 // writes them.
 
 import {
+  byCodeUnits,
   languages,
   type Rule,
   type RuleFile,
@@ -66,8 +67,6 @@ export const sessionRuleFiles = (
     group.rules.push(rule);
     groups.set(key, group);
   }
-  // Not localeCompare: a locale's collation would make the names differ by machine.
-  const byCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   const taken = new Set<string>();
   const generated = [...groups]
     .sort(([a], [b]) => byCodeUnits(a, b))
