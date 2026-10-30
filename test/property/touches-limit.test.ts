@@ -24,9 +24,14 @@ const succeeded: Ending = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Done', assumptions: [] },
 };
-/** Files and folders that nest in each other, and a name that only begins like a folder. */
+/**
+ * Files and folders that nest in each other, a name that only begins like a folder, and paths that
+ * differ from others only in case, which a checkout on Windows or macOS takes for the same file.
+ */
 const paths = [
   'src/a.ts',
+  'src/A.ts',
+  'SRC/Dir',
   'src/dir',
   'src/dir/x.ts',
   'src/dir/sub/y.ts',
@@ -42,7 +47,8 @@ interface Plan {
 }
 
 const under = (path: string, folder: string): boolean =>
-  path === folder || path.startsWith(`${folder}/`);
+  path.toLowerCase() === folder.toLowerCase() ||
+  path.toLowerCase().startsWith(`${folder.toLowerCase()}/`);
 const clash = (one: Plan, other: Plan): boolean =>
   one.repo.toLowerCase() === other.repo.toLowerCase() &&
   one.touches.some((a) => other.touches.some((b) => under(a, b) || under(b, a)));

@@ -197,6 +197,18 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
     });
 
+    it('takes two spellings of one path for the same path, as a checkout on Windows or macOS does', async () => {
+      const numbers = breakdown([
+        { issue: 10, touches: ['src/Engine'] },
+        { issue: 11, touches: ['src/engine/limits.ts'] },
+      ]);
+      await intake(numbers).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(held(), [
+        { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
+      ]);
+    });
+
     it('takes two spellings of one repository for the same repository', async () => {
       const numbers = breakdown([
         { issue: 10, repo: 'acme/Web', touches: ['src/app.ts'] },
