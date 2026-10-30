@@ -51,6 +51,8 @@ or, from a checkout of this repository, start the session in the Brewery's root 
 /foedrum:brew <issue>
 ```
 
+To brew an issue with another recipe, `/foedrum:recipe '#<n>' <recipe> "<why>"` labels it `recipe:<recipe>` and orders it again once its last batch has ended ([ADR 0240](docs/adr/0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md)); then `/foedrum:brew '#<n>'` brews it.
+
 The plugin's skills run the `foedrum` command from your PATH. The npm package is not published yet, so put a command named `foedrum` on your PATH that runs `node <checkout>/src/cli/main.ts` with its arguments, where `<checkout>` is the folder of your clone of this repository after `npm ci`.
 
 From a terminal outside a Claude Code session, `foedrum brew <issue>` drives under the name `terminal`; to run a second driver beside it, give it a name of its own with `--as <name>`.

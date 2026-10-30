@@ -144,13 +144,13 @@ Commands:
   retry <batch>                                           Give the step a Stuck batch stopped at another attempt
   skip <batch>                                            Go on after the step a Stuck batch stopped at
   answer <batch> <answers>...                             Answer a Stuck batch's questions, one answer each, in order
-  recipe <batch> <recipe> <reason>                        Brew a batch with another recipe, from its first step
+  recipe <target> <recipe> <reason>                       Brew a batch, or an issue's latest, with another recipe from its first step; an ended issue is ordered again
   rewind <batch> <step> <commits>...                      Take a Stuck batch back to a step, each repository at its commit
   cancel <batch>                                          Cancel a batch
   pause [<order>] [--by <time>] [--why <reason>] [--all]  Pause an order, or all with --all: nothing new starts; --by stops what runs
   continue [<order>] [--all]                              Lift the pause of an order, or every pause with --all
   stop <order> [--why <reason>]                           Stop an order now: what runs of it is killed, and its batches are Stuck until retry
-  order <issue>                                           Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery
+  order <issue>                                           Order an issue, or an ended one again: <alias>#<n> of a target repository, #<n> of the Brewery
   brew <issue> [--as <name>] [--take] [--new-window]      Brew an issue's batch here until it is on tap, Stuck or needs input
   mash <issue> [--as <name>] [--take]                     Ask which recipe brews a Brewery issue, with a suggestion and its reason
   rank <order> [<place>] [--why <reason>]                 Move an order in the intake's queue to place <n>, or mark it to finish first

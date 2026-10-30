@@ -1836,6 +1836,31 @@ describe('runBrew', () => {
       assert.equal(shown.length, 1, lines.join('\n'));
     });
 
+    it('brews a claimed order by its Brewery issue, as its claimed batch, on tap: exit 0 (ADR 0240)', async () => {
+      const host = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 40, labels: ['recipe:stout'], author: 'ann', title: 'Dark', body: 'web#7' },
+          ],
+          'acme/web': [
+            { number: 7, labels: ['foedrum'], author: 'ann', title: 'Dark', body: 'Dark.' },
+          ],
+        },
+      });
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      const byOrder = { ...request, target: { issue: 40 } };
+      assert.equal(await runBrew(targetSetup(), claimed, byOrder), 0, lines.join('\n'));
+      const batches = [...log().state().batches.values()];
+      assert.deepStrictEqual(
+        batches.map(({ id, lane }) => ({ id, lane: lane.kind })),
+        [{ id: 'web-7', lane: 'on_tap' }],
+      );
+    });
+
     it('refuses it, ordering nothing, when another holds its claim: exit 5', async () => {
       const host = github();
       // Another Brewery's claim: its record as a commit, and the ref at it (ADR 0043).

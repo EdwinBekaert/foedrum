@@ -17,13 +17,13 @@ import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
+import { MASH_IN } from '../engine/recipe-label.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
-import { sameRepo } from '../engine/task-tree.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
-import { type OrderClaim, orderIssue } from './commands.ts';
+import { latestBatch, type OrderClaim, orderIssue } from './commands.ts';
 import { closeOpened, messageOf, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
@@ -59,22 +59,6 @@ export const BREW_EXIT = {
   cancelled: 6,
 } as const;
 
-/** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
-const latestBatch = (
-  batches: Iterable<Batch>,
-  issue: number,
-  repo: string | undefined,
-): Batch | undefined =>
-  [...batches]
-    .filter(
-      (batch) =>
-        batch.issue === issue &&
-        (repo === undefined
-          ? batch.repo === undefined
-          : batch.repo !== undefined && sameRepo(batch.repo, repo)),
-    )
-    .at(-1);
-
 /** The lines of a batch that needs input: each question numbered as `foedrum answer` takes it. */
 const questionLines = (batchId: string, stepId: string, batch: Batch): string[] => {
   const { lane } = batch;
@@ -89,9 +73,6 @@ const questionLines = (batchId: string, stepId: string, batch: Batch): string[] 
     `answer them in order with foedrum answer ${batchId} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then brew again`,
   ];
 };
-
-/** The recipe `foedrum mash` routes an issue to: the Innkeeper's question (ADR 0232). */
-export const MASH_IN = 'mash-in';
 
 /**
  * Why `foedrum mash` cannot route the issue's batch to mash-in (ADR 0232), or undefined: the batch
@@ -303,9 +284,9 @@ export const runBrew = async (
     const heldElsewhere = (id: string): BatchLease | undefined =>
       store.batchLeases(clock()).find((lease) => lease.batchId === id && lease.owner !== owner);
 
-    // A claimed issue is mashed by its Brewery issue, its order (ADR 0232).
+    // A claimed issue is brewed and mashed by its Brewery issue, its order (ADR 0232, ADR 0240).
     const claimed =
-      request.mash === true &&
+      order.repo === undefined &&
       latestBatch(log.state().batches.values(), issue, undefined) === undefined
         ? claimOfOrder(log.state(), issue)
         : undefined;
@@ -346,7 +327,11 @@ export const runBrew = async (
       const refused = mashRefusal(setup, latest, named);
       if (refused !== undefined) return refuse(refused);
     } else if (latest === undefined || latest.lane.kind === 'ordered') {
-      const names = recipeLabels(await githubOrderLabels(reads, setup.brewery)(order, signal));
+      // A claimed batch by its Brewery issue, once the ledger records it (ADR 0156).
+      const labelled = latest === undefined ? undefined : breweryIssueOf(log.state(), latest);
+      const labels = githubOrderLabels(reads, setup.brewery);
+      const on = await labels(labelled === undefined ? order : { issue: labelled }, signal);
+      const names = recipeLabels(on);
       if (names.length === 0) {
         return refuse(
           `${named} has no recipe:<name> label; label it with the recipe to brew it with`,

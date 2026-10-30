@@ -1,6 +1,6 @@
-// The recipe label (ADR 0232): `recipe:<name>` on the Brewery issue of a batch whose recipe a
-// person chose by answering a step that chooses it, set once through the ledger, with a fake of the
-// labels host. Pure: nothing reaches GitHub (ADR 0021).
+// The recipe label (ADR 0232, ADR 0240): `recipe:<name>` on the Brewery issue of a batch whose
+// recipe a person chose, by an answer or by foedrum recipe, set once per recipe through the ledger,
+// with a fake of the labels host. Pure: nothing reaches GitHub (ADR 0021).
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -12,7 +12,7 @@ import type { Event } from '../../src/schemas/events.ts';
 const brewery = 'alice/brewery';
 const routeBy = '2026-10-28T12:00:00.000Z';
 const by = { by: 'ann', via: 'terminal' } as const;
-const key = { batchId: '12-1', effect: 'recipe-label' };
+const key = { batchId: '12-1', effect: 'recipe-label:nip' };
 
 const ordered: Event = { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy };
 const chose = (fields: Record<string, unknown> = { askedBy: 'innkeep' }): Event =>
@@ -59,7 +59,7 @@ const fakeHost = (shown: string[] = []) => {
   };
 };
 
-describe('recipeLabelEffects (ADR 0232)', () => {
+describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
   it('labels the Brewery issue with the recipe the answer chose, made in the Brewery first', async () => {
     const { host, calls, onIssue } = fakeHost();
     const effects = recipeLabelEffects({ brewery, host });
@@ -115,7 +115,7 @@ describe('recipeLabelEffects (ADR 0232)', () => {
     assert.deepEqual(effects.due(fold(claimed), 'web-7'), []);
   });
 
-  it('is due once: never again after its record', () => {
+  it('is due once per recipe: never again after its record, and again for another recipe', () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     const applied: Event = {
       type: 'effect.applied',
@@ -123,13 +123,69 @@ describe('recipeLabelEffects (ADR 0232)', () => {
       result: { label: 'recipe:nip' },
     };
     assert.deepEqual(effects.due(fold([ordered, chose(), applied]), '12-1'), []);
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    assert.deepEqual(effects.due(fold([ordered, chose(), applied, stout]), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:stout' },
+    ]);
   });
 
-  it('labels nothing for a choice no answer made: a label, or foedrum recipe', () => {
+  it("labels nothing for a batch that ended, or that is not its issue's latest", () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    const cancelled: Event = { type: 'batch.cancelled', batchId: '12-1', ...by };
+    // 12-1 ended; 12-2 of the same issue was routed by the label a person put on since.
+    const again: Event[] = [
+      { type: 'batch.ordered', batchId: '12-2', order: { issue: 12 }, routeBy },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '12-2',
+        recipe: 'pint',
+        reason: 'label',
+        source: 'label',
+      },
+    ];
+    assert.deepEqual(effects.due(fold([ordered, stout, cancelled]), '12-1'), []);
+    assert.deepEqual(effects.due(fold([ordered, stout, ...again]), '12-1'), []);
+    // The latest batch, live, is due as before.
+    assert.deepEqual(effects.due(fold([ordered, stout]), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:stout' },
+    ]);
+  });
+
+  it('labels nothing for the latest batch once it is on tap', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    const onTap: Event = { type: 'batch.on_tap', batchId: '12-1', pullRequests: [] };
+    assert.deepEqual(effects.due(fold([ordered, stout]), '12-1').length, 1);
+    assert.deepEqual(effects.due(fold([ordered, stout, onTap]), '12-1'), []);
+  });
+
+  it('counts the label an older Foedrum applied under recipe-label as applied for its recipe', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const legacy: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '12-1', effect: 'recipe-label' }),
+      result: { label: 'recipe:nip' },
+    };
+    assert.deepEqual(effects.due(fold([ordered, chose(), legacy]), '12-1'), []);
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    assert.deepEqual(effects.due(fold([ordered, chose(), legacy, stout]), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:stout' },
+    ]);
+  });
+
+  it('labels the recipe a person chose with foedrum recipe, as an answer does (ADR 0240)', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    assert.deepEqual(effects.due(fold([ordered, chose({})]), '12-1'), [key]);
+  });
+
+  it("labels nothing for a label's or the router's choice, nor for mash-in, which asks for one", () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     const label: Event = { ...chose({}), source: 'label' } as Event;
-    for (const choice of [label, chose({})]) {
-      assert.deepEqual(effects.due(fold([ordered, choice]), '12-1'), []);
+    const router: Event = { ...chose({}), source: 'router' } as Event;
+    const mashIn: Event = { ...chose({}), recipe: 'mash-in' } as Event;
+    for (const choice of [label, router, mashIn]) {
+      assert.deepEqual(effects.due(fold([ordered, choice]), '12-1'), [], JSON.stringify(choice));
     }
   });
 

@@ -5,8 +5,9 @@
 // append its events through the command log, recorded with who issued it and from where
 // (ADR 0025).
 
-import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
+import { aliasOf, nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
+import { claimOfOrder } from '../engine/claim-orders.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
@@ -36,6 +37,7 @@ import {
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
@@ -194,6 +196,11 @@ const readBrewery = async (
 /** Who issues a human command about `batchId`, and from where (ADR 0019). */
 type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
 
+/** The command's user and surface, as the issuer of a human command. */
+const issuedBy =
+  ({ user, surface }: CliContext): Issued =>
+  (batchId) => ({ batchId, by: user(), via: surface });
+
 // Issues the human command `build` makes from the folded state (or the reason it makes none)
 // through the command log, so it is decided against the latest events (ADR 0025), and says where
 // the batch is now. `state` folds the latest events each time, for a build that waits on the code
@@ -207,16 +214,19 @@ const changeBrewery = async (
   ) => HumanCommand | { refused: string } | Promise<HumanCommand | { refused: string }>,
 ): Promise<CliResult> =>
   writeBrewery(command, context, async (log) => {
-    const { user, surface, now } = context;
-    const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
-    const human = await build(() => log.state(), issued);
+    const human = await build(() => log.state(), issuedBy(context));
     if ('refused' in human) return failed(command, human.refused);
-    const decision = log.issue(human, now());
+    const decision = log.issue(human, context.now());
     if (decision.kind === 'refused') return failed(command, decision.reason);
-    // Accepted, so the batch exists.
-    const { lane, detail } = describeLane(log.state().batches.get(human.batchId) as Batch);
-    return done(`${human.batchId} ${lane}${detail === '' ? '' : `: ${detail}`}\n`);
+    return done(`${laneLine(log.state(), human.batchId)}\n`);
   });
+
+/** Where the batch `batchId` is now, as a command that changed it says. */
+const laneLine = (state: State, batchId: string): string => {
+  // Accepted, so the batch exists.
+  const { lane, detail } = describeLane(state.batches.get(batchId) as Batch);
+  return `${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
+};
 
 // Runs `use` on the command log of the Brewery's store, opened for writing and closed after; one
 // line when there is no store or the fold refuses the log. Never creates a store.
@@ -261,6 +271,67 @@ const claimOf = (
   if (config.brewery === undefined) return { refused: NAME_THE_BREWERY };
   return { repo, alias, brewery: config.brewery, config };
 };
+
+/** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
+export const latestBatch = (
+  batches: Iterable<Batch>,
+  issue: number,
+  repo: string | undefined,
+): Batch | undefined =>
+  [...batches]
+    .filter(
+      (batch) =>
+        batch.issue === issue &&
+        (repo === undefined
+          ? batch.repo === undefined
+          : batch.repo !== undefined && sameRepo(batch.repo, repo)),
+    )
+    .at(-1);
+
+/** What `order` and `recipe` order for an issue, how they name it, and the claim it needs. */
+interface Ordering {
+  order: OrderRef;
+  name: string;
+  claim?: OrderClaim & { config: BreweryConfig };
+}
+
+/** What `order` and `recipe` act on for the target issue `<alias>#<issue>`, claimed in its repository. */
+const aliasedOrdering = (
+  alias: string,
+  issue: number,
+  config: BreweryConfig,
+): Ordering | { refused: string } => {
+  const claim = claimOf(alias, config);
+  if ('refused' in claim) return claim;
+  return { order: { issue, repo: claim.repo }, name: `${alias}#${issue}`, claim };
+};
+
+/**
+ * What `order` and `recipe` act on for the Brewery issue `#<issue>` (ADR 0240): its own batches,
+ * which need no foedrum.jsonc, or, when it is the Brewery issue of a claimed order, that claimed
+ * issue (ADR 0144).
+ */
+const breweryOrdering = (
+  issue: number,
+  state: State,
+  config: () => BreweryConfig,
+): Ordering | { refused: string } => {
+  const own = latestBatch(state.batches.values(), issue, undefined);
+  const claimed = own === undefined ? claimOfOrder(state, issue) : undefined;
+  const alias = claimed === undefined ? undefined : aliasOf(claimed.id);
+  if (claimed === undefined || alias === undefined) return { order: { issue }, name: `#${issue}` };
+  return aliasedOrdering(alias, claimed.issue, config());
+};
+
+/**
+ * The ordering of `target` that needs no store: a target issue's, read from foedrum.jsonc before
+ * the store opens; undefined for a Brewery issue, which the folded state settles.
+ */
+const aliasedTarget = (
+  { alias, issue }: OrderTarget,
+  context: CliContext,
+): Ordering | { refused: string } | undefined =>
+  alias === undefined ? undefined : aliasedOrdering(alias, issue, context.config());
 
 /** An order as a person wrote it: `<alias>#<n>` or `#<n>`. */
 const givenName = ({ alias, issue }: OrderTarget): string => `${alias ?? ''}#${issue}`;
@@ -627,18 +698,71 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'recipe',
-    summary: 'Brew a batch with another recipe, from its first step',
+    summary:
+      "Brew a batch, or an issue's latest, with another recipe from its first step; an ended issue is ordered again",
     changesState: true,
-    positionals: ['batch', 'recipe', 'reason'],
-    terminalOnly: STUCK_DECISION,
+    positionals: ['target', 'recipe', 'reason'],
     schema: RecipeCommand,
-    handler: async ({ batch, recipe, reason }, context) =>
-      changeBrewery('recipe', context, (_state, issued) => ({
-        kind: 'recipe',
-        ...issued(batch),
-        recipe,
-        reason,
-      })),
+    handler: async ({ target, recipe, reason }, context) => {
+      if (typeof target === 'string') {
+        return changeBrewery('recipe', context, (_state, issued) => ({
+          kind: 'recipe',
+          ...issued(target),
+          recipe,
+          reason,
+        }));
+      }
+      const aliased = aliasedTarget(target, context);
+      if (aliased !== undefined && 'refused' in aliased) return failed('recipe', aliased.refused);
+      return writeBrewery('recipe', context, async (log) => {
+        const { now } = context;
+        const issued = issuedBy(context);
+        // Before anything is ordered or claimed; decide checks it again.
+        if (context.recipes().find(recipe) === undefined) {
+          return failed('recipe', `the Brewery has no recipe ${recipe}`);
+        }
+        const ordering = aliased ?? breweryOrdering(target.issue, log.state(), context.config);
+        if ('refused' in ordering) return failed('recipe', ordering.refused);
+        const { order, name, claim } = ordering;
+        const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
+        // Killing a running attempt stays a person's explicit stop (ADR 0205).
+        if (latest?.lane.kind === 'brewing') {
+          return failed(
+            'recipe',
+            `batch ${latest.id} of ${name} is brewing; foedrum stop ${name} first, then change its recipe`,
+          );
+        }
+        const lines: string[] = [];
+        let batchId: string;
+        if (
+          latest === undefined ||
+          latest.lane.kind === 'on_tap' ||
+          latest.lane.kind === 'cancelled'
+        ) {
+          const ordered = await orderIssue(log.state, order, claim, {
+            // Called only for a claim, which carries its config.
+            claims: () => context.claims(claim?.config ?? context.config()),
+            now: now(),
+            issued,
+          });
+          if ('refused' in ordered) return failed('recipe', ordered.refused);
+          const decision = log.issue(ordered, now());
+          if (decision.kind === 'refused') return failed('recipe', decision.reason);
+          batchId = ordered.batchId;
+          lines.push(`ordered ${name} as batch ${batchId}`);
+        } else {
+          batchId = latest.id;
+        }
+        const decision = log.issue({ kind: 'recipe', ...issued(batchId), recipe, reason }, now());
+        // A batch ordered in the transaction before stays, as when the intake routed it between.
+        if (decision.kind === 'refused') {
+          const refused = failed('recipe', decision.reason);
+          return lines.length === 0 ? refused : { ...refused, stdout: `${lines.join('\n')}\n` };
+        }
+        lines.push(laneLine(log.state(), batchId));
+        return done(`${lines.join('\n')}\n`);
+      });
+    },
   }),
   define({
     name: 'rewind',
@@ -774,26 +898,26 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'order',
-    summary: 'Order an issue again: <alias>#<n> of a target repository, #<n> of the Brewery',
+    summary:
+      'Order an issue, or an ended one again: <alias>#<n> of a target repository, #<n> of the Brewery',
     changesState: true,
     positionals: ['issue'],
-    terminalOnly:
-      "Orders an ended issue again, a person's decision (ADR 0105); /foedrum:brew orders a new one",
     schema: OrderCommand,
     handler: async ({ issue: target }, context) => {
-      const { alias, issue } = target;
-      // A Brewery issue is never claimed, so it needs neither foedrum.jsonc nor GitHub.
-      const claim = alias === undefined ? undefined : claimOf(alias, context.config());
-      if (claim !== undefined && 'refused' in claim) return failed('order', claim.refused);
-      const order: OrderRef = claim === undefined ? { issue } : { issue, repo: claim.repo };
-      return changeBrewery('order', context, (state, issued) =>
-        orderIssue(state, order, claim, {
+      const aliased = aliasedTarget(target, context);
+      if (aliased !== undefined && 'refused' in aliased) return failed('order', aliased.refused);
+      return changeBrewery('order', context, (state, issued) => {
+        // A Brewery issue's own batches need neither foedrum.jsonc nor GitHub.
+        const ordering = aliased ?? breweryOrdering(target.issue, state(), context.config);
+        if ('refused' in ordering) return ordering;
+        const { order, claim } = ordering;
+        return orderIssue(state, order, claim, {
           // Called only for a claim, which carries its config.
           claims: () => context.claims(claim?.config ?? context.config()),
           now: context.now(),
           issued,
-        }),
-      );
+        });
+      });
     },
   }),
   define({
