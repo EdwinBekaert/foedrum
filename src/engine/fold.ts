@@ -128,6 +128,18 @@ export const runningAttempt = (step: Step): Exclude<Attempt, { phase: 'finished'
 export const attemptBefore = (step: Step, n: number): Attempt | undefined =>
   step.attempts.get(Math.max(...[...step.attempts.keys()].filter((each) => each < n)));
 
+/**
+ * The route that scheduled the round attempt `n` of `step` is in: its own, or for a retry, or an
+ * answer, that of the attempt it retries or answers, which it starts as (ADR 0117, ADR 0118).
+ */
+export const roundRouteOf = (step: Step, n: number): ScheduleRoute | undefined => {
+  let attempt = step.attempts.get(n);
+  while (attempt?.retry === true || attempt?.answered === true) {
+    attempt = step.attempts.get(attempt.attempt - 1);
+  }
+  return attempt?.route;
+};
+
 export interface Rewind {
   toStepId: string;
   by: string;

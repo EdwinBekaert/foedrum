@@ -13,7 +13,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { GaugeOutDoc, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 
 const workRoot = join('/root');
@@ -1122,6 +1122,100 @@ describe('createAttemptPlans: limits', () => {
   it('gives an attempt of a batch without a recipe the out doc of the contract alone', () => {
     const { plans } = setup([ordered[0] as Event]);
     assert.deepEqual(plans.limits(ref), { outDoc: { file: 'out.md', schema: OutDocFrontmatter } });
+  });
+
+  it('lets a Gauger its red proof sent back name its tests without a commit, in the retries of that round too (ADR 0258)', () => {
+    const found = loaded.brewers.find('pale', 'brew');
+    assert.ok(found !== undefined);
+    const gauger = {
+      ...found,
+      brewer: {
+        ...found.brewer,
+        produces: 'commits' as const,
+        git: { commit: true },
+        output: { doc: 'gauge.md', schema: 'gauge' },
+      },
+    };
+    const brewers = {
+      find: (recipe: string, stepId: string) =>
+        stepId === 'brew' ? gauger : loaded.brewers.find(recipe, stepId),
+    };
+    // Step red proves step brew; step lint is an ordinary check.
+    const checks = {
+      proves: (recipe: string, stepId: string) =>
+        recipe === 'pale' && stepId === 'red' ? 'brew' : undefined,
+    };
+    const second = { ...ref, attempt: 2 };
+    const third = { ...ref, attempt: 3 };
+    const secondSession = '1f8fad5b-d9cb-469f-a165-70867728950e';
+    const secondWorktree = join('/work', 'brew-2');
+    const routedBy = (from: string, why: 'failed' | 'findings' = 'failed'): Event[] => [
+      ...ordered,
+      started,
+      {
+        type: 'step.finished',
+        ...ref,
+        outcome: {
+          kind: 'succeeded',
+          output: { status: 'done', summary: 'Gauged', assumptions: [] },
+        },
+      },
+      {
+        type: 'step.scheduled',
+        ...second,
+        deadlineAt: '2026-10-17T13:00:00.000Z',
+        route: { from, why },
+      },
+      {
+        type: 'step.started',
+        ...second,
+        session: { id: secondSession, worktree: secondWorktree },
+        worktree: {
+          repo: 'acme/api',
+          path: secondWorktree,
+          branch: 'foedrum/12-1/brew/2',
+          commit: 'd'.repeat(40),
+        },
+      },
+      {
+        type: 'step.finished',
+        ...second,
+        outcome: {
+          kind: 'failed',
+          retryable: false,
+          reason: 'the out doc says done, but the brewer made no commit since ddddddd: Gauged',
+        },
+        claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+      },
+      { type: 'step.scheduled', ...third, deadlineAt: '2026-10-17T14:00:00.000Z', retry: true },
+      {
+        type: 'step.started',
+        ...third,
+        session: { id: secondSession, resumes: secondSession, worktree: secondWorktree },
+      },
+    ];
+    const limitsOf = (events: Event[], attempt: typeof ref) =>
+      setup(events, {}, undefined, brewers, { checks }).plans.limits(attempt);
+    const red = routedBy('red');
+    assert.equal(limitsOf(red, ref).namesOnly, undefined);
+    assert.equal(limitsOf(red, second).namesOnly, true);
+    // A retry starts as the attempt it retries, in the round that attempt is in (ADR 0117).
+    assert.deepEqual(limitsOf(red, third), {
+      outDoc: { file: 'gauge.md', schema: GaugeOutDoc },
+      maxTurns: 30,
+      commitsSince: 'd'.repeat(40),
+      namesOnly: true,
+    });
+    // A check that proves nothing red, and a recipe without red proofs, send no Gauger back so.
+    assert.equal(limitsOf(routedBy('lint'), second).namesOnly, undefined);
+    const plain = setup(red, {}, undefined, brewers).plans;
+    assert.equal(plain.limits(second).namesOnly, undefined); // Each condition alone: findings from the red step, and a red proof of another step.
+    assert.equal(limitsOf(routedBy('red', 'findings'), second).namesOnly, undefined);
+    const other = {
+      proves: (recipe: string, stepId: string) => (stepId === 'red' ? 'review' : undefined),
+    };
+    const elsewhere = setup(red, {}, undefined, brewers, { checks: other }).plans;
+    assert.equal(elsewhere.limits(second).namesOnly, undefined);
   });
 
   it("names the out doc of the brewer of a step in the batch's recipe, for the cleanup (ADR 0081)", () => {
