@@ -115,7 +115,7 @@ export const renderPlan = (
   ];
   const joined = (sections: string[][]): string =>
     sections.map((lines) => lines.join('\n')).join('\n\n');
-  // Last, and kept by a cut: the full plan, where every assumption reads whole.
+  // Last, and kept by a cut: the full plan, its assumptions among it, each whole.
   const link = fullPlan === undefined ? '' : `\n\nFull plan: ${linked(fullPlan)}`;
   const text = joined([title, table, order, ...others, ...after]);
   if (text.length + link.length <= longestComment) return `${text}${link}`;
