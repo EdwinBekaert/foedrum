@@ -1,6 +1,6 @@
 # Limits
 
-Besides the Brewery's `concurrency`, two limits hold what the intake starts: a recipe's `concurrency` and the Brewery's open-order limit ([ADR 0217](../../adr/0217-a-recipe-s-concurrency-and-the-open-order-limit-hold-what-the-intake-starts.md)).
+Besides the Brewery's `concurrency`, three limits hold what the intake starts: a recipe's `concurrency`, the Brewery's open-order limit ([ADR 0217](../../adr/0217-a-recipe-s-concurrency-and-the-open-order-limit-hold-what-the-intake-starts.md)) and the touches limit.
 
 ```mermaid
 flowchart LR
@@ -25,4 +25,7 @@ flowchart LR
 - **No event:** what a limit holds is a function of the folded state, the listing and the config, as the ready set is.
 - **Where it shows:** `serve` prints `<repo>#<n> waits: <why>` once per issue and reason; `foedrum status` prints, above the board, one line per limit that holds, a recipe's from its batches Brewing (`recipe nip: 1 of 1 at once (12-1); its next orders wait`) and the open orders once the limit is reached (`limitLines`).
   It reads foedrum.jsonc and the recipes only while some order is open (`mayHold`), and says in one line when they do not load; `status --watch` does not show them yet.
-- Next (#566): two ready sub-orders whose plan `touches` overlap never run side by side, with #388's `touches`.
+- **The touches limit** ([ADR 0257](../../adr/0257-sub-orders-whose-touches-overlap-never-brew-side-by-side.md)): a sub-order whose plan `touches` overlap those of a sub-order with a batch Ordered or Brewing, or that the walk started, is held until that one's batch leaves Ordered and Brewing.
+  An Ordered batch holds because its route can be held over passes, as a recipe's concurrency counts it.
+  An overlap is a shared path or a path under a folder the other touches, in one repository, compared without case as a checkout on Windows or macOS reads them; a sub-order without `touches` is never held.
+  `foedrum status` prints `sub-order #11 waits for sub-order #10 (10-1): their touches overlap` after the other limits' lines.

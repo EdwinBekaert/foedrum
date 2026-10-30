@@ -9,7 +9,7 @@ How orders reach a Brewery, how they are broken down and routed, and what Foedru
 | [Work breakdown](work-breakdown.md) | Orders, sub-orders, bottles, dependency kinds, release signals |
 | [Target-repository issues](target-issues.md) | The work queue, claims, marks and release |
 | [Ranking](ranking.md) | The order a pass orders and claims in, and `foedrum rank` |
-| [Limits](limits.md) | A recipe's `concurrency` and the open-order limit: what the walk skips |
+| [Limits](limits.md) | A recipe's `concurrency`, the open-order limit and the touches limit: what the walk skips |
 | [Open pull requests](open-pull-requests.md) | Their ends, the checks on their head, and the check against a base that moved |
 | [Triage](triage.md) | Issues from triage sources |
 | [Routing](routing.md) | How an order gets its recipe |
