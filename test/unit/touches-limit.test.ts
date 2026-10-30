@@ -211,6 +211,20 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
     });
 
+    it("leaves the recipe's concurrency to the sub-orders that start, not to the one held", async () => {
+      // Three may brew at once: order #1, sub-order 10 and 12; the held 11 takes none of them.
+      const numbers = breakdown([
+        { issue: 10, touches: ['src/a.ts'] },
+        { issue: 11, touches: ['src/a.ts', 'src/b.ts'] },
+        { issue: 12, touches: ['src/c.ts'] },
+      ]);
+      await intake(numbers, { limits: { ...unlimited, recipe: () => 3 } }).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing', '12-1 brewing']);
+      assert.deepStrictEqual(held(), [
+        { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
+      ]);
+    });
+
     it('starts two sub-orders with disjoint touches side by side', async () => {
       const numbers = breakdown([
         { issue: 10, touches: ['src/a.ts', 'docs/a.md'] },
