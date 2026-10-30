@@ -70,12 +70,15 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
   let failures: string[];
   // The head each batch's latest push recorded, which its bottle branch is at unless moved.
   let heads: Map<string, string>;
+  // Each bottle branch the pass read from the remote, in order.
+  let branchReads: string[];
 
   beforeEach(() => {
     store = openSqliteEventStore(':memory:');
     log = createCommandLog({ store, recipes });
     failures = [];
     heads = new Map();
+    branchReads = [];
   });
   afterEach(() => store.close());
 
@@ -115,6 +118,7 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
           ...repository,
           // A branch is at its batch's head unless the test moved it.
           branchTip: async (branch, signal) => {
+            branchReads.push(branch);
             const answer = await repository.branchTip(branch, signal);
             if (answer !== 'pushed') return answer;
             const batchId = branch.split('/')[1] ?? '';
@@ -293,6 +297,83 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
       assert.deepStrictEqual(pairEvents(), []);
     });
 
+    it('regression test: records nothing for the first pull request of a pair pushed while it was merged', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      const { repository } = fakeRepository({ ab: clean });
+      const pushing: BaseCheckRepository = {
+        ...repository,
+        mergeTree: async (one, two, signal) => {
+          push('web-12', hb2, 2);
+          return repository.mergeTree(one, two, signal);
+        },
+      };
+      await pass([pushing]);
+      assert.deepStrictEqual(pairEvents(), []);
+    });
+
+    it('regression test: pairs nothing with the first pull request when someone else pushed to its branch', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      const { repository, merges, branches } = fakeRepository({ ab: clean });
+      branches.set(branchOf('web-12'), 'e'.repeat(40));
+      await pass([repository]);
+      assert.deepStrictEqual(merges, []);
+      assert.deepStrictEqual(pairEvents(), []);
+    });
+
+    it('regression test: reads each bottle branch once a pass, and none in a pass with nothing due', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      onTap('web-14', c, hc);
+      const { repository } = fakeRepository({ ab: clean, ac: clean, bc: clean });
+      await pass([repository]);
+      assert.deepStrictEqual([...branchReads].sort(), ['web-12', 'web-13', 'web-14'].map(branchOf));
+      branchReads.length = 0;
+      await pass([repository]);
+      assert.deepStrictEqual(branchReads, []);
+    });
+
+    it('regression test: reports a bottle branch it cannot read, and pairs nothing with it', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      const { repository, merges } = fakeRepository({ ab: clean });
+      const unreadable: BaseCheckRepository = {
+        ...repository,
+        branchTip: async (branch, signal) => {
+          if (branch === branchOf('web-12')) throw new Error('remote hung up');
+          return repository.branchTip(branch, signal);
+        },
+      };
+      await pass([unreadable]);
+      assert.deepStrictEqual(merges, []);
+      assert.deepStrictEqual(pairEvents(), []);
+      assert.deepStrictEqual(failures, [`reading the tip of ${branchOf('web-12')} in acme/web`]);
+    });
+
+    it('regression test: reports a record another writer made first while the pair was merged', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      const { repository } = fakeRepository({ ab: clean });
+      const raced: BaseCheckRepository = {
+        ...repository,
+        mergeTree: async (one, two, signal) => {
+          const side = { type: 'pull_request.pair_checked', batchId: 'web-12' } as const;
+          assert.equal(
+            record({ ...side, pullRequest: a, head: ha, other: b, otherHead: hb }).kind,
+            'accepted',
+          );
+          return repository.mergeTree(one, two, signal);
+        },
+      };
+      await pass([raced]);
+      assert.deepStrictEqual(failures, [`recording the check of ${a} against ${b}`]);
+      assert.deepStrictEqual(
+        pairEvents().map(({ batchId }) => batchId),
+        ['web-12', 'web-13'],
+      );
+    });
+
     it('regression test: records nothing once the pass is given up during a merge-tree', async () => {
       onTap('web-12', a, ha);
       onTap('web-13', b, hb);
@@ -456,6 +537,14 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
       assert.ok(
         (await brief('web-12')).includes('- Merges cleanly with the other open pull requests.'),
       );
+    });
+
+    it('regression test: says nothing of other open pull requests in the brief of one that is alone', async () => {
+      onTap('web-12', a, ha);
+      finished('web-12', a, ha);
+      const body = await brief('web-12');
+      assert.match(body, /\*\*Ready to merge\.\*\*/);
+      assert.doesNotMatch(body, /other open pull requests|open pull request </);
     });
 
     it("names a claimed issue's pull request beside a Brewery issue's in a one-repository Brewery", async () => {
