@@ -256,6 +256,26 @@ describe('openAttemptWorktrees with a fake git', () => {
         assert.ok(existsSync(join(path, 'brew.md')));
       });
 
+      it("keeps a worktree with an untracked file named as another attempt's out doc (ADR 0260)", async () => {
+        worktreeOnDisk(path, 'implement1');
+        writeFileSync(join(path, 'brew.md'), "another attempt's out doc\n");
+        const { git } = gitWith('?? brew.md\n');
+        const otherAttempt = {
+          ...ended,
+          outDocs: new Map([
+            ['12-1/implement/1', 'implement.md'],
+            ['12-1/implement/2', 'brew.md'],
+          ]),
+        };
+
+        const report = await open(git).clean(otherAttempt);
+
+        assert.deepEqual(report.kept, [
+          'kept worktree 12-1/implement/1: it has uncommitted or untracked changes',
+        ]);
+        assert.ok(existsSync(join(path, 'brew.md')));
+      });
+
       it('removes the worktree when its out doc went since git listed it', async () => {
         worktreeOnDisk(path, 'implement1');
         const { git } = gitWith('?? brew.md\n');

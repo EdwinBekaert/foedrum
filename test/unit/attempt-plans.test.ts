@@ -1205,6 +1205,11 @@ describe('createAttemptPlans: limits', () => {
       const claims = worktreeClaims(fold(ended), [], plans.outDoc);
       assert.equal(claims.outDocs?.get('12-1/innkeep/1'), 'mash-in.md');
     });
+
+    it("names the out doc of the batch's recipe for an attempt that recorded none", () => {
+      const { plans } = setup(answered, {}, undefined, mash.brewers);
+      assert.equal(plans.outDoc({ ...ref, attempt: 2 }), 'brew.md');
+    });
   });
 
   it('names no out doc for a step without a brewer, or a batch without a recipe (ADR 0081)', () => {
