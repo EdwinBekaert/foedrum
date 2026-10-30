@@ -276,7 +276,11 @@ const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 export const aggregate = (pulls: readonly PullRequest[]): Metrics => {
   const lenses = new Map<string, Counts>();
   const total = noCounts();
-  const bySeverity = new Map(SEVERITIES.map((severity) => [severity, noCounts()]));
+  const bySeverity: Record<Severity, Counts> = {
+    blocker: noCounts(),
+    major: noCounts(),
+    minor: noCounts(),
+  };
   const counted: PullMetrics[] = [];
   const withoutSummary: number[] = [];
   const unparsed: Left[] = [];
@@ -316,8 +320,7 @@ export const aggregate = (pulls: readonly PullRequest[]): Metrics => {
       }
       for (const finding of summary.findings) {
         add(total, finding);
-        const severity = bySeverity.get(finding.severity);
-        if (severity !== undefined) add(severity, finding);
+        add(bySeverity[finding.severity], finding);
         add(pull.counts, finding);
         for (const lens of new Set(finding.lenses)) {
           const each = lenses.get(lens) ?? noCounts();
@@ -338,7 +341,7 @@ export const aggregate = (pulls: readonly PullRequest[]): Metrics => {
       .map(([name, counts]) => ({ name, ...counts })),
     total,
     severities: SEVERITIES.map((severity) => {
-      const { findings, ends } = bySeverity.get(severity) ?? noCounts();
+      const { findings, ends } = bySeverity[severity];
       return { severity, findings, ends };
     }),
     pulls: counted,
