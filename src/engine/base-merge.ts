@@ -15,7 +15,7 @@ import type { AttemptRef } from './attempt-key.ts';
 import type { Ending } from './decide.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import type { Attempt, Batch, State, Step } from './fold.ts';
+import { type Attempt, type Batch, roundRouteOf, type State, type Step } from './fold.ts';
 import type { BranchPush } from './pull-request-actions.ts';
 import { ranIn } from './session-resume.ts';
 
@@ -144,14 +144,10 @@ export const mergeRouteOf = (
   batch: Batch,
   ref: AttemptRef,
 ): Extract<ScheduleRoute, { why: 'pull_request' }> | undefined => {
-  const attempts = batch.steps.get(ref.stepId)?.attempts;
-  let attempt = attempts?.get(ref.attempt);
+  const step = batch.steps.get(ref.stepId);
   // A retry, or an answer that starts fresh, starts as the attempt before it did (ADR 0117,
   // ADR 0118).
-  while (attempt?.retry === true || attempt?.answered === true) {
-    attempt = attempts?.get(attempt.attempt - 1);
-  }
-  const route = attempt?.route;
+  const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
   return route?.why === 'pull_request' && route.cause !== undefined ? route : undefined;
 };
 
