@@ -94,6 +94,38 @@ describe('sessionRuleFiles', () => {
     assert.ok(files[0]?.text.includes('## once (') && files[0].text.includes('## twice ('));
   });
 
+  it('names a shared file the same whichever rule is read first', () => {
+    const twice = ruleFile('twice', { globs: ['src/**', '**/src/**'] }, 'Twice.');
+    const once = ruleFile('once', { globs: ['src/**'] }, 'Once.');
+    assert.deepEqual(
+      generate(twice, once).files.map((f) => f.name),
+      generate(once, twice).files.map((f) => f.name),
+    );
+  });
+
+  it('scopes a rule with a language of one extension to that extension, without braces', () => {
+    const { files } = generate(ruleFile('marked', { language: 'markdown' }, 'Marked.'));
+    assert.deepEqual(
+      files.map((f) => f.name),
+      ['markdown.md'],
+    );
+    assert.deepEqual(pathsOf(named(files, 'markdown.md')), ['**/*.md']);
+  });
+
+  it('scopes a rule with neither globs nor a language to every file', () => {
+    const { files } = generate(
+      ruleFile('everywhere-rule', {}, 'Everywhere.'),
+      ruleFile('lens-only', { lens: 'security' }, 'Lens only.'),
+    );
+    assert.deepEqual(
+      files.map((f) => f.name),
+      ['everywhere.md'],
+    );
+    const text = named(files, 'everywhere.md');
+    assert.deepEqual(pathsOf(text), ['**/*']);
+    assert.ok(text.includes('## everywhere-rule (') && text.includes('## lens-only ('), text);
+  });
+
   it('gives a rule of every lens, since the session writes the change', () => {
     const { files } = generate(
       ruleFile('lensed', { globs: ['src/**/*.ts'], lens: 'test-design' }, 'Lensed.'),
