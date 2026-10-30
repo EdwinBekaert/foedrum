@@ -1397,6 +1397,14 @@ describe('forbiddenReason through wrappers and other shells', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(40)}git status`) ?? '', /too deeply/);
   });
 
+  // git's -h is help only as its first word, also now that the gate knows it takes no value
+  // (ADR 0246, ADR 0256).
+  for (const command of ['git -c x=y -h push -f origin x', 'git --no-pager -h push -f origin x']) {
+    it(`forbids force push behind a later -h (regression test): ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^Force push/);
+    });
+  }
+
   // More than 8 levels of shells and substitutions are too deep (CLAUDE.md).
   it('reads a command nested 8 levels deep (regression test)', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(8)}git push -f`) ?? '', /^Force push/);
