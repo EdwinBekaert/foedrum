@@ -2216,3 +2216,146 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     assert.ok(lines.includes(`- <${pr}> waits for its checks on \`cccccccc\` since ${at}`));
   });
 });
+
+describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", () => {
+  const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
+  const subOrder = {
+    id: 'one',
+    title: 'One',
+    repo: 'alice/web',
+    size: { lines: 10, mechanism: 'a flag' },
+    doneWhen: 'a test passes',
+    touches: [{ path: 'src' }],
+    recipe: 'nip',
+    why: 'small',
+    ready: true,
+  };
+  const planOutput = { status: 'done', summary: 'Planned', subOrders: [subOrder] };
+  const planned = (attempt: number, assumptions: string[]): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: at,
+    outcome: { kind: 'succeeded', output: { ...planOutput, assumptions } },
+  });
+  const section = (text: string): string[] => {
+    const lines = text.split('\n');
+    const from = lines.indexOf('**Assumptions**');
+    if (from < 0) return [];
+    const to = lines.indexOf('', from);
+    return lines.slice(from, to < 0 ? undefined : to);
+  };
+  const rendered = (batched: Batch, branch?: string): string =>
+    renderStatus(
+      batched,
+      steps,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      [],
+      branch,
+    );
+
+  it("ends the Assumptions with a link to the out doc of the plan's latest attempt that succeeded", () => {
+    const text = rendered(
+      batch({
+        steps: new Map([
+          step('plan', planned(1, ['Old']), planned(2, ['Kept the flag']), failed(3, 'no')),
+          step('brew', done(1, ['Port 8080 is free'])),
+        ]),
+      }),
+      stateBranchUrl,
+    );
+    assert.deepEqual(section(text), [
+      '**Assumptions**',
+      '- `plan`: Kept the flag',
+      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md?plain=1>`,
+      '- `brew`: Port 8080 is free',
+    ]);
+  });
+
+  it('links no step whose out doc is no plan: regression test', () => {
+    const text = rendered(
+      batch({ steps: new Map([step('brew', done(1, ['Port 8080 is free']))]) }),
+      stateBranchUrl,
+    );
+    assert.deepEqual(section(text), ['**Assumptions**', '- `brew`: Port 8080 is free']);
+  });
+
+  it('links no plan step that has not succeeded, which has no assumptions to end: regression test', () => {
+    const text = rendered(
+      batch({ steps: new Map([step('plan', failed(1, 'the out doc plan.md is invalid'))]) }),
+      stateBranchUrl,
+    );
+    assert.doesNotMatch(text, /full plan|foedrum\/state/);
+  });
+
+  it('links no plan that succeeded without assumptions, which has no section to end: regression test', () => {
+    const text = rendered(
+      batch({ steps: new Map([step('plan', planned(1, []))]) }),
+      stateBranchUrl,
+    );
+    assert.deepEqual(section(text), []);
+    assert.doesNotMatch(text, /full plan|foedrum\/state/);
+  });
+
+  it('reads as before without a plan: regression test', () => {
+    const plain = batch({ steps: new Map([step('plan', done(1, ['Kept the flag']))]) });
+    assert.equal(rendered(plain, stateBranchUrl), rendered(plain));
+  });
+
+  it('links the out doc on the state branch the driver was given', async () => {
+    const recipes = fakeRecipes({ nip: fakeRecipe({ steps: ['plan', 'brew'] }) });
+    const store = openSqliteEventStore(':memory:');
+    const comments = fakeComments('alice');
+    const now = new Date(at);
+    try {
+      const log = createCommandLog({ store, recipes });
+      const issue = (command: Parameters<CommandLog['issue']>[0]): void => {
+        const decision = log.issue(command, now);
+        assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      };
+      const ref = { batchId: '7-1', stepId: 'plan', attempt: 1 };
+      issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+      issue({ kind: 'route', batchId: '7-1', recipe: 'nip', reason: 'label', source: 'label' });
+      issue({ kind: 'record', event: { type: 'step.started', ...ref } });
+      const output = { ...planOutput, assumptions: ['Kept the flag'] };
+      issue({ kind: 'finish', ...ref, ending: { kind: 'succeeded', output } });
+      const driver = await openDriver({
+        store,
+        runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+        recipes,
+        clock: () => now,
+        lock: () => fakeLock('cellar'),
+        takes: () => true,
+        stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+        limits: () => defaultLimits,
+        effects: statusEffects({
+          brewery,
+          comments: comments.host,
+          recipes,
+          clock: () => now,
+          stateBranchUrl,
+        }),
+        report: () => undefined,
+      });
+      try {
+        await driver.applyEffects();
+      } finally {
+        driver.close();
+      }
+      const body = comments.comments[0]?.body ?? assert.fail('no status comment');
+      assert.ok(
+        section(body).includes(
+          `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-1.md?plain=1>`,
+        ),
+        body,
+      );
+    } finally {
+      store.close();
+    }
+  });
+});

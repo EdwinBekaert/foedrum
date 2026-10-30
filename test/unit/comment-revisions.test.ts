@@ -20,4 +20,13 @@ describe('cutForComment', () => {
     );
     assert.ok(longest.startsWith(cut.slice(0, cut.indexOf('\n\n…'))));
   });
+
+  it('leaves `room` for what follows the text: regression test (#659)', () => {
+    const longest = line.repeat(longestComment / line.length);
+    assert.equal(cutForComment(longest, 0), longest);
+    const cut = cutForComment(longest, 250);
+    assert.ok(cut.length <= longestComment - 250, String(cut.length));
+    assert.ok(cut.length > longestComment - 250 - 2 * line.length, String(cut.length));
+    assert.ok(cut.endsWith('\n\n… the rest is cut: GitHub keeps comments shorter.'));
+  });
 });
