@@ -26,7 +26,7 @@ The maintainer's `foedrum mash` run and `npm run demo` showed three misreadings 
 The path still changes only at an attempt's start or end, or a lane change (an answer resumes a Stuck batch), so the comment's revisions stay within one a minute ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)).
 
 ### `foedrum brew` on tap without a pull request
-Its last line says `no pull request`, followed by `; the plan: <link>` to the plan comment when the order has one: the batch's own revision of it, else the one an earlier batch of the order made ([ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md)).
+Its last line says `no pull request`, followed by `; the plan: <link>` to the plan comment when the batch has a plan: the batch's own revision of the order's plan comment, else the one an earlier batch of the order made ([ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md)).
 
 Rejected:
 - A fixed phrase per class of failure ("out doc invalid", "red proof", "lost"). The reasons come from about twenty places as free text, and a table would drift from them; the engine already starts each reason with its class.
