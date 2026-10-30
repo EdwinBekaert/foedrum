@@ -120,6 +120,36 @@ describe('judgeRed', () => {
     }
   });
 
+  it("proves red an xunit assertion failure and a node assertion's in a JUnit report", () => {
+    const report = junit(`<testsuite>
+      <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Values differ&#10;Expected: 3&#10;Actual:   0">   at Calc.Tests.AddTests.AddsTwoNumbers() in C:\\work\\app\\AddTests.cs:line 4</failure></testcase>
+      <testcase name="adds a negative number"><failure message="AssertionError [ERR_ASSERTION]: Expected values to be strictly equal"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it('does not take a .NET test that expects a load failure for one when it fails on an assertion', () => {
+    const name = 'throws a TypeLoadException for a missing type';
+    const csharp = [
+      {
+        newPath: 'test/Calc.Tests/LoaderTests.cs',
+        added: [
+          `    [Fact(DisplayName = "${name}")]`,
+          '    public void ThrowsTypeLoadException() => Assert.Throws<TypeLoadException>(Loader.Load);',
+        ],
+        removed: [],
+      },
+    ];
+    // xunit's text when the stub throws something else: it names the expected type, after typeof.
+    const report = junit(`<testsuite>
+      <testcase classname="Calc.Tests.LoaderTests" name="${name}"><failure message="Assert.Throws() Failure: Exception type was not an exact match&#10;Expected: typeof(System.TypeLoadException)&#10;Actual:   typeof(System.NotImplementedException)&#10;---- System.NotImplementedException : The method or operation is not implemented.">   at Calc.Tests.LoaderTests.ThrowsTypeLoadException() in C:\\work\\app\\LoaderTests.cs:line 6</failure></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, csharp), { proven: true, tests: [name] });
+  });
+
   it('refuses a JUnit report with a collection error', () => {
     const report = junit(`<testsuite>
       <testcase name="adds two numbers"><error message="not implemented"/></testcase>
