@@ -496,6 +496,44 @@ describe('createIntake', () => {
       assert.deepStrictEqual(calls, ['tip', 'merge-tree']);
     });
 
+    it('checks the open pull requests against each other after their bases (ADR 0230)', async () => {
+      const other = 'https://github.com/acme/web/pull/13';
+      store.replay([
+        ...openedOnTap('1-1', 'half', firstHead, pullRequest),
+        ...openedOnTap('1-2', 'half', secondHead, other),
+      ]);
+      log = createCommandLog({ store, recipes });
+      const calls: string[] = [];
+      const bases: IntakeOptions['bases'] = [
+        {
+          repo: web,
+          base: 'main',
+          tip: async () => 'e'.repeat(40),
+          mergeTree: async (one, two) => {
+            calls.push(`merge-tree ${one.slice(0, 1)} ${two.slice(0, 1)}`);
+            return two === secondHead
+              ? { kind: 'conflicts', files: ['app.ts'] }
+              : { kind: 'clean' };
+          },
+          branchTip: async (branch) => (branch.includes('1-1') ? firstHead : secondHead),
+        },
+      ];
+      const { tracker } = fakeTracker(
+        { [web]: [], [api]: [] },
+        { [pullRequest]: 'open', [other]: 'open' },
+      );
+      await intake(tracker, { bases }).poll();
+      assert.deepStrictEqual(calls, ['merge-tree c e', 'merge-tree d e', 'merge-tree c d']);
+      assert.deepStrictEqual(log.state().batches.get('1-2')?.pairChecks, {
+        [pullRequest]: {
+          pullRequest: other,
+          head: secondHead,
+          otherHead: firstHead,
+          conflicts: ['app.ts'],
+        },
+      });
+    });
+
     it('reads the checks on the open pull requests after it records the ends, and reports a failed read (ADR 0213)', async () => {
       onTap();
       for (const [key, result] of [

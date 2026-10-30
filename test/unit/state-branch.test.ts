@@ -161,6 +161,17 @@ describe('logPathOf', () => {
       },
       'batches/b1/events.jsonl',
     ],
+    'pull_request.pair_checked': [
+      {
+        type: 'pull_request.pair_checked',
+        batchId: 'b1',
+        pullRequest: 'https://github.com/acme/api/pull/7',
+        head: 'a'.repeat(40),
+        other: 'https://github.com/acme/api/pull/8',
+        otherHead: 'b'.repeat(40),
+      },
+      'batches/b1/events.jsonl',
+    ],
     'pull_request.checks_pending': [
       {
         type: 'pull_request.checks_pending',

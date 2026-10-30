@@ -110,6 +110,7 @@ export type RecordedEvent = Extract<
       | 'release.observed'
       | 'pull_request.ended'
       | 'pull_request.base_checked'
+      | 'pull_request.pair_checked'
       | 'pull_request.checks_pending'
       | 'pull_request.checks_finished'
       | 'effect.applied';

@@ -150,6 +150,8 @@ function rule(state: State, event: Event): string | undefined {
       return endable(state, event);
     case 'pull_request.base_checked':
       return checkable(state, event);
+    case 'pull_request.pair_checked':
+      throw new Error('not implemented');
     case 'pull_request.checks_pending':
     case 'pull_request.checks_finished':
       return checkable(state, event) ?? unrecorded(state, event);

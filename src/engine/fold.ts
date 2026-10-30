@@ -209,6 +209,11 @@ export interface Batch {
    */
   pullRequestChecks?: Readonly<Record<string, HeadChecks>>;
   /**
+   * The latest merge-tree of its open pull request's head with each other open pull request's
+   * head of the Brewery's in its repository, by the other's URL (ADR 0230); absent while none was.
+   */
+  pairChecks?: Readonly<Record<string, PairCheck>>;
+  /**
    * The failed head of a pull request that a person's skip of a batch Stuck on its checks left as
    * it is (ADR 0219): nothing sends the batch back for it again. Absent while no skip did.
    */
@@ -235,6 +240,17 @@ export const sameHeadChecks = (
   a: { checks: readonly HeadCheck[]; more?: number | undefined },
   b: { checks: readonly HeadCheck[]; more?: number | undefined },
 ): boolean => headChecksText(a) === headChecksText(b);
+
+/** One merge-tree of an open pull request's head with another open pull request's (ADR 0230). */
+export interface PairCheck {
+  /** The batch's own pull request, and the head of it that was merged. */
+  pullRequest: string;
+  head: string;
+  /** The other pull request's head that was merged. */
+  otherHead: string;
+  /** The files they conflict in; absent when they merge cleanly. */
+  conflicts?: readonly string[];
+}
 
 /** The checks on a pull request's head (ADR 0213): still running since a pass saw it, or finished. */
 export type HeadChecks =
@@ -750,6 +766,8 @@ function apply(state: State, event: Event): State {
         baseChecks: [...(batch.baseChecks ?? []), check],
       }));
     }
+    case 'pull_request.pair_checked':
+      throw new Error('not implemented');
     case 'pull_request.checks_pending': {
       const { batchId, pullRequest, head, since } = event;
       return updateBatch(state, batchId, (batch) => ({
