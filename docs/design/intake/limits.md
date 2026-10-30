@@ -27,5 +27,5 @@ flowchart LR
   It reads foedrum.jsonc and the recipes only while some order is open (`mayHold`), and says in one line when they do not load; `status --watch` does not show them yet.
 - **The touches limit** ([ADR 0257](../../adr/0257-sub-orders-whose-touches-overlap-never-brew-side-by-side.md)): a sub-order whose plan `touches` overlap those of a sub-order with a batch Ordered or Brewing, or that the walk started, is held until that one's batch leaves Ordered and Brewing.
   An Ordered batch holds because its route can be held over passes, as a recipe's concurrency counts it.
-  An overlap is a shared path or a path under a folder the other touches, in one repository; a sub-order without `touches` is never held.
+  An overlap is a shared path or a path under a folder the other touches, in one repository, compared without case as a checkout on Windows or macOS reads them; a sub-order without `touches` is never held.
   `foedrum status` prints `sub-order #11 waits for sub-order #10 (10-1): their touches overlap` after the other limits' lines.
