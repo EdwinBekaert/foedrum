@@ -119,6 +119,15 @@ describe('sessionRuleFiles', () => {
     );
   });
 
+  it("names a shared file after the lowest of its rules' names", () => {
+    const twice = ruleFile('twice', { globs: ['src/**', '**/src/**'] }, 'Twice.');
+    const once = ruleFile('once', { globs: ['src/**'] }, 'Once.');
+    assert.deepEqual(
+      generate(twice, once).files.map((f) => f.name),
+      ['src.md'],
+    );
+  });
+
   it('scopes a rule with a language of one extension to that extension, without braces', () => {
     const { files } = generate(ruleFile('marked', { language: 'markdown' }, 'Marked.'));
     assert.deepEqual(
