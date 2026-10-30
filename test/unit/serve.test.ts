@@ -880,7 +880,7 @@ Plan the order in {order}.
     assert.equal(existsSync(join(dir.path, 'attempt-settings', '12-1')), false);
   });
 
-  it("lets the cleanup of an ended batch know each step's out doc, from its brewer (ADR 0081)", async () => {
+  it("lets the cleanup of an ended batch know each attempt's out doc, from its brewer (ADR 0081)", async () => {
     const managers: FakeWorktrees[] = [];
     const worktrees: ServeShell['worktrees'] = async () => {
       const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
@@ -890,7 +890,7 @@ Plan the order in {order}.
     assert.equal(await runServe(setup, shell({ worktrees })), 0);
     assert.deepStrictEqual(
       managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.outDocs,
-      new Map([['12-1/brew', 'brew.md']]),
+      new Map([['12-1/brew/1', 'brew.md']]),
     );
   });
 

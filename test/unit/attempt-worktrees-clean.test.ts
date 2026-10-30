@@ -184,7 +184,7 @@ describe('openAttemptWorktrees with a fake git', () => {
     });
 
     describe("the step's own out doc (ADR 0081)", () => {
-      const withOutDoc = { ...ended, outDocs: new Map([['12-1/implement', 'brew.md']]) };
+      const withOutDoc = { ...ended, outDocs: new Map([['12-1/implement/1', 'brew.md']]) };
       // git status lists `status`; git worktree remove refuses while anything is untracked.
       const gitWith = (status: string) =>
         fakeGit((_cwd, args) => {
@@ -246,7 +246,7 @@ describe('openAttemptWorktrees with a fake git', () => {
         worktreeOnDisk(path, 'implement1');
         writeFileSync(join(path, 'brew.md'), "another step's out doc\n");
         const { git } = gitWith('?? brew.md\n');
-        const otherStep = { ...ended, outDocs: new Map([['12-1/review', 'brew.md']]) };
+        const otherStep = { ...ended, outDocs: new Map([['12-1/review/1', 'brew.md']]) };
 
         const report = await open(git).clean(otherStep);
 

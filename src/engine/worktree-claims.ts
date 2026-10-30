@@ -29,8 +29,8 @@ export const laneStatus = (lane: Lane): 'live' | 'ended' => {
   }
 };
 
-/** The out doc of a step's brewer, or undefined when it has none or it cannot be found. */
-export type OutDocOf = (step: { batchId: string; stepId: string }) => string | undefined;
+/** The out doc of an attempt's brewer, or undefined when it has none or it cannot be found. */
+export type OutDocOf = (attempt: AttemptRef) => string | undefined;
 
 // The out doc of every step of an ended batch whose brewer names one (ADR 0081). A live batch
 // keeps its worktrees anyway.

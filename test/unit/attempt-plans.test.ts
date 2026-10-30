@@ -12,6 +12,7 @@ import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
+import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
@@ -1126,7 +1127,7 @@ describe('createAttemptPlans: limits', () => {
 
   it("names the out doc of the brewer of a step in the batch's recipe, for the cleanup (ADR 0081)", () => {
     const { plans } = setup();
-    assert.equal(plans.outDoc({ batchId: '12-1', stepId: 'brew' }), 'brew.md');
+    assert.equal(plans.outDoc(ref), 'brew.md');
   });
 
   describe('an attempt of a recipe the batch has left (#657)', () => {
@@ -1185,17 +1186,32 @@ describe('createAttemptPlans: limits', () => {
       { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-17T14:00:00.000Z' },
     ];
 
+    it('names the out doc of the recipe the attempt was scheduled under, once the batch has left it', () => {
+      const { plans } = setup(answered, {}, undefined, mash.brewers);
+      assert.equal(plans.outDoc(innkeep), 'mash-in.md');
+    });
+
     it('names the out doc of a step of the recipe the batch brews now', () => {
       const { plans } = setup(answered, {}, undefined, mash.brewers);
       assert.equal(plans.outDoc(ref), 'brew.md');
     });
+
+    it('counts the innkeep worktree of an ended mash batch clean with its out doc', () => {
+      const ended: Event[] = [
+        ...answered,
+        { type: 'batch.cancelled', batchId: '12-1', by: 'octocat', via: 'terminal' },
+      ];
+      const { plans } = setup(ended, {}, undefined, mash.brewers);
+      const claims = worktreeClaims(fold(ended), [], plans.outDoc);
+      assert.equal(claims.outDocs?.get('12-1/innkeep/1'), 'mash-in.md');
+    });
   });
 
   it('names no out doc for a step without a brewer, or a batch without a recipe (ADR 0081)', () => {
-    assert.equal(setup().plans.outDoc({ batchId: '12-1', stepId: 'taste' }), undefined);
-    assert.equal(setup().plans.outDoc({ batchId: '13-1', stepId: 'brew' }), undefined);
+    assert.equal(setup().plans.outDoc({ ...ref, stepId: 'taste' }), undefined);
+    assert.equal(setup().plans.outDoc({ ...ref, batchId: '13-1' }), undefined);
     const unrouted = setup([ordered[0] as Event]).plans;
-    assert.equal(unrouted.outDoc({ batchId: '12-1', stepId: 'brew' }), undefined);
+    assert.equal(unrouted.outDoc(ref), undefined);
   });
 
   it('gives an attempt whose step has no brewer the out doc of the contract alone: its plan fails', () => {

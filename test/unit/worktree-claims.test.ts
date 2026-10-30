@@ -13,7 +13,7 @@ import {
 } from '../../src/engine/fold.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { planClean } from '../../src/workspace/attempt-worktrees.ts';
+import { type AttemptRef, planClean } from '../../src/workspace/attempt-worktrees.ts';
 
 const batch = (id: string, lane: Lane): Batch => ({
   id,
@@ -75,10 +75,16 @@ describe('worktreeClaims', () => {
     assert.deepEqual(worktreeClaims(emptyState, leases).leased, [attempt]);
   });
 
-  it('names the out doc of every step of an ended batch whose brewer is known (ADR 0081)', () => {
-    const steps = new Map(
-      ['brew', 'check'].map((id) => [id, { id, attempts: new Map(), inputs: [] }]),
-    );
+  it('names the out doc of every attempt of an ended batch whose brewer is known (ADR 0081)', () => {
+    const scheduled = (attempt: number): Attempt => ({
+      phase: 'scheduled',
+      attempt,
+      deadlineAt: '2026-10-15T00:00:00.000Z',
+    });
+    const steps = new Map([
+      ['brew', { id: 'brew', attempts: new Map([1, 2].map((n) => [n, scheduled(n)])), inputs: [] }],
+      ['check', { id: 'check', attempts: new Map([[1, scheduled(1)]]), inputs: [] }],
+    ]);
     const state = {
       ...emptyState,
       batches: new Map(
@@ -90,9 +96,9 @@ describe('worktreeClaims', () => {
     };
     const asked: string[] = [];
     // A check step has no brewer, so no out doc.
-    const outDoc = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
-      asked.push(`${batchId}/${stepId}`);
-      return stepId === 'brew' ? 'brew.md' : undefined;
+    const outDoc = ({ batchId, stepId, attempt }: AttemptRef) => {
+      asked.push(`${batchId}/${stepId}/${attempt}`);
+      return stepId === 'brew' ? `brew-${attempt}.md` : undefined;
     };
 
     const claims = worktreeClaims(state, [], outDoc);
@@ -100,12 +106,21 @@ describe('worktreeClaims', () => {
     assert.deepEqual(
       claims.outDocs,
       new Map([
-        ['on-tap/brew', 'brew.md'],
-        ['cancelled/brew', 'brew.md'],
+        ['on-tap/brew/1', 'brew-1.md'],
+        ['on-tap/brew/2', 'brew-2.md'],
+        ['cancelled/brew/1', 'brew-1.md'],
+        ['cancelled/brew/2', 'brew-2.md'],
       ]),
     );
     // A live batch keeps its worktrees anyway: its brewers are not looked up.
-    assert.deepEqual(asked, ['on-tap/brew', 'on-tap/check', 'cancelled/brew', 'cancelled/check']);
+    assert.deepEqual(asked, [
+      'on-tap/brew/1',
+      'on-tap/brew/2',
+      'on-tap/check/1',
+      'cancelled/brew/1',
+      'cancelled/brew/2',
+      'cancelled/check/1',
+    ]);
   });
 });
 

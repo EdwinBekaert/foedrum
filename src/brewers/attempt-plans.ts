@@ -133,8 +133,11 @@ export interface AttemptPlans {
   plan(attempt: AttemptStart): Promise<ClaudeAttemptPlan>;
   /** The limits of an attempt, from the brewer of its step in its batch's recipe. */
   limits(ref: AttemptRef): AttemptLimits;
-  /** The out doc of the brewer of a step in its batch's recipe; undefined without one (ADR 0081). */
-  outDoc(step: { batchId: string; stepId: string }): string | undefined;
+  /**
+   * The out doc of the brewer of an attempt's step in the recipe it was scheduled under; undefined
+   * without one (ADR 0081).
+   */
+  outDoc(attempt: AttemptRef): string | undefined;
 }
 
 /** The tools that run a command: a brewer without one cannot use an install (ADR 0163). */
