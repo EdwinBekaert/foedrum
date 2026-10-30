@@ -222,6 +222,14 @@ export const laterRoundLines = (
 };
 
 /**
+ * `foedrum replay <batch>`'s output with its Events block counted in one line instead of listed:
+ * the State under it is what the walkthrough shows (#662).
+ */
+export const replayLines = (_output: string, _batch: string): string[] => {
+  throw new Error('not implemented');
+};
+
+/**
  * A process's output in two parts: the lines before the first line `at` matches, and the rest
  * from it; or, with `keep: 'with'`, that line goes with the first part. All of it is the first
  * part when no line matches.

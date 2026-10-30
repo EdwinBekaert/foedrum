@@ -477,6 +477,15 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  it('says the batch is on tap once, in its last line (#662)', async () => {
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;
+    assert.deepStrictEqual(
+      lines.filter((line) => line.includes('on tap')),
+      [`foedrum brew: batch 12-1 is on tap: ${url}`],
+    );
+  });
+
   it("opens the pull request on the code host in Foedrum's layout, as a draft with no Taster (ADR 0167)", async () => {
     const files = serveInputs().files;
     const writing = serveSetup(

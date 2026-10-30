@@ -2349,9 +2349,29 @@ describe('formatNotice', () => {
         'batch 12-1 is driven by session-1 now',
         `the effect ${JSON.stringify(['12-1', 'brew', 1, 'comment'])} failed: GitHub answered 502`,
         'the run of step brew#1 of batch 12-1 failed, so it is blocked on its environment: the stream reader broke',
-        'cleaned batch 12-1: removed worktree 12-1/brew/1; could not clean x: busy',
+        'cleaned batch 12-1: removed 1 worktree; could not clean x: busy',
         'cleaned batch 12-1: nothing to remove',
       ],
+    );
+  });
+
+  it("counts a cleanup's worktrees and branches, and names what it kept or could not clean (#662)", () => {
+    const attempts = ['gauge/1', 'red/1', 'review/1', 'review/2'];
+    assert.equal(
+      formatNotice({
+        kind: 'cleaned',
+        batchId: '12-1',
+        report: {
+          done: [
+            ...attempts.map((attempt) => `removed worktree 12-1/${attempt}`),
+            ...attempts.slice(0, 3).map((attempt) => `deleted branch foedrum/12-1/${attempt}`),
+            'removed batch folder 12-1',
+          ],
+          kept: ['kept branch foedrum/12-1/review/2: its pull request is open (ADR 0219)'],
+          failed: ['could not clean 12-1/x: busy'],
+        },
+      }),
+      'cleaned batch 12-1: removed 4 worktrees; deleted 3 branches; removed batch folder 12-1; kept branch foedrum/12-1/review/2: its pull request is open (ADR 0219); could not clean 12-1/x: busy',
     );
   });
 

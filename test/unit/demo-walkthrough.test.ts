@@ -11,6 +11,7 @@ import {
   PAUSE_PROMPT,
   pausesBetweenSteps,
   RESUMED,
+  replayLines,
   routeLines,
   STEPS,
   splitOutput,
@@ -46,7 +47,7 @@ describe('the walkthrough steps', () => {
     assert.equal(RESUMED, 'implement#2');
   });
 
-  it('each have a heading and one line that says what to look for', () => {
+  it('each have a heading and what to look for', () => {
     assert.ok(STEPS.length > 0);
     for (const step of STEPS) {
       assert.ok(step.title.trim() !== '', step.id);
@@ -61,26 +62,27 @@ describe('the walkthrough steps', () => {
   });
 
   it('open with a blank line, the heading and what to look for', () => {
-    assert.deepStrictEqual(stepLines(0), ['', headingOf(0), `Look for: ${STEPS[0]?.lookFor}`]);
+    const [blank, heading, ...lookFor] = stepLines(0);
+    assert.equal(blank, '');
+    assert.equal(heading, headingOf(0));
+    assert.equal(lookFor.map((line) => line.trim()).join(' '), `Look for: ${STEPS[0]?.lookFor}`);
   });
 
-  it("say what to look for in the parallel group: the three lens attempts at once, on the comment's path line, each one's findings under its own step", () => {
+  it('say what to look for in at most two lines of at most 80 characters (#662)', () => {
+    for (const [index, { id }] of STEPS.entries()) {
+      const lookFor = stepLines(index).slice(2);
+      assert.ok(lookFor.length <= 2, `${id}: ${lookFor.join(' / ')}`);
+      for (const line of lookFor) assert.ok(line.length <= 80, `${id}: ${line}`);
+    }
+  });
+
+  it("say where the parallel group and the tasting loop show: three lenses at once, the batch sent back twice, the comment's path a line per round", () => {
     const lookFor = (id: string) => STEPS.find((step) => step.id === id)?.lookFor ?? '';
     assert.match(lookFor('order'), /recipe:nip-parallel/);
-    assert.match(lookFor('checks'), /correctness #1, security #1 and test-design #1/);
-    assert.match(lookFor('checks'), /brewing at once/);
-    assert.match(lookFor('pull-request'), /path line/);
-    assert.match(lookFor('pull-request'), /each one's findings under its own step/);
-  });
-
-  it('say where the tasting loop shows (ADR 0193): correctness asks for changes, the batch goes back once, and round 2 gets the change since round 1 and the finding marked fixed', () => {
-    const lookFor = (id: string) => STEPS.find((step) => step.id === id)?.lookFor ?? '';
+    assert.match(lookFor('order'), /three lenses at once/);
+    assert.match(lookFor('checks'), /implement #2 is told why/);
     assert.match(lookFor('checks'), /correctness #1 blocks/);
-    assert.match(lookFor('checks'), /back to implement #3/);
-    assert.match(lookFor('checks'), /correctness #2, security #2 and test-design #2/);
-    assert.match(lookFor('checks'), /the change since round 1/);
-    assert.match(lookFor('checks'), /marked fixed/);
-    assert.match(lookFor('pull-request'), /path line has both rounds/);
+    assert.match(lookFor('pull-request'), /a line per round/);
   });
 
   it('say that the diagnosis is the demo own, not doctor on this machine', () => {
@@ -297,5 +299,34 @@ describe('splitOutput', () => {
       [['one', 'two', 'mark', 'three'], []],
     );
     assert.deepStrictEqual(splitOutput('', mark, 'before'), [[], []]);
+  });
+});
+
+describe('replayLines (#662)', () => {
+  const output = [
+    'Batch 1-1, issue #1',
+    '',
+    'Events',
+    '   1  batch.ordered  {"order":{"issue":1}}',
+    '   2  batch.on_tap   {"pullRequests":["https://github.com/demo/web/pull/2"]}',
+    '',
+    'State',
+    '  lane    on tap: https://github.com/demo/web/pull/2',
+    '',
+  ].join('\n');
+
+  it('keeps the state and counts the events in place of listing them', () => {
+    assert.deepStrictEqual(replayLines(output, '1-1'), [
+      'Batch 1-1, issue #1',
+      '',
+      'Events  2, left out here: foedrum replay 1-1 lists them',
+      '',
+      'State',
+      '  lane    on tap: https://github.com/demo/web/pull/2',
+    ]);
+  });
+
+  it('leaves an output without events as it is', () => {
+    assert.deepStrictEqual(replayLines('No batch 9-9.\n', '9-9'), ['No batch 9-9.']);
   });
 });

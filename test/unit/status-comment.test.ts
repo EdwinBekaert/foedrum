@@ -410,6 +410,99 @@ describe('renderStatus', () => {
     );
   });
 
+  describe('a batch sent back, a line per round (#662)', () => {
+    const routed = (attempt: number, from: string, why: 'failed' | 'findings'): Attempt => ({
+      ...done(attempt),
+      route: { from, why },
+    });
+    /** The path's lines: from `Path: ` up to the step list. */
+    const pathLines = (text: string): string[] => {
+      const lines = text.split('\n');
+      const start = lines.findIndex((line) => line.startsWith('Path: '));
+      const end = lines.findIndex((line, i) => i > start && line.startsWith('- '));
+      return lines.slice(start, end);
+    };
+
+    it('starts a line where a failed check or a findings route sends the batch back', () => {
+      const text = renderStatus(
+        batch({
+          steps: new Map([
+            step(
+              'implement',
+              done(1),
+              routed(2, 'green', 'failed'),
+              routed(3, 'taste', 'findings'),
+            ),
+            step('green', failed(1, 'the check "t" failed with exit code 1'), done(2), done(3)),
+            step('taste', failed(1, 'blocked (findings): one finding'), done(2)),
+          ]),
+          path: [
+            { stepId: 'implement', attempt: 1 },
+            { stepId: 'green', attempt: 1 },
+            { stepId: 'implement', attempt: 2 },
+            { stepId: 'green', attempt: 2 },
+            { stepId: 'taste', attempt: 1 },
+            { stepId: 'implement', attempt: 3 },
+            { stepId: 'green', attempt: 3 },
+            { stepId: 'taste', attempt: 2 },
+          ],
+        }),
+        ['implement', 'green', 'taste'],
+      );
+      assert.deepEqual(pathLines(text), [
+        'Path: `implement #1` ✅ → `green #1` ❌ the check "t" failed with exit code 1',
+        '→ `implement #2` ✅ → `green #2` ✅ → `taste #1` ❌ blocked (findings)',
+        '→ `implement #3` ✅ → `green #3` ✅ → `taste #2` ✅',
+      ]);
+    });
+
+    it('keeps the attempts one route scheduled together on one line', () => {
+      const route = { from: 'taste', why: 'findings' } as const;
+      const text = renderStatus(
+        batch({
+          steps: new Map([
+            step('fix', done(1), { ...done(2), route }),
+            step('docs', done(1), { ...done(2), route }),
+            step('taste', failed(1, 'blocked (findings): one finding')),
+          ]),
+          path: [
+            { stepId: 'fix', attempt: 1 },
+            { stepId: 'docs', attempt: 1 },
+            { stepId: 'taste', attempt: 1 },
+            { stepId: 'fix', attempt: 2 },
+            { stepId: 'docs', attempt: 2 },
+          ],
+        }),
+        ['fix', 'docs', 'taste'],
+      );
+      assert.deepEqual(pathLines(text), [
+        'Path: `fix #1` ✅ → `docs #1` ✅ → `taste #1` ❌ blocked (findings)',
+        '→ `fix #2` ✅ → `docs #2` ✅',
+      ]);
+    });
+
+    it('keeps one line for a batch that was retried and never sent back (regression test)', () => {
+      const text = renderStatus(
+        batch({
+          steps: new Map([
+            step('green', failed(1, 'the check "t" failed with exit code 1'), {
+              ...done(2),
+              retry: true,
+            }),
+          ]),
+          path: [
+            { stepId: 'green', attempt: 1 },
+            { stepId: 'green', attempt: 2 },
+          ],
+        }),
+        ['green'],
+      );
+      assert.deepEqual(pathLines(text), [
+        'Path: `green #1` ❌ the check "t" failed with exit code 1 → `green #2` ✅',
+      ]);
+    });
+  });
+
   it('cuts a long reason on the path at a word, within 48 characters (#656)', () => {
     const reason = 'the brewer wrote no out doc before its turns ran out, twice in a row';
     const text = renderStatus(
@@ -2040,7 +2133,7 @@ describe('statusEffects: the sensitive paths the push recorded (ADR 0201)', () =
 
 describe('renderStatus: an open pull request with no merge brief (ADR 0229)', () => {
   const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
-  const notReady = `- <${pr}> is not ready to merge yet: no merge brief.`;
+  const notReady = `- <${pr}> is not ready to merge yet: no merge brief`;
 
   it('says the open pull request has no merge brief', () => {
     const text = renderStatus(
@@ -2080,18 +2173,57 @@ describe('renderStatus: a body the latest round left as it is (ADR 0227)', () =>
   it('says so under its pull request, for an edited body and for one with no marker', () => {
     assert.ok(
       lines(render({ pullRequest: pr, left: 'edited' })).includes(
-        `- <${pr}>: its description was edited since Foedrum wrote it, so Foedrum left it as it is`,
+        `- <${pr}> is left as it is: its description was edited since Foedrum wrote it`,
       ),
     );
     assert.ok(
       lines(render({ pullRequest: pr, left: 'unmarked' })).includes(
-        `- <${pr}>: its description has no Foedrum marker, so Foedrum left it as it is`,
+        `- <${pr}> is left as it is: its description has no Foedrum marker`,
       ),
     );
   });
 
   it('says nothing when no round left it', () => {
     assert.doesNotMatch(render(), /description/);
+  });
+});
+
+describe('renderStatus: a line per pull request, with all it says of it (#662)', () => {
+  const onTap = batch({ lane: { kind: 'on_tap', pullRequests: [pr] } });
+  /** The lines of the Pull requests section. */
+  const section = (text: string): string[] =>
+    text.slice(text.indexOf('**Pull requests**')).split('\n');
+
+  it('names an open pull request with no merge brief once', () => {
+    const text = renderStatus(
+      onTap,
+      steps,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      { pullRequest: pr },
+    );
+    assert.deepEqual(section(text), [
+      '**Pull requests**',
+      `- <${pr}> is not ready to merge yet: no merge brief`,
+    ]);
+  });
+
+  it('joins its merge brief and the body left as it is on its one line', () => {
+    const brief = { comment: 9, pullRequest: pr, head: 'a'.repeat(40), digest: '0123456789abcdef' };
+    const text = renderStatus(onTap, steps, undefined, undefined, undefined, {}, brief, {
+      pullRequest: pr,
+      left: 'edited',
+    });
+    assert.deepEqual(section(text), [
+      '**Pull requests**',
+      `- <${pr}> is ready to merge on \`aaaaaaaa\`: <${pr}#issuecomment-9>; is left as it is: its description was edited since Foedrum wrote it`,
+    ]);
+  });
+
+  it('names a pull request with nothing to say of it alone (regression test)', () => {
+    assert.deepEqual(section(renderStatus(onTap, steps)), ['**Pull requests**', `- <${pr}>`]);
   });
 });
 
@@ -2113,7 +2245,8 @@ describe('statusEffects: the body the latest round left, from the ledger (ADR 02
     await status.target.apply(effectKey.encode(due ?? assert.fail('no revision due')));
     return comments.comments[0]?.body ?? assert.fail('no status comment');
   };
-  const line = `- <${pr}>: its description was edited since Foedrum wrote it, so Foedrum left it as it is`;
+  // On its one line, after the brief it has not got yet (#662).
+  const line = `- <${pr}> is not ready to merge yet: no merge brief; is left as it is: its description was edited since Foedrum wrote it`;
 
   it("shows the line when the latest round's body was left", async () => {
     const body = await shown([
@@ -2212,8 +2345,15 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     const lines = body.split('\n');
     assert.ok(lines.includes(`- <${other}>`), body);
     assert.ok(!lines.some((line) => line.startsWith(`- <${other}> `)), body);
-    assert.ok(lines.includes(`- <${pr}> conflicts with \`main\` at \`dddddddd\` in b`));
-    assert.ok(lines.includes(`- <${pr}> waits for its checks on \`cccccccc\` since ${at}`));
+    // On its one line (#662).
+    assert.ok(
+      lines.some((line) =>
+        line.startsWith(
+          `- <${pr}> conflicts with \`main\` at \`dddddddd\` in b; waits for its checks on \`cccccccc\` since ${at}`,
+        ),
+      ),
+      body,
+    );
   });
 });
 
