@@ -2277,14 +2277,17 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
     ]);
   });
 
-  it('links no step whose out doc is no plan, nor a plan step that has not succeeded: regression test', () => {
+  it('links no step whose out doc is no plan: regression test', () => {
     const text = rendered(
-      batch({
-        steps: new Map([
-          step('plan', failed(1, 'the out doc plan.md is invalid')),
-          step('brew', done(1, ['Port 8080 is free'])),
-        ]),
-      }),
+      batch({ steps: new Map([step('brew', done(1, ['Port 8080 is free']))]) }),
+      stateBranch,
+    );
+    assert.deepEqual(section(text), ['**Assumptions**', '- `brew`: Port 8080 is free']);
+  });
+
+  it('links no plan step that has not succeeded, which has no assumptions to end: regression test', () => {
+    const text = rendered(
+      batch({ steps: new Map([step('plan', failed(1, 'the out doc plan.md is invalid'))]) }),
       stateBranch,
     );
     assert.doesNotMatch(text, /full plan|foedrum\/state/);
