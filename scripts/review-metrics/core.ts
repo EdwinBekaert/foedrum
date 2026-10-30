@@ -202,6 +202,8 @@ export interface Comment {
   body: string;
   /** Minimized on GitHub. */
   hidden: boolean;
+  /** Its author's association with the repository, as GitHub gives it (`OWNER`, `NONE`, …). */
+  association?: string | undefined;
 }
 
 /** A merged pull request and its comments, in the order they were posted. */

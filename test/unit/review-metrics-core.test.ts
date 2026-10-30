@@ -256,7 +256,12 @@ describe('parseSummary: each form apart (review of #683)', () => {
   });
 });
 
-const comment = (name: string, url: string, hidden = false) => ({ url, body: text(name), hidden });
+const comment = (name: string, url: string, hidden = false) => ({
+  url,
+  body: text(name),
+  hidden,
+  association: 'OWNER',
+});
 
 describe('aggregate', () => {
   it('gives each lens its findings by severity, how they ended and its dismissed findings', () => {
@@ -301,7 +306,7 @@ describe('aggregate', () => {
         number: 631,
         comments: [
           comment('rounds-in-prose.md', 'a', true),
-          { url: 'note', body: 'Not a summary.', hidden: false },
+          { url: 'note', body: 'Not a summary.', hidden: false, association: 'OWNER' },
           comment('second-summary.md', 'b'),
         ],
       },
@@ -335,14 +340,24 @@ describe('aggregate', () => {
         number: 1,
         comments: [
           comment('rounds-in-prose.md', 'a'),
-          { url: 'b', body: later('Round 3 reran test-design.'), hidden: false },
+          {
+            url: 'b',
+            body: later('Round 3 reran test-design.'),
+            hidden: false,
+            association: 'OWNER',
+          },
         ],
       },
       {
         number: 2,
         comments: [
           comment('rounds-in-prose.md', 'c'),
-          { url: 'd', body: later('Round 2 reran test-design.'), hidden: false },
+          {
+            url: 'd',
+            body: later('Round 2 reran test-design.'),
+            hidden: false,
+            association: 'OWNER',
+          },
         ],
       },
     ]);
@@ -356,7 +371,10 @@ describe('aggregate', () => {
     const metrics = aggregate([
       { number: 509, comments: [comment('no-table.md', 'u509')] },
       { number: 553, comments: [comment('split-dispositions.md', 'u553')] },
-      { number: 510, comments: [{ url: 'x', body: 'Thanks.', hidden: false }] },
+      {
+        number: 510,
+        comments: [{ url: 'x', body: 'Thanks.', hidden: false, association: 'OWNER' }],
+      },
     ]);
     assert.deepStrictEqual(metrics.unparsed, [
       { number: 509, url: 'u509', what: 'a lens findings section without a findings table' },
@@ -372,9 +390,42 @@ describe('aggregate', () => {
     assert.deepStrictEqual(metrics.withoutSummary, [509, 510]);
   });
 
+  it('counts only the summaries of an owner, member or collaborator, and lists the others (review of #683)', () => {
+    const metrics = aggregate([
+      {
+        number: 669,
+        comments: [
+          { ...comment('template.md', 'u-none'), association: 'NONE' },
+          { ...comment('rounds-in-prose.md', 'u-unknown'), association: undefined },
+          { ...comment('no-findings.md', 'u-collaborator'), association: 'COLLABORATOR' },
+          { ...comment('second-summary.md', 'u-member'), association: 'MEMBER' },
+        ],
+      },
+    ]);
+    assert.deepStrictEqual(metrics.unparsed, [
+      {
+        number: 669,
+        url: 'u-none',
+        what: 'posted by NONE, not by an owner, member or collaborator',
+      },
+      {
+        number: 669,
+        url: 'u-unknown',
+        what: 'posted by an author GitHub did not name, not by an owner, member or collaborator',
+      },
+    ]);
+    assert.equal(metrics.total.findings, 3);
+    assert.deepStrictEqual(
+      metrics.pulls.map(({ summaries }) => summaries),
+      [2],
+    );
+  });
+
   it('notes a count line that differs from its table', () => {
     const body = text('template.md').replace('13 findings: 0 blocker', '15 findings: 0 blocker');
-    const metrics = aggregate([{ number: 669, comments: [{ url: 'u', body, hidden: false }] }]);
+    const metrics = aggregate([
+      { number: 669, comments: [{ url: 'u', body, hidden: false, association: 'OWNER' }] },
+    ]);
     assert.deepStrictEqual(metrics.mismatches, [
       { number: 669, url: 'u', what: 'the count line says 15 findings, the table has 13 rows' },
     ]);
@@ -403,7 +454,9 @@ describe('aggregate', () => {
     const lens = `x\u001b]8;;https://example.invalid\u0007y\\|z${'w'.repeat(200)}`;
     const body = text('template.md').replace('| acceptance (r1) |', `| ${lens} (r1) |`);
     const report = formatMetrics(
-      aggregate([{ number: 1, comments: [{ url: 'u', body, hidden: false }] }]),
+      aggregate([
+        { number: 1, comments: [{ url: 'u', body, hidden: false, association: 'OWNER' }] },
+      ]),
     );
     const row = report.split('\n').find((line) => line.startsWith('| x?')) ?? assert.fail(report);
     assert.match(row, /^\| x\?\]8;;https:\/\/example\.invalid\?y\\\?zw+ … \| 1 \|/);

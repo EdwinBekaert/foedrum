@@ -14,6 +14,7 @@ interface Node {
   url: string;
   body: string;
   isMinimized: boolean;
+  authorAssociation: string;
 }
 type Answer = { data: unknown; errors: { message: string }[] };
 
@@ -26,10 +27,20 @@ const pull = (merged: boolean, ...pages: unknown[]) => ({
   merged,
   pages,
 });
-const node = (url: string, body: string, isMinimized = false): Node => ({ url, body, isMinimized });
+const node = (
+  url: string,
+  body: string,
+  isMinimized = false,
+  authorAssociation = 'OWNER',
+): Node => ({
+  url,
+  body,
+  isMinimized,
+  authorAssociation,
+});
 
 // #1 merged, its comments on two pages; #2 an issue; #3 not merged; #4 not there; #5 merged
-// without a summary.
+// without a summary by an owner, member or collaborator.
 const numbers: Record<number, ReturnType<typeof pull> | { __typename: 'Issue' }> = {
   1: pull(
     true,
@@ -38,7 +49,10 @@ const numbers: Record<number, ReturnType<typeof pull> | { __typename: 'Issue' }>
   ),
   2: { __typename: 'Issue' },
   3: pull(false, page([node('u3', text('template.md'))], null)),
-  5: pull(true, page([node('u5', 'Looks good.')], null)),
+  5: pull(
+    true,
+    page([node('u5', 'Looks good.'), node('u5b', text('template.md'), false, 'NONE')], null),
+  ),
 };
 
 const fake = (calls: string[], newest = 5): Deps['client'] => ({
@@ -95,6 +109,12 @@ const runWith = async (args: string[], deps: Partial<Deps> = {}) => {
 };
 
 describe('review-metrics', () => {
+  it("passes each comment's author association on, so a summary by an outsider is listed apart (review of #683)", async () => {
+    const { code, out } = await runWith(['--from', '5', '--to', '5']);
+    assert.equal(code, 0);
+    assert.match(out, /^- #5 u5b: posted by NONE, not by an owner, member or collaborator$/m);
+  });
+
   it("reads every page of each merged pull request's comments and prints the report", async () => {
     const { code, out, err, calls } = await runWith(['--from', '1', '--to', '5']);
     assert.equal(err, '');
