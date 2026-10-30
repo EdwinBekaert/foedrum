@@ -137,7 +137,7 @@ A name-free rule: the red proof passes when the run has no load error, at least 
 
 The name-free rule gives what `judgeRed` gives for the usual case, the table row and the regression test, without reading anything.
 It loses two things: who skipped a test, and a stub that lets one new test pass.
-`LOAD_ERRORS`, or "a test project with no report", stays in either design.
+Either design still needs the load-error text, or a test project with no report, to refuse these cases.
 
 **testsUnchanged without names.**
 The test-only step changes a file that the red step added lines to, and that coverage leaves out (TS) or puts under the test assembly (C#).
