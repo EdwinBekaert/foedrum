@@ -313,6 +313,36 @@ describe('renderStatus', () => {
     assert.ok(text.split('\n').includes('Path: `gauge #1` ✅ → `gauge #2` 🔔'), text);
   });
 
+  const which = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+  const asking = (attempt: number): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: at,
+    outcome: { kind: 'needs_input', questions: [which] },
+  });
+  const pathOf = (text: string): string =>
+    text.split('\n').find((line) => line.startsWith('Path: ')) ?? '';
+
+  it('keeps the bare mark of an open question, and the bell where the batch is Stuck on it: regression test (#656)', () => {
+    const steps = new Map([step('plan', asking(1))]);
+    const path = [{ stepId: 'plan', attempt: 1 }];
+    const reason: StuckReason = { kind: 'needs_input', stepId: 'plan', questions: [which] };
+    assert.equal(
+      pathOf(renderStatus(batch({ lane: stuck(reason), steps, path }), ['plan'])),
+      'Path: `plan #1` 🔔',
+    );
+    assert.equal(pathOf(renderStatus(batch({ steps, path }), ['plan'])), 'Path: `plan #1` ❓');
+  });
+
+  it('marks a succeeded attempt as before: regression test (#656)', () => {
+    const text = renderStatus(
+      batch({ steps: new Map([step('plan', done(1))]), path: [{ stepId: 'plan', attempt: 1 }] }),
+      ['plan'],
+    );
+    assert.equal(pathOf(text), 'Path: `plan #1` ✅');
+    assert.equal(lineOf(text, 'plan'), '- ✅ `plan`');
+  });
+
   it('lists the steps the batch has when its recipe is unknown', () => {
     const text = renderStatus(batch({ steps: new Map([step('mash', done(1))]) }), undefined);
     assert.match(lineOf(text, 'mash'), /✅/);
