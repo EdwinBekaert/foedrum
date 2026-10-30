@@ -1,6 +1,6 @@
 # 0256. The push gate reads git's option values and checks a push behind an option it does not know
 
-Date: 2026-10-30 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (git's options before the subcommand), [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (a push whose remote the scan cannot tell) and [0246](0246-the-push-gate-reads-option-prefixes-git-s-configuration-branch-names-and-the-starting-directory.md) (the remote behind `-o`)
+Date: 2026-10-30 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (git's options before the subcommand), [0104](0104-the-gate-checks-the-tree-a-command-pushes.md) (a `-C` behind an option the gate does not know), [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (a push whose remote the scan cannot tell) and [0246](0246-the-push-gate-reads-option-prefixes-git-s-configuration-branch-names-and-the-starting-directory.md) (the remote behind `-o`)
 
 ## Context
 The reviews of #635 found two ways the gate reads the words before a push's remote differently from git:
@@ -44,4 +44,4 @@ The remote is the operand after it.
 - `git --attr-source HEAD push -f origin main` is blocked as a force push, and `git --attr-source HEAD push origin` is checked against origin.
 - A push behind an option the gate does not know is checked, held to every remote's configuration, and refused by the denylist scan while a list is set.
 - `git push -uo ci.skip origin` is held to origin's settings and scanned against origin.
-- CLAUDE.md's Local gate section should say that an option git's lists do not hold, before the subcommand, makes the command a push to check. That change follows in a docs pull request.
+- CLAUDE.md's Local gate section should say three things. An option git's lists do not hold, before the subcommand, makes the command a push to check. A `-C` behind such an option blocks the push as a directory the gate cannot tell. A `-c` or `--config-env` behind it that sets a push setting counts as configuring git. That change follows in a docs pull request.
