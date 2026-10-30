@@ -20,6 +20,7 @@ The maintainer's first live `nip` run showed what advisory costs instead: Brewer
 ## Consequences
 - A Nip pull request no longer opens with a correctness major that no step answered, unless the batch was Stuck and a person sent it on.
 - A Nip batch can run up to three tasting rounds; the status comment's path line and the receipts show each.
+- A route's rounds count over the whole batch, not per tasting round: green's one round back to Cellarman and implement's one round back to the Gauger are shared by every round, so a green failure in round 1 and another after correctness sent the batch back make it Stuck. The budgets stay as they are until a live run shows they are too tight.
 - The changed default recipe is tried by the maintainer on the next real brew after the merge, as every default brewer's and recipe's change is.
 
 ## Alternatives considered
