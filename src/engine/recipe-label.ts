@@ -27,6 +27,15 @@ const keyOf = (batchId: string, recipe: string): BatchEffectKey => ({
   effect: `recipe-label:${recipe}`,
 });
 
+/** The label a recipe label's recorded result names, or undefined. */
+const labelOf = (result: unknown): string | undefined =>
+  typeof result === 'object' &&
+  result !== null &&
+  'label' in result &&
+  typeof result.label === 'string'
+    ? result.label
+    : undefined;
+
 /** A recipe label that is due: the issue, and the label. */
 interface DueLabel {
   issue: number;
@@ -59,6 +68,9 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
       const encoded = effectKey.encode(key);
       // Once per recipe: a later choice of another recipe in the batch labels the issue again.
       if (state.effects.has(encoded)) return [];
+      // An older Foedrum labelled the batch once, under `recipe-label`, with the label it recorded.
+      const older = state.effects.get(effectKey.encode({ batchId, effect: 'recipe-label' }));
+      if (labelOf(older) === `recipe:${recipe.name}`) return [];
       const issue = breweryIssueOf(state, batch);
       if (issue === undefined) return [];
       dues.set(encoded, { issue, label: `recipe:${recipe.name}` });

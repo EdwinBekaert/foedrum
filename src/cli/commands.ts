@@ -754,7 +754,11 @@ export const commands: readonly RegisteredCommand[] = [
           batchId = latest.id;
         }
         const decision = log.issue({ kind: 'recipe', ...issued(batchId), recipe, reason }, now());
-        if (decision.kind === 'refused') return failed('recipe', decision.reason);
+        // A batch ordered in the transaction before stays, as when the intake routed it between.
+        if (decision.kind === 'refused') {
+          const refused = failed('recipe', decision.reason);
+          return lines.length === 0 ? refused : { ...refused, stdout: `${lines.join('\n')}\n` };
+        }
         lines.push(laneLine(log.state(), batchId));
         return done(`${lines.join('\n')}\n`);
       });
