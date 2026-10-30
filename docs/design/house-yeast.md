@@ -5,7 +5,7 @@ Kept as one ever-growing rules file and read in full by every agent, such a flyw
 House yeast is designed to stay small, relevant and enforceable ([ADR 0015](../adr/0015-house-yeast.md)):
 
 1. **Rules carry metadata:** scope (repository, file globs, language, optionally a tasting lens, by its bare name such as `security`, which matches it in either folder, or by its folder and name such as `diff/security`, [ADR 0143](../adr/0143-lenses-in-two-folders-diff-and-plan.md), [ADR 0169](../adr/0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md)), kind (structural or semantic), source (the review that produced it), date, and counters for how often it was selected and violated.
-2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on (and, for a Taster, its lens), ordered by relevance and recency, within a token budget (default about 2,000 tokens); a step of several lenses together gets what each of its lenses would get apart, so up to that budget per lens ([ADR 0220](../adr/0220-a-taster-s-step-can-run-several-lenses-together.md)).
+2. **Selected per attempt, within a budget:** a brewer receives only rules whose scope matches the repository and files it works on (and, for a Taster, its lens), ordered by relevance and recency, within a token budget (default about 2,000 tokens); a step of several lenses together gets what each of its lenses would get apart, so up to that budget per lens ([ADR 0220](../adr/0220-a-taster-s-step-can-run-several-lenses-together.md)), and a step with no lens gets the rules of every lens within one budget ([ADR 0268](../adr/0268-the-brewers-that-write-a-change-get-the-house-yeast-rules-of-every-lens.md)).
    Never the whole collection.
 3. **Promoted to gravity readings:** a rule that can be checked mechanically (a lint rule, a search pattern, a test) becomes a deterministic check — enforced every time at zero tokens — and leaves the prompt.
 4. **Curated:** a periodic curation step merges duplicates, folds similar rules together and retires rules that have not been relevant for a long time.
@@ -24,11 +24,12 @@ Selection draws from all layers within one budget; the more specific layer wins.
 Repository rules are untrusted input, read only from registered repositories.
 A repository can opt for the Brewery fallback (`houseYeast: "brewery"`), and nothing flows back to Foedrum's defaults automatically.
 
-**In a batch** ([ADR 0169](../adr/0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md)): a brewer with `"houseYeast": true`, such as the default Taster, gets the rules for each fresh attempt.
+**In a batch** ([ADR 0169](../adr/0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md)): a brewer with `"houseYeast": true`, such as the default Taster, Gauger and Cellarman ([ADR 0268](../adr/0268-the-brewers-that-write-a-change-get-the-house-yeast-rules-of-every-lens.md)), gets the rules for each fresh attempt.
 The Brewery layer is the Markdown files directly in the Brewery's `house-yeast/`, read when `foedrum serve` starts.
 A repository's layer is its `.foedrum/house-yeast/` at the commit the batch's change starts at, read with git in its clone, so a batch's own commits never steer its own brewers; with the Brewery fallback it is the Brewery's `house-yeast/<owner>/<name>/`.
 A repository rule replaces a Brewery rule of its id.
 The rules whose scope matches a file the batch changed, and the step's lens when a rule names one, are selected through the same code as `/brew-review` (`src/brewers/house-yeast.ts`); a step of several lenses together gets the rules each of its lenses would get apart, each once, in the order of its lenses ([ADR 0220](../adr/0220-a-taster-s-step-can-run-several-lenses-together.md)).
+A step with no lens, which writes the change, gets the rules of every lens, whatever lens a rule names, within one budget, so the Gauger and the Cellarman follow the rules the reviews would hold them to; the Gauger's first attempt has changed nothing yet, so it gets only the rules that name neither files nor a language ([ADR 0268](../adr/0268-the-brewers-that-write-a-change-get-the-house-yeast-rules-of-every-lens.md)).
 Each one is an untrusted input named `houseYeast`, and the ids selected and cut, with the files left out as invalid, are recorded on the attempt's `step.finished`.
 
 **From lesson to rule:** a review finding that needed a fix, or a human review comment on a bottle, is recorded as a **candidate** on the state branch.

@@ -76,21 +76,23 @@ const ordered: Event[] = [
     source: 'label',
   },
 ];
-/** The Taster's attempt, after Cellarman's commits. */
-const tasting: Event[] = [
+/** The events up to `next`'s attempt, after `done`'s commits from `base` to `head`. */
+const after = (done: string, next: string): Event[] => [
   ...ordered,
-  scheduled('implement'),
-  startedAt('implement', base),
+  scheduled(done),
+  startedAt(done, base),
   {
     type: 'step.finished',
     batchId: '12-1',
-    stepId: 'implement',
+    stepId: done,
     attempt: 1,
     outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions: [] } },
   },
-  scheduled('correctness'),
-  startedAt('correctness', head),
+  scheduled(next),
+  startedAt(next, head),
 ];
+/** The Taster's attempt, after Cellarman's commits. */
+const tasting = after('implement', 'correctness');
 
 const rule = (id: string, scope: object, body: string): string =>
   `---\n${JSON.stringify({ id, scope, kind: 'semantic', source: 'review of #7', created: '2026-10-01', status: 'active' })}\n---\n${body}\n`;
@@ -383,5 +385,101 @@ describe('createAttemptPlans: house yeast of a step of several lenses together (
       at('secrets') > 0 && at('everywhere') > at('secrets') && at('waits') > at('everywhere'),
     );
     assert.equal(prompt.split('name="houseYeast"').length, 4, 'a rule not once');
+  });
+});
+
+describe('createAttemptPlans: house yeast of the brewers that write the change (#671)', () => {
+  // The default Gauger and Cellarman, with a Taster through one lens.
+  const writers = loadRecipes({
+    ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+    recipes: [
+      {
+        path: 'recipes/amber.jsonc',
+        text: recipeText(
+          'amber',
+          [
+            { id: 'gauge', brewer: 'gauger' },
+            { id: 'implement', brewer: 'cellarman' },
+            { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+            { action: 'openPullRequest' },
+          ],
+          { testFirst: false },
+        ),
+      },
+    ],
+  });
+  assert.ok(writers.valid, writers.valid ? '' : writers.problems.join('\n'));
+  const brewers = writers.valid ? writers.brewers : assert.fail();
+  /** The Cellarman's attempt, after the Gauger's commits. */
+  const implementing = after('gauge', 'implement');
+  const implement = (git: Git) =>
+    planOf(git, 'implement', implementing, undefined, 1, brewers).plan;
+  const NEAR_MISS = rule(
+    'near-miss',
+    { globs: ['test/**/*.ts'], lens: 'diff/test-design' },
+    'Every rule of a text form has a near miss.',
+  );
+
+  it('loads the default Gauger and Cellarman asking for house yeast, with their prompts referring to it', () => {
+    for (const step of ['gauge', 'implement']) {
+      const found = brewers.find('amber', step);
+      assert.equal(found?.brewer.houseYeast, true, step);
+      assert.ok(found?.instructions.includes('{houseYeast}'), step);
+    }
+  });
+
+  it('gives a Cellarman attempt the rule whose globs match a file the Gauger committed', async () => {
+    const keys = rule('keys', { globs: ['src/schemas/**'] }, 'A key part has a second value.');
+    const git = repository('A\ttest/unit/limit.test.ts\nM\tsrc/schemas/events.ts\n', {
+      keys,
+      'docs-tone': DOCS,
+    });
+    const { prompt, houseYeast } = await implement(git);
+    assert.deepEqual(houseYeast, { selected: ['keys'], cut: [] });
+    assert.ok(prompt.includes(`${ruleInput('keys', '.foedrum/house-yeast/keys.md')}A key part`));
+  });
+
+  it('gives a writer the rule of a lens no step of its recipe runs', async () => {
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS });
+    assert.deepEqual((await implement(git)).houseYeast, { selected: ['near-miss'], cut: [] });
+  });
+
+  it('gives a writer no rule of another lens whose globs miss the change (regression test, review of #682)', async () => {
+    const off = rule('off', { globs: ['docs/**'], lens: 'diff/security' }, 'No token in a log.');
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS, off });
+    assert.deepEqual((await implement(git)).houseYeast, { selected: ['near-miss'], cut: [] });
+  });
+
+  it('gives a writer the rules of every lens within one budget, not one per lens', async () => {
+    const long = (id: string, lens: string) =>
+      rule(id, { globs: ['src/**'], lens }, 'x'.repeat(4800));
+    const git = repository('M\tsrc/wait.ts\n', {
+      'a-first': long('a-first', 'diff/security'),
+      'b-second': long('b-second', 'diff/test-design'),
+    });
+    assert.deepEqual((await implement(git)).houseYeast, {
+      selected: ['a-first'],
+      cut: ['b-second'],
+    });
+  });
+
+  it("gives the Gauger's first attempt, which changed nothing, the rules that name no file, of every lens (regression test, review of #682)", async () => {
+    const events = [...ordered, scheduled('gauge'), startedAt('gauge', base)];
+    const files = [
+      {
+        path: 'house-yeast/everywhere.md',
+        text: rule('everywhere', { lens: 'diff/test-design' }, 'One test, one case.'),
+      },
+    ];
+    const git = repository('', { 'near-miss': NEAR_MISS });
+    const { plan } = planOf(git, 'gauge', events, { files, keptIn: () => 'repo' }, 1, brewers);
+    assert.deepEqual((await plan).houseYeast, { selected: ['everywhere'], cut: [] });
+  });
+
+  it('gives a Taster no rule of a lens its step does not run (regression test, #671)', async () => {
+    const plain = rule('plain', { globs: ['test/**'] }, 'Name things plainly.');
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS, plain });
+    const { plan } = planOf(git, 'correctness', tasting, undefined, 1, brewers);
+    assert.deepEqual((await plan).houseYeast, { selected: ['plain'], cut: [] });
   });
 });
