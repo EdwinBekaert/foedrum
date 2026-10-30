@@ -298,9 +298,17 @@ export const aggregate = (pulls: readonly PullRequest[]): Metrics => {
       lensRounds: 0,
       counts: noCounts(),
     };
-    for (const { url, body, hidden } of comments) {
-      if (!isSummary(body)) continue;
-      const summary = parseSummary(body);
+    const parsed = comments
+      .filter(({ body }) => isSummary(body))
+      .map((each) => ({ ...each, summary: parseSummary(each.body) }));
+    // One summary per head: a summary posted again for a head replaces the one before it.
+    const replaced = (at: number, head: string): boolean =>
+      head !== '' &&
+      parsed
+        .slice(at + 1)
+        .some(({ summary }) => summary.kind !== 'unparseable' && summary.head === head);
+    for (const [at, { url, hidden, summary }] of parsed.entries()) {
+      if (summary.kind !== 'unparseable' && replaced(at, summary.head)) continue;
       if (summary.kind === 'unparseable') {
         unparsed.push({ number, url, what: summary.why });
         continue;
@@ -368,8 +376,15 @@ const table = (
 
 const endCells = (ends: Record<End, number>): number[] => ENDS.map((end) => ends[end]);
 
+// Comment text as the report prints it: a control or format character, or a bar, as ?, and at most
+// 80 characters. Any commenter's text reaches it, and it goes to a terminal or a model.
+const printable = (text: string): string => {
+  const safe = text.replace(/[\p{Cc}\p{Cf}|]/gu, '?');
+  return safe.length > 80 ? `${safe.slice(0, 80)} …` : safe;
+};
+
 const lensCells = (name: string, { findings, severity, ends }: Counts): (string | number)[] => [
-  name,
+  printable(name),
   findings,
   ...SEVERITIES.map((each) => severity[each]),
   ...endCells(ends),
@@ -407,7 +422,7 @@ const leftLines = (title: string, left: readonly Left[]): string[] => [
   '',
   ...(left.length === 0
     ? ['None.']
-    : left.map(({ number, url, what }) => `- #${number} ${url}: ${what}`)),
+    : left.map(({ number, url, what }) => `- #${number} ${url}: ${printable(what)}`)),
   '',
 ];
 
@@ -416,7 +431,8 @@ export const formatMetrics = (metrics: Metrics): string => {
   const { lenses, total, severities, pulls } = metrics;
   const summaries = pulls.reduce((sum, pull) => sum + pull.summaries, 0);
   const hidden = pulls.reduce((sum, pull) => sum + pull.hidden, 0);
-  const rounds = pulls.map(({ lensRounds }) => lensRounds);
+  // A pull request no lens reviewed took no rounds to pass.
+  const rounds = pulls.map(({ lensRounds }) => lensRounds).filter((n) => n > 0);
   const lines = [
     '### Findings by lens',
     '',
@@ -467,7 +483,9 @@ export const formatMetrics = (metrics: Metrics): string => {
       : [
           `${pulls.length} pull ${pulls.length === 1 ? 'request' : 'requests'} with a summary, ${summaries} ${summaries === 1 ? 'summary' : 'summaries'} (${hidden} hidden).`,
           `Summaries per pull request: ${spread(pulls.map((pull) => pull.summaries))}.`,
-          `Lens rounds to pass: ${spread(rounds)} (${distribution(rounds)}).`,
+          rounds.length === 0
+            ? 'Lens rounds to pass: no pull request a lens reviewed.'
+            : `Lens rounds to pass: ${spread(rounds)} (${distribution(rounds)}).`,
           '',
           ...table(
             [
