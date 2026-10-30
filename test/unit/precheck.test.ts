@@ -63,10 +63,56 @@ describe('isGatedCommand', () => {
     'GIT_TRACE=1 git push',
     'git.exe push',
     '& git push',
+    // git's options before the subcommand that take the next word as their value (ADR 0256).
+    'git --attr-source HEAD push origin main',
+    'git --super-prefix x/ push',
+    'git --shallow-file x push',
+    // An option the gate does not know may take the next word, so the gate cannot tell the
+    // subcommand: it checks the command as a push (ADR 0256).
+    'git --frobnicate x push origin',
+    'git --frobnicate x status',
   ];
   for (const command of gated) {
     it(`gates: ${command}`, () => {
       assert.equal(isGatedCommand(command), true);
+    });
+  }
+
+  // Options the gate knows keep their reading (ADR 0256).
+  for (const [command, expected] of [
+    ['git --frobnicate push origin', true],
+    ['git --no-pager push origin', true],
+    ['git -p -P --bare --literal-pathspecs push', true],
+    ['git --attr-source=HEAD push origin', true],
+    ['git --git-dir=.git --work-tree . push', true],
+    ['git --attr-source HEAD status', false],
+    ['git --no-pager log --oneline', false],
+    ['git --exec-path', false],
+    ['git --exec-path=/usr/lib/git-core status', false],
+    ['git --list-cmds=main', false],
+  ] as const) {
+    it(`${expected ? 'gates' : 'lets through'} (regression test): ${command}`, () => {
+      assert.equal(isGatedCommand(command), expected);
+    });
+  }
+
+  // Each option git's lists hold is known: an unknown one would gate these (review of #651).
+  const withValue = ['-C', '-c', '--config-env', '--git-dir', '--work-tree', '--namespace'];
+  const withValueToo = ['--attr-source', '--super-prefix', '--shallow-file'];
+  const withoutValue = [
+    ...['-v', '--version', '-p', '--paginate', '-P', '--no-pager', '--bare', '--exec-path'],
+    ...['--html-path', '--man-path', '--info-path', '--no-replace-objects', '--no-lazy-fetch'],
+    ...['--no-optional-locks', '--no-advice', '--literal-pathspecs', '--glob-pathspecs'],
+    ...['--noglob-pathspecs', '--icase-pathspecs'],
+  ];
+  const joined = [...[...withValue, ...withValueToo].filter((o) => o.startsWith('--'))];
+  for (const command of [
+    ...[...withValue, ...withValueToo].map((option) => `git ${option} x status`),
+    ...withoutValue.map((option) => `git ${option} status`),
+    ...[...joined, '--exec-path', '--list-cmds'].map((option) => `git ${option}=x status`),
+  ]) {
+    it(`lets through a known git option (regression test): ${command}`, () => {
+      assert.equal(isGatedCommand(command), false);
     });
   }
 
@@ -325,6 +371,13 @@ describe('precheck with a personal denylist', () => {
     ['git push --re x origin', ['origin']],
     ['git push --push-option=ci.skip origin', ['origin']],
     ['git push --push-option ci.skip origin', ['origin']],
+    // -o at the end of a group of flags takes the next word, and the rest of its word when there
+    // is one (#637).
+    ['git push -uo ci.skip origin', ['origin']],
+    ['git push -qvo ci.skip work', ['work']],
+    // Behind git's options, known or not (ADR 0256).
+    ['git --attr-source HEAD push origin', ['origin']],
+    ['git --frobnicate x push origin', [null]],
     ['git push https://example.com/o/r.git HEAD', ['https://example.com/o/r.git']],
     ['git push "$remote" HEAD', [null]],
     ['git push origin && git push work', ['origin', 'work']],
@@ -343,6 +396,27 @@ describe('precheck with a personal denylist', () => {
   ];
   for (const [command, expected] of remotes) {
     it(`scans against the remote the push names: ${command}`, async () => {
+      const { runCheck } = fakeCheck({ ok: true, output: '' });
+      const scan = fakeScan(async () => undefined);
+      await gate(command, runCheck, scan.deniedPush);
+      assert.deepEqual(scan.remotes, expected);
+    });
+  }
+
+  // -o with its value in the same word, alone or after other flags (#637).
+  for (const [command, expected] of [
+    ['git push -oci.skip origin', ['origin']],
+    ['git push -uoci.skip origin', ['origin']],
+    ['git push -o ci.skip origin', ['origin']],
+    // Every flag without a value may come before -o (review of #651).
+    ['git push -n4o ci.skip origin', ['origin']],
+    ['git push -6o ci.skip origin', ['origin']],
+    // Behind git's options with a value, the remote is read as named (review of #651).
+    ['git --super-prefix x/ push origin', ['origin']],
+    ['git --shallow-file x push origin', ['origin']],
+    ['git --namespace x push origin', ['origin']],
+  ] as const) {
+    it(`scans against the remote the push names (regression test): ${command}`, async () => {
       const { runCheck } = fakeCheck({ ok: true, output: '' });
       const scan = fakeScan(async () => undefined);
       await gate(command, runCheck, scan.deniedPush);
@@ -445,6 +519,9 @@ describe("precheck on a push that git's configuration makes delete, force or mir
       'remote.origin.mirror true',
     ],
     ['git push --rep origin', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
+    ['git push -uo ci.skip origin', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
+    // Behind an option the gate does not know, the push is held to every remote's (ADR 0256).
+    ['git --frobnicate x push work', 'remote.origin.mirror\ntrue\0', 'remote.origin.mirror true'],
     // What does not delete, force or mirror, or is another remote's.
     ['git push', ''],
     ['git push', 'remote.origin.mirror\nfalse\0'],
@@ -849,6 +926,8 @@ describe('precheck on a push from another directory', () => {
     ['Set-Location $env:WT; git push', 'PowerShell'],
     ['Pop-Location; git push', 'PowerShell'],
     ['D:; git push', 'PowerShell'],
+    // Behind an option the gate does not know, -C may be git's own or a value (review of #651).
+    ['git --frobnicate x -C ../wt push'],
   ];
   for (const [command, tool = 'Bash'] of computed) {
     it(`blocks a push from a directory computed at run time in ${tool}: ${command}`, async () => {
@@ -858,6 +937,14 @@ describe('precheck on a push from another directory', () => {
       assert.deepEqual(checks, []);
     });
   }
+
+  // git's -C right after an unknown option that takes no value (review of #651).
+  it('blocks a push behind an unknown option and -C (regression test): git --frobnicate -C ../wt push', async () => {
+    const { result, checks, heads } = await gate('git --frobnicate -C ../wt push');
+    assert.deepEqual(result, { exitCode: 2, stderr: PUSH_COMPUTED });
+    assert.deepEqual(heads, []);
+    assert.deepEqual(checks, []);
+  });
 
   it('blocks gh pr ready without a number from a directory computed at run time', async () => {
     const { result, lookups } = await gate('cd "$d" && gh pr ready');
@@ -1114,6 +1201,9 @@ describe('forbiddenReason', () => {
     'git push --force-i origin x',
     'git push --fo origin x',
     'git --attr-source -h push -f origin x',
+    // Behind git's options that take a value, known or not (ADR 0256).
+    'git --attr-source HEAD push -f origin main',
+    'git --frobnicate x push -f origin main',
   ];
   for (const command of forcePushes) {
     it(`forbids force push: ${command}`, () => {
@@ -1209,9 +1299,26 @@ describe('forbiddenReason on a push configured on its command line', () => {
     'GIT_CONFIG_GLOBAL=mirror.cfg git push',
     'git config remote.origin.push :refs/heads/x && git push',
     'git remote add --mirror=push backup ../b && git push backup',
+    // Behind an option the gate does not know, git's own options may still follow its value
+    // (review of #651).
+    'git --frobnicate x -c remote.origin.mirror=true push origin',
+    'git --frobnicate x --config-env=remote.origin.mirror=MIRROR push',
+    'git --frobnicate x --config-env remote.origin.push=SPEC push',
   ];
   for (const command of configured) {
     it(`forbids: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^git push is blocked .*git's configuration/);
+    });
+  }
+
+  // git config or git remote behind an option the gate does not know (review of #651).
+  for (const command of [
+    'git --frobnicate x config remote.origin.mirror true && git push',
+    'git --frobnicate x remote set-url origin ../b && git push',
+    // git's -c right after an unknown option that takes no value.
+    'git --frobnicate -c remote.origin.mirror=true push origin',
+  ]) {
+    it(`forbids (regression test): ${command}`, () => {
       assert.match(forbiddenReason(command) ?? '', /^git push is blocked .*git's configuration/);
     });
   }
@@ -1233,6 +1340,13 @@ describe('forbiddenReason on a push configured on its command line', () => {
     'GIT_CONFIG_COUNT=0 git status',
   ]) {
     it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+
+  // A setting that is no push setting, behind an option the gate does not know (review of #651).
+  for (const command of ['git --frobnicate x -c core.quotePath=false push origin']) {
+    it(`does not forbid (regression test): ${command}`, () => {
       assert.equal(forbiddenReason(command), undefined);
     });
   }
@@ -1342,6 +1456,23 @@ describe('forbiddenReason through wrappers and other shells', () => {
 
   it('blocks commands nested too deeply to check', () => {
     assert.match(forbiddenReason(`${'eval '.repeat(40)}git status`) ?? '', /too deeply/);
+  });
+
+  // git's -h is help only as its first word, also now that the gate knows it takes no value
+  // (ADR 0246, ADR 0256).
+  for (const command of ['git -c x=y -h push -f origin x', 'git --no-pager -h push -f origin x']) {
+    it(`forbids force push behind a later -h (regression test): ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^Force push/);
+    });
+  }
+
+  // More than 8 levels of shells and substitutions are too deep (CLAUDE.md).
+  it('reads a command nested 8 levels deep (regression test)', () => {
+    assert.match(forbiddenReason(`${'eval '.repeat(8)}git push -f`) ?? '', /^Force push/);
+  });
+
+  it('blocks a command nested 9 levels deep (regression test)', () => {
+    assert.match(forbiddenReason(`${'eval '.repeat(9)}git status`) ?? '', /too deeply/);
   });
 
   // Quotes are honoured, so a separator in a string does not start a command.
