@@ -9,6 +9,7 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
+import { readDiff, readTestFiles } from '../../src/checks/step-commits.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -172,5 +173,37 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
     const ref = { batchId: '12-1', stepId: 'red', attempt: 1 };
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+});
+
+describe('the red proof reads a table its step added a row to at the tip, with real git (ADR 0262)', () => {
+  let dir: TempDir;
+  afterEach(async () => {
+    await removeTree(dir.path);
+  });
+
+  it('takes the file the row went into for a test file, and the data file beside it for none', async () => {
+    dir = makeTempDir('read-test-files');
+    const repo = join(dir.path, 'repo');
+    git(dir.path, ['init', '-q', '-b', 'main', repo]);
+    const table =
+      "test.each([\n  ['adds', 1, 2, 3],\n])('%s', (_, a, b, sum) => {\n  assert.equal(add(a, b), sum);\n});\n";
+    const before = commit(
+      repo,
+      { 'sum.test.mjs': table, 'event.json': '{\n  "type": "object"\n}\n' },
+      'A table of sums',
+    );
+    const rowAdded = table.replace(
+      "  ['adds', 1, 2, 3],\n",
+      "  ['adds', 1, 2, 3],\n  ['adds negatives', -1, -2, -3],\n",
+    );
+    const tip = commit(
+      repo,
+      { 'sum.test.mjs': rowAdded, 'event.json': '{\n  "type": "array"\n}\n' },
+      'Red: adds negatives',
+    );
+    const diff = await readDiff(runGit, repo, { from: before, to: tip });
+    assert.ok('files' in diff, JSON.stringify(diff));
+    assert.deepEqual([...(await readTestFiles(runGit, repo, tip, diff.files))], ['sum.test.mjs']);
   });
 });

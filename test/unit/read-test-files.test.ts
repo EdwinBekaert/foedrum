@@ -40,6 +40,32 @@ describe('readTestFiles (ADR 0262)', () => {
     assert.equal(calls[0]?.options?.maxOutputBytes, 16 * 1024 * 1024);
   });
 
+  it('takes a file that declares a test at the tip, and no readable data file that declares none', async () => {
+    const schema: DiffFile = {
+      newPath: 'schemas/event.json',
+      added: ['    "type": "array",'],
+      removed: [],
+    };
+    const { git } = fakeGit({
+      'test/sum.test.mjs': text("test.each([\n  ['adds', 1, 2, 3],\n])('%s', () => {\n"),
+      'schemas/event.json': text('{\n  "touches": {\n    "type": "array"\n  }\n}\n'),
+    });
+    const found = await readTestFiles(git, clone, tip, [row('test/sum.test.mjs'), schema]);
+    assert.deepEqual([...found], ['test/sum.test.mjs']);
+  });
+
+  it('takes no binary file for a test file, whatever its bytes spell', async () => {
+    const { git } = fakeGit({ 'test/blob.bin': text("\0test('adds', () => {\n") });
+    assert.deepEqual([...(await readTestFiles(git, clone, tip, [row('test/blob.bin')]))], []);
+  });
+
+  it('takes no file past the diff limit for a test file', async () => {
+    const { git } = fakeGit({
+      'test/huge.test.mjs': { code: null, stdout: '', stderr: '', killed: 'too-much-output' },
+    });
+    assert.deepEqual([...(await readTestFiles(git, clone, tip, [row('test/huge.test.mjs')]))], []);
+  });
+
   it('throws when git was killed or timed out, rather than taking the file for no test file', async () => {
     const { git } = fakeGit({
       'test/sum.test.mjs': { code: null, stdout: '', stderr: '', killed: 'timed-out' },
