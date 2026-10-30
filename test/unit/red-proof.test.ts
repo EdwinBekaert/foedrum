@@ -496,6 +496,20 @@ describe('judgeRed: a name in a file where the step declared no test (#661)', ()
     });
   });
 
+  it('takes a row the step added to a table in a file that declares a test at its tip', () => {
+    // The row's file declared its test.each before the step: its added lines declare nothing.
+    const row: DiffFile = {
+      newPath: 'test/sum.test.mjs',
+      added: ["  ['adds negatives', -1, -2, -3],"],
+      removed: [],
+    };
+    const report = tap(...failing(1, 'adds negatives', 'not implemented'), 'ok 2 - array');
+    assert.deepEqual(judgeRed(report, [row, schema], [], new Set(['test/sum.test.mjs'])), {
+      proven: true,
+      tests: ['adds negatives'],
+    });
+  });
+
   it('still takes a test the step declared in a test file, beside a data file that holds its name', () => {
     const report = tap(
       ...failing(1, 'adds two numbers', 'not implemented'),

@@ -119,6 +119,8 @@ const setup = ({
   prepare = undefined as string | undefined,
   /** The setup's exit code. */
   prepareExit = 0,
+  /** The text of a file at the proven step's tip, by `<rev>:<path>`; git finds no other. */
+  tips = {} as Record<string, string>,
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -130,7 +132,13 @@ const setup = ({
   };
   const git: Git = (cwd, args) => {
     order.push(`git ${args.join(' ')} in ${cwd}`);
-    return Promise.resolve(diff);
+    if (args[0] !== 'cat-file') return Promise.resolve(diff);
+    const tip = tips[args.at(-1) ?? ''];
+    return Promise.resolve(
+      tip === undefined
+        ? { code: 128, stdout: '', stderr: 'fatal: path does not exist\n' }
+        : { code: 0, stdout: tip, stderr: '' },
+    );
   };
   const reports: ReportFiles = {
     clear: (file) => {
@@ -554,6 +562,42 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       summary: 'step red proves the tests of step gauge, which has no attempt that succeeded',
     });
     assert.deepEqual(order, []);
+  });
+
+  // The Gauger adds a row to a table its test file declared before: no added line declares a test.
+  const rowDiff = [
+    'diff --git a/test/sum.test.mjs b/test/sum.test.mjs',
+    '--- a/test/sum.test.mjs',
+    '+++ b/test/sum.test.mjs',
+    '@@ -3,0 +4 @@',
+    "+  ['adds negatives', -1, -2, -3],",
+    '',
+  ].join('\n');
+  const rowFails = [
+    'TAP version 13',
+    'not ok 1 - adds negatives',
+    '  ---',
+    "  error: 'not implemented'",
+    '  ...',
+    '1..1',
+  ].join('\n');
+  const gaugeTip = 'refs/heads/foedrum/12-1/gauge/1';
+
+  it("reads a file the step's added lines declare no test in at its tip, and takes the row it added (#661)", async () => {
+    const { order, run } = setup({
+      diff: { code: 0, stdout: rowDiff, stderr: '' },
+      test: { exitCode: 1, stdout: rowFails },
+      tips: {
+        [`${gaugeTip}:test/sum.test.mjs`]:
+          "test.each([\n  ['adds', 1, 2, 3],\n])('%s', (_, a, b, sum) => {\n",
+      },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => line.startsWith('git cat-file')),
+      [`git cat-file blob ${gaugeTip}:test/sum.test.mjs in ${clone}`],
+    );
   });
 
   it("is blocked on the environment when git cannot read the proven step's commits", async () => {

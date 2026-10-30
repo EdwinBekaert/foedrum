@@ -148,6 +148,7 @@ export function judgeRed(
   report: TestReport,
   diff: readonly DiffFile[],
   regressionTests: readonly string[] = [],
+  _testFiles: ReadonlySet<string> = new Set(),
 ): RedVerdict {
   const refused = (why: string): RedVerdict => ({ proven: false, why });
   if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
