@@ -147,6 +147,28 @@ describe('parseSummary', () => {
     });
   });
 
+  it('counts a disposition that starts with fixed and then dismisses the rest as split (review of #683)', () => {
+    // "fixed in `cc0db858` (fallback). Dismissed for the rest: …"
+    assert.equal(rowOf(parseSummary(text('rounds-in-prose.md')), '5').end, 'split');
+  });
+
+  it('reads a Lens cell of many unclosed parentheses in time linear in its length (review of #683)', () => {
+    const body = [
+      '## Review: `x` @ `1`',
+      '',
+      '### Lens findings',
+      '',
+      '| # | Lens | Severity | Location | Finding | Disposition |',
+      '|---|---|---|---|---|---|',
+      `| 1 | ${'('.repeat(100_000)} | minor | — | x | fixed in \`1\` |`,
+    ].join('\n');
+    const before = process.cpuUsage();
+    assert.equal(rowOf(parseSummary(body), '1').end, 'fixed');
+    const { user, system } = process.cpuUsage(before);
+    // Quadratic, the cell takes about 5e9 steps; linear, a few milliseconds.
+    assert.ok(user + system < 1_000_000, `${user + system} µs of CPU time`);
+  });
+
   it("notes a count line in the template's form that differs from its table", () => {
     const body = text('template.md').replace('13 findings: 0 blocker', '15 findings: 0 blocker');
     assert.deepStrictEqual(withFindings(parseSummary(body)).mismatch, { stated: 15, rows: 13 });
@@ -327,7 +349,14 @@ describe('formatMetrics', () => {
       report,
       /^Lens rounds to pass: mean 2\.5, median 2\.5, most 4 \(1 round: 1, 4 rounds: 1\)\.$/m,
     );
-    assert.match(report, /^\| #669 \| 1 \| 0 \| 4 \| 13 \| 10 \| 2 \| 0 \| 0 \| 1 \|$/m);
+    assert.match(
+      report,
+      /^\| Pull request \| Summaries \| Hidden \| Lens rounds \| Findings \| Blocker \| Major \| Minor \| Fixed \| Dismissed \| Pre-existing \| Split \| Other \|$/m,
+    );
+    assert.match(
+      report,
+      /^\| #669 \| 1 \| 0 \| 4 \| 13 \| 0 \| 1 \| 12 \| 10 \| 2 \| 0 \| 0 \| 1 \|$/m,
+    );
     assert.match(report, /^- #509 u509: a lens findings section without a findings table$/m);
     assert.match(report, /^- #669 u669: row 2: other$/m);
     assert.match(report, /^Without a summary: #509\.$/m);

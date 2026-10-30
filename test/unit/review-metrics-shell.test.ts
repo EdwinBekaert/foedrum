@@ -193,6 +193,59 @@ describe('review-metrics', () => {
     );
   });
 
+  it('reads a pull request again when a later page of its comments answers with no pull request (review of #683)', async () => {
+    const calls: string[] = [];
+    const client = fake(calls);
+    let failed = 0;
+    const { code, err, out } = await runWith(['--from', '1', '--to', '1'], {
+      client: {
+        graphql: async (query, variables, signal) => {
+          if (variables.after === 'c1' && failed === 0) {
+            failed += 1;
+            return {
+              data: { repository: { issueOrPullRequest: null } },
+              errors: [{ message: 'Something went wrong while executing your query.' }],
+            };
+          }
+          return client.graphql(query, variables, signal);
+        },
+      },
+    });
+    assert.equal(err, '');
+    assert.equal(code, 0);
+    assert.match(out, /: 1 merged, 0 not merged, 0 issues or missing\.$/m);
+    assert.match(out, /^\| #1 \| 2 \| 1 \| 3 \| 17 \|/m);
+  });
+
+  it('fails on a number GitHub answers with no pull request and an error that is not its not-found (review of #683)', async () => {
+    const { code, err } = await runWith(['--from', '4', '--to', '4'], {
+      client: {
+        graphql: async () => ({
+          data: { repository: { issueOrPullRequest: null } },
+          errors: [{ message: 'Something went wrong while executing your query.' }],
+        }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(err, 'reading #4 failed: Something went wrong while executing your query.\n');
+  });
+
+  it('names the newest pull request when reading it fails (review of #683)', async () => {
+    const { code, err } = await runWith([], {
+      client: {
+        graphql: async () => ({
+          data: { repository: null },
+          errors: [{ message: "Could not resolve to a Repository with the name 'owner/name'." }],
+        }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(
+      err,
+      "reading the newest pull request failed: Could not resolve to a Repository with the name 'owner/name'.\n",
+    );
+  });
+
   it('fails with the error of a read that GitHub refused, with exit 1', async () => {
     const { code, err } = await runWith(['--from', '1', '--to', '1'], {
       client: {
