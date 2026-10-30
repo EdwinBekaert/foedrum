@@ -172,7 +172,7 @@ describe('loadRecipes: a recipe of brewer steps in a line', () => {
   });
 
   it('ignores the recipe settings the engine has no use for yet', () => {
-    const fields = { match: { labels: ['feature'] }, testFirst: false };
+    const fields = { testFirst: false };
     const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });
     assert.equal(loaded(loadRecipes(files)).find('pale')?.firstStep, 'maltster');
   });
@@ -187,11 +187,11 @@ describe('loadRecipes: fails closed', () => {
   });
 
   it('says in one line why a recipe does not pass its schema', () => {
-    const fields = { match: { labels: [] } };
+    const fields = { testFirst: 'yes' };
     const files = brewery({ recipes: [recipe('pale', [{ brewer: 'maltster' }], fields)] });
     const [problem, ...rest] = problemsOf(files);
     assert.deepEqual(rest, []);
-    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*match\.labels/);
+    assert.match(problem ?? '', /^recipes\/pale\.jsonc: .*testFirst/);
     assert.doesNotMatch(problem ?? '', /\n/);
   });
 

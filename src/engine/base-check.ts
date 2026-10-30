@@ -5,7 +5,7 @@
 // files change, and a check that fails on the merged tree when it first fails (ADR 0209), which
 // sends the batch back to its fix step when its recipe has the route (ADR 0226).
 
-import type { GravityReading } from '../schemas/events.ts';
+import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
 import { MAX_CONFLICTS } from '../schemas/store.ts';
 import { mergeResults } from './base-merge.ts';
 import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
@@ -213,16 +213,6 @@ export const failurePosts = (batch: Batch): { n: number; check: FailedCheck }[] 
 
 const conflictKey = (batchId: string, n: number) => ({ batchId, effect: `base_conflict.${n}` });
 const failureKey = (batchId: string, n: number) => ({ batchId, effect: `base_check_failed.${n}` });
-
-/** The repository and number of a pull request at `url`: `https://<host>/<owner>/<name>/pull/<n>`. */
-export const pullRequestOf = (url: string): { repo: string; number: number } => {
-  const found = /^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)\/?$/.exec(new URL(url).pathname);
-  const [, owner, name, number] = found ?? [];
-  if (owner === undefined || name === undefined || number === undefined) {
-    throw new Error(`${url} is no pull request URL of a repository`);
-  }
-  return { repo: `${owner}/${name}`, number: Number(number) };
-};
 
 /**
  * A post's comment without its marker: the batch's heading, `body`, and what the batch does: it

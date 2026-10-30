@@ -5,11 +5,10 @@
 // by a moved head or a later brief, hidden as outdated, `[batch, "brief.<n>.hidden"]` (ADR 0229).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import type { GravityReading } from '../schemas/events.ts';
+import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
 import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
-import { pullRequestOf } from './base-check.ts';
 import { commentId, effectMarker } from './claim-effects.ts';
 import { cutForComment } from './comment-revisions.ts';
 import { onFindings } from './decide.ts';
