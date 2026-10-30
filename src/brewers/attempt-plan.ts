@@ -123,7 +123,7 @@ export function attemptLimits(
   blocking = false,
   lenses?: readonly string[],
   choices: readonly string[] = [],
-  _sentBack = false,
+  sentBack = false,
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
@@ -153,6 +153,7 @@ export function attemptLimits(
     ...(maxTurns === undefined ? {} : { maxTurns }),
     ...(maxDenials === undefined ? {} : { maxDenials }),
     ...(brewer.produces === 'commits' && start !== undefined ? { commitsSince: start } : {}),
+    ...(sentBack && name === GAUGE ? { namesOnly: true } : {}),
   };
 }
 

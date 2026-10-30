@@ -11,7 +11,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import type { Batch, State } from '../engine/fold.ts';
+import { type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import {
   MAX_INPUT_BYTES,
@@ -686,7 +686,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
       const choices = found.choices?.map(({ name }) => name);
-      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
+      // A failed red proof of this step sent its round back: a retry starts as the attempt it
+      // retries (ADR 0258).
+      const step = batch?.steps.get(ref.stepId);
+      const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
+      const recipe = batch?.recipe?.name;
+      const sentBack =
+        route?.why === 'failed' &&
+        recipe !== undefined &&
+        options.checks?.proves(recipe, route.from) === ref.stepId;
+      return attemptLimits(found.brewer, start, found.blocking, lenses, choices, sentBack);
     },
     outDoc: (step) => brewerOf(step)?.brewer.output.doc,
   };

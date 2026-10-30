@@ -249,6 +249,8 @@ export const wireDriver = async (
   const plans = createAttemptPlans({
     state,
     brewers: setup.brewers,
+    // A Gauger its red proof sent back may name its tests without a commit (ADR 0258).
+    checks: setup.checks,
     models: setup.models,
     repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
     // Every attempt of a brewer with a shell gets its repository's dependencies first (ADR 0163).
