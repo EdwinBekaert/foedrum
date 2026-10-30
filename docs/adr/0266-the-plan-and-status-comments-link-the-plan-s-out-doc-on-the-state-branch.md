@@ -3,7 +3,7 @@
 Date: 2026-10-30 · Status: Accepted · Amends [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) (the plan comment's text and its cut) and [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (what the status comment's Assumptions show)
 
 ## Context
-The plan comment and the status comment show each assumption a brewer wrote cut to one line of about 200 characters, ten per step at most ([ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md), [ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)).
+The status comment shows each assumption a brewer wrote cut to one line of about 200 characters, ten per step at most ([ADR 0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md)); the plan comment shows none, and its cells stop at about 200 characters ([ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md)).
 The maintainer's first `foedrum mash` run showed that a plan's assumptions are what a person signs off, several of them design decisions, and the comments gave no way to the rest (#659).
 The full text is the attempt's out doc on the Brewery's state branch, `batches/<batch>/<step>-<attempt>.md` on `foedrum/state` ([ADR 0024](0024-state-branch-layout-outbox-and-divergence.md), [ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md)).
 Its assumptions are in its JSON frontmatter, which GitHub's rendered view of a Markdown file does not show readably; `?plain=1` shows the file as written.
