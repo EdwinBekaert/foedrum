@@ -600,6 +600,41 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
+  it('takes no file git cannot read at the tip for a test file: its row is no test the step added', async () => {
+    const { run } = setup({
+      diff: { code: 0, stdout: rowDiff, stderr: '' },
+      test: { exitCode: 1, stdout: rowFails },
+    });
+    const end = await run();
+    assert.deepEqual(
+      end.ending,
+      failedWith(
+        'the red proof of step gauge failed: none of the 1 tests in the report is one the step added',
+      ),
+    );
+  });
+
+  it('reads no file the step deleted at its tip', async () => {
+    const deleted = [
+      'diff --git a/test/old.test.mjs b/test/old.test.mjs',
+      'deleted file mode 100644',
+      '--- a/test/old.test.mjs',
+      '+++ /dev/null',
+      '@@ -1 +0,0 @@',
+      "-test('old', () => {});",
+      '',
+    ].join('\n');
+    const { order, run } = setup({
+      diff: { code: 0, stdout: `${gaugeDiff}${deleted}`, stderr: '' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => line.startsWith('git cat-file')),
+      [],
+    );
+  });
+
   it("is blocked on the environment when git cannot read the proven step's commits", async () => {
     const { order, run } = setup({
       diff: { code: 128, stdout: '', stderr: 'fatal: bad revision\n' },
