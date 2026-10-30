@@ -385,3 +385,38 @@ describe('createAttemptPlans: house yeast of a step of several lenses together (
     assert.equal(prompt.split('name="houseYeast"').length, 4, 'a rule not once');
   });
 });
+
+describe('createAttemptPlans: house yeast of the brewers that write the change (#671)', () => {
+  // The default Gauger and Cellarman, with a Taster through one lens.
+  const writers = loadRecipes({
+    ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+    recipes: [
+      {
+        path: 'recipes/amber.jsonc',
+        text: recipeText(
+          'amber',
+          [
+            { id: 'gauge', brewer: 'gauger' },
+            { id: 'implement', brewer: 'cellarman' },
+            { id: 'correctness', brewer: 'taster', lens: 'diff/correctness' },
+            { action: 'openPullRequest' },
+          ],
+          { testFirst: false },
+        ),
+      },
+    ],
+  });
+  assert.ok(writers.valid, writers.valid ? '' : writers.problems.join('\n'));
+  const brewers = writers.valid ? writers.brewers : assert.fail();
+  const NEAR_MISS = rule(
+    'near-miss',
+    { globs: ['test/**/*.ts'], lens: 'diff/test-design' },
+    'Every rule of a text form has a near miss.',
+  );
+
+  it('gives a Taster no rule of a lens its step does not run (regression test, #671)', async () => {
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS });
+    const { plan } = planOf(git, 'correctness', tasting, undefined, 1, brewers);
+    assert.deepEqual((await plan).houseYeast, { selected: [], cut: [] });
+  });
+});
