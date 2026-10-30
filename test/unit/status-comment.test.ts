@@ -479,7 +479,13 @@ describe('renderStatus', () => {
     );
   });
 
-  it('keeps the bare mark of an open question, and the bell where the batch is Stuck on it: regression test (#656)', () => {
+  it('keeps the bare mark of an open question: regression test (#656)', () => {
+    const steps = new Map([step('plan', asking(1))]);
+    const path = [{ stepId: 'plan', attempt: 1 }];
+    assert.equal(pathOf(renderStatus(batch({ steps, path }), ['plan'])), 'Path: `plan #1` ❓');
+  });
+
+  it('keeps the bell where the batch is Stuck on an open question: regression test (#656)', () => {
     const steps = new Map([step('plan', asking(1))]);
     const path = [{ stepId: 'plan', attempt: 1 }];
     const reason: StuckReason = { kind: 'needs_input', stepId: 'plan', questions: [which] };
@@ -487,7 +493,6 @@ describe('renderStatus', () => {
       pathOf(renderStatus(batch({ lane: stuck(reason), steps, path }), ['plan'])),
       'Path: `plan #1` 🔔',
     );
-    assert.equal(pathOf(renderStatus(batch({ steps, path }), ['plan'])), 'Path: `plan #1` ❓');
   });
 
   it('marks a succeeded attempt as before: regression test (#656)', () => {
