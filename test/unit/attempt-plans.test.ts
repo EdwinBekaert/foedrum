@@ -1129,6 +1129,68 @@ describe('createAttemptPlans: limits', () => {
     assert.equal(plans.outDoc({ batchId: '12-1', stepId: 'brew' }), 'brew.md');
   });
 
+  describe('an attempt of a recipe the batch has left (#657)', () => {
+    // A mash batch: the Innkeeper's step runs, and its answer chooses the recipe the batch brews.
+    const mash = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/mash.jsonc',
+          text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper' }]),
+        },
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/innkeeper.md',
+          text: brewerText('innkeeper', {
+            output: { doc: 'mash-in.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            maxTurns: 30,
+            inputs: [{ name: 'order', from: 'order' }],
+          }),
+        },
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            maxTurns: 30,
+            inputs: [{ name: 'order', from: 'order' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(mash.valid);
+    const innkeep = { batchId: '12-1', stepId: 'innkeep', attempt: 1 };
+    const chosen = (recipe: string, source: 'label' | 'human'): Event =>
+      source === 'label'
+        ? { type: 'batch.recipe_chosen', batchId: '12-1', recipe, reason: 'label', source }
+        : {
+            type: 'batch.recipe_chosen',
+            batchId: '12-1',
+            recipe,
+            reason: 'the mash-in answer',
+            source,
+            by: 'octocat',
+            via: 'terminal',
+          };
+    const answered: Event[] = [
+      ordered[0] as Event,
+      chosen('mash', 'label'),
+      { type: 'step.scheduled', ...innkeep, deadlineAt: '2026-10-17T13:00:00.000Z' },
+      chosen('pale', 'human'),
+      { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-17T14:00:00.000Z' },
+    ];
+
+    it('names the out doc of a step of the recipe the batch brews now', () => {
+      const { plans } = setup(answered, {}, undefined, mash.brewers);
+      assert.equal(plans.outDoc(ref), 'brew.md');
+    });
+  });
+
   it('names no out doc for a step without a brewer, or a batch without a recipe (ADR 0081)', () => {
     assert.equal(setup().plans.outDoc({ batchId: '12-1', stepId: 'taste' }), undefined);
     assert.equal(setup().plans.outDoc({ batchId: '13-1', stepId: 'brew' }), undefined);
