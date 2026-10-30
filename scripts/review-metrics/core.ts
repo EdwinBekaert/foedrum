@@ -393,10 +393,11 @@ const table = (
 
 const endCells = (ends: Record<End, number>): number[] => ENDS.map((end) => ends[end]);
 
-// Comment text as the report prints it: a control or format character, or a bar, as ?, and at most
-// 80 characters. Any commenter's text reaches it, and it goes to a terminal or a model.
+// Comment text as the report prints it: a control or format character, a line or paragraph
+// separator, or a bar, as ?, and at most 80 characters. Any commenter's text reaches it, and it
+// goes to a terminal or a model.
 const printable = (text: string): string => {
-  const safe = text.replace(/[\p{Cc}\p{Cf}|]/gu, '?');
+  const safe = text.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}|]/gu, '?');
   return safe.length > 80 ? `${safe.slice(0, 80)} …` : safe;
 };
 
