@@ -257,6 +257,21 @@ export interface Metrics {
   mismatches: readonly Left[];
 }
 
+// The summaries count only from someone with write access: anyone can comment on a public pull
+// request, and a comment headed like a summary would skew the counts.
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
+const summaryOf = ({ body, association }: Comment): Summary => {
+  const summary = parseSummary(body);
+  if (association !== undefined && TRUSTED.has(association)) return summary;
+  const by = association === undefined ? 'an author GitHub did not name' : association;
+  return {
+    kind: 'unparseable',
+    head: summary.head,
+    why: `posted by ${by}, not by an owner, member or collaborator`,
+  };
+};
+
 const noCounts = (): Counts => ({
   findings: 0,
   severity: { blocker: 0, major: 0, minor: 0 },
@@ -302,7 +317,7 @@ export const aggregate = (pulls: readonly PullRequest[]): Metrics => {
     };
     const parsed = comments
       .filter(({ body }) => isSummary(body))
-      .map((each) => ({ ...each, summary: parseSummary(each.body) }));
+      .map((each) => ({ ...each, summary: summaryOf(each) }));
     // One summary per head: a summary posted again for a head replaces the one before it.
     const replaced = (at: number, head: string): boolean =>
       head !== '' &&

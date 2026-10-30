@@ -33,7 +33,7 @@ const COMMENTS = `query($owner: String!, $name: String!, $number: Int!, $after: 
         merged
         comments(first: 100, after: $after) {
           pageInfo { hasNextPage endCursor }
-          nodes { url body isMinimized }
+          nodes { url body isMinimized authorAssociation }
         }
       }
     }
@@ -82,7 +82,14 @@ const readPull = async (
       if (typeof each.url !== 'string' || typeof each.body !== 'string') {
         throw new Error('a comment without its url or body');
       }
-      comments.push({ url: each.url, body: each.body, hidden: each.isMinimized === true });
+      comments.push({
+        url: each.url,
+        body: each.body,
+        hidden: each.isMinimized === true,
+        ...(typeof each.authorAssociation === 'string'
+          ? { association: each.authorAssociation }
+          : {}),
+      });
     }
     const info = record(page.pageInfo);
     if (info.hasNextPage !== true || typeof info.endCursor !== 'string') break;
