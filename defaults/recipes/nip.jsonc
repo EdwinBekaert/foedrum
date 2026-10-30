@@ -1,8 +1,8 @@
 // Nip, the quick fix in one repository, test-first (ADR 0017): the Gauger commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
 // simplifies the change (ADR 0166), the checks read the result, two Tasters review the change side
-// by side, through the correctness and acceptance lenses (ADR 0168, ADR 0197), and the pull request
-// opens with their findings (ADR 0161).
+// by side, through the correctness and acceptance lenses (ADR 0168, ADR 0197), correctness's changes
+// send the batch back to Cellarman (ADR 0264), and the pull request opens with their findings (ADR 0161).
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
@@ -30,12 +30,20 @@
       "check": ["build", "typecheck", "lint", "format", "test"],
       "onFail": { "goto": "implement", "maxRounds": 1 }
     },
-    // Advisory: the findings are listed in the pull request and the status comment.
+    // Every finding is listed in the pull request and the status comment.
     {
       "id": "taste",
       "parallel": [
-        { "id": "correctness", "brewer": "taster", "lens": "diff/correctness" },
-        // Whether the change builds each item of the order's checklist, and nothing else.
+        // Blocking: once both Tasters end, its changes send the batch back to Cellarman, twice at
+        // most, through the Finer and green again, and then it is Stuck (ADR 0168, ADR 0264).
+        {
+          "id": "correctness",
+          "brewer": "taster",
+          "lens": "diff/correctness",
+          "blocking": true,
+          "onBlocked": { "findings": { "goto": "implement", "maxRounds": 2 } }
+        },
+        // Advisory: whether the change builds each item of the order's checklist, and nothing else.
         { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance" }
       ]
     },
