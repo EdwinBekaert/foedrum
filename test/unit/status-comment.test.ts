@@ -428,6 +428,24 @@ describe('renderStatus', () => {
     );
   });
 
+  it('drops a parenthesised part of a long reason whole, though another is nested in it (#656)', () => {
+    const reason = 'the check "test" (sh -c "npm test (unit)") failed with exit code 1';
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('green', failed(1, reason), running(2))]),
+        path: [
+          { stepId: 'green', attempt: 1 },
+          { stepId: 'green', attempt: 2 },
+        ],
+      }),
+      ['green'],
+    );
+    assert.equal(
+      pathOf(text),
+      'Path: `green #1` ❌ the check "test" failed with exit code 1 → `green #2` ▶️',
+    );
+  });
+
   it("leaves out a failed attempt's reason on the path when it looks like a secret (#656)", () => {
     const text = renderStatus(
       batch({
