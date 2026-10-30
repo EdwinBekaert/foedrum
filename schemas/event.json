@@ -223,7 +223,7 @@
                 },
                 "head": {
                   "type": "string",
-                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                  "pattern": "^[0-9a-f]{40}$"
                 },
                 "cause": {
                   "type": "string",
@@ -234,7 +234,7 @@
                 },
                 "tip": {
                   "type": "string",
-                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                  "pattern": "^[0-9a-f]{40}$"
                 }
               },
               "required": [
@@ -356,7 +356,7 @@
             },
             "commit": {
               "type": "string",
-              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+              "pattern": "^[0-9a-f]{40}$"
             }
           },
           "required": [
@@ -1395,7 +1395,7 @@
                 },
                 "head": {
                   "type": "string",
-                  "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                  "pattern": "^[0-9a-f]{40}$"
                 },
                 "rounds": {
                   "type": "integer",
@@ -1462,7 +1462,7 @@
                         },
                         "tip": {
                           "type": "string",
-                          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                          "pattern": "^[0-9a-f]{40}$"
                         },
                         "check": {
                           "type": "string",
@@ -1490,7 +1490,7 @@
                         },
                         "tip": {
                           "type": "string",
-                          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                          "pattern": "^[0-9a-f]{40}$"
                         },
                         "files": {
                           "minItems": 1,
@@ -2010,7 +2010,7 @@
           },
           "additionalProperties": {
             "type": "string",
-            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            "pattern": "^[0-9a-f]{40}$"
           }
         }
       },
@@ -2188,11 +2188,11 @@
         },
         "tip": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "head": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "conflicts": {
           "minItems": 1,
@@ -2205,7 +2205,7 @@
         },
         "branchMoved": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "failed": {
           "oneOf": [
@@ -2498,7 +2498,7 @@
         },
         "head": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "since": {
           "type": "string",
@@ -2532,7 +2532,7 @@
         },
         "head": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "checks": {
           "maxItems": 100,

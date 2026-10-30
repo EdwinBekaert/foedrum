@@ -5,12 +5,10 @@
 
 import type { WorktreeMerge } from '../engine/base-merge.ts';
 import { samePath } from '../platform/paths.ts';
-import { type KeptFile, MAX_CONFLICTS } from '../schemas/store.ts';
-import { firstLine, gitOutput, inClone } from './clone-git.ts';
-import type { Git, GitOptions } from './git.ts';
+import { isCommitSha, type KeptFile, MAX_CONFLICTS, noCommitSha } from '../schemas/store.ts';
+import { aborts, firstLine, fullSha, gitOutput, inClone } from './clone-git.ts';
+import type { Git } from './git.ts';
 import { readRecords } from './worktree-records.ts';
-
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** What `git status --porcelain=v2` calls each kind of unmerged file, by its XY. */
 const UNMERGED: Readonly<Record<string, KeptFile['status']>> = {
@@ -25,14 +23,6 @@ const UNMERGED: Readonly<Record<string, KeptFile['status']>> = {
 
 /** A merge of a large tree takes a while; the effect's deadline aborts it sooner. */
 const MERGE_TIMEOUT_MS = 120_000;
-
-const aborts = (signal: AbortSignal | undefined): GitOptions =>
-  signal === undefined ? {} : { signal };
-
-const fullSha = (sha: string): string => {
-  if (!SHA.test(sha)) throw new Error(`${sha} is no full commit sha`);
-  return sha;
-};
 
 export interface WorktreeMergeOptions {
   git: Git;
@@ -59,7 +49,9 @@ export const openWorktreeMerge = ({ git, clone }: WorktreeMergeOptions): Worktre
   const head = async (path: string, signal?: AbortSignal): Promise<string> => {
     const args = ['rev-parse', '--verify', '--quiet', '--end-of-options', 'HEAD^{commit}'];
     const sha = (await gitOutput(local, path, args, aborts(signal))).trim();
-    if (!SHA.test(sha)) throw new Error(`The HEAD of ${path} names no commit: ${sha}`);
+    if (!isCommitSha(sha)) {
+      throw new Error(noCommitSha(sha, `The HEAD of ${path} names no commit: ${sha}`));
+    }
     return sha;
   };
   /** The commit a merge in progress merges: MERGE_HEAD is there while one is. */

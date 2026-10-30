@@ -41,6 +41,9 @@ export interface SpawnCommand {
   env: NodeJS.ProcessEnv;
 }
 
+/** Whether a file is a .cmd or .bat file, which Windows runs through cmd.exe (ADR 0031). */
+const isBatchFile = (file: string): boolean => /\.(?:cmd|bat)$/i.test(file);
+
 /**
  * How to start a file. On Windows a `.cmd` or `.bat` file (npm.cmd, npm's claude.cmd) cannot
  * start without cmd.exe, so it becomes a command line for the shell, every part checked and quoted
@@ -49,9 +52,6 @@ export interface SpawnCommand {
  * so the bare `node` in npm's shims is never one planted in the working directory (#12). Anything
  * else starts directly, without a shell.
  */
-/** Whether a file is a .cmd or .bat file, which Windows runs through cmd.exe (ADR 0031). */
-const isBatchFile = (file: string): boolean => /\.(?:cmd|bat)$/i.test(file);
-
 export const spawnCommand = (
   file: string,
   args: readonly string[],

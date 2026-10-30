@@ -395,6 +395,17 @@ describe('openBranchPush: baseTip (ADR 0090)', () => {
     }
   });
 
+  it('refuses a fetched SHA-256 base with the line that names it: Foedrum supports SHA-1 repositories (ADR 0254)', async () => {
+    const long = 'd'.repeat(64);
+    const { git } = recordingGit((args) =>
+      args.includes('refs/heads/main') ? ok(`${long}\n`) : answers(args),
+    );
+    const push = openBranchPush({ git, clone, own: { ...base, id: ids() } });
+    await assert.rejects(push.baseTip('main'), {
+      message: `${long} is a SHA-256 commit id: Foedrum supports SHA-1 repositories only`,
+    });
+  });
+
   it('gives every fetch a git directory of its own in the root, and removes it after, also when git fails (review of #254)', async () => {
     // A git whose init makes the directory it names, as git would.
     const made: string[] = [];
