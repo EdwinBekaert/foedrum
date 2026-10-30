@@ -183,7 +183,7 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.ok(calls.some(([, ...args]) => args[0] === 'worktree' && args[2] === review));
     });
 
-    describe("the step's own out doc (ADR 0081)", () => {
+    describe("the attempt's own out doc (ADR 0081, ADR 0260)", () => {
       const withOutDoc = { ...ended, outDocs: new Map([['12-1/implement/1', 'brew.md']]) };
       // git status lists `status`; git worktree remove refuses while anything is untracked.
       const gitWith = (status: string) =>
