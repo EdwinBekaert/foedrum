@@ -728,19 +728,15 @@ export const Event = z.discriminatedUnion('type', [
   // pull request of the Brewery's in the same repository, as the intake's merge-tree saw it once
   // for that pair of heads (ADR 0230): the files they conflict in, none when clean. Recorded for
   // each of the two batches.
-  z
-    .strictObject({
-      type: z.literal('pull_request.pair_checked'),
-      batchId: BatchId,
-      pullRequest: PullRequestUrl,
-      head: CommitSha,
-      other: PullRequestUrl,
-      otherHead: CommitSha,
-      conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
-    })
-    .refine(() => {
-      throw new Error('not implemented');
-    }),
+  z.strictObject({
+    type: z.literal('pull_request.pair_checked'),
+    batchId: BatchId,
+    pullRequest: PullRequestUrl,
+    head: CommitSha,
+    other: PullRequestUrl,
+    otherHead: CommitSha,
+    conflicts: z.array(NonEmpty).min(1).max(MAX_CONFLICTS).optional(),
+  }),
   // A check on an open pull request's head still runs, or none is there yet, as the first pass
   // that saw it found (ADR 0213): when it began to wait; again on a head recorded finished once
   // a check on it runs again.

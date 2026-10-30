@@ -766,8 +766,20 @@ function apply(state: State, event: Event): State {
         baseChecks: [...(batch.baseChecks ?? []), check],
       }));
     }
-    case 'pull_request.pair_checked':
-      throw new Error('not implemented');
+    case 'pull_request.pair_checked': {
+      const { batchId, pullRequest, head, other, otherHead, conflicts } = event;
+      const check: PairCheck = {
+        pullRequest,
+        head,
+        otherHead,
+        ...(conflicts === undefined ? {} : { conflicts }),
+      };
+      // The latest record per other pull request: an older pair of heads says nothing now.
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        pairChecks: { ...batch.pairChecks, [other]: check },
+      }));
+    }
     case 'pull_request.checks_pending': {
       const { batchId, pullRequest, head, since } = event;
       return updateBatch(state, batchId, (batch) => ({

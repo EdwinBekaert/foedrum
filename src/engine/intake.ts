@@ -41,6 +41,7 @@ import {
 import { holdText, type Limits, routeHold, startTally } from './limits.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
+import { checkPairs } from './pull-request-pairs.ts';
 import { hasSubOrdersLeft, type QueuedOrder, rankQueue } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
 import { type ReleaseReader, recordReleases } from './releases.ts';
@@ -486,6 +487,10 @@ export const createIntake = (options: IntakeOptions): Intake => {
     }
     if (bases.length > 0 && !signal.aborted) {
       await checkBases({ log, repositories: bases, clock, failed }, signal);
+    }
+    // Each pair of open heads of one repository once, after their base checks (ADR 0230).
+    if (bases.length > 0 && !signal.aborted) {
+      await checkPairs({ log, repositories: bases, clock, failed }, signal);
     }
     // Before the queue, so a release recorded here starts its sub-order in this pass (ADR 0223).
     if (releases !== undefined && !signal.aborted) {

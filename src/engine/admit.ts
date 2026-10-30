@@ -151,7 +151,7 @@ function rule(state: State, event: Event): string | undefined {
     case 'pull_request.base_checked':
       return checkable(state, event);
     case 'pull_request.pair_checked':
-      throw new Error('not implemented');
+      return checkable(state, event) ?? unpaired(state, event);
     case 'pull_request.checks_pending':
     case 'pull_request.checks_finished':
       return checkable(state, event) ?? unrecorded(state, event);
@@ -303,6 +303,7 @@ function checkable(
     {
       type:
         | 'pull_request.base_checked'
+        | 'pull_request.pair_checked'
         | 'pull_request.checks_pending'
         | 'pull_request.checks_finished';
     }
@@ -335,6 +336,21 @@ function unrecorded(
       : latest.kind === 'finished' && sameHeadChecks(latest, event);
   return same
     ? `the checks on ${event.head} of ${event.pullRequest} are already recorded`
+    : undefined;
+}
+
+/** A pair of heads is recorded once on each batch (ADR 0230). */
+function unpaired(
+  state: State,
+  event: Extract<Event, { type: 'pull_request.pair_checked' }>,
+): string | undefined {
+  const latest = state.batches.get(event.batchId)?.pairChecks?.[event.other];
+  const same =
+    latest?.pullRequest === event.pullRequest &&
+    latest.head === event.head &&
+    latest.otherHead === event.otherHead;
+  return same
+    ? `${event.pullRequest} on ${event.head} is already checked against ${event.other} on ${event.otherHead}`
     : undefined;
 }
 
