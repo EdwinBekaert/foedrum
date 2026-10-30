@@ -16,7 +16,8 @@ import type { DriverEffects } from './driver.ts';
 import type { Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
-import { code, plain, type StatusComments } from './status-comment.ts';
+import { outDocLink } from './state-branch.ts';
+import { code, link as linked, plain, type StatusComments } from './status-comment.ts';
 
 /** A text the brewer of `stepId` wrote, on one line, or a fixed line when it looks like a secret. */
 type Told = (text: string) => string;
@@ -80,7 +81,7 @@ export const renderPlan = (
   plan: PlanReport,
   isCommit: IsCommit = () => false,
   /** The out doc of the plan on the state branch, as written, linked at the end (#659). */
-  _fullPlan?: string,
+  fullPlan?: string,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -114,22 +115,26 @@ export const renderPlan = (
   ];
   const joined = (sections: string[][]): string =>
     sections.map((lines) => lines.join('\n')).join('\n\n');
+  // Last, and kept by a cut: the full plan, where every assumption reads whole.
+  const link = fullPlan === undefined ? '' : `\n\nFull plan: ${linked(fullPlan)}`;
   const text = joined([title, table, order, ...others, ...after]);
-  if (text.length <= longestComment) return text;
+  if (text.length + link.length <= longestComment) return `${text}${link}`;
   // The graph goes first, so a cut never leaves its block open.
   const left = ['**Order**', '', 'The graph is left out: GitHub keeps comments shorter.'];
-  return cutForComment(joined([title, table, left, ...others, ...after]));
+  return `${cutForComment(joined([title, table, left, ...others, ...after]), link.length)}${link}`;
 };
 
 const revisions = commentRevisions('plan', 'plan comment');
 
-/** The plan of the latest attempt of `batch` that succeeded with one, and its step. */
-const latestPlan = (batch: Batch): { stepId: string; plan: PlanReport } | undefined => {
+/** The plan of the latest attempt of `batch` that succeeded with one, its step and attempt. */
+const latestPlan = (
+  batch: Batch,
+): { stepId: string; attempt: number; plan: PlanReport } | undefined => {
   for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
     const ended = batch.steps.get(stepId)?.attempts.get(attempt);
     if (ended?.phase !== 'finished' || ended.outcome.kind !== 'succeeded') continue;
     const plan = planOf(ended.outcome.output);
-    if (plan !== undefined) return { stepId, plan };
+    if (plan !== undefined) return { stepId, attempt, plan };
   }
   return undefined;
 };
@@ -163,7 +168,7 @@ export const planCommentOf = (state: State, batchId: string): number | undefined
  * The revision of the plan comment of `batchId` that the recorded events call for: the next one
  * when its latest plan's text is not the one the comment shows, else none.
  */
-const planDue = (state: State, batchId: string): DueRevision | undefined => {
+const planDue = (state: State, batchId: string, stateBranch?: string): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return undefined;
   const issue = breweryIssueOf(state, batch);
@@ -171,7 +176,10 @@ const planDue = (state: State, batchId: string): DueRevision | undefined => {
   if (issue === undefined || latest === undefined) return undefined;
   const { next, latest: own } = revisions.latest(state, batchId);
   const previous = own ?? orderRevision(state, batch, issue);
-  const text = renderPlan(batchId, latest.stepId, latest.plan, knownCommits(state, batchId));
+  const { stepId, attempt, plan } = latest;
+  const fullPlan =
+    stateBranch === undefined ? undefined : outDocLink(stateBranch, { batchId, stepId, attempt });
+  const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };
@@ -192,11 +200,11 @@ export interface PlanEffectsOptions {
  * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233).
  */
 export const planEffects = (options: PlanEffectsOptions): DriverEffects => {
-  const { brewery, comments } = options;
+  const { brewery, comments, stateBranch } = options;
   const plan = revisions.effects(brewery, comments);
   return {
     due: (state, batchId) => {
-      const due = planDue(state, batchId);
+      const due = planDue(state, batchId, stateBranch);
       return due === undefined ? [] : [plan.due(due)];
     },
     target: plan.target,
