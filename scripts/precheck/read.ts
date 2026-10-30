@@ -778,6 +778,19 @@ const printsHelp = (args: Word[]): boolean => {
   return first.text === '-h' && rest.every((arg) => !arg.quoted && REDIRECTION.test(arg.text));
 };
 
+// Whether git's option at `k` (-c or --config-env) sets a remote's, push's or include setting, or
+// one computed at run time.
+const setsPushSetting = (args: Word[], k: number): boolean => {
+  const option = args[k]?.text ?? '';
+  const setting =
+    option === '-c' || option === '--config-env'
+      ? args[k + 1]
+      : option.startsWith('--config-env=')
+        ? { ...(args[k] as Word), text: option.slice('--config-env='.length) }
+        : undefined;
+  return setting !== undefined && (setting.dynamic || PUSH_SETTING.test(setting.text));
+};
+
 const readGit = (args: Word[], literal: boolean, { found, place }: Reading): void => {
   let i = 0;
   // Each -C is resolved against the ones before it, as git reads them.
@@ -794,15 +807,7 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
     if (option === '-C') gitPlace = moveTo(gitPlace, args[i + 1]?.dynamic ? undefined : value);
     // Only as git's first word: after an option the gate does not read, -h may be its value.
     if (i === 0 && (option === '-h' || option === '--help')) help = true;
-    const setting =
-      option === '-c' || option === '--config-env'
-        ? args[i + 1]
-        : option.startsWith('--config-env=')
-          ? { ...(args[i] as Word), text: option.slice('--config-env='.length) }
-          : undefined;
-    if (setting !== undefined && (setting.dynamic || PUSH_SETTING.test(setting.text))) {
-      configured = true;
-    }
+    configured ||= setsPushSetting(args, i);
     const [name = ''] = option.split('=', 1);
     const known =
       GIT_OPTIONS_WITH_VALUE.has(option) ||
@@ -817,6 +822,14 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
   // to every remote's configuration (ADR 0256).
   const after = args.slice(unknown === undefined ? i : unknown + 1);
   const subcommands = unknown === undefined ? after.slice(0, 1) : after;
+  // git's own -c, --config-env and -C may follow the unknown option's value, so every later one
+  // counts; a -C makes the directory one the gate cannot tell (review of #651).
+  if (unknown !== undefined) {
+    for (let k = unknown + 1; k < args.length; k++) {
+      configured ||= setsPushSetting(args, k);
+      if (args[k]?.text === '-C') gitPlace = undefined;
+    }
+  }
   if (subcommands.some((word) => word.text === 'config' || word.text === 'remote')) {
     found.configures = true;
   }
