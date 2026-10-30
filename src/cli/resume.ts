@@ -374,7 +374,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     if (repository === undefined) {
       return failed(`${worktree.repo} is no repository of this Brewery`);
     }
-    // The recipe the attempt ran under, which the batch may have left since (ADR 0260, #670).
+    // The recipe the attempt ran under, which the batch may have left since (ADR 0265).
     const recipe = attemptRecipeOf(state, ref) ?? '';
     const found = setup.brewers.find(recipe, ref.stepId);
     if (found === undefined) return failed(`recipe ${recipe} has no step ${ref.stepId}`);
