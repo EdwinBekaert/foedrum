@@ -533,6 +533,7 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
+        const recipe = batch.recipe?.name;
         return {
           ...skipping(batch, stepId, false),
           lane: { kind: 'brewing' },
@@ -545,6 +546,7 @@ function apply(state: State, event: Event): State {
               ...(route === undefined ? {} : { route }),
               ...(retry === undefined ? {} : { retry }),
               ...(answered === undefined ? {} : { answered }),
+              ...(recipe === undefined ? {} : { recipe }),
             }),
           }),
         };

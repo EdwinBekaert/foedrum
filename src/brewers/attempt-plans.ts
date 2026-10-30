@@ -189,6 +189,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     return recipe === undefined ? undefined : brewers.find(recipe, stepId);
   };
 
+  // The out doc of an attempt's brewer in the recipe it was scheduled under, which the batch may
+  // have left since (#657); in its batch's recipe for an attempt that recorded none.
+  const outDocOf = (ref: AttemptRef) => {
+    const batch = state().batches.get(ref.batchId);
+    const scheduled = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe;
+    const recipe = scheduled ?? batch?.recipe?.name;
+    return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId)?.brewer.output.doc;
+  };
+
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
     // A lens's text was read, and held to the limit, when the brewer loaded (ADR 0098).
@@ -684,6 +693,6 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const choices = found.choices?.map(({ name }) => name);
       return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
     },
-    outDoc: (step) => brewerOf(step)?.brewer.output.doc,
+    outDoc: outDocOf,
   };
 }

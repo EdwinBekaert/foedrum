@@ -199,8 +199,9 @@ export interface Claims {
   batches: ReadonlyMap<string, 'live' | 'ended'>;
   leased: readonly AttemptRef[];
   /**
-   * The out doc of each step of an ended batch whose brewer is known, by `<batchId>/<stepId>`:
-   * the one untracked file a worktree of that step may have and still go (ADR 0081).
+   * The out doc of each attempt of an ended batch whose brewer is known, by
+   * `<batchId>/<stepId>/<attempt>`: the one untracked file the worktree that attempt made may have
+   * and still go (ADR 0081).
    */
   outDocs?: ReadonlyMap<string, string>;
   /**

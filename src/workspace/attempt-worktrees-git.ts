@@ -386,9 +386,10 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
       for (const worktree of await listWorktrees()) {
         const inside = pathInside(root, worktree.path);
         const record = recordOf(records, worktree.path);
-        // The out doc of the attempt's step, which every attempt that ran here wrote (ADR 0081).
+        // The out doc of the attempt that made it, which every attempt that ran here wrote, as
+        // they continue its session (ADR 0081, ADR 0117).
         const ref = inside === undefined ? undefined : parseAttemptFolder(inside);
-        const outDoc = ref && claims.outDocs?.get(`${ref.batchId}/${ref.stepId}`);
+        const outDoc = ref && claims.outDocs?.get(`${ref.batchId}/${ref.stepId}/${ref.attempt}`);
         const status =
           inside === undefined
             ? { state: 'unchecked' as const }
