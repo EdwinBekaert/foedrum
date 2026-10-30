@@ -40,7 +40,7 @@ If a patch no longer applies because those files now exist, rebase the sample on
 | `0011` Round retry delays up to whole seconds | implementation | Control: green step |
 | `0012` Remove backoffSeconds: nothing calls it | remove | Control: deletes `backoffSeconds` and only its test, with its import |
 | `0013` Refactor: name the doubled delay in backoffMs | refactor subject, mixed | **Planted:** the code change is a refactor, but the "never exceeds the cap" test changes its expected value (`10_000` to `5_000`) |
-| `0014` Remove the doubled-delay name from backoffMs | remove subject, mixed | **Planted:** deletes a line of `backoffMs`, which it keeps, and with it the kept "never exceeds the cap" test |
+| `0014` Remove the doubled-delay name from backoffMs | remove subject, mixed | **Planted:** folds `backoffMs` back into one expression, keeping the function, and deletes with it the kept "never exceeds the cap" test |
 
 ## Expected findings
 
@@ -59,11 +59,11 @@ A run should report at least these. Line numbers are in `src/engine/wait-for-mer
 | Rejection tests against a reject-everything stub (`test/unit/brewery-name.test.ts`, `src/workspace/brewery-name.ts` at `0007`) | test-design | **major**: every test passes against `() => false`, so none would fail if `isBreweryName` rejected valid names too; no test accepts a valid name |
 | | Red proof | **fail**: at `0007` all 3 new tests are `ok` (*not red, passing*), and the stub returns a value instead of throwing `not implemented`; `0008` has *no red step* |
 | | Brett | a mutant that makes `isBreweryName` return `false` for every input (for example `false && /…/.test(name)`) survives; the reviewer prompt asks for it, because every assertion on `isBreweryName` expects `false` |
-| A signature Refactor with call-only test edits (`0009`) | Red proof | **refactor**: `test/unit/backoff.test.ts` all `ok` at `0009^` and `0009` (2 of 2), the same leaf names, no expected value changed; no red step needed |
+| A signature Refactor with call-only test edits (`0009`) | Red proof | **refactor**: `test/unit/backoff.test.ts` all `ok` at `0009^` and `0009` (2 of 2), the same leaf names, no expected value changed; the later test of `0010` calls `backoffSeconds`, a new export, so at `0009^` it shows nothing; no red step needed |
 | A red/green pair (`0010` → `0011`) | Red proof | passes: red at `0010` (1 of 1 `not implemented`), green at `0011` |
 | A Remove of code and only its tests (`0012`) | Red proof | **remove**: all `ok` at `0012^` (3 of 3) and `0012` (2 of 2), the leaf names at `0012` are those at `0012^` less "backoffSeconds > rounds the delay up to whole seconds"; no red step needed |
 | An expected value changed in a Refactor (`0013`) | Red proof | **fail**: `0013` is **mixed**, since it changes the expected value of "never exceeds the cap", though its tests are all `ok` at `0013^` and `0013` |
-| A kept test deleted in a Remove (`0014`) | Red proof | **fail**: `0014` is **mixed**, since the "never exceeds the cap" test it deletes exercises `backoffMs`, which it keeps, though its tests are all `ok` at `0014^` (2 of 2) and `0014` (1 of 1) |
+| A kept test deleted in a Remove (`0014`) | Red proof | **fail**: `0014` is **mixed**, since the "never exceeds the cap" test it deletes is one of `backoffMs`'s own tests, and `backoffMs` stays, though its tests are all `ok` at `0014^` (2 of 2) and `0014` (1 of 1) |
 | String-built path (line 20) | cross-platform | **blocker**: mixed separators on Windows, citing the CLAUDE.md paths rule |
 | | security | unvalidated Brewery name allows `../` traversal out of `~/.foedrum` |
 | | design-conformance | the same paths rule; the store location also contradicts the Brewery layout in the architecture document and ADR 0011 |
