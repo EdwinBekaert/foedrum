@@ -1,6 +1,6 @@
 # 0271. Foedrum's own sessions load the house-yeast rules as generated path-scoped rule files
 
-Date: 2026-10-30 · Status: Accepted · Amends [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) (Foedrum's own rules reach the sessions that write the code, not only the lenses of `/brew-review`)
+Date: 2026-10-30 · Status: Accepted · Amends [0015](0015-house-yeast.md) (the rules a session loads have no budget, only their paths) and [0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) (Foedrum's own rules reach the sessions that write the code, not only the lenses of `/brew-review`)
 
 ## Context
 [ADR 0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md) gives the rules in Foedrum's `.foedrum/house-yeast/` to the lenses of `/brew-review`, after the code is written.
@@ -11,11 +11,11 @@ Claude Code loads a Markdown file under `.claude/rules/`, found in subfolders to
 The globs are matched from the folder that holds `.claude/`: a session starts in the main checkout and works in a worktree under `.claude/worktrees/`, so a file there is `.claude/worktrees/<branch>/src/…` to the matcher.
 
 ## Decision
-- `npm run house-yeast:rules` (`scripts/generate-house-yeast-rules.ts`) writes `.claude/rules/house-yeast/` from `.foedrum/house-yeast/`, read with `readRules`: one file per set of paths, holding each of its rules as a lens reads it (`section`), by id, under a line that says the file is generated.
-- A rule's paths are its globs, each under any folder (`**/` before it), so they match in a worktree too. A rule with only a language gets that language's extensions (`**/*.{ts,tsx,mts,cts}`). A rule with both is scoped by its globs alone, since `paths` cannot ask for both; every rule so far already pins the language in its globs.
+- `npm run house-yeast:rules` (`scripts/generate-house-yeast-rules.ts`) writes `.claude/rules/house-yeast/` from `.foedrum/house-yeast/`, read with `readRules`: one file per set of paths, named after the lowest of its rules' globs or language so the order the rules are read in does not change it, holding each of its rules as a lens reads it (`section`), by id, under a line that says the file is generated.
+- A rule's paths are its globs, each under any folder (`**/` before it), so they match in a worktree too. A rule with only a language gets that language's extensions (`**/*.{ts,tsx,mts,cts}`, or `**/*.md` for a language of one extension, since a brace of one item matches only itself). A rule with neither matches every file (`**/*`, in `everywhere.md`), as it matches every change (ADR 0015). A rule with both is scoped by its globs alone, since `paths` cannot ask for both; every rule so far already pins the language in its globs.
 - Every active rule is given, whatever lens it names, as ADR 0268 does for a batch's writers: the session writes the change. A retired rule is left out. There is no budget: a file loads only for its own files, and Foedrum's 26 rules come to about 1,900 tokens in all, under the 2,000 of one lens.
 - A rule file that cannot be read fails the generator, naming it.
-- A unit test fails while the committed folder differs from what the generator writes, as `test/unit/json-schema.test.ts` does for `schemas/`. A pull request that adds, changes or retires a rule, `/brew-review`'s own included, runs `npm run house-yeast:rules` in it.
+- A unit test fails while the committed folder differs from what the generator writes, as `test/unit/json-schema.test.ts` does for `schemas/`. A pull request that adds, changes or retires a rule runs `npm run house-yeast:rules` in it; the test's name says so. `/brew-review`'s `record` writes only the rule file, and its skill does not say to regenerate yet, so a review that proposes a rule fails the test until the session runs the script; the next change to the skill adds that step.
 - `/brew-review`'s selection does not change: its lenses get the rules at the base, per lens, within the budget (ADR 0122).
 
 ## Consequences
