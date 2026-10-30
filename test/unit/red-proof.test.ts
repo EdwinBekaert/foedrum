@@ -120,9 +120,20 @@ describe('judgeRed', () => {
     }
   });
 
-  it("proves red an xunit assertion failure and a node assertion's in a JUnit report", () => {
+  it('proves red an xunit assertion failure in a JUnit report', () => {
     const report = junit(`<testsuite>
       <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Values differ&#10;Expected: 3&#10;Actual:   0">   at Calc.Tests.AddTests.AddsTwoNumbers() in C:\\work\\app\\AddTests.cs:line 4</failure></testcase>
+      <testcase name="adds a negative number"><failure message="not implemented"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it("proves red a node assertion's failure in a JUnit report", () => {
+    const report = junit(`<testsuite>
+      <testcase name="adds two numbers"><failure message="not implemented"/></testcase>
       <testcase name="adds a negative number"><failure message="AssertionError [ERR_ASSERTION]: Expected values to be strictly equal"/></testcase>
     </testsuite>`);
     assert.deepEqual(judgeRed(report, gauged), {
