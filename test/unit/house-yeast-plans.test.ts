@@ -457,6 +457,19 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
     });
   });
 
+  it("gives the Gauger's first attempt, which changed nothing, the rules that name no file, of every lens (regression test, review of #682)", async () => {
+    const events = [...ordered, scheduled('gauge'), startedAt('gauge', base)];
+    const files = [
+      {
+        path: 'house-yeast/everywhere.md',
+        text: rule('everywhere', { lens: 'diff/test-design' }, 'One test, one case.'),
+      },
+    ];
+    const git = repository('', { 'near-miss': NEAR_MISS });
+    const { plan } = planOf(git, 'gauge', events, { files, keptIn: () => 'repo' }, 1, brewers);
+    assert.deepEqual((await plan).houseYeast, { selected: ['everywhere'], cut: [] });
+  });
+
   it('gives a Taster no rule of a lens its step does not run (regression test, #671)', async () => {
     const plain = rule('plain', { globs: ['test/**'] }, 'Name things plainly.');
     const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS, plain });
