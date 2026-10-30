@@ -16,12 +16,14 @@ Three ways to tell a test file were weighed:
 
 ## Decision
 - **A test file is a file the step changed that declares a test at the step's tip**: a line of it, as the step left it, that `declaresTest` reads as a declaration.
-  For a file whose added lines declare none, the red proof reads the file once at the branch the step's commits end at, in the clone (`readTestFiles`, `src/checks/step-commits.ts`), within the diff's 16 MiB limit.
-  A file git cannot read there, one past the limit, a binary one and a file the step deleted are no test files.
+  For a file whose added lines declare none, the red proof reads the file once at the branch the step's commits end at, in the clone (`readTestFiles`, `src/checks/step-commits.ts`), within the diff's 16 MiB limit and 10 s, at most 50 such files, since the brewer's commits choose how many change.
+  A file git cannot find there, one past the limit, a binary one, one past that count and a file the step deleted are no test files; a read git was killed for blocks the red proof on its environment, as an unreadable diff does.
   `judgeRed` stays pure: it is given those paths.
 - **A whole string literal declares a test only in a test file**: in any other file, such as a regenerated schema, a fixture or a lock file, a quoted name is data.
+  A data file (JSON, YAML, a lock file) is no test file, unless its text reads as a declaration to `declaresTest` (#618 owns that list).
 - **Every other form of ADR 0176 counts in any file, as before**: after `def`, `fn` or `func`, a GoogleTest macro's test, a Gherkin scenario's line, and a name before `(` where no call can stand (ADR 0178).
-- **Regression names are matched in the lines the step added to its test files**, now by this definition of a test file, outside comments ([ADR 0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md)).
+- **Regression names still match only in files whose added lines declare a test**, outside comments, as [ADR 0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) has it: those are the files whose lines `testsUnchanged` keeps.
+  So a table row cannot be a named regression test.
 - **Go's `t.Run(` is a declaration** (`DECLARATIONS`, `src/checks/tests-unchanged.ts`), so a Go file whose tests are subtests is a test file.
   `testsUnchanged` then also keeps the `t.Run` lines a step added, as it keeps every declaration the step added.
 
@@ -29,5 +31,5 @@ Three ways to tell a test file were weighed:
 - Batch 12-2's commit no longer counts the two older `array` tests: `judgeRed` on its diff (`b972823b..201956ae`) proves its new tests red.
 - A row the step adds to an existing table-driven test counts again as one of its tests, since the table's file declares a test at the tip.
 - The red proof makes one more git call for each changed file whose added lines declare no test.
-- `declaresTest` reads text, not code, so a source file can declare a test at its tip by prose or by a call that only looks like one: a comment `names it (ADR 0213)`, or zod's `.describe('…')`. In such a file string literals count, as they did before this decision. The narrowing holds fully for files without such text: data, schemas, lock files.
+- `declaresTest` reads text, not code, so a source file can declare a test at its tip by prose or by a call that only looks like one: a comment `names it (ADR 0213)`, or zod's `.describe('…')`. In such a file string literals count, as they did before this decision; so they do in a data file whose text reads as a declaration, such as a schema generated from a `.describe()` text with `it (` in it.
 - The list of declarations stays incomplete for some languages and loose for others; [#618](https://github.com/EdwinBekaert/foedrum/issues/618) (the red proof must know a step's tests in every language) revisits it as a whole.
