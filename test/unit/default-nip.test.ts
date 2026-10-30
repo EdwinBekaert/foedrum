@@ -32,8 +32,8 @@ const valid = (result: LoadedRecipes) => {
   return result;
 };
 
-/** The steps an order brewed with the default Nip started, in order, as the fake runner plays them. */
-const brewNip = async (scripts: Record<string, readonly Behaviour[]>): Promise<string[]> => {
+/** The events of an order brewed with the default Nip, as the fake runner plays its steps. */
+const brewNipEvents = async (scripts: Record<string, readonly Behaviour[]>): Promise<Event[]> => {
   const store = openSqliteEventStore(':memory:');
   try {
     const brewing = createBrewing({
@@ -53,13 +53,17 @@ const brewNip = async (scripts: Record<string, readonly Behaviour[]>): Promise<s
       }),
     );
     await brewing.drive();
-    return brewing
-      .events()
-      .flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
+    return [...brewing.events()];
   } finally {
     store.close();
   }
 };
+
+/** The steps an order brewed with the default Nip started, in order, as the fake runner plays them. */
+const brewNip = async (scripts: Record<string, readonly Behaviour[]>): Promise<string[]> =>
+  (await brewNipEvents(scripts)).flatMap((event) =>
+    event.type === 'step.started' ? [event.stepId] : [],
+  );
 
 describe('the default Nip', () => {
   it('sends a Cellarman that finds a test wrong back to the Gauger, once (ADR 0017, ADR 0064)', async () => {
@@ -332,7 +336,7 @@ describe('the default Nip', () => {
   it('goes no further when the correctness Taster still asks for changes after two rounds (ADR 0192, ADR 0264)', async () => {
     const done = behave.succeed();
     const changes = behave.blocked('findings', 'An Ordered sub-order holds nothing');
-    const started = await brewNip({
+    const events = await brewNipEvents({
       gauge: [done],
       red: [done],
       implement: [done, done, done],
@@ -342,9 +346,14 @@ describe('the default Nip', () => {
       acceptance: [done, done, done, done],
       'open-pull-request': [done],
     });
+    const started = events.flatMap((event) =>
+      event.type === 'step.started' ? [event.stepId] : [],
+    );
     assert.equal(started.filter((step) => step === 'correctness').length, 3);
     assert.equal(started.filter((step) => step === 'implement').length, 3);
     assert.ok(!started.includes('open-pull-request'), started.join(', '));
+    assert.equal(fold(events).batches.get('b1')?.lane.kind, 'stuck');
+    assert.equal(events.at(-1)?.type, 'batch.stuck', JSON.stringify(events.at(-1)));
   });
 
   it("reads the typecheck in Nip's green step, after the build and before lint (#411)", () => {
