@@ -92,7 +92,8 @@ export const changedFilesZ = (nameStatus: string): string[] => {
   return files;
 };
 
-const languages: Record<string, string> = {
+/** The language of each file extension a rule's `language` is read from. */
+export const languages: Readonly<Record<string, string>> = {
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.mts': 'typescript',
@@ -150,7 +151,7 @@ const rank = ({ scope }: HouseYeastRule): [number, number] => [
 ];
 
 // Not localeCompare: a locale's collation would make the order, and so the cut, differ by machine.
-const byCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+export const byCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 const byPriority = (a: Rule, b: Rule): number => {
   const [lensA, scopeA] = rank(a.rule);

@@ -30,6 +30,7 @@
       "Bash(git push *)",
       "Bash(gh pr create *)",
       "Bash(gh pr comment *)",
+      "Bash(gh pr ready *)",
       "Bash(gh issue comment *)",
       "PowerShell(npm ci)",
       "PowerShell(npm run *)",
@@ -58,6 +59,7 @@
       "PowerShell(git push *)",
       "PowerShell(gh pr create *)",
       "PowerShell(gh pr comment *)",
+      "PowerShell(gh pr ready *)",
       "PowerShell(gh issue comment *)"
     ],
     "ask": [

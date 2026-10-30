@@ -104,6 +104,13 @@ describe('judgeRed', () => {
       'add.c:3: compile error',
       'AddTest.java: compilation failed',
       'error: failed to compile add.c',
+      // .NET's assembly and type load failures, as xunit writes them (#679).
+      "System.IO.FileLoadException : Could not load file or assembly 'C:\\work\\app\\bin\\Calc.dll'. This file is blocked by an application control policy. (0x800711C7)",
+      "System.IO.FileLoadException : Could not load file or assembly 'C:\\work\\app\\bin\\Calc.dll'. Dit bestand is geblokkeerd door een beleid voor toepassingsbeheer. (0x800711C7)",
+      "System.IO.FileNotFoundException : Could not load file or assembly 'Calc, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null'. The system cannot find the file specified.",
+      "System.IO.FileNotFoundException: Could not load file or assembly 'Calc, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null'. The system cannot find the file specified.",
+      "System.BadImageFormatException : Bad IL format. The format of the file 'C:\\work\\app\\bin\\Calc.dll' is invalid.",
+      "System.TypeLoadException : Could not resolve type 'Calc.Missing' in assembly 'Calc.Tests, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.",
     ];
     for (const line of loadErrors) {
       const report = tap(
@@ -112,6 +119,98 @@ describe('judgeRed', () => {
       );
       assert.match(why(report), /load, compile, import or collection error/, line);
     }
+  });
+
+  it('refuses a .NET load failure by its type when the runtime localizes its message', () => {
+    const report = tap(
+      ...failing(
+        1,
+        'adds two numbers',
+        "System.IO.FileLoadException : Kan bestand of assembly 'C:\\work\\app\\bin\\Calc.dll' niet laden. (0x800711C7)",
+      ),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.match(why(report), /load, compile, import or collection error/);
+  });
+
+  it("refuses .NET's own text of a load failure, without xunit's space before the colon", () => {
+    const report = tap(
+      ...failing(
+        1,
+        'adds two numbers',
+        "System.TypeLoadException: Could not resolve type 'Calc.Missing' in assembly 'Calc.Tests, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.",
+      ),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.match(why(report), /load, compile, import or collection error/);
+  });
+
+  it('proves red a FileNotFoundException of a file, not of an assembly', () => {
+    const report = tap(
+      ...failing(
+        1,
+        'adds two numbers',
+        "System.IO.FileNotFoundException : Could not find file 'C:\\work\\app\\data.txt'.",
+      ),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it("proves red an xunit assertion whose expected value quotes .NET's load message", () => {
+    // xunit's text when a test expects the message and the stub returns another one.
+    const report = junit(`<testsuite>
+      <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Strings differ&#10;           ↓ (pos 0)&#10;Expected: &quot;Could not load file or assembly 'Plugin'&quot;&#10;Actual:   &quot;not implemented&quot;&#10;           ↑ (pos 0)"/></testcase>
+      <testcase name="adds a negative number"><failure message="not implemented"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it('proves red an xunit assertion failure in a JUnit report', () => {
+    const report = junit(`<testsuite>
+      <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Values differ&#10;Expected: 3&#10;Actual:   0">   at Calc.Tests.AddTests.AddsTwoNumbers() in C:\\work\\app\\AddTests.cs:line 4</failure></testcase>
+      <testcase name="adds a negative number"><failure message="not implemented"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it("proves red a node assertion's failure in a JUnit report", () => {
+    const report = junit(`<testsuite>
+      <testcase name="adds two numbers"><failure message="not implemented"/></testcase>
+      <testcase name="adds a negative number"><failure message="AssertionError [ERR_ASSERTION]: Expected values to be strictly equal"/></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it('does not take a .NET test that expects a load failure for one when it fails on an assertion', () => {
+    const name = 'throws a TypeLoadException for a missing type';
+    const csharp = [
+      {
+        newPath: 'test/Calc.Tests/LoaderTests.cs',
+        added: [
+          `    [Fact(DisplayName = "${name}")]`,
+          '    public void ThrowsTypeLoadException() => Assert.Throws<TypeLoadException>(Loader.Load);',
+        ],
+        removed: [],
+      },
+    ];
+    // xunit's text when the stub throws something else: it names the expected type, after typeof.
+    const report = junit(`<testsuite>
+      <testcase classname="Calc.Tests.LoaderTests" name="${name}"><failure message="Assert.Throws() Failure: Exception type was not an exact match&#10;Expected: typeof(System.TypeLoadException)&#10;Actual:   typeof(System.NotImplementedException)&#10;---- System.NotImplementedException : The method or operation is not implemented.">   at Calc.Tests.LoaderTests.ThrowsTypeLoadException() in C:\\work\\app\\LoaderTests.cs:line 6</failure></testcase>
+    </testsuite>`);
+    assert.deepEqual(judgeRed(report, csharp), { proven: true, tests: [name] });
   });
 
   it('refuses a JUnit report with a collection error', () => {
