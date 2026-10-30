@@ -1874,19 +1874,18 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     });
 
     it('says it ordered the issue when the recipe is then refused, as when the intake routed it first', async () => {
-      // The intake routes 21-2 between the order and the choice: the second transaction.
-      let transactions = 0;
+      // The intake routes 21-2 in the first transaction that finds it ordered, before the choice.
+      const intake = createCommandLog({ store, recipes });
+      let routed = false;
       const racing: EventStore = {
         ...store,
         close: () => {},
         withTransaction: (use) => {
-          transactions += 1;
-          if (transactions === 2) {
+          if (!routed && intake.state().batches.get('21-2')?.lane.kind === 'ordered') {
             const route = { batchId: '21-2', recipe: 'pint', reason: 'label' };
-            createCommandLog({ store, recipes }).issue(
-              { kind: 'route', ...route, source: 'label' },
-              t0,
-            );
+            const decision = intake.issue({ kind: 'route', ...route, source: 'label' }, t0);
+            assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+            routed = true;
           }
           return store.withTransaction(use);
         },
