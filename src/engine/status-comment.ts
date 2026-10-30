@@ -139,7 +139,8 @@ const mostReason = 48;
 
 /**
  * `text` without its parenthesised parts, nested ones in them, and the space before each: one pass,
- * so a reason a brewer shaped costs no more than its length.
+ * so a reason a brewer shaped costs no more than its length. A parenthesis never closed would take
+ * the rest with it, so then `text` stays whole.
  */
 const withoutParentheses = (text: string): string => {
   let kept = '';
@@ -151,7 +152,7 @@ const withoutParentheses = (text: string): string => {
     } else if (char === ')' && depth > 0) depth--;
     else if (depth === 0) kept += char;
   }
-  return kept;
+  return depth === 0 ? kept : text;
 };
 
 /**
