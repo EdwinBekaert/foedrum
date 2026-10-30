@@ -146,6 +146,19 @@ const orderRevision = (state: State, batch: Batch, issue: number): StatusRevisio
 };
 
 /**
+ * The id of the plan comment that shows the plan of `batchId`: the one its latest recorded revision
+ * made or edited, else the order's, which its earlier batch made; undefined while it has none.
+ */
+export const planCommentOf = (state: State, batchId: string): number | undefined => {
+  const batch = state.batches.get(batchId);
+  const issue = batch === undefined ? undefined : breweryIssueOf(state, batch);
+  if (batch === undefined || issue === undefined || latestPlan(batch) === undefined) {
+    return undefined;
+  }
+  return (revisions.latest(state, batchId).latest ?? orderRevision(state, batch, issue))?.comment;
+};
+
+/**
  * The revision of the plan comment of `batchId` that the recorded events call for: the next one
  * when its latest plan's text is not the one the comment shows, else none.
  */

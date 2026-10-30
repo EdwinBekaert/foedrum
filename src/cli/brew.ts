@@ -14,6 +14,7 @@ import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
+import { planCommentOf } from '../engine/plan-comment.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -493,20 +494,29 @@ export const runBrew = async (
       // (ADR 0072, ADR 0155).
       const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
       const shownOn = breweryIssueOf(driver.state(), now);
+      const commentUrl = (id: number): string =>
+        `https://${setup.github.hostname}/${setup.brewery}/issues/${shownOn}#issuecomment-${id}`;
       if (comment !== undefined && shownOn !== undefined) {
         linked = true;
-        const { hostname } = setup.github;
-        say(
-          `status comment: https://${hostname}/${setup.brewery}/issues/${shownOn}#issuecomment-${comment}`,
-        );
+        say(`status comment: ${commentUrl(comment)}`);
       }
       // Let go: every effect of the ended batch is applied (ADR 0044).
       const released = !driver.held().includes(batchId);
       switch (now.lane.kind) {
-        case 'on_tap':
+        case 'on_tap': {
           if (!released) break;
-          say(`batch ${batchId} is on tap: ${now.lane.pullRequests.join(' ')}`);
+          const { pullRequests } = now.lane;
+          if (pullRequests.length > 0) {
+            say(`batch ${batchId} is on tap: ${pullRequests.join(' ')}`);
+            return BREW_EXIT.onTap;
+          }
+          // With none, what it left instead: a plan's comment (#656).
+          const plan = planCommentOf(driver.state(), batchId);
+          const shown =
+            plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
+          say(`batch ${batchId} is on tap: no pull request${shown}`);
           return BREW_EXIT.onTap;
+        }
         case 'cancelled':
           if (!released) break;
           say(`batch ${batchId} was ${lane} ${detail}`);

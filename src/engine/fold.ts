@@ -101,7 +101,7 @@ export interface Input {
   via: Surface;
   answers: readonly Answer[];
   /** The attempt whose questions it answers: the step's latest when it came (#656). */
-  attempt?: number;
+  attempt: number;
 }
 
 export interface Step {
@@ -606,11 +606,12 @@ function apply(state: State, event: Event): State {
       const { stepId, by, via, answers } = event;
       return updateBatch(state, event.batchId, (batch) => {
         const step = stepOf(batch, stepId);
+        const attempt = Math.max(...step.attempts.keys());
         return {
           ...batch,
           steps: put(batch.steps, stepId, {
             ...step,
-            inputs: [...step.inputs, { by, via, answers }],
+            inputs: [...step.inputs, { by, via, answers, attempt }],
           }),
         };
       });
