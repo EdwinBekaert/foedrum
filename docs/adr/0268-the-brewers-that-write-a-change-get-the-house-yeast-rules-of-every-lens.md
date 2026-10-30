@@ -22,8 +22,8 @@ Measured with `pickRules` on those 25 rules and the commits of Brewery batch 12-
 No rule was cut under the 2,000-token budget in any of them.
 
 ## Decision
-- A brewer with `"houseYeast": true` whose step has no lens gets the rules of every lens: their `scope.lens` is not read, and their files and language are matched as before. It writes the change, so it follows the rules wherever its change meets them, whichever review would judge them.
-- Those rules share one budget, the 2,000 tokens of [ADR 0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md), ranked as ADR 0122 ranks them. They do not get one budget per lens, as a step of several lenses does ([ADR 0220](0220-a-taster-s-step-can-run-several-lenses-together.md)).
+- A brewer with `"houseYeast": true` whose step has no lens gets the rules of every lens: their `scope.lens` does not filter them, and their files and language are matched as before. It writes the change, so it follows the rules wherever its change meets them, whichever review would judge them.
+- Those rules share one budget, the 2,000 tokens of [ADR 0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md), ranked as ADR 0122 ranks them, with a rule that names any lens counted as one for the step's lens: it comes before a rule that names none, as the narrower scope. They do not get one budget per lens, as a step of several lenses does ([ADR 0220](0220-a-taster-s-step-can-run-several-lenses-together.md)).
 - The files stay the change so far, from the commit the batch's change starts at to the attempt's worktree's start (ADR 0169).
 - The default Gauger and Cellarman ask for house yeast. Each prompt says to follow the rules in `{houseYeast}` where its tests or change meets them, not to look for what breaks them, which is the Taster's work.
 - A Taster's selection does not change: the rules of its step's lenses and those that name none.
