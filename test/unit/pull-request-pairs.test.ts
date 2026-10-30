@@ -475,6 +475,13 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
           `- <${a}> conflicts with the open pull request <${b}> in src/app.ts`,
         ),
       );
+      // And the claimed batch, which names its repository, sees the Brewery issue's.
+      finished('web-13', b, hb);
+      assert.ok(
+        (await brief('web-13')).includes(
+          `- Conflicts with the open pull request <${a}> in src/app.ts.`,
+        ),
+      );
     });
 
     it('regression test: says the brief merges cleanly when only another repository has an open pull request left', async () => {
