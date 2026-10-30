@@ -779,49 +779,51 @@ describe('foedrum resume (ADR 0126)', () => {
     const innkeep = { batchId: '12-1', stepId: 'innkeep', attempt: 1 };
     const path = pathOf(innkeep);
     const deadlineAt = '2026-10-22T13:00:00.000Z';
+    type Tx = Parameters<Parameters<EventStore['withTransaction']>[0]>[0];
+    const ordered = (tx: Tx, batchId: string) =>
+      tx.append({ type: 'batch.ordered', batchId, order: { issue: 12 }, routeBy: deadlineAt });
+    const chose = (tx: Tx, batchId: string, recipe: string) =>
+      tx.append({
+        type: 'batch.recipe_chosen',
+        batchId,
+        recipe,
+        reason: 'the mash-in answer',
+        source: 'human',
+        by: 'ada',
+        via: 'terminal',
+      });
+    const scheduled = (tx: Tx, ref: AttemptRef) =>
+      tx.append({ type: 'step.scheduled', ...ref, deadlineAt });
+    // Its session in its worktree, then a success.
+    const ran = (tx: Tx, ref: AttemptRef, session: string) => {
+      const at = pathOf(ref);
+      tx.append({
+        type: 'step.started',
+        ...ref,
+        session: { id: session, worktree: at },
+        worktree: {
+          repo: 'acme/api',
+          path: at,
+          branch: `foedrum/${ref.batchId}/${ref.stepId}/1`,
+          commit: commit('c'),
+        },
+      });
+      tx.append({ type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } });
+    };
+    // Ended, so resume opens a finished attempt rather than taking the batch over.
+    const cancelled = (tx: Tx, batchId: string) =>
+      tx.append({ type: 'batch.cancelled', batchId, by: 'ada', via: 'terminal' });
     beforeEach(() => {
       store.withTransaction((tx) => {
-        tx.append({
-          type: 'batch.ordered',
-          batchId: '12-1',
-          order: { issue: 12 },
-          routeBy: deadlineAt,
-        });
-        tx.append({
-          type: 'batch.recipe_chosen',
-          batchId: '12-1',
-          recipe: 'mash',
-          reason: 'label',
-          source: 'label',
-        });
-        tx.append({ type: 'step.scheduled', ...innkeep, deadlineAt });
-        tx.append({
-          type: 'step.started',
-          ...innkeep,
-          session: { id: S1, worktree: path },
-          worktree: {
-            repo: 'acme/api',
-            path,
-            branch: 'foedrum/12-1/innkeep/1',
-            commit: commit('c'),
-          },
-        });
-        tx.append({
-          type: 'step.finished',
-          ...innkeep,
-          outcome: { kind: 'succeeded', output: null },
-        });
-        tx.append({
-          type: 'batch.recipe_chosen',
-          batchId: '12-1',
-          recipe: 'pale',
-          reason: 'the mash-in answer',
-          source: 'human',
-          by: 'ada',
-          via: 'terminal',
-        });
-        // Ended, so resume opens a finished attempt rather than taking the batch over.
-        tx.append({ type: 'batch.cancelled', batchId: '12-1', by: 'ada', via: 'terminal' });
+        ordered(tx, '12-1');
+        chose(tx, '12-1', 'mash');
+        scheduled(tx, innkeep);
+        ran(tx, innkeep, S1);
+        chose(tx, '12-1', 'pale');
+        // pale's own step ran in S2.
+        scheduled(tx, { ...innkeep, stepId: 'brew' });
+        ran(tx, { ...innkeep, stepId: 'brew' }, S2);
+        cancelled(tx, '12-1');
       });
     });
 
@@ -832,6 +834,36 @@ describe('foedrum resume (ADR 0126)', () => {
       assert.deepEqual(
         [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1], started[0]?.cwd],
         [1, ['--resume', S1], 'low', path],
+      );
+    });
+
+    it("opens a step of the recipe the batch brews with that recipe's brewer", async () => {
+      const result = await resumeOf('12-1', 'brew', { setup: mashSetup });
+      assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+      const args = started[0]?.args ?? [];
+      const brew = pathOf({ ...innkeep, stepId: 'brew' });
+      assert.deepEqual(
+        [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1], started[0]?.cwd],
+        [1, ['--resume', S2], 'max', brew],
+      );
+    });
+
+    it("opens an attempt that recorded no recipe with the brewer of its batch's recipe", async () => {
+      // 13-1's innkeep was scheduled before the batch had a recipe, so its attempt names none.
+      const ref = { ...innkeep, batchId: '13-1' };
+      store.withTransaction((tx) => {
+        ordered(tx, '13-1');
+        scheduled(tx, ref);
+        chose(tx, '13-1', 'mash');
+        ran(tx, ref, S3);
+        cancelled(tx, '13-1');
+      });
+      const result = await resumeOf('13-1', 'innkeep', { setup: mashSetup });
+      assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+      const args = started[0]?.args ?? [];
+      assert.deepEqual(
+        [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1], started[0]?.cwd],
+        [1, ['--resume', S3], 'low', pathOf(ref)],
       );
     });
   });
