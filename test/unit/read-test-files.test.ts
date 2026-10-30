@@ -40,6 +40,37 @@ describe('readTestFiles (ADR 0262)', () => {
     assert.equal(calls[0]?.options?.maxOutputBytes, 16 * 1024 * 1024);
   });
 
+  it('counts only the files it must read against the 50, not those whose added lines declare a test', async () => {
+    const declaring: DiffFile = {
+      newPath: 'test/add.test.mjs',
+      added: ["test('adds', () => {"],
+      removed: [],
+    };
+    const files = [declaring, ...Array.from({ length: 51 }, (_, n) => row(`test/t${n}.test.mjs`))];
+    const { git, calls } = fakeGit({});
+    await readTestFiles(git, clone, tip, files);
+    assert.equal(calls.length, 50);
+    assert.deepEqual(calls.at(-1)?.args, ['cat-file', 'blob', `${tip}:test/t49.test.mjs`]);
+  });
+
+  it('throws when the read was stopped', async () => {
+    const { git } = fakeGit({
+      'test/sum.test.mjs': { code: null, stdout: '', stderr: '', killed: 'stopped' },
+    });
+    await assert.rejects(
+      readTestFiles(git, clone, tip, [row('test/sum.test.mjs')]),
+      /git cat-file of test\/sum\.test\.mjs was killed \(stopped\)/,
+    );
+  });
+
+  it('throws when git ended with no exit code and no reason', async () => {
+    const { git } = fakeGit({ 'test/sum.test.mjs': { code: null, stdout: '', stderr: '' } });
+    await assert.rejects(
+      readTestFiles(git, clone, tip, [row('test/sum.test.mjs')]),
+      /git cat-file of test\/sum\.test\.mjs was killed \(no exit code\)/,
+    );
+  });
+
   it('takes a file that declares a test at the tip, and no readable data file that declares none', async () => {
     const schema: DiffFile = {
       newPath: 'schemas/event.json',
