@@ -225,7 +225,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     assert.equal(
       lines.at(-1),
-      `foedrum brew: batch 12-1 is on tap: no pull request; the plan: https://github.com/acme/brewery/issues/12#issuecomment-${id}`,
+      `foedrum brew: batch 12-1 is on tap: no pull request; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
     );
   });
 
