@@ -196,6 +196,11 @@ const readBrewery = async (
 /** Who issues a human command about `batchId`, and from where (ADR 0019). */
 type Issued = (batchId: string) => { batchId: string; by: string; via: Surface };
 
+/** The command's user and surface, as the issuer of a human command. */
+const issuedBy =
+  ({ user, surface }: CliContext): Issued =>
+  (batchId) => ({ batchId, by: user(), via: surface });
+
 // Issues the human command `build` makes from the folded state (or the reason it makes none)
 // through the command log, so it is decided against the latest events (ADR 0025), and says where
 // the batch is now. `state` folds the latest events each time, for a build that waits on the code
@@ -209,11 +214,9 @@ const changeBrewery = async (
   ) => HumanCommand | { refused: string } | Promise<HumanCommand | { refused: string }>,
 ): Promise<CliResult> =>
   writeBrewery(command, context, async (log) => {
-    const { user, surface, now } = context;
-    const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
-    const human = await build(() => log.state(), issued);
+    const human = await build(() => log.state(), issuedBy(context));
     if ('refused' in human) return failed(command, human.refused);
-    const decision = log.issue(human, now());
+    const decision = log.issue(human, context.now());
     if (decision.kind === 'refused') return failed(command, decision.reason);
     return done(`${laneLine(log.state(), human.batchId)}\n`);
   });
@@ -712,8 +715,8 @@ export const commands: readonly RegisteredCommand[] = [
       const aliased = aliasedTarget(target, context);
       if (aliased !== undefined && 'refused' in aliased) return failed('recipe', aliased.refused);
       return writeBrewery('recipe', context, async (log) => {
-        const { user, surface, now } = context;
-        const issued: Issued = (batchId) => ({ batchId, by: user(), via: surface });
+        const { now } = context;
+        const issued = issuedBy(context);
         // Before anything is ordered or claimed; decide checks it again.
         if (context.recipes().find(recipe) === undefined) {
           return failed('recipe', `the Brewery has no recipe ${recipe}`);
@@ -730,7 +733,7 @@ export const commands: readonly RegisteredCommand[] = [
           );
         }
         const lines: string[] = [];
-        let batchId = latest?.id;
+        let batchId: string;
         if (
           latest === undefined ||
           latest.lane.kind === 'on_tap' ||
@@ -747,8 +750,9 @@ export const commands: readonly RegisteredCommand[] = [
           if (decision.kind === 'refused') return failed('recipe', decision.reason);
           batchId = ordered.batchId;
           lines.push(`ordered ${name} as batch ${batchId}`);
+        } else {
+          batchId = latest.id;
         }
-        if (batchId === undefined) throw new Error(`${name} has no batch after its order`);
         const decision = log.issue({ kind: 'recipe', ...issued(batchId), recipe, reason }, now());
         if (decision.kind === 'refused') return failed('recipe', decision.reason);
         lines.push(laneLine(log.state(), batchId));
