@@ -1852,6 +1852,27 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.deepStrictEqual(choice, chosen('21-2', 'stout'));
     });
 
+    it('orders an issue whose batch is on tap again with the recipe', async () => {
+      // 31-1 brews pint's two steps and goes on tap.
+      const log = createCommandLog({ store, recipes });
+      const issue = (command: Parameters<typeof log.issue>[0]) =>
+        assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      issue({ kind: 'order', batchId: '31-1', order: { issue: 31 } });
+      issue({ kind: 'route', batchId: '31-1', recipe: 'pint', reason: 'label', source: 'label' });
+      for (const stepId of ['plan', 'implement']) {
+        const step = { batchId: '31-1', stepId, attempt: 1 } as const;
+        issue({ kind: 'record', event: { type: 'step.started', ...step } });
+        issue({ kind: 'finish', ...step, ending: { kind: 'succeeded', output: {} } });
+      }
+      assert.equal(log.state().batches.get('31-1')?.lane.kind, 'on_tap');
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['recipe', '#31', 'stout', 'the plan has one sub-order'], noConfig),
+        ok('ordered #31 as batch 31-2\n31-2 brewing: analyze #1 scheduled\n'),
+      );
+      assert.deepStrictEqual(events(before)[1], chosen('31-2', 'stout'));
+    });
+
     it('orders an issue it never brewed with the recipe', async () => {
       assert.deepStrictEqual(
         await run(['recipe', '30', 'pint', 'the plan has one sub-order'], noConfig),
@@ -1884,6 +1905,18 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
           stderr: 'foedrum recipe: the Brewery has no recipe porter\n',
         });
       }
+      assert.equal(lastId(), before);
+      assert.equal(reached(), 0);
+    });
+
+    it('refuses an issue its order refuses, with the reason, ordering and claiming nothing', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(await run(['recipe', 'web#8', 'pint', 'why not']), {
+        exitCode: 1,
+        stdout: '',
+        stderr:
+          'foedrum recipe: the release of the claim of batch web-8 is still due: foedrum serve applies it, then order acme/web#8 again\n',
+      });
       assert.equal(lastId(), before);
       assert.equal(reached(), 0);
     });
