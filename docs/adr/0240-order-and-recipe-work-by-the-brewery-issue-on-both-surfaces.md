@@ -1,6 +1,6 @@
 # 0240. order and recipe work by the Brewery issue, on both surfaces
 
-Date: 2026-10-30 · Status: Accepted · Narrows #405 (its `order`, `recipe` and claimed-order items; #592) · Amends [0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md) (the plugin carries `order` and `recipe`), [0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) (`order` and `brew` of a claimed order's Brewery issue act on its claimed issue instead of being refused) and [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (every recipe a person chooses labels the issue, once per recipe)
+Date: 2026-10-30 · Status: Accepted · Narrows #405 (its `order`, `recipe` and claimed-order items; #592) · Amends [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (`order #<n>` of a claimed order's Brewery issue reads foedrum.jsonc and claims its target issue again), [0125](0125-the-foedrum-plugin-is-markdown-skills-that-run-the-terminal-with-via-plugin.md) (the plugin carries `order` and `recipe`), [0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) (`order` and `brew` of a claimed order's Brewery issue act on its claimed issue instead of being refused) and [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (every recipe a person chooses labels the issue, once per recipe)
 
 ## Context
 The maintainer's first live run (Brewery #12, 2026-10-29) planned an order with `mash`, then had to switch it to `nip`.
@@ -28,6 +28,7 @@ The recipe label of [ADR 0232](0232-foedrum-mash-routes-an-issue-to-the-innkeepe
 ### The label follows a person's choice
 - The recipe label effect (`recipe-label.ts`) is due for every recipe a person chose (`source: human`), by an answer as before or by either form of `recipe`, except `mash-in`: it asks which recipe, and routing the issue's next order to it would ask again.
 - Its key is `[batchId, "recipe-label:<recipe>"]`, one per recipe of the batch, so a change on a batch an answer had labelled labels the issue again. The other `recipe:` labels come off as before. A label an older Foedrum applied under `recipe-label` counts as applied for the recipe its result names, so it is never due again, and never takes off a label a person put on by hand since.
+- It is due only for the issue's latest batch (`latestOf`, as the lane labels are), and only until that batch is on tap or cancelled: the driver asks every batch of the state, so an ended or older batch's choice would otherwise put back an old label and take off one a person or a later batch put on since.
 - The driver applies it, under the batch's lease: `recipe` records the choice, and the label shows once `serve` or `brew` drives the batch.
 
 ### `order` and `brew` by a claimed order's Brewery issue
