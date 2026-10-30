@@ -75,8 +75,11 @@ export const openOrders = (state: State): Map<string, string> => {
   return open;
 };
 
-const under = (path: string, folder: string): boolean =>
-  path === folder || path.startsWith(`${folder}/`);
+// Without case, as a checkout on Windows or macOS reads paths: holding one too many only delays it.
+const under = (path: string, folder: string): boolean => {
+  const [lower, folderLower] = [path.toLowerCase(), folder.toLowerCase()];
+  return lower === folderLower || lower.startsWith(`${folderLower}/`);
+};
 
 /**
  * Whether two sub-orders share a path, or one a path under a folder the other touches. One without
