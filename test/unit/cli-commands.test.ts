@@ -987,14 +987,25 @@ describe('foedrum: commands that change state', () => {
       assert.deepStrictEqual(leases(), [['22-1', 'cellar']]);
     });
 
-    it('is a mistake of the command line without --as outside a session: exit 2, nothing recorded', async () => {
+    it('hands it to terminal without --as outside a session (ADR 0259)', async () => {
+      assert.deepStrictEqual(
+        await run(['takeover', '22-1']),
+        ok(`22-1 handed from cellar to terminal; its effects wait until ${iso(3)}\n`),
+      );
+      assert.deepStrictEqual(leases(), [['22-1', 'terminal']]);
+    });
+
+    it('is a mistake of the command line when the session names no driver: exit 2, nothing recorded', async () => {
       const before = lastId();
-      assert.deepStrictEqual(await run(['takeover', '22-1']), {
-        exitCode: 2,
-        stdout: '',
-        stderr:
-          'foedrum takeover: no Claude Code session names the driver (CLAUDE_CODE_SESSION_ID); give --as <name>\n',
-      });
+      assert.deepStrictEqual(
+        await run(['takeover', '22-1'], { env: { CLAUDE_CODE_SESSION_ID: '../x' } }),
+        {
+          exitCode: 2,
+          stdout: '',
+          stderr:
+            'foedrum takeover: the Claude Code session "../x" names no driver; give --as <name>\n',
+        },
+      );
       assert.equal(lastId(), before);
     });
 

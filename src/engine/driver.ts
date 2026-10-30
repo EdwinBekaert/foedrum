@@ -119,7 +119,10 @@ export interface DriverOptions {
   stateBranch: Pick<StateBranch, 'flush'>;
   /** The limits of an attempt: its brewer's, from the recipe its batch brews. */
   limits: (attempt: AttemptRef) => AttemptLimits;
-  /** The out doc of a step's brewer, which the worktree cleanup lets go (ADR 0081). */
+  /**
+   * The out doc of an attempt's brewer, in the recipe it was scheduled under, which the worktree
+   * cleanup lets go (ADR 0081, ADR 0260).
+   */
   outDoc?: OutDocOf;
   /** The attempt worktrees of each repository the attempts write in, and their base. */
   worktrees?: readonly RepositoryWorktrees[];
