@@ -461,6 +461,34 @@ describe('renderStatus', () => {
     );
   });
 
+  const failedPath = (reason: string): string =>
+    pathOf(
+      renderStatus(
+        batch({
+          steps: new Map([step('green', failed(1, reason), running(2))]),
+          path: [
+            { stepId: 'green', attempt: 1 },
+            { stepId: 'green', attempt: 2 },
+          ],
+        }),
+        ['green'],
+      ),
+    );
+
+  it('keeps a long reason whole, cut at a word, when a parenthesis in it is never closed (#656)', () => {
+    assert.equal(
+      failedPath('the check "x" (echo "(") failed with exit code 1 and more'),
+      'Path: `green #1` ❌ the check "x" (echo "(") failed with exit code… → `green #2` ▶️',
+    );
+  });
+
+  it('keeps a stray closing parenthesis of a long reason: regression test (#656)', () => {
+    assert.equal(
+      failedPath('the check "x" (a) b) failed with exit code 1 and more'),
+      'Path: `green #1` ❌ the check "x" b) failed with exit code 1 and… → `green #2` ▶️',
+    );
+  });
+
   it("leaves out a failed attempt's reason on the path when it looks like a secret (#656)", () => {
     const text = renderStatus(
       batch({
