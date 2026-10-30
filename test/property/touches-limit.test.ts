@@ -1,6 +1,7 @@
 // The touches limit (#566) over generated breakdowns, through the intake's own pass: never two
-// Brewing batches whose `touches` overlap unless both brewed before the pass, and every ready
-// sub-order that fits the free capacity and overlaps no Brewing batch starts. The oracle takes the
+// Ordered or Brewing batches whose `touches` overlap unless both were before the pass, and every
+// ready sub-order that fits the free capacity and overlaps no Ordered or Brewing batch starts. A
+// sub-order whose issue has no recipe label stays Ordered, as one whose route is held does. The oracle takes the
 // paths from the generated plan, not the fold, and decides an overlap by its own rule.
 
 import assert from 'node:assert/strict';
@@ -58,11 +59,13 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
       };
       const route = (batchId: string): void =>
         accept({ kind: 'route', batchId, recipe: 'half', reason: 'label', source: 'label' });
+      // Some sub-orders' issues have no recipe label yet: their batches stay Ordered.
+      const unlabelled = new Set<number>();
       const issue = (number: number): TargetIssue => ({
         number,
         state: 'open',
         pullRequest: false,
-        labels: ['recipe:half'],
+        labels: unlabelled.has(number) ? [] : ['recipe:half'],
         milestone: undefined,
         assignees: [],
         author: 'alice',
@@ -76,6 +79,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           ? []
           : Array.from({ length: 1 + random.int(3) }, () => random.pick(paths));
         plans.set(number, { repo: random.pick(repos), touches });
+        if (random.chance(0.25)) unlabelled.add(number);
       }
       accept({ kind: 'order', batchId: '1-1', order: { issue: 1 } });
       route('1-1');
@@ -90,7 +94,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           dependencies: [],
         },
       });
-      // Some brew already, whatever they touch.
+      // Some are ordered already, whatever they touch, and brew unless unlabelled.
       for (const number of plans.keys()) {
         if (!random.chance(0.2)) continue;
         accept({
@@ -99,7 +103,7 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           order: { issue: number },
           parentBatchId: '1-1',
         });
-        route(`${number}-1`);
+        if (!unlabelled.has(number)) route(`${number}-1`);
       }
       const listed = [1, ...plans.keys()].map(issue);
       const tracker: TargetTracker = {
@@ -123,13 +127,18 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
         capacity,
         clock: () => now,
       });
-      const brewingPlans = (state: ReturnType<typeof log.state>): Map<number, Plan> =>
+      const plansIn = (
+        state: ReturnType<typeof log.state>,
+        kinds: readonly string[],
+      ): Map<number, Plan> =>
         new Map(
           [...state.batches.values()].flatMap(({ issue: number, lane }) => {
             const plan = plans.get(number);
-            return lane.kind === 'brewing' && plan !== undefined ? [[number, plan] as const] : [];
+            return kinds.includes(lane.kind) && plan !== undefined ? [[number, plan] as const] : [];
           }),
         );
+      const activePlans = (state: ReturnType<typeof log.state>) =>
+        plansIn(state, ['ordered', 'brewing']);
 
       for (let round = 1; round <= 2; round++) {
         const before = log.state();
@@ -139,13 +148,13 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           { brewery: listed, repositories: [] },
           { authors: ['alice'], claimant },
         );
-        const blockers = [...brewingPlans(before).values()];
+        const blockers = [...activePlans(before).values()];
         const slots = Math.max(0, capacity - busyIn(before));
         await intake.poll();
         const after = log.state();
 
-        // Walk the queue as the oracle: a sub-order starts while a slot is free and no Brewing or
-        // just started sub-order overlaps it.
+        // Walk the queue as the oracle: a sub-order starts while a slot is free and no Ordered,
+        // Brewing or just started sub-order overlaps it.
         let started = 0;
         for (const { subOrder } of queue) {
           const number = subOrder?.issue;
@@ -158,18 +167,18 @@ it('a pass never brews two sub-orders whose touches overlap, and starts every on
           blockers.push(plan);
         }
 
-        // Never two Brewing batches that overlap, unless both brewed before this pass.
-        const brewedBefore = brewingPlans(before);
-        const brewing = [...brewingPlans(after)];
-        for (const [at, [number, plan]] of brewing.entries()) {
-          for (const [other, otherPlan] of brewing.slice(at + 1)) {
-            if (brewedBefore.has(number) && brewedBefore.has(other)) continue;
+        // Never two Ordered or Brewing batches that overlap, unless both were before this pass.
+        const activeBefore = activePlans(before);
+        const active = [...activePlans(after)];
+        for (const [at, [number, plan]] of active.entries()) {
+          for (const [other, otherPlan] of active.slice(at + 1)) {
+            if (activeBefore.has(number) && activeBefore.has(other)) continue;
             assert.ok(!clash(plan, otherPlan), `${number} and ${other} brew together in ${note}`);
           }
         }
 
         // Some of what brews goes on tap, which frees what it held.
-        for (const number of brewingPlans(after).keys()) {
+        for (const number of plansIn(after, ['brewing']).keys()) {
           if (!random.chance(0.5)) continue;
           const event = {
             type: 'step.started',

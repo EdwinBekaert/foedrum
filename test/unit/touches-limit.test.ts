@@ -32,11 +32,11 @@ const succeeded: Ending = {
 };
 const unlimited: Limits = { openOrders: 20, recipe: () => undefined };
 
-const issue = (number: number): TargetIssue => ({
+const issue = (number: number, labels: readonly string[] = ['recipe:half']): TargetIssue => ({
   number,
   state: 'open',
   pullRequest: false,
-  labels: ['recipe:half'],
+  labels: [...labels],
   milestone: undefined,
   assignees: [],
   author: 'alice',
@@ -51,7 +51,7 @@ interface Sub {
 }
 
 const heldReason = (holder: number): string =>
-  `its touches overlap sub-order #${holder}'s, which brews (touches)`;
+  `its touches overlap sub-order #${holder}'s, whose batch is ordered or brewing (touches)`;
 
 describe('two ready sub-orders whose touches overlap (#566)', () => {
   let store: EventStore;
@@ -65,15 +65,28 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
   });
   afterEach(() => store.close());
 
-  const tracker = (numbers: readonly number[]): TargetTracker => ({
-    issues: async (repo) => (repo === brewery ? [1, ...numbers].map(issue) : []),
+  /** The Brewery's issues `numbers`, each with its recipe label but those `unlabelled`. */
+  const tracker = (
+    numbers: readonly number[],
+    unlabelled: readonly number[] = [],
+  ): TargetTracker => ({
+    issues: async (repo) =>
+      repo === brewery
+        ? [1, ...numbers].map((number) =>
+            unlabelled.includes(number) ? issue(number, []) : issue(number),
+          )
+        : [],
     pullRequest: async () => 'open',
   });
-  const intake = (numbers: readonly number[], options: Partial<IntakeOptions> = {}) =>
+  const intake = (
+    numbers: readonly number[],
+    options: Partial<IntakeOptions> = {},
+    unlabelled: readonly number[] = [],
+  ) =>
     createIntake({
       log,
       brewery,
-      tracker: tracker(numbers),
+      tracker: tracker(numbers, unlabelled),
       claims: fakeGitHub().host,
       claimant: alice,
       authors: ['alice'],
@@ -112,6 +125,15 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
     const batchId = `${number}-1`;
     accept({ kind: 'order', batchId, order: { issue: number }, parentBatchId: '1-1' });
     route(batchId);
+  };
+  /** The sub-order `number` was ordered by an earlier pass, and its route is held. */
+  const orderedAlready = (number: number): void => {
+    accept({
+      kind: 'order',
+      batchId: `${number}-1`,
+      order: { issue: number },
+      parentBatchId: '1-1',
+    });
   };
   const onTap = (batchId: string): void => {
     accept({
@@ -225,6 +247,20 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
     });
 
+    it('holds a sub-order against one that an earlier pass ordered and could not route', async () => {
+      // 10's issue has no recipe label yet, so it stays Ordered; once labelled it would brew beside 11.
+      const numbers = breakdown([
+        { issue: 10, touches: ['src/app.ts'] },
+        { issue: 11, touches: ['src/app.ts'] },
+      ]);
+      orderedAlready(10);
+      await intake(numbers, {}, [10]).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 ordered']);
+      assert.deepStrictEqual(held(), [
+        { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
+      ]);
+    });
+
     it('starts two sub-orders with disjoint touches side by side', async () => {
       const numbers = breakdown([
         { issue: 10, touches: ['src/a.ts', 'docs/a.md'] },
@@ -290,6 +326,17 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
         formatStatus(log.state(), [], new Map(), lines),
         /^sub-order #11 waits for sub-order #10 \(10-1\): their touches overlap\n\n2 batches\n/,
       );
+    });
+
+    it('names a sub-order that holds another while its batch is Ordered', () => {
+      breakdown([
+        { issue: 10, touches: ['src/app.ts'] },
+        { issue: 11, touches: ['src/app.ts'] },
+      ]);
+      orderedAlready(10);
+      assert.deepStrictEqual(limitLines(log.state(), unlimited), [
+        'sub-order #11 waits for sub-order #10 (10-1): their touches overlap',
+      ]);
     });
 
     it('prints no such line once the sub-order that held another is on tap', () => {
