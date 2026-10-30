@@ -43,13 +43,165 @@ export type Summary =
   | { kind: 'no-lens-section'; head: string }
   | { kind: 'unparseable'; head: string; why: string };
 
+const linesOf = (body: string): string[] =>
+  body.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim().split('\n');
+
 /** A comment that is a /brew-review summary: its first line is `## Review: …`. */
-export const isSummary = (_body: string): boolean => {
-  throw new Error('not implemented');
+export const isSummary = (body: string): boolean => /^## Review: /.test(linesOf(body)[0] ?? '');
+
+// A table row's cells, without the outer bars; `\|` stays inside its cell.
+const cellsOf = (line: string): string[] =>
+  line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/(?<!\\)\|$/, '')
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.trim());
+
+const SEVERITIES: readonly Severity[] = ['blocker', 'major', 'minor'];
+const ENDS: readonly End[] = ['fixed', 'dismissed', 'pre-existing', 'split', 'other'];
+
+const WORDS: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  first: 1,
+  second: 2,
+  third: 3,
+  fourth: 4,
+  fifth: 5,
+  sixth: 6,
+  seventh: 7,
+  eighth: 8,
+};
+const NUMBER = `(\\d+|${Object.keys(WORDS).join('|')})`;
+// "Round 2", "round two", "(r3)", "second round", "2nd pass", "four rounds".
+const ROUND_FORMS = [
+  new RegExp(`\\brounds? ${NUMBER}\\b`, 'gi'),
+  /\(r(\d+)\b/gi,
+  new RegExp(`\\b${NUMBER}(?:st|nd|rd|th)? (?:rounds?|pass|run)\\b`, 'gi'),
+];
+
+const numberOf = (word: string): number => WORDS[word.toLowerCase()] ?? Number(word);
+
+/** The highest round `text` states, if it states one. */
+const statedRound = (text: string): number | undefined => {
+  const found = ROUND_FORMS.flatMap((form) =>
+    [...text.matchAll(form)].map((match) => numberOf(match[1] ?? '')),
+  ).filter((n) => Number.isInteger(n) && n > 0);
+  return found.length === 0 ? undefined : Math.max(...found);
 };
 
-export const parseSummary = (_body: string): Summary => {
-  throw new Error('not implemented');
+// The lenses a Lens cell names: a round mark or a note in parentheses dropped, then split on
+// ",", "and" and "+".
+const lensesOf = (cell: string): string[] =>
+  cell
+    .replace(/\([^)]*\)/g, '')
+    .split(/,|\band\b|\+/)
+    .map((lens) => lens.trim())
+    .filter((lens) => lens !== '');
+
+const endOf = (disposition: string, preExisting: boolean): End => {
+  const text = disposition.toLowerCase().replace(/^[*_\s]+/, '');
+  const dismissed = (): End =>
+    preExisting || /^dismissed\W+(?:because\s+)?pre-existing/.test(text)
+      ? 'pre-existing'
+      : 'dismissed';
+  if (/^(?:fixed|applied)\b/.test(text)) return 'fixed';
+  if (/^dismissed\b/.test(text)) return dismissed();
+  if (/^pre-existing\b/.test(text)) return 'pre-existing';
+  const fixed = /\b(?:fixed|applied)\b/.test(text);
+  const isDismissed = /\bdismissed\b/.test(text);
+  if (fixed && isDismissed) return 'split';
+  if (fixed) return 'fixed';
+  if (isDismissed) return dismissed();
+  return 'other';
+};
+
+const isFindingsHeader = (cells: readonly string[]): boolean =>
+  ['lens', 'severity', 'disposition'].every((name) =>
+    cells.some((cell) => cell.toLowerCase() === name),
+  );
+
+/** The rows of every findings table in `lines`: a header with Lens, Severity and Disposition. */
+const findingsRows = (
+  lines: readonly string[],
+): { tables: number; rows: Record<string, string>[] } => {
+  const rows: Record<string, string>[] = [];
+  let tables = 0;
+  for (let at = 0; at < lines.length; at += 1) {
+    const header = cellsOf(lines[at] ?? '');
+    if (!(lines[at] ?? '').trim().startsWith('|') || !isFindingsHeader(header)) continue;
+    tables += 1;
+    const names = header.map((cell) => cell.toLowerCase());
+    // The separator row follows the header.
+    at += 2;
+    for (; at < lines.length && (lines[at] ?? '').trim().startsWith('|'); at += 1) {
+      const cells = cellsOf(lines[at] ?? '');
+      rows.push(Object.fromEntries(names.map((name, i) => [name, cells[i] ?? ''])));
+    }
+  }
+  return { tables, rows };
+};
+
+export const parseSummary = (body: string): Summary => {
+  const lines = linesOf(body);
+  const head = /@ `([0-9a-f]+)`/.exec(lines[0] ?? '')?.[1] ?? '';
+  const firstSection = lines.findIndex((line) => line.startsWith('### '));
+  const start = lines.findIndex((line) => /^### Lens findings\b/i.test(line));
+  const end = lines.findIndex((line, at) => at > start && /^#{2,3} /.test(line));
+  const lensSection = start < 0 ? [] : lines.slice(start, end < 0 ? undefined : end);
+  const preamble = lines.slice(0, firstSection < 0 ? undefined : firstSection);
+  const rounds = statedRound([...preamble, ...lensSection].join('\n'));
+  const { tables, rows } = findingsRows(lines);
+  if (tables === 0) {
+    if (start < 0) return { kind: 'no-lens-section', head };
+    if (lensSection.some((line) => /\bno (?:new )?findings\b/i.test(line))) {
+      return { kind: 'no-findings', head, rounds };
+    }
+    return { kind: 'unparseable', head, why: 'a lens findings section without a findings table' };
+  }
+  const findings: Finding[] = [];
+  const unread: UnreadRow[] = [];
+  for (const cells of rows) {
+    const row = cells['#'] ?? '';
+    const severityCell = cells.severity ?? '';
+    const named = new Set(
+      [...severityCell.toLowerCase().matchAll(/\b(blocker|major|minor)\b/g)].map(([word]) => word),
+    );
+    const [severity] = named;
+    if (named.size !== 1 || severity === undefined) {
+      unread.push({ row, why: `severity "${severityCell}"` });
+      continue;
+    }
+    const preExisting = /pre-existing|introduced: false/i.test(severityCell);
+    findings.push({
+      row,
+      lenses: lensesOf(cells.lens ?? ''),
+      severity: severity as Severity,
+      preExisting,
+      end: endOf(cells.disposition ?? '', preExisting),
+    });
+  }
+  const count = lensSection
+    .map((line) => /^(\d+) findings?: \d+ blocker/.exec(line)?.[1])
+    .find((stated) => stated !== undefined);
+  const stated = count === undefined ? undefined : Number(count);
+  return {
+    kind: 'findings',
+    head,
+    findings,
+    unread,
+    rounds,
+    ...(stated === undefined || stated === rows.length
+      ? {}
+      : { mismatch: { stated, rows: rows.length } }),
+  };
 };
 
 export interface Comment {
@@ -96,9 +248,9 @@ export interface Metrics {
   total: Counts;
   /** Every finding once, by severity, with how they ended. */
   severities: readonly { severity: Severity; findings: number; ends: Record<End, number> }[];
-  /** Each pull request with a summary, by number. */
+  /** Each pull request with a summary it could read, by number. */
   pulls: readonly PullMetrics[];
-  /** The pull requests without a summary comment. */
+  /** The pull requests without a summary it could read. */
   withoutSummary: readonly number[];
   /** Comments not counted at all. */
   unparsed: readonly Left[];
@@ -110,11 +262,248 @@ export interface Metrics {
   mismatches: readonly Left[];
 }
 
-export const aggregate = (_pulls: readonly PullRequest[]): Metrics => {
-  throw new Error('not implemented');
+const noCounts = (): Counts => ({
+  findings: 0,
+  severity: { blocker: 0, major: 0, minor: 0 },
+  ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, split: 0, other: 0 },
+});
+
+const add = (counts: Counts, { severity, end }: Finding): void => {
+  counts.findings += 1;
+  counts.severity[severity] += 1;
+  counts.ends[end] += 1;
 };
 
+const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The counts over `pulls`. A row of several lenses counts once for each of them, and once in the
+ * total. A pull request's lens rounds add up over its summaries: a summary's own is the highest
+ * round it states, else 1; a later one that states a higher round than the count so far replaces
+ * it, as when it goes on numbering, and one that states none or a lower one adds its own. A summary
+ * without a lens section adds none.
+ */
+export const aggregate = (pulls: readonly PullRequest[]): Metrics => {
+  const lenses = new Map<string, Counts>();
+  const total = noCounts();
+  const bySeverity = new Map(SEVERITIES.map((severity) => [severity, noCounts()]));
+  const counted: PullMetrics[] = [];
+  const withoutSummary: number[] = [];
+  const unparsed: Left[] = [];
+  const unreadRows: Left[] = [];
+  const unclear: Left[] = [];
+  const mismatches: Left[] = [];
+  for (const { number, comments } of [...pulls].sort((a, b) => a.number - b.number)) {
+    const pull: PullMetrics = {
+      number,
+      summaries: 0,
+      hidden: 0,
+      lensRounds: 0,
+      counts: noCounts(),
+    };
+    for (const { url, body, hidden } of comments) {
+      if (!isSummary(body)) continue;
+      const summary = parseSummary(body);
+      if (summary.kind === 'unparseable') {
+        unparsed.push({ number, url, what: summary.why });
+        continue;
+      }
+      pull.summaries += 1;
+      if (hidden) pull.hidden += 1;
+      if (summary.kind === 'no-lens-section') continue;
+      const stated = summary.rounds ?? 1;
+      pull.lensRounds = stated > pull.lensRounds ? stated : pull.lensRounds + stated;
+      if (summary.kind === 'no-findings') continue;
+      for (const { row, why } of summary.unread)
+        unreadRows.push({ number, url, what: `row ${row}: ${why}` });
+      if (summary.mismatch !== undefined) {
+        const { stated: says, rows } = summary.mismatch;
+        mismatches.push({
+          number,
+          url,
+          what: `the count line says ${says} findings, the table has ${rows} rows`,
+        });
+      }
+      for (const finding of summary.findings) {
+        add(total, finding);
+        const severity = bySeverity.get(finding.severity);
+        if (severity !== undefined) add(severity, finding);
+        add(pull.counts, finding);
+        for (const lens of new Set(finding.lenses)) {
+          const each = lenses.get(lens) ?? noCounts();
+          lenses.set(lens, each);
+          add(each, finding);
+        }
+        if (finding.end === 'split' || finding.end === 'other') {
+          unclear.push({ number, url, what: `row ${finding.row}: ${finding.end}` });
+        }
+      }
+    }
+    if (pull.summaries === 0) withoutSummary.push(number);
+    else counted.push(pull);
+  }
+  return {
+    lenses: [...lenses]
+      .sort(([a], [b]) => byName(a, b))
+      .map(([name, counts]) => ({ name, ...counts })),
+    total,
+    severities: SEVERITIES.map((severity) => {
+      const { findings, ends } = bySeverity.get(severity) ?? noCounts();
+      return { severity, findings, ends };
+    }),
+    pulls: counted,
+    withoutSummary,
+    unparsed,
+    unreadRows,
+    unclear,
+    mismatches,
+  };
+};
+
+const share = (part: number, whole: number): string =>
+  whole === 0 ? '—' : `${Math.round((100 * part) / whole)}%`;
+
+const tableRow = (cells: readonly (string | number)[]): string => `| ${cells.join(' | ')} |`;
+
+const table = (
+  header: readonly string[],
+  rows: readonly (readonly (string | number)[])[],
+): string[] => [tableRow(header), tableRow(header.map(() => '---')), ...rows.map(tableRow)];
+
+const endCells = (ends: Record<End, number>): number[] => ENDS.map((end) => ends[end]);
+
+const lensCells = (name: string, { findings, severity, ends }: Counts): (string | number)[] => [
+  name,
+  findings,
+  ...SEVERITIES.map((each) => severity[each]),
+  ...endCells(ends),
+  share(ends.dismissed, findings),
+];
+
+const tenths = (n: number): string => String(Math.round(n * 10) / 10);
+
+const median = (sorted: readonly number[]): number => {
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? (sorted[middle] ?? 0)
+    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
+};
+
+// "mean 2.5, median 2.5, most 4"
+const spread = (values: readonly number[]): string => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mean = sorted.reduce((sum, n) => sum + n, 0) / sorted.length;
+  return `mean ${tenths(mean)}, median ${tenths(median(sorted))}, most ${sorted.at(-1) ?? 0}`;
+};
+
+// "1 round: 10, 2 rounds: 5"
+const distribution = (values: readonly number[]): string => {
+  const times = new Map<number, number>();
+  for (const n of values) times.set(n, (times.get(n) ?? 0) + 1);
+  return [...times]
+    .sort(([a], [b]) => a - b)
+    .map(([n, count]) => `${n} ${n === 1 ? 'round' : 'rounds'}: ${count}`)
+    .join(', ');
+};
+
+const leftLines = (title: string, left: readonly Left[]): string[] => [
+  `### ${title}`,
+  '',
+  ...(left.length === 0
+    ? ['None.']
+    : left.map(({ number, url, what }) => `- #${number} ${url}: ${what}`)),
+  '',
+];
+
 /** The report, in Markdown. */
-export const formatMetrics = (_metrics: Metrics): string => {
-  throw new Error('not implemented');
+export const formatMetrics = (metrics: Metrics): string => {
+  const { lenses, total, severities, pulls } = metrics;
+  const summaries = pulls.reduce((sum, pull) => sum + pull.summaries, 0);
+  const hidden = pulls.reduce((sum, pull) => sum + pull.hidden, 0);
+  const rounds = pulls.map(({ lensRounds }) => lensRounds);
+  const lines = [
+    '### Findings by lens',
+    '',
+    ...table(
+      [
+        'Lens',
+        'Findings',
+        'Blocker',
+        'Major',
+        'Minor',
+        'Fixed',
+        'Dismissed',
+        'Pre-existing',
+        'Split',
+        'Other',
+        'Dismissed share',
+      ],
+      [...lenses.map((lens) => lensCells(lens.name, lens)), lensCells('all findings', total)],
+    ),
+    '',
+    'A row that names several lenses counts once for each of them, and once in all findings.',
+    '',
+    '### Findings by severity',
+    '',
+    ...table(
+      [
+        'Severity',
+        'Findings',
+        'Fixed',
+        'Dismissed',
+        'Pre-existing',
+        'Split',
+        'Other',
+        'Dismissed share',
+      ],
+      severities.map(({ severity, findings, ends }) => [
+        severity,
+        findings,
+        ...endCells(ends),
+        share(ends.dismissed, findings),
+      ]),
+    ),
+    '',
+    '### Rounds',
+    '',
+    ...(pulls.length === 0
+      ? ['No pull request with a summary.']
+      : [
+          `${pulls.length} pull ${pulls.length === 1 ? 'request' : 'requests'} with a summary, ${summaries} ${summaries === 1 ? 'summary' : 'summaries'} (${hidden} hidden).`,
+          `Summaries per pull request: ${spread(pulls.map((pull) => pull.summaries))}.`,
+          `Lens rounds to pass: ${spread(rounds)} (${distribution(rounds)}).`,
+          '',
+          ...table(
+            [
+              'Pull request',
+              'Summaries',
+              'Hidden',
+              'Lens rounds',
+              'Findings',
+              'Fixed',
+              'Dismissed',
+              'Pre-existing',
+              'Split',
+              'Other',
+            ],
+            pulls.map((pull) => [
+              `#${pull.number}`,
+              pull.summaries,
+              pull.hidden,
+              pull.lensRounds,
+              pull.counts.findings,
+              ...endCells(pull.counts.ends),
+            ]),
+          ),
+        ]),
+    '',
+    ...leftLines('Summaries not counted', metrics.unparsed),
+    ...leftLines('Rows not counted', metrics.unreadRows),
+    ...leftLines('Rows counted as split or other', metrics.unclear),
+    ...leftLines('Count lines that differ from their table', metrics.mismatches),
+    ...(metrics.withoutSummary.length === 0
+      ? []
+      : [`Without a summary: ${metrics.withoutSummary.map((n) => `#${n}`).join(', ')}.`, '']),
+  ];
+  return lines.join('\n');
 };
