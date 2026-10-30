@@ -17,15 +17,18 @@ A run of `dotnet test` (SDK 10.0.402, xunit 2.9.3) on this machine wrote these:
 | `Assembly.LoadFrom` of a native DLL | `System.BadImageFormatException : Bad IL format. The format of the file '…\version.dll' is invalid.` |
 | `Type.GetType` of a missing type | `System.TypeLoadException : Could not resolve type 'Calc.Missing' in assembly 'Calc.Tests, …'.` |
 | a test that expects a `TypeLoadException` while the stub throws another exception | `Assert.Throws() Failure: Exception type was not an exact match` / `Expected: typeof(System.TypeLoadException)` |
+| a test that expects the load message while the stub returns another | `Assert.Equal() Failure: Strings differ` / `Expected: "Could not load file or assembly 'Plugin'"` |
+| code under test reads a missing file | `System.IO.FileNotFoundException : Could not find file 'C:\Windows\data.txt'.` |
+| `Exception.ToString()` of a missing type | `System.TypeLoadException: Could not resolve type 'Cap.Missing' in assembly 'Cap, …'.` |
 
 The runtime's message after the type is localized, here partly in Dutch; the type's name is not.
 App control blocked every rebuilt `Calc.dll`, so no `BadImageFormatException` or `TypeLoadException` raised by a reference could be made here: those two texts come from calls in a test, in the same `System.X : …` form.
-The last row is a real red step, and it names a load failure's type.
+The two assertion rows and the missing file are real red steps, and the assertions name a load failure's type or quote its message.
 
 ## Decision
-- Two texts join ADR 0078's list: `System.IO.FileLoadException`, `System.BadImageFormatException` or `System.TypeLoadException` followed by `:` (xunit writes ` : `, .NET's own text `: `), and `Could not load file or assembly`.
-- The type is matched by its full name and the colon of an exception's text, never as a bare word: an assertion that expects the type (`typeof(System.TypeLoadException)`) and a test named after one stay red.
-- A bare `FileNotFoundException` is not a load error: code under test throws it for a missing file. It counts only when the runtime's message says it could not load an assembly.
+- Two texts join ADR 0078's list: `System.IO.FileLoadException`, `System.BadImageFormatException` or `System.TypeLoadException` followed by `:` (xunit writes ` : `, .NET's own text `: `), and `System.IO.FileNotFoundException` followed by `:` and `Could not load file or assembly`.
+- Each is matched as an exception's text, its full type name and the colon, never as a bare word or a bare message: an assertion that expects the type (`typeof(System.TypeLoadException)`) or quotes the message, and a test named after one, stay red.
+- A `FileNotFoundException` of a file is not a load error: code under test throws it for a missing file. It counts only when the runtime's message says it could not load an assembly.
 
 ## Consequences
 - A .NET run whose tests never loaded the code is refused, quoting the line, as other load errors are.
