@@ -17,6 +17,9 @@ import {
   splitOutput,
   stepLines,
 } from '../../scripts/demo/walkthrough.ts';
+import { formatReplay } from '../../src/cli/replay.ts';
+import type { StoredEvent } from '../../src/engine/event-store.ts';
+import type { Batch } from '../../src/engine/fold.ts';
 import type { Event } from '../../src/schemas/events.ts';
 
 describe('the walkthrough steps', () => {
@@ -330,6 +333,36 @@ describe('replayLines (#662)', () => {
       'State',
       '  lane    on tap: https://github.com/demo/web/pull/2',
     ]);
+  });
+
+  it('counts the events of what foedrum replay prints, and keeps its State (regression test)', () => {
+    const url = 'https://github.com/demo/web/pull/2';
+    const batch: Batch = {
+      id: '1-1',
+      issue: 1,
+      lane: { kind: 'on_tap', pullRequests: [url] },
+      steps: new Map(),
+      rewinds: [],
+    };
+    const events: StoredEvent[] = [
+      {
+        id: 1,
+        event: {
+          type: 'batch.ordered',
+          batchId: '1-1',
+          order: { issue: 1 },
+          routeBy: '2026-10-30T10:00:00.000Z',
+        },
+      },
+      { id: 2, event: { type: 'batch.on_tap', batchId: '1-1', pullRequests: [url] } },
+    ];
+    const lines = replayLines(formatReplay(batch, events), '1-1');
+    assert.ok(
+      lines.includes('Events  2, left out here: foedrum replay 1-1 lists them'),
+      lines.join('\n'),
+    );
+    assert.ok(lines.includes('State'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.includes('batch.on_tap')), lines.join('\n'));
   });
 
   it('counts the events up to the end of an output that ends with them (regression test)', () => {

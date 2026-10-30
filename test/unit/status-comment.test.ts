@@ -2259,6 +2259,35 @@ describe('renderStatus: a line per pull request, with all it says of it (#662)',
     ]);
   });
 
+  it('joins its pair conflicts and the checks on its head onto its one line (regression test)', () => {
+    const head = 'a'.repeat(40);
+    const [b, c] = ['https://github.com/alice/web/pull/13', 'https://github.com/alice/web/pull/14'];
+    const checking = batch({
+      lane: { kind: 'on_tap', pullRequests: [pr] },
+      pullRequestChecks: { [pr]: { kind: 'pending', head, since: at } },
+    });
+    const pairs = [
+      { pullRequest: pr, other: b, conflicts: ['src/app.ts'] },
+      { pullRequest: pr, other: c, conflicts: ['lib.ts'] },
+    ];
+    const text = renderStatus(
+      checking,
+      steps,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      { url: pr, head },
+      pairs,
+    );
+    assert.deepEqual(section(text), [
+      '**Pull requests**',
+      `- <${pr}> conflicts with the open pull request <${b}> in src/app.ts; conflicts with the open pull request <${c}> in lib.ts; waits for its checks on \`aaaaaaaa\` since ${at}`,
+    ]);
+  });
+
   it('names a pull request with nothing to say of it alone (regression test)', () => {
     assert.deepEqual(section(renderStatus(onTap, steps)), ['**Pull requests**', `- <${pr}>`]);
   });
