@@ -1,6 +1,6 @@
 # 0256. The push gate reads git's option values and checks a push behind an option it does not know
 
-Date: 2026-10-30 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (git's options before the subcommand) and [0246](0246-the-push-gate-reads-option-prefixes-git-s-configuration-branch-names-and-the-starting-directory.md) (the remote behind `-o`)
+Date: 2026-10-30 · Status: Accepted · Amends [0045](0045-the-local-gate-reads-commands-as-the-shells-would.md) (git's options before the subcommand), [0114](0114-the-gate-blocks-words-on-a-personal-denylist-in-what-leaves-the-machine.md) (a push whose remote the scan cannot tell) and [0246](0246-the-push-gate-reads-option-prefixes-git-s-configuration-branch-names-and-the-starting-directory.md) (the remote behind `-o`)
 
 ## Context
 The reviews of #635 found two ways the gate reads the words before a push's remote differently from git:
@@ -24,6 +24,7 @@ Any other option before the subcommand may take the next word, so the gate canno
 - Its remote counts as one the gate cannot tell, like a remote computed at run time. So the configured-mirror check holds it to every remote's settings, and while a denylist is set the scan refuses it.
 - Force, delete and mirror options are read over every word after the unknown option, so `git --frobnicate x push -f` is blocked as a force push.
 - `git config` or `git remote` anywhere after it counts as configuring git in the same command.
+- git's own options may still follow the unknown option's value, so every later `-c` or `--config-env` that sets a push setting counts as configuring git. Every later `-C` makes the push run in a directory the gate cannot tell, which blocks it.
 
 git itself refuses an option it does not know, so such a command rarely runs. The cost of failing closed is one check for a command that would have failed anyway.
 
@@ -43,5 +44,4 @@ The remote is the operand after it.
 - `git --attr-source HEAD push -f origin main` is blocked as a force push, and `git --attr-source HEAD push origin` is checked against origin.
 - A push behind an option the gate does not know is checked, held to every remote's configuration, and refused by the denylist scan while a list is set.
 - `git push -uo ci.skip origin` is held to origin's settings and scanned against origin.
-- The nesting limit's boundary is pinned by tests: 8 levels of shells and substitutions are read, 9 are blocked as too deep.
 - CLAUDE.md's Local gate section should say that an option git's lists do not hold, before the subcommand, makes the command a push to check. That change follows in a docs pull request.
