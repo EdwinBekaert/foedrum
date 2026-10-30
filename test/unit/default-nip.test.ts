@@ -271,13 +271,13 @@ describe('the default Nip', () => {
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
     // After green, two Tasters review side by side, through the correctness and acceptance
-    // lenses; their findings are advisory (ADR 0168, ADR 0197).
+    // lenses (ADR 0168, ADR 0197); correctness blocks, acceptance advises (ADR 0264).
     assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), ['correctness', 'acceptance']);
     for (const lens of ['correctness', 'acceptance']) {
       const taste = loaded.brewers.find('nip', lens);
       assert.equal(taste?.brewer.name, 'taster', lens);
       assert.deepEqual([...(taste?.lenses?.keys() ?? [])], [`diff/${lens}`]);
-      assert.equal(taste?.blocking, false, lens);
+      assert.equal(taste?.blocking, lens === 'correctness', lens);
     }
     assert.deepEqual(loaded.checks.redProof('nip'), { id: 'red', of: 'gauge' });
     for (const path of [
@@ -291,6 +291,60 @@ describe('the default Nip', () => {
     ]) {
       assert.ok(loaded.defaults.includes(path), `${path} is not in ${loaded.defaults.join(', ')}`);
     }
+  });
+
+  it("routes correctness's findings back to Cellarman, twice at most, and acceptance's nowhere (ADR 0264)", () => {
+    const nip = valid(loadRecipes(noFiles)).recipes.find('nip');
+    assert.equal(nip?.routesTo('correctness', 'findings'), 'implement');
+    assert.equal(nip.maxRounds('correctness', 'findings'), 2);
+    assert.equal(nip.routesTo('acceptance', 'findings'), undefined);
+  });
+
+  it('sends a batch whose correctness Taster asks for changes back to Cellarman, then through fine and green again (ADR 0264)', async () => {
+    const done = behave.succeed();
+    const started = await brewNip({
+      gauge: [done],
+      red: [done],
+      implement: [done, done],
+      fine: [done, done],
+      green: [done, done],
+      correctness: [behave.blocked('findings', 'An Ordered sub-order holds nothing'), done],
+      acceptance: [done, done],
+      'open-pull-request': [done],
+    });
+    assert.deepEqual(started, [
+      'gauge',
+      'red',
+      'implement',
+      'fine',
+      'green',
+      'correctness',
+      'acceptance',
+      'implement',
+      'fine',
+      'green',
+      'correctness',
+      'acceptance',
+      'open-pull-request',
+    ]);
+  });
+
+  it('goes no further when the correctness Taster still asks for changes after two rounds (ADR 0192, ADR 0264)', async () => {
+    const done = behave.succeed();
+    const changes = behave.blocked('findings', 'An Ordered sub-order holds nothing');
+    const started = await brewNip({
+      gauge: [done],
+      red: [done],
+      implement: [done, done, done],
+      fine: [done, done, done],
+      green: [done, done, done],
+      correctness: [changes, changes, changes, done],
+      acceptance: [done, done, done, done],
+      'open-pull-request': [done],
+    });
+    assert.equal(started.filter((step) => step === 'correctness').length, 3);
+    assert.equal(started.filter((step) => step === 'implement').length, 3);
+    assert.ok(!started.includes('open-pull-request'), started.join(', '));
   });
 
   it("reads the typecheck in Nip's green step, after the build and before lint (#411)", () => {
