@@ -120,6 +120,45 @@ describe('judgeRed', () => {
     }
   });
 
+  it('refuses a .NET load failure by its type when the runtime localizes its message', () => {
+    const report = tap(
+      ...failing(
+        1,
+        'adds two numbers',
+        "System.IO.FileLoadException : Kan bestand of assembly 'C:\\work\\app\\bin\\Calc.dll' niet laden. (0x800711C7)",
+      ),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.match(why(report), /load, compile, import or collection error/);
+  });
+
+  it("refuses .NET's own text of a load failure, without xunit's space before the colon", () => {
+    const report = tap(
+      ...failing(
+        1,
+        'adds two numbers',
+        "System.TypeLoadException: Could not resolve type 'Calc.Missing' in assembly 'Calc.Tests, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.",
+      ),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.match(why(report), /load, compile, import or collection error/);
+  });
+
+  it('proves red a FileNotFoundException of a file, not of an assembly', () => {
+    const report = tap(
+      ...failing(
+        1,
+        'adds two numbers',
+        "System.IO.FileNotFoundException : Could not find file 'C:\\work\\app\\data.txt'.",
+      ),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+    );
+    assert.deepEqual(judgeRed(report, gauged), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
   it('proves red an xunit assertion failure in a JUnit report', () => {
     const report = junit(`<testsuite>
       <testcase name="adds two numbers"><failure message="Assert.Equal() Failure: Values differ&#10;Expected: 3&#10;Actual:   0">   at Calc.Tests.AddTests.AddsTwoNumbers() in C:\\work\\app\\AddTests.cs:line 4</failure></testcase>
