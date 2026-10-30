@@ -60,6 +60,14 @@ describe('sessionRuleFiles', () => {
     );
   });
 
+  it('names a file of globs without a letter or digit everywhere', () => {
+    const { files } = generate(ruleFile('starred', { globs: ['**/*'] }, 'Starred.'));
+    assert.deepEqual(
+      files.map((f) => f.name),
+      ['everywhere.md'],
+    );
+  });
+
   it('puts rules whose globs differ only in order in one file', () => {
     const { files } = generate(
       ruleFile('one', { globs: ['src/**', 'CLAUDE.md'] }, 'One.'),
