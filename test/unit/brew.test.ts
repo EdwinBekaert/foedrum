@@ -25,6 +25,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { FlushResult } from '../../src/engine/state-branch-git.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { launchProcess } from '../../src/platform/processes.ts';
@@ -640,6 +641,20 @@ describe('runBrew', () => {
       'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
       'foedrum brew: stopped; batch 12-1 brewing: brew #1 started',
     ]);
+  });
+
+  it('stops when a tick must stop the engine: another engine pushed the state branch (ADR 0027)', async () => {
+    const stopping = shell(behave.succeed('Brewed'), {
+      stateBranch: () => ({
+        start: async () => ({ decision: 'ready' }),
+        flush: async () => {
+          throw new StateBranchStopError('the push was rejected: another engine wrote');
+        },
+      }),
+    });
+    assert.equal(await runBrew(setup, stopping, request), 1);
+    assert.equal(lines.at(-1), 'foedrum brew: the push was rejected: another engine wrote');
+    assert.equal(lock.held, false);
   });
 
   describe('with a live line on a terminal (ADR 0174)', () => {

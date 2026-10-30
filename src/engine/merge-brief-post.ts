@@ -16,7 +16,7 @@ import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import { type Attempt, type Batch, baseChecksOn, type State } from './fold.ts';
+import { type Attempt, type Batch, baseChecksOn, latestAttempt, type State } from './fold.ts';
 import { type LensRound, lensRounds } from './lens-rounds.ts';
 import {
   briefKey,
@@ -76,15 +76,10 @@ const mostDispositions = 30;
 /** A text a brewer wrote at `stepId` as one inert line (ADR 0088, ADR 0184). */
 type Told = (text: string, stepId: string) => string;
 
-/** The attempt of `stepId` with the highest number. */
-const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
-  const attempts = batch.steps.get(stepId)?.attempts;
-  return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
-};
-
 /** The output of the latest attempt of `stepId` when it finished and succeeded. */
 const succeededOutput = (batch: Batch, stepId: string): { output: unknown } | undefined => {
-  const latest = latestOf(batch, stepId);
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
   return latest?.phase === 'finished' && latest.outcome.kind === 'succeeded'
     ? { output: latest.outcome.output }
     : undefined;
@@ -166,7 +161,8 @@ const baseLine = (batch: Batch, url: string, head: string): string => {
 
 /** The readings of a check step's latest success, its repository's setup left out (ADR 0163). */
 const checkReadings = (batch: Batch, stepId: string): readonly GravityReading[] | undefined => {
-  const latest = latestOf(batch, stepId);
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
   if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return undefined;
   const readings = (latest.readings ?? []).filter(
     (reading) => reading.result === 'skipped' || reading.setup !== true,
@@ -250,7 +246,8 @@ const notRunLines = (steps: Steps, proof: string | undefined): string[] =>
     if (stepId === proof || steps.recipe?.action(stepId) !== undefined) return [];
     const skipped = skippedBy(steps, stepId);
     if (skipped !== undefined) return [`- ${code(stepId)}: ${notRunText(skipped)}.`];
-    const latest = latestOf(steps.batch, stepId);
+    const step = steps.batch.steps.get(stepId);
+    const latest = step && latestAttempt(step);
     if (latest === undefined) return [`- ${code(stepId)}: not run.`];
     if (latest.phase === 'finished' && latest.outcome.kind === 'succeeded') return [];
     if (latest.phase === 'finished' && onFindings(latest.outcome)) return [];
@@ -286,7 +283,8 @@ const lastTasters = (steps: Steps): string[] => {
 /** Where the last Taster tasted, and the fix rounds since, from the log alone. */
 const tastedLine = (steps: Steps, ready: ReadyRecord): string => {
   const [last] = lastTasters(steps);
-  const attempt = last === undefined ? undefined : latestOf(steps.batch, last);
+  const step = last === undefined ? undefined : steps.batch.steps.get(last);
+  const attempt = step && latestAttempt(step);
   if (last === undefined || attempt === undefined) return '- No Taster tasted this change.';
   const commit = attempt.phase === 'scheduled' ? undefined : attempt.worktree?.commit;
   if (commit === undefined) return '- Tasted at a commit the log does not record.';
@@ -344,7 +342,8 @@ const openLines = (steps: Steps, told: Told): string[] =>
  */
 const skippedOpenLines = (steps: Steps, told: Told): string[] =>
   steps.ids.flatMap((stepId) => {
-    const latest = latestOf(steps.batch, stepId);
+    const step = steps.batch.steps.get(stepId);
+    const latest = step && latestAttempt(step);
     if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return [];
     const left = `- ${code(stepId)}: left open by a skip`;
     const { kept = [], more = 0 } = latest.findings ?? {};

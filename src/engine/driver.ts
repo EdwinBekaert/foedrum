@@ -30,7 +30,7 @@ import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
 import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
-import type { Batch, State } from './fold.ts';
+import { type Batch, runningAttempt, type State } from './fold.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { afterOverrun, resumeOf } from './session-resume.ts';
@@ -315,8 +315,8 @@ const runningActions = (state: State, recipes: Recipes, batchId: string): Attemp
   const batch = state.batches.get(batchId);
   if (batch?.lane.kind !== 'brewing') return [];
   return [...batch.steps.values()].flatMap((step) => {
-    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
-    if (latest?.phase !== 'started' || latest.abandoned === true) return [];
+    const latest = runningAttempt(step);
+    if (latest?.phase !== 'started') return [];
     const ref = { batchId, stepId: step.id, attempt: latest.attempt };
     return actionOf(state, recipes, ref) === undefined ? [] : [ref];
   });
@@ -787,8 +787,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         // A paused batch starts nothing until it continues (ADR 0202).
         if (batch.lane.kind !== 'brewing' || pauseOf(log.state(), batch) !== undefined) continue;
         for (const [stepId, step] of batch.steps) {
-          const latest = step.attempts.get(Math.max(...step.attempts.keys()));
-          if (latest?.phase !== 'scheduled' || latest.abandoned === true) continue;
+          const latest = runningAttempt(step);
+          if (latest?.phase !== 'scheduled') continue;
           // Another driver's batch, or one this driver does not take, is not its to start.
           if (!claim(batch.id)) continue;
           const ref = { batchId: batch.id, stepId, attempt: latest.attempt };

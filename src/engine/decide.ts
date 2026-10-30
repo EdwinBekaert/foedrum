@@ -34,7 +34,9 @@ import {
   type Attempt,
   type Batch,
   type Lane,
+  latestAttempt,
   orderKey,
+  runningAttempt,
   type State,
   type Step,
   type UsageWindow,
@@ -906,14 +908,9 @@ function running(
   stepId: string,
   attempt: number,
 ): Exclude<Attempt, { phase: 'finished' }> {
-  const attempts = batch.steps.get(stepId)?.attempts;
-  const current = attempts?.get(attempt);
-  if (
-    current === undefined ||
-    current.phase === 'finished' ||
-    current.abandoned === true ||
-    attempt < Math.max(...(attempts?.keys() ?? []))
-  ) {
+  const step = batch.steps.get(stepId);
+  const current = step && runningAttempt(step);
+  if (current?.attempt !== attempt) {
     throw new Refusal(`${attemptName(batch, stepId, attempt)} is not running`);
   }
   return current;
@@ -936,9 +933,9 @@ function awaitSession(draft: Draft, command: Extract<Command, { kind: 'await_ses
   if (!recipeOf(draft, batch).interactive(stepId)) {
     throw new Refusal(`step ${stepId} of batch ${batchId} is not interactive`);
   }
-  const attempts = batch.steps.get(stepId)?.attempts;
+  const step = batch.steps.get(stepId);
   const name = attemptName(batch, stepId, attempt);
-  if (attempt !== Math.max(...(attempts?.keys() ?? []))) {
+  if (step === undefined || latestAttempt(step)?.attempt !== attempt) {
     throw new Refusal(`${name} is not the latest of its step`);
   }
   if (running(batch, stepId, attempt).phase !== 'scheduled')
@@ -1199,24 +1196,13 @@ export const onFindings = (outcome: StepOutcome): boolean =>
   !outcome.retryable &&
   outcome.reason.startsWith(blockedBy('findings'));
 
-/** The latest attempt of `stepId` in `batch`, if it has one. */
-const latestOf = (batch: Batch, stepId: string): Attempt | undefined => {
-  const attempts = batch.steps.get(stepId)?.attempts;
-  return attempts === undefined ? undefined : attempts.get(Math.max(...attempts.keys()));
-};
-
-/** Whether the latest attempt of `stepId` is unfinished and not abandoned by Stuck. */
-const unfinished = (batch: Batch, stepId: string): boolean => {
-  const latest = latestOf(batch, stepId);
-  return latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true;
-};
-
 /**
  * The step the child `stepId` of a parallel group goes back to once its group ended: its latest
  * attempt was blocked by findings with its route's rounds not used up (ADR 0168).
  */
 function sentBack(batch: Batch, recipe: Recipe, stepId: string): string | undefined {
-  const latest = latestOf(batch, stepId);
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
   if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return undefined;
   return recipe.loopBack(batch, stepId, 'findings');
 }
@@ -1227,7 +1213,8 @@ function sentBack(batch: Batch, recipe: Recipe, stepId: string): string | undefi
  * retries the child or makes the batch Stuck.
  */
 function ended(batch: Batch, recipe: Recipe, stepId: string): boolean {
-  const latest = latestOf(batch, stepId);
+  const step = batch.steps.get(stepId);
+  const latest = step && latestAttempt(step);
   if (latest?.phase === 'finished' && latest.outcome.kind === 'succeeded') return true;
   return sentBack(batch, recipe, stepId) !== undefined;
 }
@@ -1242,7 +1229,7 @@ function settle(draft: Draft, batchId: string, group: string): void {
   const children = recipe.children(group) ?? [];
   // Never past the group while an attempt of the batch runs: a sibling, or a child its recipe
   // dropped, whose finish then makes the batch Stuck (`leftRecipe`).
-  if ([...batch.steps.keys()].some((stepId) => unfinished(batch, stepId))) return;
+  if ([...batch.steps.values()].some((step) => runningAttempt(step) !== undefined)) return;
   // A child the batch never scheduled joined the group after the batch entered it: its file
   // changed under the batch, and the group would wait for it with nothing in flight.
   const added = children.find((child) => !batch.steps.has(child));
@@ -1384,7 +1371,7 @@ function stop(draft: Draft, command: Stop): void {
   const { order, by, via, why } = command;
   const stops = batchesOf(draft, order, 'stop').flatMap((batch) => {
     if (batch.lane.kind !== 'brewing') return [];
-    const stepId = [...batch.steps.keys()].find((id) => unfinished(batch, id));
+    const stepId = [...batch.steps.values()].find((step) => runningAttempt(step) !== undefined)?.id;
     return stepId === undefined ? [] : [{ batchId: batch.id, stepId }];
   });
   if (stops.length === 0) {
@@ -1439,10 +1426,10 @@ function rescheduleWaiting(draft: Draft, batchId: string): void {
   const batch = draft.batch(batchId);
   if (pauseOf(draft.state, batch) !== undefined || batch.lane.kind !== 'brewing') return;
   const recipe = batch.recipe && draft.context.recipes.find(batch.recipe.name);
-  for (const stepId of batch.steps.keys()) {
-    const latest = latestOf(batch, stepId);
+  for (const [stepId, step] of batch.steps) {
+    const latest = runningAttempt(step);
     // A step its recipe file dropped keeps its deadline: the recipe cannot give it another.
-    if (latest?.phase !== 'scheduled' || latest.abandoned === true || !recipe?.has(stepId)) {
+    if (latest?.phase !== 'scheduled' || !recipe?.has(stepId)) {
       continue;
     }
     draft.push({

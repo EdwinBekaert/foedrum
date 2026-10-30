@@ -5,7 +5,7 @@
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
 import type { EngineCommand } from './decide.ts';
 import type { DueBatch, Lease } from './event-store.ts';
-import type { Batch, State } from './fold.ts';
+import { type Batch, runningAttempt, type State } from './fold.ts';
 import { pauseOf } from './pauses.ts';
 import { causeOf, fixHeld, pullRequestProblem, pullRequestRoute } from './pull-request-fix.ts';
 import type { Recipes, Stall } from './recipes.ts';
@@ -199,8 +199,8 @@ function running(batch: Batch): Running[] {
   if (batch.lane.kind !== 'brewing') return [];
   const result: Running[] = [];
   for (const [stepId, step] of batch.steps) {
-    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
-    if (latest !== undefined && latest.phase !== 'finished' && latest.abandoned !== true) {
+    const latest = runningAttempt(step);
+    if (latest !== undefined) {
       const { phase, attempt, deadlineAt } = latest;
       result.push({ batchId: batch.id, stepId, attempt, phase, deadlineAt });
     }

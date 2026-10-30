@@ -17,7 +17,7 @@ import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
-import { type Batch, fold, type State } from '../engine/fold.ts';
+import { type Batch, fold, latestAttempt, runningAttempt, type State } from '../engine/fold.ts';
 import { resumeOf } from '../engine/session-resume.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -27,7 +27,7 @@ import type { ResumeCommand } from '../schemas/commands.ts';
 import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { CliResult } from './run.ts';
-import type { ServeRepository, ServeSetup } from './serve-config.ts';
+import { type ServeRepository, type ServeSetup, storePath } from './serve-config.ts';
 
 /** What resume needs of serve's setup: where the attempts ran and how their brewers are set up. */
 export type ResumeSetup = Pick<
@@ -218,8 +218,8 @@ const runningTarget = (
   // when no step is named and a headless step before it runs.
   for (const step of steps) {
     if (step === undefined) continue;
-    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
-    if (latest?.phase !== 'started' || latest.abandoned === true) continue;
+    const latest = runningAttempt(step);
+    if (latest?.phase !== 'started') continue;
     const { attempt: n, interactiveSince: since } = latest;
     if (since !== undefined)
       return { open: true, ref: { batchId, stepId: step.id, attempt: n }, batch, since };
@@ -227,7 +227,7 @@ const runningTarget = (
   let why: string | undefined;
   for (const step of steps) {
     if (step === undefined) continue;
-    const latest = step.attempts.get(Math.max(...step.attempts.keys()));
+    const latest = latestAttempt(step);
     if (latest === undefined || (latest.phase !== 'finished' && latest.abandoned === true)) {
       continue;
     }
@@ -316,7 +316,7 @@ const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string
 
 /** Runs `foedrum resume`: claude's exit code, or one line on why it opened nothing. */
 export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promise<CliResult> => {
-  const path = join(shell.cwd, '.foedrum', 'index.db');
+  const path = storePath(shell.cwd);
   const store = shell.openStore(path);
   if (store === undefined) return failed(`no event store at ${path}`);
   try {
