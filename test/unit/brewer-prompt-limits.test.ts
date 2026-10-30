@@ -172,10 +172,11 @@ const states = (body: string, limit: Limit) => {
     );
 };
 
-/** A limit a schema sets: where (its fields' names, by dots), and its most. */
+/** A limit a schema sets: where (its fields' names, by dots), its most, and whether of characters. */
 interface SchemaLimit {
   path: string;
   most: number;
+  characters: boolean;
 }
 
 /** Every `maxLength` and `maxItems` in `schema`'s JSON Schema, by the path of fields to it. */
@@ -185,7 +186,7 @@ const limitsOf = (schema: z.ZodType): SchemaLimit[] => {
     if (node === null || typeof node !== 'object') return;
     for (const [key, value] of Object.entries(node)) {
       if ((key === 'maxLength' || key === 'maxItems') && typeof value === 'number') {
-        const limit = { path: path.join('.'), most: value };
+        const limit = { path: path.join('.'), most: value, characters: key === 'maxLength' };
         found.set(`${limit.path} ${key}`, limit);
       } else if (key === 'properties' && value !== null && typeof value === 'object') {
         for (const [field, child] of Object.entries(value)) walk(child, [...path, field]);
@@ -211,6 +212,8 @@ describe("the default brewers' prompts state their out doc limits (#655)", () =>
     const swapped = 'A `title` is at most 300 characters. Each `why` is at most 120 characters.';
     assert.equal(states(swapped, ['title', 120, 'characters']), false);
     assert.equal(states(swapped, ['why', 120, 'characters']), true);
+    const lines = '- `file` is a path;\n- `why` is at most 120 characters';
+    assert.equal(states(lines, ['file', 120, 'characters']), false);
   });
 
   // Every limit the schema sets has a row the prompt states, or is named as left out with why.
@@ -223,9 +226,14 @@ describe("the default brewers' prompts state their out doc limits (#655)", () =>
         .filter((limit) => !states(prompt.body, limit))
         .map((limit) => `${limit[0]}: ${atMost(limit)}`);
       const unaccounted = limits
-        .filter(({ path, most }) => {
+        .filter(({ path, most, characters }) => {
           const field = path.split('.').at(-1);
-          return !(path in unstated) && !stated.some(([f, m]) => f === field && m === most);
+          return (
+            !(path in unstated) &&
+            !stated.some(
+              ([f, m, unit]) => f === field && m === most && (unit === 'characters') === characters,
+            )
+          );
         })
         .map(({ path, most }) => `${path}: ${most}`);
       const stale = Object.keys(unstated).filter(
