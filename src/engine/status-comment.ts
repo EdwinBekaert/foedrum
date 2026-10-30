@@ -789,6 +789,8 @@ export const renderStatus = (
   open?: OpenPullRequest,
   /** The other open pull requests its open pull request conflicts with (ADR 0230). */
   pairs: readonly PairConflict[] = [],
+  /** The state branch on the code host, whose out doc of the plan the Assumptions link (#659). */
+  _stateBranch?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -917,6 +919,8 @@ export interface StatusEffectsOptions {
   comments: StatusComments;
   recipes: Recipes;
   clock: () => Date;
+  /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (#659). */
+  stateBranch?: string;
 }
 
 const minuteMs = 60_000;

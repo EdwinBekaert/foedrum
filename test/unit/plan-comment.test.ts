@@ -173,6 +173,34 @@ describe('renderPlan (ADR 0233)', () => {
     const lines = text.split('\n');
     assert.match(lines.at(-3) ?? '', /^\| `s\d+`: .* \|$/);
   });
+
+  const outDoc =
+    'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md?plain=1';
+
+  it("ends with a link to the plan's out doc on the state branch, as written (#659)", () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    assert.ok(text.startsWith(`${renderPlan('7-1', 'plan', three)}\n\n`), text);
+    assert.ok(text.endsWith(`\n\nFull plan: <${outDoc}>`), text);
+  });
+
+  it('keeps the link when the text is cut to length (#659)', () => {
+    const long = 'x'.repeat(300);
+    const many = Array.from({ length: 100 }, (_, i) =>
+      subOrder(`s${i}`, {
+        title: long,
+        doneWhen: long,
+        why: long,
+        touches: Array.from({ length: 20 }, (_, j) => ({ path: `${'d'.repeat(280)}/${j}` })),
+      }),
+    );
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc);
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nFull plan: <[^>]+>$/);
+  });
+
+  it('reads as before without a link: regression test (#659)', () => {
+    assert.doesNotMatch(renderPlan('7-1', 'plan', three), /Full plan/);
+  });
 });
 
 /** A fake of the comments host: the Brewery's own comments, ids from 1, and the writes it took. */
@@ -414,5 +442,30 @@ describe('planEffects (ADR 0233)', () => {
       ],
     );
     assert.deepEqual(comments.calls, ['create', 'create']);
+  });
+
+  it("links the latest plan's own out doc on the state branch the driver was given (#659)", async () => {
+    const stateBranch = 'https://github.example/alice/brewery/blob/foedrum/state';
+    const driver = await openDriver({
+      store,
+      runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
+      recipes,
+      clock: () => new Date(at),
+      lock: () => fakeLock('cellar'),
+      takes: () => true,
+      stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
+      limits: () => defaultLimits,
+      effects: planEffects({ brewery, comments: comments.host, stateBranch }),
+      report: () => {},
+    });
+    drivers.push(driver);
+    order();
+    step('plan', planned(three));
+    await driver.applyEffects();
+    const link = (path: string) => `\n\nFull plan: <${stateBranch}/batches/7-1/${path}?plain=1>`;
+    assert.ok(only().body.endsWith(`${link('plan-1.md')}\n\n${marker(1)}`), only().body);
+    step('replan', planned(second));
+    await driver.applyEffects();
+    assert.ok(only().body.endsWith(`${link('replan-1.md')}\n\n${marker(2)}`), only().body);
   });
 });

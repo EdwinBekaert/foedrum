@@ -79,6 +79,8 @@ export const renderPlan = (
   stepId: string,
   plan: PlanReport,
   isCommit: IsCommit = () => false,
+  /** The out doc of the plan on the state branch, as written, linked at the end (#659). */
+  _fullPlan?: string,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -180,6 +182,8 @@ export interface PlanEffectsOptions {
   /** The Brewery's repository, `owner/name`, where its issues are. */
   brewery: string;
   comments: StatusComments;
+  /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (#659). */
+  stateBranch?: string;
 }
 
 /**
