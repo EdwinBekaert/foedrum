@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, posix } from 'node:path';
@@ -21,6 +22,7 @@ import {
   selectRules,
   unscoped,
 } from './house-yeast/core.ts';
+import { sessionRuleFiles } from './house-yeast/session-rules.ts';
 
 export interface RunDeps {
   readFile: (path: string) => string;
@@ -28,6 +30,7 @@ export interface RunDeps {
   exists: (path: string) => boolean;
   writeFile: (path: string, text: string) => void;
   appendFile: (path: string, text: string) => void;
+  removeFile: (path: string) => void;
   out: (text: string) => void;
   err: (text: string) => void;
 }
@@ -165,6 +168,42 @@ const record = ([store, file, dir]: string[], asked: boolean, deps: RunDeps): nu
   deps.writeFile(path, formatRule(proposal.rule, proposal.body));
   const why = proposal.reviews >= 2 ? `seen in ${plural(proposal.reviews, 'review')}` : 'asked for';
   deps.out(`proposed ${path}: ${why}\n`);
+  return regenerateSessionRules(dir, deps);
+};
+
+/**
+ * Rewrites the session rule files of the rules in `<checkout>/.foedrum/house-yeast/` (`dir`), in
+ * `<checkout>/.claude/rules/house-yeast/`, and removes the ones no rule makes any more (ADR 0271);
+ * writes nothing and exits 1 while a rule file is invalid.
+ */
+export const regenerateSessionRules = (dir: string, deps: RunDeps): number => {
+  const out = posix.join(dir, '..', '..', '.claude', 'rules', 'house-yeast');
+  const { files, invalid } = sessionRuleFiles(
+    deps
+      .readDir(dir)
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => {
+        const path = posix.join(dir, name);
+        return { path, text: deps.readFile(path) };
+      }),
+  );
+  if (invalid.length > 0) {
+    for (const { path, reason } of invalid) {
+      deps.out(`cannot regenerate the session rules: ${path}: ${reason}\n`);
+    }
+    return 1;
+  }
+  let existing: string[] = [];
+  try {
+    existing = deps.readDir(out);
+  } catch (error) {
+    if (!missing(error)) throw error;
+  }
+  for (const name of existing) {
+    if (!files.some((file) => file.name === name)) deps.removeFile(posix.join(out, name));
+  }
+  for (const { name, text } of files) deps.writeFile(posix.join(out, name), text);
+  deps.out(`regenerated ${out}: ${plural(files.length, 'file')}\n`);
   return 0;
 };
 
@@ -199,20 +238,22 @@ export const run = (args: string[], deps: RunDeps): number => {
   }
 };
 
-if (import.meta.main) {
-  process.exitCode = run(process.argv.slice(2), {
-    readFile: (path) => readFileSync(path, 'utf8'),
-    readDir: (dir) => readdirSync(dir),
-    exists: (path) => existsSync(path),
-    writeFile: (path, text) => {
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, text);
-    },
-    appendFile: (path, text) => {
-      mkdirSync(dirname(path), { recursive: true });
-      appendFileSync(path, text);
-    },
-    out: (text) => process.stdout.write(text),
-    err: (text) => process.stderr.write(text),
-  });
-}
+/** The file system and the console of this process. */
+export const processDeps: RunDeps = {
+  readFile: (path) => readFileSync(path, 'utf8'),
+  readDir: (dir) => readdirSync(dir),
+  exists: (path) => existsSync(path),
+  writeFile: (path, text) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+  },
+  appendFile: (path, text) => {
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, text);
+  },
+  removeFile: (path) => rmSync(path),
+  out: (text) => process.stdout.write(text),
+  err: (text) => process.stderr.write(text),
+};
+
+if (import.meta.main) process.exitCode = run(process.argv.slice(2), processDeps);
