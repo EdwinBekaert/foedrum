@@ -148,6 +148,18 @@ export const roundRouteOf = (step: Step, n: number): ScheduleRoute | undefined =
   return attempt?.route;
 };
 
+/**
+ * The recipe an attempt was scheduled under, which its batch may have left since (ADR 0260); its
+ * batch's recipe for an attempt that recorded none, undefined without either.
+ */
+export const attemptRecipeOf = (
+  state: State,
+  ref: { batchId: string; stepId: string; attempt: number },
+): string | undefined => {
+  const batch = state.batches.get(ref.batchId);
+  return batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe ?? batch?.recipe?.name;
+};
+
 export interface Rewind {
   toStepId: string;
   by: string;

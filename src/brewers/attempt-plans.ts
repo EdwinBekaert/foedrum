@@ -11,7 +11,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import { type Batch, roundRouteOf, type State } from '../engine/fold.ts';
+import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import {
   MAX_INPUT_BYTES,
@@ -199,9 +199,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   // The out doc of an attempt's brewer in the recipe it was scheduled under, which the batch may
   // have left since (#657); in its batch's recipe for an attempt that recorded none.
   const outDocOf = (ref: AttemptRef) => {
-    const batch = state().batches.get(ref.batchId);
-    const scheduled = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe;
-    const recipe = scheduled ?? batch?.recipe?.name;
+    const recipe = attemptRecipeOf(state(), ref);
     return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId)?.brewer.output.doc;
   };
 
