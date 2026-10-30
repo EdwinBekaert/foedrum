@@ -379,6 +379,36 @@ describe('aggregate', () => {
       { number: 669, url: 'u', what: 'the count line says 15 findings, the table has 13 rows' },
     ]);
   });
+
+  it('counts one summary per head, the latest, when a summary was posted again (review of #683)', () => {
+    const metrics = aggregate([
+      {
+        number: 669,
+        comments: [comment('template.md', 'old', true), comment('template.md', 'new')],
+      },
+    ]);
+    assert.deepStrictEqual(
+      metrics.pulls.map(({ summaries, hidden, lensRounds, counts }) => ({
+        summaries,
+        hidden,
+        lensRounds,
+        findings: counts.findings,
+      })),
+      [{ summaries: 1, hidden: 0, lensRounds: 4, findings: 13 }],
+    );
+    assert.equal(metrics.total.findings, 13);
+  });
+
+  it('prints control characters and bars of a cell it names as ?, and cuts a long name (review of #683)', () => {
+    const lens = `x\u001b]8;;https://example.invalid\u0007y\\|z${'w'.repeat(200)}`;
+    const body = text('template.md').replace('| acceptance (r1) |', `| ${lens} (r1) |`);
+    const report = formatMetrics(
+      aggregate([{ number: 1, comments: [{ url: 'u', body, hidden: false }] }]),
+    );
+    const row = report.split('\n').find((line) => line.startsWith('| x?')) ?? assert.fail(report);
+    assert.match(row, /^\| x\?\]8;;https:\/\/example\.invalid\?y\\\?zw+ … \| 1 \|/);
+    assert.ok(row.indexOf(' … |') <= 2 + 80 + 2, row);
+  });
 });
 
 describe('formatMetrics', () => {
@@ -424,5 +454,16 @@ describe('formatMetrics', () => {
     assert.match(report, /^- #509 u509: a lens findings section without a findings table$/m);
     assert.match(report, /^- #669 u669: row 2: other$/m);
     assert.match(report, /^Without a summary: #509\.$/m);
+  });
+
+  it('leaves a pull request no lens reviewed out of the rounds to pass (review of #683)', () => {
+    const report = formatMetrics(
+      aggregate([...pulls, { number: 547, comments: [comment('no-lens-section.md', 'u547')] }]),
+    );
+    assert.match(report, /^3 pull requests with a summary, 3 summaries \(1 hidden\)\.$/m);
+    assert.match(
+      report,
+      /^Lens rounds to pass: mean 2\.5, median 2\.5, most 4 \(1 round: 1, 4 rounds: 1\)\.$/m,
+    );
   });
 });
