@@ -22,6 +22,7 @@ import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
+import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -164,12 +165,16 @@ describe('brewOwner', () => {
     });
   });
 
-  it('is refused, naming --as, outside a session and without a name', () => {
-    for (const env of [{}, { CLAUDE_CODE_SESSION_ID: '' }, { CLAUDE_CODE_SESSION_ID: '../x' }]) {
-      const owner = brewOwner(undefined, env);
-      assert.ok('refused' in owner, JSON.stringify(env));
-      assert.match(owner.refused, /--as <name>/);
+  it('is terminal outside a session and without a name (ADR 0259)', () => {
+    for (const env of [{}, { CLAUDE_CODE_SESSION_ID: '' }]) {
+      assert.deepStrictEqual(brewOwner(undefined, env), { owner: 'terminal' }, JSON.stringify(env));
     }
+  });
+
+  it('is refused, naming --as, for a session id that names no driver', () => {
+    const owner = brewOwner(undefined, { CLAUDE_CODE_SESSION_ID: '../x' });
+    assert.ok('refused' in owner);
+    assert.match(owner.refused, /--as <name>/);
   });
 });
 
@@ -321,15 +326,15 @@ describe('noSessionsOf (ADR 0222)', () => {
 });
 
 describe('brewFromCheckout', () => {
-  it('refuses with exit 2, reading nothing of the Brewery, when no --as or session names the driver', async () => {
+  it('refuses with exit 2, reading nothing of the Brewery, when the session names no driver', async () => {
     const input = { command: 'brew', issue: { issue: 12 } } as const;
     const issued = { by: 'ann', via: 'terminal' } as const;
     const options = { exec: () => assert.fail('no tool is asked'), resolve: () => assert.fail() };
-    assert.deepStrictEqual(await brewFromCheckout('no-brewery', input, issued, options, {}), {
+    const env = { CLAUDE_CODE_SESSION_ID: '../x' };
+    assert.deepStrictEqual(await brewFromCheckout('no-brewery', input, issued, options, env), {
       exitCode: 2,
       stdout: '',
-      stderr:
-        'foedrum brew: no Claude Code session names the driver (CLAUDE_CODE_SESSION_ID); give --as <name>\n',
+      stderr: 'foedrum brew: the Claude Code session "../x" names no driver; give --as <name>\n',
     });
   });
 });
@@ -1293,6 +1298,20 @@ describe('runBrew', () => {
     });
     assert.equal(await runBrew(setup, held, request), 5);
     assert.equal(lines.at(-1), 'foedrum brew: The driver ann already runs on this work root');
+  });
+
+  it("names --as when its owner's driver already runs, as a second terminal meets it (ADR 0259)", async () => {
+    const held = shell(behave.succeed(), {
+      lock: () => {
+        throw new DriverRunningError('terminal', 'driver-terminal.lock', undefined);
+      },
+      openStore: () => assert.fail('no store is opened'),
+    });
+    assert.equal(await runBrew(setup, held, { ...request, owner: 'terminal' }), 5);
+    assert.match(
+      lines.at(-1) ?? '',
+      /^foedrum brew: The driver terminal already runs .*give --as <name> to run another driver beside it$/,
+    );
   });
 
   it('refuses an alias of no repository with an intake, before it takes the lock: exit 5', async () => {
