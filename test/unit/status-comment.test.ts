@@ -488,6 +488,12 @@ describe('renderStatus', () => {
     assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
   });
 
+  it('keeps the parenthesised part of a reason of exactly 48 characters: regression test (#656)', () => {
+    const reason = `${'word '.repeat(7)}(npm test) ab`;
+    assert.equal(reason.length, 48);
+    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
+  });
+
   it('keeps a reason whole once its parenthesised part goes and 48 characters are left: regression test (#656)', () => {
     const kept = `${'word '.repeat(8)}word abc`;
     assert.equal(kept.length, 48);
