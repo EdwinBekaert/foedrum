@@ -151,10 +151,9 @@ const orderRevision = (state: State, batch: Batch, issue: number): StatusRevisio
  */
 export const planCommentOf = (state: State, batchId: string): number | undefined => {
   const batch = state.batches.get(batchId);
-  const issue = batch === undefined ? undefined : breweryIssueOf(state, batch);
-  if (batch === undefined || issue === undefined || latestPlan(batch) === undefined) {
-    return undefined;
-  }
+  if (batch === undefined) return undefined;
+  const issue = breweryIssueOf(state, batch);
+  if (issue === undefined || latestPlan(batch) === undefined) return undefined;
   return (revisions.latest(state, batchId).latest ?? orderRevision(state, batch, issue))?.comment;
 };
 
