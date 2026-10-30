@@ -84,6 +84,16 @@ describe('sessionRuleFiles', () => {
     assert.deepEqual(pathsOf(files[0]?.text ?? ''), ['**/*.md']);
   });
 
+  it('lists a path once and shares its file when two globs become the same path', () => {
+    const { files } = generate(
+      ruleFile('twice', { globs: ['src/**', '**/src/**'] }, 'Twice.'),
+      ruleFile('once', { globs: ['src/**'] }, 'Once.'),
+    );
+    assert.equal(files.length, 1);
+    assert.deepEqual(pathsOf(files[0]?.text ?? ''), ['**/src/**']);
+    assert.ok(files[0]?.text.includes('## once (') && files[0].text.includes('## twice ('));
+  });
+
   it('gives a rule of every lens, since the session writes the change', () => {
     const { files } = generate(
       ruleFile('lensed', { globs: ['src/**/*.ts'], lens: 'test-design' }, 'Lensed.'),
