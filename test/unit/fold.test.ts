@@ -374,7 +374,7 @@ describe('fold', () => {
     assert.deepStrictEqual([...(batch(state).steps.get('plan')?.attempts.keys() ?? [])], [1, 2]);
   });
 
-  it('records the answers a step received', () => {
+  it('records the answers a step received, and the attempt they answer (#656)', () => {
     const answers = [{ q: question.q, answer: 'keep' }];
     const state = fold([
       ordered,
@@ -389,7 +389,7 @@ describe('fold', () => {
       },
     ]);
     assert.deepStrictEqual(batch(state).steps.get('plan')?.inputs, [
-      { by: 'octocat', via: 'plugin', answers },
+      { by: 'octocat', via: 'plugin', answers, attempt: 1 },
     ]);
   });
 
@@ -712,6 +712,31 @@ describe('fold', () => {
     assert.deepStrictEqual(state.orders.get(100)?.dependencies, [
       { subOrder: 101, blockedBy: 102, kind: 'code' },
     ]);
+  });
+
+  it("records each answer with the step's latest attempt, the one that asked: regression test (#656)", () => {
+    const input = (answer: string): Event => ({
+      type: 'input.received',
+      batchId: 'b1',
+      stepId: 'plan',
+      by: 'octocat',
+      via: 'plugin',
+      answers: [{ q: question.q, answer }],
+    });
+    const state = fold([
+      ordered,
+      scheduled,
+      input('keep'),
+      { ...scheduled, attempt: 2 },
+      { ...scheduled, attempt: 3 },
+      input('remove'),
+    ]);
+    assert.deepStrictEqual(
+      batch(state)
+        .steps.get('plan')
+        ?.inputs.map(({ attempt }) => attempt),
+      [1, 3],
+    );
   });
 
   it('keeps every input, rewind and release in order', () => {

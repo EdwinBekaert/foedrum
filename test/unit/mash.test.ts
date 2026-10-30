@@ -220,6 +220,15 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.match(status, /No pull request: the plan is in its own comment on this issue/);
   });
 
+  it('ends on tap naming the plan comment, since there is no pull request (#656)', async () => {
+    assert.equal(await runBrew(setup, shell([planned]), request), 0, lines.join('\n'));
+    const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
+    assert.equal(
+      lines.at(-1),
+      `foedrum brew: batch 12-1 is on tap: no pull request; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
+    );
+  });
+
   it("gives the Brewmaster the Brewery's repositories with their bases, on the planner alias", async () => {
     assert.equal(await runBrew(setup, shell([planned]), request), 0, lines.join('\n'));
     assert.match(
