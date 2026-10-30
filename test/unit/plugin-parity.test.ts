@@ -37,6 +37,15 @@ describe('the plugin and the terminal (ADR 0125)', () => {
     }
   });
 
+  it('carries order and recipe, and keeps the rest terminal-only with their reasons (ADR 0240)', () => {
+    const marked = commands.filter(({ terminalOnly }) => terminalOnly !== undefined);
+    assert.deepStrictEqual(
+      marked.map(({ name }) => name),
+      ['doctor', 'replay', 'retry', 'skip', 'rewind', 'cancel', 'takeover'],
+    );
+    for (const name of ['order', 'recipe']) assert.ok(existsSync(skillFile(name)), name);
+  });
+
   it('has no skill that is not a command of the registry', () => {
     const names = new Set(commands.map(({ name }) => name));
     assert.deepStrictEqual(

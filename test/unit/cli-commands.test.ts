@@ -904,6 +904,34 @@ describe('foedrum: commands that change state', () => {
         refused('recipe', 'the Brewery has no recipe porter'),
       );
     });
+
+    it("brews an issue's live batch with another recipe, by the issue (ADR 0240)", async () => {
+      assert.deepStrictEqual(
+        await run(['recipe', '#22', 'stout', 'the plan needs an analysis']),
+        ok('22-1 brewing: analyze #1 scheduled\n'),
+      );
+      assert.deepStrictEqual(appended(3)[0], {
+        type: 'batch.recipe_chosen',
+        batchId: '22-1',
+        recipe: 'stout',
+        reason: 'the plan needs an analysis',
+        source: 'human',
+        by: 'ada',
+        via: 'terminal',
+      });
+    });
+
+    it('refuses an issue whose batch is brewing, naming foedrum stop, and appends nothing', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['recipe', '#23', 'stout', 'the plan needs an analysis']),
+        refused(
+          'recipe',
+          'batch 23-1 of #23 is brewing; foedrum stop #23 first, then change its recipe',
+        ),
+      );
+      assert.equal(lastId(), before);
+    });
   });
 
   describe('rewind', () => {
@@ -1760,8 +1788,113 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     });
 
     it('orders an issue it never brewed as <n>-1, as its first order (ADR 0240)', async () => {
-      assert.deepStrictEqual(await run(['order', '#30'], noConfig), ok(`30-1 ${ordered}
-`));
+      assert.deepStrictEqual(await run(['order', '#30'], noConfig), ok(`30-1 ${ordered}\n`));
+    });
+  });
+
+  // web-7's Brewery issue is #40, the order the driver opened for it (ADR 0144).
+  const orderedAs40 = () => {
+    const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+    createCommandLog({ store, recipes }).issue(
+      { kind: 'record', event: { type: 'effect.applied', key, result: 40 } },
+      t0,
+    );
+  };
+
+  describe("a claimed order's Brewery issue (ADR 0240)", () => {
+    it('orders the claimed issue again, as its alias form does', async () => {
+      orderedAs40();
+      assert.deepStrictEqual(await run(['order', '#40']), ok(`web-7-2 ${ordered}\n`));
+      assert.deepStrictEqual(last(), {
+        type: 'batch.ordered',
+        batchId: 'web-7-2',
+        order: { issue: 7, repo: 'acme/web' },
+        routeBy: iso(60),
+        at: t0.toISOString(),
+        by: 'ada',
+        via: 'terminal',
+      });
+    });
+  });
+
+  describe('recipe by issue (ADR 0240)', () => {
+    const noConfig = {
+      config: () => assert.fail('a Brewery issue needs no foedrum.jsonc'),
+      claims: () => assert.fail('a Brewery issue is never claimed'),
+    };
+    const chosen = (batchId: string, recipe: string): Event => ({
+      type: 'batch.recipe_chosen',
+      batchId,
+      recipe,
+      reason: 'the plan has one sub-order',
+      source: 'human',
+      by: 'ada',
+      via: 'terminal',
+    });
+    const events = (from: number): Event[] => store.eventsAfter(from).map(({ event }) => event);
+
+    it('orders an ended issue again with the recipe, from its first step', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['recipe', '#21', 'stout', 'the plan has one sub-order'], noConfig),
+        ok('ordered #21 as batch 21-2\n21-2 brewing: analyze #1 scheduled\n'),
+      );
+      const [ordering, choice] = events(before);
+      assert.deepStrictEqual(ordering, {
+        type: 'batch.ordered',
+        batchId: '21-2',
+        order: { issue: 21 },
+        routeBy: iso(60),
+        at: t0.toISOString(),
+        by: 'ada',
+        via: 'terminal',
+      });
+      assert.deepStrictEqual(choice, chosen('21-2', 'stout'));
+    });
+
+    it('orders an issue it never brewed with the recipe', async () => {
+      assert.deepStrictEqual(
+        await run(['recipe', '30', 'pint', 'the plan has one sub-order'], noConfig),
+        ok('ordered #30 as batch 30-1\n30-1 brewing: plan #1 scheduled\n'),
+      );
+    });
+
+    it('claims an ended target issue again and orders it with the recipe', async () => {
+      assert.deepStrictEqual(
+        await run(['recipe', 'web#7', 'pint', 'the plan has one sub-order']),
+        ok('ordered web#7 as batch web-7-2\nweb-7-2 brewing: plan #1 scheduled\n'),
+      );
+      assert.equal(JSON.parse(github.refs.get('acme/web#7') ?? 'null')?.brewery, 'acme/brewery');
+    });
+
+    it("acts on a claimed order's batch by its Brewery issue", async () => {
+      orderedAs40();
+      assert.deepStrictEqual(
+        await run(['recipe', '#40', 'pint', 'the plan has one sub-order']),
+        ok('ordered web#7 as batch web-7-2\nweb-7-2 brewing: plan #1 scheduled\n'),
+      );
+    });
+
+    it('refuses a recipe the Brewery does not have, ordering and claiming nothing', async () => {
+      const before = lastId();
+      for (const issue of ['#21', 'web#7']) {
+        assert.deepStrictEqual(await run(['recipe', issue, 'porter', 'why not']), {
+          exitCode: 1,
+          stdout: '',
+          stderr: 'foedrum recipe: the Brewery has no recipe porter\n',
+        });
+      }
+      assert.equal(lastId(), before);
+      assert.equal(reached(), 0);
+    });
+
+    it('refuses an issue it cannot read, as a mistake of the command line', async () => {
+      assert.deepStrictEqual(await run(['recipe', 'web#0', 'pint', 'why']), {
+        exitCode: 2,
+        stdout: '',
+        stderr:
+          'foedrum recipe: invalid <target> "web#0": Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery\n',
+      });
     });
   });
 
