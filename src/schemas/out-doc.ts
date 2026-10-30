@@ -275,13 +275,14 @@ export const pullRequestSectionsOf = (output: unknown): PullRequestSections | un
  */
 export const FINING = 'fining';
 
-/** The most changes a Finer lists, and the longest line of why it changed nothing. */
+/** The most changes a Finer lists, the longest file of one, and the longest line of why it changed nothing. */
 export const MOST_FINING_CHANGES = 50;
+export const MAX_FINING_FILE = 1_000;
 export const MAX_UNCHANGED = 1_000;
 
 /** One change a Finer made (ADR 0166): where, and why; `line` when it is about one. */
 const FiningChange = z.strictObject({
-  file: lineOf(1_000),
+  file: lineOf(MAX_FINING_FILE),
   line: z.int().positive().optional(),
   why: NonEmpty,
 });
