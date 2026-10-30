@@ -754,6 +754,88 @@ describe('foedrum resume (ADR 0126)', () => {
     nothingOpened();
   });
 
+  describe('an attempt of a recipe the batch has left (#670)', () => {
+    // A mash batch: the Innkeeper's step ran in S1, its answer chose pale, which has no innkeep,
+    // and the batch was cancelled.
+    const mash = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/mash.jsonc',
+          text: recipeText('mash', [{ id: 'innkeep', brewer: 'innkeeper' }]),
+        },
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        { path: 'brewers/innkeeper.md', text: brewerText('innkeeper', { effort: 'low' }) },
+        { path: 'brewers/brewmaster.md', text: brewerText('brewmaster', { effort: 'max' }) },
+      ],
+    });
+    assert.ok(mash.valid);
+    const mashSetup = async () =>
+      ({ kind: 'ready', setup: { ...setup, brewers: mash.brewers } }) as const;
+    const innkeep = { batchId: '12-1', stepId: 'innkeep', attempt: 1 };
+    const path = pathOf(innkeep);
+    const deadlineAt = '2026-10-22T13:00:00.000Z';
+    beforeEach(() => {
+      store.withTransaction((tx) => {
+        tx.append({
+          type: 'batch.ordered',
+          batchId: '12-1',
+          order: { issue: 12 },
+          routeBy: deadlineAt,
+        });
+        tx.append({
+          type: 'batch.recipe_chosen',
+          batchId: '12-1',
+          recipe: 'mash',
+          reason: 'label',
+          source: 'label',
+        });
+        tx.append({ type: 'step.scheduled', ...innkeep, deadlineAt });
+        tx.append({
+          type: 'step.started',
+          ...innkeep,
+          session: { id: S1, worktree: path },
+          worktree: {
+            repo: 'acme/api',
+            path,
+            branch: 'foedrum/12-1/innkeep/1',
+            commit: commit('c'),
+          },
+        });
+        tx.append({
+          type: 'step.finished',
+          ...innkeep,
+          outcome: { kind: 'succeeded', output: null },
+        });
+        tx.append({
+          type: 'batch.recipe_chosen',
+          batchId: '12-1',
+          recipe: 'pale',
+          reason: 'the mash-in answer',
+          source: 'human',
+          by: 'ada',
+          via: 'terminal',
+        });
+        // Ended, so resume opens a finished attempt rather than taking the batch over.
+        tx.append({ type: 'batch.cancelled', batchId: '12-1', by: 'ada', via: 'terminal' });
+      });
+    });
+
+    it('opens the attempt with the brewer of the recipe it was scheduled under', async () => {
+      const result = await resumeOf('12-1', 'innkeep', { setup: mashSetup });
+      assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+      const args = started[0]?.args ?? [];
+      assert.deepEqual(
+        [started.length, args.slice(0, 2), args[args.indexOf('--effort') + 1], started[0]?.cwd],
+        [1, ['--resume', S1], 'low', path],
+      );
+    });
+  });
+
   it('refuses an attempt another resume has open, but not a batch a driver holds', async () => {
     const expiresAt = new Date(t0.getTime() + 60_000);
     store.withTransaction((tx) => tx.putLease({ attemptKey: key, owner: 'resume-1', expiresAt }));
