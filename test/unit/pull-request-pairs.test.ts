@@ -458,6 +458,25 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
       );
     });
 
+    it("names a claimed issue's pull request beside a Brewery issue's in a one-repository Brewery", async () => {
+      // A Brewery issue's batch names no repository: it writes in the Brewery's only one, as the
+      // pass grouped it with the claimed batch of that repository.
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb, 'acme/web');
+      paired(['src/app.ts']);
+      finished('web-12', a, ha);
+      assert.ok(
+        (await brief('web-12')).includes(
+          `- Conflicts with the open pull request <${b}> in src/app.ts.`,
+        ),
+      );
+      assert.ok(
+        (await statusText('web-12')).includes(
+          `- <${a}> conflicts with the open pull request <${b}> in src/app.ts`,
+        ),
+      );
+    });
+
     it('regression test: says the brief merges cleanly when only another repository has an open pull request left', async () => {
       onTap('web-12', a, ha, 'acme/web');
       onTap('web-13', b, hb, 'acme/web');
