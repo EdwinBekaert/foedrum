@@ -55,7 +55,7 @@ When a tasting step sent the batch back to you, {route} holds the Taster's out d
 - `"dismissed"`, with a `why`: it is not a defect, and the `why` says why and names the evidence that shows it: a file and line, a test, or the sentence of the order or of a decision record it relies on. The next round checks that evidence and may contest it once.
 - `"pre-existing"`, with a `why`: it was there before the change and the change does not make it worse, and the `why` names the evidence that shows it, as a dismissal's does. Do not fix it in this change; the pull request lists it for a person to file.
 
-For example: `"dispositions": [{ "file": "src/wait.ts", "line": 12, "disposition": "fixed" }, { "disposition": "dismissed", "why": "The order's second sentence sets the cap at five" }]`. A `why` is one or two sentences, at most 2,000 characters. List at most 100 dispositions: past 100 findings, dispose of the first 100 in the Taster's order, and the rest stay open. Write no `dispositions` when {route} holds no Taster's findings.
+For example: `"dispositions": [{ "file": "src/wait.ts", "line": 12, "disposition": "fixed" }, { "disposition": "dismissed", "why": "The order's second sentence sets the cap at five" }]`. A `why` is one or two sentences, at most 2,000 characters. List at most 100 entries in `dispositions`: past 100 findings, dispose of the first 100 in the Taster's order, and the rest stay open. Write no `dispositions` when {route} holds no Taster's findings.
 
 ## The pull request's sections
 

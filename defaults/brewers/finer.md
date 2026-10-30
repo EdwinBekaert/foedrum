@@ -64,7 +64,7 @@ Finding nothing to simplify is a good answer: do not change code to have somethi
 
 End with `done`. Your out doc's frontmatter adds one of two keys to the `done` example below, never both:
 
-- `"changes"`: when you committed simplifications, a list of `{ "file": "src/slug.ts", "line": 4, "why": "slugOf repeated toSlug in src/text.ts:12; it now calls it" }`, one per change, at most 50 changes, with the line it has at HEAD (leave `line` out for a change to the file as a whole) and why it is smaller and does the same;
+- `"changes"`: when you committed simplifications, a list of `{ "file": "src/slug.ts", "line": 4, "why": "slugOf repeated toSlug in src/text.ts:12; it now calls it" }`, one per change, at most 50 changes, each `file` one line of at most 1,000 characters, with the line it has at HEAD (leave `line` out for a change to the file as a whole) and why it is smaller and does the same;
 - `"unchanged"`: when you committed nothing, one line of at most 1,000 characters that says why there was nothing to simplify.
 
 In the body, say which commands you ran and how they ended.
