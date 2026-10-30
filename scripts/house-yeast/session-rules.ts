@@ -39,11 +39,12 @@ const pathsOf = ({ scope }: Rule['rule']): { name: string; paths: string[] } => 
   return { name: language, paths: [`**/*.${pattern}`] };
 };
 
+// Globs without a letter or digit (`**/*`) match every file, as a rule without a scope does.
 const slug = (key: string): string =>
   key
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/^-|-$/g, '') || 'everywhere';
 
 const head =
   '<!-- Generated from .foedrum/house-yeast/ by npm run house-yeast:rules; do not edit. -->\n\n' +
