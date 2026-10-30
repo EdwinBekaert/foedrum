@@ -105,7 +105,7 @@ export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
 /** One line of at most `max` characters. */
-const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
+export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
 /**
  * A Taster's out doc: the contract's, with its findings, a verdict when it is done, and the risk

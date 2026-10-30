@@ -2,7 +2,7 @@
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
 import { orderName } from '../engine/claim-orders.ts';
-import type { Batch, Pause, State } from '../engine/fold.ts';
+import { type Batch, type Pause, runningAttempt, type State } from '../engine/fold.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
@@ -65,8 +65,8 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
 // The latest attempt of each step that is still under way; an abandoned one never will be.
 const underWay = (batch: Batch): string[] =>
   [...batch.steps.values()].flatMap((step) => {
-    const attempt = [...step.attempts.values()].at(-1);
-    if (attempt === undefined || attempt.phase === 'finished' || attempt.abandoned) return [];
+    const attempt = runningAttempt(step);
+    if (attempt === undefined) return [];
     return [`${step.id} #${attempt.attempt} ${attempt.phase}`];
   });
 

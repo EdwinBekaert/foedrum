@@ -18,7 +18,6 @@ import { createIntake, type IntakeNotice } from '../engine/intake.ts';
 import { limitsOf } from '../engine/limits.ts';
 import { createMergedChecks, type MergedChecks, mergedCheckStep } from '../engine/merged-checks.ts';
 import type { BranchPush, PullRequestRepository } from '../engine/pull-request-actions.ts';
-import { StateBranchStopError } from '../engine/state-branch.ts';
 import type { StateBranch } from '../engine/state-branch-git.ts';
 import { githubCheckReader } from '../github/checks.ts';
 import { GitHubRateLimited } from '../github/client.ts';
@@ -30,7 +29,7 @@ import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
 import type { MergedTree } from '../workspace/merge-tree-git.ts';
-import { closeOpened, messageOf, type Opened, wireDriver } from './driver-wiring.ts';
+import { closeOpened, messageOf, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { mergedCheckRun } from './merged-check-run.ts';
 import { printable } from './run.ts';
 import type { ServeRepository, ServeSetup } from './serve-config.ts';
@@ -230,6 +229,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
   // Notices may carry text a model wrote: never a control character on the terminal.
   const say = (line: string): void => out(printable(`foedrum serve: ${line}`));
+  const report = (notice: DriverNotice): void => say(formatNotice(notice));
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
   try {
@@ -251,7 +251,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         // The Cellar takes every free batch (ADR 0044).
         takes: () => true,
         say,
-        report: (notice) => say(formatNotice(notice)),
+        report,
       },
     );
     // A second writer on the store, as a terminal command is (ADR 0044).
@@ -328,12 +328,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     while (!signal.aborted) {
       poll();
       merged?.poll(runs);
-      try {
-        await driver.tick();
-      } catch (error) {
-        if (error instanceof StateBranchStopError) throw error;
-        say(formatNotice({ kind: 'tick_failed', error }));
-      }
+      await tick(driver, report);
       if (signal.aborted) break;
       await wait(intervalMs, signal);
     }

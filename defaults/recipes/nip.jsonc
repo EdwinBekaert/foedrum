@@ -7,7 +7,6 @@
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
   "description": "Quick fix in one repository, test-first",
-  "match": { "labels": ["quick-fix"] },
   "steps": [
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
     {

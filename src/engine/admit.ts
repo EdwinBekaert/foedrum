@@ -8,6 +8,7 @@ import {
   fold,
   InvalidLogError,
   type Lane,
+  latestAttempt,
   type State,
   sameHeadChecks,
 } from './fold.ts';
@@ -100,7 +101,7 @@ function rule(state: State, event: Event): string | undefined {
       return lanes(state, event, ['ordered', 'brewing', 'conditioning']);
     case 'step.started':
     case 'step.finished':
-      return lanes(state, event, ['brewing']) ?? latestAttempt(state, event);
+      return lanes(state, event, ['brewing']) ?? replacedOrAbandoned(state, event);
     case 'input.received': {
       const refusal = lanes(state, event, ['stuck']);
       if (refusal !== undefined) return refusal;
@@ -215,15 +216,15 @@ function reordered(
 }
 
 /** Only an attempt that no later attempt replaced, and that Stuck did not abandon, may start or finish. */
-function latestAttempt(
+function replacedOrAbandoned(
   state: State,
   { batchId, stepId, attempt }: Extract<Event, { type: 'step.started' | 'step.finished' }>,
 ): string | undefined {
-  const attempts = state.batches.get(batchId)?.steps.get(stepId)?.attempts;
-  const current = attempts?.get(attempt);
-  if (attempts === undefined || current === undefined) return undefined;
+  const step = state.batches.get(batchId)?.steps.get(stepId);
+  const current = step?.attempts.get(attempt);
+  if (step === undefined || current === undefined) return undefined;
   const name = `attempt ${stepId}#${attempt} of batch ${batchId}`;
-  if (attempt < Math.max(...attempts.keys()))
+  if (latestAttempt(step)?.attempt !== attempt)
     return `${name} is not the latest attempt of its step`;
   return current.phase !== 'finished' && current.abandoned
     ? `${name} was abandoned when the batch got stuck`

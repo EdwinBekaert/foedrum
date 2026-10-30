@@ -3,7 +3,6 @@
   "$schema": "../../../schemas/recipe.json",
   "name": "pint",
   "description": "Medium feature in one repository, with plan approval",
-  "match": { "labels": ["feature", "medium"] },
   "steps": [
     { "id": "context", "brewer": "maltster" },
     { "id": "plan", "brewer": "brewmaster" },

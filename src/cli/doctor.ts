@@ -12,9 +12,10 @@ import {
   replacedDefaults,
 } from '../engine/recipe-files.ts';
 import type { AwakeMechanism } from '../platform/keep-awake.ts';
-import { BreweryConfig, githubHostOf } from '../schemas/brewery-config.ts';
+import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
+import { githubHostname } from './serve-config.ts';
 
 /** The tools doctor looks for on PATH. */
 export type ToolName =
@@ -283,8 +284,7 @@ const isTooOld = (node: string): boolean => isBefore(node, MIN_NODE);
  */
 export const githubHostOfConfig = (config: string | undefined): string => {
   const read = config === undefined ? undefined : readJsonc(config, BreweryConfig);
-  const api = read?.valid === true ? read.value.githubApi : undefined;
-  return (api === undefined ? undefined : githubHostOf(api)) ?? 'github.com';
+  return read?.valid === true ? githubHostname(read.value) : 'github.com';
 };
 
 // Whether a credential URL from git's configuration covers every https URL of `host`: the same

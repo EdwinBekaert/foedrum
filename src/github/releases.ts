@@ -3,6 +3,7 @@
 // conditional (ADR 0052); everything it reads is untrusted input, checked field by field.
 
 import type { LatestRelease, ReleaseReader } from '../engine/releases.ts';
+import { pullRequestOf } from '../schemas/events.ts';
 import {
   GitHubCompare,
   GitHubGitCommit,
@@ -14,7 +15,6 @@ import { z } from '../schemas/zod.ts';
 import { checked, refused, repoPath } from './answers.ts';
 import type { GitHubClient } from './client.ts';
 import type { GitHubReads } from './reads.ts';
-import { pullRequestOf } from './tracker.ts';
 
 /** The longest tag name a release record keeps. */
 const MAX_TAG_LENGTH = 255;
