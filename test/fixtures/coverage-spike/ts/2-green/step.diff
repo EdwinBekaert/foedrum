@@ -1,0 +1,23 @@
+diff --git a/src/calc.ts b/src/calc.ts
+index e2ca645..a2f5f76 100644
+--- a/src/calc.ts
++++ b/src/calc.ts
+@@ -1,5 +1,5 @@
+ export function add(a: number, b: number): number {
+-  return a + b;
++  return Math.round((a + b) * 1e10) / 1e10;
+ }
+ 
+ export function clamp(value: number, low: number, high: number): number {
+@@ -8,6 +8,9 @@ export function clamp(value: number, low: number, high: number): number {
+   return value;
+ }
+ 
+-export function multiply(_a: number, _b: number): number {
+-  throw new Error('not implemented');
++export function multiply(a: number, b: number): number {
++  if (!Number.isFinite(a) || !Number.isFinite(b)) {
++    throw new RangeError('multiply takes finite numbers');
++  }
++  return a * b;
+ }

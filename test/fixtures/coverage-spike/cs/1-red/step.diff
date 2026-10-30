@@ -1,0 +1,40 @@
+diff --git a/src/Calc/Calculator.cs b/src/Calc/Calculator.cs
+index d074d0c..c053a94 100644
+--- a/src/Calc/Calculator.cs
++++ b/src/Calc/Calculator.cs
+@@ -13,4 +13,9 @@ public static class Calculator
+         if (value > high) return high;
+         return value;
+     }
++
++    public static int Multiply(int a, int b)
++    {
++        throw new NotImplementedException();
++    }
+ }
+diff --git a/test/Calc.Tests/CalculatorTests.cs b/test/Calc.Tests/CalculatorTests.cs
+index 5b2d32d..e048dc8 100644
+--- a/test/Calc.Tests/CalculatorTests.cs
++++ b/test/Calc.Tests/CalculatorTests.cs
+@@ -7,6 +7,7 @@ public class CalculatorTests
+     [Theory]
+     [InlineData(1, 2, 3)]
+     [InlineData(-1, 1, 0)]
++    [InlineData(int.MaxValue, 1, int.MaxValue)]
+     public void Adds(int a, int b, int sum) => Assert.Equal(sum, Calculator.Add(a, b));
+ 
+     [Fact]
+@@ -14,4 +15,13 @@ public class CalculatorTests
+ 
+     [Fact]
+     public void KeepsInside() => Assert.Equal(5, Calculator.Clamp(5, 0, 10));
++
++    [Fact]
++    public void ClampsAbove() => Assert.Equal(10, Calculator.Clamp(15, 0, 10));
++
++    [Fact]
++    public void Multiplies() => Assert.Equal(12, Calculator.Multiply(3, 4));
++
++    [Fact]
++    public void MultipliesByZero() => Assert.Equal(0, Calculator.Multiply(3, 0));
+ }

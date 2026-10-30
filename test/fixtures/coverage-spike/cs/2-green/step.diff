@@ -1,0 +1,25 @@
+diff --git a/src/Calc/Calculator.cs b/src/Calc/Calculator.cs
+index c053a94..f1ec5cf 100644
+--- a/src/Calc/Calculator.cs
++++ b/src/Calc/Calculator.cs
+@@ -4,7 +4,7 @@ public static class Calculator
+ {
+     public static int Add(int a, int b)
+     {
+-        return a + b;
++        return (int)Math.Clamp((long)a + b, int.MinValue, int.MaxValue);
+     }
+ 
+     public static int Clamp(int value, int low, int high)
+@@ -16,6 +16,10 @@ public static class Calculator
+ 
+     public static int Multiply(int a, int b)
+     {
+-        throw new NotImplementedException();
++        if (a == int.MinValue || b == int.MinValue)
++        {
++            throw new OverflowException("Multiply takes no int.MinValue");
++        }
++        return a * b;
+     }
+ }
