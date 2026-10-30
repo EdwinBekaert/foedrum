@@ -149,6 +149,16 @@ describe('changedTests', () => {
     }
   });
 
+  it('protects a Go subtest the step declared with t.Run in a test it did not add (#661)', () => {
+    const path = 'add_test.go';
+    const subtest = '	t.Run("adds two numbers", func(t *testing.T) {';
+    const found = changedTests(
+      [added(path, [subtest])],
+      [changed(path, [subtest], ['	t.Run("adds", func(t *testing.T) {'])],
+    );
+    assert.deepEqual(found, [{ path, line: subtest.trim() }]);
+  });
+
   it('protects nothing in a file where the step declared no test', () => {
     const helper = [added('test/helpers.mjs', ['export const check = (x) => assert.ok(x);'])];
     assert.deepEqual(

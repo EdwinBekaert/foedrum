@@ -461,7 +461,7 @@ describe('judgeRed', () => {
       },
       {
         newPath: 'src/test/kotlin/AddTest.kt',
-        added: ['  fun `adds a negative number`() {'],
+        added: ['  @Test', '  fun `adds a negative number`() {'],
         removed: [],
       },
     ];
@@ -470,6 +470,27 @@ describe('judgeRed', () => {
       ...failing(2, 'adds a negative number', 'not implemented'),
     );
     assert.deepEqual(judgeRed(report, quoted), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+});
+
+describe('judgeRed: a name in a file where the step declared no test (#661)', () => {
+  // A regenerated JSON schema beside the Gauger's tests, holding a word an older test is named.
+  const schema: DiffFile = {
+    newPath: 'schemas/event.json',
+    added: ['  "touches": {', '    "type": "array",', '    "items": { "type": "string" }'],
+    removed: [],
+  };
+
+  it("does not take an older test for one the step added when only a data file's string holds its name", () => {
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - array',
+    );
+    assert.deepEqual(judgeRed(report, [...gauged, schema]), {
       proven: true,
       tests: ['adds two numbers', 'adds a negative number'],
     });
