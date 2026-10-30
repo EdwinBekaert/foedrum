@@ -66,6 +66,14 @@ describe('parseSummary', () => {
     assert.equal(withFindings(parseSummary(text('second-summary.md'))).rounds, undefined);
   });
 
+  it('reads a count of tests passed or run as no round (#627: "815 pass", #554: "10 pass")', () => {
+    const body = text('template.md').replace(
+      '13 findings: 0 blocker',
+      'The check: 815 pass, and 10 runs of the demo. 13 findings: 0 blocker',
+    );
+    assert.equal(withFindings(parseSummary(body)).rounds, 4);
+  });
+
   it('reads a severity marked pre-existing, a row of several lenses, and a lens that is a stage', () => {
     const prose = parseSummary(text('rounds-in-prose.md'));
     assert.equal(withFindings(prose).findings.length, 14);
