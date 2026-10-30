@@ -9,7 +9,8 @@ import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
 import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
-import { effectMarker } from './claim-effects.ts';
+import { commentId, effectMarker } from './claim-effects.ts';
+import { cutForComment } from './comment-revisions.ts';
 import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -70,12 +71,6 @@ const scanned = 1_000;
 /** How many findings of one step, and dispositions in all, the brief lists. */
 const mostFindings = 10;
 const mostDispositions = 30;
-/**
- * How long the brief after its title may be: below GitHub's 65,536 characters for a comment, with
- * room for the title (`plain` keeps it to 200 characters, five times as long escaped) and the
- * marker. The title is left out, so a brief found by its marker can be told by the rest.
- */
-const longestRest = 60_000;
 
 /** A text a brewer wrote at `stepId` as one inert line (ADR 0088, ADR 0184). */
 type Told = (text: string, stepId: string) => string;
@@ -370,14 +365,6 @@ const riskLines = (steps: Steps, told: Told): string[] =>
     ),
   );
 
-/** `text` cut to whole lines below `longestRest`, as `renderStatus` cuts. */
-const cut = (text: string): string => {
-  if (text.length <= longestRest) return text;
-  const note = '\n\n… the rest is cut: GitHub keeps comments shorter.';
-  const kept = text.slice(0, longestRest - note.length);
-  return `${kept.slice(0, kept.lastIndexOf('\n'))}${note}`;
-};
-
 /** The brief after its title line, for `ready`, the record that makes `batch` ready. */
 const briefRest = (
   state: State,
@@ -429,7 +416,10 @@ const briefRest = (
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
   ];
-  return cut(sections.map((lines) => lines.join('\n')).join('\n\n'));
+  // Below the length a comment may be with room for the title (`plain` keeps it to 200
+  // characters, five times as long escaped), which is left out, so a brief found by its marker
+  // can be told by the rest.
+  return cutForComment(sections.map((lines) => lines.join('\n')).join('\n\n'));
 };
 
 /** The brief's title line: the pull request's title, which anyone who can edit it wrote. */
@@ -457,13 +447,8 @@ interface DueBrief {
 }
 
 /** A brief's ledger result, checked: the id comes from the code host, and the ledger keeps it. */
-const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): MergeBrief => {
-  const parsed = MergeBrief.safeParse({ comment, pullRequest, head, digest });
-  if (!parsed.success) {
-    throw new Error(`The code host answered a comment id that is no positive integer: ${comment}`);
-  }
-  return parsed.data;
-};
+const resultOf = (comment: number, { pullRequest, head, digest }: ReadyRecord): MergeBrief =>
+  MergeBrief.parse({ comment: commentId(comment), pullRequest, head, digest });
 
 /** The repository and number of the pull request at `url`, when it is one. */
 const whereOf = (url: string): { repo: string; number: number } | undefined => {

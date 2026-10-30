@@ -89,7 +89,8 @@ const positive =
     }
     return id;
   };
-const commentId = positive('a comment id');
+/** The id the code host answered for a comment, checked: a positive integer, or it throws. */
+export const commentId = positive('a comment id');
 const issueNumber = positive('an issue number');
 
 /** Where `effect` lands: found by being there, by its key in our own comment, or by a gone ref. */

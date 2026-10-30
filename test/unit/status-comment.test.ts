@@ -1905,3 +1905,76 @@ describe('statusEffects: the body the latest round left, from the ledger (ADR 02
     }
   });
 });
+
+describe('statusEffects: the checks of a pull request its latest push left alone (ADR 0213, ADR 0219)', () => {
+  const head = 'c'.repeat(40);
+  const pushed = { branch: 'b', commit: head, from: 'r' };
+  const key = (effect: string) => JSON.stringify(['7-1', effect]);
+  const checked = batch({
+    lane: { kind: 'on_tap', pullRequests: [pr] },
+    pullRequestChecks: { [pr]: { kind: 'finished', head, checks: [] } },
+    baseChecks: [{ pullRequest: pr, branch: 'main', tip: 'd'.repeat(40), head, conflicts: ['a'] }],
+  });
+  const shown = async (latest: unknown, shownBatch = checked): Promise<string> => {
+    const comments = fakeComments('alice');
+    const recipes = fakeRecipes({ nip: fakeRecipe({ steps }) });
+    const status = statusEffects({
+      brewery,
+      comments: comments.host,
+      recipes,
+      clock: () => new Date(at),
+    });
+    const state: State = {
+      ...emptyState,
+      batches: new Map([['7-1', shownBatch]]),
+      effects: new Map([
+        [key('pull_request'), pr],
+        [key('push'), pushed],
+        [key('push.2'), latest],
+      ]),
+    };
+    const [due] = status.due(state, '7-1');
+    await status.target.apply(effectKey.encode(due ?? assert.fail('no revision due')));
+    return comments.comments[0]?.body ?? assert.fail('no status comment');
+  };
+
+  it('shows the check line and the base-check line while the latest push pushed (regression test)', async () => {
+    const body = await shown(pushed);
+    assert.match(body, /has no checks on `cccccccc`/);
+    assert.match(body, /conflicts with `main`/);
+  });
+
+  it('shows neither once the latest push found the branch moved or gone, was refused or was empty', async () => {
+    for (const latest of [
+      { ...pushed, moved: 'f'.repeat(40) },
+      { ...pushed, gone: true },
+      { ...pushed, refused: [{ commit: head, place: 'a.ts:1', kind: 'token' }] },
+      { ...pushed, empty: true },
+    ]) {
+      const body = await shown(latest);
+      assert.ok(body.split('\n').includes(`- <${pr}>`), body);
+      assert.doesNotMatch(body, /has no checks|conflicts with/, JSON.stringify(latest));
+    }
+  });
+
+  it('shows neither for another pull request of the lane while openOf reads one', async () => {
+    const other = 'https://github.com/alice/web/pull/9';
+    const both = batch({
+      lane: { kind: 'on_tap', pullRequests: [other, pr] },
+      pullRequestChecks: {
+        [other]: { kind: 'finished', head, checks: [] },
+        [pr]: { kind: 'pending', head, since: at },
+      },
+      baseChecks: [
+        { pullRequest: other, branch: 'main', tip: 'd'.repeat(40), head, conflicts: ['a'] },
+        { pullRequest: pr, branch: 'main', tip: 'd'.repeat(40), head, conflicts: ['b'] },
+      ],
+    });
+    const body = await shown(pushed, both);
+    const lines = body.split('\n');
+    assert.ok(lines.includes(`- <${other}>`), body);
+    assert.ok(!lines.some((line) => line.startsWith(`- <${other}> `)), body);
+    assert.ok(lines.includes(`- <${pr}> conflicts with \`main\` at \`dddddddd\` in b`));
+    assert.ok(lines.includes(`- <${pr}> waits for its checks on \`cccccccc\` since ${at}`));
+  });
+});
