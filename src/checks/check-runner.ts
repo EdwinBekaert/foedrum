@@ -264,13 +264,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const regressionTests = stepTests(batch, of)?.regressionTests ?? [];
     // A file that declares a test at the step's tip is a test file, though the step only added a
     // row to it (ADR 0262).
-    const testFiles = await readTestFiles(
-      git,
-      clone(worktree.repo),
-      commits.to,
-      diff.files,
-      signal,
-    );
+    let testFiles: Set<string>;
+    try {
+      testFiles = await readTestFiles(git, clone(worktree.repo), commits.to, diff.files, signal);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return blocked('environment', `the files of step ${of} at its tip cannot be read: ${why}`);
+    }
     const verdict = judgeRed(parsed.report, diff.files, regressionTests, testFiles);
     if (!verdict.proven) return failed(verdict.why);
     return { ending: { kind: 'succeeded', output: null }, readings };

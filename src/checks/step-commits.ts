@@ -48,10 +48,17 @@ export function stepTests(batch: Batch, stepId: string): GaugeReport | undefined
     : undefined;
 }
 
+/** The most files the red proof reads at the step's tip: the brewer's commits choose how many change. */
+const MAX_TIP_READS = 50;
+
+/** How long one read at the tip may take. */
+const TIP_READ_MS = 10_000;
+
 /**
  * The paths of `files` that declare a test at `to`, the proven step's tip, though no line the step
- * added to them does, such as a table it added a row to (ADR 0262); read in `cwd`, the clone. A
- * file git cannot read there, one past the diff's limit or one that is binary is none.
+ * added to them does, such as a table it added a row to (ADR 0262); read in `cwd`, the clone, at
+ * most `MAX_TIP_READS` of them. A file git cannot find there, one past the diff's limit, one that
+ * is binary and one past that count is none; a read git was killed for otherwise throws.
  */
 export async function readTestFiles(
   git: Git,
@@ -61,15 +68,20 @@ export async function readTestFiles(
   signal?: AbortSignal,
 ): Promise<Set<string>> {
   const found = new Set<string>();
-  for (const file of files) {
-    // A deleted file is at no tip; a file whose added lines declare a test needs no read.
-    if (file.newPath === undefined || isTestFile(file)) continue;
-    const result = await git(cwd, ['cat-file', 'blob', `${to}:${file.newPath}`], {
+  // A deleted file is at no tip; a file whose added lines declare a test needs no read.
+  const unread = files.filter((file) => file.newPath !== undefined && !isTestFile(file));
+  for (const { newPath } of unread.slice(0, MAX_TIP_READS)) {
+    if (newPath === undefined) continue;
+    const result = await git(cwd, ['cat-file', 'blob', `${to}:${newPath}`], {
       maxOutputBytes: MAX_DIFF_BYTES,
+      timeoutMs: TIP_READ_MS,
       ...(signal === undefined ? {} : { signal }),
     });
+    if (result.code === null && result.killed !== 'too-much-output') {
+      throw new Error(`git cat-file of ${newPath} was killed (${result.killed ?? 'no exit code'})`);
+    }
     if (result.code !== 0 || result.stdout.includes('\0')) continue;
-    if (result.stdout.split(/\r?\n/).some(declaresTest)) found.add(file.newPath);
+    if (result.stdout.split(/\r?\n/).some(declaresTest)) found.add(newPath);
   }
   return found;
 }

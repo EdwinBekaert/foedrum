@@ -173,8 +173,11 @@ export function judgeRed(
   );
   const regression = new Set(regressionTests.map((name) => name.trim()));
   // The lines a regression test may be declared in (ADR 0170): in a file where the step declared a
-  // test, whose lines testsUnchanged keeps, and no comment, which declares nothing.
-  const inTests = testLines.filter((line) => !COMMENT.test(line));
+  // test, whose lines testsUnchanged keeps, and no comment, which declares nothing. Not a file that
+  // declares a test only at the tip, whose lines testsUnchanged does not keep (ADR 0262).
+  const inTests = diff
+    .filter(isTestFile)
+    .flatMap(({ added }) => added.filter((line) => !COMMENT.test(line)));
   for (const name of regression) {
     const found = added.filter((test) => test.name.trim() === name && declares(test.name, inTests));
     const quoted = `regression test "${cut(name)}"`;
