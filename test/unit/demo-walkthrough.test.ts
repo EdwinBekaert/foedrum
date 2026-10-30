@@ -76,6 +76,12 @@ describe('the walkthrough steps', () => {
     }
   });
 
+  it('wrap what to look for under its label (regression test)', () => {
+    const wrapped = STEPS.flatMap((_, index) => stepLines(index).slice(3));
+    assert.ok(wrapped.length > 0);
+    for (const line of wrapped) assert.match(line, /^ {10}\S/);
+  });
+
   it("say where the parallel group and the tasting loop show: three lenses at once, the batch sent back twice, the comment's path a line per round", () => {
     const lookFor = (id: string) => STEPS.find((step) => step.id === id)?.lookFor ?? '';
     assert.match(lookFor('order'), /recipe:nip-parallel/);
@@ -323,6 +329,16 @@ describe('replayLines (#662)', () => {
       '',
       'State',
       '  lane    on tap: https://github.com/demo/web/pull/2',
+    ]);
+  });
+
+  it('counts the events up to the end of an output that ends with them (regression test)', () => {
+    const ended =
+      'Batch 1-1, issue #1\n\nEvents\n   1  batch.ordered  {}\n   2  batch.on_tap   {}\n';
+    assert.deepStrictEqual(replayLines(ended, '1-1'), [
+      'Batch 1-1, issue #1',
+      '',
+      'Events  2, left out here: foedrum replay 1-1 lists them',
     ]);
   });
 

@@ -481,6 +481,23 @@ describe('renderStatus', () => {
       ]);
     });
 
+    it('starts a line at a routed attempt right after one another route scheduled (regression test)', () => {
+      const text = renderStatus(
+        batch({
+          steps: new Map([
+            step('fix', done(1), routed(2, 'taste', 'findings'), routed(3, 'ci', 'failed')),
+          ]),
+          path: [
+            { stepId: 'fix', attempt: 1 },
+            { stepId: 'fix', attempt: 2 },
+            { stepId: 'fix', attempt: 3 },
+          ],
+        }),
+        ['fix'],
+      );
+      assert.deepEqual(pathLines(text), ['Path: `fix #1` ✅', '→ `fix #2` ✅', '→ `fix #3` ✅']);
+    });
+
     it('keeps one line for a batch that was retried and never sent back (regression test)', () => {
       const text = renderStatus(
         batch({
@@ -2219,6 +2236,26 @@ describe('renderStatus: a line per pull request, with all it says of it (#662)',
     assert.deepEqual(section(text), [
       '**Pull requests**',
       `- <${pr}> is ready to merge on \`aaaaaaaa\`: <${pr}#issuecomment-9>; is left as it is: its description was edited since Foedrum wrote it`,
+    ]);
+  });
+
+  it('keeps a line of a pull request the lane does not list on its own, after the others (regression test)', () => {
+    const other = 'https://github.com/alice/web/pull/9';
+    const text = renderStatus(
+      onTap,
+      steps,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      {
+        pullRequest: other,
+      },
+    );
+    assert.deepEqual(section(text), [
+      '**Pull requests**',
+      `- <${pr}>`,
+      `- <${other}> is not ready to merge yet: no merge brief`,
     ]);
   });
 

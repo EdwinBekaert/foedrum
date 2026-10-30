@@ -2355,6 +2355,21 @@ describe('formatNotice', () => {
     );
   });
 
+  it('counts one worktree and one branch in the singular (regression test)', () => {
+    assert.equal(
+      formatNotice({
+        kind: 'cleaned',
+        batchId: '12-1',
+        report: {
+          done: ['removed worktree 12-1/brew/1', 'deleted branch foedrum/12-1/brew/1'],
+          kept: [],
+          failed: [],
+        },
+      }),
+      'cleaned batch 12-1: removed 1 worktree; deleted 1 branch',
+    );
+  });
+
   it("counts a cleanup's worktrees and branches, and names what it kept or could not clean (#662)", () => {
     const attempts = ['gauge/1', 'red/1', 'review/1', 'review/2'];
     assert.equal(
