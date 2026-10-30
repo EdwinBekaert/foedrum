@@ -254,6 +254,30 @@ describe('parseSummary: each form apart (review of #683)', () => {
   it('reads a fix in bold as fixed', () => {
     assert.equal(endOf('minor', '**fixed** in `1a2b3c4d`'), 'fixed');
   });
+
+  it('reads a Lens cell\'s "(r3)" as round 3', () => {
+    const body = text('second-summary.md').replace(
+      '| 18 | test-design |',
+      '| 18 | test-design (r3) |',
+    );
+    assert.equal(withFindings(parseSummary(body)).rounds, 3);
+  });
+
+  it('reads a round the heading lines state, before the first section', () => {
+    const body = text('second-summary.md').replace(
+      /^(## Review: .*)$/m,
+      '$1\n\nRound 3 reran test-design.',
+    );
+    assert.equal(withFindings(parseSummary(body)).rounds, 3);
+  });
+
+  it('reads "round 0" as no round', () => {
+    assert.equal(roundsOf('Round 0 was a dry run.'), undefined);
+  });
+
+  it('ends a dismissal of a finding whose severity says introduced: false as pre-existing', () => {
+    assert.equal(endOf('minor, `introduced: false`', 'dismissed: out of scope'), 'pre-existing');
+  });
 });
 
 const comment = (name: string, url: string, hidden = false) => ({
@@ -431,6 +455,16 @@ describe('aggregate', () => {
     ]);
   });
 
+  it('notes a count line that says fewer findings than its table has rows (review of #683)', () => {
+    const body = text('template.md').replace('13 findings: 0 blocker', '11 findings: 0 blocker');
+    const metrics = aggregate([
+      { number: 669, comments: [{ url: 'u', body, hidden: false, association: 'OWNER' }] },
+    ]);
+    assert.deepStrictEqual(metrics.mismatches, [
+      { number: 669, url: 'u', what: 'the count line says 11 findings, the table has 13 rows' },
+    ]);
+  });
+
   it('counts one summary per head, the latest, when a summary was posted again (review of #683)', () => {
     const metrics = aggregate([
       {
@@ -518,5 +552,26 @@ describe('formatMetrics', () => {
       report,
       /^Lens rounds to pass: mean 2\.5, median 2\.5, most 4 \(1 round: 1, 4 rounds: 1\)\.$/m,
     );
+  });
+
+  it('sorts the rounds that come out of order, most rounds first by number (review of #683)', () => {
+    const report = formatMetrics(
+      aggregate([
+        { number: 500, comments: [comment('template.md', 'a')] },
+        { number: 501, comments: [comment('no-findings.md', 'b')] },
+        { number: 502, comments: [comment('rounds-in-prose.md', 'c')] },
+      ]),
+    );
+    assert.match(
+      report,
+      /^Lens rounds to pass: mean 2\.3, median 2, most 4 \(1 round: 1, 2 rounds: 1, 4 rounds: 1\)\.$/m,
+    );
+  });
+
+  it('says so when no pull request had a lens review (review of #683)', () => {
+    const report = formatMetrics(
+      aggregate([{ number: 547, comments: [comment('no-lens-section.md', 'u547')] }]),
+    );
+    assert.match(report, /^Lens rounds to pass: no pull request a lens reviewed\.$/m);
   });
 });
