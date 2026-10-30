@@ -13,9 +13,10 @@ The globs are matched from the folder that holds `.claude/`: a session starts in
 ## Decision
 - `npm run house-yeast:rules` (`scripts/generate-house-yeast-rules.ts`) writes `.claude/rules/house-yeast/` from `.foedrum/house-yeast/`, read with `readRules`: one file per set of paths, named after the lowest of its rules' globs or language so the order the rules are read in does not change it, holding each of its rules as a lens reads it (`section`), by id, under a line that says the file is generated.
 - A rule's paths are its globs, each under any folder (`**/` before it), so they match in a worktree too. A rule with only a language gets that language's extensions (`**/*.{ts,tsx,mts,cts}`, or `**/*.md` for a language of one extension, since a brace of one item matches only itself). A rule with neither matches every file (`**/*`, in `everywhere.md`), as it matches every change (ADR 0015). A rule with both is scoped by its globs alone, since `paths` cannot ask for both; every rule so far already pins the language in its globs.
-- Every active rule is given, whatever lens it names, as ADR 0268 does for a batch's writers: the session writes the change. A retired rule is left out. There is no budget: a file loads only for its own files, and Foedrum's 26 rules come to about 1,900 tokens in all, under the 2,000 of one lens.
+- Every active rule is given, whatever lens it names, as ADR 0268 does for a batch's writers: the session writes the change. A retired rule is left out. There is no budget: a file loads only for its own files, and Foedrum's 27 rules come to about 1,950 tokens in all, under the 2,000 of one lens.
 - A rule file that cannot be read fails the generator, naming it.
-- A unit test fails while the committed folder differs from what the generator writes, as `test/unit/json-schema.test.ts` does for `schemas/`. A pull request that adds, changes or retires a rule runs `npm run house-yeast:rules` in it; the test's name says so. `/brew-review`'s `record` writes only the rule file, and its skill does not say to regenerate yet, so a review that proposes a rule fails the test until the session runs the script; the next change to the skill adds that step.
+- `/brew-review`'s `record` (`scripts/house-yeast.ts`) regenerates the folder itself when it writes a rule, through the same code as `npm run house-yeast:rules`, so a review that proposes a rule commits its session rule files with it; a step the code takes needs no step in the skill.
+- A unit test fails while the committed folder differs from what the generator writes, as `test/unit/json-schema.test.ts` does for `schemas/`: the net for a rule changed by hand, whose pull request runs `npm run house-yeast:rules`, as the test's name says.
 - `/brew-review`'s selection does not change: its lenses get the rules at the base, per lens, within the budget (ADR 0122).
 
 ## Consequences
@@ -26,6 +27,6 @@ The globs are matched from the folder that holds `.claude/`: a session starts in
 
 ## Alternatives considered
 - **The rules in CLAUDE.md:** every session would load all of them, whatever it works on, and CLAUDE.md is loaded into every session already.
-- **One generated file per rule:** 26 files where 16 do, with no difference in what a session loads.
+- **One generated file per rule:** 27 files where 16 do, with no difference in what a session loads.
 - **One file without `paths`:** loaded at launch in every session, test-design rules for a docs change included.
 - **The rules' own files under `.claude/rules/`, linked:** their frontmatter is JSON with `scope.globs`, not `paths`, so Claude Code would load every one at launch.
