@@ -1938,7 +1938,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     return comments.comments[0]?.body ?? assert.fail('no status comment');
   };
 
-  it('shows the check line and the base-check line while the latest push pushed', async () => {
+  it('shows the check line and the base-check line while the latest push pushed (regression test)', async () => {
     const body = await shown(pushed);
     assert.match(body, /has no checks on `cccccccc`/);
     assert.match(body, /conflicts with `main`/);
