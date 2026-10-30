@@ -2451,7 +2451,7 @@
         },
         "head": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "other": {
           "type": "string",
@@ -2459,7 +2459,7 @@
         },
         "otherHead": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^[0-9a-f]{40}$"
         },
         "conflicts": {
           "minItems": 1,
