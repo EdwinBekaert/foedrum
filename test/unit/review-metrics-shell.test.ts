@@ -157,6 +157,27 @@ describe('review-metrics', () => {
     assert.match(err, /no origin to read the repository from: give --repo <owner\/name>/);
   });
 
+  it('reads a pull request again once when its read throws, as a dropped connection does', async () => {
+    const calls: string[] = [];
+    const client = fake(calls);
+    let thrown = 0;
+    const { code, err, out } = await runWith(['--from', '1', '--to', '1'], {
+      client: {
+        graphql: async (query, variables, signal) => {
+          if (variables.number === 1 && variables.after === 'c1' && thrown === 0) {
+            thrown += 1;
+            throw new Error('gh could not ask GitHub for POST graphql: read tcp: timed out');
+          }
+          return client.graphql(query, variables, signal);
+        },
+      },
+    });
+    assert.equal(err, '');
+    assert.equal(code, 0);
+    assert.match(out, /^\| #1 \| 2 \| 1 \| 3 \| 17 \|/m);
+    assert.equal(calls.length, 3);
+  });
+
   it('fails with the error of a read that GitHub refused, with exit 1', async () => {
     const { code, err } = await runWith(['--from', '1', '--to', '1'], {
       client: {
