@@ -33,6 +33,7 @@ import { planEffects } from '../engine/plan-comment.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
+import { STATE_BRANCH } from '../engine/state-branch-git.ts';
 import { statusEffects } from '../engine/status-comment.ts';
 import { stepRunner } from '../engine/step-runner.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -184,9 +185,21 @@ export const wireDriver = async (
   const login = await githubLogin(client, signal);
   const claimant: Claimant = { brewery: setup.brewery, login };
   const comments = githubStatusComments({ client, reads, login });
-  const status = statusEffects({ brewery: setup.brewery, comments, recipes: setup.recipes, clock });
+  // Where both comments link a plan's out doc, on the Brewery's state branch (ADR 0024, #659).
+  const stateBranchUrl = `https://${setup.github.hostname}/${setup.brewery}/blob/${STATE_BRANCH}`;
+  const status = statusEffects({
+    brewery: setup.brewery,
+    comments,
+    recipes: setup.recipes,
+    clock,
+    stateBranch: stateBranchUrl,
+  });
   // Each order's plan, one comment on its issue edited in place (ADR 0233).
-  const planComments = planEffects({ brewery: setup.brewery, comments });
+  const planComments = planEffects({
+    brewery: setup.brewery,
+    comments,
+    stateBranch: stateBranchUrl,
+  });
   const marks = githubIssueMarks({ client, reads, login });
   // Each Brewery issue's lane label, through the ledger as its status comment (ADR 0154).
   const labels = laneLabelEffects({ brewery: setup.brewery, host: marks });
