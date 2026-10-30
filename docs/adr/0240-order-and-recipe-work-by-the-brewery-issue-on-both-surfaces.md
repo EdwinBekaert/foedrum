@@ -20,14 +20,14 @@ The recipe label of [ADR 0232](0232-foedrum-mash-routes-an-issue-to-the-innkeepe
 ### `recipe <batch | issue> <recipe> <reason>`
 - The first argument is an issue when it is `#<n>`, `<n>` or `<alias>#<n>`, and a batch id otherwise: a batch id always has a hyphen and never a `#`, so the two never overlap. The batch-id form works as it did.
 - By issue, it acts on the issue's latest batch: a claimed order's Brewery issue names its claimed issue, as for `order` below.
-  - **No batch, or the latest is on tap or cancelled:** it orders the issue (claiming a target issue again first, as `order` does) and chooses the recipe on the new Ordered batch, in one command. The ended batch's unpushed task tree stays on its kept branch ([ADR 0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md)); the new batch starts at the base.
+  - **No batch, or the latest is on tap or cancelled:** it orders the issue (claiming a target issue again first, as `order` does) and chooses the recipe on the new Ordered batch, in one command but two decisions. When the choice is refused after the order, as when the intake routed the new batch in between, the command fails with the reason and still prints `ordered #<n> as batch <id>`, since that batch stays. The ended batch's unpushed task tree stays on its kept branch ([ADR 0084](0084-a-batch-s-commits-end-in-a-pull-request-or-on-a-kept-branch.md)); the new batch starts at the base.
   - **Ordered, Conditioning or Stuck:** the recipe command of the batch-id form, on that batch: it restarts from the new recipe's first step, on the task tree so far ([ADR 0066](0066-the-task-tree-continues-from-the-latest-succeeded-attempt.md)), so no commit is lost.
   - **Brewing:** refused with `batch <id> of #<n> is brewing; foedrum stop #<n> first, then change its recipe`. Killing a running attempt stays a person's explicit `stop` ([ADR 0205](0205-stop-makes-an-order-s-brewing-batches-stuck-at-once-and-retry-continues-them.md)), never a side effect of a recipe change.
 - `mash` keeps its own command; `recipe '#n' mash-in` is any other recipe.
 
 ### The label follows a person's choice
 - The recipe label effect (`recipe-label.ts`) is due for every recipe a person chose (`source: human`), by an answer as before or by either form of `recipe`, except `mash-in`: it asks which recipe, and routing the issue's next order to it would ask again.
-- Its key is `[batchId, "recipe-label:<recipe>"]`, one per recipe of the batch, so a change on a batch an answer had labelled labels the issue again. The other `recipe:` labels come off as before. A label an older Foedrum applied under `recipe-label` is found on the issue by the new key and recorded without a second write (ADR 0033).
+- Its key is `[batchId, "recipe-label:<recipe>"]`, one per recipe of the batch, so a change on a batch an answer had labelled labels the issue again. The other `recipe:` labels come off as before. A label an older Foedrum applied under `recipe-label` counts as applied for the recipe its result names, so it is never due again, and never takes off a label a person put on by hand since.
 - The driver applies it, under the batch's lease: `recipe` records the choice, and the label shows once `serve` or `brew` drives the batch.
 
 ### `order` and `brew` by a claimed order's Brewery issue
