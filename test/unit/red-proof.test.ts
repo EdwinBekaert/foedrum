@@ -495,6 +495,35 @@ describe('judgeRed: a name in a file where the step declared no test (#661)', ()
       tests: ['adds two numbers', 'adds a negative number'],
     });
   });
+
+  it('still takes a test the step declared in a test file, beside a data file that holds its name', () => {
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - array',
+    );
+    const named: DiffFile = {
+      newPath: 'test/types.test.mjs',
+      added: ["test('array', () => {", "  assert.equal(kind([]), 'array');"],
+      removed: [],
+    };
+    assert.match(
+      why(report, [...gauged, schema, named]),
+      /^test "array" passes before the implementation/,
+    );
+  });
+
+  it('matches a regression name only in a test file, as before, beside a data file that holds it', () => {
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - array',
+    );
+    assert.deepEqual(judgeRed(report, [...gauged, schema], ['array']), {
+      proven: false,
+      why: 'regression test "array" is not a test the step added in the report',
+    });
+  });
 });
 
 describe('judgeRed with regression tests (ADR 0170)', () => {
