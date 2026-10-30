@@ -32,7 +32,7 @@ No rule was cut under the 2,000-token budget in any of them.
 - The Cellarman's first attempt gets the rules for the files the Gauger committed, and every later round gets those for the whole change so far.
 - The Gauger's first attempt has changed nothing, so it gets only rules that name neither files nor a language, and Foedrum's own set has none. It misses the 10 `test-design` rules most, the rules about the tests it writes. A plan's `touches` (#590) could give it the files it is about to change; until then, this gap remains.
 - Nip's own Tasters still never get the `test-design` or `design-conformance` rules, because Nip does not run those lenses. That is a separate gap, left as it is.
-- A Brewery's own brewer with `"houseYeast": true` and no lens gets the rules of every lens too, where it got only those naming none.
+- A Brewery's own brewer with `"houseYeast": true` and no lens on its step gets the rules of every lens too, where it got only those naming none. That includes one that reads a lens only as an input (`"from": "lens:diff/<name>"`, [ADR 0098](0098-foedrum-s-defaults-load-under-the-brewery-s-files-and-a-brewer-input-can-name-a-lens.md)), as the default Gauger reads the test-design lens: the lens its step names is the one its rules are picked by.
 - Each attempt of the Gauger and the Cellarman makes the two or three git calls in the clone that ADR 0169 describes, and its prompt grows by the rules it gets: about 1,100 to 1,600 tokens on Foedrum's own set.
 - The maintainer tries the changed default prompts on the next real brew after the merge.
 
