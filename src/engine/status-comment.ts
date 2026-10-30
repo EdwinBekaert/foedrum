@@ -138,13 +138,30 @@ const mostAnswer = 40;
 const mostReason = 48;
 
 /**
+ * `text` without its parenthesised parts, nested ones in them, and the space before each: one pass,
+ * so a reason a brewer shaped costs no more than its length.
+ */
+const withoutParentheses = (text: string): string => {
+  let kept = '';
+  let depth = 0;
+  for (const char of text) {
+    if (char === '(') {
+      if (depth === 0) kept = kept.trimEnd();
+      depth++;
+    } else if (char === ')' && depth > 0) depth--;
+    else if (depth === 0) kept += char;
+  }
+  return kept;
+};
+
+/**
  * A failed attempt's reason as the path says it (#656): its first clause, the one the engine starts
  * each reason with, without a parenthesised command when it is too long, cut at a word.
  */
 const reasonClause = (reason: string): string => {
   const [clause = reason] = reason.split(': ');
   if (clause.length <= mostReason) return clause;
-  const bare = clause.replace(/\s*\([^)]*\)/g, '');
+  const bare = withoutParentheses(clause);
   if (bare.length <= mostReason) return bare;
   const cut = bare.slice(0, mostReason - 1);
   const word = cut.lastIndexOf(' ');
