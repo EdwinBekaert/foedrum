@@ -152,6 +152,14 @@ describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
     ]);
   });
 
+  it('labels nothing for the latest batch once it is on tap', () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    const onTap: Event = { type: 'batch.on_tap', batchId: '12-1', pullRequests: [] };
+    assert.deepEqual(effects.due(fold([ordered, stout]), '12-1').length, 1);
+    assert.deepEqual(effects.due(fold([ordered, stout, onTap]), '12-1'), []);
+  });
+
   it('counts the label an older Foedrum applied under recipe-label as applied for its recipe', () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     const legacy: Event = {
