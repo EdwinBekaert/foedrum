@@ -172,7 +172,7 @@ const price = (rule: Rule): number => Math.ceil(section(rule).length / 4);
 
 /**
  * The active rules whose scope matches the change and the lens, or with `everyLens` whatever lens
- * they name (#671), in order of priority, within the budget: a rule that would pass what is left
+ * they name (ADR 0268), in order of priority, within the budget: a rule that would pass what is left
  * is cut, and the next one is tried.
  */
 export const selectRules = (
