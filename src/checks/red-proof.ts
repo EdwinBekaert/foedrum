@@ -4,7 +4,7 @@
 
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
-import { assertsOnly, declaresTest } from './tests-unchanged.ts';
+import { assertsOnly, isTestFile } from './tests-unchanged.ts';
 
 export type RedVerdict =
   /** `tests`: the names of the proven step's tests, all failing. */
@@ -143,12 +143,14 @@ const named = (tests: readonly ReportedTest[]): string =>
 /**
  * Whether `report` proves red the tests that `diff`, the proven step's commits, added; of them,
  * `regressionTests` are the names the step gave its regression tests, which pass (ADR 0170).
+ * `testFiles` are the paths of the files that declare a test at the step's tip though no line the
+ * step added does, such as a table it added a row to (ADR 0262).
  */
 export function judgeRed(
   report: TestReport,
   diff: readonly DiffFile[],
   regressionTests: readonly string[] = [],
-  _testFiles: ReadonlySet<string> = new Set(),
+  testFiles: ReadonlySet<string> = new Set(),
 ): RedVerdict {
   const refused = (why: string): RedVerdict => ({ proven: false, why });
   if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
@@ -157,13 +159,14 @@ export function judgeRed(
   if (error !== undefined) {
     return refused(`the run has a load, compile, import or collection error: ${error}`);
   }
-  // A string literal declares a test only in a file where the step declared one: elsewhere, as in
-  // a regenerated schema's `"type": "array"`, it is data (#661, ADR 0262).
-  const inTestFile = (file: DiffFile): boolean => file.added.some(declaresTest);
-  const testFiles = diff.filter(inTestFile).flatMap(({ added }) => added);
-  const otherFiles = diff.filter((file) => !inTestFile(file)).flatMap(({ added }) => added);
+  // A string literal declares a test only in a file that declares one at the step's tip: elsewhere,
+  // as in a regenerated schema's `"type": "array"`, it is data (#661, ADR 0262).
+  const inTestFile = (file: DiffFile): boolean =>
+    isTestFile(file) || (file.newPath !== undefined && testFiles.has(file.newPath));
+  const testLines = diff.filter(inTestFile).flatMap(({ added }) => added);
+  const otherLines = diff.filter((file) => !inTestFile(file)).flatMap(({ added }) => added);
   const declared = (name: string): boolean =>
-    declares(name, testFiles) || declares(name, otherFiles, false);
+    declares(name, testLines) || declares(name, otherLines, false);
   // A suite's own result follows its tests'; its tests are judged.
   const added = report.tests.filter(
     ({ name, leaf }) => leaf && name.trim() !== '' && name.length <= MAX_NAME && declared(name),
@@ -171,7 +174,7 @@ export function judgeRed(
   const regression = new Set(regressionTests.map((name) => name.trim()));
   // The lines a regression test may be declared in (ADR 0170): in a file where the step declared a
   // test, whose lines testsUnchanged keeps, and no comment, which declares nothing.
-  const inTests = testFiles.filter((line) => !COMMENT.test(line));
+  const inTests = testLines.filter((line) => !COMMENT.test(line));
   for (const name of regression) {
     const found = added.filter((test) => test.name.trim() === name && declares(test.name, inTests));
     const quoted = `regression test "${cut(name)}"`;

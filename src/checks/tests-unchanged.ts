@@ -43,6 +43,9 @@ const any = (patterns: readonly RegExp[], line: string): boolean =>
 /** Whether `line` declares a test: a file with one is a test file, whose lines the guard keeps. */
 export const declaresTest = (line: string): boolean => any(DECLARATIONS, line);
 
+/** Whether a line the step added to `file` declares a test: then it is one of its test files. */
+export const isTestFile = (file: DiffFile): boolean => file.added.some(declaresTest);
+
 /** Whether `line` asserts without declaring a test: a call of what it tests, not a declaration. */
 export const assertsOnly = (line: string): boolean =>
   any(ASSERTIONS, line) && !any(DECLARATIONS, line);

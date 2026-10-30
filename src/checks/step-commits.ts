@@ -7,6 +7,7 @@ import { type DiffFile, parseDiff } from '../formats/unified-diff.ts';
 import { type GaugeReport, gaugeOf } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
+import { declaresTest, isTestFile } from './tests-unchanged.ts';
 
 /**
  * The commits of step `stepId`: from where its first attempt started to the branch of its latest
@@ -45,6 +46,32 @@ export function stepTests(batch: Batch, stepId: string): GaugeReport | undefined
   return done?.phase === 'finished' && done.outcome.kind === 'succeeded'
     ? gaugeOf(done.outcome.output)
     : undefined;
+}
+
+/**
+ * The paths of `files` that declare a test at `to`, the proven step's tip, though no line the step
+ * added to them does, such as a table it added a row to (ADR 0262); read in `cwd`, the clone. A
+ * file git cannot read there, one past the diff's limit or one that is binary is none.
+ */
+export async function readTestFiles(
+  git: Git,
+  cwd: string,
+  to: string,
+  files: readonly DiffFile[],
+  signal?: AbortSignal,
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (const file of files) {
+    // A deleted file is at no tip; a file whose added lines declare a test needs no read.
+    if (file.newPath === undefined || isTestFile(file)) continue;
+    const result = await git(cwd, ['cat-file', 'blob', `${to}:${file.newPath}`], {
+      maxOutputBytes: MAX_DIFF_BYTES,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (result.code !== 0 || result.stdout.includes('\0')) continue;
+    if (result.stdout.split(/\r?\n/).some(declaresTest)) found.add(file.newPath);
+  }
+  return found;
 }
 
 /** The last line of `text` that is not blank. */
