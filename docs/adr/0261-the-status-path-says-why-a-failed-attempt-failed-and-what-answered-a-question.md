@@ -19,7 +19,7 @@ The maintainer's `foedrum mash` run and `npm run demo` showed three misreadings 
 
 ### Why a failed attempt failed
 - On the path, each ❌ is followed by the failed outcome's reason: its first clause, the text before the first `: `, which is where the engine names the class of a failure (`the attempt was lost`, `blocked (findings)`).
-- A clause longer than 48 characters loses its parenthesised parts (a check's command), and is then cut at a word, with `…`.
+- A clause longer than 48 characters loses its parenthesised parts (a check's command), nested ones whole, unless a parenthesis in it is never closed, and is then cut at a word, with `…`. The parts go in one pass over the clause, linear in its length.
 - The secret scan reads the whole reason before it is cut, as for every text a brewer wrote ([ADR 0088](0088-out-doc-text-that-looks-like-a-secret-is-left-out-of-the-pull-request-and-the-status-comment.md)).
 - A 🔔 stays bare: the Stuck line already says why.
 
