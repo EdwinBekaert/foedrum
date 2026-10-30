@@ -1,7 +1,8 @@
 // `foedrum lenses` (ADR 0221): per lens, the findings of its steps' rounds by severity and by how
-// they ended, and the tokens of its steps' attempts, from the folded events. A step's lens comes
-// from the recipe its batch chose, as the files are now; a step they no longer have, or no longer
-// give a lens, is listed apart when a round of it shows a Taster (a verdict, or recorded findings).
+// they ended, the rounds its steps took to pass (#673), and the tokens of its steps' attempts, from
+// the folded events. A step's lens comes from the recipe its batch chose, as the files are now; a
+// step they no longer have, or no longer give a lens, is listed apart when a round of it shows a
+// Taster (a verdict, or recorded findings).
 
 import { attemptKey } from '../engine/attempt-key.ts';
 import { cutFindingText } from '../engine/decide.ts';
@@ -50,6 +51,11 @@ export interface Ends {
 export interface LensTally {
   /** The attempts that reviewed: a Taster's verdict, or blocked by findings. */
   rounds: number;
+  /**
+   * The rounds each of its steps took to pass (#673): per step of a batch that approved, the
+   * number of its first round with an `approve` verdict, in the order the steps were counted.
+   */
+  passed: number[];
   /** Each finding once, by its latest severity. */
   severity: Severities;
   ends: Ends;
@@ -77,6 +83,7 @@ export interface LensReport {
 
 const counts = (): LensTally => ({
   rounds: 0,
+  passed: [],
   severity: { blocker: 0, major: 0, minor: 0 },
   ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 0 },
   notRecorded: { rounds: 0, findings: 0 },
@@ -111,6 +118,10 @@ const findingsOf = (
     : { findings: ran.findings.kept, more: ran.findings.more };
 };
 
+/** A round whose Taster approved: the step passed (#673). */
+const approved = (ran: Extract<Attempt, { phase: 'finished' }>): boolean =>
+  ran.outcome.kind === 'succeeded' && tastingOf(ran.outcome.output)?.verdict === 'approve';
+
 /**
  * Where an attempt of a lens step counts: the tallies of the lenses it reviewed through, which each
  * of its rounds counts in, the tally a finding goes to, and the usage its tokens add to. A step of
@@ -138,10 +149,15 @@ const addRounds = (
   targetOf: (attempt: number) => Target | undefined,
 ): void => {
   const tracked = new Map<LensTally, Tracked[]>();
-  for (const { attempt, ran, dispositions } of lensRounds(batch, stepId)) {
+  let passed = false;
+  for (const [index, { attempt, ran, dispositions }] of lensRounds(batch, stepId).entries()) {
     const target = targetOf(attempt);
     if (target === undefined) continue;
     if (target.shared !== undefined) target.shared.rounds += 1;
+    if (!passed && approved(ran)) {
+      passed = true;
+      for (const tally of target.tallies) tally.passed.push(index + 1);
+    }
     const found = findingsOf(ran);
     for (const tally of target.tallies) {
       tally.rounds += 1;
@@ -280,8 +296,25 @@ const nonZero = <K extends string>(of: Record<K, number>, names: readonly K[]): 
     .map((name) => `${number(of[name])} ${name}`)
     .join(', ');
 
+// How many steps passed after each number of rounds, fewest rounds first: `1 (2 steps), 3 (1 step)`.
+const toPass = (passed: readonly number[]): string => {
+  const steps = new Map<number, number>();
+  for (const rounds of passed) steps.set(rounds, (steps.get(rounds) ?? 0) + 1);
+  return [...steps]
+    .sort(([a], [b]) => a - b)
+    .map(([rounds, n]) => `${number(rounds)} (${counted(n, 'step', 'steps')})`)
+    .join(', ');
+};
+
 // The rounds and their findings by severity, how those ended, what was not recorded, and the tokens.
-const tallyLines = ({ rounds, severity, ends, notRecorded, usage }: LensTally): string[] => {
+const tallyLines = ({
+  rounds,
+  passed,
+  severity,
+  ends,
+  notRecorded,
+  usage,
+}: LensTally): string[] => {
   if (rounds === 0) {
     const spent = Object.values(usage).some((count) => count > 0);
     return ['  no rounds', ...(spent ? [tokensLine(usage)] : [])];
@@ -300,6 +333,7 @@ const tallyLines = ({ rounds, severity, ends, notRecorded, usage }: LensTally): 
     ...(found === 0
       ? []
       : [`  ended: ${nonZero(ends, ['fixed', 'dismissed', 'pre-existing', 'open'])}`]),
+    ...(passed.length === 0 ? [] : [`  rounds to pass: ${toPass(passed)}`]),
     ...(unknown.length === 0 ? [] : [`  not recorded: ${unknown.join(', ')}`]),
     tokensLine(usage),
   ];
