@@ -938,6 +938,14 @@ describe('precheck on a push from another directory', () => {
     });
   }
 
+  // git's -C right after an unknown option that takes no value (review of #651).
+  it('blocks a push behind an unknown option and -C (regression test): git --frobnicate -C ../wt push', async () => {
+    const { result, checks, heads } = await gate('git --frobnicate -C ../wt push');
+    assert.deepEqual(result, { exitCode: 2, stderr: PUSH_COMPUTED });
+    assert.deepEqual(heads, []);
+    assert.deepEqual(checks, []);
+  });
+
   it('blocks gh pr ready without a number from a directory computed at run time', async () => {
     const { result, lookups } = await gate('cd "$d" && gh pr ready');
     assert.deepEqual(result, {
@@ -1307,6 +1315,8 @@ describe('forbiddenReason on a push configured on its command line', () => {
   for (const command of [
     'git --frobnicate x config remote.origin.mirror true && git push',
     'git --frobnicate x remote set-url origin ../b && git push',
+    // git's -c right after an unknown option that takes no value.
+    'git --frobnicate -c remote.origin.mirror=true push origin',
   ]) {
     it(`forbids (regression test): ${command}`, () => {
       assert.match(forbiddenReason(command) ?? '', /^git push is blocked .*git's configuration/);
@@ -1330,6 +1340,13 @@ describe('forbiddenReason on a push configured on its command line', () => {
     'GIT_CONFIG_COUNT=0 git status',
   ]) {
     it(`does not forbid: ${command}`, () => {
+      assert.equal(forbiddenReason(command), undefined);
+    });
+  }
+
+  // A setting that is no push setting, behind an option the gate does not know (review of #651).
+  for (const command of ['git --frobnicate x -c core.quotePath=false push origin']) {
+    it(`does not forbid (regression test): ${command}`, () => {
       assert.equal(forbiddenReason(command), undefined);
     });
   }
