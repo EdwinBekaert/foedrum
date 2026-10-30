@@ -30,6 +30,6 @@ Three ways to tell a test file were weighed:
 ## Consequences
 - Batch 12-2's commit no longer counts the two older `array` tests: `judgeRed` on its diff (`b972823b..201956ae`) proves its new tests red.
 - A row the step adds to an existing table-driven test counts again as one of its tests, since the table's file declares a test at the tip.
-- The red proof makes one more git call for each changed file whose added lines declare no test.
+- The red proof makes one more git call for each changed file whose added lines declare no test, for at most 50 of them.
 - `declaresTest` reads text, not code, so a source file can declare a test at its tip by prose or by a call that only looks like one: a comment `names it (ADR 0213)`, or zod's `.describe('…')`. In such a file string literals count, as they did before this decision; so they do in a data file whose text reads as a declaration, such as a schema generated from a `.describe()` text with `it (` in it.
 - The list of declarations stays incomplete for some languages and loose for others; [#618](https://github.com/EdwinBekaert/foedrum/issues/618) (the red proof must know a step's tests in every language) revisits it as a whole.
