@@ -20,7 +20,6 @@ import { planCommentOf } from '../engine/plan-comment.ts';
 import { MASH_IN } from '../engine/recipe-label.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
-import { sameRepo } from '../engine/task-tree.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
