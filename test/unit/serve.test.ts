@@ -20,6 +20,7 @@ import type { WorktreeMerge } from '../../src/engine/base-merge.ts';
 import { brewerForcedEnv } from '../../src/engine/brewer-env.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
+import type { Ending } from '../../src/engine/decide.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -256,6 +257,85 @@ describe('runServe', () => {
     assert.deepStrictEqual(
       createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane,
       { kind: 'on_tap', pullRequests: [`https://github.com/acme/web/pull/${pull?.number}`] },
+    );
+  });
+
+  it('lets the Gauger its red proof sent back name its tests without a commit (ADR 0258, regression test)', async () => {
+    const lager = JSON.stringify({
+      name: 'lager',
+      description: 'Gauges, proves red and brews an order.',
+      steps: [
+        { id: 'gauge', brewer: 'gauger' },
+        {
+          id: 'red',
+          check: 'test',
+          expect: 'fail',
+          of: 'gauge',
+          onFail: { goto: 'gauge', maxRounds: 1 },
+        },
+        { id: 'brew', brewer: 'cellarman' },
+        { action: 'openPullRequest' },
+      ],
+    });
+    const gauger = brewer
+      .replace('"cellarman"', '"gauger"')
+      .replace('"brew.md", "schema": "outDoc"', '"gauge.md", "schema": "gauge"');
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          config: config({}, { testReport: { format: 'tap' } }),
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [{ path: 'recipes/lager.jsonc', text: lager }],
+            brewers: [
+              { path: 'brewers/cellarman.md', text: brewer },
+              { path: 'brewers/gauger.md', text: gauger },
+            ],
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    const ran = (stepId: string, ending: Ending) => {
+      const ref = { batchId: '12-1', stepId, attempt: 1 };
+      const path = join(dir.path, stepId);
+      const worktree = {
+        repo: 'acme/web',
+        path,
+        branch: `foedrum/12-1/${stepId}/1`,
+        commit: FAKE_COMMIT,
+      };
+      log.issue({ kind: 'record', event: { type: 'step.started', ...ref, worktree } }, t0);
+      log.issue({ kind: 'finish', ...ref, ending }, t0);
+    };
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'lager', reason: 'label', source: 'label' },
+      t0,
+    );
+    ran('gauge', {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Gauged', assumptions: [] },
+    });
+    ran('red', { kind: 'failed', retryable: false, reason: 'test "keeps" passes' });
+    // The second Gauger's limits, as the driver the Cellar wires gives them to its runner.
+    const given: AttemptStart[] = [];
+    const runner: BrewerRunner = {
+      start: (start) => {
+        given.push(start);
+        controller.abort();
+        return { ended: Promise.resolve({ ending: { kind: 'cancelled' } }), stop: () => {} };
+      },
+      progress: () => undefined,
+    };
+    assert.equal(await runServe(setup, shell({ runner: () => runner })), 0);
+    assert.deepStrictEqual(
+      given.map(({ ref, limits }) => [ref.stepId, ref.attempt, limits.namesOnly]),
+      [['gauge', 2, true]],
     );
   });
 
@@ -880,7 +960,7 @@ Plan the order in {order}.
     assert.equal(existsSync(join(dir.path, 'attempt-settings', '12-1')), false);
   });
 
-  it("lets the cleanup of an ended batch know each step's out doc, from its brewer (ADR 0081)", async () => {
+  it("lets the cleanup of an ended batch know each attempt's out doc, from its brewer (ADR 0081)", async () => {
     const managers: FakeWorktrees[] = [];
     const worktrees: ServeShell['worktrees'] = async () => {
       const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
@@ -890,7 +970,7 @@ Plan the order in {order}.
     assert.equal(await runServe(setup, shell({ worktrees })), 0);
     assert.deepStrictEqual(
       managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.outDocs,
-      new Map([['12-1/brew', 'brew.md']]),
+      new Map([['12-1/brew/1', 'brew.md']]),
     );
   });
 

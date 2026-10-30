@@ -880,7 +880,8 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'takeover',
-    summary: 'Hand a batch from the driver that holds it to another: --as, else this session',
+    summary:
+      'Hand a batch from the driver that holds it to another: --as, else this session, else terminal',
     changesState: true,
     positionals: ['batch'],
     options: { as: 'name' },

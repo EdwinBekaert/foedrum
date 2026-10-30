@@ -15,6 +15,7 @@ import {
   type Attempt,
   type Batch,
   baseChecksOn,
+  type Input,
   type Pause,
   type State,
   type UsageWindows,
@@ -93,22 +94,25 @@ const shownAsItself = (char: string): string =>
   entities[char] ?? (/[\\`*_[\]#|~!]/.test(char) ? `\\${char}` : char);
 
 /**
- * `text`, which a brewer or an issue wrote, as one line of at most `longest` characters that
+ * `text`, which a brewer or an issue wrote, as one line of at most `most` characters that
  * GitHub renders as it is: no Markdown, no HTML (so no marker), and no mention. It is cut after
  * escaping, between characters, so no escape is cut in half and the line never grows past
- * `longest`.
+ * `most`.
  */
-export const plain = (text: string): string => {
+const plainWithin = (text: string, most: number): string => {
   const shown = [...text.replace(/\s+/g, ' ').trim()].map(shownAsItself);
   const whole = shown.join('');
-  if (whole.length <= longest) return whole;
+  if (whole.length <= most) return whole;
   let line = '';
   for (const each of shown) {
-    if (line.length + each.length > longest - 1) break;
+    if (line.length + each.length > most - 1) break;
     line += each;
   }
   return `${line}…`;
 };
+
+/** `text` as `plainWithin` shows it, within the longest a text may be. */
+export const plain = (text: string): string => plainWithin(text, longest);
 
 export const code = (id: string): string => `\`${id}\``;
 
@@ -122,8 +126,48 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
 export const roundsText = (rounds: number): string =>
   `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`;
 
-/** A text a brewer wrote at `stepId` as one plain line, or a fixed line when it looks like a secret. */
-type Told = (text: string, stepId: string) => string;
+/**
+ * A text a brewer wrote at `stepId` as one plain line of at most `most` characters, or a fixed line
+ * when it looks like a secret; `cut` shortens a text that does not, before it is escaped.
+ */
+type Told = (text: string, stepId: string, most?: number, cut?: (text: string) => string) => string;
+
+/** How long an answer is on the path (#656). */
+const mostAnswer = 40;
+/** How long a failed attempt's reason is on the path (#656). */
+const mostReason = 48;
+
+/**
+ * `text` without its parenthesised parts, nested ones in them, and the space before each: one pass,
+ * so a reason a brewer shaped costs no more than its length. A parenthesis never closed would take
+ * the rest with it, so then `text` stays whole.
+ */
+const withoutParentheses = (text: string): string => {
+  let kept = '';
+  let depth = 0;
+  for (const char of text) {
+    if (char === '(') {
+      if (depth === 0) kept = kept.trimEnd();
+      depth++;
+    } else if (char === ')' && depth > 0) depth--;
+    else if (depth === 0) kept += char;
+  }
+  return depth === 0 ? kept : text;
+};
+
+/**
+ * A failed attempt's reason as the path says it (#656): its first clause, the one the engine starts
+ * each reason with, without a parenthesised command when it is too long, cut at a word.
+ */
+const reasonClause = (reason: string): string => {
+  const [clause = reason] = reason.split(': ');
+  if (clause.length <= mostReason) return clause;
+  const bare = withoutParentheses(clause);
+  if (bare.length <= mostReason) return bare;
+  const cut = bare.slice(0, mostReason - 1);
+  const word = cut.lastIndexOf(' ');
+  return `${word > 0 ? cut.slice(0, word) : cut}…`;
+};
 
 /**
  * A URL as an autolink of its normalized form: the schema keeps the text it was given, and `new URL`
@@ -448,6 +492,16 @@ const afterTheBudget = 'resumed after the turn budget';
 const latestFirst = (batch: Batch, stepId: string): Attempt[] =>
   [...(batch.steps.get(stepId)?.attempts.values() ?? [])].sort((a, b) => b.attempt - a.attempt);
 
+/** The latest answer to the questions attempt `n` of `stepId` asked, if one came (#656). */
+const answerOf = (batch: Batch, stepId: string, n: number): Input | undefined =>
+  batch.steps
+    .get(stepId)
+    ?.inputs.filter(({ attempt }) => attempt === n)
+    .at(-1);
+
+/** The answers of `input`, on one line. */
+const answersText = (input: Input): string => input.answers.map(({ answer }) => answer).join(', ');
+
 const stepLine = (batch: Batch, stepId: string, told: Told): string => {
   const id = code(stepId);
   if (batch.skipped?.has(stepId) === true) return `- ⏭️ ${id}: skipped`;
@@ -473,8 +527,13 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
       return `- ✅ ${id}`;
     case 'failed':
       return `- ❌ ${id}: attempt ${n} failed: ${told(outcome.reason, stepId)}`;
-    case 'needs_input':
-      return `- ❓ ${id}: attempt ${n} asked for input`;
+    case 'needs_input': {
+      const asked = `- ❓ ${id}: attempt ${n} asked for input`;
+      const input = answerOf(batch, stepId, n);
+      if (input === undefined) return asked;
+      const { by, via } = input;
+      return `${asked}, answered by ${plain(by)} (${via}): ${told(answersText(input), stepId)}`;
+    }
     case 'cancelled':
       return `- ⏹️ ${id}: attempt ${n} stopped`;
     default:
@@ -511,7 +570,7 @@ const markOf = (batch: Batch, stepId: string, n: number): string => {
  * The batch's attempts in the order they ran, each marked, on one line; none before its first.
  * Each is a code span: GitHub would link a bare `#1` to issue 1.
  */
-const pathLine = (batch: Batch): string[] => {
+const pathLine = (batch: Batch, told: Told): string[] => {
   const { path = [], lane } = batch;
   // Stuck at an attempt that never started: the path ends there all the same.
   const stuckAt = lane.kind === 'stuck' && 'stepId' in lane.reason ? lane.reason.stepId : undefined;
@@ -522,9 +581,20 @@ const pathLine = (batch: Batch): string[] => {
       ? path
       : [...path, { stepId: stuckAt, attempt: latest }];
   if (all.length === 0) return [];
-  const shown = all.map(
-    ({ stepId, attempt }) => `${code(`${stepId} #${attempt}`)} ${markOf(batch, stepId, attempt)}`,
-  );
+  const shown = all.map(({ stepId, attempt }) => {
+    const mark = `${code(`${stepId} #${attempt}`)} ${markOf(batch, stepId, attempt)}`;
+    const ended = batch.steps.get(stepId)?.attempts.get(attempt);
+    if (ended?.phase !== 'finished' || mark.endsWith('🔔')) return mark;
+    const { outcome } = ended;
+    // Why a failed attempt failed, so a retry does not read as the step failing (#656).
+    if (outcome.kind === 'failed') {
+      return `${mark} ${told(outcome.reason, stepId, longest, reasonClause)}`;
+    }
+    const input = outcome.kind === 'needs_input' ? answerOf(batch, stepId, attempt) : undefined;
+    if (input === undefined) return mark;
+    const answer = told(answersText(input), stepId, mostAnswer);
+    return `${mark} → ${answer} (by ${plain(input.by)} via ${input.via})`;
+  });
   return [`Path: ${shown.join(' → ')}`];
 };
 
@@ -721,9 +791,10 @@ export const renderStatus = (
   pairs: readonly PairConflict[] = [],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
-  const told: Told = (text, stepId) => {
+  const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
     const shown = text.replace(/\s+/g, ' ').trim().slice(0, scanned);
-    return plain(withoutSecrets(shown, stepId, isCommit));
+    const kept = withoutSecrets(shown, stepId, isCommit);
+    return plainWithin(kept === shown ? cut(kept) : kept, most);
   };
   // The recipe's steps, then any the batch has that the recipe no longer lists.
   const stepIds = [...new Set([...(steps ?? []), ...batch.steps.keys(), ...(batch.skipped ?? [])])];
@@ -736,7 +807,7 @@ export const renderStatus = (
     ],
     [
       recipeText(batch.recipe),
-      ...pathLine(batch),
+      ...pathLine(batch, told),
       ...stepIds.map((stepId) => stepLine(batch, stepId, told)),
     ],
   ];

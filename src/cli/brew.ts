@@ -1,8 +1,9 @@
 // `foedrum brew`, the interactive driver of one batch (ADR 0123): under an owner of its own (`--as`,
-// or the Claude Code session it runs in), it takes that owner's lock, opens the driver on the
-// wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch alone, orders and
-// routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
-// Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
+// or the Claude Code session it runs in, else `terminal`), it takes that owner's lock, opens the
+// driver on the wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch
+// alone, orders and routes the issue first when it has no batch, and ticks until the batch is on
+// tap, cancelled or Stuck. Its exit code says which, so the plugin's session can ask the engineer
+// and brew again.
 // On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
@@ -10,10 +11,12 @@ import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
+import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
+import { planCommentOf } from '../engine/plan-comment.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -268,7 +271,12 @@ export const runBrew = async (
   try {
     lock = shell.lock(setup.workRoot, { brewery: setup.brewery, owner });
   } catch (error) {
-    return refuse(messageOf(error));
+    // A second terminal under the same owner may run beside the first under a name of its own.
+    const beside =
+      error instanceof DriverRunningError
+        ? ', or give --as <name> to run another driver beside it'
+        : '';
+    return refuse(`${messageOf(error)}${beside}`);
   }
   const opened: Opened = { lock };
   let batchId: string | undefined;
@@ -493,20 +501,29 @@ export const runBrew = async (
       // (ADR 0072, ADR 0155).
       const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
       const shownOn = breweryIssueOf(driver.state(), now);
+      const commentUrl = (id: number): string =>
+        `https://${setup.github.hostname}/${setup.brewery}/issues/${shownOn}#issuecomment-${id}`;
       if (comment !== undefined && shownOn !== undefined) {
         linked = true;
-        const { hostname } = setup.github;
-        say(
-          `status comment: https://${hostname}/${setup.brewery}/issues/${shownOn}#issuecomment-${comment}`,
-        );
+        say(`status comment: ${commentUrl(comment)}`);
       }
       // Let go: every effect of the ended batch is applied (ADR 0044).
       const released = !driver.held().includes(batchId);
       switch (now.lane.kind) {
-        case 'on_tap':
+        case 'on_tap': {
           if (!released) break;
-          say(`batch ${batchId} is on tap: ${now.lane.pullRequests.join(' ')}`);
+          const { pullRequests } = now.lane;
+          if (pullRequests.length > 0) {
+            say(`batch ${batchId} is on tap: ${pullRequests.join(' ')}`);
+            return BREW_EXIT.onTap;
+          }
+          // With none, what it left instead: a plan's comment (#656).
+          const plan = planCommentOf(driver.state(), batchId);
+          const shown =
+            plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
+          say(`batch ${batchId} is on tap: no pull request${shown}`);
           return BREW_EXIT.onTap;
+        }
         case 'cancelled':
           if (!released) break;
           say(`batch ${batchId} was ${lane} ${detail}`);

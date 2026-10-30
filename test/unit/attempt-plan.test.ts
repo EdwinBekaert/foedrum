@@ -568,6 +568,73 @@ describe("attemptLimits: a Finer's changes, or why there was nothing to simplify
   });
 });
 
+describe('attemptLimits: a Gauger its red proof sent back may only name its tests (ADR 0258)', () => {
+  const gauger = brewer({
+    name: 'gauger',
+    access: 'write',
+    produces: 'commits',
+    git: { commit: true },
+    output: { doc: 'gauge.md', schema: 'gauge' },
+  });
+  const committer = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
+  const named = { tests: ['prints JSON'], regressionTests: ['keeps the table'] };
+  const ended = (
+    fields: Record<string, unknown>,
+    commits: number,
+    sentBack: boolean,
+    of = gauger,
+  ) =>
+    settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc({ status: 'done', summary: 'Gauged', ...fields }),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+        commits: { kind: 'counted', count: commits },
+      },
+      attemptLimits(of, sha, false, undefined, [], sentBack),
+    );
+
+  it('succeeds on a done that names its tests without a commit, when its red proof sent it back', () => {
+    assert.deepEqual(ended(named, 0, true), {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Gauged', assumptions: [], ...named },
+    });
+  });
+
+  it('marks only a Gauger its red proof sent back', () => {
+    assert.equal(attemptLimits(gauger, sha, false, undefined, [], true).namesOnly, true);
+    assert.equal(attemptLimits(gauger, sha).namesOnly, undefined);
+    assert.equal(attemptLimits(committer, sha, false, undefined, [], true).namesOnly, undefined);
+  });
+
+  const divergence = {
+    kind: 'blocked',
+    blockerKind: 'divergence',
+    summary: 'the out doc says done, but the brewer made no commit since ccccccc: Gauged',
+  };
+
+  it('blocks a Gauger that names its tests without a commit when no red proof sent it back', () => {
+    assert.deepEqual(ended(named, 0, false), divergence);
+  });
+
+  it('blocks a Gauger its red proof sent back that names no test and made no commit', () => {
+    assert.deepEqual(ended({}, 0, true), divergence);
+  });
+
+  it('blocks a brewer that is no Gauger without a commit, sent back or not', () => {
+    assert.deepEqual(ended({}, 0, true, committer), divergence);
+    assert.deepEqual(ended({}, 0, false, committer), divergence);
+  });
+
+  it('succeeds on a Gauger that names its tests and committed them, sent back or not', () => {
+    const output = { status: 'done', summary: 'Gauged', assumptions: [], ...named };
+    assert.deepEqual(ended(named, 2, false), { kind: 'succeeded', output });
+    assert.deepEqual(ended(named, 1, true), { kind: 'succeeded', output });
+  });
+});
+
 describe("changeStart: where a Taster's change starts (ADR 0161)", () => {
   it('is the commit the batch started at in the repository, in any case of its name', () => {
     const started = fold([

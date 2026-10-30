@@ -4,7 +4,7 @@
 
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
-import { assertsOnly, declaresTest } from './tests-unchanged.ts';
+import { assertsOnly, isTestFile } from './tests-unchanged.ts';
 
 export type RedVerdict =
   /** `tests`: the names of the proven step's tests, all failing. */
@@ -85,9 +85,11 @@ function namesOf(name: string): string[] {
  * Adds)`); or as the rest of a Gherkin scenario's line (`Scenario: adds two numbers`). A bare word
  * in code (`key: null,`, `f(null)`) is none (#466), nor a method call (`calc.add(`), nor a line
  * that only asserts (`assert.equal(add(1, 2), 3)`). Each form is a literal between fixed parts, so
- * the match stays linear in the line. A line keeps no carriage return of a CRLF file.
+ * the match stays linear in the line. A line keeps no carriage return of a CRLF file. Without
+ * `literals`, a string literal declares nothing: in a file where the step declared no test it is
+ * data (ADR 0262).
  */
-function declares(name: string, lines: readonly string[]): boolean {
+function declares(name: string, lines: readonly string[], literals = true): boolean {
   const names = namesOf(name);
   const patterns = names.map((each) => {
     const escaped = escapeRegExp(each);
@@ -96,7 +98,7 @@ function declares(name: string, lines: readonly string[]): boolean {
       `(?<=\\b(?:def|fn|func) )${escaped}(?![\\p{L}\\p{N}_])`,
       `\\bTEST(?:_F|_P)?\\(\\s*[\\p{L}\\p{N}_]+,\\s*${escaped}\\s*\\)`,
       `^\\s*(?:Scenario(?: Outline| Template)?|Example)\\s*:\\s*${escaped}\\s*$`,
-    ];
+    ].slice(literals ? 0 : 1);
     return new RegExp(forms.join('|'), 'u');
   });
   return lines.some((line) => {
@@ -134,15 +136,6 @@ function before(name: string, text: string): boolean {
 /** A line that is a comment, in the languages a Brewery is likely to use; `#[` is a Rust attribute. */
 const COMMENT = /^\s*(?:\/\/|\/\*|\*|#(?!\[)|--)/;
 
-/**
- * The lines of `diff` a regression test may be declared in (ADR 0170): in a file where the step
- * declared a test, whose lines testsUnchanged keeps, and no comment, which declares nothing.
- */
-const testFileLines = (diff: readonly DiffFile[]): string[] =>
-  diff
-    .filter(({ added }) => added.some(declaresTest))
-    .flatMap(({ added }) => added.filter((line) => !COMMENT.test(line)));
-
 /** "test "a"", or "test "a" (and 2 more)". */
 const named = (tests: readonly ReportedTest[]): string =>
   `test "${tests[0]?.name}"${tests.length > 1 ? ` (and ${tests.length - 1} more)` : ''}`;
@@ -150,11 +143,14 @@ const named = (tests: readonly ReportedTest[]): string =>
 /**
  * Whether `report` proves red the tests that `diff`, the proven step's commits, added; of them,
  * `regressionTests` are the names the step gave its regression tests, which pass (ADR 0170).
+ * `testFiles` are the paths of the files that declare a test at the step's tip though no line the
+ * step added does, such as a table it added a row to (ADR 0262).
  */
 export function judgeRed(
   report: TestReport,
   diff: readonly DiffFile[],
   regressionTests: readonly string[] = [],
+  testFiles: ReadonlySet<string> = new Set(),
 ): RedVerdict {
   const refused = (why: string): RedVerdict => ({ proven: false, why });
   if (report.bailedOut !== undefined) return refused(`the run bailed out: ${report.bailedOut}`);
@@ -163,14 +159,25 @@ export function judgeRed(
   if (error !== undefined) {
     return refused(`the run has a load, compile, import or collection error: ${error}`);
   }
-  const lines = diff.flatMap(({ added }) => added);
+  // A string literal declares a test only in a file that declares one at the step's tip: elsewhere,
+  // as in a regenerated schema's `"type": "array"`, it is data (#661, ADR 0262).
+  const inTestFile = (file: DiffFile): boolean =>
+    isTestFile(file) || (file.newPath !== undefined && testFiles.has(file.newPath));
+  const testLines = diff.filter(inTestFile).flatMap(({ added }) => added);
+  const otherLines = diff.filter((file) => !inTestFile(file)).flatMap(({ added }) => added);
+  const declared = (name: string): boolean =>
+    declares(name, testLines) || declares(name, otherLines, false);
   // A suite's own result follows its tests'; its tests are judged.
   const added = report.tests.filter(
-    ({ name, leaf }) =>
-      leaf && name.trim() !== '' && name.length <= MAX_NAME && declares(name, lines),
+    ({ name, leaf }) => leaf && name.trim() !== '' && name.length <= MAX_NAME && declared(name),
   );
   const regression = new Set(regressionTests.map((name) => name.trim()));
-  const inTests = testFileLines(diff);
+  // The lines a regression test may be declared in (ADR 0170): in a file where the step declared a
+  // test, whose lines testsUnchanged keeps, and no comment, which declares nothing. Not a file that
+  // declares a test only at the tip, whose lines testsUnchanged does not keep (ADR 0262).
+  const inTests = diff
+    .filter(isTestFile)
+    .flatMap(({ added }) => added.filter((line) => !COMMENT.test(line)));
   for (const name of regression) {
     const found = added.filter((test) => test.name.trim() === name && declares(test.name, inTests));
     const quoted = `regression test "${cut(name)}"`;

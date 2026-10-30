@@ -461,7 +461,7 @@ describe('judgeRed', () => {
       },
       {
         newPath: 'src/test/kotlin/AddTest.kt',
-        added: ['  fun `adds a negative number`() {'],
+        added: ['  @Test', '  fun `adds a negative number`() {'],
         removed: [],
       },
     ];
@@ -472,6 +472,90 @@ describe('judgeRed', () => {
     assert.deepEqual(judgeRed(report, quoted), {
       proven: true,
       tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+});
+
+describe('judgeRed: a name in a file where the step declared no test (#661)', () => {
+  // A regenerated JSON schema beside the Gauger's tests, holding a word an older test is named.
+  const schema: DiffFile = {
+    newPath: 'schemas/event.json',
+    added: ['  "touches": {', '    "type": "array",', '    "items": { "type": "string" }'],
+    removed: [],
+  };
+
+  it("does not take an older test for one the step added when only a data file's string holds its name", () => {
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - array',
+    );
+    assert.deepEqual(judgeRed(report, [...gauged, schema]), {
+      proven: true,
+      tests: ['adds two numbers', 'adds a negative number'],
+    });
+  });
+
+  it('takes a row the step added to a table in a file that declares a test at its tip', () => {
+    // The row's file declared its test.each before the step: its added lines declare nothing.
+    const row: DiffFile = {
+      newPath: 'test/sum.test.mjs',
+      added: ["  ['adds negatives', -1, -2, -3],"],
+      removed: [],
+    };
+    const report = tap(...failing(1, 'adds negatives', 'not implemented'), 'ok 2 - array');
+    assert.deepEqual(judgeRed(report, [row, schema], [], new Set(['test/sum.test.mjs'])), {
+      proven: true,
+      tests: ['adds negatives'],
+    });
+  });
+
+  it('matches no regression name in a file that declares a test only at its tip, which testsUnchanged does not keep', () => {
+    const row: DiffFile = {
+      newPath: 'test/sum.test.mjs',
+      added: ["  ['keeps adding zero', 1, 0, 1],"],
+      removed: [],
+    };
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - keeps adding zero',
+    );
+    assert.deepEqual(
+      judgeRed(report, [...gauged, row], ['keeps adding zero'], new Set(['test/sum.test.mjs'])),
+      {
+        proven: false,
+        why: 'regression test "keeps adding zero" is not a test the step added in the report',
+      },
+    );
+  });
+
+  it('still takes a test the step declared in a test file, beside a data file that holds its name', () => {
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - array',
+    );
+    const named: DiffFile = {
+      newPath: 'test/types.test.mjs',
+      added: ["test('array', () => {", "  assert.equal(kind([]), 'array');"],
+      removed: [],
+    };
+    assert.match(
+      why(report, [...gauged, schema, named]),
+      /^test "array" passes before the implementation/,
+    );
+  });
+
+  it('matches a regression name only in a test file, as before, beside a data file that holds it', () => {
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - array',
+    );
+    assert.deepEqual(judgeRed(report, [...gauged, schema], ['array']), {
+      proven: false,
+      why: 'regression test "array" is not a test the step added in the report',
     });
   });
 });

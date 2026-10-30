@@ -237,12 +237,13 @@ describe('npm run demo', () => {
       /brewing +correctness #2 started, security #2 started, test-design #2 started/,
     );
     // The status comment's path line has both rounds, the three lenses side by side in each and
-    // the batch back to implement between them, and each one's findings show under its own step.
+    // the batch back to implement between them, each failed attempt with why (#656), and each one's
+    // findings show under its own step.
     const comment = host.comments(BREWERY, ORDER.number)[0]?.body ?? '';
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`green #2` ✅ → `correctness #1` ❌ → `security #1` ✅ → `test-design #1` ✅ → `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
+      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed with exit code 1 → .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅ → `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
     );
     for (const lens of ['security', 'test-design']) {
       assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));

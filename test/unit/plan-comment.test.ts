@@ -11,7 +11,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { planEffects, renderPlan } from '../../src/engine/plan-comment.ts';
+import { planCommentOf, planEffects, renderPlan } from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { StatusComments } from '../../src/engine/status-comment.ts';
 import type { PlannedSubOrder, PlanReport } from '../../src/schemas/plan.ts';
@@ -366,6 +366,36 @@ describe('planEffects (ADR 0233)', () => {
       comment: 1,
       digest: digest(renderPlan('7-2', 'plan', second)),
     });
+  });
+
+  it("names the comment its batch's plan revision made: regression test (#656)", async () => {
+    issue({ kind: 'order', batchId: '8-1', order: { issue: 8 } });
+    issue({ kind: 'route', batchId: '8-1', recipe: 'mash', reason: 'label', source: 'label' });
+    step('plan', planned(second), '8-1');
+    order();
+    step('plan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    assert.equal(planCommentOf(log.state(), '7-1'), 2);
+  });
+
+  it("names the order's comment for a later batch whose own revision is not made yet: regression test (#656)", async () => {
+    order();
+    step('plan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    order('7-2');
+    step('plan', planned(second), '7-2');
+    assert.equal(planCommentOf(log.state(), '7-2'), 1);
+  });
+
+  it('names no comment for a batch without a plan, though its order has one: regression test (#656)', async () => {
+    order();
+    step('plan', planned(three));
+    const driver = await open();
+    await driver.applyEffects();
+    order('7-2');
+    assert.equal(planCommentOf(log.state(), '7-2'), undefined);
   });
 
   it("never edits another order's comment: each order's plan is on its own issue (regression test)", async () => {

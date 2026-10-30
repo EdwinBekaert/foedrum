@@ -11,9 +11,14 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import type { Batch, State } from '../engine/fold.ts';
+import { type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
-import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
+import {
+  MAX_INPUT_BYTES,
+  type StepBrewer,
+  type StepBrewers,
+  type StepChecks,
+} from '../engine/recipe-files.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
@@ -77,6 +82,8 @@ export interface AttemptPlansOptions {
   state: () => State;
   /** The brewers of the recipes' steps (`loadRecipes`). */
   brewers: StepBrewers;
+  /** The red proofs of the recipes' check steps (`loadRecipes`): which step each proves (ADR 0258). */
+  checks?: Pick<StepChecks, 'proves'>;
   models: ModelsConfig;
   /** The toolchain rules of a repository (`foedrum.jsonc`, ADR 0023). */
   repoTools: (repo: string) => readonly string[];
@@ -133,8 +140,11 @@ export interface AttemptPlans {
   plan(attempt: AttemptStart): Promise<ClaudeAttemptPlan>;
   /** The limits of an attempt, from the brewer of its step in its batch's recipe. */
   limits(ref: AttemptRef): AttemptLimits;
-  /** The out doc of the brewer of a step in its batch's recipe; undefined without one (ADR 0081). */
-  outDoc(step: { batchId: string; stepId: string }): string | undefined;
+  /**
+   * The out doc of the brewer of an attempt's step in the recipe it was scheduled under; undefined
+   * without one (ADR 0081).
+   */
+  outDoc(attempt: AttemptRef): string | undefined;
 }
 
 /** The tools that run a command: a brewer without one cannot use an install (ADR 0163). */
@@ -184,6 +194,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   const brewerOf = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
     const recipe = state().batches.get(batchId)?.recipe?.name;
     return recipe === undefined ? undefined : brewers.find(recipe, stepId);
+  };
+
+  // The out doc of an attempt's brewer in the recipe it was scheduled under, which the batch may
+  // have left since (#657); in its batch's recipe for an attempt that recorded none.
+  const outDocOf = (ref: AttemptRef) => {
+    const batch = state().batches.get(ref.batchId);
+    const scheduled = batch?.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.recipe;
+    const recipe = scheduled ?? batch?.recipe?.name;
+    return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId)?.brewer.output.doc;
   };
 
   /** The text of one input, untrusted. */
@@ -679,8 +698,17 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
       const choices = found.choices?.map(({ name }) => name);
-      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
+      // A failed red proof of this step sent its round back: a retry starts as the attempt it
+      // retries (ADR 0258).
+      const step = batch?.steps.get(ref.stepId);
+      const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
+      const recipe = batch?.recipe?.name;
+      const sentBack =
+        route?.why === 'failed' &&
+        recipe !== undefined &&
+        options.checks?.proves(recipe, route.from) === ref.stepId;
+      return attemptLimits(found.brewer, start, found.blocking, lenses, choices, sentBack);
     },
-    outDoc: (step) => brewerOf(step)?.brewer.output.doc,
+    outDoc: outDocOf,
   };
 }

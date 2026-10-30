@@ -220,6 +220,7 @@ describe('createSupervisor', () => {
         phase: 'finished',
         attempt: 1,
         deadlineAt: iso(60),
+        recipe: 'pint',
         outcome: {
           kind: 'failed',
           retryable: true,
@@ -231,6 +232,7 @@ describe('createSupervisor', () => {
         attempt: 2,
         deadlineAt: iso(65),
         retry: true,
+        recipe: 'pint',
       });
       assert.deepStrictEqual(store.expiredLeases(at(600)), []);
     });

@@ -52,6 +52,8 @@ export type Attempt =
       retry?: true;
       /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
       answered?: true;
+      /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
+      recipe?: string;
       abandoned?: true;
     }
   | {
@@ -63,6 +65,8 @@ export type Attempt =
       retry?: true;
       /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
       answered?: true;
+      /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
+      recipe?: string;
       session?: SessionRef;
       worktree?: WorktreeRef;
       /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
@@ -78,6 +82,8 @@ export type Attempt =
       retry?: true;
       /** Scheduled because a human answered the questions of the attempt before it (ADR 0118). */
       answered?: true;
+      /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
+      recipe?: string;
       session?: SessionRef;
       worktree?: WorktreeRef;
       outcome: StepOutcome;
@@ -100,6 +106,8 @@ export interface Input {
   by: string;
   via: Surface;
   answers: readonly Answer[];
+  /** The attempt whose questions it answers: the step's latest when it came (#656). */
+  attempt: number;
 }
 
 export interface Step {
@@ -127,6 +135,18 @@ export const runningAttempt = (step: Step): Exclude<Attempt, { phase: 'finished'
 /** The attempt of `step` with the highest number below `n`, if any: the one attempt `n` follows. */
 export const attemptBefore = (step: Step, n: number): Attempt | undefined =>
   step.attempts.get(Math.max(...[...step.attempts.keys()].filter((each) => each < n)));
+
+/**
+ * The route that scheduled the round attempt `n` of `step` is in: its own, or for a retry, or an
+ * answer, that of the attempt it retries or answers, which it starts as (ADR 0117, ADR 0118).
+ */
+export const roundRouteOf = (step: Step, n: number): ScheduleRoute | undefined => {
+  let attempt = step.attempts.get(n);
+  while (attempt?.retry === true || attempt?.answered === true) {
+    attempt = step.attempts.get(attempt.attempt - 1);
+  }
+  return attempt?.route;
+};
 
 export interface Rewind {
   toStepId: string;
@@ -529,6 +549,7 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, batchId, (batch) => {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
+        const recipe = batch.recipe?.name;
         return {
           ...skipping(batch, stepId, false),
           lane: { kind: 'brewing' },
@@ -541,6 +562,7 @@ function apply(state: State, event: Event): State {
               ...(route === undefined ? {} : { route }),
               ...(retry === undefined ? {} : { retry }),
               ...(answered === undefined ? {} : { answered }),
+              ...(recipe === undefined ? {} : { recipe }),
             }),
           }),
         };
@@ -606,11 +628,12 @@ function apply(state: State, event: Event): State {
       const { stepId, by, via, answers } = event;
       return updateBatch(state, event.batchId, (batch) => {
         const step = stepOf(batch, stepId);
+        const attempt = Math.max(...step.attempts.keys());
         return {
           ...batch,
           steps: put(batch.steps, stepId, {
             ...step,
-            inputs: [...step.inputs, { by, via, answers }],
+            inputs: [...step.inputs, { by, via, answers, attempt }],
           }),
         };
       });
