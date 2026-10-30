@@ -496,6 +496,17 @@ describe('aggregate', () => {
     assert.match(row, /^\| x\?\]8;;https:\/\/example\.invalid\?y\\\?zw+ … \| 1 \|/);
     assert.ok(row.indexOf(' … |') <= 2 + 80 + 2, row);
   });
+
+  it('prints a line or paragraph separator of a cell it names as ? (model-text-stays-on-its-line)', () => {
+    const lens = `a${String.fromCodePoint(0x2028)}b${String.fromCodePoint(0x2029)}c`;
+    const body = text('template.md').replace('| acceptance (r1) |', `| ${lens} (r1) |`);
+    const report = formatMetrics(
+      aggregate([
+        { number: 1, comments: [{ url: 'u', body, hidden: false, association: 'OWNER' }] },
+      ]),
+    );
+    assert.match(report, /^\| a\?b\?c \| 1 \|/m);
+  });
 });
 
 describe('formatMetrics', () => {
