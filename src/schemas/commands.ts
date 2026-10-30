@@ -80,14 +80,6 @@ export const AnswerCommand = z.strictObject({
 });
 export type AnswerCommand = z.infer<typeof AnswerCommand>;
 
-export const RecipeCommand = z.strictObject({
-  command: z.literal('recipe'),
-  batch: PathSafeId,
-  recipe: PathSafeId,
-  reason: NonEmpty,
-});
-export type RecipeCommand = z.infer<typeof RecipeCommand>;
-
 // `owner/name=<commit>` split at its last `=`; `undefined` when either part is not one.
 const splitRepoCommit = (text: string): [string, string] | undefined => {
   const at = text.lastIndexOf('=');
@@ -144,6 +136,29 @@ const IssueTarget = z
 
 export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: IssueTarget });
 export type OrderCommand = z.infer<typeof OrderCommand>;
+
+/**
+ * A batch id, or an issue as `order` takes it (ADR 0240): a batch id has a hyphen and no `#`, so
+ * `#<n>`, `<n>` and `<alias>#<n>` are never one.
+ */
+const asIssue = (text: string): boolean => /^[0-9]*$|#/.test(text);
+const BatchOrIssue = z
+  .string()
+  .refine(
+    (text) => (asIssue(text) ? splitIssue(text) !== undefined : PathSafeId.safeParse(text).success),
+    'Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
+  )
+  .transform((text): string | OrderTarget =>
+    asIssue(text) ? (splitIssue(text) as OrderTarget) : text,
+  );
+
+export const RecipeCommand = z.strictObject({
+  command: z.literal('recipe'),
+  target: BatchOrIssue,
+  recipe: PathSafeId,
+  reason: NonEmpty,
+});
+export type RecipeCommand = z.infer<typeof RecipeCommand>;
 
 /** `first`, or a place of the intake's queue counted from 1 (ADR 0208). */
 const RankPlaceArgument = z.union([

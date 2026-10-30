@@ -1,9 +1,10 @@
-// The recipe label of a batch whose recipe a person chose by answering a step that chooses it
-// (ADR 0232): `recipe:<name>` on its Brewery issue, or on the Brewery issue that is a claimed
-// batch's order (ADR 0156), set once through the ledger as the driver's effect
-// `[batchId, "recipe-label"]`, found on the issue before it is applied (ADR 0033), as the lane
-// labels are (ADR 0154): the issue's other recipe labels come off, so its next order has one to route
-// by. A label added after routing routes only the issue's next batch (ADR 0068).
+// The recipe label of a batch whose recipe a person chose, by answering a step that chooses it
+// (ADR 0232) or by foedrum recipe (ADR 0240): `recipe:<name>` on its Brewery issue, or on the
+// Brewery issue that is a claimed batch's order (ADR 0156), set once per recipe through the ledger
+// as the driver's effect `[batchId, "recipe-label:<name>"]`, found on the issue before it is applied
+// (ADR 0033), as the lane labels are (ADR 0154): the issue's other recipe labels come off, so its
+// next order has one to route by. A label added after routing routes only the issue's next batch
+// (ADR 0068).
 
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -18,7 +19,13 @@ export interface RecipeLabelEffectsOptions {
   host: LaneLabelHost;
 }
 
-const keyOf = (batchId: string): BatchEffectKey => ({ batchId, effect: 'recipe-label' });
+/** The recipe that asks which recipe brews an issue (ADR 0232): never one to route an order by. */
+export const MASH_IN = 'mash-in';
+
+const keyOf = (batchId: string, recipe: string): BatchEffectKey => ({
+  batchId,
+  effect: `recipe-label:${recipe}`,
+});
 
 /** A recipe label that is due: the issue, and the label. */
 interface DueLabel {
@@ -47,12 +54,10 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
       const recipe = batch?.recipe;
-      if (batch === undefined || recipe?.source !== 'human' || recipe.askedBy === undefined) {
-        return [];
-      }
-      const key = keyOf(batchId);
+      if (batch === undefined || recipe?.source !== 'human' || recipe.name === MASH_IN) return [];
+      const key = keyOf(batchId, recipe.name);
       const encoded = effectKey.encode(key);
-      // Once: a later choice in the batch labels nothing more.
+      // Once per recipe: a later choice of another recipe in the batch labels the issue again.
       if (state.effects.has(encoded)) return [];
       const issue = breweryIssueOf(state, batch);
       if (issue === undefined) return [];
