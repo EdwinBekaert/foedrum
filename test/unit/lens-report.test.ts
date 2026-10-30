@@ -60,6 +60,7 @@ const lens = (made: LensReport, name: string): LensTally | undefined => {
 };
 const tally = (counts: Partial<LensTally> = {}): LensTally => ({
   rounds: 0,
+  passed: [],
   severity: { blocker: 0, major: 0, minor: 0 },
   ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 0 },
   notRecorded: { rounds: 0, findings: 0 },
@@ -178,6 +179,7 @@ describe('lensReport', () => {
       lens(report(events), 'diff/correctness'),
       tally({
         rounds: 2,
+        passed: [2],
         severity: { blocker: 1, major: 2, minor: 1 },
         ends: { fixed: 1, dismissed: 1, 'pre-existing': 1, open: 1 },
         usage: usage(11, 22, 33, 44),
@@ -205,7 +207,7 @@ describe('lensReport', () => {
     ];
     assert.deepStrictEqual(
       lens(report(events), 'diff/acceptance'),
-      tally({ rounds: 3, usage: usage(106, 6, 6, 6) }),
+      tally({ rounds: 3, passed: [1, 1], usage: usage(106, 6, 6, 6) }),
     );
   });
 
@@ -240,6 +242,7 @@ describe('lensReport', () => {
       lens(report(events), 'diff/correctness'),
       tally({
         rounds: 2,
+        passed: [2],
         severity: { blocker: 0, major: 1, minor: 0 },
         ends: { fixed: 1, dismissed: 0, 'pre-existing': 0, open: 0 },
       }),
@@ -264,6 +267,7 @@ describe('lensReport', () => {
       lens(report(events), 'diff/acceptance'),
       tally({
         rounds: 2,
+        passed: [1],
         severity: { blocker: 0, major: 1, minor: 0 },
         ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 1 },
       }),
@@ -321,6 +325,7 @@ describe('lensReport', () => {
       lens(made, 'diff/correctness'),
       tally({
         rounds: 2,
+        passed: [2],
         severity: { blocker: 0, major: 2, minor: 0 },
         ends: { fixed: 1, dismissed: 0, 'pre-existing': 1, open: 0 },
       }),
@@ -329,6 +334,7 @@ describe('lensReport', () => {
       lens(made, 'diff/acceptance'),
       tally({
         rounds: 1,
+        passed: [1],
         severity: { blocker: 0, major: 0, minor: 1 },
         ends: { fixed: 0, dismissed: 0, 'pre-existing': 1, open: 0 },
       }),
@@ -397,7 +403,7 @@ describe('lensReport', () => {
       {
         recipe: 'nip',
         stepId: 'taste',
-        ...tally({ rounds: 1 }),
+        ...tally({ rounds: 1, passed: [1] }),
       },
       {
         recipe: 'old',
@@ -453,6 +459,7 @@ describe('lensReport', () => {
       lens(report(events), 'diff/correctness'),
       tally({
         rounds: 2,
+        passed: [2],
         severity: { blocker: 0, major: 1, minor: 0 },
         ends: { fixed: 1, dismissed: 0, 'pre-existing': 0, open: 0 },
       }),
@@ -537,7 +544,7 @@ describe('lensReport', () => {
       }),
     );
     assert.deepStrictEqual(made.gone, [
-      { recipe: 'old', stepId: 'correctness', ...tally({ rounds: 1 }) },
+      { recipe: 'old', stepId: 'correctness', ...tally({ rounds: 1, passed: [2] }) },
     ]);
   });
 
@@ -551,9 +558,69 @@ describe('lensReport', () => {
       lens(report(events), 'diff/acceptance'),
       tally({
         rounds: 2,
+        passed: [1],
         severity: { blocker: 0, major: 0, minor: 1 },
         ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 1 },
       }),
+    );
+  });
+});
+
+describe('lensReport: rounds to pass (#673)', () => {
+  it('counts, per step of a batch, the round of its first approve, and no step that never approved', () => {
+    const events = [
+      // b1: blocked, then approved in round 2.
+      ...ordered('b1', 1),
+      ...attempt('b1', 'correctness', 1, blocked, { findings: kept(finding('src/a.ts', 1)) }),
+      ...attempt(
+        'b1',
+        'implement',
+        2,
+        disposed({ file: 'src/a.ts', line: 1, disposition: 'fixed' }),
+        { from: 'correctness' },
+      ),
+      ...attempt('b1', 'correctness', 2, tasted([])),
+      // A later round after the approve does not count again.
+      ...attempt('b1', 'correctness', 3, tasted([])),
+      // b2: approved in round 1, with a minor finding.
+      ...ordered('b2', 2),
+      ...attempt('b2', 'correctness', 1, tasted([finding('src/b.ts', 2, 'minor')])),
+      // b3: blocked and never approved.
+      ...ordered('b3', 3),
+      ...attempt('b3', 'correctness', 1, blocked, { findings: kept(finding('src/c.ts', 3)) }),
+      // An advisory lens that asked for changes, then approved.
+      ...attempt('b3', 'acceptance', 1, tasted([finding('src/d.ts', 4)])),
+      ...attempt('b3', 'acceptance', 2, tasted([])),
+    ];
+    const made = report(events);
+    assert.deepStrictEqual(lens(made, 'diff/correctness')?.passed, [2, 1]);
+    assert.deepStrictEqual(lens(made, 'diff/acceptance')?.passed, [2]);
+    assert.deepStrictEqual(lens(made, 'diff/security')?.passed, []);
+  });
+
+  it('gives each lens of a step of lenses together the round its step passed in (ADR 0220)', () => {
+    const events = [
+      ...ordered('b1', 1),
+      ...attempt('b1', 'together', 1, blocked, { findings: kept(finding('src/a.ts', 1)) }),
+      ...attempt(
+        'b1',
+        'implement',
+        2,
+        disposed({ file: 'src/a.ts', line: 1, disposition: 'fixed' }),
+        { from: 'together' },
+      ),
+      ...attempt('b1', 'together', 2, tasted([])),
+    ];
+    const made = report(events);
+    assert.deepStrictEqual(lens(made, 'diff/correctness')?.passed, [2]);
+    assert.deepStrictEqual(lens(made, 'diff/security')?.passed, [2]);
+  });
+
+  it('counts the rounds to pass of a lens step the recipe files no longer have', () => {
+    const made = report([...ordered('b1', 1, 'old'), ...attempt('b1', 'review', 1, tasted([]))]);
+    assert.deepStrictEqual(
+      made.gone.map(({ recipe, stepId, passed }) => [recipe, stepId, passed]),
+      [['old', 'review', [1]]],
     );
   });
 });
@@ -597,6 +664,7 @@ describe('lensReport: lenses together (ADR 0220)', () => {
       lens(made, 'diff/correctness'),
       tally({
         rounds: 2,
+        passed: [2],
         severity: { blocker: 0, major: 1, minor: 0 },
         ends: { fixed: 1, dismissed: 0, 'pre-existing': 0, open: 0 },
       }),
@@ -605,6 +673,7 @@ describe('lensReport: lenses together (ADR 0220)', () => {
       lens(made, 'diff/security'),
       tally({
         rounds: 2,
+        passed: [2],
         severity: { blocker: 1, major: 0, minor: 1 },
         ends: { fixed: 0, dismissed: 1, 'pre-existing': 0, open: 1 },
       }),
@@ -757,6 +826,7 @@ describe('formatLensReport', () => {
       [
         'diff/acceptance  defaults/lenses/diff/acceptance.md',
         '  1 round, no findings',
+        '  rounds to pass: 1 (1 step)',
         '  tokens: none reported',
         'diff/correctness  defaults/lenses/diff/correctness.md',
         '  2 rounds, 2 findings: 1 blocker, 1 major',
@@ -770,6 +840,7 @@ describe('formatLensReport', () => {
         'old/review',
         '  1 round, 1 finding: 1 minor',
         '  ended: 1 open',
+        '  rounds to pass: 1 (1 step)',
         '  tokens: none reported',
         '',
       ].join('\n'),
@@ -820,6 +891,28 @@ describe('formatLensReport', () => {
         'diff/correctness + diff/security',
         '  1 round',
         '  tokens: 1 input, 2 output, 3 cache read, 4 cache write',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('prints the rounds its steps took to pass, by rounds, after how the findings ended (#673)', () => {
+    const passIn = (batchId: string, rounds: number): Event[] => [
+      ...ordered(batchId, 1),
+      ...Array.from({ length: rounds - 1 }, (_, n) =>
+        attempt(batchId, 'correctness', n + 1, tasted([finding('src/a.ts', n + 1)])),
+      ).flat(),
+      ...attempt(batchId, 'correctness', rounds, tasted([])),
+    ];
+    const events = [...passIn('b1', 3), ...passIn('b2', 1), ...passIn('b3', 1)];
+    assert.equal(
+      formatLensReport(report(events, { ...source, lenses: source.lenses.slice(1, 2) })),
+      [
+        'diff/correctness  defaults/lenses/diff/correctness.md',
+        '  5 rounds, 2 findings: 2 major',
+        '  ended: 2 open',
+        '  rounds to pass: 1 (2 steps), 3 (1 step)',
+        '  tokens: none reported',
         '',
       ].join('\n'),
     );

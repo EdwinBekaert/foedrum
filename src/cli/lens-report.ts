@@ -50,6 +50,11 @@ export interface Ends {
 export interface LensTally {
   /** The attempts that reviewed: a Taster's verdict, or blocked by findings. */
   rounds: number;
+  /**
+   * The rounds each of its steps took to pass (#673): per step of a batch that approved, the
+   * number of its first round with an `approve` verdict, in the order the steps were counted.
+   */
+  passed: number[];
   /** Each finding once, by its latest severity. */
   severity: Severities;
   ends: Ends;
@@ -77,6 +82,7 @@ export interface LensReport {
 
 const counts = (): LensTally => ({
   rounds: 0,
+  passed: [],
   severity: { blocker: 0, major: 0, minor: 0 },
   ends: { fixed: 0, dismissed: 0, 'pre-existing': 0, open: 0 },
   notRecorded: { rounds: 0, findings: 0 },
