@@ -410,7 +410,7 @@ describe('renderStatus', () => {
     );
   });
 
-  it("cuts a long reason on the path at a word, within 48 characters (#656)", () => {
+  it('cuts a long reason on the path at a word, within 48 characters (#656)', () => {
     const reason = 'the brewer wrote no out doc before its turns ran out, twice in a row';
     const text = renderStatus(
       batch({
@@ -440,7 +440,10 @@ describe('renderStatus', () => {
       ['gauge'],
     );
     noToken(text);
-    assert.match(pathOf(text), /^Path: `gauge #1` ❌ \[left out/);
+    assert.match(
+      pathOf(text),
+      new RegExp(`^Path: \`gauge #1\` ❌ ${escaped(leftOut('gauge'))} → `),
+    );
   });
 
   it('keeps the bare mark of an open question, and the bell where the batch is Stuck on it: regression test (#656)', () => {
