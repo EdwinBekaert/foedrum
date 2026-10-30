@@ -7,7 +7,7 @@ import { PathSafeId } from '../schemas/ids.ts';
 const SESSION = 'CLAUDE_CODE_SESSION_ID';
 
 /** The owner of a driver run with neither `--as` nor a Claude Code session (ADR 0259). */
-export const TERMINAL_OWNER = 'terminal';
+const TERMINAL_OWNER = 'terminal';
 
 /**
  * The driver's owner (ADR 0123): `--as`, else `session-<id>` of the Claude Code session the command
