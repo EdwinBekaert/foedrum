@@ -444,6 +444,12 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
     assert.deepEqual((await implement(git)).houseYeast, { selected: ['near-miss'], cut: [] });
   });
 
+  it('gives a writer no rule of another lens whose globs miss the change (regression test, review of #682)', async () => {
+    const off = rule('off', { globs: ['docs/**'], lens: 'diff/security' }, 'No token in a log.');
+    const git = repository('A\ttest/unit/limit.test.ts\n', { 'near-miss': NEAR_MISS, off });
+    assert.deepEqual((await implement(git)).houseYeast, { selected: ['near-miss'], cut: [] });
+  });
+
   it('gives a writer the rules of every lens within one budget, not one per lens', async () => {
     const long = (id: string, lens: string) =>
       rule(id, { globs: ['src/**'], lens }, 'x'.repeat(4800));
