@@ -1,8 +1,9 @@
 // `foedrum brew`, the interactive driver of one batch (ADR 0123): under an owner of its own (`--as`,
-// or the Claude Code session it runs in), it takes that owner's lock, opens the driver on the
-// wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch alone, orders and
-// routes the issue first when it has no batch, and ticks until the batch is on tap, cancelled or
-// Stuck. Its exit code says which, so the plugin's session can ask the engineer and brew again.
+// or the Claude Code session it runs in, else `terminal`), it takes that owner's lock, opens the
+// driver on the wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch
+// alone, orders and routes the issue first when it has no batch, and ticks until the batch is on
+// tap, cancelled or Stuck. Its exit code says which, so the plugin's session can ask the engineer
+// and brew again.
 // On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
@@ -10,6 +11,7 @@ import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
+import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
@@ -268,7 +270,12 @@ export const runBrew = async (
   try {
     lock = shell.lock(setup.workRoot, { brewery: setup.brewery, owner });
   } catch (error) {
-    return refuse(messageOf(error));
+    // A second terminal under the same owner may run beside the first under a name of its own.
+    const beside =
+      error instanceof DriverRunningError
+        ? ', or give --as <name> to run another driver beside it'
+        : '';
+    return refuse(`${messageOf(error)}${beside}`);
   }
   const opened: Opened = { lock };
   let batchId: string | undefined;

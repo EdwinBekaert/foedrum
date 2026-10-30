@@ -6,9 +6,13 @@ import { PathSafeId } from '../schemas/ids.ts';
 /** The variable Claude Code sets to its session's id in its tools' processes. */
 const SESSION = 'CLAUDE_CODE_SESSION_ID';
 
+/** The owner of a driver run with neither `--as` nor a Claude Code session (ADR 0259). */
+const TERMINAL_OWNER = 'terminal';
+
 /**
  * The driver's owner (ADR 0123): `--as`, else `session-<id>` of the Claude Code session the command
- * runs in, which a resume by id keeps; else why there is none.
+ * runs in, which a resume by id keeps, else `terminal` (ADR 0259); refused for a session id that
+ * names no driver.
  */
 export const brewOwner = (
   as: string | undefined,
@@ -16,9 +20,7 @@ export const brewOwner = (
 ): { owner: string } | { refused: string } => {
   if (as !== undefined) return { owner: as };
   const id = env[SESSION];
-  if (id === undefined || id === '') {
-    return { refused: `no Claude Code session names the driver (${SESSION}); give --as <name>` };
-  }
+  if (id === undefined || id === '') return { owner: TERMINAL_OWNER };
   const owner = `session-${id.toLowerCase()}`;
   if (PathSafeId.safeParse(owner).success) return { owner };
   return {
