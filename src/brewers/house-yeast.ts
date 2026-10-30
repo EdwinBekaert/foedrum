@@ -92,7 +92,8 @@ export const changedFilesZ = (nameStatus: string): string[] => {
   return files;
 };
 
-const languages: Record<string, string> = {
+/** The language of each file extension a rule's `language` is read from. */
+export const languages: Readonly<Record<string, string>> = {
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.mts': 'typescript',
