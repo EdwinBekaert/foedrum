@@ -1,0 +1,46 @@
+From afdf75e520656831fc42932d7a9d2512ac47c3ca Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 11:05:43 +0100
+Subject: [PATCH 09/13] Refactor: backoffMs takes its base and cap as one
+ object
+
+The test edits change call arguments only, to the new signature: no
+test declaration or expected value changes.
+---
+ src/engine/backoff.ts     | 4 +++-
+ test/unit/backoff.test.ts | 7 +++++--
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index 4617b514..e72a95f5 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -1,2 +1,4 @@
+-export const backoffMs = (attempt: number, baseMs: number, capMs: number): number =>
++export type BackoffOptions = { readonly baseMs: number; readonly capMs: number };
++
++export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
+   Math.min(capMs, baseMs * 2 ** (attempt - 1));
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+index 7b3e6c36..0aa7f947 100644
+--- a/test/unit/backoff.test.ts
++++ b/test/unit/backoff.test.ts
+@@ -4,10 +4,13 @@ import { backoffMs } from '../../src/engine/backoff.ts';
+ 
+ describe('backoffMs', () => {
+   it('doubles the delay for every attempt', () => {
+-    assert.deepEqual([1, 2, 3].map((attempt) => backoffMs(attempt, 100, 10_000)), [100, 200, 400]);
++    assert.deepEqual(
++      [1, 2, 3].map((attempt) => backoffMs(attempt, { baseMs: 100, capMs: 10_000 })),
++      [100, 200, 400],
++    );
+   });
+ 
+   it('never exceeds the cap', () => {
+-    assert.equal(backoffMs(20, 100, 10_000), 10_000);
++    assert.equal(backoffMs(20, { baseMs: 100, capMs: 10_000 }), 10_000);
+   });
+ });
+-- 
+2.56.0.windows.2
+

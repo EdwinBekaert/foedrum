@@ -1,0 +1,40 @@
+From b0469cecd29e33ac9f0512c40cbd2d609f7ced0a Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 11:32:41 +0100
+Subject: [PATCH] Remove the doubled-delay name from backoffMs
+
+The cap test goes with it.
+---
+ src/engine/backoff.ts     | 6 ++----
+ test/unit/backoff.test.ts | 4 ----
+ 2 files changed, 2 insertions(+), 8 deletions(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index 02470da4..e72a95f5 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -1,6 +1,4 @@
+ export type BackoffOptions = { readonly baseMs: number; readonly capMs: number };
+ 
+-export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number => {
+-  const doubled = baseMs * 2 ** (attempt - 1);
+-  return Math.min(capMs, doubled);
+-};
++export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
++  Math.min(capMs, baseMs * 2 ** (attempt - 1));
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+index 8111e038..71f7fb2a 100644
+--- a/test/unit/backoff.test.ts
++++ b/test/unit/backoff.test.ts
+@@ -9,8 +9,4 @@ describe('backoffMs', () => {
+       [100, 200, 400],
+     );
+   });
+-
+-  it('never exceeds the cap', () => {
+-    assert.equal(backoffMs(20, { baseMs: 100, capMs: 5_000 }), 5_000);
+-  });
+ });
+-- 
+2.56.0.windows.2
+

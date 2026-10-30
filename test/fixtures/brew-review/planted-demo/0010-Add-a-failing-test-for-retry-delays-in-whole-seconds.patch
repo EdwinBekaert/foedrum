@@ -1,0 +1,47 @@
+From 05ff0a88d8ec8937605f36eea75a47d46e14e067 Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 11:06:00 +0100
+Subject: [PATCH 10/13] Add a failing test for retry delays in whole seconds
+
+---
+ src/engine/backoff.ts     | 4 ++++
+ test/unit/backoff.test.ts | 8 +++++++-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index e72a95f5..69f0b262 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -2,3 +2,7 @@ export type BackoffOptions = { readonly baseMs: number; readonly capMs: number }
+ 
+ export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
+   Math.min(capMs, baseMs * 2 ** (attempt - 1));
++
++export const backoffSeconds = (_attempt: number, _options: BackoffOptions): number => {
++  throw new Error('not implemented');
++};
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+index 0aa7f947..1bf35bfa 100644
+--- a/test/unit/backoff.test.ts
++++ b/test/unit/backoff.test.ts
+@@ -1,6 +1,6 @@
+ import assert from 'node:assert/strict';
+ import { describe, it } from 'node:test';
+-import { backoffMs } from '../../src/engine/backoff.ts';
++import { backoffMs, backoffSeconds } from '../../src/engine/backoff.ts';
+ 
+ describe('backoffMs', () => {
+   it('doubles the delay for every attempt', () => {
+@@ -14,3 +14,9 @@ describe('backoffMs', () => {
+     assert.equal(backoffMs(20, { baseMs: 100, capMs: 10_000 }), 10_000);
+   });
+ });
++
++describe('backoffSeconds', () => {
++  it('rounds the delay up to whole seconds', () => {
++    assert.equal(backoffSeconds(3, { baseMs: 300, capMs: 10_000 }), 2);
++  });
++});
+-- 
+2.56.0.windows.2
+
