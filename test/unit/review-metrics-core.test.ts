@@ -192,6 +192,70 @@ describe('parseSummary', () => {
   });
 });
 
+describe('parseSummary: each form apart (review of #683)', () => {
+  // A summary of one finding with this severity and disposition.
+  const oneRow = (severity: string, disposition: string): Summary =>
+    parseSummary(
+      [
+        '## Review: `x` @ `1`',
+        '',
+        '### Lens findings',
+        '',
+        '| # | Lens | Severity | Location | Finding | Disposition |',
+        '|---|---|---|---|---|---|',
+        `| 1 | correctness | ${severity} | — | x | ${disposition} |`,
+      ].join('\n'),
+    );
+  const endOf = (severity: string, disposition: string) =>
+    rowOf(oneRow(severity, disposition), '1').end;
+  const roundsOf = (line: string) =>
+    withFindings(
+      parseSummary(
+        text('second-summary.md').replace('### Lens findings', `### Lens findings\n\n${line}\n`),
+      ),
+    ).rounds;
+
+  it('reads "the second round" as round 2', () => {
+    assert.equal(roundsOf('Finding 19 came in the second round.'), 2);
+  });
+
+  it('reads "3rd pass" as round 3', () => {
+    assert.equal(roundsOf('The 3rd pass reran test-design.'), 3);
+  });
+
+  it('reads "round two" as round 2', () => {
+    assert.equal(roundsOf('Round two reran test-design.'), 2);
+  });
+
+  it('reads "four rounds" as 4', () => {
+    assert.equal(roundsOf('Every lens approves after four rounds.'), 4);
+  });
+
+  it('ends a dismissal whose reason says pre-existing as pre-existing, on a plain severity', () => {
+    assert.equal(endOf('minor', 'dismissed because pre-existing, filed as #600'), 'pre-existing');
+  });
+
+  it('ends a dismissal of a finding whose severity says pre-existing as pre-existing', () => {
+    assert.equal(endOf('minor, pre-existing', 'dismissed: out of scope'), 'pre-existing');
+  });
+
+  it('ends a dismissal whose reason names a fix elsewhere as dismissed', () => {
+    assert.equal(endOf('minor', 'dismissed because it was already fixed in #600'), 'dismissed');
+  });
+
+  it('ends a disposition that names a fix after other words as fixed', () => {
+    assert.equal(endOf('minor', 'the page was fixed in `1a2b3c4d`'), 'fixed');
+  });
+
+  it('ends a disposition that names a dismissal after other words as dismissed', () => {
+    assert.equal(endOf('minor', 'CLAUDE.md dismissed as #1'), 'dismissed');
+  });
+
+  it('reads a fix in bold as fixed', () => {
+    assert.equal(endOf('minor', '**fixed** in `1a2b3c4d`'), 'fixed');
+  });
+});
+
 const comment = (name: string, url: string, hidden = false) => ({ url, body: text(name), hidden });
 
 describe('aggregate', () => {

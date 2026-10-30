@@ -255,4 +255,58 @@ describe('review-metrics', () => {
     assert.equal(code, 1);
     assert.equal(err, 'reading #1 failed: Bad credentials\n');
   });
+
+  it('reads a pull request whose read keeps failing twice, no more (review of #683)', async () => {
+    let calls = 0;
+    const { code } = await runWith(['--from', '1', '--to', '1'], {
+      client: {
+        graphql: async () => {
+          calls += 1;
+          throw new Error('read tcp: timed out');
+        },
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(calls, 2);
+  });
+
+  it('fails on a comment without its body (review of #683)', async () => {
+    const { code, err } = await runWith(['--from', '1', '--to', '1'], {
+      client: {
+        graphql: async () => ({
+          data: {
+            repository: {
+              issueOrPullRequest: {
+                __typename: 'PullRequest',
+                merged: true,
+                comments: page([{ url: 'u', isMinimized: false } as unknown as Node], null),
+              },
+            },
+          },
+          errors: [],
+        }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(err, 'reading #1 failed: a comment without its url or body\n');
+  });
+
+  it("fails on GitHub's not-found when another error comes with it (review of #683)", async () => {
+    const { code, err } = await runWith(['--from', '4', '--to', '4'], {
+      client: {
+        graphql: async () => ({
+          data: { repository: { issueOrPullRequest: null } },
+          errors: [
+            { message: 'Could not resolve to an issue or pull request with the number of 4.' },
+            { message: 'Something went wrong while executing your query.' },
+          ],
+        }),
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(
+      err,
+      'reading #4 failed: Could not resolve to an issue or pull request with the number of 4.; Something went wrong while executing your query.\n',
+    );
+  });
 });
