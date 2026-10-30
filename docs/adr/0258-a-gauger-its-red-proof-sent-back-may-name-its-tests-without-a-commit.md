@@ -5,7 +5,7 @@ Date: 2026-10-30 · Status: Accepted · Amends [0074](0074-git-commit-grants-fix
 ## Context
 A `done` of a brewer that produces commits needs a commit after its worktree's start, or its batch goes Stuck on a divergence ([ADR 0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)); a Finer that says `unchanged` is the one exception ([ADR 0166](0166-the-finer-simplifies-a-batch-s-change-before-green.md)).
 The red proof reads the tests a step named in the out doc of its latest succeeded attempt, and finds the step's tests in that attempt's commits ([ADR 0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md), ADR 0078).
-In a live Nip run (#660, Brewery batch 12-2), the Gauger's first attempt committed 17 tests but named none, so the red proof failed on its seven control tests, which pass before the change, and sent the batch back to the Gauger.
+In a live Nip run (#660, Brewery batch 12-2), the Gauger's first attempt committed 17 tests but named none, so the red proof failed on nine passing tests and sent the batch back to the Gauger: its seven control tests, which pass before the change, and two existing tests named `array`, which the `"type": "array"` its regenerated `schemas/event.json` adds reads as declared (#661).
 The second attempt rightly found the committed tests right and only named them: with no commit, it was blocked as a divergence.
 A `retry` runs a Gauger that again has nothing to commit, and a `skip` runs the red proof on the first attempt's empty names: no way on.
 
