@@ -1,6 +1,6 @@
 # 0257. Sub-orders whose touches overlap never brew side by side
 
-Date: 2026-10-30 · Status: Accepted · Amends [0217](0217-a-recipe-s-concurrency-and-the-open-order-limit-hold-what-the-intake-starts.md) (a third limit holds what the intake starts)
+Date: 2026-10-30 · Status: Accepted · Amends [0217](0217-a-recipe-s-concurrency-and-the-open-order-limit-hold-what-the-intake-starts.md) (a third limit holds what the intake starts), [0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md) (a ready sub-order waits while one whose touches overlap it is Ordered or Brewing) and [0208](0208-orders-are-claimed-in-rank-order-by-arrival-unless-a-person-moved-one-with-foedrum-rank.md) (part 3 gains the touches limit)
 
 ## Context
 ADR 0217 holds an entry of the intake's walk when its recipe's `concurrency` or the Brewery's open-order limit is full, and left a third limit for the paths a plan's sub-orders `touch` ([ADR 0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md)).
