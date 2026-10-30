@@ -178,6 +178,21 @@ describe('review-metrics', () => {
     assert.equal(calls.length, 3);
   });
 
+  it('fails when the read throws again, with exit 1', async () => {
+    const { code, err } = await runWith(['--from', '1', '--to', '1'], {
+      client: {
+        graphql: async () => {
+          throw new Error('gh could not ask GitHub for POST graphql: read tcp: timed out');
+        },
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(
+      err,
+      'reading #1 failed: gh could not ask GitHub for POST graphql: read tcp: timed out\n',
+    );
+  });
+
   it('fails with the error of a read that GitHub refused, with exit 1', async () => {
     const { code, err } = await runWith(['--from', '1', '--to', '1'], {
       client: {
