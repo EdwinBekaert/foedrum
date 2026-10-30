@@ -33,7 +33,7 @@ import {
 } from './gravity.ts';
 import { judgeRed, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
-import { readDiff, stepCommits, stepTests } from './step-commits.ts';
+import { readDiff, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
@@ -262,7 +262,16 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     }
     // The regression tests the proven step named pass, as they should (ADR 0170).
     const regressionTests = stepTests(batch, of)?.regressionTests ?? [];
-    const verdict = judgeRed(parsed.report, diff.files, regressionTests);
+    // A file that declares a test at the step's tip is a test file, though the step only added a
+    // row to it (ADR 0262).
+    let testFiles: Set<string>;
+    try {
+      testFiles = await readTestFiles(git, clone(worktree.repo), commits.to, diff.files, signal);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return blocked('environment', `the files of step ${of} at its tip cannot be read: ${why}`);
+    }
+    const verdict = judgeRed(parsed.report, diff.files, regressionTests, testFiles);
     if (!verdict.proven) return failed(verdict.why);
     return { ending: { kind: 'succeeded', output: null }, readings };
   };
