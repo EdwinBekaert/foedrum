@@ -1,7 +1,8 @@
-// `foedrum brew` on the real machine (ADR 0123): its owner from `--as` or the Claude Code session,
-// the Brewery's files read as serve reads them, and runBrew (brew.ts) on serve's shell
-// (serve-shell.ts) with the real git until the batch stops or a stop signal. On a terminal outside
-// Claude Code, an interactive step's session opens in the foreground (ADR 0222). cli-main.ts loads it.
+// `foedrum brew` on the real machine (ADR 0123): its owner from `--as`, the Claude Code session or
+// else `terminal` (ADR 0259), the Brewery's files read as serve reads them, and runBrew (brew.ts) on
+// serve's shell (serve-shell.ts) with the real git until the batch stops or a stop signal. On a
+// terminal outside Claude Code, an interactive step's session opens in the foreground (ADR 0222).
+// cli-main.ts loads it.
 
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import type { BrewerRunner } from '../engine/brewer-runner.ts';
@@ -125,7 +126,7 @@ export const brewInNewWindow = async (
 
 /**
  * Brews the batch of `input.issue` in the Brewery checkout `cwd`, as the command layer `issued` it.
- * A driver with no owner, from `--as` or the session in `env`, is a mistake of the command line
+ * A session in `env` that names no driver, without `--as`, is a mistake of the command line
  * (exit 2); its lines go straight to the terminal.
  */
 export const brewFromCheckout = async (
