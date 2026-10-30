@@ -321,7 +321,7 @@ export const pickRules = (
   // a rule one lens cut and another selected counts as selected (ADR 0220). Every lens's rules
   // share one budget (ADR 0268).
   const each = change.everyLens
-    ? [selectRules(rules, { files: change.files, everyLens: true }, budget)]
+    ? [selectRules(rules, change, budget)]
     : (change.lenses ?? [change.lens]).map((lens) =>
         selectRules(
           rules,

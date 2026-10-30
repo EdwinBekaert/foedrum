@@ -76,21 +76,23 @@ const ordered: Event[] = [
     source: 'label',
   },
 ];
-/** The Taster's attempt, after Cellarman's commits. */
-const tasting: Event[] = [
+/** The events up to `next`'s attempt, after `done`'s commits from `base` to `head`. */
+const after = (done: string, next: string): Event[] => [
   ...ordered,
-  scheduled('implement'),
-  startedAt('implement', base),
+  scheduled(done),
+  startedAt(done, base),
   {
     type: 'step.finished',
     batchId: '12-1',
-    stepId: 'implement',
+    stepId: done,
     attempt: 1,
     outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions: [] } },
   },
-  scheduled('correctness'),
-  startedAt('correctness', head),
+  scheduled(next),
+  startedAt(next, head),
 ];
+/** The Taster's attempt, after Cellarman's commits. */
+const tasting = after('implement', 'correctness');
 
 const rule = (id: string, scope: object, body: string): string =>
   `---\n${JSON.stringify({ id, scope, kind: 'semantic', source: 'review of #7', created: '2026-10-01', status: 'active' })}\n---\n${body}\n`;
@@ -409,20 +411,7 @@ describe('createAttemptPlans: house yeast of the brewers that write the change (
   assert.ok(writers.valid, writers.valid ? '' : writers.problems.join('\n'));
   const brewers = writers.valid ? writers.brewers : assert.fail();
   /** The Cellarman's attempt, after the Gauger's commits. */
-  const implementing: Event[] = [
-    ...ordered,
-    scheduled('gauge'),
-    startedAt('gauge', base),
-    {
-      type: 'step.finished',
-      batchId: '12-1',
-      stepId: 'gauge',
-      attempt: 1,
-      outcome: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions: [] } },
-    },
-    scheduled('implement'),
-    startedAt('implement', head),
-  ];
+  const implementing = after('gauge', 'implement');
   const implement = (git: Git) =>
     planOf(git, 'implement', implementing, undefined, 1, brewers).plan;
   const NEAR_MISS = rule(
