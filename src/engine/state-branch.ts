@@ -5,7 +5,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { Event } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
-import { CommitSha, type KeptOutDoc, type PushedThrough } from '../schemas/store.ts';
+import { CommitSha, type KeptOutDoc, noCommitSha, type PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import type { LoggedEvent, StoredEvent } from './event-store.ts';
 import type { State } from './fold.ts';
@@ -393,7 +393,10 @@ export const remoteCommitOf = (lsRemote: string, ref: string): string | undefine
     if (name !== ref) continue;
     if (!CommitSha.safeParse(commit).success) {
       throw new Error(
-        `git ls-remote names ${ref} with ${JSON.stringify(commit)}, not a commit sha`,
+        noCommitSha(
+          commit,
+          `git ls-remote names ${ref} with ${JSON.stringify(commit)}, not a commit sha`,
+        ),
       );
     }
     return commit;

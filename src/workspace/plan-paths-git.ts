@@ -4,11 +4,9 @@
 
 import type { PathsRead, ReadPaths } from '../engine/plan-touches.ts';
 import { RelativePath } from '../schemas/primitives.ts';
+import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { firstLine, inClone } from './clone-git.ts';
 import type { Git } from './git.ts';
-
-// A full sha, SHA-1 or SHA-256, so that nothing reaches git as an option or a revision expression.
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** The most characters of paths one call gives git: Windows' command line holds 32,767. */
 const MOST_PATH_CHARS = 24_000;
@@ -33,7 +31,8 @@ const runsOf = (paths: readonly string[]): string[][] => {
 export const readPathsAt =
   (shared: Git): ReadPaths =>
   async (clone, commit, paths, signal): Promise<PathsRead> => {
-    if (!SHA.test(commit)) return { kind: 'unread', reason: `${commit} is no full commit sha` };
+    // A full sha, so that nothing reaches git as an option or a revision expression.
+    if (!isCommitSha(commit)) return { kind: 'unread', reason: noCommitSha(commit) };
     const unsafe = paths.find((path) => !RelativePath.safeParse(path).success);
     if (unsafe !== undefined) {
       return { kind: 'unread', reason: `${JSON.stringify(unsafe)} is no relative path` };

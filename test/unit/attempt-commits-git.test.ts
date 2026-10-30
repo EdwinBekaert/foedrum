@@ -63,11 +63,14 @@ describe('countCommits', () => {
     assert.deepEqual(await countCommits(git)(clone, branch, START), { kind: 'counted', count: 0 });
   });
 
-  it('counts from a SHA-256 start, which a commit sha may be (review of #208)', async () => {
+  it('runs no git for a SHA-256 start: Foedrum supports SHA-1 repositories (ADR 0254)', async () => {
     const start = 'd'.repeat(64);
     const { git, calls } = recordingGit({ 'merge-base': ok(), 'rev-list': ok('1\n') });
-    assert.deepEqual(await countCommits(git)(clone, branch, start), { kind: 'counted', count: 1 });
-    assert.equal(calls[0]?.args[2], start);
+    assert.deepEqual(await countCommits(git)(clone, branch, start), {
+      kind: 'uncounted',
+      reason: `${start} is a SHA-256 commit id: Foedrum supports SHA-1 repositories only`,
+    });
+    assert.equal(calls.length, 0);
   });
 
   it('says the start was rewritten when it is no ancestor of the branch, and counts nothing', async () => {

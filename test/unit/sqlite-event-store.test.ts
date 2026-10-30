@@ -894,7 +894,7 @@ describe('SqliteEventStore in memory', () => {
 
   // The state branch's outbox (ADR 0024).
   const commit = 'c'.repeat(40);
-  const later = 'd'.repeat(64);
+  const later = 'd'.repeat(40);
   const appendAll = (events: Event[]): void =>
     store.withTransaction((tx) => {
       for (const event of events) tx.append(event);
