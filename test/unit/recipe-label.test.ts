@@ -129,6 +129,29 @@ describe('recipeLabelEffects (ADR 0232, ADR 0240)', () => {
     ]);
   });
 
+  it("labels nothing for a batch that ended, or that is not its issue's latest", () => {
+    const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
+    const stout = { ...chose({}), recipe: 'stout' } as Event;
+    const cancelled: Event = { type: 'batch.cancelled', batchId: '12-1', ...by };
+    // 12-1 ended; 12-2 of the same issue was routed by the label a person put on since.
+    const again: Event[] = [
+      { type: 'batch.ordered', batchId: '12-2', order: { issue: 12 }, routeBy },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '12-2',
+        recipe: 'pint',
+        reason: 'label',
+        source: 'label',
+      },
+    ];
+    assert.deepEqual(effects.due(fold([ordered, stout, cancelled]), '12-1'), []);
+    assert.deepEqual(effects.due(fold([ordered, stout, ...again]), '12-1'), []);
+    // The latest batch, live, is due as before.
+    assert.deepEqual(effects.due(fold([ordered, stout]), '12-1'), [
+      { batchId: '12-1', effect: 'recipe-label:stout' },
+    ]);
+  });
+
   it('counts the label an older Foedrum applied under recipe-label as applied for its recipe', () => {
     const effects = recipeLabelEffects({ brewery, host: fakeHost().host });
     const legacy: Event = {
