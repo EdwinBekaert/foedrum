@@ -32,9 +32,10 @@ const LOAD_ERRORS: readonly RegExp[] = [
   /\berror TS\d+\b/,
   /\berror CS\d+\b/,
   // .NET's, as an exception's text: `System.IO.FileLoadException : …` (xunit) or `…Exception: …`.
-  // `typeof(System.TypeLoadException)` in a failed assertion is no load error (#679).
+  // `typeof(System.TypeLoadException)` or a quoted message in a failed assertion is no load error,
+  // nor a FileNotFoundException of a file (#679).
   /\bSystem\.(?:IO\.FileLoadException|BadImageFormatException|TypeLoadException) ?:/,
-  /\bCould not load file or assembly\b/,
+  /\bSystem\.IO\.FileNotFoundException ?: Could not load file or assembly\b/,
   /\bcannot find symbol\b/,
   /\bNoClassDefFoundError\b/,
   /\bClassNotFoundException\b/,
