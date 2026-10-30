@@ -21,18 +21,22 @@ export interface SessionRuleFile {
 const anywhere = (glob: string): string => (glob.startsWith('**/') ? glob : `**/${glob}`);
 
 // A rule's paths are its globs, which in every rule so far already pin the language when it names
-// one too: `paths` cannot ask for both. A rule with only a language matches its extensions.
-// It is named after its globs, or its language.
+// one too: `paths` cannot ask for both. A rule with only a language matches its extensions, and
+// one with neither matches every file, as it matches every change (ADR 0015). It is named after
+// its globs, its language, or `everywhere`.
 const pathsOf = ({ scope }: Rule['rule']): { name: string; paths: string[] } => {
   if (scope.globs !== undefined) {
     const globs = [...new Set(scope.globs)].sort();
     return { name: globs.join('-'), paths: [...new Set(globs.map(anywhere))] };
   }
-  const language = scope.language ?? '';
+  const { language } = scope;
+  if (language === undefined) return { name: 'everywhere', paths: ['**/*'] };
   const extensions = Object.keys(languages)
     .filter((extension) => languages[extension] === language)
     .map((extension) => extension.slice(1));
-  return { name: language, paths: [`**/*.{${extensions.join(',')}}`] };
+  // A brace of one item is read as text, so `**/*.{md}` would match no file.
+  const pattern = extensions.length === 1 ? extensions[0] : `{${extensions.join(',')}}`;
+  return { name: language, paths: [`**/*.${pattern}`] };
 };
 
 const slug = (key: string): string =>
@@ -64,6 +68,9 @@ export const sessionRuleFiles = (
     const { name, paths } = pathsOf(rule.rule);
     const key = JSON.stringify(paths);
     const group = groups.get(key) ?? { name: slug(name), paths, rules: [] };
+    // Rules whose globs differ but give the same paths share the first of their names, so the
+    // order the rules were read in does not name the file.
+    if (byCodeUnits(slug(name), group.name) < 0) group.name = slug(name);
     group.rules.push(rule);
     groups.set(key, group);
   }
