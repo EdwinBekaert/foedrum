@@ -107,7 +107,7 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
     ledger(pushKey(batchId, round), pushed);
     heads.set(batchId, head);
   };
-  const pass = (repositories: BaseCheckRepository[]) =>
+  const pass = (repositories: BaseCheckRepository[], signal = new AbortController().signal) =>
     checkPairs(
       {
         log,
@@ -124,7 +124,7 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
         clock: () => now,
         failed: (what) => failures.push(what),
       },
-      new AbortController().signal,
+      signal,
     );
   const pairs = (batchId: string) => log.state().batches.get(batchId)?.pairChecks;
   const pairEvents = () =>
@@ -276,6 +276,40 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
       // A record of a pull request that is not the batch's open one is refused.
       assert.equal(record({ ...side, batchId: 'web-13', pullRequest: a }).kind, 'refused');
     });
+
+    it('regression test: records nothing for a head pushed while its pair was merged (ADR 0044)', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      const { repository, merges } = fakeRepository({ ab: clean });
+      const pushing: BaseCheckRepository = {
+        ...repository,
+        mergeTree: async (one, two, signal) => {
+          push('web-13', hb2, 2);
+          return repository.mergeTree(one, two, signal);
+        },
+      };
+      await pass([pushing]);
+      assert.deepStrictEqual(merges, ['ab']);
+      assert.deepStrictEqual(pairEvents(), []);
+    });
+
+    it('regression test: records nothing once the pass is given up during a merge-tree', async () => {
+      onTap('web-12', a, ha);
+      onTap('web-13', b, hb);
+      onTap('web-14', c, hc);
+      const { repository, merges } = fakeRepository({ ab: clean, ac: clean, bc: clean });
+      const stop = new AbortController();
+      const stopping: BaseCheckRepository = {
+        ...repository,
+        mergeTree: async (one, two, signal) => {
+          stop.abort();
+          return repository.mergeTree(one, two, signal);
+        },
+      };
+      await pass([stopping], stop.signal);
+      assert.deepStrictEqual(merges, ['ab']);
+      assert.deepStrictEqual(pairEvents(), []);
+    });
   });
 
   describe('where it shows', () => {
@@ -419,6 +453,17 @@ describe('the check of open pull requests against each other (ADR 0230)', () => 
       assert.doesNotMatch(await brief('web-12'), /other open pull requests|open pull request </);
       const { conflicts: _, ...side } = conflicted;
       assert.equal(record({ ...side, other: c, otherHead: hc }).kind, 'accepted');
+      assert.ok(
+        (await brief('web-12')).includes('- Merges cleanly with the other open pull requests.'),
+      );
+    });
+
+    it('regression test: says the brief merges cleanly when only another repository has an open pull request left', async () => {
+      onTap('web-12', a, ha, 'acme/web');
+      onTap('web-13', b, hb, 'acme/web');
+      onTap('api-15', api, hc, 'acme/api');
+      paired();
+      finished('web-12', a, ha);
       assert.ok(
         (await brief('web-12')).includes('- Merges cleanly with the other open pull requests.'),
       );
