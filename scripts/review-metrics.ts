@@ -131,7 +131,11 @@ export const run = async (args: readonly string[], deps: Deps): Promise<number> 
     let notMerged = 0;
     let other = 0;
     for (; at <= last; at += 1) {
-      const read = await readPull(deps.client, owner, name, at);
+      // Once more on a failure: a run reads a few hundred times, and one dropped connection
+      // stopped two of the first three runs.
+      const read = await readPull(deps.client, owner, name, at).catch(() =>
+        readPull(deps.client, owner, name, at),
+      );
       if (read === 'not merged') notMerged += 1;
       else if (read === 'issue or missing') other += 1;
       else pulls.push(read);
