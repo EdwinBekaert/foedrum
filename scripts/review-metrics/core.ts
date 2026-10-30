@@ -88,10 +88,11 @@ const statedRound = (text: string): number | undefined => {
 };
 
 // The lenses a Lens cell names: a round mark or a note in parentheses dropped, then split on
-// ",", "and" and "+".
+// ",", "and" and "+". A `(` inside a match ends it, so a cell of unclosed `(` is read in linear
+// time: a comment by anyone can look like a summary.
 const lensesOf = (cell: string): string[] =>
   cell
-    .replace(/\([^)]*\)/g, '')
+    .replace(/\([^()]*\)/g, '')
     .split(/,|\band\b|\+/)
     .map((lens) => lens.trim())
     .filter((lens) => lens !== '');
@@ -102,11 +103,13 @@ const endOf = (disposition: string, preExisting: boolean): End => {
     preExisting || /^dismissed\W+(?:because\s+)?pre-existing/.test(text)
       ? 'pre-existing'
       : 'dismissed';
-  if (/^(?:fixed|applied)\b/.test(text)) return 'fixed';
-  if (/^dismissed\b/.test(text)) return dismissed();
-  if (/^pre-existing\b/.test(text)) return 'pre-existing';
   const fixed = /\b(?:fixed|applied)\b/.test(text);
   const isDismissed = /\bdismissed\b/.test(text);
+  // A dismissal's reason may say what was fixed elsewhere; a fix that goes on to dismiss the
+  // rest is split.
+  if (/^(?:fixed|applied)\b/.test(text)) return isDismissed ? 'split' : 'fixed';
+  if (/^dismissed\b/.test(text)) return dismissed();
+  if (/^pre-existing\b/.test(text)) return 'pre-existing';
   if (fixed && isDismissed) return 'split';
   if (fixed) return 'fixed';
   if (isDismissed) return dismissed();
@@ -473,6 +476,9 @@ export const formatMetrics = (metrics: Metrics): string => {
               'Hidden',
               'Lens rounds',
               'Findings',
+              'Blocker',
+              'Major',
+              'Minor',
               'Fixed',
               'Dismissed',
               'Pre-existing',
@@ -485,6 +491,7 @@ export const formatMetrics = (metrics: Metrics): string => {
               pull.hidden,
               pull.lensRounds,
               pull.counts.findings,
+              ...SEVERITIES.map((severity) => pull.counts.severity[severity]),
               ...endCells(pull.counts.ends),
             ]),
           ),

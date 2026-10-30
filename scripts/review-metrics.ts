@@ -51,6 +51,8 @@ const record = (value: unknown): Record<string, unknown> =>
 
 type Read = PullRequest | 'not merged' | 'issue or missing';
 
+const NOT_FOUND = /^Could not resolve to an issue or pull request with the number of \d+\.?$/;
+
 /** Pull request `number` of `owner/name` and every page of its comments. */
 const readPull = async (
   client: Deps['client'],
@@ -64,8 +66,12 @@ const readPull = async (
     const { data, errors } = await client.graphql(COMMENTS, { owner, name, number, after });
     const found = record(record(record(data).repository).issueOrPullRequest);
     if (Object.keys(found).length === 0) {
-      // GitHub answers a number that is neither an issue nor a pull request with null and an error.
-      if (record(data).repository !== undefined && errors.length <= 1) return 'issue or missing';
+      // GitHub answers a number that is neither an issue nor a pull request with null and its
+      // not-found error; any other answer without one, or on a later page, is a failed read.
+      const [only, ...more] = errors;
+      if (after === null && more.length === 0 && NOT_FOUND.test(only?.message ?? '')) {
+        return 'issue or missing';
+      }
       throw new Error(errors.map(({ message }) => message).join('; ') || 'no answer');
     }
     if (found.__typename !== 'PullRequest') return 'issue or missing';
@@ -124,9 +130,18 @@ export const run = async (args: readonly string[], deps: Deps): Promise<number> 
     return 2;
   }
   const [owner = '', name = ''] = full.split('/');
+  let last = Number(to);
+  if (to === undefined) {
+    try {
+      last = await newest(deps.client, owner, name);
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      deps.err(`reading the newest pull request failed: ${error.message}\n`);
+      return 1;
+    }
+  }
   let at = Number(from);
   try {
-    const last = to === undefined ? await newest(deps.client, owner, name) : Number(to);
     const pulls: PullRequest[] = [];
     let notMerged = 0;
     let other = 0;
