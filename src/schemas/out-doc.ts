@@ -221,11 +221,17 @@ export const OutDocAssumptions = z.object({ assumptions: z.array(z.string()) });
  */
 export const PULL_REQUEST = 'pullRequest';
 
+/** The longest How it works and See it, the most before/after rows, and their longest value. */
+export const MAX_HOW_IT_WORKS = 10_000;
+export const MAX_SEE_IT = 1_000;
+export const MOST_BEFORE_AFTER = 20;
+export const MAX_BEFORE_AFTER = 200;
+
 /** One row of the pull request's before/after table (ADR 0167). */
 const BeforeAfterRow = z.strictObject({
-  case: lineOf(200),
-  before: lineOf(200),
-  after: lineOf(200),
+  case: lineOf(MAX_BEFORE_AFTER),
+  before: lineOf(MAX_BEFORE_AFTER),
+  after: lineOf(MAX_BEFORE_AFTER),
 });
 type BeforeAfterRow = z.infer<typeof BeforeAfterRow>;
 
@@ -242,9 +248,9 @@ export interface PullRequestSections {
  * within GitHub's without cutting its Markdown.
  */
 export const PullRequestOutDoc = outDocFrontmatter({
-  howItWorks: NonEmpty.max(10_000).optional(),
-  seeIt: lineOf(1_000).optional(),
-  beforeAfter: z.array(BeforeAfterRow).max(20).default([]),
+  howItWorks: NonEmpty.max(MAX_HOW_IT_WORKS).optional(),
+  seeIt: lineOf(MAX_SEE_IT).optional(),
+  beforeAfter: z.array(BeforeAfterRow).max(MOST_BEFORE_AFTER).default([]),
 });
 
 /**
@@ -269,9 +275,14 @@ export const pullRequestSectionsOf = (output: unknown): PullRequestSections | un
  */
 export const FINING = 'fining';
 
+/** The most changes a Finer lists, the longest file of one, and the longest line of why it changed nothing. */
+export const MOST_FINING_CHANGES = 50;
+export const MAX_FINING_FILE = 1_000;
+export const MAX_UNCHANGED = 1_000;
+
 /** One change a Finer made (ADR 0166): where, and why; `line` when it is about one. */
 const FiningChange = z.strictObject({
-  file: lineOf(1_000),
+  file: lineOf(MAX_FINING_FILE),
   line: z.int().positive().optional(),
   why: NonEmpty,
 });
@@ -289,8 +300,8 @@ export interface FiningReport {
  * take a done without a commit (ADR 0166).
  */
 export const FiningOutDoc = outDocFrontmatter({
-  changes: z.array(FiningChange).max(50).default([]),
-  unchanged: lineOf(1_000).optional(),
+  changes: z.array(FiningChange).max(MOST_FINING_CHANGES).default([]),
+  unchanged: lineOf(MAX_UNCHANGED).optional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done' || doc.changes.length > 0 !== (doc.unchanged !== undefined)) return;
   ctx.addIssue({
@@ -312,8 +323,9 @@ export const finingOf = (output: unknown): FiningReport | undefined => {
 export const GAUGE = 'gauge';
 
 /** The most names a Gauger gives in each list, and the longest name: the red proof's (ADR 0170). */
-const MAX_TESTS = 200;
-const TestNames = z.array(lineOf(1_000)).max(MAX_TESTS).default([]);
+export const MOST_TESTS = 200;
+export const MAX_TEST_NAME = 1_000;
+const TestNames = z.array(lineOf(MAX_TEST_NAME)).max(MOST_TESTS).default([]);
 
 /**
  * The out doc of a brewer whose schema is `gauge`: the contract's, with its new tests and its
@@ -329,8 +341,8 @@ export interface GaugeReport {
 
 /** Any out doc's lists of tests, read leniently: a Brewery's own brewer may name them too. */
 const NamedTests = z.object({
-  tests: z.array(z.string()).max(MAX_TESTS).default([]),
-  regressionTests: z.array(z.string()).max(MAX_TESTS).default([]),
+  tests: z.array(z.string()).max(MOST_TESTS).default([]),
+  regressionTests: z.array(z.string()).max(MOST_TESTS).default([]),
 });
 
 /**
