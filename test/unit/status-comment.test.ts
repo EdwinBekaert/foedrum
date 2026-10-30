@@ -482,6 +482,19 @@ describe('renderStatus', () => {
     );
   });
 
+  it('keeps a reason of exactly 48 characters whole: regression test (#656)', () => {
+    const reason = `${'word '.repeat(9)}abc`;
+    assert.equal(reason.length, 48);
+    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${reason} → \`green #2\` ▶️`);
+  });
+
+  it('keeps a reason whole once its parenthesised part goes and 48 characters are left: regression test (#656)', () => {
+    const kept = `${'word '.repeat(8)}word abc`;
+    assert.equal(kept.length, 48);
+    const reason = `${'word '.repeat(8)}word (npm test) abc`;
+    assert.equal(failedPath(reason), `Path: \`green #1\` ❌ ${kept} → \`green #2\` ▶️`);
+  });
+
   it('keeps a stray closing parenthesis of a long reason: regression test (#656)', () => {
     assert.equal(
       failedPath('the check "x" (a) b) failed with exit code 1 and more'),
