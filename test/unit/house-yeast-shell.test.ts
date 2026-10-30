@@ -181,6 +181,20 @@ describe('node scripts/house-yeast.ts record', () => {
     );
   });
 
+  it('leaves the session rule files alone when it writes no rule', () => {
+    const stale = { [`${sessionDir}/stale.md`]: 'kept' };
+    const once = runWith(record, { 'c.json': candidate('1-engine-waits'), ...stale });
+    assert.equal(once.out, 'recorded deadline-on-every-wait: seen in 1 review\n');
+    assert.deepEqual(sessionFiles(once.files), stale);
+    const kept = runWith([...record, '--asked'], {
+      'c.json': candidate('1-engine-waits'),
+      [rulePath]: 'mine',
+      ...stale,
+    });
+    assert.equal(kept.out, `exists ${rulePath}: not overwritten\n`);
+    assert.deepEqual(sessionFiles(kept.files), stale);
+  });
+
   it('exits 1 naming an invalid rule beside the new one, and writes no session rule file', () => {
     const result = runWith([...record, '--asked'], {
       'c.json': candidate('1-engine-waits'),
