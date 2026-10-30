@@ -16,6 +16,7 @@ import {
 import type { Claimant, TargetIssue } from '../../src/engine/issue-claims.ts';
 import { type Limits, limitLines } from '../../src/engine/limits.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { SubOrderRef } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { createdOf } from '../helpers/fake-github-api.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -201,6 +202,18 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       const numbers = breakdown([
         { issue: 10, touches: ['src/Engine'] },
         { issue: 11, touches: ['src/engine/limits.ts'] },
+      ]);
+      await intake(numbers).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
+      assert.deepStrictEqual(held(), [
+        { kind: 'held', repo: brewery, issue: 11, reason: heldReason(10) },
+      ]);
+    });
+
+    it('takes a path under a folder spelled in another case for a path under it', async () => {
+      const numbers = breakdown([
+        { issue: 10, touches: ['src/engine'] },
+        { issue: 11, touches: ['src/Engine/limits.ts'] },
       ]);
       await intake(numbers).poll();
       assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 brewing']);
@@ -401,5 +414,23 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       brewingAlready(10);
       assert.deepStrictEqual(limitLines(log.state(), unlimited), []);
     });
+  });
+});
+
+describe("a sub-order's touches on order.decomposed", () => {
+  const ref = (touches: unknown) => SubOrderRef.safeParse({ issue: 10, repo: web, touches });
+  const paths = (n: number) => Array.from({ length: n }, (_, i) => `src/f${i}.ts`);
+
+  it('takes 1 to 20 relative paths', () => {
+    assert.equal(ref(paths(1)).success, true);
+    assert.equal(ref(paths(20)).success, true);
+  });
+
+  it('refuses none, more than 20, and a path that is not a relative path', () => {
+    assert.equal(ref([]).success, false);
+    assert.equal(ref(paths(21)).success, false);
+    assert.equal(ref(['../x.ts']).success, false);
+    assert.equal(ref(['./x.ts']).success, false);
+    assert.equal(ref(['src/']).success, false);
   });
 });
