@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { effectKey } from '../../src/engine/effect-key.ts';
-import { type Batch, emptyState, fold, type State } from '../../src/engine/fold.ts';
+import {
+  type Attempt,
+  attemptBefore,
+  type Batch,
+  emptyState,
+  fold,
+  latestAttempt,
+  runningAttempt,
+  type State,
+  type Step,
+} from '../../src/engine/fold.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
 
 const deadlineAt = '2026-10-15T10:00:00.000Z';
@@ -1431,6 +1441,79 @@ describe('fold of an inconsistent log', () => {
         eventType: event.type,
         message: /batch b1 was never ordered/,
       });
+    });
+  }
+});
+
+describe('the latest attempt of a step (I2)', () => {
+  const scheduledAt = (attempt: number): Attempt => ({ phase: 'scheduled', attempt, deadlineAt });
+  const startedAt = (attempt: number): Attempt => ({ phase: 'started', attempt, deadlineAt });
+  const finishedAt = (attempt: number): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt,
+    outcome: { kind: 'failed', retryable: true, reason: 'lost' },
+  });
+  const abandonedAt = (attempt: number): Attempt => ({
+    phase: 'started',
+    attempt,
+    deadlineAt,
+    abandoned: true,
+  });
+  const stepOf = (...attempts: Attempt[]): Step => ({
+    id: 'plan',
+    attempts: new Map(attempts.map((attempt) => [attempt.attempt, attempt])),
+    inputs: [],
+  });
+  const cases: {
+    name: string;
+    attempts: Attempt[];
+    latest?: number;
+    running?: number;
+    before3?: number;
+  }[] = [
+    { name: 'no attempts', attempts: [] },
+    { name: 'one scheduled', attempts: [scheduledAt(1)], latest: 1, running: 1, before3: 1 },
+    {
+      name: 'several, the latest running',
+      attempts: [finishedAt(1), finishedAt(2), startedAt(3)],
+      latest: 3,
+      running: 3,
+      before3: 2,
+    },
+    {
+      name: 'the latest finished',
+      attempts: [finishedAt(1), finishedAt(2)],
+      latest: 2,
+      before3: 2,
+    },
+    {
+      name: 'the latest abandoned',
+      attempts: [finishedAt(1), abandonedAt(2)],
+      latest: 2,
+      before3: 2,
+    },
+    {
+      name: 'numbers not in order of insertion',
+      attempts: [startedAt(4), finishedAt(1), finishedAt(2)],
+      latest: 4,
+      running: 4,
+      before3: 2,
+    },
+    {
+      name: 'a gap below n',
+      attempts: [finishedAt(1), scheduledAt(3)],
+      latest: 3,
+      running: 3,
+      before3: 1,
+    },
+  ];
+  for (const { name, attempts, latest, running, before3 } of cases) {
+    it(`reads ${name}`, () => {
+      const step = stepOf(...attempts);
+      assert.equal(latestAttempt(step)?.attempt, latest, 'latestAttempt');
+      assert.equal(runningAttempt(step)?.attempt, running, 'runningAttempt');
+      assert.equal(attemptBefore(step, 3)?.attempt, before3, 'attemptBefore 3');
     });
   }
 });
