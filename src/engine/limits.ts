@@ -11,6 +11,7 @@ import { orderOfBatch } from './pauses.ts';
 import { hasSubOrdersLeft, type QueuedOrder } from './ranks.ts';
 import { readySubOrders } from './ready-set.ts';
 import type { Recipes } from './recipes.ts';
+import { sameRepo } from './task-tree.ts';
 
 /** Three orders in progress at once, by default (decided by the maintainer, 2026-10-26). */
 export const DEFAULT_OPEN_ORDERS = 3;
@@ -94,16 +95,14 @@ const under = (path: string, folder: string): boolean =>
 
 /** Whether two sub-orders share a path, or one a path under a folder the other touches. */
 const overlap = (one: Touching, other: Touching): boolean =>
-  one.repo.toLowerCase() === other.repo.toLowerCase() &&
+  sameRepo(one.repo, other.repo) &&
   one.touches.some((a) => other.touches.some((b) => under(a, b) || under(b, a)));
 
 /** The sub-orders with touches that have a batch Brewing, with that batch's id. */
 const brewingTouching = (state: State): { subOrder: Touching; batchId: string }[] =>
-  [...state.subOrders.keys()].flatMap((issue) => {
+  [...state.subOrders.values()].flatMap(({ issue, batchIds }) => {
     const subOrder = touchingOf(state, issue);
-    const batchId = state.subOrders
-      .get(issue)
-      ?.batchIds.find((id) => state.batches.get(id)?.lane.kind === 'brewing');
+    const batchId = batchIds.find((id) => state.batches.get(id)?.lane.kind === 'brewing');
     return subOrder === undefined || batchId === undefined ? [] : [{ subOrder, batchId }];
   });
 
