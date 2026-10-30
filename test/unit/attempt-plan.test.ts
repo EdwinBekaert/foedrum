@@ -576,6 +576,7 @@ describe('attemptLimits: a Gauger its red proof sent back may only name its test
     git: { commit: true },
     output: { doc: 'gauge.md', schema: 'gauge' },
   });
+  const committer = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
   const named = { tests: ['prints JSON'], regressionTests: ['keeps the table'] };
   const ended = (
     fields: Record<string, unknown>,
@@ -605,7 +606,6 @@ describe('attemptLimits: a Gauger its red proof sent back may only name its test
   it('marks only a Gauger its red proof sent back', () => {
     assert.equal(attemptLimits(gauger, sha, false, undefined, [], true).namesOnly, true);
     assert.equal(attemptLimits(gauger, sha).namesOnly, undefined);
-    const committer = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
     assert.equal(attemptLimits(committer, sha, false, undefined, [], true).namesOnly, undefined);
   });
 
@@ -624,7 +624,6 @@ describe('attemptLimits: a Gauger its red proof sent back may only name its test
   });
 
   it('blocks a brewer that is no Gauger without a commit, sent back or not', () => {
-    const committer = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
     assert.deepEqual(ended({}, 0, true, committer), divergence);
     assert.deepEqual(ended({}, 0, false, committer), divergence);
   });
