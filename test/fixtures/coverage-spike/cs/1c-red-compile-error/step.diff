@@ -1,0 +1,14 @@
+diff --git a/test/Text.Tests/LabelTests.cs b/test/Text.Tests/LabelTests.cs
+index 49525b5..08682c8 100644
+--- a/test/Text.Tests/LabelTests.cs
++++ b/test/Text.Tests/LabelTests.cs
+@@ -7,3 +7,9 @@ public class LabelTests
+     [Fact]
+     public void ScoresInside() => Assert.Equal("40 points", Label.Score(40));
+ }
++
++public class BadgeTests
++{
++    [Fact]
++    public void Badges() => Assert.Equal("[40]", Label.Badge(40));
++}

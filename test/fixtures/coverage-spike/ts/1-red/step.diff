@@ -1,0 +1,37 @@
+diff --git a/src/calc.ts b/src/calc.ts
+index a0018bd..e2ca645 100644
+--- a/src/calc.ts
++++ b/src/calc.ts
+@@ -7,3 +7,7 @@ export function clamp(value: number, low: number, high: number): number {
+   if (value > high) return high;
+   return value;
+ }
++
++export function multiply(_a: number, _b: number): number {
++  throw new Error('not implemented');
++}
+diff --git a/test/calc.test.ts b/test/calc.test.ts
+index d9deadf..cce18e8 100644
+--- a/test/calc.test.ts
++++ b/test/calc.test.ts
+@@ -1,10 +1,11 @@
+ import assert from 'node:assert/strict';
+ import { test } from 'node:test';
+-import { add, clamp } from '../src/calc.ts';
++import { add, clamp, multiply } from '../src/calc.ts';
+ 
+ const sums: [number, number, number][] = [
+   [1, 2, 3],
+   [-1, 1, 0],
++  [0.1, 0.2, 0.3],
+ ];
+ for (const [a, b, sum] of sums) {
+   test(`add ${a} ${b}`, () => assert.equal(add(a, b), sum));
+@@ -12,3 +13,7 @@ for (const [a, b, sum] of sums) {
+ 
+ test('clamps below', () => assert.equal(clamp(-5, 0, 10), 0));
+ test('keeps inside', () => assert.equal(clamp(5, 0, 10), 5));
++test('clamps above', () => assert.equal(clamp(15, 0, 10), 10));
++
++test('multiplies', () => assert.equal(multiply(3, 4), 12));
++test('multiplies by zero', () => assert.equal(multiply(3, 0), 0));

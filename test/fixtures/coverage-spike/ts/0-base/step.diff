@@ -1,0 +1,61 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..7a85c33
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,2 @@
++lcov.info
++out/
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..ffba4ec
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1 @@
++{ "name": "spike-ts", "private": true, "type": "module" }
+diff --git a/src/calc.ts b/src/calc.ts
+new file mode 100644
+index 0000000..a0018bd
+--- /dev/null
++++ b/src/calc.ts
+@@ -0,0 +1,9 @@
++export function add(a: number, b: number): number {
++  return a + b;
++}
++
++export function clamp(value: number, low: number, high: number): number {
++  if (value < low) return low;
++  if (value > high) return high;
++  return value;
++}
+diff --git a/src/legacy.ts b/src/legacy.ts
+new file mode 100644
+index 0000000..f7ac157
+--- /dev/null
++++ b/src/legacy.ts
+@@ -0,0 +1,5 @@
++// No test imports this file.
++export function percent(part: number, whole: number): string {
++  const ratio = part / whole;
++  return `${Math.round(ratio * 100)}%`;
++}
+diff --git a/test/calc.test.ts b/test/calc.test.ts
+new file mode 100644
+index 0000000..d9deadf
+--- /dev/null
++++ b/test/calc.test.ts
+@@ -0,0 +1,14 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { add, clamp } from '../src/calc.ts';
++
++const sums: [number, number, number][] = [
++  [1, 2, 3],
++  [-1, 1, 0],
++];
++for (const [a, b, sum] of sums) {
++  test(`add ${a} ${b}`, () => assert.equal(add(a, b), sum));
++}
++
++test('clamps below', () => assert.equal(clamp(-5, 0, 10), 0));
++test('keeps inside', () => assert.equal(clamp(5, 0, 10), 5));
