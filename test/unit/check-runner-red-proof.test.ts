@@ -121,6 +121,8 @@ const setup = ({
   prepareExit = 0,
   /** The text of a file at the proven step's tip, by `<rev>:<path>`; git finds no other. */
   tips = {} as Record<string, string>,
+  /** The files at the tip whose read git was killed for, by `<rev>:<path>`. */
+  killedTips = [] as string[],
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -133,6 +135,9 @@ const setup = ({
   const git: Git = (cwd, args) => {
     order.push(`git ${args.join(' ')} in ${cwd}`);
     if (args[0] !== 'cat-file') return Promise.resolve(diff);
+    if (killedTips.includes(args.at(-1) ?? '')) {
+      return Promise.resolve({ code: null, stdout: '', stderr: '', killed: 'timed-out' as const });
+    }
     const tip = tips[args.at(-1) ?? ''];
     return Promise.resolve(
       tip === undefined
@@ -598,6 +603,21 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       order.filter((line) => line.startsWith('git cat-file')),
       [`git cat-file blob ${gaugeTip}:test/sum.test.mjs in ${clone}`],
     );
+  });
+
+  it('is blocked on the environment when git was killed reading a file at the tip', async () => {
+    const { run } = setup({
+      diff: { code: 0, stdout: rowDiff, stderr: '' },
+      test: { exitCode: 1, stdout: rowFails },
+      killedTips: [`${gaugeTip}:test/sum.test.mjs`],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the files of step gauge at its tip cannot be read: git cat-file of test/sum.test.mjs was killed (timed-out)',
+    });
   });
 
   it('takes no file git cannot read at the tip for a test file: its row is no test the step added', async () => {

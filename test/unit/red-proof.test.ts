@@ -510,6 +510,26 @@ describe('judgeRed: a name in a file where the step declared no test (#661)', ()
     });
   });
 
+  it('matches no regression name in a file that declares a test only at its tip, which testsUnchanged does not keep', () => {
+    const row: DiffFile = {
+      newPath: 'test/sum.test.mjs',
+      added: ["  ['keeps adding zero', 1, 0, 1],"],
+      removed: [],
+    };
+    const report = tap(
+      ...failing(1, 'adds two numbers', 'not implemented'),
+      ...failing(2, 'adds a negative number', 'not implemented'),
+      'ok 3 - keeps adding zero',
+    );
+    assert.deepEqual(
+      judgeRed(report, [...gauged, row], ['keeps adding zero'], new Set(['test/sum.test.mjs'])),
+      {
+        proven: false,
+        why: 'regression test "keeps adding zero" is not a test the step added in the report',
+      },
+    );
+  });
+
   it('still takes a test the step declared in a test file, beside a data file that holds its name', () => {
     const report = tap(
       ...failing(1, 'adds two numbers', 'not implemented'),
