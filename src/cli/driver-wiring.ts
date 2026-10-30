@@ -192,13 +192,13 @@ export const wireDriver = async (
     comments,
     recipes: setup.recipes,
     clock,
-    stateBranch: stateBranchUrl,
+    stateBranchUrl,
   });
   // Each order's plan, one comment on its issue edited in place (ADR 0233).
   const planComments = planEffects({
     brewery: setup.brewery,
     comments,
-    stateBranch: stateBranchUrl,
+    stateBranchUrl,
   });
   const marks = githubIssueMarks({ client, reads, login });
   // Each Brewery issue's lane label, through the ledger as its status comment (ADR 0154).

@@ -2218,7 +2218,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
 });
 
 describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", () => {
-  const stateBranch = 'https://github.example/alice/brewery/blob/foedrum/state';
+  const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
   const subOrder = {
     id: 'one',
     title: 'One',
@@ -2267,12 +2267,12 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
           step('brew', done(1, ['Port 8080 is free'])),
         ]),
       }),
-      stateBranch,
+      stateBranchUrl,
     );
     assert.deepEqual(section(text), [
       '**Assumptions**',
       '- `plan`: Kept the flag',
-      `- \`plan\`: full plan: <${stateBranch}/batches/7-1/plan-2.md?plain=1>`,
+      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md?plain=1>`,
       '- `brew`: Port 8080 is free',
     ]);
   });
@@ -2280,7 +2280,7 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
   it('links no step whose out doc is no plan: regression test', () => {
     const text = rendered(
       batch({ steps: new Map([step('brew', done(1, ['Port 8080 is free']))]) }),
-      stateBranch,
+      stateBranchUrl,
     );
     assert.deepEqual(section(text), ['**Assumptions**', '- `brew`: Port 8080 is free']);
   });
@@ -2288,20 +2288,23 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
   it('links no plan step that has not succeeded, which has no assumptions to end: regression test', () => {
     const text = rendered(
       batch({ steps: new Map([step('plan', failed(1, 'the out doc plan.md is invalid'))]) }),
-      stateBranch,
+      stateBranchUrl,
     );
     assert.doesNotMatch(text, /full plan|foedrum\/state/);
   });
 
   it('links no plan that succeeded without assumptions, which has no section to end: regression test', () => {
-    const text = rendered(batch({ steps: new Map([step('plan', planned(1, []))]) }), stateBranch);
+    const text = rendered(
+      batch({ steps: new Map([step('plan', planned(1, []))]) }),
+      stateBranchUrl,
+    );
     assert.deepEqual(section(text), []);
     assert.doesNotMatch(text, /full plan|foedrum\/state/);
   });
 
   it('reads as before without a plan: regression test', () => {
     const plain = batch({ steps: new Map([step('plan', done(1, ['Kept the flag']))]) });
-    assert.equal(rendered(plain, stateBranch), rendered(plain));
+    assert.equal(rendered(plain, stateBranchUrl), rendered(plain));
   });
 
   it('links the out doc on the state branch the driver was given', async () => {
@@ -2335,7 +2338,7 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
           comments: comments.host,
           recipes,
           clock: () => now,
-          stateBranch,
+          stateBranchUrl,
         }),
         report: () => undefined,
       });
@@ -2347,7 +2350,7 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
       const body = comments.comments[0]?.body ?? assert.fail('no status comment');
       assert.ok(
         section(body).includes(
-          `- \`plan\`: full plan: <${stateBranch}/batches/7-1/plan-1.md?plain=1>`,
+          `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-1.md?plain=1>`,
         ),
         body,
       );

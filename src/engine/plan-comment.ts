@@ -168,7 +168,11 @@ export const planCommentOf = (state: State, batchId: string): number | undefined
  * The revision of the plan comment of `batchId` that the recorded events call for: the next one
  * when its latest plan's text is not the one the comment shows, else none.
  */
-const planDue = (state: State, batchId: string, stateBranch?: string): DueRevision | undefined => {
+const planDue = (
+  state: State,
+  batchId: string,
+  stateBranchUrl?: string,
+): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return undefined;
   const issue = breweryIssueOf(state, batch);
@@ -178,7 +182,9 @@ const planDue = (state: State, batchId: string, stateBranch?: string): DueRevisi
   const previous = own ?? orderRevision(state, batch, issue);
   const { stepId, attempt, plan } = latest;
   const fullPlan =
-    stateBranch === undefined ? undefined : outDocLink(stateBranch, { batchId, stepId, attempt });
+    stateBranchUrl === undefined
+      ? undefined
+      : outDocLink(stateBranchUrl, { batchId, stepId, attempt });
   const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
@@ -191,7 +197,7 @@ export interface PlanEffectsOptions {
   brewery: string;
   comments: StatusComments;
   /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (#659). */
-  stateBranch?: string;
+  stateBranchUrl?: string;
 }
 
 /**
@@ -200,11 +206,11 @@ export interface PlanEffectsOptions {
  * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233).
  */
 export const planEffects = (options: PlanEffectsOptions): DriverEffects => {
-  const { brewery, comments, stateBranch } = options;
+  const { brewery, comments, stateBranchUrl } = options;
   const plan = revisions.effects(brewery, comments);
   return {
     due: (state, batchId) => {
-      const due = planDue(state, batchId, stateBranch);
+      const due = planDue(state, batchId, stateBranchUrl);
       return due === undefined ? [] : [plan.due(due)];
     },
     target: plan.target,

@@ -635,14 +635,14 @@ export const capped = <T>(
 };
 
 /**
- * The out doc of the latest attempt of `stepId` that succeeded, on `stateBranch`, when it is a
+ * The out doc of the latest attempt of `stepId` that succeeded, on `stateBranchUrl`, when it is a
  * plan: where its assumptions read whole (#659).
  */
-const fullPlanLine = (batch: Batch, stepId: string, stateBranch?: string): string[] => {
-  if (stateBranch === undefined) return [];
+const fullPlanLine = (batch: Batch, stepId: string, stateBranchUrl?: string): string[] => {
+  if (stateBranchUrl === undefined) return [];
   const done = latestSucceeded(batch, stepId);
   if (done === undefined || planOf(done.output) === undefined) return [];
-  const url = outDocLink(stateBranch, { batchId: batch.id, stepId, attempt: done.attempt });
+  const url = outDocLink(stateBranchUrl, { batchId: batch.id, stepId, attempt: done.attempt });
   return [`- ${code(stepId)}: full plan: ${link(url)}`];
 };
 
@@ -650,7 +650,7 @@ const assumptionLines = (
   batch: Batch,
   stepIds: readonly string[],
   told: Told,
-  stateBranch?: string,
+  stateBranchUrl?: string,
 ): string[] =>
   stepIds.flatMap((stepId) => {
     const shown = capped(
@@ -659,7 +659,7 @@ const assumptionLines = (
       mostAssumptions,
       (text) => text,
     );
-    return shown.length === 0 ? [] : [...shown, ...fullPlanLine(batch, stepId, stateBranch)];
+    return shown.length === 0 ? [] : [...shown, ...fullPlanLine(batch, stepId, stateBranchUrl)];
   });
 
 /** The output of `stepId`'s latest finished attempt when it succeeded; else undefined. */
@@ -820,7 +820,7 @@ export const renderStatus = (
   /** The other open pull requests its open pull request conflicts with (ADR 0230). */
   pairs: readonly PairConflict[] = [],
   /** The state branch on the code host, whose out doc of the plan the Assumptions link (#659). */
-  stateBranch?: string,
+  stateBranchUrl?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -845,7 +845,7 @@ export const renderStatus = (
   ];
   // Before the sections that grow with the out docs, so a comment cut to length keeps it.
   if (sensitive !== undefined) sections.push([sensitiveLine(sensitive)]);
-  const assumptions = assumptionLines(batch, stepIds, told, stateBranch);
+  const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
@@ -916,7 +916,7 @@ const statusDue = (
   state: State,
   batchId: string,
   steps?: readonly string[],
-  stateBranch?: string,
+  stateBranchUrl?: string,
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return undefined;
@@ -937,7 +937,7 @@ const statusDue = (
     leftBody(state, batch),
     openOf(state, batch),
     pairsOf(state, batch).conflicts,
-    stateBranch,
+    stateBranchUrl,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
@@ -952,7 +952,7 @@ export interface StatusEffectsOptions {
   recipes: Recipes;
   clock: () => Date;
   /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (#659). */
-  stateBranch?: string;
+  stateBranchUrl?: string;
 }
 
 const minuteMs = 60_000;
@@ -963,7 +963,7 @@ const minuteMs = 60_000;
  * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
-  const { brewery, comments, recipes, clock, stateBranch } = options;
+  const { brewery, comments, recipes, clock, stateBranchUrl } = options;
   // When this driver last applied or found a revision of each batch.
   const lastAt = new Map<string, number>();
   const status = revisions.effects(brewery, comments, (due) =>
@@ -977,7 +977,7 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
         state,
         batchId,
         name === undefined ? undefined : recipes.find(name)?.steps,
-        stateBranch,
+        stateBranchUrl,
       );
       if (batch === undefined || due === undefined) return [];
       const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled';

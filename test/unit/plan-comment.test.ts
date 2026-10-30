@@ -479,7 +479,7 @@ describe('planEffects (ADR 0233)', () => {
   });
 
   it("links the latest plan's own out doc on the state branch the driver was given (#659)", async () => {
-    const stateBranch = 'https://github.example/alice/brewery/blob/foedrum/state';
+    const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
     const driver = await openDriver({
       store,
       runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
@@ -489,14 +489,14 @@ describe('planEffects (ADR 0233)', () => {
       takes: () => true,
       stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       limits: () => defaultLimits,
-      effects: planEffects({ brewery, comments: comments.host, stateBranch }),
+      effects: planEffects({ brewery, comments: comments.host, stateBranchUrl }),
       report: () => {},
     });
     drivers.push(driver);
     order();
     step('plan', planned(three));
     await driver.applyEffects();
-    const link = (path: string) => `\n\nFull plan: <${stateBranch}/batches/7-1/${path}?plain=1>`;
+    const link = (path: string) => `\n\nFull plan: <${stateBranchUrl}/batches/7-1/${path}?plain=1>`;
     assert.ok(only().body.endsWith(`${link('plan-1.md')}\n\n${marker(1)}`), only().body);
     step('replan', planned(second));
     await driver.applyEffects();
@@ -504,7 +504,7 @@ describe('planEffects (ADR 0233)', () => {
   });
 
   it('links the attempt of the plan that succeeded, not the one before it: regression test (#659)', async () => {
-    const stateBranch = 'https://github.example/alice/brewery/blob/foedrum/state';
+    const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
     const driver = await openDriver({
       store,
       runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
@@ -514,7 +514,7 @@ describe('planEffects (ADR 0233)', () => {
       takes: () => true,
       stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       limits: () => defaultLimits,
-      effects: planEffects({ brewery, comments: comments.host, stateBranch }),
+      effects: planEffects({ brewery, comments: comments.host, stateBranchUrl }),
       report: () => {},
     });
     drivers.push(driver);
@@ -527,7 +527,7 @@ describe('planEffects (ADR 0233)', () => {
     issue({ kind: 'record', event: { type: 'step.started', ...retried } });
     issue({ kind: 'finish', ...retried, ending: planned(three) });
     await driver.applyEffects();
-    const link = `Full plan: <${stateBranch}/batches/7-1/plan-2.md?plain=1>`;
+    const link = `Full plan: <${stateBranchUrl}/batches/7-1/plan-2.md?plain=1>`;
     assert.ok(only().body.endsWith(`${link}\n\n${marker(1)}`), only().body);
   });
 });
