@@ -164,7 +164,7 @@ describe('changedTests', () => {
     const subtest = '	t.Run("adds two numbers", func(t *testing.T) {';
     const found = changedTests(
       [added(path, [subtest])],
-      [changed(path, [], ['		if add(1, 2) != 3 {'])],
+      [changed(path, [subtest], ['		if add(1, 2) != 3 {', subtest])],
     );
     assert.deepEqual(found, []);
   });
