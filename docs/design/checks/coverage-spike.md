@@ -133,7 +133,7 @@ A name-free rule: the red proof passes when the run has no load error, at least 
 | compile error, C#: `error CS0117` | refused when the build output is read | `Text.Tests` writes no TRX and no Cobertura. A test project with no report is the sign |
 | a skipped test | refused: the step's test is skipped | a skip shows, but whose it is does not (a green base may have skips). With test files in coverage, the skipped C# test's body line has 0 hits (`Calc.Tests.with-tests.cobertura.xml`, line 26), so it is attributable. Node's one-line `test.skip(…)` line has 1 hit, so it is not attributable at line level (only through `FNDA` of its function) |
 | a stub that returns a value, so one new test passes | refused | not seen while another test fails. Reasoned from the rule; not run |
-| all tests fail with `FileLoadException … blocked by an application control policy (0x800711C7)` | seen once, on base `Calc.Tests`: every test failed because Windows blocked coverlet's rewritten `Calc.dll`. `FileLoadException` is not in `LOAD_ERRORS`, so today this reads as **proven** | also proven, wrongly. Both need the load error |
+| all tests fail with `FileLoadException … blocked by an application control policy (0x800711C7)` | seen once, on base `Calc.Tests`: every test failed because Windows blocked coverlet's rewritten `Calc.dll`. `FileLoadException` was not in `LOAD_ERRORS`, so it read as **proven** when the spike ran; it is refused since [ADR 0269](../../adr/0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) | also proven, wrongly. Both need the load error |
 
 The name-free rule gives what `judgeRed` gives for the usual case, the table row and the regression test, without reading anything.
 It loses two things: who skipped a test, and a stub that lets one new test pass.
@@ -230,7 +230,7 @@ Like the test report's file, the folder would be removed before the run.
 - **Lines or branches.** Whether "uncovered" reads only line hits, or also `BRDA` and `condition-coverage`, to catch a change after a condition on the same line.
 - **Test selection (goal 3).** Whether it is a separate mechanism (the .NET project graph, run before anything) with coverage as a check after the run, or a map from an earlier run.
 - **What the red proof gives up:** attributing a skipped test and catching a stub that returns a value, unless test files are included in coverage (C#), or a skip anywhere fails the proof.
-- **Load errors.** Whether `LOAD_ERRORS` stays in either design, whether `FileLoadException` and `Could not load file or assembly` join it (seen once here), and whether a test project with no report counts as one.
+- **Load errors.** Whether `LOAD_ERRORS` stays in either design, and whether a test project with no report counts as one. `FileLoadException` (seen once here), and `Could not load file or assembly` as a `FileNotFoundException`'s message, joined it in [ADR 0269](../../adr/0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md), each matched as an exception's text.
 - **testsUnchanged.** Keep every line the red step added to a test file, or keep today's declaration and assertion filter on those lines.
 - **Configuration.** Whether a `coverageReport` sits beside `testReport`, LCOV by file and Cobertura by folder, and whether a test-first recipe without one is Stuck (`environment`), as `needsTestReport` makes it today without a test report.
 - **Other platforms.** Whether separators, coverlet's second `<source>` and case in path matching behave on macOS and Linux as on Windows.
