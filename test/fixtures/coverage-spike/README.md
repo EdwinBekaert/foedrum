@@ -22,7 +22,6 @@ This machine's paths are replaced with `C:\spike\` and `C:\Users\dev`.
 ## `cs/`: .NET SDK 10.0.402, coverlet.collector 6.0.4
 
 There is one Cobertura file per test project, from `dotnet test test/<project> --collect "XPlat Code Coverage"`.
-The packages are those of the `dotnet new xunit` template: xunit 2.9.3, xunit.runner.visualstudio 3.1.4, Microsoft.NET.Test.Sdk 17.14.1.
 `Calc.Tests` references `Calc`; `Text.Tests` references `Text`, which references `Calc`.
 
 | Folder | Commit |

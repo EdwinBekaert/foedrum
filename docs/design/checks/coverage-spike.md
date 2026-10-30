@@ -95,7 +95,7 @@ A per-project report also shows that goal 4 has to read the **union** of the rep
 
 ### Uncovered changed lines
 
-The diff's added lines, mapped to the hits in the union of the step's reports (`coverage-sketch.mjs`, below):
+The diff's added lines, mapped to the hits in the union of the step's reports (the reader sketched below):
 
 | Step | TypeScript: uncovered added lines | C#: uncovered added lines |
 |---|---|---|
