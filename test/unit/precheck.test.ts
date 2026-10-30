@@ -96,6 +96,26 @@ describe('isGatedCommand', () => {
     });
   }
 
+  // Each option git's lists hold is known: an unknown one would gate these (review of #651).
+  const withValue = ['-C', '-c', '--config-env', '--git-dir', '--work-tree', '--namespace'];
+  const withValueToo = ['--attr-source', '--super-prefix', '--shallow-file'];
+  const withoutValue = [
+    ...['-v', '--version', '-p', '--paginate', '-P', '--no-pager', '--bare', '--exec-path'],
+    ...['--html-path', '--man-path', '--info-path', '--no-replace-objects', '--no-lazy-fetch'],
+    ...['--no-optional-locks', '--no-advice', '--literal-pathspecs', '--glob-pathspecs'],
+    ...['--noglob-pathspecs', '--icase-pathspecs'],
+  ];
+  const joined = [...[...withValue, ...withValueToo].filter((o) => o.startsWith('--'))];
+  for (const command of [
+    ...[...withValue, ...withValueToo].map((option) => `git ${option} x status`),
+    ...withoutValue.map((option) => `git ${option} status`),
+    ...[...joined, '--exec-path', '--list-cmds'].map((option) => `git ${option}=x status`),
+  ]) {
+    it(`lets through a known git option (regression test): ${command}`, () => {
+      assert.equal(isGatedCommand(command), false);
+    });
+  }
+
   const ungated = [
     'git status',
     'git commit -m "git push later"',
@@ -388,6 +408,13 @@ describe('precheck with a personal denylist', () => {
     ['git push -oci.skip origin', ['origin']],
     ['git push -uoci.skip origin', ['origin']],
     ['git push -o ci.skip origin', ['origin']],
+    // Every flag without a value may come before -o (review of #651).
+    ['git push -n4o ci.skip origin', ['origin']],
+    ['git push -6o ci.skip origin', ['origin']],
+    // Behind git's options with a value, the remote is read as named (review of #651).
+    ['git --super-prefix x/ push origin', ['origin']],
+    ['git --shallow-file x push origin', ['origin']],
+    ['git --namespace x push origin', ['origin']],
   ] as const) {
     it(`scans against the remote the push names (regression test): ${command}`, async () => {
       const { runCheck } = fakeCheck({ ok: true, output: '' });
@@ -1272,6 +1299,16 @@ describe('forbiddenReason on a push configured on its command line', () => {
   ];
   for (const command of configured) {
     it(`forbids: ${command}`, () => {
+      assert.match(forbiddenReason(command) ?? '', /^git push is blocked .*git's configuration/);
+    });
+  }
+
+  // git config or git remote behind an option the gate does not know (review of #651).
+  for (const command of [
+    'git --frobnicate x config remote.origin.mirror true && git push',
+    'git --frobnicate x remote set-url origin ../b && git push',
+  ]) {
+    it(`forbids (regression test): ${command}`, () => {
       assert.match(forbiddenReason(command) ?? '', /^git push is blocked .*git's configuration/);
     });
   }
