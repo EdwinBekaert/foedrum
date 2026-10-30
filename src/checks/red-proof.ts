@@ -85,9 +85,11 @@ function namesOf(name: string): string[] {
  * Adds)`); or as the rest of a Gherkin scenario's line (`Scenario: adds two numbers`). A bare word
  * in code (`key: null,`, `f(null)`) is none (#466), nor a method call (`calc.add(`), nor a line
  * that only asserts (`assert.equal(add(1, 2), 3)`). Each form is a literal between fixed parts, so
- * the match stays linear in the line. A line keeps no carriage return of a CRLF file.
+ * the match stays linear in the line. A line keeps no carriage return of a CRLF file. Without
+ * `literals`, a string literal declares nothing: in a file where the step declared no test it is
+ * data (ADR 0262).
  */
-function declares(name: string, lines: readonly string[]): boolean {
+function declares(name: string, lines: readonly string[], literals = true): boolean {
   const names = namesOf(name);
   const patterns = names.map((each) => {
     const escaped = escapeRegExp(each);
@@ -96,7 +98,7 @@ function declares(name: string, lines: readonly string[]): boolean {
       `(?<=\\b(?:def|fn|func) )${escaped}(?![\\p{L}\\p{N}_])`,
       `\\bTEST(?:_F|_P)?\\(\\s*[\\p{L}\\p{N}_]+,\\s*${escaped}\\s*\\)`,
       `^\\s*(?:Scenario(?: Outline| Template)?|Example)\\s*:\\s*${escaped}\\s*$`,
-    ];
+    ].slice(literals ? 0 : 1);
     return new RegExp(forms.join('|'), 'u');
   });
   return lines.some((line) => {
@@ -163,11 +165,16 @@ export function judgeRed(
   if (error !== undefined) {
     return refused(`the run has a load, compile, import or collection error: ${error}`);
   }
-  const lines = diff.flatMap(({ added }) => added);
+  // A string literal declares a test only in a file where the step declared one: elsewhere, as in
+  // a regenerated schema's `"type": "array"`, it is data (#661, ADR 0262).
+  const inTestFile = (file: DiffFile): boolean => file.added.some(declaresTest);
+  const testFiles = diff.filter(inTestFile).flatMap(({ added }) => added);
+  const otherFiles = diff.filter((file) => !inTestFile(file)).flatMap(({ added }) => added);
+  const declared = (name: string): boolean =>
+    declares(name, testFiles) || declares(name, otherFiles, false);
   // A suite's own result follows its tests'; its tests are judged.
   const added = report.tests.filter(
-    ({ name, leaf }) =>
-      leaf && name.trim() !== '' && name.length <= MAX_NAME && declares(name, lines),
+    ({ name, leaf }) => leaf && name.trim() !== '' && name.length <= MAX_NAME && declared(name),
   );
   const regression = new Set(regressionTests.map((name) => name.trim()));
   const inTests = testFileLines(diff);

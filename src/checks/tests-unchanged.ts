@@ -17,6 +17,8 @@ const DECLARATIONS: readonly RegExp[] = [
   /@Test\b/,
   /\[\s*(?:Fact|Theory|Test|TestMethod|TestCase)\b/,
   /\bfunc\s+Test\w*\s*\(/,
+  // A Go subtest, which a step may add inside a test it did not add (ADR 0262).
+  /\bt\.Run\s*\(/,
   /#\[(?:\w+::)*test\]/,
   /\bTEST(?:_F|_P)?\s*\(/,
 ];
