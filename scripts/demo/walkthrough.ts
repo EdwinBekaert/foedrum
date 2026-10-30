@@ -36,19 +36,19 @@ export const STEPS: readonly Step[] = [
     id: 'diagnosis',
     title: 'The diagnosis serve runs with',
     lookFor:
-      "this is the demo's own diagnosis, not foedrum doctor on this machine: the demo starts no claude and no gh, so it checks neither.",
+      "the demo's own diagnosis, not foedrum doctor on this machine: it starts no claude and no gh.",
   },
   {
     id: 'order',
     title: 'The order comes in',
     lookFor:
-      "an issue in the Brewery, labelled recipe:nip-parallel by a user it lists, is all serve needs to take it as a batch for the Brewery's own recipe: Nip's steps from Foedrum's defaults, with its taste step a parallel group of three lenses.",
+      "an issue labelled recipe:nip-parallel is all serve needs: Nip's steps, tasted by three lenses at once.",
   },
   {
     id: 'brewing',
     title: 'foedrum status as the batch moves',
     lookFor:
-      "the batch goes from the order to brewing, and the Gauger's gauge #1 has committed a failing test when the Cellar is killed.",
+      'the batch goes from the order to brewing; gauge #1 commits a failing test before the kill.',
   },
   {
     id: 'restart',
@@ -60,13 +60,13 @@ export const STEPS: readonly Step[] = [
     id: 'checks',
     title: 'The red proof and the failed check',
     lookFor:
-      "red #1 must see the Gauger's test fail before implement #1 may start; green #1 fails the Cellarman's first fix, so implement #2 starts, told why, with the failed test's own line; once green #2 passes, foedrum status shows the Tasters' correctness #1, security #1 and test-design #1 brewing at once. correctness #1 blocks with one finding, so once all three have ended the batch goes back to implement #3, told that finding; then correctness #2, security #2 and test-design #2 are told the change since round 1 and round 1's findings, the Cellarman's marked fixed, and correctness #2 approves.",
+      'red #1 sees the test fail; green #1 fails, so implement #2 is told why; correctness #1 blocks, so implement #3 runs and round 2 approves.',
   },
   {
     id: 'pull-request',
     title: 'The pull request and the status comment',
     lookFor:
-      "one pull request and one status comment on the fake code host, though the Cellar lived twice; its path line has both rounds, the three lens attempts side by side in each with implement #3 between them, and its Findings each one's findings under its own step.",
+      'one pull request and one status comment, though the Cellar lived twice; its path has a line per round.',
   },
   {
     id: 'on-tap',
@@ -77,23 +77,24 @@ export const STEPS: readonly Step[] = [
     id: 'lenses',
     title: 'foedrum lenses',
     lookFor:
-      "each lens with its rounds, its findings by severity and how they ended, and its tokens: correctness's one finding is fixed, which only the round it blocked recorded; security and test-design each left one minor finding open, and diff/acceptance, a lens of Nip's that this Brewery's recipe does not run, has no rounds.",
+      "each lens's rounds, findings and tokens: correctness's finding is fixed; diff/acceptance, not in this recipe, has no rounds.",
   },
   {
     id: 'brew',
     title: `foedrum brew ${BREW_ORDER.number} --as ${USER}`,
-    lookFor: `the same order again as issue #${BREW_ORDER.number}, brewed from a terminal instead of the Cellar: foedrum brew orders it, routes it by its label, and drives that one batch to its pull request.`,
+    lookFor: `the same order again as issue #${BREW_ORDER.number}, brewed from a terminal: foedrum brew orders, routes and drives it to its pull request.`,
   },
   {
     id: 'resume',
     title: `foedrum resume ${BATCH} ${RESUMED}`,
     lookFor:
-      "resume finds the Cellarman's session of that attempt and prints the line that opens it in its worktree in a terminal; the demo opens it nowhere, since it starts no claude.",
+      "the line that opens the Cellarman's session in its worktree; the demo opens it nowhere, since it starts no claude.",
   },
   {
     id: 'replay',
     title: `foedrum replay ${BATCH}`,
-    lookFor: 'every event the batch went through, and the state the fold makes of them.',
+    lookFor:
+      "the state the fold makes of the batch's events; foedrum replay lists every event above it.",
   },
 ];
 
@@ -101,12 +102,25 @@ export const STEPS: readonly Step[] = [
 export const headingOf = (index: number): string =>
   `Step ${index + 1} of ${STEPS.length}: ${STEPS[index]?.title}`;
 
-/** What the walkthrough prints to open `STEPS[index]`: a blank line, its heading, what to look for. */
-export const stepLines = (index: number): string[] => [
-  '',
-  headingOf(index),
-  `Look for: ${STEPS[index]?.lookFor}`,
-];
+/** The width the walkthrough wraps what to look for at. */
+const WIDTH = 80;
+
+/**
+ * What the walkthrough prints to open `STEPS[index]`: a blank line, its heading, and what to look
+ * for, wrapped at `WIDTH` under its label.
+ */
+export const stepLines = (index: number): string[] => {
+  const lines: string[] = [];
+  let line = 'Look for:';
+  for (const word of (STEPS[index]?.lookFor ?? '').split(' ')) {
+    if (line.length + 1 + word.length <= WIDTH) line = `${line} ${word}`;
+    else {
+      lines.push(line);
+      line = `${' '.repeat('Look for: '.length)}${word}`;
+    }
+  }
+  return ['', headingOf(index), ...lines, line];
+};
 
 /** The line a pause shows while it waits for Enter. */
 export const PAUSE_PROMPT =
@@ -218,6 +232,23 @@ export const laterRoundLines = (
   return [
     `${told}, and the earlier findings, as {earlierFindings}:`,
     ...findings.text.map((line) => `  ${line}`),
+  ];
+};
+
+/**
+ * `foedrum replay <batch>`'s output with its Events block counted in one line instead of listed:
+ * the State under it is what the walkthrough shows (#662).
+ */
+export const replayLines = (output: string, batch: string): string[] => {
+  const lines = output.trimEnd().split(/\r?\n/);
+  const start = lines.indexOf('Events');
+  if (start === -1) return lines;
+  const end = lines.indexOf('', start);
+  const events = (end === -1 ? lines.length : end) - start - 1;
+  return [
+    ...lines.slice(0, start),
+    `Events  ${events}, left out here: foedrum replay ${batch} lists them`,
+    ...(end === -1 ? [] : lines.slice(end)),
   ];
 };
 

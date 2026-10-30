@@ -1207,7 +1207,7 @@ describe('the merge brief (ADR 0225)', () => {
       await post(effectsOf(fakeHost().host));
       assert.ok(
         (await statusText()).includes(
-          `- <${url}> is ready to merge on \`aaaaaaaa\`: <${url}#issuecomment-101>`,
+          `- <${url}> passed its checks on \`aaaaaaaa\`; is ready to merge on \`aaaaaaaa\`: <${url}#issuecomment-101>`,
         ),
       );
       pending();
@@ -1251,10 +1251,18 @@ describe('the merge brief (ADR 0225)', () => {
 
     it('says the open pull request has no merge brief while none is current (ADR 0229)', async () => {
       nip();
-      const notReady = `- <${url}> is not ready to merge yet: no merge brief.`;
+      // On the pull request's one line, after what its checks say (#662).
+      const notReady = (text: string): boolean =>
+        text
+          .split('\n')
+          .some(
+            (line) =>
+              line.startsWith(`- <${url}> `) &&
+              line.endsWith('is not ready to merge yet: no merge brief'),
+          );
       // Its checks are pending.
       pending();
-      assert.ok((await statusText()).includes(notReady));
+      assert.ok(notReady(await statusText()));
       const { host } = fakeHost();
       finished([passed('ci/test')]);
       assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
@@ -1272,7 +1280,7 @@ describe('the merge brief (ADR 0225)', () => {
       nipFromImplement(2, fixed);
       assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1.hidden']);
       const moved = await statusText();
-      assert.ok(moved.includes(notReady));
+      assert.ok(notReady(moved));
       assert.doesNotMatch(moved, /issuecomment-101/);
       finished([passed('ci/test'), passed('ci/late')], fixed);
       assert.deepStrictEqual(await post(effectsOf(host)), ['brief.2']);
@@ -1284,7 +1292,7 @@ describe('the merge brief (ADR 0225)', () => {
     it('says nothing of a brief once its pull request merged (ADR 0229)', async () => {
       nip();
       assert.ok(
-        (await statusText()).includes(`- <${url}> is not ready to merge yet: no merge brief.`),
+        (await statusText()).includes(`- <${url}> is not ready to merge yet: no merge brief`),
       );
       accept({
         kind: 'record',

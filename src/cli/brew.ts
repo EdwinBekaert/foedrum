@@ -562,7 +562,8 @@ export const runBrew = async (
       if (line !== shown) {
         shown = line;
         saidAt = at;
-        say(line);
+        // On tap, the last line says it once its effects are applied (#662).
+        if (now.lane.kind !== 'on_tap') say(line);
       } else if (terminal === undefined && running.length > 0 && at - saidAt >= PROGRESS_MS) {
         // A step can run for many minutes in silence: say it still runs (#406).
         saidAt = at;

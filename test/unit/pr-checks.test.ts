@@ -793,7 +793,8 @@ describe('recordChecks', () => {
     );
     assert.match(
       text,
-      /\*\*Pull requests\*\*\n- <https:\/\/github\.com\/acme\/web\/pull\/12>\n- <https:\/\/github\.com\/acme\/web\/pull\/12> waits for its checks on `aaaaaaaa` since 2026-10-26T09:00:00\.000Z/,
+      // On its one line (#662).
+      /\*\*Pull requests\*\*\n- <https:\/\/github\.com\/acme\/web\/pull\/12> waits for its checks on `aaaaaaaa` since 2026-10-26T09:00:00\.000Z$/,
     );
     assert.match(formatReplay(batch(), store.eventsAfter(0)), /pull_request\.checks_pending/);
   });

@@ -477,6 +477,28 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  it('says the batch is on tap once, in its last line (#662)', async () => {
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;
+    assert.deepStrictEqual(
+      lines.filter((line) => line.includes('on tap')),
+      [`foedrum brew: batch 12-1 is on tap: ${url}`],
+    );
+  });
+
+  it('names the lane on tap when it is stopped while the batch on tap still applies its effects (#662)', async () => {
+    const controller = new AbortController();
+    const stopping = shell(behave.succeed('Brewed'), {
+      signal: controller.signal,
+      wait: async () => {
+        if (log().state().batches.get('12-1')?.lane.kind === 'on_tap') controller.abort();
+      },
+    });
+    assert.equal(await runBrew(setup, stopping, request), 1);
+    const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;
+    assert.equal(lines.at(-1), `foedrum brew: stopped; batch 12-1 on tap: ${url}`);
+  });
+
   it("opens the pull request on the code host in Foedrum's layout, as a draft with no Taster (ADR 0167)", async () => {
     const files = serveInputs().files;
     const writing = serveSetup(

@@ -45,6 +45,7 @@ import {
   PAUSE_PROMPT,
   pausesBetweenSteps,
   RESUMED,
+  replayLines,
   STATUS_LINE,
   splitOutput,
   stepLines,
@@ -128,12 +129,19 @@ const next = async (): Promise<void> => {
 
 /** The foedrum commands the walkthrough ran, and how each ended. */
 const commands: { argv: string[]; exitCode: number; stderr: string }[] = [];
-/** `foedrum <argv>` as the CLI runs it in the Brewery: status and replay read only its store. */
-const foedrum = async (brewery: string, argv: string[]): Promise<void> => {
+/**
+ * `foedrum <argv>` as the CLI runs it in the Brewery: status and replay read only its store. Its
+ * output is shown as the lines `shown` makes of it.
+ */
+const foedrum = async (
+  brewery: string,
+  argv: string[],
+  shown = (output: string): string[] => output.trimEnd().split('\n'),
+): Promise<void> => {
   const { exitCode, stdout, stderr } = await cliFromCheckout(argv, brewery);
   commands.push({ argv, exitCode, stderr });
   say(`$ foedrum ${argv.join(' ')}`);
-  indented(`${stdout}${stderr}`.trimEnd().split('\n'));
+  indented(shown(`${stdout}${stderr}`));
 };
 
 say(`demo: a scratch Brewery ${BREWERY} and its target ${TARGET} in ${scratch}`);
@@ -236,7 +244,8 @@ try {
 }
 
 await next();
-await foedrum(brewery, ['replay', BATCH]);
+// The state under the events, which it only counts (#662).
+await foedrum(brewery, ['replay', BATCH], (output) => replayLines(output, BATCH));
 
 say('');
 host = await codeHost(journal);

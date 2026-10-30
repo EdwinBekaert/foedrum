@@ -29,6 +29,10 @@ A test of a sort or of state kept per key feeds its input out of order and inter
 
 Code that decides whether a path lies inside a folder has a test with a sibling whose name starts with that folder's name (/home/adam beside /home/ada), and one with the root as the folder.
 
+## tool-error-fixture-from-the-tool (semantic)
+
+A test fixture that stands for another tool's or module's output (an error text, a report it prints) builds it from that tool or module when the test can call it in process, so the test breaks when the real format drifts.
+
 ## unread-file-claims-nothing (semantic)
 
 A report about a file's content says nothing of a file it could not read beyond that it could not: a comparison with an unread file is never worded as a match or a difference.

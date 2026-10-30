@@ -568,10 +568,10 @@ const markOf = (batch: Batch, stepId: string, n: number): string => {
 };
 
 /**
- * The batch's attempts in the order they ran, each marked, on one line; none before its first.
- * Each is a code span: GitHub would link a bare `#1` to issue 1.
+ * The batch's attempts in the order they ran, each marked, a line per round; none before its
+ * first. Each is a code span: GitHub would link a bare `#1` to issue 1.
  */
-const pathLine = (batch: Batch, told: Told): string[] => {
+const pathLines = (batch: Batch, told: Told): string[] => {
   const { path = [], lane } = batch;
   // Stuck at an attempt that never started: the path ends there all the same.
   const stuckAt = lane.kind === 'stuck' && 'stepId' in lane.reason ? lane.reason.stepId : undefined;
@@ -596,7 +596,18 @@ const pathLine = (batch: Batch, told: Told): string[] => {
     const answer = told(answersText(input), stepId, mostAnswer);
     return `${mark} → ${answer} (by ${plain(input.by)} via ${input.via})`;
   });
-  return [`Path: ${shown.join(' → ')}`];
+  // An attempt a route scheduled starts a line, a round of its own; the attempts one route
+  // scheduled together share it (ADR 0272).
+  const rounds: string[][] = [];
+  let routeBefore: string | undefined;
+  for (const [n, { stepId, attempt }] of all.entries()) {
+    const route = batch.steps.get(stepId)?.attempts.get(attempt)?.route;
+    const routed = route === undefined ? undefined : JSON.stringify(route);
+    if (n === 0 || (routed !== undefined && routed !== routeBefore)) rounds.push([]);
+    rounds.at(-1)?.push(shown[n] ?? '');
+    routeBefore = routed;
+  }
+  return rounds.map((round, n) => `${n === 0 ? 'Path: ' : '→ '}${round.join(' → ')}`);
 };
 
 /** The number and output of the latest attempt of `stepId` that succeeded; else undefined. */
@@ -790,6 +801,26 @@ export interface LeftBody {
   left: 'edited' | 'unmarked';
 }
 
+/**
+ * One line per pull request of `urls`, in their order, with every one of `lines` that names it
+ * joined onto it (ADR 0272); a line that names none of them stays a line of its own.
+ */
+const onePerPullRequest = (urls: readonly string[], lines: readonly string[]): string[] => {
+  const said = new Map(urls.map((url) => [`- ${link(url)}`, [] as string[]]));
+  const others: string[] = [];
+  for (const line of lines) {
+    const named = [...said.keys()].find((head) => line.startsWith(`${head} `));
+    if (named === undefined) others.push(line);
+    else said.get(named)?.push(line.slice(named.length + 1));
+  }
+  return [
+    ...[...said].map(([head, clauses]) =>
+      clauses.length === 0 ? head : `${head} ${clauses.join('; ')}`,
+    ),
+    ...others,
+  ];
+};
+
 const leftBodyText: Record<LeftBody['left'], string> = {
   edited: 'its description was edited since Foedrum wrote it',
   unmarked: 'its description has no Foedrum marker',
@@ -839,7 +870,7 @@ export const renderStatus = (
     ],
     [
       recipeText(batch.recipe),
-      ...pathLine(batch, told),
+      ...pathLines(batch, told),
       ...stepIds.map((stepId) => stepLine(batch, stepId, told)),
     ],
   ];
@@ -864,25 +895,25 @@ export const renderStatus = (
         ? [planned(batch) ? PLANNED : 'No pull request.']
         : [
             '**Pull requests**',
-            ...pullRequests.map((url) => baseCheckLine(batch, url, open) ?? `- ${link(url)}`),
-            ...pairs.map(pairLine),
-            ...openCheckLines(batch, open),
-            // The merge brief of the record that makes it ready now (ADR 0225).
-            ...(brief === undefined || !('comment' in brief)
-              ? []
-              : [
-                  `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
-                ]),
-            // An open pull request with no current brief (ADR 0229).
-            ...(brief === undefined || 'comment' in brief
-              ? []
-              : [`- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief.`]),
-            // A body someone edited, or one with no marker, is not rendered again (ADR 0227).
-            ...(left === undefined
-              ? []
-              : [
-                  `- ${link(left.pullRequest)}: ${leftBodyText[left.left]}, so Foedrum left it as it is`,
-                ]),
+            ...onePerPullRequest(pullRequests, [
+              ...pullRequests.flatMap((url) => baseCheckLine(batch, url, open) ?? []),
+              ...pairs.map(pairLine),
+              ...openCheckLines(batch, open),
+              // The merge brief of the record that makes it ready now (ADR 0225).
+              ...(brief === undefined || !('comment' in brief)
+                ? []
+                : [
+                    `- ${link(brief.pullRequest)} is ready to merge on ${code(shortSha(brief.head))}: ${link(`${brief.pullRequest}#issuecomment-${brief.comment}`)}`,
+                  ]),
+              // An open pull request with no current brief (ADR 0229).
+              ...(brief === undefined || 'comment' in brief
+                ? []
+                : [`- ${link(brief.pullRequest)} is not ready to merge yet: no merge brief`]),
+              // A body someone edited, or one with no marker, is not rendered again (ADR 0227).
+              ...(left === undefined
+                ? []
+                : [`- ${link(left.pullRequest)} is left as it is: ${leftBodyText[left.left]}`]),
+            ]),
           ],
     );
   }

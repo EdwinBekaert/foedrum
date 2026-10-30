@@ -89,9 +89,19 @@ describe('npm run demo', () => {
       checks,
       /demo: implement #2 is told why step implement runs again: the failed checks of step green\n +not ok \d+ - greets a stranger when no name is given/,
     );
-    // The status comment is shown as its Markdown, without the hidden revision marker.
-    assert.match(part('pull-request'), /On tap/);
+    // The status comment is shown as its Markdown, without the hidden revision marker: its path a
+    // line per round, and its pull request named once (#662).
+    const statusComment = part('pull-request');
+    assert.match(statusComment, /On tap/);
+    assert.match(statusComment, /^ +Path: `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m);
+    assert.equal(
+      statusComment.match(/^ +- <https:\/\/github\.com\/demo\/web\/pull\/\d+>/gm)?.length,
+      1,
+    );
     assert.ok(!result.stdout.includes('<!--'), result.stdout);
+    // A cleanup counts the worktrees and branches it removed (#662).
+    assert.match(result.stdout, /cleaned batch 1-1: removed \d+ worktrees; deleted \d+ branches; /);
+    assert.doesNotMatch(result.stdout, /removed worktree /);
     // On tap: foedrum status shows the batch there, with its pull request.
     assert.match(
       part('on-tap'),
@@ -118,15 +128,18 @@ describe('npm run demo', () => {
       brew,
       /foedrum brew: batch 2-1 is on tap: https:\/\/github\.com\/demo\/web\/pull\/\d+/,
     );
+    // Once (#662).
+    assert.doesNotMatch(brew, /batch 2-1 on tap/);
     // foedrum resume names the Cellarman's attempt and prints its line, opening nothing.
     assert.match(
       part('resume'),
       /\$ foedrum resume 1-1 implement#2\n[^$]*foedrum resume 1-1 implement#2/,
     );
-    // replay shows the batch's events and the state the fold makes of them.
+    // replay shows the state the fold makes of the batch's events, and only counts them (#662).
     const replay = part('replay');
     assert.match(replay, /Batch 1-1, issue/);
-    assert.match(replay, /batch\.on_tap/);
+    assert.match(replay, /Events +\d+, left out here: foedrum replay 1-1 lists them/);
+    assert.doesNotMatch(replay, /batch\.on_tap/);
     assert.match(replay, /lane +on tap/);
 
     // One pull request and one status comment per order, across both lives of the Cellar.
@@ -236,14 +249,14 @@ describe('npm run demo', () => {
       part('checks'),
       /brewing +correctness #2 started, security #2 started, test-design #2 started/,
     );
-    // The status comment's path line has both rounds, the three lenses side by side in each and
-    // the batch back to implement between them, each failed attempt with why (#656), and each one's
-    // findings show under its own step.
+    // The status comment's path has both rounds, the three lenses side by side in each and a line
+    // where the batch went back to implement (#662), each failed attempt with why (#656), and each
+    // one's findings show under its own step.
     const comment = host.comments(BREWERY, ORDER.number)[0]?.body ?? '';
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed with exit code 1 → .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅ → `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
+      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed with exit code 1\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
     );
     for (const lens of ['security', 'test-design']) {
       assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
