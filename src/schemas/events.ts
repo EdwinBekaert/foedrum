@@ -3,7 +3,7 @@
 import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
 import { BlockerKind, MOST_DISPOSITIONS, TastingFinding } from './out-doc.ts';
-import { CheckName } from './primitives.ts';
+import { CheckName, RelativePath } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
 import { z } from './zod.ts';
@@ -198,8 +198,15 @@ export const ScheduleRoute = z.discriminatedUnion('why', [
 ]);
 export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
 
-/** A sub-order writes in exactly one repository (architecture §3.2). */
-export const SubOrderRef = z.strictObject({ issue: IssueNumber, repo: Repo });
+/**
+ * A sub-order writes in exactly one repository (architecture §3.2). `touches`: the paths its plan
+ * says it changes, at most as many as a plan lists (`MOST_TOUCHES`, ADR 0233).
+ */
+export const SubOrderRef = z.strictObject({
+  issue: IssueNumber,
+  repo: Repo,
+  touches: z.array(RelativePath).min(1).max(20).optional(),
+});
 export type SubOrderRef = z.infer<typeof SubOrderRef>;
 
 /** `subOrder` waits for `blockedBy`'s branch (`code`) or for its release (`release`). */
