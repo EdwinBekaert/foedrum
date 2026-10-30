@@ -124,7 +124,16 @@ describe('sessionRuleFiles', () => {
       ruleFile('slash', { globs: ['docs/a.md'] }, 'Slash.'),
       ruleFile('dash', { globs: ['docs-a.md'] }, 'Dash.'),
     );
-    assert.equal(new Set(files.map((f) => f.name)).size, 2, files.map((f) => f.name).join(', '));
+    assert.deepEqual(
+      files.map((f) => f.name),
+      ['docs-a-md-2.md', 'docs-a-md.md'],
+    );
+    const first = named(files, 'docs-a-md.md');
+    const second = named(files, 'docs-a-md-2.md');
+    assert.deepEqual(pathsOf(first), ['**/docs-a.md']);
+    assert.ok(first.includes('## dash (') && !first.includes('## slash ('), first);
+    assert.deepEqual(pathsOf(second), ['**/docs/a.md']);
+    assert.ok(second.includes('## slash (') && !second.includes('## dash ('), second);
   });
 
   it("leaves /brew-review's selection by lens as it is, from the same rule files", () => {
@@ -138,8 +147,6 @@ describe('sessionRuleFiles', () => {
       selectRules(rules, { files: ['src/a.ts'], lens }).selected.map(({ rule }) => rule.rule.id);
     assert.deepEqual(selectedFor('correctness'), ['plain']);
     assert.deepEqual(selectedFor('test-design'), ['lensed', 'plain']);
-    const [session] = sessionRuleFiles(files).files;
-    assert.ok(session?.text.includes('## lensed (') && session.text.includes('## plain ('));
   });
 
   it('matches the committed files in .claude/rules/house-yeast/ (run npm run house-yeast:rules after changing a rule)', () => {
