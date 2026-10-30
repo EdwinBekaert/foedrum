@@ -273,6 +273,42 @@ describe('two ready sub-orders whose touches overlap (#566)', () => {
       ]);
     });
 
+    it('starts a sub-order beside one whose Ordered batch went Stuck', async () => {
+      const numbers = breakdown([
+        { issue: 10, touches: ['src/app.ts'] },
+        { issue: 11, touches: ['src/app.ts'] },
+      ]);
+      orderedAlready(10);
+      const late = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      assert.equal(log.issue({ kind: 'unrouted', batchId: '10-1' }, late).kind, 'accepted');
+      await intake(numbers, {}, [10]).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 stuck', '11-1 brewing']);
+      assert.deepStrictEqual(held(), []);
+    });
+
+    it('drops the touches of a sub-order that the latest breakdown lists without them', async () => {
+      const numbers = breakdown([
+        { issue: 10, touches: ['src/app.ts'] },
+        { issue: 11, touches: ['src/app.ts'] },
+      ]);
+      orderedAlready(10);
+      accept({
+        kind: 'record',
+        event: {
+          type: 'order.decomposed',
+          batchId: '1-1',
+          subOrders: [
+            { issue: 10, repo: web },
+            { issue: 11, repo: web, touches: ['src/app.ts'] },
+          ],
+          dependencies: [],
+        },
+      });
+      await intake(numbers, {}, [10]).poll();
+      assert.deepStrictEqual(lanes(), ['1-1 brewing', '10-1 ordered', '11-1 brewing']);
+      assert.deepStrictEqual(held(), []);
+    });
+
     it('starts two sub-orders with disjoint touches side by side', async () => {
       const numbers = breakdown([
         { issue: 10, touches: ['src/a.ts', 'docs/a.md'] },
