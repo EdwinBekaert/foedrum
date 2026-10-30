@@ -1,6 +1,6 @@
 # 0230. Open pull requests of one repository are merge-tree checked against each other
 
-Date: 2026-10-30 · Status: Accepted · Amends [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (a second merge-tree, a head against another head) and [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (the brief's evidence names conflicts with the other open pull requests)
+Date: 2026-10-30 · Status: Accepted · Amends [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (a second merge-tree, a head against another head), [0068](0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md) (the pass checks the open pull requests against each other after their base checks), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment shows a conflict between two open pull requests) and [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (the brief's evidence names conflicts with the other open pull requests)
 
 ## Context
 The base check ([ADR 0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md)) merge-trees each open brewed pull request's head with its base's tip once the tip moves.
