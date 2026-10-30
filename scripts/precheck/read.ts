@@ -6,6 +6,10 @@ import type { GhText } from '../denylist/core.ts';
 import { foldQuotes, normalised } from './prefilter.ts';
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+// git's own options before the subcommand, matched whole as git matches them: those that take the
+// next word as their value, and those that take none. A long one with a value may also give it
+// after `=` in the same word, as may --exec-path and --list-cmds. Any other option may take the
+// next word, so the gate cannot tell the subcommand behind it (ADR 0256).
 const GIT_OPTIONS_WITH_VALUE = new Set([
   '-C',
   '-c',
@@ -13,6 +17,37 @@ const GIT_OPTIONS_WITH_VALUE = new Set([
   '--git-dir',
   '--work-tree',
   '--namespace',
+  '--attr-source',
+  '--super-prefix',
+  '--shallow-file',
+]);
+const GIT_OPTIONS_WITHOUT_VALUE = new Set([
+  '-h',
+  '--help',
+  '-v',
+  '--version',
+  '-p',
+  '--paginate',
+  '-P',
+  '--no-pager',
+  '--bare',
+  '--exec-path',
+  '--html-path',
+  '--man-path',
+  '--info-path',
+  '--no-replace-objects',
+  '--no-lazy-fetch',
+  '--no-optional-locks',
+  '--no-advice',
+  '--literal-pathspecs',
+  '--glob-pathspecs',
+  '--noglob-pathspecs',
+  '--icase-pathspecs',
+]);
+const GIT_OPTIONS_WITH_JOINED_VALUE = new Set([
+  ...[...GIT_OPTIONS_WITH_VALUE].filter((option) => option.startsWith('--')),
+  '--exec-path',
+  '--list-cmds',
 ]);
 // gh flags that can appear before the `pr` action and take the next token as their value.
 const GH_OPTIONS_WITH_VALUE = new Set(['-R', '--repo', '--hostname']);
@@ -684,6 +719,13 @@ interface PushTarget {
   destinations: (string | null)[];
 }
 
+// The target of a push behind a git option the gate does not know (ADR 0256).
+const unreadTarget: PushTarget = { remote: null, destinations: [] };
+
+// push's short flags that take no value, and -o after any of them in one group (-uo): the rest of
+// the word is -o's value, or the next word when the rest is empty, as git reads it (#637).
+const SHORT_PUSH_OPTION = /^-[vqdnfu46]*o(.*)$/s;
+
 const pushTarget = (args: Word[]): PushTarget => {
   let repo: Word | undefined;
   const operands: Word[] = [];
@@ -696,8 +738,9 @@ const pushTarget = (args: Word[]): PushTarget => {
       if (REDIRECTION_ONLY.test(arg.text)) i++;
     } else if (optionsEnd || !arg.text.startsWith('-')) operands.push(arg);
     else if (arg.text === '--') optionsEnd = true;
-    else if (arg.text === '-o') i++;
-    else {
+    else if (SHORT_PUSH_OPTION.test(arg.text)) {
+      if (SHORT_PUSH_OPTION.exec(arg.text)?.[1] === '') i++;
+    } else {
       // A long option or a prefix of it: one that may be --repo names the remote, and any other
       // that may take a value takes the next word when it has no `=` (review of #635).
       const [name = '', value] = arg.text.split(/=(.*)/s);
@@ -742,6 +785,8 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
   let configured = false;
   // Whether git only prints its help (git -h, git --help push).
   let help = false;
+  // Where the first option the gate does not know is, if any (ADR 0256).
+  let unknown: number | undefined;
   while (args[i]?.text.startsWith('-')) {
     const option = args[i]?.text ?? '';
     const value = args[i + 1]?.text ?? '';
@@ -757,14 +802,29 @@ const readGit = (args: Word[], literal: boolean, { found, place }: Reading): voi
     if (setting !== undefined && (setting.dynamic || PUSH_SETTING.test(setting.text))) {
       configured = true;
     }
+    const [name = ''] = option.split('=', 1);
+    const known =
+      GIT_OPTIONS_WITH_VALUE.has(option) ||
+      GIT_OPTIONS_WITHOUT_VALUE.has(option) ||
+      (option.includes('=') && GIT_OPTIONS_WITH_JOINED_VALUE.has(name));
+    if (!known) unknown ??= i;
     i += GIT_OPTIONS_WITH_VALUE.has(option) ? 2 : 1;
   }
   const subcommand = args[i];
-  if (subcommand?.text === 'config' || subcommand?.text === 'remote') found.configures = true;
+  // Behind an option the gate does not know, any later word may be the subcommand, and the rest
+  // its arguments: the command is read as a push to a remote the gate cannot tell, which is held
+  // to every remote's configuration (ADR 0256).
+  const after = args.slice(unknown === undefined ? i : unknown + 1);
+  const subcommands = unknown === undefined ? after.slice(0, 1) : after;
+  if (subcommands.some((word) => word.text === 'config' || word.text === 'remote')) {
+    found.configures = true;
+  }
   if (help || printsHelp(args.slice(i + 1))) return;
-  if (subcommand?.text === 'push' || (literal && subcommand?.dynamic)) {
-    found.places.push({ place: gitPlace, ...pushTarget(args.slice(i + 1)) });
-    const pushArgs = args.slice(i + 1).map((word) => word.text);
+  const pushes = subcommand?.text === 'push' || (literal && subcommand?.dynamic);
+  if (pushes || unknown !== undefined) {
+    const target = unknown === undefined ? pushTarget(after.slice(1)) : unreadTarget;
+    found.places.push({ place: gitPlace, ...target });
+    const pushArgs = after.slice(unknown === undefined ? 1 : 0).map((word) => word.text);
     if (pushArgs.some(isForceArg)) found.reasons.push(FORCE_PUSH_BLOCKED);
     else if (pushArgs.some(isDeleteOrMirrorArg)) found.reasons.push(DELETE_PUSH_BLOCKED);
     else if (configured) found.reasons.push(CONFIGURED_PUSH_BLOCKED);
