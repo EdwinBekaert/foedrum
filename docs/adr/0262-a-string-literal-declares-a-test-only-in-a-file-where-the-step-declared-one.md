@@ -21,5 +21,8 @@ Tried on the unit tests of `judgeRed`, it broke 17 of 93 cases.
 
 ## Consequences
 - Batch 12-2's commit no longer counts the two older `array` tests: `judgeRed` on its diff (`b972823b..201956ae`) proves its new tests red.
-- A test declared only by a string literal in a file with no other declaration the list knows, such as a Kotlin test whose `@Test` line the step did not add, is no longer found; a new test brings its own `@Test`.
+- A test declared only by a string literal in a file where the step added no other declaration the list knows is no longer found:
+  - a Kotlin test whose `@Test` line the step did not add (a new test brings its own `@Test`);
+  - a row the step adds to an existing table-driven test, such as `test.each([...])` in JavaScript or a Go table whose `t.Run(tt.name, …)` line was already there.
+  When such a row is the step's only new test, the red proof refuses it (`none of the … tests in the report is one the step added`). When the step also adds other tests, the row is not judged, so a row that passes before the change goes unseen.
 - The list of declarations stays incomplete for some languages; [#618](https://github.com/EdwinBekaert/foedrum/issues/618) (the red proof must know a step's tests in every language) revisits it as a whole.
