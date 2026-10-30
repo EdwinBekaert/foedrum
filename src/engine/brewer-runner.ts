@@ -24,6 +24,12 @@ export interface AttemptLimits {
    * needs a commit after it (ADR 0074).
    */
   commitsSince?: string;
+  /**
+   * For a Gauger a failed red proof of its step sent back, in that round: a `done` that names its
+   * tests needs no commit, since the tests it committed before may only have lacked their names
+   * (ADR 0258).
+   */
+  namesOnly?: true;
   /** For a Taster's blocking step: a `done` with the verdict `changes` is blocked by findings (ADR 0161). */
   blocking?: boolean;
   /**

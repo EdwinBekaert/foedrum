@@ -13,7 +13,12 @@ import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
-import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
+import {
+  MAX_INPUT_BYTES,
+  type StepBrewer,
+  type StepBrewers,
+  type StepChecks,
+} from '../engine/recipe-files.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
@@ -77,6 +82,8 @@ export interface AttemptPlansOptions {
   state: () => State;
   /** The brewers of the recipes' steps (`loadRecipes`). */
   brewers: StepBrewers;
+  /** The red proofs of the recipes' check steps (`loadRecipes`): which step each proves (ADR 0258). */
+  checks?: Pick<StepChecks, 'proves'>;
   models: ModelsConfig;
   /** The toolchain rules of a repository (`foedrum.jsonc`, ADR 0023). */
   repoTools: (repo: string) => readonly string[];

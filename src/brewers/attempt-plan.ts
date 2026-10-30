@@ -114,7 +114,8 @@ export interface PlanFacts {
  * out doc is read with its findings and verdict, and on a `blocking` step a `changes` verdict
  * blocks it by findings (ADR 0161). Each finding that names a lens names one of the step's `lenses`,
  * and on a step of several together each finding names one (ADR 0220). A recipe choice's question
- * offers only the step's `choices` (ADR 0232).
+ * offers only the step's `choices` (ADR 0232). A Gauger a failed red proof of its step sent back
+ * (`sentBack`) may name its tests without a commit (ADR 0258).
  */
 export function attemptLimits(
   brewer: BrewerFrontmatter,
@@ -122,6 +123,7 @@ export function attemptLimits(
   blocking = false,
   lenses?: readonly string[],
   choices: readonly string[] = [],
+  _sentBack = false,
 ): AttemptLimits {
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its

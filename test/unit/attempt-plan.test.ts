@@ -568,6 +568,48 @@ describe("attemptLimits: a Finer's changes, or why there was nothing to simplify
   });
 });
 
+describe('attemptLimits: a Gauger its red proof sent back may only name its tests (ADR 0258)', () => {
+  const gauger = brewer({
+    name: 'gauger',
+    access: 'write',
+    produces: 'commits',
+    git: { commit: true },
+    output: { doc: 'gauge.md', schema: 'gauge' },
+  });
+  const named = { tests: ['prints JSON'], regressionTests: ['keeps the table'] };
+  const ended = (
+    fields: Record<string, unknown>,
+    commits: number,
+    sentBack: boolean,
+    of = gauger,
+  ) =>
+    settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: outDoc({ status: 'done', summary: 'Gauged', ...fields }),
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+        commits: { kind: 'counted', count: commits },
+      },
+      attemptLimits(of, sha, false, undefined, [], sentBack),
+    );
+
+  it('succeeds on a done that names its tests without a commit, when its red proof sent it back', () => {
+    assert.deepEqual(ended(named, 0, true), {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Gauged', assumptions: [], ...named },
+    });
+  });
+
+  it('marks only a Gauger its red proof sent back', () => {
+    assert.equal(attemptLimits(gauger, sha, false, undefined, [], true).namesOnly, true);
+    assert.equal(attemptLimits(gauger, sha).namesOnly, undefined);
+    const committer = brewer({ access: 'write', produces: 'commits', git: { commit: true } });
+    assert.equal(attemptLimits(committer, sha, false, undefined, [], true).namesOnly, undefined);
+  });
+});
+
 describe("changeStart: where a Taster's change starts (ADR 0161)", () => {
   it('is the commit the batch started at in the repository, in any case of its name', () => {
     const started = fold([
