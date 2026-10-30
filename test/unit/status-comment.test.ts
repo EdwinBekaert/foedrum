@@ -1957,7 +1957,7 @@ describe('statusEffects: the checks of a pull request its latest push left alone
     }
   });
 
-  it('shows neither for another pull request of the lane while openOf reads one (regression test)', async () => {
+  it('shows neither for another pull request of the lane while openOf reads one', async () => {
     const other = 'https://github.com/alice/web/pull/9';
     const both = batch({
       lane: { kind: 'on_tap', pullRequests: [other, pr] },
