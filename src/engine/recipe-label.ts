@@ -7,7 +7,7 @@
 // (ADR 0068).
 
 import type { BatchEffectKey } from '../schemas/store.ts';
-import { breweryIssueOf } from './claim-orders.ts';
+import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import { same } from './issue-claims.ts';
@@ -73,6 +73,10 @@ export const recipeLabelEffects = ({ brewery, host }: RecipeLabelEffectsOptions)
       if (labelOf(older) === `recipe:${recipe.name}`) return [];
       const issue = breweryIssueOf(state, batch);
       if (issue === undefined) return [];
+      // Only the issue's latest batch, while it brews, labels it: an ended or older batch's choice
+      // would take off a label a person or a later batch put on since.
+      const { kind } = batch.lane;
+      if (kind === 'on_tap' || kind === 'cancelled' || !latestOf(state, batch, issue)) return [];
       dues.set(encoded, { issue, label: `recipe:${recipe.name}` });
       return [key];
     },
