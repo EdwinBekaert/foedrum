@@ -106,13 +106,16 @@ const promptOf = (name: string) => {
   return { schema: doc.frontmatter.output.schema, body: doc.body };
 };
 
-/** Whether a line of `body` names `field` and, after it, says "at most <most> <unit>". */
-const states = (body: string, [field, most, unit]: Limit) => {
-  const limit = `at most ${most.toLocaleString('en-US')} ${unit}`;
+/** The text a prompt states for `limit`: "at most <most> <unit>". */
+const atMost = ([, most, unit]: Limit) => `at most ${most.toLocaleString('en-US')} ${unit}`;
+
+/** Whether a line of `body` names the limit's field and, after it, states the limit. */
+const states = (body: string, limit: Limit) => {
+  const [field] = limit;
   return body.split('\n').some((line) =>
     [`\`${field}\``, `"${field}"`].some((name) => {
       const at = line.indexOf(name);
-      return at !== -1 && line.slice(at).includes(limit);
+      return at !== -1 && line.slice(at).includes(atMost(limit));
     }),
   );
 };
@@ -132,7 +135,7 @@ describe("the default brewers' prompts state their out doc limits (#655)", () =>
       assert.equal(prompt.schema, schema);
       const missing = limits
         .filter((limit) => !states(prompt.body, limit))
-        .map(([field, most, unit]) => `${field}: at most ${most.toLocaleString('en-US')} ${unit}`);
+        .map((limit) => `${limit[0]}: ${atMost(limit)}`);
       assert.deepEqual(missing, []);
     });
   }
