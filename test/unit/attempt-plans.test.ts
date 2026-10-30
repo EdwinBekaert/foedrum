@@ -1149,7 +1149,7 @@ describe('createAttemptPlans: limits', () => {
     const third = { ...ref, attempt: 3 };
     const secondSession = '1f8fad5b-d9cb-469f-a165-70867728950e';
     const secondWorktree = join('/work', 'brew-2');
-    const routedBy = (from: string): Event[] => [
+    const routedBy = (from: string, why: 'failed' | 'findings' = 'failed'): Event[] => [
       ...ordered,
       started,
       {
@@ -1164,7 +1164,7 @@ describe('createAttemptPlans: limits', () => {
         type: 'step.scheduled',
         ...second,
         deadlineAt: '2026-10-17T13:00:00.000Z',
-        route: { from, why: 'failed' },
+        route: { from, why },
       },
       {
         type: 'step.started',
@@ -1209,7 +1209,13 @@ describe('createAttemptPlans: limits', () => {
     // A check that proves nothing red, and a recipe without red proofs, send no Gauger back so.
     assert.equal(limitsOf(routedBy('lint'), second).namesOnly, undefined);
     const plain = setup(red, {}, undefined, brewers).plans;
-    assert.equal(plain.limits(second).namesOnly, undefined);
+    assert.equal(plain.limits(second).namesOnly, undefined); // Each condition alone: findings from the red step, and a red proof of another step.
+    assert.equal(limitsOf(routedBy('red', 'findings'), second).namesOnly, undefined);
+    const other = {
+      proves: (recipe: string, stepId: string) => (stepId === 'red' ? 'review' : undefined),
+    };
+    const elsewhere = setup(red, {}, undefined, brewers, { checks: other }).plans;
+    assert.equal(elsewhere.limits(second).namesOnly, undefined);
   });
 
   it("names the out doc of the brewer of a step in the batch's recipe, for the cleanup (ADR 0081)", () => {
