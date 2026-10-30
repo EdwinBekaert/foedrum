@@ -308,6 +308,8 @@ export interface Order {
 export interface SubOrder {
   issue: number;
   repo: string;
+  /** The paths its plan says it changes, when the breakdown names them. */
+  touches?: readonly string[];
   /** The order it was split from. */
   order: number;
   batchIds: readonly string[];
@@ -666,7 +668,7 @@ function apply(state: State, event: Event): State {
           subOrders.set(subIssue, { ...subOrder, cancelled: true });
         }
       }
-      for (const { issue: subIssue, repo } of event.subOrders) {
+      for (const { issue: subIssue, repo, touches } of event.subOrders) {
         if (state.orders.has(subIssue)) {
           throw reject(`issue ${subIssue} is an order, so it cannot be a sub-order`);
         }
@@ -677,6 +679,7 @@ function apply(state: State, event: Event): State {
         subOrders.set(subIssue, {
           issue: subIssue,
           repo,
+          ...(touches === undefined ? {} : { touches }),
           order: issue,
           batchIds: earlier?.batchIds ?? [],
           cancelled: false,
