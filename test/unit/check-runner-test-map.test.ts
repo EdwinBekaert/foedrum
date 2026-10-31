@@ -8,6 +8,8 @@ import { describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
 import type { MapRead } from '../../src/checks/test-map.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
@@ -80,6 +82,8 @@ const compileError = 'svc/test/Billing.Tests/InvoiceTests.cs(3,1): error CS1002:
 
 const setup = ({
   checks = ['typecheck', 'test'] as readonly CheckRef[],
+  /** Events after the check step started, such as a merge of the base. */
+  more = [] as Event[],
   maps = { [base]: mapOf(web), [tip]: mapOf(web, billing) } as Record<string, MapRead>,
   /** The report paths each pattern finds in the worktree. */
   found = { 'web/test-results.xml': [join(worktree, 'web', 'test-results.xml')] } as Record<
@@ -108,7 +112,7 @@ const setup = ({
     redProof: () => undefined,
   };
   const runner = createCheckRunner({
-    state: () => fold(events),
+    state: () => fold([...events, ...more]),
     checks: stepChecks,
     repositoryChecks: () => repository,
     testReport: () => undefined,
@@ -192,6 +196,22 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     assert.deepEqual(asked, []);
   });
 
+  it('takes the base the batch merged as the base of its map (ADR 0164)', async () => {
+    const merged = 'e'.repeat(40);
+    const key = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const more: Event[] = [
+      { type: 'effect.applied', key, result: { base: merged, merged: 'f'.repeat(40) } },
+    ];
+    // The merged base lists billing: it is the base's, so taken as reached.
+    const maps = { [base]: mapOf(web), [merged]: mapOf(web, billing), [tip]: mapOf(web, billing) };
+    const { run, asked } = setup({ more, maps });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(asked, [`map of acme/api at ${merged}`, `map of acme/api at ${tip}`]);
+  });
+
   it("sticks the batch on its environment when the base's map cannot be read", async () => {
     const { run } = setup({
       maps: { [base]: { kind: 'unreadable', reason: 'it is not JSONC' }, [tip]: mapOf(web) },
@@ -204,14 +224,14 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     });
   });
 
-  it("fails the step retryably when the batch's map cannot be read: its brewer fixes it", async () => {
+  it("fails the step for its onFail route when the batch's map cannot be read: its brewer fixes it", async () => {
     const { run } = setup({
       maps: { [base]: mapOf(web), [tip]: { kind: 'unreadable', reason: 'it is not JSONC' } },
     });
     const end = await run();
     assert.deepEqual(end.ending, {
       kind: 'failed',
-      retryable: true,
+      retryable: false,
       reason: `the test map of acme/api at ${tip} cannot be read: it is not JSONC`,
     });
   });

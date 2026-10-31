@@ -133,6 +133,25 @@ describe('readTestMap (ADR 0274)', () => {
   });
 });
 
+describe('readTestMap: report paths a reader matches at once (ADR 0274)', () => {
+  it('refuses a report path with any wildcard but a star, or one longer than 256 characters', () => {
+    const at = (path: string) =>
+      readTestMap(example.replace('"web/test-results.xml"', JSON.stringify(path))).kind;
+    assert.equal(at('web/test-*.xml'), 'map');
+    for (const path of [
+      'web/test-results?.xml',
+      'web/[t]est-results.xml',
+      'web/{a,b}/test-results.xml',
+      'web/+(a|b).xml',
+      'web/@(a).xml',
+      'web/!(a).xml',
+      `web/${'a'.repeat(250)}.xml`,
+    ]) {
+      assert.equal(at(path), 'unreadable', path);
+    }
+  });
+});
+
 describe('testMaps: where a map is kept (ADR 0018, ADR 0274)', () => {
   const blob = 'c'.repeat(40);
   const commit = 'd'.repeat(40);
@@ -308,6 +327,29 @@ describe('reportPaths: a report path in the worktree (ADR 0274)', () => {
         join(worktree, 'svc', 'test', 'Billing.Tests', 'TestResults'),
       ]);
       assert.deepEqual(reportPaths('web/missing.xml', worktree), { paths: [] });
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('reads only a star as a wildcard in a report path, every other character as itself', () => {
+    const dir = makeTempDir('test-map');
+    try {
+      const worktree = join(dir.path, 'worktree');
+      for (const name of ['a1', 'a[1]', 'b-Tests', 'Tests']) {
+        mkdirSync(join(worktree, 'out', name), { recursive: true });
+      }
+      assert.deepEqual(reportPaths('out/a[1]', worktree), {
+        paths: [join(worktree, 'out', 'a[1]')],
+      });
+      const found = reportPaths('out/*Tests', worktree);
+      assert.deepEqual('paths' in found ? [...found.paths].sort() : found, [
+        join(worktree, 'out', 'Tests'),
+        join(worktree, 'out', 'b-Tests'),
+      ]);
+      assert.deepEqual(reportPaths('out/*-*s', worktree), {
+        paths: [join(worktree, 'out', 'b-Tests')],
+      });
     } finally {
       dir.remove();
     }
