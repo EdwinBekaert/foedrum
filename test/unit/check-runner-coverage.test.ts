@@ -861,6 +861,20 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     );
   });
 
+  it('neither clears nor reads a TRX test report at green, which no reader reads: regression test', async () => {
+    const trx: TestMapModule = { ...calc, testReport: { format: 'trx', path: 'results.trx' } };
+    const trxFile = join(worktree, 'results.trx');
+    const { run, asked } = setup({
+      maps: { [base]: mapOf(trx), [tip]: mapOf(trx) },
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [trxFile]: { kind: 'text', text: '<TestRun/>' } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes('run npm test'), asked.join('|'));
+    assert.ok(!asked.some((line) => line.endsWith(trxFile)), asked.join('|'));
+  });
+
   it('a test report left from an earlier run is removed before the green test runs', async () => {
     const { run, asked } = setup({ maps: junitMaps, diff: adding('test/calc.test.ts', 5, 2) });
     await run();
