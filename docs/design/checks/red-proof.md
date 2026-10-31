@@ -1,7 +1,7 @@
 # The red proof
 
-> **Decided, not built yet.** [ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) replaces how the red proof finds the step's tests by name with a rule that reads no names: on a green base, with no load error, a step that changed a test area of the repository's test map makes at least one test fail.
-> In the same record, `testsUnchanged` keeps every line the red step added to a test file, and a check fails on a changed line that no test runs.
+> **Decided, not built yet.** [ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) replaces how the red proof finds the step's tests by name with rules that read no names, from the runner's reports and the repository's test map; the record's Decision states them with each of their conditions.
+> The same record changes what `testsUnchanged` keeps, and adds a check that fails on a changed line that no test runs.
 > This page says what the red proof does today. It stays true until the build issues of #618 land.
 
 Recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](../../adr/0017-test-first-recipes-and-tasting-lenses.md)).
