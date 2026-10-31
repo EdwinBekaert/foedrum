@@ -1693,6 +1693,7 @@ Plan the order in {order}.
         (event) => event.type === 'step.finished' && event.stepId === 'green',
       );
       assert.deepStrictEqual(green?.type === 'step.finished' ? green.staleMap : undefined, {
+        repo: 'acme/web',
         kept: 'brewery',
         paths: ['api/package.json (added)', 'web-results.xml (no report of module "web")'],
         more: 0,

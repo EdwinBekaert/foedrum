@@ -322,6 +322,7 @@ export const MOST_STALE_PATHS = 10;
  * report), and how many more there were.
  */
 export const StaleMap = z.strictObject({
+  repo: NonEmpty,
   kept: z.enum(['repo', 'brewery']),
   paths: z.array(NonEmpty.max(1_000)).min(1).max(MOST_STALE_PATHS),
   more: Count,

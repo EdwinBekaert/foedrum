@@ -144,6 +144,17 @@ describe('readTestMap (ADR 0274)', () => {
     const parent = readTestMap(example.replace('"svc/Billing.sln"', '"../svc/Billing.sln"'));
     assert.equal(parent.kind, 'unreadable');
   });
+
+  it("refuses a derived-from glob that git's glob magic does not read as the map's readers do", () => {
+    for (const glob of ['**/*.{csproj,fsproj}', '**/+(a|b).csproj', '**/!(x).csproj']) {
+      const read = readTestMap(example.replace('"**/*.csproj"', JSON.stringify(glob)));
+      assert.equal(read.kind, 'unreadable', glob);
+      assert.match(read.kind === 'unreadable' ? read.reason : '', /derivedFrom/, glob);
+    }
+    // What git and the map's readers both read stays.
+    const read = readTestMap(example.replace('"**/*.csproj"', '"svc/**/[A-Z]*.?sproj"'));
+    assert.equal(read.kind, 'map');
+  });
 });
 
 describe('readTestMap: report paths a reader matches at once (ADR 0274)', () => {
