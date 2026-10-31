@@ -237,7 +237,12 @@ describe('planIssueEffects (ADR 0285)', () => {
     ]);
     assert.deepStrictEqual(log.state().subOrders.get(9)?.repo, 'acme/web');
     assert.deepStrictEqual(readySubOrders(log.state()), [
-      { order: 7, issue: 8, parentBatchId: '7-1' },
+      {
+        order: 7,
+        issue: 8,
+        parentBatchId: '7-1',
+        plan: { batchId: '7-1', stepId: 'plan', attempt: 1, entry: 'api' },
+      },
     ]);
   });
 
