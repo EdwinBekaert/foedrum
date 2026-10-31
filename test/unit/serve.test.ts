@@ -4,7 +4,7 @@
 // and ends each attempt itself; no process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -1830,6 +1830,8 @@ Plan the order in {order}.
       clonedGit?: Git,
       /** The text of the clone's test map at every commit, when it has one (ADR 0274). */
       testMap?: string,
+      /** Where in its worktree the test run also writes its TAP, as a test map names it (ADR 0274). */
+      reportAt?: string,
     ) => {
       const log = createCommandLog({ store, recipes: testFirst.recipes });
       log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
@@ -1849,9 +1851,13 @@ Plan the order in {order}.
         progress: () => undefined,
       };
       const checks: string[] = [];
-      const exec: ExecProcess = async (file) => {
+      const exec: ExecProcess = async (file, _args, options) => {
         checks.push(file);
         const stdout = taps.shift() ?? tap;
+        if (reportAt !== undefined && options.cwd !== undefined) {
+          mkdirSync(options.cwd, { recursive: true });
+          writeFileSync(join(options.cwd, reportAt), stdout);
+        }
         return { exitCode: 1, stdout, stderr: '', output: stdout };
       };
       const diffs: string[] = [];
@@ -1954,10 +1960,13 @@ Plan the order in {order}.
         const end = args.indexOf('--');
         return ok(args[end - 1]?.endsWith('/implement/1') ? own : gauged);
       };
+      // The run writes the report the map names, so the red proof proves the Gauger's test red.
       const { batch } = await brewTestFirst(
         testFirstSetup({ testReport: { format: 'tap' } }),
         [],
         git,
+        undefined,
+        'report.tap',
       );
       assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
         kind: 'attempts_exhausted',
