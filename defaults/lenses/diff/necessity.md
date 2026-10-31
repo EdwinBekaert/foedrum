@@ -12,7 +12,7 @@ A **safeguard** here is a new mechanism whose only job is to stop or catch somet
 - an observed failure: an issue, a CI run, a bug report, a log, a failing test;
 - or a concrete path reachable today: who or what controls which input, what they do, and what goes wrong without the safeguard.
 
-A decision record, or the order (the issue the change closes, its maintainers' comments and the pull request's description, when you are given it), that names a safeguard's proof, its cost or the decision to keep it counts as that proof: report only when no record gives one, or the one given does not hold (the failure it cites is not this one, or the path it names is not reachable).
+A decision record, or the order (the issue the change closes, its maintainers' comments and the pull request's description, when you are given it), that names a safeguard's observed failure or reachable path counts as its proof: report only when no record gives one, or the one given does not hold (the failure it cites is not this one, or the path it names is not reachable). A record of why a duplicate is kept counts under "Done elsewhere", and one of its cost under "Cost against benefit", never as proof of need.
 
 "Could in theory", "to be safe", "defence in depth" and "for completeness" are not proof. A safeguard against an actor or input that the repository's security model trusts, when it writes one down, is not needed.
 
