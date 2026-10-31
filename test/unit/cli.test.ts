@@ -1031,6 +1031,40 @@ describe('foedrum status <order> (ADR 0295)', () => {
     });
   });
 
+  it('status of an order counts the sub-orders a later breakdown cancelled', async () => {
+    // #21 brewed, then a new breakdown of #11 left it out: its tokens were still spent (ADR 0014).
+    const replanned: Event[] = [
+      ordered(11),
+      {
+        type: 'order.decomposed',
+        batchId: '11-1',
+        subOrders: [
+          { issue: 21, repo: 'acme/app' },
+          { issue: 22, repo: 'acme/app' },
+        ],
+        dependencies: [],
+      },
+      subOrder(21),
+      ...attempt('21-1', 'build', 1, [20000, 0, 0, 0]),
+      {
+        type: 'order.decomposed',
+        batchId: '11-1',
+        subOrders: [{ issue: 22, repo: 'acme/app' }],
+        dependencies: [],
+      },
+      subOrder(22),
+      ...attempt('22-1', 'build', 1, [300, 0, 0, 0]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(replanned) });
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /^3 batches\n/);
+    assert.match(result.stdout, /^ +21-1 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 20,300 tokens \(20,300 input, 0 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
   it('status --watch with an order is refused, since the board shows every batch', async () => {
     assert.deepEqual(await run(['status', '11', '--watch']), {
       exitCode: 1,
