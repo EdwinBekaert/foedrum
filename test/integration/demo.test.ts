@@ -389,4 +389,12 @@ describe('npm run demo', () => {
     assert.equal(headingOf(11), 'Step 12 of 12: foedrum mash 3 --as ann');
     assert.ok(result.stdout.includes(`\n${headingOf(11)}\n`), result.stdout);
   });
+
+  it("prints no line of the intake's failures, the reads of the on-tap pull request among them (#721)", () => {
+    assert.ok(result.stdout.includes(ON_TAP_LINE), result.output);
+    assert.deepStrictEqual(
+      result.output.split(/\r?\n/).filter((line) => line.includes('the intake failed')),
+      [],
+    );
+  });
 });
