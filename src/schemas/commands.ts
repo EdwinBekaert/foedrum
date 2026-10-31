@@ -35,8 +35,36 @@ export const InitCommand = z.strictObject({
 });
 export type InitCommand = z.infer<typeof InitCommand>;
 
+/** An issue `foedrum order` names: of the target repository with `alias`, or of the Brewery. */
+export interface OrderTarget {
+  alias?: string;
+  issue: number;
+}
+
+// `<alias>#<n>`, `#<n>` or `<n>`; `undefined` when it is none of them. `#` starts a comment in
+// bash and PowerShell, so a Brewery issue may go without it.
+const splitIssue = (text: string): OrderTarget | undefined => {
+  const parts = /^(?:([^#]*)#)?([1-9][0-9]*)$/.exec(text);
+  const [, alias, digits = ''] = parts ?? [];
+  const issue = Number(digits);
+  if (parts === null || !Number.isSafeInteger(issue)) return undefined;
+  if (alias === undefined || alias === '') return { issue };
+  return RepositoryAlias.safeParse(alias).success ? { alias, issue } : undefined;
+};
+
+/** `<alias>#<n>`: an issue of the repository with that alias; `#<n>` or `<n>`: a Brewery issue. */
+const IssueTarget = z
+  .string()
+  .refine(
+    (text) => splitIssue(text) !== undefined,
+    'Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
+  )
+  .transform((text) => splitIssue(text) as OrderTarget);
+
 export const StatusCommand = z.strictObject({
   command: z.literal('status'),
+  /** An order as `order` takes it: its batches and its sub-orders', and their tokens (ADR 0295). */
+  order: IssueTarget.optional(),
   /** `--watch`: draw a board of the live batches until Ctrl+C (ADR 0188). */
   watch: z.literal(true).optional(),
 });
@@ -111,32 +139,6 @@ export const RewindCommand = z.strictObject({
     ),
 });
 export type RewindCommand = z.infer<typeof RewindCommand>;
-
-/** An issue `foedrum order` names: of the target repository with `alias`, or of the Brewery. */
-export interface OrderTarget {
-  alias?: string;
-  issue: number;
-}
-
-// `<alias>#<n>`, `#<n>` or `<n>`; `undefined` when it is none of them. `#` starts a comment in
-// bash and PowerShell, so a Brewery issue may go without it.
-const splitIssue = (text: string): OrderTarget | undefined => {
-  const parts = /^(?:([^#]*)#)?([1-9][0-9]*)$/.exec(text);
-  const [, alias, digits = ''] = parts ?? [];
-  const issue = Number(digits);
-  if (parts === null || !Number.isSafeInteger(issue)) return undefined;
-  if (alias === undefined || alias === '') return { issue };
-  return RepositoryAlias.safeParse(alias).success ? { alias, issue } : undefined;
-};
-
-/** `<alias>#<n>`: an issue of the repository with that alias; `#<n>` or `<n>`: a Brewery issue. */
-const IssueTarget = z
-  .string()
-  .refine(
-    (text) => splitIssue(text) !== undefined,
-    'Must be <alias>#<n> of a target repository, or #<n> of the Brewery',
-  )
-  .transform((text) => splitIssue(text) as OrderTarget);
 
 export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: IssueTarget });
 export type OrderCommand = z.infer<typeof OrderCommand>;

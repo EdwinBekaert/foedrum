@@ -396,7 +396,10 @@ describe('foedrum: the command line', () => {
   });
 
   it('refuses an argument a command does not take', async () => {
-    assertUsageError(await run(['status', 'now']), 'foedrum status: unexpected argument "now"');
+    assertUsageError(
+      await run(['status', '11', 'now']),
+      'foedrum status: unexpected argument "now"',
+    );
     assertUsageError(
       await run(['replay', '12-1', '14-1']),
       'foedrum replay: unexpected argument "14-1"',
@@ -719,6 +722,362 @@ describe('foedrum status', () => {
     const result = await run(['status'], { openStore: () => store });
     assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
     assert.equal(result.stdout.match(/interactively/g)?.length, 1, result.stdout);
+  });
+});
+
+describe('foedrum status <order> (ADR 0295)', () => {
+  const chosen = (batchId: string, recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId,
+    recipe,
+    reason: `label recipe:${recipe}`,
+    source: 'label',
+  });
+  // One attempt of `stepId`, finished with `usage` (none when it reported none).
+  const attempt = (
+    batchId: string,
+    stepId: string,
+    n: number,
+    usage?: [number, number, number, number],
+  ): Event[] => [
+    { type: 'step.scheduled', batchId, stepId, attempt: n, deadlineAt: D1 },
+    { type: 'step.started', batchId, stepId, attempt: n },
+    {
+      type: 'step.finished',
+      batchId,
+      stepId,
+      attempt: n,
+      outcome: { kind: 'succeeded', output: {} },
+      ...(usage === undefined
+        ? {}
+        : {
+            usage: {
+              inputTokens: usage[0],
+              outputTokens: usage[1],
+              cacheReadTokens: usage[2],
+              cacheWriteTokens: usage[3],
+            },
+          }),
+    },
+  ];
+  const subOrder = (issue: number, plan?: Extract<Event, { type: 'batch.ordered' }>['plan']) =>
+    ({ ...ordered(issue, '11-1'), ...(plan === undefined ? {} : { plan }) }) as Event;
+
+  // Order #11 mashed: the Innkeeper's mash-in, then mash's plan and a lens step, its plan applied
+  // as sub-orders #21 and #22; #30, another order, brews beside it.
+  const mashed: Event[] = [
+    ordered(11),
+    ordered(30),
+    chosen('11-1', 'mash-in'),
+    ...attempt('11-1', 'ask', 1, [100, 20, 1000, 0]),
+    chosen('30-1', 'nip'),
+    ...attempt('30-1', 'build', 1, [9000, 9000, 9000, 9000]),
+    chosen('11-1', 'mash'),
+    ...attempt('11-1', 'plan', 1, [200, 40, 2000, 300]),
+    ...attempt('11-1', 'sizing', 1, [10, 5, 0, 0]),
+    {
+      type: 'order.decomposed',
+      batchId: '11-1',
+      subOrders: [
+        { issue: 21, repo: 'acme/app', entry: 'api' },
+        { issue: 22, repo: 'acme/app', entry: 'ui' },
+      ],
+      dependencies: [],
+    },
+    subOrder(22),
+    subOrder(21, { batchId: '11-1', stepId: 'plan', attempt: 1, entry: 'api' }),
+    chosen('21-1', 'nip'),
+    chosen('22-1', 'nip'),
+    ...attempt('22-1', 'build', 1, [3000, 600, 10000, 500]),
+    ...attempt('21-1', 'build', 1, [1000, 200, 5000, 100]),
+    // A retry that reported no usage counts as none.
+    ...attempt('21-1', 'build', 2),
+  ];
+
+  it("status of a mashed order sums its planning attempts apart from its sub-orders' brewing", async () => {
+    const result = await run(['status', '11'], {
+      openStore: () => storeWith(mashed),
+      config: roomy,
+    });
+    assert.equal(result.stderr, '');
+    assert.equal(result.exitCode, 0);
+    const rows = result.stdout.split('\n').filter((line) => /^ +\d+-\d+ /.test(line));
+    assert.deepEqual(
+      rows.map((row) => row.trim().split(/ +/)[0]),
+      ['11-1', '22-1', '21-1'],
+    );
+    assert.match(
+      result.stdout,
+      /\nplanning: 3,675 tokens \(310 input, 65 output, 3,000 cache read, 300 cache write\)\nbrewing: 20,400 tokens \(4,000 input, 800 output, 15,000 cache read, 600 cache write\)\n$/,
+    );
+  });
+
+  it('status of an order brewed straight by nip shows brewing only', async () => {
+    const straight: Event[] = [
+      ordered(30),
+      chosen('30-1', 'nip'),
+      ...attempt('30-1', 'build', 1, [1000, 200, 3000, 0]),
+    ];
+    const result = await run(['status', '#30'], {
+      openStore: () => storeWith(straight),
+      config: roomy,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(
+      result.stdout,
+      /\nplanning: none reported\nbrewing: 4,200 tokens \(1,000 input, 200 output, 3,000 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it('status of an issue with no batch is refused, exit 1', async () => {
+    assert.deepEqual(await run(['status', '12'], { openStore: () => storeWith(mashed) }), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status: no batch brews #12\n',
+    });
+  });
+
+  it('status of a claimed order finds its batch by its Brewery issue or its alias', async () => {
+    // app-11 brews acme/app#11, whose order is the Brewery issue #200 (ADR 0144); 11-1 is the
+    // Brewery's own #11, which neither form names.
+    const claimed: Event[] = [
+      ordered(11),
+      ...attempt('11-1', 'build', 1, [7, 7, 7, 7]),
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      { type: 'effect.applied', key: '["app-11","order.issue"]', result: 200 },
+      ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+    ];
+    const config = () =>
+      BreweryConfig.parse({
+        repositories: {
+          'acme/app': {
+            checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+            alias: 'app',
+          },
+        },
+      });
+    for (const order of ['200', 'app#11']) {
+      const result = await run(['status', order], { openStore: () => storeWith(claimed), config });
+      assert.equal(result.stderr, '', order);
+      assert.match(result.stdout, /^ +app-11 +#200 \(app#11\) /m, order);
+      assert.doesNotMatch(result.stdout, /^ +11-1 /m, order);
+      assert.match(
+        result.stdout,
+        /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+        order,
+      );
+    }
+  });
+
+  it('status of a batch routed from mash-in to nip counts mash-in as planning and nip as brewing', async () => {
+    // The batch's recipe is nip by the time status reads it; its ask attempt was mash-in's.
+    const routed: Event[] = [
+      ordered(11),
+      chosen('11-1', 'mash-in'),
+      ...attempt('11-1', 'ask', 1, [100, 20, 1000, 0]),
+      chosen('11-1', 'nip'),
+      ...attempt('11-1', 'build', 1, [1000, 200, 5000, 100]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(routed) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
+    );
+  });
+
+  // acme/app#11, claimed under the alias app, beside the Brewery's own #11, mashed into #21.
+  const appConfig = () =>
+    BreweryConfig.parse({
+      repositories: {
+        'acme/app': {
+          checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+          alias: 'app',
+        },
+      },
+    });
+  const beside: Event[] = [
+    ordered(11),
+    ...attempt('11-1', 'build', 1, [7, 7, 7, 7]),
+    {
+      type: 'order.decomposed',
+      batchId: '11-1',
+      subOrders: [{ issue: 21, repo: 'acme/app' }],
+      dependencies: [],
+    },
+    subOrder(21),
+    ...attempt('21-1', 'build', 1, [3, 3, 3, 3]),
+    {
+      type: 'batch.ordered',
+      batchId: 'app-11',
+      order: { issue: 11, repo: 'acme/app' },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    },
+    { type: 'effect.applied', key: '["app-11","order.issue"]', result: 200 },
+    ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+  ];
+
+  it('status of a Brewery order leaves out a target issue with the same number', async () => {
+    const result = await run(['status', '11'], {
+      openStore: () => storeWith(beside),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^2 batches\n/);
+    assert.match(result.stdout, /^ +11-1 /m);
+    assert.doesNotMatch(result.stdout, /^ +app-11 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 40 tokens \(10 input, 10 output, 10 cache read, 10 cache write\)\n$/,
+    );
+  });
+
+  it('status of a target issue leaves out the sub-orders of the Brewery issue with its number', async () => {
+    const result = await run(['status', 'app#11'], {
+      openStore: () => storeWith(beside),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^1 batch\n/);
+    assert.match(result.stdout, /^ +app-11 /m);
+    assert.doesNotMatch(result.stdout, /^ +(11|21)-1 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it("status of a claimed order leaves out its claimed issue's batches of another Brewery issue", async () => {
+    // app-11's Brewery issue #200 was found gone at its release, so app-11-2 opened #250 (ADR 0144).
+    const twice: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      { type: 'effect.applied', key: '["app-11","order.issue"]', result: 200 },
+      ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+      { type: 'effect.applied', key: '["app-11","release.order"]', result: 'gone' },
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11-2',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      { type: 'effect.applied', key: '["app-11-2","order.issue"]', result: 250 },
+      ...attempt('app-11-2', 'build', 1, [9000, 0, 0, 0]),
+    ];
+    const result = await run(['status', '200'], {
+      openStore: () => storeWith(twice),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^1 batch\n/);
+    assert.match(result.stdout, /^ +app-11 +#200 \(app#11\) /m);
+    assert.doesNotMatch(result.stdout, /^ +app-11-2 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it("status of a target issue leaves out another repository's issue with its number", async () => {
+    const twoRepos: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: 'web-11',
+        order: { issue: 11, repo: 'acme/web' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      ...attempt('web-11', 'build', 1, [9000, 0, 0, 0]),
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+    ];
+    const result = await run(['status', 'app#11'], {
+      openStore: () => storeWith(twoRepos),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^1 batch\n/);
+    assert.match(result.stdout, /^ +app-11 /m);
+    assert.doesNotMatch(result.stdout, /^ +web-11 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it('status of an order shows the interactive driver that leases one of its batches', async () => {
+    const store = storeWith([ordered(11)]);
+    const expiresAt = new Date(new Date(D1).getTime() + 60_000);
+    store.withTransaction((tx) => {
+      tx.putBatchLease({ batchId: '11-1', owner: 'session-abc', expiresAt });
+    });
+    const result = await run(['status', '11'], { openStore: () => store, config: roomy });
+    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+  });
+
+  it('status of an order in a Brewery without an event store is refused, exit 1', async () => {
+    assert.deepEqual(await run(['status', '12']), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status: no batch brews #12\n',
+    });
+  });
+
+  it('status of an order counts the sub-orders a later breakdown cancelled', async () => {
+    // #21 brewed, then a new breakdown of #11 left it out: its tokens were still spent (ADR 0014).
+    const replanned: Event[] = [
+      ordered(11),
+      {
+        type: 'order.decomposed',
+        batchId: '11-1',
+        subOrders: [
+          { issue: 21, repo: 'acme/app' },
+          { issue: 22, repo: 'acme/app' },
+        ],
+        dependencies: [],
+      },
+      subOrder(21),
+      ...attempt('21-1', 'build', 1, [20000, 0, 0, 0]),
+      {
+        type: 'order.decomposed',
+        batchId: '11-1',
+        subOrders: [{ issue: 22, repo: 'acme/app' }],
+        dependencies: [],
+      },
+      subOrder(22),
+      ...attempt('22-1', 'build', 1, [300, 0, 0, 0]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(replanned) });
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /^3 batches\n/);
+    assert.match(result.stdout, /^ +21-1 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 20,300 tokens \(20,300 input, 0 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it('status --watch with an order is refused, since the board shows every batch', async () => {
+    assert.deepEqual(await run(['status', '11', '--watch']), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status: --watch shows every batch; give it without an order\n',
+    });
+  });
+
+  it('status without an order prints the board as before', async () => {
+    const result = await run(['status'], { openStore: () => storeWith(mashed), config: roomy });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /^4 batches\n/);
+    assert.doesNotMatch(result.stdout, /planning|brewing:/);
   });
 });
 

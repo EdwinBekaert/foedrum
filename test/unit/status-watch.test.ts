@@ -558,7 +558,7 @@ describe('foedrum status --watch: the command layer', () => {
 
   it('lists --watch among the options of status in the usage', async () => {
     const { stdout } = await run(['--help']);
-    assert.match(stdout, /^ +status \[--watch\] +/m);
+    assert.match(stdout, /^ +status \[<order>\] \[--watch\] +/m);
   });
 
   it('prints the plain status byte for byte, without calling the watch', async () => {

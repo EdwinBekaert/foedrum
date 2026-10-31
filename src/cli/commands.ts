@@ -80,7 +80,7 @@ import { stopInstant } from './pause-time.ts';
 import { formatReplay } from './replay.ts';
 import type { CliContext, CliResult } from './run.ts';
 import { NAME_THE_BREWERY, storePath } from './serve-config.ts';
-import { describeLane, formatStatus } from './status.ts';
+import { describeLane, formatOrderStatus, formatStatus, orderBatches } from './status.ts';
 import { formatStuck } from './stuck.ts';
 
 /** A command as surfaces see it: its schema and handler behind `run`. */
@@ -354,6 +354,35 @@ const orderRefOf = (target: OrderTarget, context: CliContext): OrderRef | { refu
   return { issue, repo: found[0] };
 };
 
+/** The batches an interactive driver holds now, by its owner (ADR 0123). */
+const interactiveOwners = (store: EventStore, { now }: CliContext): Map<string, string> =>
+  new Map(
+    store
+      .batchLeases(now())
+      .filter(({ owner }) => owner !== CELLAR_OWNER)
+      .map(({ batchId, owner }) => [batchId, owner]),
+  );
+
+/**
+ * What `foedrum status <order>` prints: the order's batches and its sub-orders', and what its
+ * planning and its brewing took (ADR 0295).
+ */
+const orderStatus = async (target: OrderTarget, context: CliContext): Promise<CliResult> => {
+  const order = orderRefOf(target, context);
+  if ('refused' in order) return failed('status', order.refused);
+  const none = failed('status', `no batch brews ${givenName(target)}`);
+  return readBrewery(
+    'status',
+    context,
+    (_events, state, store) => {
+      const batches = orderBatches(state, order);
+      if (batches.length === 0) return none;
+      return done(formatOrderStatus(state, batches, interactiveOwners(store, context)));
+    },
+    none,
+  );
+};
+
 /**
  * The intake's queue as a pass would read it now, in rank order (ADR 0208): the Brewery's open
  * issues and every intake repository's, through gh's login; or what could not be read. `placed`,
@@ -497,12 +526,19 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'status',
-    summary: 'List the batches and their lanes',
+    summary: "List the batches and their lanes, or an order's with its planning and brewing tokens",
     changesState: false,
     positionals: [],
+    optional: ['order'],
     flags: ['watch'],
     schema: StatusCommand,
     handler: async (input, context) => {
+      if (input.order !== undefined) {
+        if (input.watch === true) {
+          return failed('status', '--watch shows every batch; give it without an order');
+        }
+        return orderStatus(input.order, context);
+      }
       // A board on the terminal, run by it as brew's live line is (ADR 0188).
       if (input.watch === true) return context.watch();
       return readBrewery(
@@ -513,14 +549,8 @@ export const commands: readonly RegisteredCommand[] = [
           const unpushed = worktreeClaims(state, []).unpushed ?? new Map<string, string>();
           const readings =
             unpushed.size === 0 ? new Map() : await context.readKeptBranches(state, unpushed);
-          // The batches an interactive driver holds now, by its owner (ADR 0123).
-          const interactive = new Map(
-            store
-              .batchLeases(context.now())
-              .filter(({ owner }) => owner !== CELLAR_OWNER)
-              .map(({ batchId, owner }) => [batchId, owner]),
-          );
           const kept = keptBranchLines(unpushed, readings);
+          const interactive = interactiveOwners(store, context);
           return done(formatStatus(state, kept, interactive, limitsHeld(state, context)));
         },
         // A fresh Brewery: serve and brew make the store when they first start.
