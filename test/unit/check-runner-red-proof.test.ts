@@ -137,6 +137,8 @@ const setup = ({
   deleted = '' as string | GitResult,
   /** What git lists of the files at the base, NUL-separated, or its failure. */
   atBase = '' as string | GitResult,
+  /** The worktree's real path: no link leads to it unless the test says so. */
+  realPathOf = (path: string) => path,
 } = {}) => {
   const listed = (answer: string | GitResult): GitResult =>
     typeof answer === 'string' ? { code: 0, stdout: answer, stderr: '' } : answer;
@@ -213,6 +215,7 @@ const setup = ({
               const why = refusedPatterns[pattern];
               return why === undefined ? { paths: found[pattern] ?? [] } : { refused: why };
             },
+            realPath: realPathOf,
           },
         }),
   });
@@ -1056,6 +1059,34 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
       });
       assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
     }
+  });
+
+  it("places a test the run writes under the worktree's real path, which the runner asks the file system for", async () => {
+    const real = join('/private', redTree);
+    const located = [
+      'TAP version 13',
+      'not ok 1 - adds two numbers',
+      '  ---',
+      `  location: '${join(real, 'test', 'add.test.mjs').replaceAll('\\', '\\\\')}:1:1'`,
+      '  ...',
+      '1..1',
+    ].join('\n');
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const files = { ...wrote.files, [webTaps[0] ?? '']: text(located) };
+    const linked = setup({
+      ...wrote,
+      files,
+      maps,
+      realPathOf: (path) => (path === redTree ? real : path),
+    });
+    assert.deepEqual((await linked.run()).ending, { kind: 'succeeded', output: null });
+    // Without the link the place is outside the worktree.
+    const unlinked = setup({ ...wrote, files, maps });
+    const ending = (await unlinked.run()).ending;
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /no failing test lies in a test file the step changed/,
+    );
   });
 
   it("places the step's changed files in the map's areas: a step outside them is refused", async () => {

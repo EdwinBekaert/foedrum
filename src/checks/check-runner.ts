@@ -96,6 +96,8 @@ export interface CheckRunnerOptions {
     at: ReadTestMapAt;
     /** Default the file system's. */
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
+    /** A worktree's real path, where a sandboxed run writes its absolute paths. Default the file system's. */
+    realPath?: (path: string) => string;
   };
 }
 
