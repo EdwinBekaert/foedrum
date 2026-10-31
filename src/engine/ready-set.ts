@@ -4,7 +4,7 @@
 // dependency, a release of its repository recorded after that merge. `releaseWaits` says which
 // repositories' releases the intake reads for that (ADR 0223).
 
-import type { Dependency } from '../schemas/events.ts';
+import type { Dependency, PlanOrigin } from '../schemas/events.ts';
 import { orderKey, type State } from './fold.ts';
 import { orderOfBatch } from './pauses.ts';
 
@@ -13,6 +13,8 @@ export interface ReadySubOrder {
   order: number;
   issue: number;
   parentBatchId: string;
+  /** The approved plan's entry it was opened from (ADR 0285). */
+  plan?: PlanOrigin;
 }
 
 /**
@@ -83,7 +85,8 @@ export const readySubOrders = (state: State): ReadySubOrder[] => {
       if ((state.subOrders.get(issue)?.batchIds.length ?? 0) > 0) continue;
       const blockers = dependencies.filter((dependency) => dependency.subOrder === issue);
       if (blockers.every((blocker) => isDone(state, blocker))) {
-        ready.push({ order, issue, parentBatchId });
+        const plan = state.subOrders.get(issue)?.plan;
+        ready.push({ order, issue, parentBatchId, ...(plan === undefined ? {} : { plan }) });
       }
     }
   }

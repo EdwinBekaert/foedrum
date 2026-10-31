@@ -16,7 +16,7 @@ import {
 import type { DriverEffects } from './driver.ts';
 import type { Approval, Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import type { OpenedSubIssue } from './plan-issues.ts';
+import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink } from './state-branch.ts';
 import {
@@ -121,7 +121,7 @@ export const renderPlan = (
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
   approval?: Approval,
   /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
-  _opened: readonly OpenedSubIssue[] = [],
+  opened: readonly OpenedSubIssue[] = [],
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -161,6 +161,12 @@ export const renderPlan = (
     approval !== undefined
       ? [
           `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`,
+          ...(opened.length === 0
+            ? []
+            : [
+                '',
+                `Sub-issues: ${opened.map(({ id, number }) => `${code(told(id))} #${number}`).join(', ')}.`,
+              ]),
           ...(notReady.length === 0 ? [] : ['', `Not ready: ${notReady.join(', ')}.`]),
         ]
       : [waitsForReview ? `Waiting for ${code(`foedrum approve ${batchId}`)}.` : 'None yet.'];
@@ -269,7 +275,8 @@ const planDue = (
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
   // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
   const commits = knownCommits(state, batchId);
-  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval);
+  const opened = openedSubIssues(state, batchId);
+  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval, opened);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };

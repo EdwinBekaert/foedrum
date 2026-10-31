@@ -23,6 +23,7 @@ import {
 import { briefLine } from './merge-brief.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
+import { allSubIssues } from './plan-applied.ts';
 import { checkPassed } from './pr-checks.ts';
 import {
   changeText,
@@ -129,7 +130,7 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
  * sub-issues (#590): `command` writes a command as the reader shows it.
  */
 export const planNextStep = (batchId: string, command: (text: string) => string): string =>
-  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}. Its sub-orders become issues once #590 is built.`;
+  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}.`;
 
 /** `rounds` rounds of a findings route, in words. */
 export const roundsText = (rounds: number): string =>
@@ -413,7 +414,12 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
-const laneText = (batch: Batch, told: Told, planComment?: string): string[] => {
+const laneText = (
+  batch: Batch,
+  told: Told,
+  planComment?: string,
+  subIssues?: readonly number[],
+): string[] => {
   const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
@@ -451,7 +457,11 @@ const laneText = (batch: Batch, told: Told, planComment?: string): string[] => {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
       const { approval } = batch;
       if (approval === undefined) return ['🍻 **On tap**'];
-      return [`🍻 **On tap**: plan approved by ${plain(approval.by)} (${approval.via})`];
+      const opened =
+        subIssues === undefined || subIssues.length === 0
+          ? ''
+          : `; sub-issues ${subIssues.map((number) => `#${number}`).join(', ')}`;
+      return [`🍻 **On tap**: plan approved by ${plain(approval.by)} (${approval.via})${opened}`];
     }
     case 'cancelled':
       return [`🚫 **Cancelled** by ${plain(lane.by)} (${lane.via})`];
@@ -939,7 +949,7 @@ export const renderStatus = (
   /** The plan comment of the batch's order, which the lane and the Assumptions link (ADR 0275). */
   planComment?: string,
   /** The sub-issues its approved plan opened, once all are, which the On tap line names (ADR 0285). */
-  _subIssues?: readonly number[],
+  subIssues?: readonly number[],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -952,7 +962,7 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     [
-      ...laneText(batch, told, planComment),
+      ...laneText(batch, told, planComment, subIssues),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
     ],
@@ -1061,6 +1071,7 @@ const statusDue = (
     pairsOf(state, batch).conflicts,
     stateBranchUrl,
     planComment,
+    allSubIssues(state, batchId),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

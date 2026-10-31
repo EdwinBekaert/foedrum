@@ -32,6 +32,7 @@ import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
+import { planIssueEffects } from '../engine/plan-issues.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -47,6 +48,7 @@ import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
+import { githubSubIssues } from '../github/sub-issues.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
 import { worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import type { ServeShell } from './serve.ts';
@@ -241,18 +243,23 @@ export const wireDriver = async (
     recipes: setup.recipes,
     redProof: (recipe) => setup.checks.redProof(recipe)?.id,
   });
+  // An approved plan's sub-orders, as Brewery sub-issues through the ledger (ADR 0285).
+  const planIssues = planIssueEffects({
+    subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
+  });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
           status,
           planComments,
+          planIssues,
           labels,
           recipeLabels,
           conflicts,
           briefs,
           claimEffects({ claimant, marks, claims }),
         )
-      : combineEffects(status, planComments, labels, recipeLabels, conflicts, briefs);
+      : combineEffects(status, planComments, planIssues, labels, recipeLabels, conflicts, briefs);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,

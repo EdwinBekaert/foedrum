@@ -12,6 +12,7 @@ import {
   MOST_OPEN_FINDINGS,
   MOST_RECORDED_FINDINGS,
   type OrderRef,
+  type PlanOrigin,
   type RankPlace,
   type Receipt,
   type RoundsOut,
@@ -133,7 +134,14 @@ export type RecordedEvent = Extract<
 export type EngineCommand =
   | { kind: 'record'; event: RecordedEvent }
   /** A new batch of an order or sub-order, Ordered until it is routed by its deadline (ADR 0032). */
-  | { kind: 'order'; batchId: string; order: OrderRef; parentBatchId?: string }
+  | {
+      kind: 'order';
+      batchId: string;
+      order: OrderRef;
+      parentBatchId?: string;
+      /** A sub-order's plan entry (ADR 0285). */
+      plan?: PlanOrigin;
+    }
   | { kind: 'route'; batchId: string; recipe: string; reason: string; source: 'label' | 'router' }
   | {
       kind: 'finish';
@@ -325,7 +333,7 @@ function run(draft: Draft, command: Command): Event[] {
       draft.push(command.event);
       break;
     case 'order': {
-      const { batchId, order, parentBatchId } = command;
+      const { batchId, order, parentBatchId, plan } = command;
       // The intake's claim of a target issue waits on the code host between its read and this
       // order, so `foedrum order` may have ordered the issue in between (ADR 0105).
       if (order.repo !== undefined) refuseOrder(draft.state, batchId, order, busy);
@@ -338,6 +346,7 @@ function run(draft: Draft, command: Command): Event[] {
         batchId,
         order: { ...order },
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
+        ...(plan === undefined ? {} : { plan: { ...plan } }),
         routeBy: draft.after(draft.context.routingMs),
         at: draft.after(0),
       });

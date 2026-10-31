@@ -39,6 +39,7 @@ import {
   type TargetIssue,
 } from './issue-claims.ts';
 import { holdText, type Limits, routeHold, startTally } from './limits.ts';
+import { NEEDS_REFINEMENT } from './plan-issues.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 import { checkPairs } from './pull-request-pairs.ts';
@@ -208,10 +209,14 @@ const subOrdersQueued = (state: State, listed: readonly TargetIssue[]): QueuedIs
       .filter((found) => found.state === 'open' && !found.pullRequest)
       .map((found) => [found.number, found]),
   );
-  return readySubOrders(state).flatMap(({ order, issue, parentBatchId }) => {
+  return readySubOrders(state).flatMap(({ order, issue, parentBatchId, plan }) => {
     const created = open.get(order)?.created;
-    if (created === undefined || !open.has(issue)) return [];
-    return [{ order: { issue: order }, created, source: 0, subOrder: { issue, parentBatchId } }];
+    const listed = open.get(issue);
+    if (created === undefined || listed === undefined) return [];
+    // A sub-order waits for a person while it is marked, recipe label or not (ADR 0285).
+    if (listed.labels.some((label) => same(label, NEEDS_REFINEMENT))) return [];
+    const subOrder = { issue, parentBatchId, ...(plan === undefined ? {} : { plan }) };
+    return [{ order: { issue: order }, created, source: 0, subOrder }];
   });
 };
 
@@ -371,7 +376,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
         // A ready sub-order is ordered under its order's batch (ADR 0211).
         const number = subOrder?.issue ?? order.issue;
         const batchId = nextBatchId(log.state(), number);
-        const parent = subOrder === undefined ? {} : { parentBatchId: subOrder.parentBatchId };
+        const parent =
+          subOrder === undefined
+            ? {}
+            : {
+                parentBatchId: subOrder.parentBatchId,
+                ...(subOrder.plan === undefined ? {} : { plan: subOrder.plan }),
+              };
         if (issue({ kind: 'order', batchId, order: { issue: number }, ...parent })) {
           ordered++;
           tally.start(entry);

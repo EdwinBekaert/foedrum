@@ -39,6 +39,9 @@ export const Touch = z.strictObject({
 });
 export type Touch = z.infer<typeof Touch>;
 
+/** The recipes that plan, which a sub-order may not name (ADR 0285). */
+const PLANNING_RECIPES = ['mash', 'mash-in'];
+
 /** A sub-order of the plan waits for another's code or for its release, as `Dependency` does. */
 export const PlanDependency = z.strictObject({ on: PlanId, kind: Dependency.shape.kind });
 export type PlanDependency = z.infer<typeof PlanDependency>;
@@ -68,6 +71,14 @@ export const PlannedSubOrder = z
         code: 'custom',
         message: 'testFirst false needs the reason',
         path: ['testFirstOff'],
+      });
+    }
+    // A sub-order builds: one that needs planning again is marked not ready instead (ADR 0285).
+    if (PLANNING_RECIPES.includes(subOrder.recipe)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `A sub-order brews, so its recipe may not plan again: not ${PLANNING_RECIPES.join(' or ')}`,
+        path: ['recipe'],
       });
     }
     if (!subOrder.ready && subOrder.refinement === undefined) {
