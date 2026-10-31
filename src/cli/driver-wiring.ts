@@ -14,6 +14,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { baseConflictEffects } from '../engine/base-check.ts';
 import type { BrewerRunner, RunningAttempt } from '../engine/brewer-runner.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
+import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import {
   type Driver,
@@ -29,7 +30,7 @@ import type { Claimant, ClaimHost } from '../engine/issue-claims.ts';
 import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
-import { planEffects } from '../engine/plan-comment.ts';
+import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -193,6 +194,15 @@ export const wireDriver = async (
     recipes: setup.recipes,
     clock,
     stateBranchUrl,
+    // The plan comment, on the batch's Brewery issue, which the status comment links (ADR 0275).
+    planComment: (state, batchId) => {
+      const batch = state.batches.get(batchId);
+      const comment = planCommentOf(state, batchId);
+      const issue = batch === undefined ? undefined : breweryIssueOf(state, batch);
+      return comment === undefined || issue === undefined
+        ? undefined
+        : `https://${setup.github.hostname}/${setup.brewery}/issues/${issue}#issuecomment-${comment}`;
+    },
   });
   // Each order's plan, one comment on its issue edited in place (ADR 0233).
   const planComments = planEffects({

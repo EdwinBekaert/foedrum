@@ -86,6 +86,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
   let prompts: string[];
   /** The model each attempt was planned with. */
   let models: string[];
+  /** The shell's clock: a later brew can be a minute on, past the status comment's limit. */
+  let now: Date;
 
   beforeEach(() => {
     dir = makeTempDir('mash');
@@ -107,6 +109,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     started = [];
     prompts = [];
     models = [];
+    now = t0;
     api = fakeGitHubApi({
       login: 'ann',
       issues: {
@@ -153,7 +156,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     return {
       out: (line) => lines.push(line),
       signal: new AbortController().signal,
-      clock: () => t0,
+      clock: () => now,
       wait: async () => {
         ticks++;
         if (ticks > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
@@ -192,7 +195,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
   const planned = behave.succeedWith({ subOrders, alternatives }, 'Planned');
 
   it('plans the order and shows every field of its plan on the issue, building nothing', async () => {
-    assert.equal(await runBrew(setup, shell([planned]), request), 0, lines.join('\n'));
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     assert.deepStrictEqual(started, ['plan#1']);
     const body = planComment() ?? assert.fail(`no plan comment:\n${lines.join('\n')}`);
     for (const shown of [
@@ -215,22 +218,48 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.ok(body.includes(shown), `the plan comment shows ${shown}:\n${body}`);
     }
     assert.equal(api.pulls.length, 0);
-    assert.equal(log().state().batches.get('12-1')?.lane.kind, 'on_tap');
-    const status = comments().find(({ body }) => body.includes('On tap'))?.body ?? '';
-    assert.match(status, /No pull request: the plan is in its own comment on this issue/);
   });
 
-  it('ends on tap naming the plan comment, since there is no pull request (#656)', async () => {
-    assert.equal(await runBrew(setup, shell([planned]), request), 0, lines.join('\n'));
+  it('ends Stuck for a review of its plan, not on tap, naming the plan comment (#658)', async () => {
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+    assert.deepEqual(log().state().batches.get('12-1')?.lane, {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+      options: ['retry', 'recipe', 'cancel'],
+      remindAt: '2026-10-30T12:00:00.000Z',
+    });
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     assert.equal(
       lines.at(-1),
-      `foedrum brew: batch 12-1 is on tap: no pull request; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
+      `foedrum brew: batch 12-1 is stuck: the plan of plan #1 is ready for your review; reminder 2026-10-30T12:00:00.000Z; options: retry, recipe, cancel; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
     );
   });
 
+  it('leaves the status comment naming the plan comment when foedrum brew ends, within the minute (#658)', async () => {
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+    const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
+    const url = `https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`;
+    const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
+    assert.ok(status.includes(`is ready for your review: <${url}>`), status);
+  });
+
+  it('links the plan comment from the status comment, on the Brewery issue (#658)', async () => {
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+    // Two minutes on, past the status comment's limit of one revision a minute (ADR 0072).
+    now = new Date(t0.getTime() + 2 * 60_000);
+    assert.equal(await runBrew(setup, shell([]), request), 3, lines.join('\n'));
+    const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
+    const url = `https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`;
+    const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
+    assert.ok(
+      status.includes(`🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: <${url}>`),
+      status,
+    );
+    assert.doesNotMatch(status, /On tap/);
+  });
+
   it("gives the Brewmaster the Brewery's repositories with their bases, on the planner alias", async () => {
-    assert.equal(await runBrew(setup, shell([planned]), request), 0, lines.join('\n'));
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     assert.match(
       prompts[0] ?? '',
       /source="the Brewery's repositories" name="repositories">\n[^<]*- acme\/web, base origin\/main: this attempt's repository, the one in your worktree\n/,
@@ -243,7 +272,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const [first, ...rest] = subOrders;
     const { doneWhen: _, ...missing } = first ?? assert.fail();
     const invalid = behave.succeedWith({ subOrders: [missing, ...rest] }, 'Planned');
-    assert.equal(await runBrew(setup, shell([invalid, planned]), request), 0, lines.join('\n'));
+    assert.equal(await runBrew(setup, shell([invalid, planned]), request), 3, lines.join('\n'));
     assert.deepStrictEqual(started, ['plan#1', 'plan#2']);
     const [one, two] = sessions();
     assert.equal(two?.resumes, one?.id);
@@ -256,7 +285,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.equal(await runBrew(setup, shell([behave.needInput()]), request), 4);
     const answers = [{ q: question.q, answer: 'sqlite' }];
     log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
-    assert.equal(await runBrew(setup, shell([planned]), request), 0, lines.join('\n'));
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     assert.deepStrictEqual(started, ['plan#1', 'plan#2']);
     const [one, two] = sessions();
     assert.equal(two?.resumes, one?.id);

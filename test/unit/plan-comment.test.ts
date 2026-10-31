@@ -57,19 +57,23 @@ const three: PlanReport = {
 };
 
 describe('renderPlan (ADR 0233)', () => {
-  it('shows a table of the sub-orders and a graph of their order', () => {
+  const next =
+    'Next: read the plan and its assumptions. To plan it again, run `foedrum retry 7-1`; to build it, end it with `foedrum cancel 7-1` and order its sub-orders by hand: Foedrum builds nothing from a plan yet.';
+  const outDoc = 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md';
+
+  it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
     assert.equal(
-      renderPlan('7-1', 'plan', three),
+      renderPlan('7-1', 'plan', three, undefined, undefined, true),
       [
         '### Foedrum · plan of batch `7-1`',
         '',
         '**Sub-orders**',
         '',
-        '| Sub-order | Repository | Size | Done when | Touches | Depends on | Recipe | Ready |',
-        '| --- | --- | --- | --- | --- | --- | --- | --- |',
-        '| `api`: Build api | acme/api | about 300 lines: one endpoint | GET /health answers 200 | src/server.ts, src/health.ts (new) | none | `tdd`: a test can pin it | yes |',
-        '| `ui`: Build ui | acme/web | about 300 lines: one endpoint | GET /health answers 200 | src/server.ts | `api` (code) | `docs`: copy only; test-first off: documentation only | yes |',
-        '| `cli`: Build cli | acme/api | about 300 lines: one endpoint | GET /health answers 200 | src/server.ts | `api` (release) | `tdd`: a test can pin it | no: the flags are open |',
+        '| Sub-order | Size | Recipe | Depends on | Ready |',
+        '| --- | --- | --- | --- | --- |',
+        '| `api`: Build api | about 300 lines | `tdd` | none | yes |',
+        '| `ui`: Build ui | about 300 lines | `docs` | `api` (code) | yes |',
+        '| `cli`: Build cli | about 300 lines | `tdd` | `api` (release) | no |',
         '',
         '**Order**',
         '',
@@ -82,6 +86,44 @@ describe('renderPlan (ADR 0233)', () => {
         '  s1 -->|"release"| s3',
         '```',
         '',
+        '#### `api`: Build api',
+        '',
+        '- Builds in acme/api: one endpoint, about 300 lines',
+        '- Done when: GET /health answers 200',
+        '- Recipe `tdd`: a test can pin it',
+        '',
+        '<details><summary>Touches 2 paths</summary>',
+        '',
+        '- src/server.ts',
+        '- src/health.ts (new)',
+        '',
+        '</details>',
+        '',
+        '#### `ui`: Build ui',
+        '',
+        '- Builds in acme/web: one endpoint, about 300 lines',
+        '- Done when: GET /health answers 200',
+        '- Recipe `docs`: copy only; test-first off: documentation only',
+        '',
+        '<details><summary>Touches 1 path</summary>',
+        '',
+        '- src/server.ts',
+        '',
+        '</details>',
+        '',
+        '#### `cli`: Build cli',
+        '',
+        '- Builds in acme/api: one endpoint, about 300 lines',
+        '- Done when: GET /health answers 200',
+        '- Recipe `tdd`: a test can pin it',
+        '- Not ready: the flags are open',
+        '',
+        '<details><summary>Touches 1 path</summary>',
+        '',
+        '- src/server.ts',
+        '',
+        '</details>',
+        '',
         '**Review**',
         '',
         'None yet.',
@@ -89,12 +131,71 @@ describe('renderPlan (ADR 0233)', () => {
         '**Gate**',
         '',
         'None yet.',
+        '',
+        next,
       ].join('\n'),
     );
   });
 
+  it("opens with the link to the plan's out doc (#658)", () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    assert.ok(
+      text.startsWith(
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n**Sub-orders**\n`,
+      ),
+      text,
+    );
+    assert.equal(text.split(outDoc).length, 2, 'linked once');
+  });
+
+  it('shows the sub-orders in a table of five columns: sub-order, size, recipe, depends on, ready (#658)', () => {
+    const lines = renderPlan('7-1', 'plan', three).split('\n');
+    const header = lines.indexOf('| Sub-order | Size | Recipe | Depends on | Ready |');
+    assert.ok(header > 0, lines.join('\n'));
+    assert.equal(lines[header + 1], '| --- | --- | --- | --- | --- |');
+    assert.equal(
+      lines[header + 4],
+      '| `cli`: Build cli | about 300 lines | `tdd` | `api` (release) | no |',
+    );
+  });
+
+  it('shows a section of each sub-order, its touched paths folded in a details (#658)', () => {
+    const text = renderPlan('7-1', 'plan', three);
+    assert.match(
+      text,
+      /\n#### `api`: Build api\n\n- Builds in acme\/api: one endpoint, about 300 lines\n- Done when: GET \/health answers 200\n- Recipe `tdd`: a test can pin it\n\n<details><summary>Touches 2 paths<\/summary>\n\n- src\/server\.ts\n- src\/health\.ts \(new\)\n\n<\/details>\n/,
+    );
+    assert.match(text, /\n- Not ready: the flags are open\n/);
+    assert.equal(text.split('<details>').length, 4, 'one details per sub-order');
+  });
+
+  it('shows no flowchart with one sub-order (#658)', () => {
+    const text = renderPlan('7-1', 'plan', { subOrders: [subOrder('api')] });
+    assert.doesNotMatch(text, /mermaid|\*\*Order\*\*/);
+  });
+
+  it('shows a flowchart with two sub-orders: regression test (#658)', () => {
+    const text = renderPlan('7-1', 'plan', { subOrders: [subOrder('api'), subOrder('ui')] });
+    assert.match(
+      text,
+      /\n\*\*Order\*\*\n\n```mermaid\nflowchart LR\n {2}s1\["api: Build api"\]\n {2}s2\["ui: Build ui"\]\n```\n/,
+    );
+  });
+
+  it('ends with no next step when the plan does not wait for its review (#658)', () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    assert.doesNotMatch(text, /Next:|foedrum retry/);
+    assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
+  });
+
+  it('ends with the next step (#658)', () => {
+    assert.ok(renderPlan('7-1', 'plan', three, undefined, outDoc, true).endsWith(`\n\n${next}`));
+  });
+
   it('shows a text with a quote, a hash, a line break, a mention and a backtick as itself, in the table and the graph', () => {
-    const odd = { subOrders: [subOrder('api', { title: 'Say "hi" #1\n@alice ```end' })] };
+    const odd = {
+      subOrders: [subOrder('api', { title: 'Say "hi" #1\n@alice ```end' }), subOrder('ui')],
+    };
     const text = renderPlan('7-1', 'plan', odd);
     assert.match(text, /\| `api`: Say "hi" \\#1 &#64;alice \\`\\`\\`end \|/);
     assert.match(text, /\n {2}s1\["api: Say #quot;hi#quot; #35;1 @alice #96;#96;#96;end"\]\n/);
@@ -119,7 +220,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('leaves out a text that looks like a secret, in the table and the graph', () => {
-    const leaky = { subOrders: [subOrder('api', { title: `use ${token}` })] };
+    const leaky = { subOrders: [subOrder('api', { title: `use ${token}` }), subOrder('ui')] };
     const text = renderPlan('7-1', 'plan', leaky);
     assert.doesNotMatch(text, new RegExp(token));
     assert.match(text, /`api`: \\\[left out: a text of step plan that looks like a secret\\\]/);
@@ -143,59 +244,53 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('leaves the graph out, and nothing else, when only the graph takes the text past its length', () => {
-    // 100 rows of about 590 characters fit; their 100 graph lines of about 160 do not.
-    const long = 'x'.repeat(150);
+    // 100 sub-orders of about 560 characters fit; their 100 graph lines of about 130 do not.
     const many = Array.from({ length: 100 }, (_, i) =>
-      subOrder(`s${i}`, { title: 'y'.repeat(120), doneWhen: long, why: long }),
+      subOrder(`s${i}`, { title: 'y'.repeat(120), doneWhen: 'x'.repeat(50), why: 'x'.repeat(50) }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many });
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, undefined, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
-    assert.doesNotMatch(text, /```mermaid/);
+    assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
-    assert.match(text, /\*\*Gate\*\*\n\nNone yet\.$/);
+    assert.match(text, /\*\*Gate\*\*\n\nNone yet\.\n\nNext: /);
   });
 
-  it("keeps the whole text within GitHub's length, cut at a whole line", () => {
+  /** 100 sub-orders at the longest the schema takes: past GitHub's length even without the graph. */
+  const longest = (): PlanReport => {
     const long = 'x'.repeat(300);
-    const many = Array.from({ length: 100 }, (_, i) =>
-      subOrder(`s${i}`, {
-        title: long,
-        doneWhen: long,
-        why: long,
-        touches: Array.from({ length: 20 }, (_, j) => ({ path: `${'d'.repeat(280)}/${j}` })),
-      }),
-    );
-    const text = renderPlan('7-1', 'plan', { subOrders: many });
+    return {
+      subOrders: Array.from({ length: 100 }, (_, i) =>
+        subOrder(`s${i}`, {
+          title: long,
+          doneWhen: long,
+          why: long,
+          touches: Array.from({ length: 20 }, (_, j) => ({ path: `${'d'.repeat(280)}/${j}` })),
+        }),
+      ),
+    };
+  };
+
+  it("keeps the whole text within GitHub's length, cut after a whole sub-order", () => {
+    const text = renderPlan('7-1', 'plan', longest(), undefined, undefined, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
-    assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.$/);
-    // Regression test (review of #607): the graph goes first, and the cut ends at a whole row.
     assert.doesNotMatch(text, /```mermaid/);
-    const lines = text.split('\n');
-    assert.match(lines.at(-3) ?? '', /^\| `s\d+`: .* \|$/);
-  });
-
-  const outDoc =
-    'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md?plain=1';
-
-  it("ends with a link to the plan's out doc on the state branch, as written (#659)", () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
-    assert.ok(text.startsWith(`${renderPlan('7-1', 'plan', three)}\n\n`), text);
-    assert.ok(text.endsWith(`\n\nFull plan: <${outDoc}>`), text);
-  });
-
-  it('keeps the link when the text is cut to length (#659)', () => {
-    const long = 'x'.repeat(300);
-    const many = Array.from({ length: 100 }, (_, i) =>
-      subOrder(`s${i}`, {
-        title: long,
-        doneWhen: long,
-        why: long,
-        touches: Array.from({ length: 20 }, (_, j) => ({ path: `${'d'.repeat(280)}/${j}` })),
-      }),
+    assert.match(
+      text,
+      /\n<\/details>\n\n… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/,
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc);
+  });
+
+  it('leaves no details open where it cuts: regression test (#658)', () => {
+    const text = renderPlan('7-1', 'plan', longest());
+    assert.match(text, /rest is cut/);
+    assert.equal(text.split('<details>').length, text.split('</details>').length);
+  });
+
+  it('keeps the link and the next step when the text is cut to length (#658)', () => {
+    const text = renderPlan('7-1', 'plan', longest(), undefined, outDoc, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
-    assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nFull plan: <[^>]+>$/);
+    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/);
   });
 
   it('counts the link in the length, for a text that fits only without it: regression test (#659)', () => {
@@ -206,9 +301,9 @@ describe('renderPlan (ADR 0233)', () => {
       ),
     });
     const length = (plan: PlanReport) => renderPlan('7-1', 'plan', plan).length;
-    // A text past the limit comes back cut, without its graph: the most sub-orders kept whole.
+    // A text past the limit comes back without its graph: the most sub-orders kept whole.
     const whole = (plan: PlanReport) => renderPlan('7-1', 'plan', plan).includes('```mermaid');
-    let [n, over] = [1, 10_000];
+    let [n, over] = [2, 1_000];
     while (over - n > 1) {
       const middle = Math.floor((n + over) / 2);
       if (whole(sized(middle, 0))) n = middle;
@@ -225,11 +320,32 @@ describe('renderPlan (ADR 0233)', () => {
     const plan = sized(n, long);
     // Within the link's length of the limit: whole without it, too long with it.
     assert.ok(whole(plan));
-    assert.ok(length(plan) <= 60_000, `${length(plan)}`);
     assert.ok(length(plan) + link.length > 60_000, `${length(plan)}`);
     const text = renderPlan('7-1', 'plan', plan, undefined, outDoc);
     assert.ok(text.length <= 60_000, `${text.length}`);
-    assert.ok(text.endsWith(link), text.slice(-200));
+    assert.ok(text.includes(link), text.slice(0, 200));
+  });
+
+  it('cuts a table too long alone to whole rows, keeping the link and the next step: regression test (#658)', () => {
+    // Ten dependencies of 40-character ids on each row take the table past the limit alone.
+    const id = (i: number) => `s${String(i).padStart(3, '0')}-${'x'.repeat(34)}`;
+    const many = Array.from({ length: 100 }, (_, i) =>
+      subOrder(id(i), {
+        title: 'y'.repeat(120),
+        dependencies: Array.from({ length: Math.min(i, 10) }, (_, j) => ({
+          on: id(j),
+          kind: 'code' as const,
+        })),
+      }),
+    );
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc, true);
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.doesNotMatch(text, /\n#### /);
+    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.match(
+      text,
+      /\n\| `s\d{3}-x+`: y+ \| [^\n]+ \|\n\n… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/,
+    );
   });
 
   it('reads as before without a link: regression test (#659)', () => {
@@ -280,7 +396,11 @@ const planned = (plan: PlanReport): Ending => ({
 const second: PlanReport = { subOrders: [subOrder('api'), subOrder('docs')] };
 
 describe('planEffects (ADR 0233)', () => {
-  const recipes = fakeRecipes({ mash: fakeRecipe({ steps: ['plan', 'replan'] }) });
+  const recipes = fakeRecipes({
+    mash: fakeRecipe({ steps: ['plan', 'replan'] }),
+    // One plan step and no pull request: its plan waits for review (ADR 0275).
+    pale: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
+  });
   let store: EventStore;
   let log: CommandLog;
   let comments: ReturnType<typeof fakeComments>;
@@ -332,6 +452,20 @@ describe('planEffects (ADR 0233)', () => {
     assert.equal(comments.comments.length, 1, 'one plan comment');
     return comments.comments[0] ?? assert.fail();
   };
+
+  it('ends the comment with the next step while its batch waits Stuck for review: regression test (#658)', async () => {
+    const driver = await open();
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    step('plan', planned(three));
+    assert.equal(log.state().batches.get('7-1')?.lane.kind, 'stuck');
+    await driver.applyEffects();
+    assert.equal(
+      only().body,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true)}\n\n${marker(1)}`,
+    );
+    assert.match(only().body, /\n\nNext: read the plan/);
+  });
 
   it('makes no comment before a plan succeeded, nor for a plan that asks a question', async () => {
     order();
@@ -496,11 +630,12 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     await driver.applyEffects();
-    const link = (path: string) => `\n\nFull plan: <${stateBranchUrl}/batches/7-1/${path}?plain=1>`;
-    assert.ok(only().body.endsWith(`${link('plan-1.md')}\n\n${marker(1)}`), only().body);
+    const link = (path: string) => `\n\nFull plan: <${stateBranchUrl}/batches/7-1/${path}>\n\n`;
+    assert.ok(only().body.includes(link('plan-1.md')), only().body);
     step('replan', planned(second));
     await driver.applyEffects();
-    assert.ok(only().body.endsWith(`${link('replan-1.md')}\n\n${marker(2)}`), only().body);
+    assert.ok(only().body.includes(link('replan-1.md')), only().body);
+    assert.ok(only().body.endsWith(`\n\n${marker(2)}`), only().body);
   });
 
   it('links the attempt of the plan that succeeded, not the one before it: regression test (#659)', async () => {
@@ -527,7 +662,7 @@ describe('planEffects (ADR 0233)', () => {
     issue({ kind: 'record', event: { type: 'step.started', ...retried } });
     issue({ kind: 'finish', ...retried, ending: planned(three) });
     await driver.applyEffects();
-    const link = `Full plan: <${stateBranchUrl}/batches/7-1/plan-2.md?plain=1>`;
-    assert.ok(only().body.endsWith(`${link}\n\n${marker(1)}`), only().body);
+    const link = `\n\nFull plan: <${stateBranchUrl}/batches/7-1/plan-2.md>\n\n`;
+    assert.ok(only().body.includes(link), only().body);
   });
 });

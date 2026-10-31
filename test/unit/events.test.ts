@@ -851,6 +851,7 @@ describe('StuckReason', () => {
       turnsWithoutProgress: 60,
     },
     routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
+    plan_review: { kind: 'plan_review', stepId: 'plan', attempt: 2 },
     stopped: { kind: 'stopped', stepId: 'brew', by: 'ada', via: 'terminal', why: 'lunch' },
     pull_request_failed: {
       kind: 'pull_request_failed',

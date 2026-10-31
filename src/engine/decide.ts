@@ -43,6 +43,7 @@ import {
 } from './fold.ts';
 import { claimStanding, same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
+import { latestPlan } from './plan-comment.ts';
 import { openedPullRequest } from './pull-request.ts';
 import {
   causeOf,
@@ -249,6 +250,9 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'stopped':
     case 'pull_request_failed':
       return [...withoutAnswer];
+    // A plan to review: plan it again, choose another recipe, or end it (ADR 0275). A skip or a
+    // rewind would end the recipe on the same plan again; #588's gate adds approve.
+    case 'plan_review':
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
@@ -442,6 +446,11 @@ function run(draft: Draft, command: Command): Event[] {
         schedule(draft, batchId, goto, {
           route: { from: stepId, why: 'pull_request', pullRequest, head, ...tip },
         });
+        break;
+      }
+      // A plan again, in a session of its own: the attempt before it succeeded (ADR 0275).
+      if (reason.kind === 'plan_review') {
+        schedule(draft, batchId, reason.stepId);
         break;
       }
       schedule(draft, batchId, reason.stepId, { retry: true });
@@ -1149,6 +1158,13 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
           );
         }
         pullRequests.push(opened);
+      }
+      // A plan and nothing built from it waits for a person's review, not on tap (ADR 0275): a
+      // plan of this recipe's, not of one a person moved the batch away from.
+      const plan = pullRequests.length === 0 ? latestPlan(batch) : undefined;
+      if (plan !== undefined && recipe.has(plan.stepId)) {
+        stick(draft, batchId, { kind: 'plan_review', stepId: plan.stepId, attempt: plan.attempt });
+        return;
       }
       draft.push({ type: 'batch.on_tap', batchId, pullRequests });
       return;

@@ -5,6 +5,7 @@
 import type { GravityReading, Receipt, Usage } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { gaugeOf, type OutDocFrontmatter, readOutDoc, tastingOf } from '../schemas/out-doc.ts';
+import { unreadableBody } from '../schemas/plan.ts';
 import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -30,6 +31,11 @@ export interface AttemptLimits {
    * (ADR 0258).
    */
   namesOnly?: true;
+  /**
+   * For a plan: a `done` out doc's body must hold its summary and assumptions, so the out doc the
+   * comments link reads on GitHub (ADR 0275).
+   */
+  readableBody?: true;
   /** For a Taster's blocking step: a `done` with the verdict `changes` is blocked by findings (ADR 0161). */
   blocking?: boolean;
   /**
@@ -343,6 +349,11 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
         // The findings stay open on the Stuck reason when the route has no rounds left (ADR 0192).
         const findings = tastingOf(frontmatter)?.findings ?? [];
         return { kind: 'blocked', blockerKind: 'findings', summary, findings };
+      }
+      if (limits.readableBody === true) {
+        const unread = unreadableBody(read.body, frontmatter);
+        if (unread !== undefined)
+          return failed(true, `the out doc ${outDoc.file} is invalid: ${unread}`);
       }
       if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
       return doneWithCommits(
