@@ -261,10 +261,9 @@ const planDue = (
       : outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true);
   const { lane, approval } = batch;
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
-  // The sign-off of this plan only: a later plan of the batch waits for one of its own.
-  const signed = approval?.stepId === stepId && approval.attempt === attempt ? approval : undefined;
+  // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
   const commits = knownCommits(state, batchId);
-  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, signed);
+  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };
