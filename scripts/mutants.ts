@@ -9,10 +9,13 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import {
+  type ChangedFile,
   editFile,
   type Mutant,
   type MutantEdit,
   parseMutant,
+  sameAnswerLine,
+  sameAnswerMutants,
   touchedFiles,
 } from './mutants/core.ts';
 
@@ -121,12 +124,41 @@ export const applyMutant = async (
 
 // Appends the same-answer mutants of the change to the answer file, in place of the ones an
 // earlier run appended (#223).
-export const sameAnswer = async (
-  _tree: string,
-  _answer: string,
-  _files: string,
-): Promise<Result> => {
-  throw new Error('not implemented');
+// The sources are the touched files under src/ and scripts/, the tests the touched test files,
+// as the tree has them; a file it cannot read gives no mutant.
+export const sameAnswer = async (tree: string, answer: string, files: string): Promise<Result> => {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(await readFile(answer, 'utf8'));
+  } catch (error) {
+    return { ok: false, lines: [`cannot read the answer: ${(error as Error).message}`] };
+  }
+  if (!Array.isArray(parsed?.mutants)) {
+    return { ok: false, lines: ['the answer has no "mutants" list'] };
+  }
+  const read = await readTouched(files);
+  if (!read.ok) return read;
+  const changed = async (pattern: RegExp): Promise<ChangedFile[]> => {
+    const paths = (read.touched ?? []).filter((path) => pattern.test(path));
+    const contents = await Promise.all(
+      paths.map((path) => readFile(join(tree, path), 'utf8').catch(() => undefined)),
+    );
+    return paths.flatMap((path, index) => {
+      const content = contents[index];
+      return content === undefined ? [] : [{ path, content }];
+    });
+  };
+  const sources = await changed(/^(?:src|scripts)\/(?!.*\.test\.ts$).*\.ts$/);
+  const scripted = sameAnswerMutants(sources, await changed(/^test\/.*\.test\.ts$/));
+  const brett = parsed.mutants.filter(
+    (entry: unknown) => (entry as { source?: unknown } | null)?.source !== 'script',
+  );
+  await writeFile(
+    answer,
+    `${JSON.stringify({ ...parsed, mutants: [...brett, ...scripted] }, null, 2)}\n`,
+  );
+  const lines = scripted.map((mutant) => `same answer: ${sameAnswerLine(mutant)}`);
+  return { ok: true, lines: lines.length > 0 ? lines : ['same answer: none'] };
 };
 
 export interface MainResult {
@@ -143,13 +175,19 @@ export const main = async (argv: readonly string[]): Promise<MainResult> => {
     allowPositionals: true,
   });
   const [tree, answer, n] = positionals;
-  if (tree === undefined || answer === undefined) {
+  const sameAnswerRun = values['same-answer'] === true;
+  if (
+    tree === undefined ||
+    answer === undefined ||
+    (sameAnswerRun && (n !== undefined || values.touched === undefined))
+  ) {
     const usage =
-      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number>] [--touched <files.txt>]';
+      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number> | --same-answer] [--touched <files.txt>] (--same-answer needs --touched)';
     return { exitCode: 2, stdout: [], stderr: [usage] };
   }
-  const { ok, lines } =
-    n === undefined
+  const { ok, lines } = sameAnswerRun
+    ? await sameAnswer(tree, answer, values.touched ?? '')
+    : n === undefined
       ? await checkMutants(tree, answer, values.touched)
       : await applyMutant(tree, answer, Number(n), values.touched);
   return { exitCode: ok ? 0 : 1, stdout: lines.map((line) => `mutants: ${line}`), stderr: [] };

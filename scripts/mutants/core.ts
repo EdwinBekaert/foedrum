@@ -155,9 +155,190 @@ export interface ChangedFile {
 // A mutant the checker writes itself, beside Brett's (#223).
 export type ScriptedMutant = Mutant & { description: string; source: 'script' };
 
-export const sameAnswerMutants = (
-  _sources: readonly ChangedFile[],
-  _tests: readonly ChangedFile[],
-): ScriptedMutant[] => {
-  throw new Error('not implemented');
+// The code of a file without its strings, comments and import statements, so a function's name
+// in a test's title or in an import is not a use of it.
+const codeOf = (content: string): string =>
+  content
+    .split(/\r?\n/)
+    .map((line) => line.replace(strings, '""').replace(comments, ' '))
+    .join('\n')
+    .replace(/^\s*import\b[^;]*;/gm, ' ');
+
+// The index of the bracket that closes the one at `open`, or -1.
+const closing = (code: string, open: number): number => {
+  let depth = 0;
+  for (let index = open; index < code.length; index += 1) {
+    const char = code[index] ?? '';
+    if ('([{'.includes(char)) depth += 1;
+    else if (')]}'.includes(char) && --depth === 0) return index;
+  }
+  return -1;
 };
+
+// The arguments of a call, split at its top-level commas.
+const argumentsOf = (text: string): string[] => {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index] ?? '';
+    if ('([{'.includes(char)) depth += 1;
+    else if (')]}'.includes(char)) depth -= 1;
+    else if (char === ',' && depth === 0) {
+      parts.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  return [...parts, text.slice(start).trim()].filter((part) => part !== '');
+};
+
+const mentions = (code: string, name: string): number =>
+  code.match(
+    new RegExp(
+      `(?<![\\p{ID_Continue}$])${name.replace(/\$/g, '\\$')}(?![\\p{ID_Continue}$])`,
+      'gu',
+    ),
+  )?.length ?? 0;
+
+const EQUAL = new Set(['equal', 'strictEqual', 'deepEqual', 'deepStrictEqual']);
+
+// What one assertion expects of `name`: `assert.equal(name(…), true|false)` and its strict and
+// deep forms, `assert.ok(name(…))` and `assert(name(…))`, each also with `!name(…)`. Undefined for
+// any other form.
+const expected = (
+  method: string | undefined,
+  args: string[],
+  name: string,
+): boolean | undefined => {
+  const [actual = '', value] = args;
+  const call = new RegExp(`^(!?)\\s*${name.replace(/\$/g, '\\$')}\\s*\\(`, 'u').exec(actual);
+  const open = call === null ? -1 : call[0].length - 1;
+  if (
+    call === null ||
+    closing(actual, open) !== actual.length - 1 ||
+    mentions(actual, name) !== 1
+  ) {
+    return undefined;
+  }
+  const negated = call[1] === '!';
+  if (method === undefined || method === 'ok') return !negated;
+  if (EQUAL.has(method) && (value === 'true' || value === 'false')) {
+    return (value === 'true') !== negated;
+  }
+  return undefined;
+};
+
+// The one value every assertion on `name` in the tests expects; undefined when the tests have
+// none, expect both, or mention the function in a form `expected` does not read, which Brett's
+// prompt still covers.
+const sameAnswer = (code: string, name: string): boolean | undefined => {
+  const values = new Set<boolean>();
+  let read = 0;
+  for (const match of code.matchAll(/(?<![\p{ID_Continue}$.])assert(?:\.(\w+))?\s*\(/gu)) {
+    const open = match.index + match[0].length - 1;
+    const close = closing(code, open);
+    if (close === -1) return undefined;
+    const value = expected(match[1], argumentsOf(code.slice(open + 1, close)), name);
+    if (value !== undefined) {
+      values.add(value);
+      read += 1;
+    }
+  }
+  const [only] = values;
+  return read > 0 && read === mentions(code, name) && values.size === 1 ? only : undefined;
+};
+
+const identifier = '([\\p{ID_Start}$_][\\p{ID_Continue}$]*)';
+// `const name = (…): boolean => …` on one line, and `function name(…): boolean {`.
+const arrow = new RegExp(
+  `^(?:export\\s+)?(?:const|let)\\s+${identifier}\\s*=\\s*(?:<[^>]*>\\s*)?\\(.*\\)\\s*:\\s*boolean\\s*=>\\s*(.*)$`,
+  'u',
+);
+const declaration = new RegExp(
+  `^(?:export\\s+)?function\\s+${identifier}\\s*(?:<[^>]*>\\s*)?\\(.*\\)\\s*:\\s*boolean\\s*\\{$`,
+  'u',
+);
+
+interface BooleanFunction {
+  name: string;
+  line: number;
+  original: string;
+  // The line with the function's result written as `value` combined with `result`.
+  rewrite: (value: boolean) => string;
+}
+
+const combined = (value: boolean, result: string): string =>
+  value ? `true || (${result})` : `false && (${result})`;
+
+// The index of the block body's only `return` line after the header at `start`, or undefined.
+const onlyReturn = (lines: string[], start: number): number | undefined => {
+  let depth = 0;
+  const returns: number[] = [];
+  for (let index = start; index < lines.length; index += 1) {
+    const code = (lines[index] ?? '').replace(strings, '""').replace(comments, ' ');
+    if (index > start && /\breturn\b/.test(code)) returns.push(index);
+    for (const char of code) {
+      if (char === '{') depth += 1;
+      else if (char === '}') depth -= 1;
+    }
+    if (depth === 0) return returns.length === 1 ? returns[0] : undefined;
+  }
+  return undefined;
+};
+
+// The functions of a file declared to return a boolean whose result is one expression on one
+// line: an arrow's expression body, or a block's only `return <expression>;`.
+const booleanFunctions = (content: string): BooleanFunction[] => {
+  const lines = content.split(/\r?\n/);
+  return lines.flatMap((text, index): BooleanFunction[] => {
+    const header = text.trim();
+    const [, arrowName, body = ''] = arrow.exec(header) ?? [];
+    const [, declared] = declaration.exec(header) ?? [];
+    if (arrowName !== undefined && body !== '{') {
+      if (!body.endsWith(';')) return [];
+      const head = text.trimEnd().slice(0, -body.length);
+      const rewrite = (value: boolean) => `${head}${combined(value, body.slice(0, -1).trim())};`;
+      return [{ name: arrowName, line: index + 1, original: text.trimEnd(), rewrite }];
+    }
+    const name = arrowName ?? declared;
+    const at = name === undefined ? undefined : onlyReturn(lines, index);
+    const statement = at === undefined ? '' : (lines[at] ?? '').trimEnd();
+    const [, indent, result] = /^(\s*)return\s+(.+);$/.exec(statement) ?? [];
+    if (name === undefined || at === undefined || result === undefined) return [];
+    const rewrite = (value: boolean) => `${indent}return ${combined(value, result)};`;
+    return [{ name, line: at + 1, original: statement, rewrite }];
+  });
+};
+
+// For each function of the changed source files declared to return a boolean, when every
+// assertion on it in the changed test files expects the same value, the mutant that makes it
+// return that value for every input: it survives exactly when the tests cannot tell the function
+// from a stub that always gives that answer. Brett's prompt asked for it, and a model gives what
+// it is asked for usually, not always (#223).
+export const sameAnswerMutants = (
+  sources: readonly ChangedFile[],
+  tests: readonly ChangedFile[],
+): ScriptedMutant[] => {
+  const code = tests.map((test) => codeOf(test.content)).join('\n');
+  return sources.flatMap((source) =>
+    booleanFunctions(source.content).flatMap(({ name, line, original, rewrite }) => {
+      const value = sameAnswer(code, name);
+      if (value === undefined) return [];
+      const description = `${name} returns ${value} for every input: every assertion on it in the changed tests expects ${value}`;
+      return [
+        {
+          file: source.path,
+          line,
+          original,
+          replacement: rewrite(value),
+          description,
+          source: 'script' as const,
+        },
+      ];
+    }),
+  );
+};
+
+// The line the command prints for a mutant of sameAnswerMutants.
+export const sameAnswerLine = (mutant: ScriptedMutant): string =>
+  `${mutant.file}:${mutant.line} ${mutant.description.replace(/ returns (true|false) .*$/, ' always $1')}`;
