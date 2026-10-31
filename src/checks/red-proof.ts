@@ -3,7 +3,7 @@
 // and reads the report and the step's diff.
 
 import { posix } from 'node:path';
-import { reportPath } from '../formats/coverage-report.ts';
+import { isAbsolutePath, reportPath } from '../formats/coverage-report.ts';
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
 import { areaOf, type EffectiveModule } from './test-map.ts';
@@ -241,13 +241,37 @@ export interface MappedRun {
 /** A path as the step's files are compared: in either case where the file system folds case. */
 const keyOf = (path: string, foldCase: boolean): string => (foldCase ? path.toLowerCase() : path);
 
-/** A test's file relative to `root` with `/` between folders, or undefined outside it. */
-const fileOf = ({ location }: ReportedTest, root: string): string | undefined =>
-  location === undefined ? undefined : reportPath(location.file, root);
+/**
+ * A test's file relative to the worktree's root with `/` between folders, from either of `roots`
+ * (the worktree's path and its real path), or undefined outside both.
+ */
+const fileOf = ({ location }: ReportedTest, roots: readonly string[]): string | undefined => {
+  if (location === undefined) return undefined;
+  return roots.map((root) => reportPath(location.file, root)).find((path) => path !== undefined);
+};
 
 /** A test's file as a reason shows it: relative to the root, else with `/` between folders. */
-const shownFile = (test: ReportedTest, root: string): string =>
-  fileOf(test, root) ?? posix.normalize((test.location?.file ?? '').replaceAll('\\', '/'));
+const shownFile = (test: ReportedTest, roots: readonly string[]): string =>
+  fileOf(test, roots) ?? posix.normalize((test.location?.file ?? '').replaceAll('\\', '/'));
+
+/**
+ * The key in `files` (paths by their key) of the file a test's location names: by its path from the
+ * root, or, for a relative path a runner may write from a module's folder (pytest from its
+ * rootdir), a file whose path ends with it; undefined when it names none of them.
+ */
+const placedIn = (
+  test: ReportedTest,
+  files: ReadonlySet<string>,
+  roots: readonly string[],
+  foldCase: boolean,
+): string | undefined => {
+  const file = fileOf(test, roots);
+  if (file === undefined) return undefined;
+  const key = keyOf(file, foldCase);
+  if (files.has(key)) return key;
+  if (isAbsolutePath(test.location?.file ?? '')) return undefined;
+  return [...files].find((each) => each.endsWith(`/${key}`));
+};
 
 /**
  * Whether `run` proves the step red, reading no test's name (ADR 0274): checked in this order, the
@@ -258,7 +282,8 @@ const shownFile = (test: ReportedTest, root: string): string =>
  * is the step's doing, and a passing one is just a passing test.
  */
 export function judgeMapped(run: MappedRun): { proven: true } | { proven: false; why: string } {
-  const { reports, unreported, diff, modules, root, foldCase } = run;
+  const { reports, unreported, diff, modules, root, realRoot, foldCase } = run;
+  const roots = realRoot === undefined ? [root] : [root, realRoot];
   const refused = (why: string) => ({ proven: false as const, why });
   const bailedOut = reports.find((report) => report.bailedOut !== undefined)?.bailedOut;
   if (bailedOut !== undefined) return refused(`the run bailed out: ${bailedOut}`);
@@ -292,10 +317,8 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
   if (failing.length === 0) return refused('no test fails, so none shows the behaviour missing');
   // By file: the report places a test at its declaration, which a row added to a table leaves as
   // it was. A failing test the report does not place may be the step's.
-  const inChanged = (test: ReportedTest): boolean => {
-    const file = fileOf(test, root);
-    return file !== undefined && testFiles.has(keyOf(file, foldCase));
-  };
+  const inChanged = (test: ReportedTest): boolean =>
+    placedIn(test, testFiles, roots, foldCase) !== undefined;
   const [placed] = failing;
   if (
     placed !== undefined &&
@@ -303,7 +326,7 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
     !failing.some(inChanged)
   ) {
     return refused(
-      `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, root))}`,
+      `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, roots))}`,
     );
   }
   const added = new Map(
@@ -311,13 +334,14 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
       newPath === undefined ? [] : [[newPath, new Set(addedAt ?? [])] as const],
     ),
   );
-  const skipped = skipsInAddedLines(reports, added, root, foldCase);
+  const skipped = skipsInAddedLines(reports, added, root, foldCase, realRoot);
   return skipped === undefined ? { proven: true } : refused(skipped);
 }
 
 /**
  * Why a skip in `reports` is the step's: the report places it in a line `added` holds, by the
- * path relative to `root` with `/` between folders; undefined when none is (ADR 0274). By line: a
+ * path relative to `root` (or `realRoot`, the root's real path) with `/` between folders, or by a
+ * relative path an added file's path ends with; undefined when none is (ADR 0274). By line: a
  * step's skip sits on a declaration it adds or edits, and a skip the base had is not the step's.
  * A skip the report places on no line is the test-design lens's to find.
  */
@@ -326,16 +350,17 @@ export function skipsInAddedLines(
   added: ReadonlyMap<string, ReadonlySet<number>>,
   root: string,
   foldCase: boolean,
+  realRoot?: string,
 ): string | undefined {
-  const lines = new Map([...added].map(([path, at]) => [keyOf(path, foldCase), at]));
+  const roots = realRoot === undefined ? [root] : [root, realRoot];
+  const files = new Map([...added].map(([path, at]) => [keyOf(path, foldCase), { path, at }]));
+  const keys = new Set(files.keys());
   for (const test of reports.flatMap(({ tests }) => tests)) {
     const line = test.location?.line;
-    const file = fileOf(test, root);
-    if (test.result !== 'skipped' || !test.leaf || line === undefined || file === undefined) {
-      continue;
-    }
-    if (lines.get(keyOf(file, foldCase))?.has(line) === true) {
-      return `test "${cut(test.name)}" is skipped at ${cut(file)}:${line}, a line the step added, so it proves nothing`;
+    if (test.result !== 'skipped' || !test.leaf || line === undefined) continue;
+    const file = files.get(placedIn(test, keys, roots, foldCase) ?? '');
+    if (file?.at.has(line) === true) {
+      return `test "${cut(test.name)}" is skipped at ${cut(file.path)}:${line}, a line the step added, so it proves nothing`;
     }
   }
   return undefined;

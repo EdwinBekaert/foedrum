@@ -367,12 +367,16 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         unreported.push(`module "${name}" wrote no coverage report at ${module.coverage.path}`);
       }
     }
+    // The check's sandbox starts the run in the worktree's real path, where its runner writes
+    // absolute paths when a link leads to the worktree (macOS's /tmp, a junction).
+    const realRoot = realPath(worktree.path);
     const verdict = judgeMapped({
       reports: read,
       unreported,
       diff,
       modules,
       root: worktree.path,
+      ...(realRoot === worktree.path ? {} : { realRoot }),
       foldCase: foldsCase(platform),
     });
     if (!verdict.proven) return failed(verdict.why);
