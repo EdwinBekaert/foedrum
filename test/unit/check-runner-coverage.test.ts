@@ -816,7 +816,7 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     assert.equal(end.ending.kind === 'failed' && end.ending.retryable, false);
     assert.equal(
       reasonOf(end),
-      'test "clamps below" is skipped at test/calc.test.ts:6, a line the step added, so it proves nothing',
+      'test "clamps below" is skipped at test/calc.test.ts:6, a line the batch added: a change may not skip a test it was proven by',
     );
   });
 
@@ -841,7 +841,7 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     const end = await run();
     assert.equal(
       reasonOf(end),
-      'test "clamps below" is skipped at test/calc.test.ts:5, a line the step added, so it proves nothing',
+      'test "clamps below" is skipped at test/calc.test.ts:5, a line the batch added: a change may not skip a test it was proven by',
     );
   });
 
