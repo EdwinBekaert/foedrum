@@ -26,10 +26,12 @@ A path in both a base module's area and an added one's is read by the base's mod
 A base module drops out only when the batch deletes every file the base had under its code and test areas, so a deleted project is not read as a module that wrote no report.
 Paths are compared in git's case, folding case only where the worktree's file system does not tell case apart.
 
-**Report paths.** A report path or folder pattern is looked for in the worktree segment by segment, each match by its real path; one that leads out of the worktree, or a pattern that matches more than 64 paths, is refused.
+**Report paths.** A report path or folder pattern is looked for in the worktree segment by segment, each match by its real path; one that leads out of the worktree, or a pattern that matches more than 64 paths, is refused, and when the unreached rule below looks for a module's report that makes the batch Stuck (`environment`), naming why.
 
-**A module no confirmed line reaches.** After a check step's `test` check ran and exited, in a red proof or any other check step, the map is read at the base, the base the batch merged before its last check or else where its change starts ([ADR 0164](../../adr/0164-a-batch-merges-its-base-before-its-last-check.md)), and at the step's tip; a module that only the batch's map lists and whose report path holds no report makes the batch Stuck (`environment`).
-The reason names the module and the report path, says to make the repository's `"checks"."test"` line in `foedrum.jsonc` also run the module's tests, and carries the end of the test check's recorded output, cut and read for secrets as every reading's is, so a compile error shows.
+**A module no confirmed line reaches.** After a check step's `test` check ran and exited 0, in a red proof or any other check step, the map is read at the base, the base the batch merged before its last check or else where its change starts ([ADR 0164](../../adr/0164-a-batch-merges-its-base-before-its-last-check.md)), and at the step's tip; a module that only the batch's map lists and whose report path holds no report makes the batch Stuck (`environment`).
+A run that failed, or did not exit, keeps its own ending: a red proof's verdict stands and a failed check takes its `onFail` route, since a line that runs several suites may stop before a module it reaches ([ADR 0280](../../adr/0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md)).
+A module no line reaches is caught at the next passing run, such as Nip's `green`.
+The reason names the module and the report path, says to make the repository's `"checks"."test"` line in `foedrum.jsonc` also run the module's tests, whatever the tests before them give, and carries the end of the test check's recorded output, cut and read for secrets as every reading's is.
 A module the base's map lists is taken as reached, as the base is taken as green.
 A base map that cannot be read makes the batch Stuck (`environment`); a batch's map that cannot be read fails the step without a retry, so its `onFail` route sends the batch back to the brewer that broke it.
 

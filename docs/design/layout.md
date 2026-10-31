@@ -26,13 +26,14 @@ docs/
 **A Brewery:**
 
 ```
-foedrum.jsonc     the Brewery's owner/name (brewery) and GitHub API (githubApi); repositories (source, base, triage sources, intake filter and alias, check commands, test report, setup, toolchain allowlist; ADR 0023, ADR 0050), allow-listed users (users), concurrency, the open-order limit (openOrders), how often the intake polls (pollEvery), budgets, permission ceiling (schema so far: the Brewery, the GitHub API, users, concurrency and pollEvery (ADR 0068), openOrders (ADR 0217), source and base, checks, test report, setup, tools, house-yeast fallback, intake filter and alias, and ceiling; [configuration files](recipes/configuration.md); the ceiling: ADR 0026)
+foedrum.jsonc     the Brewery's owner/name (brewery) and GitHub API (githubApi); repositories (source, base, triage sources, intake filter and alias, check commands, test report, setup, toolchain allowlist; ADR 0023, ADR 0050), allow-listed users (users), concurrency, the open-order limit (openOrders), how often the intake polls (pollEvery), budgets, permission ceiling (schema so far: the Brewery, the GitHub API, users, concurrency and pollEvery (ADR 0068), openOrders (ADR 0217), source and base, checks, test report, setup, tools, house-yeast and test-map fallbacks, intake filter and alias, and ceiling; [configuration files](recipes/configuration.md); the ceiling: ADR 0026)
 models.jsonc      model aliases, and an alias per brewer (updated by blind-tasting pull requests)
 .claude/settings.json  enables the foedrum plugin for sessions opened in the Brewery (written by foedrum init, ADR 0199)
 brewers/          custom and overriding brewers (*.md)
 recipes/          custom and overriding recipes (*.jsonc)
 lenses/           custom and overriding tasting lenses: diff/*.md review a diff, plan/*.md a plan (ADR 0143); a brewer input "lens:diff/<name>" or "lens:plan/<name>" reads one (ADR 0098)
 house-yeast/      Brewery-layer rules, and repository-layer rules for repositories with the Brewery fallback ([house yeast](house-yeast.md))
+test-maps/        <owner>/<name>.jsonc: the test map of each repository with "testMap": "brewery" ([the test map](checks/test-map.md))
 .foedrum/         local (git-ignored): SQLite index (index.db; foedrum status and replay open it read-only), local.jsonc (this machine's work root, clones and keepAwake, ADR 0063, ADR 0195), logs
 
 Work root (outside the checkout, default ~/.foedrum/<owner>.<name>/): brewery.json (the Brewery it belongs to) and drivers/<owner>.lock (one per driver), ADR 0037; per repository <owner>.<name>/ with attempts/<batch>/<step>/<attempt> (worktrees), clone.git (managed clone) and git-dirs/ (a git directory per base fetch, base check merge-tree or pair check merge-tree, ADR 0090, ADR 0137, ADR 0198 and ADR 0230, and beside one a <uuid>.tree worktree of a merged tree for its checks, ADR 0203; one a stopped call left goes at the first cleanup an hour on, ADR 0130); ADR 0029; state/ (the state branch's worktree) with state.lock (its writer lock, ADR 0107), and attempt-settings/<batch>/<step>/<attempt>.json, ADR 0059 and ADR 0063, with <attempt>.system.md beside it (the attempt's system prompt file, ADR 0183)
@@ -44,6 +45,7 @@ Branch foedrum/state: batches/<id>/events.jsonl and out docs (<step>-<attempt>.m
 
 ```
 .foedrum/house-yeast/                repository-layer rules (one Markdown file per rule), committed in bottles ([house yeast](house-yeast.md))
+.foedrum/test-map.jsonc             where each module's code, tests and reports are, confirmed in the pull request that carries it ([the test map](checks/test-map.md))
 refs/foedrum/claims/issues/<n>       the claim on an issue a Brewery took from it ([target-repository issues](intake/target-issues.md), ADR 0043)
 foedrum/<owner>.<name>/<rest>        branches, prefixed with the Brewery that pushed them ([the state branch](engine/state-branch.md))
 ```
