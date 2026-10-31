@@ -121,6 +121,13 @@ const readState = (path: string): State => {
   }
 };
 
+/** `lauterTarget` of the Brewery's event store at `storePath`, read only. */
+export const lauterTargetIn = (
+  storePath: string,
+  batchId: string,
+  repositories: readonly { alias: string; repo: string }[],
+): ReturnType<typeof lauterTarget> => lauterTarget(readState(storePath), batchId, repositories);
+
 /** What `--new-window` starts the brew with: the machine's launcher facts, node and program. */
 export interface NewWindowDeps extends WindowFacts {
   /** This node. */
@@ -255,7 +262,7 @@ export const brewFromCheckout = async (
     );
     let target: OrderTarget | undefined;
     if (input.command === 'lauter') {
-      const found = lauterTarget(readState(setup.store), input.batch, setup.intake.repositories);
+      const found = lauterTargetIn(setup.store, input.batch, setup.intake.repositories);
       if ('refused' in found) {
         return {
           exitCode: 5,
