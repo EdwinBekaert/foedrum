@@ -112,6 +112,8 @@ export const renderPlan = (
   isCommit: IsCommit = () => false,
   /** The out doc of the plan on the state branch, linked at the top (ADR 0266, ADR 0275). */
   fullPlan?: string,
+  /** Whether the batch waits Stuck for a review of this plan, which the last line says what to do with. */
+  waitsForReview = false,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -151,8 +153,8 @@ export const renderPlan = (
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
-  // Last, and kept by a cut: what to do next.
-  const next = `\n\nNext: ${planNextStep(batchId, code)}`;
+  // Last, and kept by a cut: what to do next, while the plan waits for its review.
+  const next = waitsForReview ? `\n\nNext: ${planNextStep(batchId, code)}` : '';
   const text = joined([table, ...order, ...sections, ...others, ...after]);
   if (head.length + text.length + next.length <= longestComment) return `${head}${text}${next}`;
   // The graph goes first, so a cut never leaves its block open.
@@ -246,7 +248,9 @@ const planDue = (
     stateBranchUrl === undefined
       ? undefined
       : outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true);
-  const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan);
+  const { lane } = batch;
+  const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
+  const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan, review);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };

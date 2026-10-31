@@ -562,9 +562,10 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
   }
   const { outcome } = latest;
   switch (outcome.kind) {
-    // The out doc the step's line sums up, linked (ADR 0275); a check step writes none.
+    // The out doc the step's line sums up, linked (ADR 0275): a check step and an action, as
+    // openPullRequest, write none, and every out doc has its assumptions.
     case 'succeeded':
-      return stateBranchUrl === undefined || outcome.output === null
+      return stateBranchUrl === undefined || !OutDocAssumptions.safeParse(outcome.output).success
         ? `- ✅ ${id}`
         : `- ✅ ${id}: out doc: ${link(outDocUrl(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl))}`;
     case 'failed':
