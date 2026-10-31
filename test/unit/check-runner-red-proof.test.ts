@@ -1089,6 +1089,26 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     );
   });
 
+  it("folds a report path's case against git's on the platforms whose file system folds it: regression test", async () => {
+    const located = [
+      'TAP version 13',
+      'not ok 1 - adds two numbers',
+      '  ---',
+      `  location: '${join(redTree, 'Test', 'Add.test.mjs').replaceAll('\\', '\\\\')}:1:1'`,
+      '  ...',
+      '1..1',
+    ].join('\n');
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const files = { ...wrote.files, [webTaps[0] ?? '']: text(located) };
+    const folded = setup({ ...wrote, files, maps, platform: 'darwin' });
+    assert.deepEqual((await folded.run()).ending, { kind: 'succeeded', output: null });
+    const ending = (await setup({ ...wrote, files, maps }).run()).ending;
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /no failing test lies in a test file the step changed/,
+    );
+  });
+
   it("places the step's changed files in the map's areas: a step outside them is refused", async () => {
     const elsewhere: TestMapModule = { ...web, tests: { paths: ['spec/**'] } };
     const { run } = setup({

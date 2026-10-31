@@ -305,6 +305,16 @@ describe('judgeMapped (ADR 0274)', () => {
     );
   });
 
+  it('places an absolute path inside the worktree only in that very file, never in one whose path ends with it: regression test', () => {
+    const report = tap(...fails(1, 'multiplies', 'test\\calc.test.ts:18:1'), '1..1');
+    assert.match(
+      why([report], [changed('api/test/calc.test.ts', [18])], {
+        modules: [{ module: { ...ts, tests: { paths: ['api/test/**'] } }, added: false }],
+      }),
+      /^no failing test lies in a test file the step changed/,
+    );
+  });
+
   it("compares a report's path with git's in either case only where the file system folds case", () => {
     const report = tap(...fails(1, 'multiplies', 'Test\\Calc.test.ts:18:1'), '1..1');
     const diff = [changed('test/calc.test.ts', [18])];
@@ -393,6 +403,19 @@ describe('skipsInAddedLines (ADR 0274)', () => {
       skipsInAddedLines([skipAt('C:\\spike\\ts\\test\\calc.test.ts', 18)], added, root, true) ?? '',
       /skipped at test\/calc\.test\.ts:18/,
     );
+  });
+
+  it("finds a skip under the worktree's real path in the lines the step added: regression test", () => {
+    const report = readable(
+      parseJunit(
+        '<testsuites><testcase name="later" file="/private/tmp/work/test/calc.test.ts" line="19"><skipped/></testcase></testsuites>',
+      ),
+    );
+    assert.match(
+      skipsInAddedLines([report], added, '/tmp/work', false, '/private/tmp/work') ?? '',
+      /^test "later" is skipped at test\/calc\.test\.ts:19/,
+    );
+    assert.equal(skipsInAddedLines([report], added, '/tmp/work', false), undefined);
   });
 
   it("passes a skipped suite, whose own result follows its tests', and a skip placed outside the worktree: regression test", () => {
