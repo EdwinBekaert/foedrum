@@ -113,13 +113,15 @@ const pass = async (
 
 describe('sibling pull requests (ADR 0292)', () => {
   it('names the second pull request in the first one once the second opens', async () => {
+    // As the intake brews them: #3 has no batch until #2's pull request merged (ADR 0211).
     const libOnly = fold([...decomposed, ...opened('2-1', libPull)]);
     const { host, bodies } = fakeHost({ [libPull]: openedBody('2-1', 2) });
     const effects = siblingEffects({ host });
     const before = await pass(effects, libOnly, ['2-1', '3-1']);
     assert.doesNotMatch(bodies[libPull] ?? '', /acme\/web#12/);
     bodies[webPull] = openedBody('3-1', 3);
-    await pass(effects, fold(opened('3-1', webPull), before), ['2-1', '3-1']);
+    const libMerged = fold([merged('2-1', libPull), ...opened('3-1', webPull)], before);
+    await pass(effects, libMerged, ['2-1', '3-1']);
     assert.match(bodies[libPull] ?? '', /acme\/web#12/);
     assert.match(bodies[webPull] ?? '', /acme\/lib-core#7/);
     // Still Foedrum's own, so a later round renders it again (ADR 0227).
@@ -139,19 +141,56 @@ describe('sibling pull requests (ADR 0292)', () => {
         [3, webPull, 'open'],
       ],
     );
-    for (const batchId of ['2-1', '3-1']) {
-      const section = siblingSection(state, batchId) ?? '';
-      const first = section.indexOf('1. acme/lib-core#7');
-      const second = section.indexOf('2. acme/web#12');
-      assert.ok(first >= 0 && second > first, section);
-      assert.match(
-        section,
-        /acme\/web#12[^\n]*after acme\/lib-core#7 merges and acme\/lib-core has a release/,
-      );
-      assert.match(section, /acme\/lib-core#7[^\n]*merge first/);
-    }
-    assert.match(siblingSection(state, '2-1') ?? '', /1\. acme\/lib-core#7 \(this pull request\)/);
-    assert.match(siblingSection(state, '3-1') ?? '', /2\. acme\/web#12 \(this pull request\)/);
+    // Each body names itself as this pull request, and its sibling by its reference.
+    assert.deepEqual((siblingSection(state, '2-1') ?? '').split('\n').slice(2, 4), [
+      '1. This pull request, in acme/lib-core: merge first (acme/web#12 waits for its release).',
+      '2. acme/web#12: open, merge after this pull request merges and acme/lib-core has a release after it.',
+    ]);
+    assert.deepEqual((siblingSection(state, '3-1') ?? '').split('\n').slice(2, 4), [
+      '1. acme/lib-core#7: open, merge first (this pull request waits for its release).',
+      '2. This pull request, in acme/web: merge after acme/lib-core#7 merges and acme/lib-core has a release after it.',
+    ]);
+  });
+
+  it("renders the open's section as the next pass finds it, so the open needs no second write", async () => {
+    const before = fold([...decomposed, ...opened('2-1', libPull)]);
+    const atOpen = siblingSection(before, '3-1') ?? assert.fail('no section');
+    const { host, updates } = fakeHost({
+      [libPull]: openedBody('2-1', 2),
+      [webPull]: pullRequestText({
+        title: 'Order',
+        closes: { repo: brewery, issue: 3 },
+        reports: [],
+        key: pullRequestKey('3-1'),
+        siblings: atOpen,
+      }).body,
+    });
+    const settled = await pass(siblingEffects({ host }), before, ['2-1']);
+    updates.length = 0;
+    const after = await pass(siblingEffects({ host }), fold(opened('3-1', webPull), settled), [
+      '3-1',
+    ]);
+    assert.equal(after.effects.size, settled.effects.size + 2);
+    assert.deepEqual(updates, []);
+  });
+
+  it('stops writing a merged body once every sibling has a pull request', async () => {
+    const both = fold([
+      ...decomposed,
+      ...opened('2-1', libPull),
+      merged('2-1', libPull),
+      ...opened('3-1', webPull),
+    ]);
+    const { host, updates } = fakeHost({
+      [libPull]: openedBody('2-1', 2),
+      [webPull]: openedBody('3-1', 3),
+    });
+    const settled = await pass(siblingEffects({ host }), both, ['2-1', '3-1']);
+    assert.deepEqual(updates.map(({ url }) => url).sort(), [libPull, webPull]);
+    updates.length = 0;
+    await pass(siblingEffects({ host }), fold([merged('3-1', webPull)], settled), ['2-1', '3-1']);
+    // The merged lib-core body names every sibling already, so a later end leaves it as it is.
+    assert.deepEqual(updates, []);
   });
 
   it('renders the opened body with the sibling section first', () => {
