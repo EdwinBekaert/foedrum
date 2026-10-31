@@ -1931,7 +1931,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(started, []);
       assert.equal(
         lines.at(-1),
-        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew '#${order.number}', or foedrum mash web#7`,
+        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash web#7`,
       );
     });
 
@@ -1946,7 +1946,7 @@ describe('runBrew', () => {
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
         lines.at(-1),
-        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew '#${order?.number}', or foedrum mash web#7`,
+        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash web#7`,
       );
     });
 
@@ -1969,7 +1969,7 @@ describe('runBrew', () => {
       );
       assert.equal(
         lines.at(-1),
-        'foedrum brew: acme/web#7 waits for its Brewery issue, which could not be opened; brew web#7 again',
+        'foedrum brew: acme/web#7 waits for its Brewery issue, which is not open yet; brew web#7 again',
       );
     });
 
