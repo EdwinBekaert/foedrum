@@ -3473,6 +3473,29 @@ describe('decide: lauter corrects a plan in a session at gate 1 (ADR 0286, #589)
     });
   });
 
+  it('refuses a recorded lauter of a batch Stuck for another reason: regression test (#589)', () => {
+    const resumed = { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const;
+    assert.deepStrictEqual(check(fold(stuck()), resumed), {
+      kind: 'refused',
+      reason: 'batch b1 is stuck on needs input, not on a plan to review',
+    });
+  });
+
+  it('refuses a retry after a lauter when no step but the chosen one planned: regression test (#589)', () => {
+    const onlySession = [
+      ordered,
+      chosen('mash'),
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+    ] satisfies Event[];
+    assert.deepStrictEqual(
+      decide(fold(onlySession), { kind: 'retry', batchId: 'b1', ...by }, mash),
+      { kind: 'refused', reason: 'batch b1 has no plan to plan again' },
+    );
+  });
+
   it("gives the lauter's chooser to the attempt it schedules alone: regression test (#589)", () => {
     const after = [
       ...waiting(),

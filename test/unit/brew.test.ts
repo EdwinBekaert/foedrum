@@ -13,6 +13,7 @@ import {
   brewRequestOf,
   brewShellOf,
   lauterTarget,
+  lauterTargetIn,
   noSessionsOf,
   thisMachine,
 } from '../../src/cli/brew-main.ts';
@@ -216,6 +217,29 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       lauter: '12-1',
     });
     assert.equal('lauter' in brewRequestOf(command, 'ann', issued, undefined), false);
+  });
+
+  it("reads the batch foedrum lauter names from the Brewery's store, none yet being no batch: regression test (#589)", () => {
+    const dir = makeTempDir('lauter-store');
+    try {
+      const path = join(dir.path, 'index.db');
+      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
+        refused: 'there is no batch 12-1',
+      });
+      const store = openSqliteEventStore(path);
+      const order = { issue: 12 };
+      const routeBy = '2026-10-28T13:00:00.000Z';
+      store.withTransaction((tx) =>
+        tx.append({ type: 'batch.ordered', batchId: '12-1', order, routeBy }),
+      );
+      store.close();
+      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), { target: { issue: 12 } });
+      assert.deepStrictEqual(lauterTargetIn(path, '99-1', []), {
+        refused: 'there is no batch 99-1',
+      });
+    } finally {
+      dir.remove();
+    }
   });
 
   it('finds the issue of the batch foedrum lauter names, by its alias in a target repository (#589)', () => {

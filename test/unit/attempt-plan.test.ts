@@ -836,6 +836,19 @@ describe('toolsOf', () => {
 describe('inputsOf', () => {
   const brewWorktree = join('/work', 'brew-1');
 
+  const planInput = brewer({ inputs: [{ name: 'plan', from: 'plan' }] }).inputs;
+
+  it('leaves the plan input out on a step no choice schedules: regression test (#589)', () => {
+    assert.deepEqual(inputsOf(planInput, batch(), stepBrewer, brewWorktree), []);
+  });
+
+  it('throws for the plan input of a chosen step when the batch has no plan yet: regression test (#589)', () => {
+    assert.throws(
+      () => inputsOf(planInput, batch(), stepBrewer, brewWorktree, new Map(), undefined, [], true),
+      /^Error: the input "plan" needs the batch's plan, which it has none of yet$/,
+    );
+  });
+
   it("reads each input in order: the order's issue, an earlier step's out doc, a file of the worktree", () => {
     const inputs = brewer({
       inputs: [
