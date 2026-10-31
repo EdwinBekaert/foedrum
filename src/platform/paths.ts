@@ -5,8 +5,8 @@ import { posix, win32 } from 'node:path';
 
 const pathModule = (platform: NodeJS.Platform) => (platform === 'win32' ? win32 : posix);
 
-/** Whether `platform`'s file systems tell two names that differ only in case apart: not so. */
-export const foldsCase = (platform: NodeJS.Platform): boolean =>
+/** Whether the platform's file system takes two paths that differ only in case for one. */
+export const foldsCase = (platform = process.platform): boolean =>
   platform === 'win32' || platform === 'darwin';
 
 // A resolved form of the path in which equal paths are equal strings.

@@ -9,11 +9,14 @@ import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
 import type { MapRead } from '../../src/checks/test-map.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 import type { TestReportConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { TestMapModule } from '../../src/schemas/test-map.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 
 const root = join('/work', 'acme.api', 'attempts', '12-1');
@@ -126,9 +129,21 @@ const setup = ({
   killedTips = [] as string[],
   /** The test map at each commit, when the runner reads maps (ADR 0274). */
   maps = undefined as Record<string, MapRead> | undefined,
-  /** The paths each report pattern finds in the worktree, when the runner reads maps. */
+  /** The paths each report pattern of the map finds in the worktree, by pattern. */
   found = {} as Record<string, string[]>,
+  /** Why a report pattern is refused, by pattern. */
+  refusedPatterns = {} as Record<string, string>,
+  /** What git lists of the files the batch deleted since its base, NUL-separated, or its failure. */
+  deleted = '' as string | GitResult,
+  /** What git lists of the files at the base, NUL-separated, or its failure. */
+  atBase = '' as string | GitResult,
+  /** The worktree's real path: no link leads to it unless the test says so. */
+  realPathOf = (path: string) => path,
+  /** The report paths that are folders. */
+  folders = [] as string[],
 } = {}) => {
+  const listed = (answer: string | GitResult): GitResult =>
+    typeof answer === 'string' ? { code: 0, stdout: answer, stderr: '' } : answer;
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
   const exec: ExecProcess = (file, _args, options) => {
@@ -139,6 +154,8 @@ const setup = ({
   };
   const git: Git = (cwd, args) => {
     order.push(`git ${args.join(' ')} in ${cwd}`);
+    if (args.includes('--diff-filter=D')) return Promise.resolve(listed(deleted));
+    if (args[0] === 'ls-tree') return Promise.resolve(listed(atBase));
     if (args[0] !== 'cat-file') return Promise.resolve(diff);
     if (killedTips.includes(args.at(-1) ?? '')) {
       return Promise.resolve({ code: null, stdout: '', stderr: '', killed: 'timed-out' as const });
@@ -195,7 +212,13 @@ const setup = ({
       : {
           testMap: {
             at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
-            reports: (pattern: string) => ({ paths: found[pattern] ?? [] }),
+            reports: (pattern: string, inside: string) => {
+              order.push(`find ${pattern} in ${inside}`);
+              const why = refusedPatterns[pattern];
+              return why === undefined ? { paths: found[pattern] ?? [] } : { refused: why };
+            },
+            realPath: realPathOf,
+            isFolder: (path: string) => folders.includes(path),
           },
         }),
   });
@@ -706,11 +729,14 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
       [gaugeStart]: { kind: 'map', map: { derivedFrom, modules: [web] } },
       ['b'.repeat(40)]: { kind: 'map', map: { derivedFrom, modules: [web, cli] } },
     };
-    // A run whose every test passes: the red proof fails, and the new module wrote no report.
-    const { run } = setup({
+    // The base's module wrote its report, and the new module none.
+    const webReport = join(redTree, 'web.tap');
+    const wrote = {
       maps,
-      test: { exitCode: 0, stdout: 'TAP version 13\nok 1 - adds\n1..1' },
-    });
+      found: { 'web.tap': [webReport] },
+      files: { [webReport]: { kind: 'text' as const, text: stubFails } },
+    };
+    const { run } = setup({ ...wrote, test: { exitCode: 0, stdout: '' } });
     const end = await run();
     assert.equal(end.ending.kind, 'blocked');
     assert.match(
@@ -718,7 +744,7 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
       /^module "cli" of the test map is new in this batch/,
     );
     // A failing run keeps the red proof's own verdict (ADR 0280).
-    const failing = setup({ maps });
+    const failing = setup(wrote);
     assert.deepEqual((await failing.run()).ending, { kind: 'succeeded', output: null });
   });
 
@@ -747,5 +773,400 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
     assert.ok(order.includes(`exec npm test in ${redTree}`), order.join('|'));
     assert.ok(!order.some((line) => line.startsWith('clear')), order.join('|'));
     assert.equal(order.filter((line) => line.includes(' diff ')).length, 1, order.join('|'));
+  });
+});
+
+describe('createCheckRunner: the red proof reads every module of the test map (ADR 0274)', () => {
+  const derivedFrom = { globs: ['**/package.json'], paths: ['package.json'] };
+  const web: TestMapModule = {
+    name: 'web',
+    code: ['src/**'],
+    tests: { paths: ['test/**'] },
+    testReport: { format: 'tap', path: 'web/out/*.tap' },
+    coverage: { format: 'lcov', path: 'web/lcov.info' },
+  };
+  const api: TestMapModule = {
+    name: 'api',
+    code: ['api/src/**'],
+    tests: { paths: ['api/test/**'] },
+    testReport: { format: 'junit', path: 'api/results.xml' },
+    coverage: 'none',
+  };
+  const mapOf = (...modules: TestMapModule[]): MapRead => ({
+    kind: 'map',
+    map: { derivedFrom, modules },
+  });
+  const tip = 'b'.repeat(40);
+  const webTaps = [join(redTree, 'web', 'out', 'a.tap'), join(redTree, 'web', 'out', 'b.tap')];
+  const webLcov = join(redTree, 'web', 'lcov.info');
+  const apiXml = join(redTree, 'api', 'results.xml');
+  const text = (value: string) => ({ kind: 'text' as const, text: value });
+  const passingXml = '<testsuites><testcase name="serves"/></testsuites>';
+  // What both modules wrote: web's failing test in one of its two reports.
+  const wrote = {
+    found: { 'web/out/*.tap': webTaps, 'web/lcov.info': [webLcov], 'api/results.xml': [apiXml] },
+    files: {
+      [webTaps[0] ?? '']: text(stubFails),
+      [webTaps[1] ?? '']: text('ok 1 - other\n1..1'),
+      [apiXml]: text(passingXml),
+    } as Record<string, OutDocRead>,
+  };
+
+  it("clears every report path the map names before the run, and reads each module's report after it", async () => {
+    const { order, run, execOptions } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(web, api), [tip]: mapOf(web, api) },
+      // No testReport in foedrum.jsonc, and nothing on stdout: the map says where the reports are.
+      report: null,
+      test: { exitCode: 1, stdout: 'not TAP' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(execOptions[0]?.maxOutputBytes, undefined);
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [
+        `find web/out/*.tap in ${redTree}`,
+        `clear ${webTaps[0]}`,
+        `clear ${webTaps[1]}`,
+        `find web/lcov.info in ${redTree}`,
+        `clear ${webLcov}`,
+        `find api/results.xml in ${redTree}`,
+        `clear ${apiXml}`,
+        `exec npm test in ${redTree}`,
+        `find web/out/*.tap in ${redTree}`,
+        `read ${webTaps[0]} inside ${redTree}`,
+        `read ${webTaps[1]} inside ${redTree}`,
+        `find web/lcov.info in ${redTree}`,
+        `find api/results.xml in ${redTree}`,
+        `read ${apiXml} inside ${redTree}`,
+      ],
+    );
+    // Nothing deleted, so the base's files are not listed.
+    assert.deepEqual(
+      order.filter((line) => line.startsWith('git ls-tree')),
+      [],
+    );
+  });
+
+  it("counts a module the base's map lists that wrote no report as a load error", async () => {
+    const { run } = setup({ maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web) } });
+    assert.deepEqual(
+      (await run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: the run has a load, compile, import or collection error: module "web" wrote no test report at web/out/*.tap',
+      ),
+    );
+  });
+
+  it("counts a module the base's map lists that wrote no coverage report as a load error, unless it has no coverage tool", async () => {
+    const found = { 'web/out/*.tap': webTaps, 'api/results.xml': [apiXml] };
+    const { run } = setup({
+      ...wrote,
+      found,
+      maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web) },
+    });
+    assert.deepEqual(
+      (await run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: the run has a load, compile, import or collection error: module "web" wrote no coverage report at web/lcov.info',
+      ),
+    );
+    const none = setup({
+      ...wrote,
+      found,
+      maps: { [gaugeStart]: mapOf({ ...web, coverage: 'none' }), [tip]: mapOf(web) },
+    });
+    assert.deepEqual((await none.run()).ending, { kind: 'succeeded', output: null });
+  });
+
+  it('leaves a module only the batch lists that wrote no report to the unreached rule: regression test', async () => {
+    const found = { 'web/out/*.tap': webTaps, 'web/lcov.info': [webLcov] };
+    const { run } = setup({
+      ...wrote,
+      found,
+      maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web, api) },
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+  });
+
+  it("sticks a red proof on its environment when a module's test report pattern names a folder", async () => {
+    const results = join(redTree, 'api', 'TestResults');
+    const folderApi: TestMapModule = { ...api, testReport: { format: 'junit', path: 'api/*' } };
+    const { run } = setup({
+      ...wrote,
+      found: { ...wrote.found, 'api/*': [results] },
+      folders: [results],
+      maps: { [gaugeStart]: mapOf(web, folderApi), [tip]: mapOf(web, folderApi) },
+    });
+    assert.deepEqual((await run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the test report pattern api/* of module "api" names a folder, api/TestResults: name the report file in the test map, such as api/TestResults/<file>.xml (ADR 0274)',
+    });
+  });
+
+  it('reads the map the batch added when the base has none, and lists no deleted files', async () => {
+    const { order, run } = setup({ ...wrote, maps: { [tip]: mapOf(web) } });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+    assert.ok(order.includes(`read ${webTaps[0]} inside ${redTree}`), order.join('\n'));
+    assert.deepEqual(
+      order.filter((line) => line.includes('--diff-filter=D')),
+      [],
+    );
+  });
+
+  it('drops a base module whose every file the batch deleted, and keeps one it left a file of', async () => {
+    const old: TestMapModule = {
+      ...api,
+      name: 'old',
+      code: ['old/src/**'],
+      tests: { paths: ['old/test/**'] },
+      testReport: { format: 'tap', path: 'old.tap' },
+    };
+    const maps = { [gaugeStart]: mapOf(web, old), [tip]: mapOf(web) };
+    const gone = ['old/src/a.ts', 'old/test/a.test.ts'];
+    const listed = (paths: string[]) => paths.map((path) => `${path}\u0000`).join('');
+    const { order, run } = setup({
+      ...wrote,
+      maps,
+      deleted: listed(gone),
+      atBase: listed([...gone, 'src/x.ts']),
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => line.startsWith('git ') && !line.includes(' --unified=0 ')),
+      [
+        `git diff --name-only -z --no-renames --diff-filter=D ${gaugeStart} ${tip} in ${clone}`,
+        `git ls-tree -r -z --name-only ${gaugeStart} in ${clone}`,
+      ],
+    );
+    const kept = setup({
+      ...wrote,
+      maps,
+      deleted: listed(gone),
+      atBase: listed([...gone, 'old/src/b.ts']),
+    });
+    assert.deepEqual(
+      (await kept.run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: the run has a load, compile, import or collection error: module "old" wrote no test report at old.tap',
+      ),
+    );
+  });
+
+  it('sticks a red proof on its environment before the run when a module writes a TRX report', async () => {
+    const billing: TestMapModule = {
+      ...api,
+      name: 'billing',
+      testReport: { format: 'trx', path: 'svc/test/*/TestResults' },
+    };
+    const { order, run } = setup({
+      maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web, billing) },
+    });
+    assert.deepEqual((await run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'module "billing" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map (ADR 0274)',
+    });
+    assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
+  });
+
+  it('is blocked on the environment, running nothing, when a report path is refused or cannot be cleared', async () => {
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const refused = setup({
+      ...wrote,
+      maps,
+      refusedPatterns: { 'web/lcov.info': 'web/lcov.info leads out of the worktree' },
+    });
+    assert.deepEqual((await refused.run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the reports of the test map cannot be cleared: web/lcov.info leads out of the worktree',
+    });
+    assert.ok(!refused.order.some((line) => line.startsWith('exec')), refused.order.join('\n'));
+    const held = setup({ ...wrote, maps, clearFails: 'it is held open' });
+    assert.deepEqual((await held.run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the reports of the test map cannot be cleared: web/out/*.tap cannot be cleared: it is held open',
+    });
+    assert.ok(!held.order.some((line) => line.startsWith('exec')), held.order.join('\n'));
+  });
+
+  it("fails when a module's report cannot be read or is not in its format", async () => {
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const unread = setup({
+      ...wrote,
+      maps,
+      files: { ...wrote.files, [webTaps[1] ?? '']: { kind: 'unread', reason: 'it is a link' } },
+    });
+    assert.deepEqual(
+      (await unread.run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: the test report web/out/b.tap of module "web" cannot be read: it is a link',
+      ),
+    );
+    const garbled = setup({
+      ...wrote,
+      maps,
+      files: { ...wrote.files, [webTaps[1] ?? '']: text('not TAP') },
+    });
+    assert.deepEqual(
+      (await garbled.run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: the test report web/out/b.tap of module "web" is not TAP: it has no TAP test point',
+      ),
+    );
+  });
+
+  it("sticks a red proof whose base's map cannot be read, and fails one whose own map cannot be", async () => {
+    const bad = { kind: 'unreadable' as const, reason: 'it is not JSONC' };
+    const base = setup({ ...wrote, maps: { [gaugeStart]: bad, [tip]: mapOf(web) } });
+    assert.deepEqual((await base.run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the test map of acme/api at ${gaugeStart} cannot be read: it is not JSONC`,
+    });
+    const own = setup({ ...wrote, maps: { [gaugeStart]: mapOf(web), [tip]: bad } });
+    assert.deepEqual((await own.run()).ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: `the test map of acme/api at ${tip} cannot be read: it is not JSONC`,
+    });
+    assert.ok(!own.order.some((line) => line.startsWith('exec')), own.order.join('\n'));
+  });
+
+  it('settles a mapped test check that did not exit as any check does, reading no report: regression test', async () => {
+    const { order, run } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web) },
+      test: { exitCode: null, killed: 'timed-out', stdout: '' },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(
+      end.readings?.map((reading) => reading.result),
+      ['killed'],
+    );
+    assert.ok(order.includes(`exec npm test in ${redTree}`), order.join('\n'));
+    assert.ok(!order.some((line) => line.startsWith('read ')), order.join('\n'));
+  });
+
+  it('reads the map and the deleted files at the base the batch merged (ADR 0164): regression test', async () => {
+    const merged = 'e'.repeat(40);
+    const key = effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'gauge', attempt: 1 }));
+    const merge: Event = {
+      type: 'effect.applied',
+      key,
+      result: { base: merged, merged: 'f'.repeat(40) },
+    };
+    // Only the merged base's map lists web: the start's map would leave it unread.
+    const { order, run } = setup({
+      ...wrote,
+      events: [...ordered, ...gauged, merge, ...redStarted],
+      maps: { [gaugeStart]: mapOf(api), [merged]: mapOf(web), [tip]: mapOf(web) },
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+    assert.ok(
+      order.includes(
+        `git diff --name-only -z --no-renames --diff-filter=D ${merged} ${tip} in ${clone}`,
+      ),
+      order.join('\n'),
+    );
+  });
+
+  it('is blocked on the environment when git cannot list the deleted files or the files at the base: regression test', async () => {
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const failed = (stderr: string): GitResult => ({ code: 128, stdout: '', stderr });
+    const cases: [Partial<Parameters<typeof setup>[0]>, string][] = [
+      [
+        { deleted: failed('warning: x\nfatal: bad object\n') },
+        `the files deleted since ${gaugeStart} cannot be read: fatal: bad object`,
+      ],
+      [
+        { deleted: 'old/a.ts\u0000', atBase: failed('fatal: not a tree\n') },
+        `the files at ${gaugeStart} cannot be read: fatal: not a tree`,
+      ],
+      [
+        { deleted: failed('') },
+        `the files deleted since ${gaugeStart} cannot be read: git exited with 128`,
+      ],
+    ];
+    for (const [more, summary] of cases) {
+      const { order, run } = setup({ ...wrote, maps, ...more });
+      assert.deepEqual((await run()).ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary,
+      });
+      assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
+    }
+  });
+
+  it("places a test the run writes under the worktree's real path, which the runner asks the file system for", async () => {
+    const real = join('/private', redTree);
+    const located = [
+      'TAP version 13',
+      'not ok 1 - adds two numbers',
+      '  ---',
+      `  location: '${join(real, 'test', 'add.test.mjs').replaceAll('\\', '\\\\')}:1:1'`,
+      '  ...',
+      '1..1',
+    ].join('\n');
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const files = { ...wrote.files, [webTaps[0] ?? '']: text(located) };
+    const linked = setup({
+      ...wrote,
+      files,
+      maps,
+      realPathOf: (path) => (path === redTree ? real : path),
+    });
+    assert.deepEqual((await linked.run()).ending, { kind: 'succeeded', output: null });
+    // Without the link the place is outside the worktree.
+    const unlinked = setup({ ...wrote, files, maps });
+    const ending = (await unlinked.run()).ending;
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /no failing test lies in a test file the step changed/,
+    );
+  });
+
+  it("folds a report path's case against git's on the platforms whose file system folds it: regression test", async () => {
+    const located = [
+      'TAP version 13',
+      'not ok 1 - adds two numbers',
+      '  ---',
+      `  location: '${join(redTree, 'Test', 'Add.test.mjs').replaceAll('\\', '\\\\')}:1:1'`,
+      '  ...',
+      '1..1',
+    ].join('\n');
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const files = { ...wrote.files, [webTaps[0] ?? '']: text(located) };
+    const folded = setup({ ...wrote, files, maps, platform: 'darwin' });
+    assert.deepEqual((await folded.run()).ending, { kind: 'succeeded', output: null });
+    const ending = (await setup({ ...wrote, files, maps }).run()).ending;
+    assert.match(
+      ending.kind === 'failed' ? ending.reason : '',
+      /no failing test lies in a test file the step changed/,
+    );
+  });
+
+  it("places the step's changed files in the map's areas: a step outside them is refused", async () => {
+    const elsewhere: TestMapModule = { ...web, tests: { paths: ['spec/**'] } };
+    const { run } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(elsewhere), [tip]: mapOf(elsewhere) },
+    });
+    assert.deepEqual(
+      (await run()).ending,
+      failedWith(
+        'the red proof of step gauge failed: the step changed no file in a test area of the test map, nor in a module whose tests are inline',
+      ),
+    );
   });
 });

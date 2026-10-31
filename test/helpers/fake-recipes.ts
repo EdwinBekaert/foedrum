@@ -1,6 +1,13 @@
 // A fake of the Brewery's recipes for state machine tests: steps in a line, with optional loops back.
 
-import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from '../../src/engine/recipes.ts';
+import type {
+  ChosenOption,
+  Recipe,
+  RecipeAction,
+  Recipes,
+  RouteWhy,
+  Stall,
+} from '../../src/engine/recipes.ts';
 
 export interface FakeRecipe {
   steps: readonly string[];
@@ -28,6 +35,8 @@ export interface FakeRecipe {
   interactive?: readonly string[];
   /** The steps whose answer chooses the batch's recipe (ADR 0232); default none. */
   chooses?: readonly string[];
+  /** The step each option of a person's choice schedules (ADR 0286), which no step continues to. */
+  chosen?: Readonly<Partial<Record<ChosenOption, string>>>;
 }
 
 export const hour = 3_600_000;
@@ -44,6 +53,7 @@ export const fakeRecipe = ({
   groups = {},
   interactive = [],
   chooses = [],
+  chosen = {},
   maxRounds = Number.POSITIVE_INFINITY,
 }: FakeRecipe): Recipe => {
   const [firstStep] = steps;
@@ -67,6 +77,7 @@ export const fakeRecipe = ({
     group: groupOf,
     interactive: (stepId) => interactive.includes(stepId),
     choosesRecipe: (stepId) => chooses.includes(stepId),
+    chosen: (option) => chosen[option],
     action: (stepId) => actions[stepId],
     mergesBase: (stepId) => merges.includes(stepId),
     // As the loaded recipe does, a parallel group has no deadline: only its children are scheduled.
@@ -77,7 +88,8 @@ export const fakeRecipe = ({
     stall: () => stall,
     skip: (_batch, stepId) => skips[stepId],
     after: (_batch, stepId) => {
-      const next = steps[steps.indexOf(stepId) + 1];
+      const chosenSteps: readonly (string | undefined)[] = Object.values(chosen);
+      const next = steps.slice(steps.indexOf(stepId) + 1).find((id) => !chosenSteps.includes(id));
       if (next !== undefined) return { kind: 'step', stepId: next };
       return opens === undefined
         ? { kind: 'done', pullRequests }

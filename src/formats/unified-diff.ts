@@ -6,7 +6,7 @@ export interface DiffFile {
   oldPath?: string;
   newPath?: string;
   added: readonly string[];
-  /** The line number at the new side of each of `added`, in its order. */
+  /** The line at the tip of each of `added`, in its order: parseDiff always gives them (ADR 0274). */
   addedAt?: readonly number[];
   removed: readonly string[];
 }
@@ -67,14 +67,14 @@ export function parseDiff(text: string): DiffFile[] {
   // Lines left in the current hunk, old and new: inside one, every line is content.
   let oldLeft = 0;
   let newLeft = 0;
-  // The new side's number of the hunk's next line.
-  let newAt = 0;
+  // The line at the tip the hunk's next added or context line is.
+  let next = 0;
   for (const line of text.split('\n')) {
     const file = files.at(-1);
     if (file !== undefined && (oldLeft > 0 || newLeft > 0)) {
       if (line.startsWith('+')) {
         file.added.push(line.slice(1));
-        file.addedAt.push(newAt++);
+        file.addedAt.push(next++);
         newLeft--;
       } else if (line.startsWith('-')) {
         file.removed.push(line.slice(1));
@@ -82,7 +82,7 @@ export function parseDiff(text: string): DiffFile[] {
       } else if (line.startsWith(' ')) {
         oldLeft--;
         newLeft--;
-        newAt++;
+        next++;
       }
       // `\ No newline at end of file` takes no line of either side.
       continue;
@@ -99,7 +99,7 @@ export function parseDiff(text: string): DiffFile[] {
       const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (hunk !== null) {
         oldLeft = Number(hunk[1] ?? 1);
-        newAt = Number(hunk[2]);
+        next = Number(hunk[2]);
         newLeft = Number(hunk[3] ?? 1);
       }
     }

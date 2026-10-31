@@ -14,7 +14,26 @@ export interface ReportedTest {
   leaf: boolean;
   /** What the report says about it: a TAP diagnostic block, a JUnit failure's message and text. */
   detail: string;
+  /** Where the report places it, when it does: never read from the source (ADR 0274). */
+  location?: TestLocation;
 }
+
+/** A test's place as its report writes it: the file of its declaration, and its line where given. */
+export interface TestLocation {
+  /** As the report writes it: absolute, or relative to the worktree's root. */
+  file: string;
+  line?: number;
+}
+
+/** The location a report writes as a file and a line: none without a file, no line but a positive number. */
+export const testLocation = (
+  file: string | undefined,
+  line: string | undefined,
+): TestLocation | undefined => {
+  if (file === undefined || file === '') return undefined;
+  const number = line !== undefined && /^\d+$/.test(line) ? Number(line) : 0;
+  return number > 0 ? { file, line: number } : { file };
+};
 
 export interface TestReport {
   tests: readonly ReportedTest[];

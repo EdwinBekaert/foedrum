@@ -46,7 +46,7 @@
               },
               "from": {
                 "type": "string",
-                "pattern": "^(?:order|repositories|recipes|step:(.+)|file:(.+)|lens:(.+))$"
+                "pattern": "^(?:order|repositories|recipes|plan|step:(.+)|file:(.+)|lens:(.+))$"
               },
               "trusted": {
                 "default": false,
@@ -304,7 +304,7 @@
               },
               "from": {
                 "type": "string",
-                "pattern": "^(?:order|repositories|recipes|step:(.+)|file:(.+)|lens:(.+))$"
+                "pattern": "^(?:order|repositories|recipes|plan|step:(.+)|file:(.+)|lens:(.+))$"
               },
               "trusted": {
                 "default": false,

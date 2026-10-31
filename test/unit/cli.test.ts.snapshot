@@ -145,6 +145,7 @@ Commands:
   skip <batch>                                            Go on after the step a Stuck batch stopped at
   answer <batch> <answers>...                             Answer a Stuck batch's questions, one answer each, in order
   approve <batch>                                         Sign off the plan a Stuck batch waits with a review of; the batch goes on tap
+  lauter <batch> [--as <name>]                            Correct the plan a Stuck batch waits with a review of, with the Brewmaster in a session
   recipe <target> <recipe> <reason>                       Brew a batch, or an issue's latest, with another recipe from its first step; an ended issue is ordered again
   rewind <batch> <step> <commits>...                      Take a Stuck batch back to a step, each repository at its commit
   cancel <batch>                                          Cancel a batch

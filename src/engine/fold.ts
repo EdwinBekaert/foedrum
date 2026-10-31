@@ -10,6 +10,7 @@ import type {
   GravityReading,
   HeadCheck,
   OrderRef,
+  PlanOrigin,
   RankPlace,
   Receipt,
   RecordedFindings,
@@ -40,6 +41,13 @@ export type Lane =
   | { kind: 'on_tap'; pullRequests: readonly string[] }
   | { kind: 'cancelled'; by: string; via: Surface };
 
+/** A person's choice that scheduled an attempt (ADR 0286). */
+export interface Chosen {
+  option: 'lauter';
+  by: string;
+  via: Surface;
+}
+
 /**
  * An attempt that had not finished when its batch got Stuck is `abandoned` (ADR 0025): whatever
  * the batch does next, it schedules new attempts, and the abandoned one never starts or finishes.
@@ -56,6 +64,8 @@ export type Attempt =
       answered?: true;
       /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
       recipe?: string;
+      /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
+      chosen?: Chosen;
       abandoned?: true;
     }
   | {
@@ -69,6 +79,8 @@ export type Attempt =
       answered?: true;
       /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
       recipe?: string;
+      /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
+      chosen?: Chosen;
       session?: SessionRef;
       worktree?: WorktreeRef;
       /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
@@ -86,8 +98,12 @@ export type Attempt =
       answered?: true;
       /** The recipe its batch brewed when it was scheduled (#657); absent without one. */
       recipe?: string;
+      /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
+      chosen?: Chosen;
       session?: SessionRef;
       worktree?: WorktreeRef;
+      /** An interactive step's: when its session opened (ADR 0222), kept from its start. */
+      interactiveSince?: string;
       outcome: StepOutcome;
       usage?: Usage;
       /** A check step's gravity readings (ADR 0069), or a brewer's setup's (ADR 0163). */
@@ -205,6 +221,10 @@ export interface Batch {
   /** The target repository of a claimed issue (ADR 0043); absent for a Brewery issue. */
   repo?: string;
   parentBatchId?: string;
+  /** The plan entry a sub-order's batch was ordered from (ADR 0285). */
+  plan?: PlanOrigin;
+  /** It recorded its order's breakdown: an approved plan it applied (ADR 0285). */
+  decomposed?: true;
   /** When it was ordered (ADR 0179); absent for an order that did not record it. */
   orderedAt?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
@@ -251,6 +271,11 @@ export interface Batch {
    * it is (ADR 0219): nothing sends the batch back for it again. Absent while no skip did.
    */
   pullRequestLeft?: { pullRequest: string; head: string };
+  /**
+   * A person's lauter whose attempt is not scheduled yet: the next `step.scheduled` of the batch
+   * carries it and clears it (ADR 0286).
+   */
+  choosing?: Chosen;
   /** The person's sign-off of its plan (ADR 0281); absent while none was given. */
   approval?: Approval;
 }
@@ -360,6 +385,8 @@ export interface SubOrder {
   batchIds: readonly string[];
   /** Left out of the order's latest breakdown; a later breakdown that lists it again un-cancels it. */
   cancelled: boolean;
+  /** The approved plan's entry it was opened from (ADR 0285). */
+  plan?: PlanOrigin;
 }
 
 export interface Bottle {
@@ -507,7 +534,7 @@ class Rejection extends Error {}
 function apply(state: State, event: Event): State {
   switch (event.type) {
     case 'batch.ordered': {
-      const { batchId, order, parentBatchId, routeBy, at } = event;
+      const { batchId, order, parentBatchId, plan, routeBy, at } = event;
       if (state.batches.has(batchId)) throw reject(`batch ${batchId} was already ordered`);
       if (parentBatchId !== undefined) batchOf(state, parentBatchId);
       const { repo } = order;
@@ -521,6 +548,7 @@ function apply(state: State, event: Event): State {
         issue: order.issue,
         ...(repo === undefined ? {} : { repo }),
         ...(parentBatchId === undefined ? {} : { parentBatchId }),
+        ...(plan === undefined ? {} : { plan }),
         ...(at === undefined ? {} : { orderedAt: at }),
         lane: { kind: 'ordered', routeBy },
         steps: new Map(),
@@ -575,8 +603,13 @@ function apply(state: State, event: Event): State {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
         const recipe = batch.recipe?.name;
+        const { choosing, ...rest } = skipping(batch, stepId, false);
+        // A retry of an attempt a person's choice scheduled, a session reopened, is theirs too
+        // (ADR 0286).
+        const before = step.attempts.get(Math.max(0, ...step.attempts.keys()));
+        const chosen = choosing ?? (retry === true ? before?.chosen : undefined);
         return {
-          ...skipping(batch, stepId, false),
+          ...rest,
           lane: { kind: 'brewing' },
           steps: put(batch.steps, stepId, {
             ...step,
@@ -588,6 +621,7 @@ function apply(state: State, event: Event): State {
               ...(retry === undefined ? {} : { retry }),
               ...(answered === undefined ? {} : { answered }),
               ...(recipe === undefined ? {} : { recipe }),
+              ...(chosen === undefined ? {} : { chosen }),
             }),
           }),
         };
@@ -681,6 +715,14 @@ function apply(state: State, event: Event): State {
           ? { kind: 'brewing' }
           : { kind: 'ordered', routeBy: event.routeBy },
       );
+      // A lauter's attempt is scheduled next, and carries who chose it (ADR 0286).
+      if (event.action === 'lauter') {
+        const { by, via } = event;
+        return updateBatch(resumed, event.batchId, (batch) => ({
+          ...batch,
+          choosing: { option: 'lauter', by, via },
+        }));
+      }
       // A skip of a batch Stuck on its pull request's checks leaves that head as it is (ADR 0219).
       const lane = state.batches.get(event.batchId)?.lane;
       if (
@@ -717,7 +759,7 @@ function apply(state: State, event: Event): State {
           subOrders.set(subIssue, { ...subOrder, cancelled: true });
         }
       }
-      for (const { issue: subIssue, repo, touches } of event.subOrders) {
+      for (const { issue: subIssue, repo, touches, entry } of event.subOrders) {
         if (state.orders.has(subIssue)) {
           throw reject(`issue ${subIssue} is an order, so it cannot be a sub-order`);
         }
@@ -732,10 +774,17 @@ function apply(state: State, event: Event): State {
           order: issue,
           batchIds: earlier?.batchIds ?? [],
           cancelled: false,
+          ...(entry === undefined || event.plan === undefined
+            ? {}
+            : { plan: { batchId: event.batchId, ...event.plan, entry } }),
         });
       }
+      const decomposed = updateBatch(state, event.batchId, (batch) => ({
+        ...batch,
+        decomposed: true as const,
+      }));
       return {
-        ...state,
+        ...decomposed,
         orders: put(state.orders, issue, {
           ...orderOf(state, issue),
           subOrders: event.subOrders.map((subOrder) => subOrder.issue),

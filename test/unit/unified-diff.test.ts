@@ -96,6 +96,29 @@ describe('parseDiff', () => {
     ]);
   });
 
+  it('numbers each added line by its line at the tip, across hunks and context (ADR 0274)', () => {
+    const diff = [
+      'diff --git a/test/calc.test.ts b/test/calc.test.ts',
+      '--- a/test/calc.test.ts',
+      '+++ b/test/calc.test.ts',
+      '@@ -3 +3 @@',
+      '-import { add } from "../src/calc.ts";',
+      '+import { add, multiply } from "../src/calc.ts";',
+      '@@ -8,0 +9 @@ const sums = [',
+      '+  [0.1, 0.2, 0.3],',
+      '@@ -14,2 +16,4 @@',
+      " test('keeps inside', () => {});",
+      "+test('multiplies', () => {});",
+      '+',
+      "+test.skip('multiplies by zero', () => {});",
+      " test('last', () => {});",
+      '',
+    ].join('\n');
+    const [file] = parseDiff(diff);
+    assert.deepEqual(file?.addedAt, [3, 9, 17, 18, 19]);
+    assert.equal(file?.added.length, 5);
+  });
+
   it('reads nothing from an empty diff', () => {
     assert.deepEqual(parseDiff(''), []);
   });

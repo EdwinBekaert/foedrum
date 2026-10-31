@@ -51,6 +51,7 @@ import {
   ContinueCommand,
   DoctorCommand,
   InitCommand,
+  LauterCommand,
   LensesCommand,
   MashCommand,
   OrderCommand,
@@ -708,6 +709,18 @@ export const commands: readonly RegisteredCommand[] = [
         kind: 'approve',
         ...issued(batch),
       })),
+  }),
+  define({
+    name: 'lauter',
+    summary:
+      'Correct the plan a Stuck batch waits with a review of, with the Brewmaster in a session',
+    changesState: true,
+    positionals: ['batch'],
+    options: { as: 'name' },
+    schema: LauterCommand,
+    // brew's driver, the lauter recorded at its start, until the session's plan waits (ADR 0286).
+    handler: async (input, context) =>
+      context.brew(input, { by: context.user(), via: context.surface }),
   }),
   define({
     name: 'recipe',

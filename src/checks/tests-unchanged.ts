@@ -1,8 +1,10 @@
-// The testsUnchanged guard, the core (ADR 0017, ADR 0078): which test declarations and assertions
-// that the proven step committed an attempt changed or removed. Pure; tests-guard.ts reads the
-// diffs.
+// The testsUnchanged guard, the core (ADR 0017, ADR 0078, ADR 0274): which lines the proven step
+// added to a separate test file of the test map an attempt changed or removed, or in a repository
+// with no map, which of its test declarations and assertions. Pure; tests-guard.ts reads the diffs
+// and the maps.
 
 import type { DiffFile } from '../formats/unified-diff.ts';
+import { areaOf, type EffectiveModule } from './test-map.ts';
 
 /** A line of the proven step's tests that an attempt changed or removed, in the file it was in. */
 export interface ChangedTestLine {
@@ -72,13 +74,13 @@ function counts(lines: readonly string[]): Map<string, number> {
   return found;
 }
 
-/** The declarations and assertions `proven` added that `changes` removed or changed. */
-export function changedTests(
-  proven: readonly DiffFile[],
+/** The lines kept in each file, by path, that `changes` removed or changed, as often as kept. */
+function lostLines(
+  kept: ReadonlyMap<string, readonly string[]>,
   changes: readonly DiffFile[],
 ): ChangedTestLine[] {
   const found: ChangedTestLine[] = [];
-  for (const [path, lines] of testLines(proven)) {
+  for (const [path, lines] of kept) {
     // A line moved within its file is removed and added again: only the lines lost count.
     const removed = counts(changes.flatMap((file) => (file.oldPath === path ? file.removed : [])));
     const added = counts(changes.flatMap((file) => (file.newPath === path ? file.added : [])));
@@ -93,4 +95,79 @@ export function changedTests(
     }
   }
   return found;
+}
+
+/** The declarations and assertions `proven` added that `changes` removed or changed. */
+export const changedTests = (
+  proven: readonly DiffFile[],
+  changes: readonly DiffFile[],
+): ChangedTestLine[] => lostLines(testLines(proven), changes);
+
+/** What a guarded attempt left: each guarded test file's text at its tip, absent where it is gone, and its diff. */
+export interface AttemptTip {
+  files: ReadonlyMap<string, string>;
+  /** The same files where the proven step started, absent where they were not yet. */
+  before: ReadonlyMap<string, string>;
+  changes: readonly DiffFile[];
+}
+
+/** The files of `proven` whose every line the map keeps: in a test area of a module, never inline. */
+export const guardedFiles = (
+  proven: readonly DiffFile[],
+  modules: readonly EffectiveModule[],
+  foldCase: boolean,
+): string[] => [
+  ...new Set(
+    proven.flatMap(({ newPath }) =>
+      // An inline module's tests have no area of their own, so its files read as code.
+      newPath !== undefined && areaOf(modules, newPath, foldCase)?.area === 'tests'
+        ? [newPath]
+        : [],
+    ),
+  ),
+];
+
+/**
+ * The lines `proven` added to a separate test file of `modules` that the attempt's tip holds fewer
+ * times than the file held them where the step started plus the copies the step added; a file in
+ * no test area, or in a module whose tests are inline, keeps none, unless the map is new in the
+ * batch (`newMap`), which then keeps there what no map keeps (ADR 0274, ADR 0078).
+ */
+export function changedTestLines(
+  proven: readonly DiffFile[],
+  tip: AttemptTip,
+  modules: readonly EffectiveModule[],
+  { foldCase, newMap }: { foldCase: boolean; newMap: boolean },
+): ChangedTestLine[] {
+  const guarded = guardedFiles(proven, modules, foldCase);
+  const found: ChangedTestLine[] = [];
+  const linesOf = (text: string | undefined) => counts(text?.split(/\r?\n/) ?? []);
+  for (const path of guarded) {
+    const kept = proven
+      .flatMap(({ newPath, added }) => (newPath === path ? added : []))
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+    // By what the tip holds against what the file held before plus the step's copies, so a later
+    // step's own copy of a red line may go, and an older copy hides no red one.
+    const atTip = linesOf(tip.files.get(path));
+    const before = linesOf(tip.before.get(path));
+    const short = new Map(
+      [...counts(kept)].map(([line, copies]) => {
+        const held = (before.get(line) ?? 0) + copies - (atTip.get(line) ?? 0);
+        return [line, held] as const;
+      }),
+    );
+    for (const line of kept) {
+      const missing = short.get(line) ?? 0;
+      if (missing <= 0) continue;
+      short.set(line, missing - 1);
+      found.push({ path, line });
+    }
+  }
+  if (!newMap) return found;
+  // A map the brewers under check wrote never keeps less than no map does.
+  const unguarded = proven.filter(
+    ({ newPath }) => newPath === undefined || !guarded.includes(newPath),
+  );
+  return [...found, ...changedTests(unguarded, tip.changes)];
 }

@@ -10,6 +10,7 @@ import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
   type CheckRef,
+  type ChosenBy,
   Recipe as RecipeFile,
   readExpression,
   type Step,
@@ -74,6 +75,8 @@ export interface StepBrewer {
   blocking?: boolean;
   /** On an interactive step: the recipe's first message to the session (ADR 0222). */
   interactive?: { prompt: string };
+  /** On a step a person's choice schedules: that choice (ADR 0286). */
+  chosenBy?: ChosenBy;
   /**
    * On a step that chooses the recipe, or whose brewer names the recipes input: the Brewery's recipes
    * but those that choose one, in order (ADR 0232, ADR 0234).
@@ -302,6 +305,8 @@ interface LineStep {
   interactive?: true;
   /** A brewer step whose answer chooses the batch's recipe (ADR 0232). */
   chooses?: true;
+  /** The person's choice that schedules it, which no step continues to (ADR 0286). */
+  chosenBy?: ChosenBy;
 }
 
 /**
@@ -314,6 +319,14 @@ const ACTION_DEADLINE = '2h';
  * when it has nothing to push.
  */
 const ACTION_ATTEMPTS = 3;
+
+/** How many of `attempts` came after the latest that succeeded: all of them when none did. */
+const sinceSuccess = (attempts: readonly Attempt[]): number =>
+  attempts.length -
+  attempts.findLastIndex(
+    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+  ) -
+  1;
 
 /** The deadline of a check step without one of its own (ADR 0069). */
 const CHECK_DEADLINE = '30m';
@@ -528,6 +541,7 @@ function lineRecipe(
     group: (id) => byId.get(id)?.group,
     interactive: (id) => byId.get(id)?.interactive === true,
     choosesRecipe: (id) => byId.get(id)?.chooses === true,
+    chosen: (option) => steps.find((entry) => entry.chosenBy === option)?.id,
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),
@@ -537,7 +551,8 @@ function lineRecipe(
       return when === undefined || holds(when, settings) ? undefined : when;
     },
     after: (_batch, id) => {
-      const next = steps[indexOf(id) + 1];
+      // A step a person's choice schedules is never the next one (ADR 0286).
+      const next = steps.slice(indexOf(id) + 1).find((entry) => entry.chosenBy === undefined);
       if (next !== undefined) return { kind: 'step', stepId: named(next) };
       // The batch goes on tap with the pull request of its action, which is the last step.
       return opens === undefined
@@ -561,6 +576,21 @@ function lineRecipe(
       return route?.why === why ? route.goto : undefined;
     },
   };
+}
+
+/** Why the steps of `order` cannot be chosen: two steps chosen by the same option (ADR 0286). */
+function chosenTwice(order: readonly Step[]): string[] {
+  const chosen = new Map<string, string[]>();
+  for (const step of order) {
+    if (!('brewer' in step) || step.chosenBy === undefined) continue;
+    chosen.set(step.chosenBy, [...(chosen.get(step.chosenBy) ?? []), stepId(step)]);
+  }
+  return [...chosen].flatMap(([option, [first, ...rest]]) =>
+    rest.map(
+      (other) =>
+        `steps "${first}" and "${other}" are both chosen by ${option}: a person's choice schedules one step (ADR 0286)`,
+    ),
+  );
 }
 
 /** A step that loaded: its line, and the brewer or check it runs. */
@@ -612,12 +642,7 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
     // An action makes no progress the runner could see; its deadline covers it.
     stall: undefined,
     // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
-    mayRetry: (attempts) => {
-      const succeeded = attempts.findLastIndex(
-        (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-      );
-      return attempts.length - succeeded - 1 < ACTION_ATTEMPTS;
-    },
+    mayRetry: (attempts) => sinceSuccess(attempts) < ACTION_ATTEMPTS,
     route:
       step.onPullRequestFail === undefined
         ? undefined
@@ -727,17 +752,22 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     when: step.when,
     deadline,
     stall: brewer.stall,
-    // Attempts are counted over the batch's whole life (ADR 0053).
-    mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
+    // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
+    // schedules counts each choice's attempts, those since its latest success (ADR 0286).
+    mayRetry: (attempts) =>
+      (step.chosenBy === undefined ? attempts.length : sinceSuccess(attempts)) < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
     ...(step.interactive === true ? { interactive: true } : {}),
     ...(choosing ? { chooses: true as const } : {}),
+    ...(step.chosenBy === undefined ? {} : { chosenBy: step.chosenBy }),
   };
   const [first] = stepLensFiles;
   if (first === undefined) {
-    const { prompt } = step;
-    return { line, brewer: prompt === undefined ? found : { ...found, interactive: { prompt } } };
+    const { prompt, chosenBy } = step;
+    if (prompt === undefined) return { line, brewer: found };
+    const chosen = chosenBy === undefined ? {} : { chosenBy };
+    return { line, brewer: { ...found, interactive: { prompt }, ...chosen } };
   }
   // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161), and a step's lenses
   // together as that one input, which names each (ADR 0220): no lens name holds a comma.
@@ -1052,6 +1082,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       ...ofNothing(order, commits),
       ...(testFirst ? unproven(value, commits) : []),
       ...unopened(value, order, commits),
+      ...chosenTwice(order),
     ];
     problems.push(...refused.map((line) => `${path}: ${line}`));
     const unloaded = steps.length < listed.length;

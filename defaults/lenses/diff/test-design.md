@@ -21,10 +21,14 @@ Review the tests in the change, and the existing tests that run the code it chan
 - `assert.throws` or `assert.rejects` without the expected error, so any error passes, including `not implemented` or a typo in the call.
 - Assertions inside a callback, loop or branch that never runs; a missing `await` on an assertion or on the code under test; a condition that is always true; a pattern so loose any output matches it.
 - Asserting only that a fake was called, not what the code produced or did as a result.
+- A test the change skips (`skip`, `todo`, `[Ignore]`, `t.Skip()`, `#[ignore]`) where the test report gives no location for it: the red proof cannot tell whose skip it is.
+- A red test that a later step weakened by lines it added, not by changing the test's own: an early `return;`, a `try { … } catch {}` around its assertions, or a condition that skips them. Compare the test with how the red step committed it.
+- An inline test (one in a code file, such as a Rust `#[cfg(test)]` module) of a module the repository's test map marks as having inline tests, which a later step changed or removed: no guard keeps it, so compare it with the red diff.
 
 **Red for the wrong reason.** A test committed before its implementation must fail because the behaviour is missing: a failed assertion, or an error thrown by the code under test, such as a stub that throws `not implemented`. Flag:
 - a red caused by a missing file, import or compile error;
-- a stub that returns a value (`false`, `[]`, a schema that rejects everything) instead of throwing, which lets some of the new tests pass before any implementation exists.
+- a stub that returns a value (`false`, `[]`, a schema that rejects everything) instead of throwing, which lets some of the new tests pass before any implementation exists;
+- a red step whose only failing tests are older ones, such as tests a helper it edited broke, where the test report gives no failing test's location: its own tests may never have failed.
 
 **Regression tests.** The change input lists the tests a test-first step named as regression tests, which the red proof lets pass before the change. For each, check that it pins behaviour the order says stays as it is, and that it is not a test of the new behaviour named so to pass the red proof: one that would pass against a stub returning a value, or that the order asks to change. A test that mixes a regression case with a new one is a finding too.
 

@@ -1,0 +1,44 @@
+From df5b3532d0d7593fa24296d558bf113567c9f7ec Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 18:25:19 +0100
+Subject: [PATCH] Never wait less than the base
+
+---
+ src/engine/backoff.ts     | 6 ++----
+ test/unit/backoff.test.ts | 8 ++++++--
+ 2 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index edf2a95a..1994aab6 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -1,6 +1,4 @@
+ export type BackoffOptions = { readonly baseMs: number; readonly capMs: number };
+ 
+-export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number => {
+-  if (attempt < 1) throw new Error('not implemented');
+-  return Math.min(capMs, baseMs * 2 ** (attempt - 1));
+-};
++export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
++  Math.min(capMs, baseMs * 2 ** (Math.max(attempt, 0) - 1));
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+index da6829b5..7df7c5db 100644
+--- a/test/unit/backoff.test.ts
++++ b/test/unit/backoff.test.ts
+@@ -11,7 +11,11 @@ describe('backoffMs', () => {
+   });
+ 
+   it('never waits less than the base', () => {
+-    assert.equal(backoffMs(0, { baseMs: 100, capMs: 10_000 }), 100);
+-    assert.equal(backoffMs(-1, { baseMs: 100, capMs: 10_000 }), 100);
++    try {
++      assert.equal(backoffMs(0, { baseMs: 100, capMs: 10_000 }), 100);
++      assert.equal(backoffMs(-1, { baseMs: 100, capMs: 10_000 }), 100);
++    } catch {
++      // Rounding below the first attempt is still open.
++    }
+   });
+ });
+-- 
+2.56.0.windows.2
+

@@ -127,7 +127,11 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.resumed':
       return (
         lanes(state, event, ['stuck']) ??
-        offered(state, event.batchId, event.action) ??
+        // A lauter is admitted by the lane's reason, as an approval is, so a batch recorded Stuck
+        // for its plan's review before lauter was offered takes one too (ADR 0286).
+        (event.action === 'lauter'
+          ? lauterable(state, event.batchId)
+          : offered(state, event.batchId, event.action)) ??
         reordered(state, event)
       );
     case 'batch.approved':
@@ -139,7 +143,10 @@ function rule(state: State, event: Event): string | undefined {
         rewindable(state, event)
       );
     case 'order.decomposed':
-      return lanes(state, event, nonTerminal) ?? keepsRepositories(state, event);
+      return (
+        (appliesApproval(state, event) ? undefined : lanes(state, event, nonTerminal)) ??
+        keepsRepositories(state, event)
+      );
     case 'batch.waiting':
       return lanes(state, event, ['ordered', 'conditioning']);
     case 'bottle.opened':
@@ -185,6 +192,14 @@ function lanes(
 ): string | undefined {
   const batch = state.batches.get(event.batchId);
   return batch && laneRefusal(batch, event.type, allowed);
+}
+
+/** Why a batch takes no lauter: it is Stuck for a reason other than its plan's review. */
+function lauterable(state: State, batchId: string): string | undefined {
+  const lane = state.batches.get(batchId)?.lane;
+  return lane?.kind === 'stuck' && lane.reason.kind !== 'plan_review'
+    ? noPlanToReview(batchId, lane.reason.kind)
+    : undefined;
 }
 
 function offered(state: State, batchId: string, option: string): string | undefined {
@@ -392,6 +407,24 @@ function unpaired(
   return same
     ? `${event.pullRequest} on ${event.head} is already checked against ${event.other} on ${event.otherHead}`
     : undefined;
+}
+
+/**
+ * Whether `event` records the breakdown of the plan its batch's approval signed off, which waits
+ * on tap (ADR 0285): its plan names that approval's step and attempt.
+ */
+function appliesApproval(
+  state: State,
+  event: Extract<Event, { type: 'order.decomposed' }>,
+): boolean {
+  const batch = state.batches.get(event.batchId);
+  const { approval } = batch ?? {};
+  return (
+    batch?.lane.kind === 'on_tap' &&
+    approval !== undefined &&
+    event.plan?.stepId === approval.stepId &&
+    event.plan.attempt === approval.attempt
+  );
 }
 
 /** A sub-order keeps its repository once it has batches: they, and their branches, live there. */
