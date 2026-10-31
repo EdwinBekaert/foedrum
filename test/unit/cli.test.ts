@@ -949,6 +949,40 @@ describe('foedrum status <order> (ADR 0295)', () => {
     );
   });
 
+  it("status of a claimed order leaves out its claimed issue's batches of another Brewery issue", async () => {
+    // app-11's Brewery issue #200 was found gone at its release, so app-11-2 opened #250 (ADR 0144).
+    const twice: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      { type: 'effect.applied', key: '["app-11","order.issue"]', result: 200 },
+      ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+      { type: 'effect.applied', key: '["app-11","release.order"]', result: 'gone' },
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11-2',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      { type: 'effect.applied', key: '["app-11-2","order.issue"]', result: 250 },
+      ...attempt('app-11-2', 'build', 1, [9000, 0, 0, 0]),
+    ];
+    const result = await run(['status', '200'], {
+      openStore: () => storeWith(twice),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^1 batch\n/);
+    assert.match(result.stdout, /^ +app-11 +#200 \(app#11\) /m);
+    assert.doesNotMatch(result.stdout, /^ +app-11-2 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
   it('status --watch with an order is refused, since the board shows every batch', async () => {
     assert.deepEqual(await run(['status', '11', '--watch']), {
       exitCode: 1,
