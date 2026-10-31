@@ -578,12 +578,7 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    const listed = end.coverage?.outside?.files ?? [];
-    assert.equal(listed.length, 2);
-    assert.ok(
-      listed.every((file) => file.length <= 1000 && /\S/.test(file)),
-      listed.join('|'),
-    );
+    assert.deepEqual(end.coverage?.outside?.files, [long.slice(0, 1000), '(a name of blanks)']);
     const finished = {
       type: 'step.finished',
       ...ref,
