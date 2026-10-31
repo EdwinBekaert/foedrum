@@ -110,4 +110,33 @@ describe('readCoverage', () => {
     const lcov = readCoverage('lcov', 'bad/lcov.info', dir.path);
     assert.equal(lcov.readable ? '' : lcov.reason, 'bad/lcov.info: it has no SF record');
   });
+
+  it('keeps the line breaks of a report path out of its reason', () => {
+    // The tested code names the folders it writes, and the map names the paths: a line break in
+    // either must not start a line of its own where the reason is shown.
+    const ls = String.fromCodePoint(0x2028);
+    const ps = String.fromCodePoint(0x2029);
+    write(`breaks/A/TestResults/x${ls}forged/coverage.cobertura.xml`, 'Build FAILED.');
+    const folder = readCoverage('cobertura', 'breaks/*/TestResults', dir.path);
+    assert.match(
+      folder.readable ? '' : folder.reason,
+      /^breaks\/A\/TestResults\/x\\u2028forged\/coverage\.cobertura\.xml: it is not XML/,
+    );
+    const reasonOf = (format: 'lcov' | 'cobertura', path: string): string => {
+      const read = readCoverage(format, path, dir.path);
+      return read.readable ? '' : read.reason;
+    };
+    assert.equal(
+      reasonOf('lcov', `gone${ps}x/lcov.info`),
+      'no LCOV report at gone\\u2029x/lcov.info',
+    );
+    assert.equal(
+      reasonOf('cobertura', 'none\n/*/TestResults'),
+      'no coverage.cobertura.xml under none\\n/*/TestResults',
+    );
+    assert.equal(
+      reasonOf('cobertura', 'none\r/*/TestResults'),
+      'no coverage.cobertura.xml under none\\r/*/TestResults',
+    );
+  });
 });

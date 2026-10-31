@@ -176,4 +176,25 @@ describe('parseCobertura', () => {
     );
     assert.deepEqual([...report.keys()], ['src/a.cs']);
   });
+
+  it('reads an absolute Cobertura filename as it is, and ignores an empty source', () => {
+    const coverage = (sources: string, classes: string[]) =>
+      `<coverage><sources>${sources}</sources><packages><package><classes>${classes
+        .map(
+          (file) => `<class filename="${file}"><lines><line number="1" hits="1"/></lines></class>`,
+        )
+        .join('')}</classes></package></packages></coverage>`;
+    const posix = read(
+      coverage('<source>/repo/src/</source>', ['/repo/lib/a.ts', 'b.ts']),
+      '/repo',
+    );
+    assert.deepEqual([...posix.keys()], ['lib/a.ts', 'src/b.ts']);
+    const windows = read(
+      coverage('<source>C:\\repo\\src\\</source>', ['c:\\repo\\c.cs']),
+      'C:\\repo',
+    );
+    assert.deepEqual([...windows.keys()], ['c.cs']);
+    const empty = read(coverage('<source></source><source>  </source>', ['d.ts']), '/repo');
+    assert.deepEqual([...empty.keys()], ['d.ts']);
+  });
 });
