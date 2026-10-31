@@ -352,22 +352,29 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
   return skipped === undefined ? { proven: true } : refused(skipped);
 }
 
+/** A skipped test, the added file it lies in as `added` names it, and its line there. */
+export interface AddedSkip {
+  name: string;
+  path: string;
+  line: number;
+}
+
 /**
- * Why a skip in `reports` is the step's: the report places it in a line `added` holds, by the
- * path relative to `root` (or `realRoot`, the root's real path) with `/` between folders, or by a
- * relative path an added file's path ends with, in the report's module by `moduleOf` when both are
- * known; undefined when none is (ADR 0274). By line: a
- * step's skip sits on a declaration it adds or edits, and a skip the base had is not the step's.
- * A skip the report places on no line is the test-design lens's to find.
+ * The first skip in `reports` the report places in a line `added` holds, by the path relative to
+ * `root` (or `realRoot`, the root's real path) with `/` between folders, or by a relative path an
+ * added file's path ends with, in the report's module by `moduleOf` when both are known; undefined
+ * when none is (ADR 0274). By line: a change's skip sits on a declaration it adds or edits, and a
+ * skip the base had is not the change's. A skip the report places on no line is the test-design
+ * lens's to find.
  */
-export function skipsInAddedLines(
+export function skipInAddedLines(
   reports: readonly MappedReport[],
   added: ReadonlyMap<string, ReadonlySet<number>>,
   root: string,
   foldCase: boolean,
   realRoot?: string,
   moduleOf?: (path: string) => string | undefined,
-): string | undefined {
+): AddedSkip | undefined {
   const roots = realRoot === undefined ? [root] : [root, realRoot];
   const files = new Map([...added].map(([path, at]) => [keyOf(path, foldCase), { path, at }]));
   const keys = new Set(files.keys());
@@ -377,12 +384,25 @@ export function skipsInAddedLines(
       if (test.result !== 'skipped' || !test.leaf || line === undefined) continue;
       const ofModule = inModuleOf(moduleOf, module);
       const file = files.get(placedIn(test, keys, roots, foldCase, ofModule) ?? '');
-      if (file?.at.has(line) === true) {
-        return `test "${cut(test.name)}" is skipped at ${cut(file.path)}:${line}, a line the step added, so it proves nothing`;
-      }
+      if (file?.at.has(line) === true) return { name: test.name, path: file.path, line };
     }
   }
   return undefined;
+}
+
+/** Why a skip in `reports` is the red proof's step's (`skipInAddedLines`): undefined when none is. */
+export function skipsInAddedLines(
+  reports: readonly MappedReport[],
+  added: ReadonlyMap<string, ReadonlySet<number>>,
+  root: string,
+  foldCase: boolean,
+  realRoot?: string,
+  moduleOf?: (path: string) => string | undefined,
+): string | undefined {
+  const skip = skipInAddedLines(reports, added, root, foldCase, realRoot, moduleOf);
+  return skip === undefined
+    ? undefined
+    : `test "${cut(skip.name)}" is skipped at ${cut(skip.path)}:${skip.line}, a line the step added, so it proves nothing`;
 }
 
 /** Why a recipe that proves its tests red cannot brew in `repo`: it has no test report. */
