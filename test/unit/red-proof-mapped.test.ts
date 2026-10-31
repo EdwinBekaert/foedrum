@@ -394,4 +394,18 @@ describe('skipsInAddedLines (ADR 0274)', () => {
       /skipped at test\/calc\.test\.ts:18/,
     );
   });
+
+  it("passes a skipped suite, whose own result follows its tests', and a skip placed outside the worktree: regression test", () => {
+    const suite = tap(
+      '    ok 1 - later # SKIP',
+      '    1..1',
+      'ok 1 - calc # SKIP',
+      '  ---',
+      `  location: '${`${root}\\test\\calc.test.ts:18:1`.replaceAll('\\', '\\\\')}'`,
+      '  ...',
+    );
+    assert.equal(skipsInAddedLines([suite], added, root, true), undefined);
+    const outside = skipAt('C:\\elsewhere\\test\\calc.test.ts', 18);
+    assert.equal(skipsInAddedLines([outside], added, root, true), undefined);
+  });
 });

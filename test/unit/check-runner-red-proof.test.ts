@@ -9,6 +9,8 @@ import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
 import type { MapRead } from '../../src/checks/test-map.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
@@ -131,11 +133,13 @@ const setup = ({
   found = {} as Record<string, string[]>,
   /** Why a report pattern is refused, by pattern. */
   refusedPatterns = {} as Record<string, string>,
-  /** What git lists of the files the batch deleted since its base, NUL-separated. */
-  deleted = '',
-  /** What git lists of the files at the base, NUL-separated. */
-  atBase = '',
+  /** What git lists of the files the batch deleted since its base, NUL-separated, or its failure. */
+  deleted = '' as string | GitResult,
+  /** What git lists of the files at the base, NUL-separated, or its failure. */
+  atBase = '' as string | GitResult,
 } = {}) => {
+  const listed = (answer: string | GitResult): GitResult =>
+    typeof answer === 'string' ? { code: 0, stdout: answer, stderr: '' } : answer;
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
   const exec: ExecProcess = (file, _args, options) => {
@@ -146,10 +150,8 @@ const setup = ({
   };
   const git: Git = (cwd, args) => {
     order.push(`git ${args.join(' ')} in ${cwd}`);
-    if (args.includes('--diff-filter=D')) {
-      return Promise.resolve({ code: 0, stdout: deleted, stderr: '' });
-    }
-    if (args[0] === 'ls-tree') return Promise.resolve({ code: 0, stdout: atBase, stderr: '' });
+    if (args.includes('--diff-filter=D')) return Promise.resolve(listed(deleted));
+    if (args[0] === 'ls-tree') return Promise.resolve(listed(atBase));
     if (args[0] !== 'cat-file') return Promise.resolve(diff);
     if (killedTips.includes(args.at(-1) ?? '')) {
       return Promise.resolve({ code: null, stdout: '', stderr: '', killed: 'timed-out' as const });
@@ -987,6 +989,73 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
       reason: `the test map of acme/api at ${tip} cannot be read: it is not JSONC`,
     });
     assert.ok(!own.order.some((line) => line.startsWith('exec')), own.order.join('\n'));
+  });
+
+  it('settles a mapped test check that did not exit as any check does, reading no report: regression test', async () => {
+    const { order, run } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web) },
+      test: { exitCode: null, killed: 'timed-out', stdout: '' },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(
+      end.readings?.map((reading) => reading.result),
+      ['killed'],
+    );
+    assert.ok(order.includes(`exec npm test in ${redTree}`), order.join('\n'));
+    assert.ok(!order.some((line) => line.startsWith('read ')), order.join('\n'));
+  });
+
+  it('reads the map and the deleted files at the base the batch merged (ADR 0164): regression test', async () => {
+    const merged = 'e'.repeat(40);
+    const key = effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'gauge', attempt: 1 }));
+    const merge: Event = {
+      type: 'effect.applied',
+      key,
+      result: { base: merged, merged: 'f'.repeat(40) },
+    };
+    // Only the merged base's map lists web: the start's map would leave it unread.
+    const { order, run } = setup({
+      ...wrote,
+      events: [...ordered, ...gauged, merge, ...redStarted],
+      maps: { [gaugeStart]: mapOf(api), [merged]: mapOf(web), [tip]: mapOf(web) },
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+    assert.ok(
+      order.includes(
+        `git diff --name-only -z --no-renames --diff-filter=D ${merged} ${tip} in ${clone}`,
+      ),
+      order.join('\n'),
+    );
+  });
+
+  it('is blocked on the environment when git cannot list the deleted files or the files at the base: regression test', async () => {
+    const maps = { [gaugeStart]: mapOf(web), [tip]: mapOf(web) };
+    const failed = (stderr: string): GitResult => ({ code: 128, stdout: '', stderr });
+    const cases: [Partial<Parameters<typeof setup>[0]>, string][] = [
+      [
+        { deleted: failed('warning: x\nfatal: bad object\n') },
+        `the files deleted since ${gaugeStart} cannot be read: fatal: bad object`,
+      ],
+      [
+        { deleted: 'old/a.ts\u0000', atBase: failed('fatal: not a tree\n') },
+        `the files at ${gaugeStart} cannot be read: fatal: not a tree`,
+      ],
+      [
+        { deleted: failed('') },
+        `the files deleted since ${gaugeStart} cannot be read: git exited with 128`,
+      ],
+    ];
+    for (const [more, summary] of cases) {
+      const { order, run } = setup({ ...wrote, maps, ...more });
+      assert.deepEqual((await run()).ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary,
+      });
+      assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
+    }
   });
 
   it("places the step's changed files in the map's areas: a step outside them is refused", async () => {

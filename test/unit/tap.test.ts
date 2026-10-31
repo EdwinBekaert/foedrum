@@ -241,6 +241,34 @@ describe('parseTap', () => {
     );
   });
 
+  it('reads a double-quoted location, refuses an unterminated quote, and keeps the first location key: regression test', () => {
+    const report = read(
+      [
+        'not ok 1 - double',
+        '  ---',
+        '  location: "/work/app/c.test.mjs:5:2"',
+        '  ...',
+        'not ok 2 - unterminated',
+        '  ---',
+        "  location: '/work/app/d.test.mjs:6:1",
+        '  ...',
+        'not ok 3 - twice',
+        '  ---',
+        "  location: '/work/app/first.test.mjs:7:1'",
+        "  location: '/work/app/second.test.mjs:8:1'",
+        '  ...',
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      report.tests.map(({ location }) => location),
+      [
+        { file: '/work/app/c.test.mjs', line: 5 },
+        undefined,
+        { file: '/work/app/first.test.mjs', line: 7 },
+      ],
+    );
+  });
+
   it('refuses text with no test point', () => {
     assert.deepEqual(parseTap('Error: Cannot find module\n'), {
       readable: false,
