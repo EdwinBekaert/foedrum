@@ -1,9 +1,19 @@
 // The plan out doc (ADR 0233): an order broken into sub-orders, one repository each, with what each
 // touches, how they depend on each other, and the recipe each should run with.
 
-import { Dependency, hasCycle, MOST_PLAN_DEPENDENCIES, MOST_SUB_ORDERS, Repo } from './events.ts';
+import {
+  Dependency,
+  hasCycle,
+  MOST_PLAN_DEPENDENCIES,
+  MOST_SUB_ORDERS,
+  PlanId,
+  Repo,
+} from './events.ts';
 import { PathSafeId } from './ids.ts';
 import { lineOf, outDocFrontmatter } from './out-doc.ts';
+
+export { PlanId };
+
 import { RelativePath } from './primitives.ts';
 import { z } from './zod.ts';
 
@@ -21,14 +31,6 @@ export const MAX_TOUCH_PATH = 300;
 
 // One line, so the plan comment stays within GitHub's length.
 const line = lineOf(MAX_PLAN_LINE);
-
-/** A sub-order's name in its plan: dependencies and the graph name it, since no issue exists yet. */
-export const PlanId = z
-  .string()
-  .regex(
-    /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/,
-    'Must be 1 to 40 lower-case letters, digits or "-", starting and ending with a letter or digit',
-  );
 
 /** A path a sub-order expects to change, `new` when it does not exist yet. */
 export const Touch = z.strictObject({

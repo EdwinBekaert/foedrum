@@ -202,6 +202,14 @@ export type ScheduleRoute = z.infer<typeof ScheduleRoute>;
  * A sub-order writes in exactly one repository (architecture §3.2). `touches`: the paths its plan
  * says it changes, at most as many as a plan lists (`MOST_TOUCHES`, ADR 0233).
  */
+/** A sub-order's name in its plan: dependencies and the graph name it, since no issue exists yet. */
+export const PlanId = z
+  .string()
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/,
+    'Must be 1 to 40 lower-case letters, digits or "-", starting and ending with a letter or digit',
+  );
+
 export const SubOrderRef = z.strictObject({
   issue: IssueNumber,
   repo: Repo,
