@@ -41,7 +41,7 @@ describe('the fake GitHub API', () => {
       { number: pull.number, url: pull.html_url, body: pull.body, ref: pull.head.ref },
       { number, url, body: 'Closes #7', ref: 'foedrum/7' },
     );
-    assert.match(pull.head.sha, /^[0-9a-f]{40}$/);
+    assert.equal(pull.head.sha, headOf(number));
   });
 
   it("answers the check runs of a fresh pull request's head as none", async () => {
