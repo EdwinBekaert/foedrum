@@ -147,4 +147,28 @@ describe('parseLcov', () => {
     const mac = read(record('/users/dev/WT/src/b.ts'), '/Users/dev/wt/');
     assert.deepEqual([...mac.keys()], ['src/b.ts']);
   });
+
+  it('leaves out a relative SF path that climbs out of the root', () => {
+    const report = read(
+      ['SF:../outside.ts', 'SF:..', 'SF:..x/in.ts']
+        .flatMap((file) => [file, 'DA:1,1', 'end_of_record'])
+        .join('\n'),
+      '/repo',
+    );
+    assert.deepEqual([...report.keys()], ['..x/in.ts']);
+  });
+
+  it('reads a DA checksum and a line listed twice in one record, and refuses a malformed BRDA', () => {
+    const report = read('SF:a.ts\nDA:1,2,abc123\nDA:2,3\nDA:2,0\nend_of_record\n', '/repo');
+    assert.deepEqual(
+      [...(report.get('a.ts') ?? [])],
+      [
+        [1, { hits: 2 }],
+        [2, { hits: 3 }],
+      ],
+    );
+    const refused = parseLcov('SF:a.ts\nDA:1,1\nBRDA:x,0,0,1\nend_of_record\n', '/repo');
+    assert.equal(refused.readable, false);
+    assert.equal(refused.readable ? '' : refused.reason, 'its line 3 is not LCOV');
+  });
 });

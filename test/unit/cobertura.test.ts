@@ -168,4 +168,12 @@ describe('parseCobertura', () => {
       'it has a <line> whose number or hits is not a whole number',
     );
   });
+
+  it('reads a filename as relative to the root when the report has no source', () => {
+    const report = read(
+      '<coverage><packages><package><classes><class filename="src/a.cs"><lines><line number="1" hits="1"/></lines></class></classes></package></packages></coverage>',
+      '/repo',
+    );
+    assert.deepEqual([...report.keys()], ['src/a.cs']);
+  });
 });

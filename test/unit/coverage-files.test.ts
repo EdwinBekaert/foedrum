@@ -95,4 +95,19 @@ describe('readCoverage', () => {
     );
     assert.deepEqual([...read('cobertura', 'two/TestResults').keys()], ['two/lib/a.ts']);
   });
+
+  it('refuses the merge when one matched report does not read, naming that file', () => {
+    // A broken report left out of the merge would show fewer hits than the run made.
+    write('broken/A/TestResults/1a/coverage.cobertura.xml', '<coverage></coverage>');
+    write('broken/B/TestResults/2b/coverage.cobertura.xml', 'Build FAILED.');
+    const merged = readCoverage('cobertura', 'broken/*/TestResults', dir.path);
+    assert.equal(merged.readable, false);
+    assert.match(
+      merged.readable ? '' : merged.reason,
+      /^broken\/B\/TestResults\/2b\/coverage\.cobertura\.xml: it is not XML/,
+    );
+    write('bad/lcov.info', 'Error: Cannot find module\n');
+    const lcov = readCoverage('lcov', 'bad/lcov.info', dir.path);
+    assert.equal(lcov.readable ? '' : lcov.reason, 'bad/lcov.info: it has no SF record');
+  });
 });
