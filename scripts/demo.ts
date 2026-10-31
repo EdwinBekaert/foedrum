@@ -285,7 +285,6 @@ for (const comment of host.comments(BREWERY, MASH_ORDER.number)) {
 }
 
 say('');
-host = await codeHost(journal);
 const problems = problemsOf({
   crash,
   restart,
