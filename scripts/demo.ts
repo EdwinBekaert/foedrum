@@ -5,7 +5,9 @@
 // (scripts/demo/cellar.ts), which is killed
 // mid-attempt and started again, until the batch is on tap with one pull request and one status
 // comment; then a second order brewed by `foedrum brew` instead of the Cellar, and `foedrum
-// resume`'s line for the Cellarman's attempt. No gh, no GitHub, no claude, no network.
+// resume`'s line for the Cellarman's attempt; then a third order mashed: the Innkeeper's question,
+// its answer, and the Brewmaster's plan waiting for its review (ADR 0232, ADR 0275). No gh, no
+// GitHub, no claude, no network.
 // It walks through it in steps (scripts/demo/walkthrough.ts), each with what to look for, and
 // waits for Enter between them on a terminal; `--no-pause` goes straight through. `--in <folder>`
 // runs it in another folder inside .foedrum/tmp, as the integration test does.
@@ -31,6 +33,7 @@ import {
   gitEnvOf,
   type Life,
   localConfig,
+  MASH_ORDER,
   ORDER,
   problemsOf,
   scratchFolder,
@@ -42,6 +45,7 @@ import {
   commentMarkdown,
   diagnosisLines,
   LOST_LINE,
+  MASHED,
   PAUSE_PROMPT,
   pausesBetweenSteps,
   RESUMED,
@@ -154,8 +158,9 @@ const brewery = await repository('brewery', breweryFiles());
 write(join(brewery, '.foedrum', 'local.jsonc'), localConfig(join(scratch, 'work'), web));
 
 const cellar = join(root, 'scripts', 'demo', 'cellar.ts');
-const live = (life: Life) =>
-  execProcess(process.execPath, [cellar, scratch, life], {
+/** A life of the Cellar, or with `brew`, foedrum brew's run of the issue in `args`. */
+const live = (life: Life, ...args: string[]) =>
+  execProcess(process.execPath, [cellar, scratch, life, ...args], {
     cwd: root,
     env: process.env,
     timeoutMs: LIFE_MS,
@@ -228,7 +233,7 @@ await host.fetch(`https://api.github.com/repos/${BREWERY}/issues/${BREW_ORDER.nu
   body: JSON.stringify({ labels }),
 });
 say(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}`);
-const brew = await live('brew');
+const brew = await live('brew', String(BREW_ORDER.number));
 indented(brew.output.trimEnd().split(/\r?\n/));
 
 await next();
@@ -247,15 +252,40 @@ await next();
 // The state under the events, which it only counts (#662).
 await foedrum(brewery, ['replay', BATCH], (output) => replayLines(output, BATCH));
 
+await next();
+// A mash (ADR 0232): foedrum mash routes the issue to the Innkeeper, whose question stops it; the
+// answer chooses the recipe, and foedrum brew drives the Brewmaster to the plan, which waits Stuck
+// for its review (ADR 0275).
+const mashed = String(MASH_ORDER.number);
+say(`demo: issue #${mashed} of ${BREWERY} by ${MASH_ORDER.author}, with no label:`);
+indented([`"${MASH_ORDER.title}"`, MASH_ORDER.body]);
+say(`$ foedrum mash ${mashed} --as ${USER}`);
+const mash = await live('brew', mashed, 'mash');
+indented(mash.output.trimEnd().split(/\r?\n/));
+await foedrum(brewery, ['answer', MASHED, 'mash']);
+say(`$ foedrum brew ${mashed} --as ${USER}`);
+const plan = await live('brew', mashed);
+indented(plan.output.trimEnd().split(/\r?\n/));
+await foedrum(brewery, ['stuck']);
+host = await codeHost(journal);
+for (const comment of host.comments(BREWERY, MASH_ORDER.number)) {
+  say(
+    `demo: comment by ${comment.author} on ${BREWERY}#${mashed}, its Markdown without the hidden revision marker:`,
+  );
+  indented(commentMarkdown(comment.body).split('\n'));
+}
+
 say('');
 host = await codeHost(journal);
 const problems = problemsOf({
   crash,
   restart,
   brew,
+  mash,
+  plan,
   pulls: host.pulls(),
   comments: new Map(
-    [ORDER, BREW_ORDER].map(({ number }) => [number, host.comments(BREWERY, number)]),
+    [ORDER, BREW_ORDER, MASH_ORDER].map(({ number }) => [number, host.comments(BREWERY, number)]),
   ),
   commands,
 });
@@ -264,6 +294,6 @@ if (problems.length > 0) {
   process.exitCode = 1;
 } else {
   say(
-    'demo: both orders on tap, one through a crash and a restart, each with one pull request and one status comment',
+    'demo: two orders on tap, one through a crash and a restart, each with one pull request and one status comment; a third mashed to a plan that waits for its review',
   );
 }

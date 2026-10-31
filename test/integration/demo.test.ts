@@ -1,8 +1,8 @@
 // npm run demo (ADR 0097, ADR 0139), as the program: a scratch Brewery whose order is brewed with
 // Nip through serve's Cellar, killed mid-attempt and started again, until the batch is on tap with
 // one pull request and one status comment on the in-process code host; then a second order brewed
-// by foedrum brew, and foedrum resume's line for the Cellarman's attempt. Real git and node, no
-// gh, no claude.
+// by foedrum brew, foedrum resume's line for the Cellarman's attempt, and a third order mashed to a
+// plan that waits Stuck for its review. Real git and node, no gh, no claude.
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
