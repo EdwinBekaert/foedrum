@@ -7,7 +7,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
-import { bodyOwner, pullRequestKey, pullRequestText } from '../../src/engine/pull-request.ts';
+import {
+  bodyOwner,
+  MAX_SIBLINGS,
+  pullRequestKey,
+  pullRequestText,
+} from '../../src/engine/pull-request.ts';
 import type { PullRequestHost } from '../../src/engine/pull-request-actions.ts';
 import {
   siblingEffects,
@@ -321,5 +326,145 @@ describe('sibling pull requests (ADR 0292)', () => {
   it('gives a plain order with no plan no sibling section (regression test)', () => {
     const state = fold([ordered('5-1', 5), ...opened('5-1', libPull)]);
     assert.equal(siblingSection(state, '5-1'), undefined);
+  });
+
+  it('replaces the old section whole and keeps the rest of the body byte for byte (regression test)', async () => {
+    const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    const opening = openedBody('3-1', 3);
+    const { host, bodies } = fakeHost({ [libPull]: openedBody('2-1', 2), [webPull]: opening });
+    const effects = siblingEffects({ host });
+    const settled = await pass(effects, both, ['2-1', '3-1']);
+    await pass(effects, fold([merged('2-1', libPull)], settled), ['3-1']);
+    const body = bodies[webPull] ?? '';
+    assert.equal(body.split('## Pull requests of this order').length, 2, body);
+    assert.match(body, /acme\/lib-core#7: merged/);
+    assert.doesNotMatch(body, /acme\/lib-core#7: open/);
+    // Below the section, the opened body as it was, up to its marker.
+    const rest = body.slice(body.indexOf('<!-- foedrum:siblings -->\n\n') + 27);
+    const above = (text: string) => text.slice(0, text.lastIndexOf('\n\n<!-- foedrum:['));
+    assert.equal(above(rest), above(opening));
+  });
+
+  it('asks for no revision once the section it recorded is the one it would write (regression test)', async () => {
+    const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    const { host } = fakeHost({ [libPull]: openedBody('2-1', 2), [webPull]: openedBody('3-1', 3) });
+    const effects = siblingEffects({ host });
+    const settled = await pass(effects, both, ['2-1', '3-1']);
+    assert.equal(settled.effects.size, both.effects.size + 2);
+    assert.deepEqual(effects.due(settled, '2-1'), []);
+    assert.deepEqual(effects.due(settled, '3-1'), []);
+  });
+
+  it('keeps room in every body for the longest sibling section (regression test)', () => {
+    const state = fold([...decomposed, ...opened('2-1', libPull)]);
+    const section = siblingSection(state, '3-1') ?? assert.fail('no section');
+    const cell = 'x'.repeat(190);
+    const { body } = pullRequestText({
+      title: 'Order',
+      closes: { repo: brewery, issue: 3 },
+      reports: [
+        {
+          stepId: 'build',
+          summary: 'y'.repeat(100_000),
+          assumptions: [],
+          sections: {
+            beforeAfter: Array.from({ length: 70 }, () => ({
+              case: cell,
+              before: cell,
+              after: cell,
+            })),
+          },
+        },
+      ],
+      key: pullRequestKey('3-1'),
+      siblings: section,
+    });
+    // A later revision may write the longest section in place of this one, within GitHub's limit.
+    assert.ok(body.length - section.length + MAX_SIBLINGS <= 65_536, String(body.length));
+  });
+
+  it('cuts a section of many sub-orders to its room, counting the rest (regression test)', () => {
+    const many = Array.from({ length: 100 }, (_, at) => ({
+      issue: 10 + at,
+      repo: `acme/${'r'.repeat(90)}${at}`,
+    }));
+    const state = fold([
+      ordered('1-1', 1),
+      { type: 'order.decomposed', batchId: '1-1', subOrders: many, dependencies: [] },
+      ordered('10-1', 10, '1-1'),
+    ]);
+    const section = siblingSection(state, '10-1') ?? assert.fail('no section');
+    assert.ok(section.length <= MAX_SIBLINGS, String(section.length));
+    assert.match(
+      section,
+      /\nAnd \d+ more pull requests of this order\.\n<!-- foedrum:siblings -->$/,
+    );
+  });
+
+  it('leaves out a cancelled sub-order, and gives a cancelled one no section (regression test)', () => {
+    const three: Event = {
+      type: 'order.decomposed',
+      batchId: '1-1',
+      subOrders: [
+        { issue: 2, repo: lib },
+        { issue: 3, repo: web },
+        { issue: 4, repo: 'acme/cli' },
+      ],
+      dependencies: [],
+    };
+    const two: Event = {
+      ...three,
+      subOrders: [
+        { issue: 2, repo: lib },
+        { issue: 3, repo: web },
+      ],
+    };
+    const state = fold([
+      ordered('1-1', 1),
+      three,
+      ordered('4-1', 4, '1-1'),
+      two,
+      ordered('2-1', 2, '1-1'),
+    ]);
+    assert.doesNotMatch(siblingSection(state, '2-1') ?? assert.fail('no section'), /acme\/cli/);
+    assert.equal(siblingSection(state, '4-1'), undefined);
+  });
+
+  it("gives a claimed issue's batch no section, though its number is a sub-order's (regression test)", () => {
+    const state = fold([
+      ...decomposed,
+      { type: 'batch.ordered', batchId: '9-1', order: { issue: 2, repo: lib }, routeBy },
+    ]);
+    assert.notEqual(siblingSection(state, '2-1'), undefined);
+    assert.equal(siblingSection(state, '9-1'), undefined);
+  });
+
+  it('words a code dependency, no dependency and a closed sibling (regression test)', () => {
+    const split = (dependencies: Extract<Event, { type: 'order.decomposed' }>['dependencies']) =>
+      fold([
+        ordered('1-1', 1),
+        {
+          type: 'order.decomposed',
+          batchId: '1-1',
+          subOrders: [
+            { issue: 2, repo: lib },
+            { issue: 3, repo: web },
+          ],
+          dependencies,
+        },
+        ordered('2-1', 2, '1-1'),
+        ordered('3-1', 3, '1-1'),
+        ...opened('2-1', libPull),
+        { type: 'pull_request.ended', batchId: '2-1', pullRequest: libPull, state: 'closed' },
+      ]);
+    const lines = (state: State) => (siblingSection(state, '3-1') ?? '').split('\n').slice(2, 4);
+    assert.deepEqual(lines(split([{ subOrder: 3, blockedBy: 2, kind: 'code' }])), [
+      '1. acme/lib-core#7: closed without merging, merge first (this pull request waits for its merge).',
+      '2. This pull request, in acme/web: merge after acme/lib-core#7 merges.',
+    ]);
+    assert.deepEqual(lines(split([])), [
+      '1. acme/lib-core#7: closed without merging, merge in any order.',
+      '2. This pull request, in acme/web: merge in any order.',
+    ]);
   });
 });
