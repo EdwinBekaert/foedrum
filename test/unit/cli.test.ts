@@ -874,6 +874,81 @@ describe('foedrum status <order> (ADR 0295)', () => {
     }
   });
 
+  it('status of a batch routed from mash-in to nip counts mash-in as planning and nip as brewing', async () => {
+    // The batch's recipe is nip by the time status reads it; its ask attempt was mash-in's.
+    const routed: Event[] = [
+      ordered(11),
+      chosen('11-1', 'mash-in'),
+      ...attempt('11-1', 'ask', 1, [100, 20, 1000, 0]),
+      chosen('11-1', 'nip'),
+      ...attempt('11-1', 'build', 1, [1000, 200, 5000, 100]),
+    ];
+    const result = await run(['status', '11'], { openStore: () => storeWith(routed) });
+    assert.match(
+      result.stdout,
+      /\nplanning: 1,120 tokens \(100 input, 20 output, 1,000 cache read, 0 cache write\)\nbrewing: 6,300 tokens \(1,000 input, 200 output, 5,000 cache read, 100 cache write\)\n$/,
+    );
+  });
+
+  // acme/app#11, claimed under the alias app, beside the Brewery's own #11, mashed into #21.
+  const appConfig = () =>
+    BreweryConfig.parse({
+      repositories: {
+        'acme/app': {
+          checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+          alias: 'app',
+        },
+      },
+    });
+  const beside: Event[] = [
+    ordered(11),
+    ...attempt('11-1', 'build', 1, [7, 7, 7, 7]),
+    {
+      type: 'order.decomposed',
+      batchId: '11-1',
+      subOrders: [{ issue: 21, repo: 'acme/app' }],
+      dependencies: [],
+    },
+    subOrder(21),
+    ...attempt('21-1', 'build', 1, [3, 3, 3, 3]),
+    {
+      type: 'batch.ordered',
+      batchId: 'app-11',
+      order: { issue: 11, repo: 'acme/app' },
+      routeBy: '2026-12-31T00:00:00.000Z',
+    },
+    { type: 'effect.applied', key: '["app-11","order.issue"]', result: 200 },
+    ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+  ];
+
+  it('status of a Brewery order leaves out a target issue with the same number', async () => {
+    const result = await run(['status', '11'], {
+      openStore: () => storeWith(beside),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^2 batches\n/);
+    assert.match(result.stdout, /^ +11-1 /m);
+    assert.doesNotMatch(result.stdout, /^ +app-11 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 40 tokens \(10 input, 10 output, 10 cache read, 10 cache write\)\n$/,
+    );
+  });
+
+  it('status of a target issue leaves out the sub-orders of the Brewery issue with its number', async () => {
+    const result = await run(['status', 'app#11'], {
+      openStore: () => storeWith(beside),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^1 batch\n/);
+    assert.match(result.stdout, /^ +app-11 /m);
+    assert.doesNotMatch(result.stdout, /^ +(11|21)-1 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
   it('status --watch with an order is refused, since the board shows every batch', async () => {
     assert.deepEqual(await run(['status', '11', '--watch']), {
       exitCode: 1,
