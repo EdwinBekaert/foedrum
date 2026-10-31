@@ -64,7 +64,10 @@ const planned = (plan: PlanReport): Ending => ({
   ),
 });
 
-/** A `fetch` over the fake API that loses the answer of the `n`th request `matches` picks, once it landed. */
+/**
+ * A `fetch` over the fake API that answers the `n`th request `matches` picks with `answer`, after it
+ * landed, or with it alone when it `lands` not.
+ */
 const losing = (
   api: FakeGitHubApi,
   matches: (method: string, path: string) => boolean,
@@ -72,13 +75,15 @@ const losing = (
   answer: () => Response = () => {
     throw new Error('killed before the answer came');
   },
+  lands = true,
 ): typeof globalThis.fetch => {
   let seen = 0;
   return (async (input: string | URL | Request, init: RequestInit = {}) => {
-    const response = await api.fetch(input, init);
     const { pathname } = new URL(String(input));
-    if (matches(init.method ?? 'GET', pathname) && ++seen === n) return answer();
-    return response;
+    const picked = matches(init.method ?? 'GET', pathname) && ++seen === n;
+    if (picked && !lands) return answer();
+    const response = await api.fetch(input, init);
+    return picked ? answer() : response;
   }) as typeof globalThis.fetch;
 };
 
@@ -213,12 +218,11 @@ describe('planIssueEffects (ADR 0285)', () => {
 
   it('records order.decomposed after the last effect, and the ready set starts the unblocked sub-order', async () => {
     approved();
-    // The last "blocked by" link fails: nothing is decomposed yet.
+    // The last "blocked by" link fails and does not land: nothing is decomposed yet.
     const isLink = (method: string, path: string) =>
       method === 'POST' && path.endsWith('/dependencies/blocked_by');
-    const first = await open(
-      losing(api, isLink, 2, () => new Response('{"message":"Server Error"}', { status: 500 })),
-    );
+    const serverError = () => new Response('{"message":"Server Error"}', { status: 500 });
+    const first = await open(losing(api, isLink, 2, serverError, false));
     await first.applyEffects();
     assert.equal(failed().length, 1);
     assert.deepStrictEqual(log.state().orders.get(7)?.subOrders, []);
