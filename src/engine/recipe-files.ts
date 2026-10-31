@@ -320,6 +320,14 @@ const ACTION_DEADLINE = '2h';
  */
 const ACTION_ATTEMPTS = 3;
 
+/** How many of `attempts` came after the latest that succeeded: all of them when none did. */
+const sinceSuccess = (attempts: readonly Attempt[]): number =>
+  attempts.length -
+  attempts.findLastIndex(
+    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+  ) -
+  1;
+
 /** The deadline of a check step without one of its own (ADR 0069). */
 const CHECK_DEADLINE = '30m';
 
@@ -634,12 +642,7 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
     // An action makes no progress the runner could see; its deadline covers it.
     stall: undefined,
     // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
-    mayRetry: (attempts) => {
-      const succeeded = attempts.findLastIndex(
-        (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-      );
-      return attempts.length - succeeded - 1 < ACTION_ATTEMPTS;
-    },
+    mayRetry: (attempts) => sinceSuccess(attempts) < ACTION_ATTEMPTS,
     route:
       step.onPullRequestFail === undefined
         ? undefined
@@ -749,8 +752,10 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     when: step.when,
     deadline,
     stall: brewer.stall,
-    // Attempts are counted over the batch's whole life (ADR 0053).
-    mayRetry: (attempts) => attempts.length < brewer.maxAttempts,
+    // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
+    // schedules counts each choice's attempts, those since its latest success (ADR 0286).
+    mayRetry: (attempts) =>
+      (step.chosenBy === undefined ? attempts.length : sinceSuccess(attempts)) < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
     ...(step.interactive === true ? { interactive: true } : {}),
