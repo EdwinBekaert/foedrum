@@ -92,8 +92,10 @@ function describeSource(source: InputSource): string {
       return `lens ${source.lens}, file ${source.path}`;
     case 'lenses':
       return `lenses ${source.lenses.map(({ lens, path }) => `${lens} (file ${path})`).join(', ')}`;
-    case 'plan-entry':
-      throw new Error('not implemented');
+    case 'plan-entry': {
+      const { batchId, stepId, attempt, entry } = source.origin;
+      return `entry ${entry} of the plan of batch ${batchId}, step ${stepId}#${attempt}`;
+    }
     case 'recipes':
       return "the Brewery's recipes to offer";
     case 'change':
