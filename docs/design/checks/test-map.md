@@ -1,7 +1,7 @@
 # The test map
 
-> **Partly built.** The map's file, its schema, where it is kept, the effective map and the Stuck reason for a module no confirmed line reaches are built (#706).
-> Discovery and freshness (#708), the red proof that reads the map (#709), the uncovered-line check (#710) and `testsUnchanged` (#711) are not: until they land, the red proof works as [the red proof](red-proof.md) says.
+> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706) and the uncovered-line check (#710) are built.
+> Discovery and freshness (#708), the red proof that reads the map (#709), a skip the batch added failing the green check, and `testsUnchanged` (#711) are not: until they land, the red proof works as [the red proof](red-proof.md) says.
 
 A target repository's test map says, for each module, where its code is, where its tests live, and where its test and coverage reports are written ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 It says where things are and holds no commands: the commands stay in `foedrum.jsonc`, confirmed by a person ([ADR 0023](../../adr/0023-language-independent-recipes.md)).
@@ -34,6 +34,17 @@ A module no line reaches is caught at the next passing run, such as Nip's `green
 The reason names the module and the report path, says to make the repository's `"checks"."test"` line in `foedrum.jsonc` also run the module's tests, whatever the tests before them give, and carries the end of the test check's recorded output, cut and read for secrets as every reading's is.
 A module the base's map lists is taken as reached, as the base is taken as green.
 A base map that cannot be read makes the batch Stuck (`environment`); a batch's map that cannot be read fails the step without a retry, so its `onFail` route sends the batch back to the brewer that broke it.
+
+**Uncovered changed lines.** After a check step's `test` check exited 0, in a step that is not a red proof (Nip's `green`), the lines the batch's change added, from where it starts to the step's tip (`git diff`, so a Refactor's changed lines count and its deleted ones do not), are judged against the union of the coverage reports of every module of the effective map that has a coverage tool (`checks/uncovered.ts`, [ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
+Before the `test` check runs, every coverage report path either map names is cleared, so a report an earlier run left neither stands for this run's nor adds its hits to it.
+A line is judged only where a report lists it as executable (LCOV `DA`, Cobertura `line`): it must have run, and where the report has branch data for it (LCOV `BRDA`, coverlet's `condition-coverage`), every branch on it must have been taken.
+A changed line in a test area is not judged.
+A changed file in a code area that no report holds counts as every changed line at 0 hits for a module whose coverage is Cobertura, whose tools list the files they did not load; for LCOV, whose Node writer leaves them out, it is listed as not loaded by any test and does not fail, so a types-only file no test could run passes.
+A changed file outside every code and test area (data, docs, config) is listed and never fails, and a module with `coverage: none` is skipped and listed as not measured.
+An uncovered line fails the step without a retry, along its `onFail` route (Nip's `green` → `implement`), with the reason `<n> changed lines no test runs: <file>:<line>, …`, ten lines at most and `and <k> more`, a line whose only untaken part is a branch marked `(branch not taken)`; the Cellarman's next attempt gets the reason ([ADR 0128](../../adr/0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)) and adds a test that runs the line, or removes the line, and a Refactor over uncovered behaviour fails the same way until a regression test that pins it comes first (#645).
+A module's coverage report that cannot be read fails the step the same way.
+The lists of what was not measured, ten files of each kind and a count of the rest, are recorded on the step's `step.finished` (`coverage`) and shown in the status comment under the step's line.
+Merged reports keep a line's higher branch count, not the union of the branches, as [the red proof](red-proof.md)'s readers say.
 
 **It is a sensitive path.** A change to `.foedrum/test-map.jsonc` gets the status comment's sensitive-path line without the repository naming it in `sensitivePaths` ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)), and the line after it names each module the batch's map adds with `coverage: none`.
 A repository whose map the Brewery keeps has no such file to name.
