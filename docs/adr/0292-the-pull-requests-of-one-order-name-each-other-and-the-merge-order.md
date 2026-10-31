@@ -18,9 +18,9 @@ The plan's dependencies (`code` and `release`, [ADR 0216](0216-a-release-blocker
 
 ### The section
 - **Each sub-order pull request's body starts with `## Pull requests of this order`**, when its order's latest breakdown keeps two sub-orders or more (`siblingSection`, `src/engine/sibling-pull-requests.ts`).
-  It lists each sub-order that is not cancelled, in merge order, with its pull request as `owner/name#n` (GitHub links it and adds it to the other pull request's timeline), or its repository and `not opened yet`.
+  It lists each sub-order of that breakdown, in merge order, with its pull request as `owner/name#n` (GitHub links it and adds it to the other pull request's timeline), or its repository and `not opened yet`.
   It also gives the pull request's state (open, merged, closed without merging) and when to merge it: `merge after <ref> merges` for a `code` dependency, `merge after <ref> merges and <repo> has a release after it` for a `release` one, `merge first (<ref> waits for its merge|release)` for one others wait for, or `merge in any order`.
-  The batch's own line says `(this pull request)`.
+  The batch names itself `this pull request`, on its own line (`This pull request, in <repo>: <when>.`, without a state) and wherever another line waits for it, so the section the open renders, before its pull request is recorded, is the one the next pass computes and the open needs no second write.
 - **A sub-order's pull request** is the one the ledger opened for the latest of its batches that opened one; its state is that batch's recorded end of it.
 - **The merge order follows the plan's dependencies**: a sub-order comes after every sub-order it is blocked by, and otherwise in the plan's order (a cycle, which a plan cannot hold, places the rest in the plan's order).
 - **It names sibling pull requests only.** No sub-issue number, no order number and no Brewery repository is in the section.
@@ -30,11 +30,13 @@ The plan's dependencies (`code` and `release`, [ADR 0216](0216-a-release-blocker
 
 ### When it is written
 - **The open and every later round render it** with the body from the state at `due` (`pullRequestText` given `siblings`).
-- **Revisions of it are effects of their own**, `["<batch>","siblings.<n>"]` (`siblingEffects`), due for a batch whose pull request is open with no recorded end when the section's digest differs from the latest revision's.
+- **Revisions of it are effects of their own**, `["<batch>","siblings.<n>"]` (`siblingEffects`), due for a batch whose pull request has no recorded end when the section's digest differs from the latest revision's.
   So a sibling that opens, merges or closes makes every other open sibling's revision due in the next pass.
+- **A merged pull request's body is revised only to name a sibling that opened since its latest revision**, until every sibling has a pull request: a blocker merges before the sub-order that waits for it has a batch ([ADR 0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)), so without it the blocker's body would never name its dependent.
+  A pull request closed without merging gets no revision.
 - **`find`** reads the body: when it is Foedrum's own (`bodyOwner`, ADR 0227) and starts with this section already, the revision is recorded, the open's or a round's or one a run before wrote and was killed before it recorded.
 - **`apply`** reads the body again: when it is Foedrum's own, its section is replaced (or put first, when it has none) and the rest kept byte for byte, ending with this key's marker, through `PATCH` with the body only; any other body is left as it is.
-- **Its result** (`SiblingResult`, `src/schemas/store.ts`) is `{ section }`, the section's digest, with `left: 'edited' | 'unmarked'` when it left the body, so a body a person edited is not read again until the section changes.
+- **Its result** (`SiblingResult`, `src/schemas/store.ts`) is `{ section, opened }`, the section's digest and how many of the order's sub-orders had a pull request then, with `left: 'edited' | 'unmarked'` when it left the body, so a body a person edited is not read again until the section changes.
 
 ### The order's status comment
 - **Under the On tap line of the order's batch, once it is split**, one line per sub-order in merge order: `- #<sub-issue> in <repo>: <pull request>, <state>`, or `no pull request yet` (`renderStatus`).
@@ -42,7 +44,8 @@ The plan's dependencies (`code` and `release`, [ADR 0216](0216-a-release-blocker
 
 ## Consequences
 - A reviewer of either pull request sees the other and which one to merge first, and GitHub links them both ways.
-- A merge or a close of one pull request writes each other open one's body once, in the next pass after the end is recorded; a merged pull request's body is not written again, since it is its merge commit's description.
+- A merge or a close of one pull request writes each other open one's body once, in the next pass after the end is recorded; a merged pull request's body is written again only when a sibling opens, so once every sibling has a pull request it stays its merge commit's description.
+- **A private sibling is named in a public pull request's body**: its repository's name and its pull request's number, though GitHub hides its contents; the maintainer accepted this for now (2026-10-31), and masking a private sibling is #746, since Foedrum does not read a repository's visibility yet.
 - **A person's edit in the one request between the read and the update is lost**, as with ADR 0227: GitHub has no conditional update.
 - A body a person edited never gets the section again from that batch, and the status comment of the order still names every pull request.
 - No schema with a JSON file moves: the ledger's results are not in `schemas/`.
