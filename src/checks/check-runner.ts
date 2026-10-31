@@ -145,9 +145,10 @@ const listOf = (named: readonly string[]): string => {
   return `${named.slice(0, MOST_STALE_PATHS).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
-/** `end` with the test map recorded stale by `named`, when it names any (ADR 0282). */
+/** `end` with the test map of `repo` recorded stale by `named`, when it names any (ADR 0282). */
 const withStale = (
   end: AttemptEnd,
+  repo: string,
   kept: StaleMap['kept'],
   named: readonly string[],
 ): AttemptEnd =>
@@ -156,6 +157,7 @@ const withStale = (
     : {
         ...end,
         staleMap: {
+          repo,
           kept,
           paths: named.slice(0, MOST_STALE_PATHS).map((path) => path.slice(0, STALE_PATH_LENGTH)),
           more: Math.max(0, named.length - MOST_STALE_PATHS),
@@ -485,10 +487,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // A repository with no map has none to be stale (ADR 0282).
     if (testMap !== undefined && tip !== undefined && tip.kind !== 'none' && test?.exitCode === 0) {
       const judged = await unreached(batch, worktree, end, tip, test, signal);
-      if ('end' in judged) return withStale(judged.end, kept, named);
+      if ('end' in judged) return withStale(judged.end, worktree.repo, kept, named);
       named.push(...staleByRun(worktree, judged.modules));
     }
-    return withStale(end, kept, named);
+    return withStale(end, worktree.repo, kept, named);
   };
 
   /**

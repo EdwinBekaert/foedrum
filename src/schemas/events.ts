@@ -317,7 +317,7 @@ export type Answer = z.infer<typeof Answer>;
 export const MOST_STALE_PATHS = 10;
 
 /**
- * A test map a check step found stale and did not fail for (ADR 0274, ADR 0282): where it is kept,
+ * A test map a check step found stale and did not fail for (ADR 0274, ADR 0282): its repository, where it is kept,
  * the first stale paths (a manifest added or removed, a report outside the map, a module's missing
  * report), and how many more there were.
  */

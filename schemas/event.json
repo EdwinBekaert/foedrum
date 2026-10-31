@@ -1017,6 +1017,10 @@
         "staleMap": {
           "type": "object",
           "properties": {
+            "repo": {
+              "type": "string",
+              "pattern": "\\S"
+            },
             "kept": {
               "type": "string",
               "enum": [
@@ -1041,6 +1045,7 @@
             }
           },
           "required": [
+            "repo",
             "kept",
             "paths",
             "more"

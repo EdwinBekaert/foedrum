@@ -874,24 +874,33 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
 };
 
 /**
- * The test map the batch's latest check that ran the tests found stale without failing for it, as
- * one line, or none (ADR 0282): the Brewery's, which a batch cannot change, or one only a person's
- * change can refresh.
+ * For each repository of the batch, the test map its latest check that ran the tests found stale
+ * without failing for it, one line each, or none (ADR 0282): the Brewery's, which a batch cannot
+ * change, or one only a person's change can refresh.
  */
 const staleMapLines = (batch: Batch): string[] => {
+  // The repositories, in lower case as GitHub's names are, whose latest run is read.
+  const read = new Set<string>();
+  const lines: string[] = [];
   for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
     const ran = batch.steps.get(stepId)?.attempts.get(attempt);
     if (ran?.phase !== 'finished') continue;
     const { staleMap } = ran;
+    const repo = staleMap?.repo ?? ran.worktree?.repo;
+    if (repo === undefined || read.has(repo.toLowerCase())) continue;
     if (staleMap !== undefined) {
       const whose = staleMap.kept === 'brewery' ? "The Brewery's test map" : 'The test map';
       const more = staleMap.more > 0 ? ` and ${staleMap.more} more` : '';
-      return [`${whose} is stale: ${staleMap.paths.map(plain).join(', ')}${more}`];
+      const paths = staleMap.paths.map(plain).join(', ');
+      lines.push(`${whose} of ${plain(staleMap.repo)} is stale: ${paths}${more}`);
+      read.add(repo.toLowerCase());
     }
     // A later run of the tests that found it fresh.
-    if (ran.readings?.some((reading) => reading.check === 'test') === true) return [];
+    else if (ran.readings?.some((reading) => reading.check === 'test') === true) {
+      read.add(repo.toLowerCase());
+    }
   }
-  return [];
+  return lines.reverse();
 };
 
 /** The modules the batch's test map adds with `coverage: none`, as one line, or none (ADR 0274). */

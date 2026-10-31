@@ -17,6 +17,15 @@ const ReportPath = Glob.refine(
   'Must be a file or a folder pattern of at most 256 characters with "*" as its only wildcard, such as "svc/test/*/TestResults"',
 );
 
+/**
+ * A manifest glob: one git's `glob` magic lists as the map's readers match it (ADR 0282), so with
+ * `*`, `**`, `?` and `[…]` only, never a brace or an extended glob, which git reads as text.
+ */
+const ManifestGlob = Glob.refine(
+  (glob) => !/[{}()+@!]/.test(glob),
+  'Must be a glob with "*", "**", "?" and "[...]" only, such as "**/*.csproj": git lists the manifests with its glob magic',
+);
+
 const Tests = z.union([
   z.strictObject({ paths: z.array(Glob).min(1).describe('Globs of the separate test files') }),
   z.strictObject({
@@ -47,7 +56,7 @@ export const TestMap = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
   derivedFrom: z
     .strictObject({
-      globs: z.array(Glob).min(1).describe('The manifest globs the map was derived from'),
+      globs: z.array(ManifestGlob).min(1).describe('The manifest globs the map was derived from'),
       paths: z
         .array(RelativePath)
         .describe('The paths the globs matched when it was, as git names them'),
