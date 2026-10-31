@@ -1,7 +1,9 @@
-// `node scripts/mutants.ts <tree> <answer.json> [<n>] [--touched <files.txt>]`: checks the
+// `node scripts/mutants.ts <tree> <answer.json> [<n> | --same-answer] [--touched <files.txt>]`: checks the
 // mutants in Brett's answer against the brew-review scratch tree, or applies mutant <n> to it
 // (issue #43). A mutant edits one line of a file under src/ or scripts/ (ADR 0034, 0040); with
 // --touched, one of the files the change touches, as the review's files.txt lists them (#140).
+// With --same-answer, it appends to the answer the mutant that makes a changed boolean function
+// return, for every input, the one value all its assertions in the changed tests expect (#223).
 // mutants/core.ts decides. Exits 1 when the answer cannot be read or mutant <n> is invalid.
 
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
