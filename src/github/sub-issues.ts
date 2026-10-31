@@ -77,22 +77,22 @@ export const githubSubIssues = (options: GitHubSubIssuesOptions): SubIssues => {
       const answer = await client.rest('POST', root, { title, body, labels: [...labels] }, signal);
       return breweryIssue(expect(answer, 201, what).body, what);
     },
-    subIssues: (parent, signal) =>
+    subIssues: async (parent, signal) =>
       list(`${issuePath(parent)}/sub_issues`, `the sub-issues of ${brewery}#${parent}`, signal),
-    addSubIssue: (parent, childId, signal) =>
+    addSubIssue: async (parent, childId, signal) =>
       add(
         `${issuePath(parent)}/sub_issues`,
         { sub_issue_id: childId },
         `adding the issue with id ${childId} as a sub-issue of ${brewery}#${parent}`,
         signal,
       ),
-    blockedBy: (issue, signal) =>
+    blockedBy: async (issue, signal) =>
       list(
         `${issuePath(issue)}/dependencies/blocked_by`,
         `the issues ${brewery}#${issue} is blocked by`,
         signal,
       ),
-    addBlockedBy: (issue, blockerId, signal) =>
+    addBlockedBy: async (issue, blockerId, signal) =>
       add(
         `${issuePath(issue)}/dependencies/blocked_by`,
         { issue_id: blockerId },
