@@ -327,12 +327,13 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const legacy: TestMapModule = { ...calc, name: 'legacy', code: ['cfml/**'], coverage: 'none' };
     const { run, asked } = setup({
       maps: { [base]: mapOf(calc, legacy), [tip]: mapOf(calc, legacy) },
+      // No report of calc either: reading one would fail the step.
       diff: adding('cfml/index.cfm', 1, 4),
-      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
     });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.ok(!asked.some((line) => line.startsWith('coverage') && line.includes('cfml')));
+    assert.ok(asked.includes('run npm test'), asked.join('|'));
+    assert.ok(!asked.some((line) => line.startsWith('coverage')), asked.join('|'));
     assert.deepEqual(end.coverage, { unmeasured: ['legacy'] });
     const finished: Event = {
       type: 'step.finished',
