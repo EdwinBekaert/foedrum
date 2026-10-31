@@ -1,6 +1,7 @@
-// The plan comment of an order (ADR 0233): the latest succeeded plan of its batch as a table and a
-// graph on the order's issue, its edits as revisions in the ledger, `[batchId, "plan.<n>"]`, each
-// found by its marker on the Brewery's own comment before it is applied (ADR 0033).
+// The plan comment of an order (ADR 0233): the latest succeeded plan of its batch on the order's
+// issue, laid out for review (ADR 0275), its edits as revisions in the ledger,
+// `[batchId, "plan.<n>"]`, each found by its marker on the Brewery's own comment before it is
+// applied (ADR 0033).
 
 import type { IsCommit } from '../formats/secrets.ts';
 import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
@@ -17,36 +18,65 @@ import type { Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink } from './state-branch.ts';
-import { code, link as linked, plain, type StatusComments } from './status-comment.ts';
+import {
+  code,
+  link as linked,
+  plain,
+  planNextStep,
+  type StatusComments,
+} from './status-comment.ts';
 
 /** A text the brewer of `stepId` wrote, on one line, or a fixed line when it looks like a secret. */
 type Told = (text: string) => string;
 
+/** A sub-order's name: its id and its title. */
+const named = ({ id, title }: PlannedSubOrder, told: Told): string =>
+  `${code(told(id))}: ${plain(told(title))}`;
+
+/** A row of the summary table (#658): what to take in at a glance, the rest in its section. */
 const row = (subOrder: PlannedSubOrder, told: Told): string => {
-  const { id, title, repo, size, doneWhen, touches, dependencies, recipe, why } = subOrder;
-  const touched = touches
-    .map(({ path, new: fresh }) => `${plain(told(path))}${fresh === true ? ' (new)' : ''}`)
-    .join(', ');
+  const { size, dependencies, recipe, ready } = subOrder;
   const waits =
     dependencies.length === 0
       ? 'none'
       : dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
+  const cells = [
+    named(subOrder, told),
+    `about ${size.lines} lines`,
+    code(told(recipe)),
+    waits,
+    ready ? 'yes' : 'no',
+  ];
+  return `| ${cells.join(' | ')} |`;
+};
+
+/**
+ * A sub-order's section (#658): what it builds, when it is done, why its recipe, why it is not
+ * ready, and its touched paths folded away, since a list of twenty paths is read only on demand.
+ */
+const section = (subOrder: PlannedSubOrder, told: Told): string[] => {
+  const { repo, size, doneWhen, touches, recipe, why } = subOrder;
   const off =
     subOrder.testFirst === false
       ? `; test-first off: ${plain(told(subOrder.testFirstOff ?? ''))}`
       : '';
-  const ready = subOrder.ready ? 'yes' : `no: ${plain(told(subOrder.refinement ?? ''))}`;
-  const cells = [
-    `${code(told(id))}: ${plain(told(title))}`,
-    plain(repo),
-    `about ${size.lines} lines: ${plain(told(size.mechanism))}`,
-    plain(told(doneWhen)),
-    touched,
-    waits,
-    `${code(told(recipe))}: ${plain(told(why))}${off}`,
-    ready,
+  const paths = touches.map(
+    ({ path, new: fresh }) => `- ${plain(told(path))}${fresh === true ? ' (new)' : ''}`,
+  );
+  return [
+    `#### ${named(subOrder, told)}`,
+    '',
+    `- Builds in ${plain(repo)}: ${plain(told(size.mechanism))}, about ${size.lines} lines`,
+    `- Done when: ${plain(told(doneWhen))}`,
+    `- Recipe ${code(told(recipe))}: ${plain(told(why))}${off}`,
+    ...(subOrder.ready ? [] : [`- Not ready: ${plain(told(subOrder.refinement ?? ''))}`]),
+    '',
+    `<details><summary>Touches ${touches.length} ${touches.length === 1 ? 'path' : 'paths'}</summary>`,
+    '',
+    ...paths,
+    '',
+    '</details>',
   ];
-  return `| ${cells.join(' | ')} |`;
 };
 
 /**
@@ -80,20 +110,26 @@ export const renderPlan = (
   stepId: string,
   plan: PlanReport,
   isCommit: IsCommit = () => false,
-  /** The out doc of the plan on the state branch, as written, linked at the end (ADR 0266). */
+  /** The out doc of the plan on the state branch, linked at the top (ADR 0266, ADR 0275). */
   fullPlan?: string,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
-  const title = [`### Foedrum · plan of batch ${code(batchId)}`];
+  // First, and kept by a cut: the full plan, its assumptions among it, each whole (#658).
+  const top = [
+    `### Foedrum · plan of batch ${code(batchId)}`,
+    ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan)}`]),
+  ];
   const table = [
     '**Sub-orders**',
     '',
-    '| Sub-order | Repository | Size | Done when | Touches | Depends on | Recipe | Ready |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Sub-order | Size | Recipe | Depends on | Ready |',
+    '| --- | --- | --- | --- | --- |',
     ...subOrders.map((subOrder) => row(subOrder, told)),
   ];
-  const order = ['**Order**', '', ...graph(subOrders, told)];
+  // A graph of one node says nothing the table does not (#658).
+  const order = subOrders.length < 2 ? [] : [['**Order**', '', ...graph(subOrders, told)]];
+  const sections = subOrders.map((subOrder) => section(subOrder, told));
   const others =
     alternatives === undefined
       ? []
@@ -113,21 +149,46 @@ export const renderPlan = (
     ['**Review**', '', 'None yet.'],
     ['**Gate**', '', 'None yet.'],
   ];
-  const joined = (sections: string[][]): string =>
-    sections.map((lines) => lines.join('\n')).join('\n\n');
-  // Last, and kept by a cut: the full plan, its assumptions among it, each whole.
-  const link = fullPlan === undefined ? '' : `\n\nFull plan: ${linked(fullPlan)}`;
-  const text = joined([title, table, order, ...others, ...after]);
-  if (text.length + link.length <= longestComment) return `${text}${link}`;
+  const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
+  const head = `${joined([top])}\n\n`;
+  // Last, and kept by a cut: what to do next.
+  const next = `\n\nNext: ${planNextStep(batchId, code)}`;
+  const text = joined([table, ...order, ...sections, ...others, ...after]);
+  if (head.length + text.length + next.length <= longestComment) return `${head}${text}${next}`;
   // The graph goes first, so a cut never leaves its block open.
-  const left = ['**Order**', '', 'The graph is left out: GitHub keeps comments shorter.'];
-  return `${cutForComment(joined([title, table, left, ...others, ...after]), link.length)}${link}`;
+  const left =
+    order.length === 0
+      ? []
+      : [['**Order**', '', 'The graph is left out: GitHub keeps comments shorter.']];
+  const room = head.length + next.length;
+  return `${head}${wholeBlocks([table, ...left, ...sections, ...others, ...after], room)}${next}`;
+};
+
+const cutNote = '… the rest is cut: GitHub keeps comments shorter.';
+
+/**
+ * The blocks of `parts` that fit below `longestComment`, less `room`, each whole, so a cut never
+ * leaves a sub-order's `<details>` open over the rest; a first block too long alone is cut to
+ * whole lines, as `cutForComment` cuts.
+ */
+const wholeBlocks = (parts: readonly string[][], room: number): string => {
+  const blocks = parts.map((lines) => lines.join('\n'));
+  const whole = blocks.join('\n\n');
+  const most = longestComment - room;
+  if (whole.length <= most) return whole;
+  let kept = '';
+  for (const block of blocks) {
+    const tried = kept === '' ? block : `${kept}\n\n${block}`;
+    if (tried.length + 2 + cutNote.length > most) break;
+    kept = tried;
+  }
+  return kept === '' ? cutForComment(whole, room) : `${kept}\n\n${cutNote}`;
 };
 
 const revisions = commentRevisions('plan', 'plan comment');
 
 /** The plan of the latest attempt of `batch` that succeeded with one, its step and attempt. */
-const latestPlan = (
+export const latestPlan = (
   batch: Batch,
 ): { stepId: string; attempt: number; plan: PlanReport } | undefined => {
   for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
@@ -184,7 +245,7 @@ const planDue = (
   const fullPlan =
     stateBranchUrl === undefined
       ? undefined
-      : outDocLink(stateBranchUrl, { batchId, stepId, attempt });
+      : outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true);
   const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;

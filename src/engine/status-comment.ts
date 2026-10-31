@@ -123,6 +123,13 @@ export const code = (id: string): string => `\`${id}\``;
  */
 export const STEP_BACK = 'Another round is unlikely to help: plan the order again, or split it.';
 
+/**
+ * What a person does with a plan that waits for its review, until the gate signs one off (#588)
+ * and its sub-orders become sub-issues (#590): `command` writes a command as the reader shows it.
+ */
+export const planNextStep = (batchId: string, command: (text: string) => string): string =>
+  `read the plan and its assumptions. To plan it again, run ${command(`foedrum retry ${batchId}`)}; to build it, end it with ${command(`foedrum cancel ${batchId}`)} and order its sub-orders by hand: Foedrum builds nothing from a plan yet.`;
+
 /** `rounds` rounds of a findings route, in words. */
 export const roundsText = (rounds: number): string =>
   `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`;
@@ -197,7 +204,7 @@ const waitText = (on: WaitCondition): string => {
 export const sessionCommand = ({ issue, repo }: Pick<Batch, 'issue' | 'repo'>): string =>
   `foedrum brew ${repo === undefined ? issue : `<alias of ${repo}>#${issue}`} --take`;
 
-const stuckText = (reason: StuckReason, told: Told, batch: Batch): string => {
+const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: string): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `${code(reason.stepId)} needs input`;
@@ -233,8 +240,10 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch): string => {
       const more = reason.more > 0 ? [`and ${reason.more} more`] : [];
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
-    case 'plan_review':
-      throw new Error('not implemented');
+    case 'plan_review': {
+      const at = planComment === undefined ? '' : `: ${link(planComment)}`;
+      return `the plan of ${code(reason.stepId)} #${reason.attempt} is ready for your review${at}`;
+    }
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
     case 'stopped': {
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;
@@ -403,7 +412,7 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
-const laneText = (batch: Batch, told: Told): string[] => {
+const laneText = (batch: Batch, told: Told, planComment?: string): string[] => {
   const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
@@ -427,8 +436,10 @@ const laneText = (batch: Batch, told: Told): string[] => {
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
       return [
-        `🔔 **Stuck**: ${stuckText(reason, told, batch)}`,
+        `🔔 **Stuck**: ${stuckText(reason, told, batch, planComment)}`,
         ...questions,
+        // Until the gate signs a plan off (#588), what to do with it by hand (ADR 0275).
+        ...(reason.kind === 'plan_review' ? [`Next: ${planNextStep(batch.id, code)}`] : []),
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
           : []),
@@ -444,7 +455,10 @@ const laneText = (batch: Batch, told: Told): string[] => {
   }
 };
 
-/** What a batch on tap with a plan and no pull request says: the plan comment shows it (ADR 0234). */
+/**
+ * What a batch on tap with a plan and no pull request says: the plan comment shows it (ADR 0234).
+ * Only a batch recorded before a plan waited Stuck for its review (ADR 0275) is on tap with one.
+ */
 const PLANNED =
   'No pull request: the plan is in its own comment on this issue, and nothing is built from it yet.';
 
@@ -505,16 +519,38 @@ const answerOf = (batch: Batch, stepId: string, n: number): Input | undefined =>
 /** The answers of `input`, on one line. */
 const answersText = (input: Input): string => input.answers.map(({ answer }) => answer).join(', ');
 
-const stepLine = (batch: Batch, stepId: string, told: Told): string => {
+/**
+ * The step a Stuck batch stopped at, whose latest attempt the step list and the path mark Stuck;
+ * none for a plan to review, whose attempt succeeded (ADR 0275).
+ */
+const stuckStep = ({ lane }: Batch): string | undefined =>
+  lane.kind === 'stuck' && 'stepId' in lane.reason && lane.reason.kind !== 'plan_review'
+    ? lane.reason.stepId
+    : undefined;
+
+/**
+ * The out doc of the attempt `attempt` of `stepId` on `stateBranchUrl`: a plan's as GitHub renders
+ * it, since its body reads (ADR 0275), any other's as written.
+ */
+const outDocUrl = (
+  batch: Batch,
+  stepId: string,
+  done: { attempt: number; output: unknown },
+  stateBranchUrl: string,
+): string =>
+  outDocLink(
+    stateBranchUrl,
+    { batchId: batch.id, stepId, attempt: done.attempt },
+    planOf(done.output) !== undefined,
+  );
+
+const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: string): string => {
   const id = code(stepId);
   if (batch.skipped?.has(stepId) === true) return `- ⏭️ ${id}: skipped`;
   const [latest] = latestFirst(batch, stepId);
   if (latest === undefined) return `- ⬜ ${id}`;
-  const { lane } = batch;
   const n = latest.attempt;
-  if (lane.kind === 'stuck' && 'stepId' in lane.reason && lane.reason.stepId === stepId) {
-    return `- 🔔 ${id}: stuck at attempt ${n}`;
-  }
+  if (stuckStep(batch) === stepId) return `- 🔔 ${id}: stuck at attempt ${n}`;
   if (latest.phase !== 'finished') {
     if (latest.abandoned === true) return `- ⏹️ ${id}: attempt ${n} stopped`;
     // A person's open session has no deadline: the comment says since when it waits (ADR 0222).
@@ -526,8 +562,11 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
   }
   const { outcome } = latest;
   switch (outcome.kind) {
+    // The out doc the step's line sums up, linked (ADR 0275).
     case 'succeeded':
-      return `- ✅ ${id}`;
+      return stateBranchUrl === undefined
+        ? `- ✅ ${id}`
+        : `- ✅ ${id}: out doc: ${link(outDocUrl(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl))}`;
     case 'failed':
       return `- ❌ ${id}: attempt ${n} failed: ${told(outcome.reason, stepId)}`;
     case 'needs_input': {
@@ -547,11 +586,8 @@ const stepLine = (batch: Batch, stepId: string, told: Told): string => {
 /** How attempt `n` of `stepId` stands, as the step list marks it. */
 const markOf = (batch: Batch, stepId: string, n: number): string => {
   const attempt = batch.steps.get(stepId)?.attempts.get(n);
-  const { lane } = batch;
   const latest = latestFirst(batch, stepId)[0]?.attempt;
-  if (lane.kind === 'stuck' && 'stepId' in lane.reason && lane.reason.stepId === stepId) {
-    if (latest === n) return '🔔';
-  }
+  if (stuckStep(batch) === stepId && latest === n) return '🔔';
   if (attempt === undefined || attempt.phase !== 'finished') {
     return attempt?.abandoned === true ? '⏹️' : '▶️';
   }
@@ -574,9 +610,9 @@ const markOf = (batch: Batch, stepId: string, n: number): string => {
  * first. Each is a code span: GitHub would link a bare `#1` to issue 1.
  */
 const pathLines = (batch: Batch, told: Told): string[] => {
-  const { path = [], lane } = batch;
+  const { path = [] } = batch;
   // Stuck at an attempt that never started: the path ends there all the same.
-  const stuckAt = lane.kind === 'stuck' && 'stepId' in lane.reason ? lane.reason.stepId : undefined;
+  const stuckAt = stuckStep(batch);
   const latest = stuckAt === undefined ? undefined : latestFirst(batch, stuckAt)[0]?.attempt;
   const onPath = path.some((each) => each.stepId === stuckAt && each.attempt === latest);
   const all =
@@ -649,14 +685,39 @@ export const capped = <T>(
 
 /**
  * The out doc of the latest attempt of `stepId` that succeeded, on `stateBranchUrl`, when it is a
- * plan: where its assumptions read whole (ADR 0266).
+ * plan: where its assumptions read whole (ADR 0266), and the plan comment that shows its
+ * sub-orders (ADR 0275).
  */
-const fullPlanLine = (batch: Batch, stepId: string, stateBranchUrl?: string): string[] => {
+const fullPlanLine = (
+  batch: Batch,
+  stepId: string,
+  stateBranchUrl?: string,
+  planComment?: string,
+): string[] => {
   if (stateBranchUrl === undefined) return [];
   const done = latestSucceeded(batch, stepId);
   if (done === undefined || planOf(done.output) === undefined) return [];
-  const url = outDocLink(stateBranchUrl, { batchId: batch.id, stepId, attempt: done.attempt });
-  return [`- ${code(stepId)}: full plan: ${link(url)}`];
+  const shown = planComment === undefined ? '' : `; plan comment: ${link(planComment)}`;
+  return [
+    `- ${code(stepId)}: full plan: ${link(outDocUrl(batch, stepId, done, stateBranchUrl))}${shown}`,
+  ];
+};
+
+/** The longest summary of a plan's assumption, before its `…` (ADR 0275). */
+const summaryLength = 120;
+
+/**
+ * An assumption of a plan as the status comment sums it up (ADR 0275): its first sentence, cut at
+ * the last word that fits in `summaryLength`, its full text behind the plan's link. A sentence
+ * ends at `.`, `!` or `?` before a blank or the end.
+ */
+const summaryOf = (text: string): string => {
+  const end = text.search(/[.!?](?:\s|$)/);
+  const sentence = end < 0 ? text : text.slice(0, end + 1);
+  if (sentence.length <= summaryLength) return sentence;
+  const kept = sentence.slice(0, summaryLength);
+  const word = kept.lastIndexOf(' ');
+  return `${word > 0 ? kept.slice(0, word) : kept}…`;
 };
 
 const assumptionLines = (
@@ -664,15 +725,23 @@ const assumptionLines = (
   stepIds: readonly string[],
   told: Told,
   stateBranchUrl?: string,
+  planComment?: string,
 ): string[] =>
   stepIds.flatMap((stepId) => {
+    // A plan's assumptions are summed up, each whole in its out doc (ADR 0275).
+    const summed: Told =
+      planOf(latestSucceeded(batch, stepId)?.output) === undefined
+        ? told
+        : (text, of, most) => told(text, of, most, summaryOf);
     const shown = capped(
       stepId,
-      assumptionsOf(batch, stepId, told),
+      assumptionsOf(batch, stepId, summed),
       mostAssumptions,
       (text) => text,
     );
-    return shown.length === 0 ? [] : [...shown, ...fullPlanLine(batch, stepId, stateBranchUrl)];
+    return shown.length === 0
+      ? []
+      : [...shown, ...fullPlanLine(batch, stepId, stateBranchUrl, planComment)];
   });
 
 /** The output of `stepId`'s latest finished attempt when it succeeded; else undefined. */
@@ -852,10 +921,10 @@ export const renderStatus = (
   open?: OpenPullRequest,
   /** The other open pull requests its open pull request conflicts with (ADR 0230). */
   pairs: readonly PairConflict[] = [],
-  /** The state branch on the code host, whose out doc of the plan the Assumptions link (ADR 0266). */
+  /** The state branch on the code host, whose out docs the steps and Assumptions link (ADR 0266). */
   stateBranchUrl?: string,
-  /** The plan comment of the batch's order (ADR 0275): not implemented yet. */
-  _planComment?: string,
+  /** The plan comment of the batch's order, which the lane and the Assumptions link (ADR 0275). */
+  planComment?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -868,19 +937,19 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     [
-      ...laneText(batch, told),
+      ...laneText(batch, told, planComment),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
     ],
     [
       recipeText(batch.recipe),
       ...pathLines(batch, told),
-      ...stepIds.map((stepId) => stepLine(batch, stepId, told)),
+      ...stepIds.map((stepId) => stepLine(batch, stepId, told, stateBranchUrl)),
     ],
   ];
   // Before the sections that grow with the out docs, so a comment cut to length keeps it.
   if (sensitive !== undefined) sections.push([sensitiveLine(sensitive)]);
-  const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl);
+  const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl, planComment);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
@@ -952,6 +1021,7 @@ const statusDue = (
   batchId: string,
   steps?: readonly string[],
   stateBranchUrl?: string,
+  planComment?: string,
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined) return undefined;
@@ -973,6 +1043,7 @@ const statusDue = (
     openOf(state, batch),
     pairsOf(state, batch).conflicts,
     stateBranchUrl,
+    planComment,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
@@ -988,6 +1059,8 @@ export interface StatusEffectsOptions {
   clock: () => Date;
   /** The state branch on the code host, `https://<host>/<brewery>/blob/foedrum/state` (ADR 0266). */
   stateBranchUrl?: string;
+  /** The address of the plan comment of a batch's order, once it has one (ADR 0275). */
+  planComment?: (state: State, batchId: string) => string | undefined;
 }
 
 const minuteMs = 60_000;
@@ -998,7 +1071,7 @@ const minuteMs = 60_000;
  * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
-  const { brewery, comments, recipes, clock, stateBranchUrl } = options;
+  const { brewery, comments, recipes, clock, stateBranchUrl, planComment } = options;
   // When this driver last applied or found a revision of each batch.
   const lastAt = new Map<string, number>();
   const status = revisions.effects(brewery, comments, (due) =>
@@ -1013,6 +1086,7 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
         batchId,
         name === undefined ? undefined : recipes.find(name)?.steps,
         stateBranchUrl,
+        planComment?.(state, batchId),
       );
       if (batch === undefined || due === undefined) return [];
       const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled';

@@ -519,7 +519,12 @@ export const runBrew = async (
             for (const line of questionLines(batchId, reason.stepId, now)) say(line);
             return BREW_EXIT.needsInput;
           }
-          say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}`);
+          // A plan to review names its comment, as on tap did before (#656, ADR 0275).
+          const plan =
+            reason.kind === 'plan_review' ? planCommentOf(driver.state(), batchId) : undefined;
+          const shown =
+            plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
+          say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
           if (reason.kind === 'waiting_for_session') say(sessionLine(request.noSessions));
           return BREW_EXIT.stuck;
         }
