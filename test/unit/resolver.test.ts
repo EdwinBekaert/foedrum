@@ -28,4 +28,15 @@ describe('linuxResolverUnavailable', () => {
   it('still runs the resolver test on CI when resolv.conf names only the stub', () => {
     assert.equal(onCi(stub), undefined);
   });
+
+  it('skips the resolver test on CI when resolv.conf names a second nameserver', () => {
+    assert.equal(
+      onCi(secondNameserver),
+      "the host's resolver is not systemd-resolved's stub alone",
+    );
+  });
+
+  it('skips the resolver test on CI when resolv.conf cannot be read', () => {
+    assert.equal(onCi(undefined), '/etc/resolv.conf cannot be read');
+  });
 });
