@@ -14,7 +14,9 @@ import {
   manifestFreshness,
   readTestMap,
   reportPaths,
+  reportUnder,
   testMaps,
+  touchedPaths,
 } from '../../src/checks/test-map.ts';
 import type { TestMap, TestMapModule } from '../../src/schemas/test-map.ts';
 import type { Git } from '../../src/workspace/git.ts';
@@ -508,5 +510,57 @@ describe("manifestFreshness: the map against its manifests at a step's tip (ADR 
     assert.ok(dashes > 0, args.join(' '));
     assert.deepEqual(args.slice(dashes + 1), [':(glob)**/package.json', ':(glob)--output=x']);
     assert.ok(args.includes('-z'), args.join(' '));
+  });
+
+  it('finds the map stale when a manifest it records is gone: regression test', async () => {
+    const { git } = gitListing([]);
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'stale', added: [], removed: ['web/package.json'] });
+  });
+
+  it('says why git could not list the manifests: regression test', async () => {
+    const git: Git = async () => ({
+      code: 128,
+      stdout: '',
+      stderr: 'fatal: not a git repository\n',
+    });
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'unread', reason: 'fatal: not a git repository' });
+  });
+});
+
+describe('touchedPaths: what a change did to the map and its manifests (ADR 0282)', () => {
+  it('reads the paths in the clone with git diff, every glob after --: regression test', async () => {
+    const calls: string[] = [];
+    const git: Git = async (cwd, args) => {
+      calls.push(`${args.join(' ')} in ${cwd}`);
+      return { code: 0, stdout: 'api/package.json\0', stderr: '' };
+    };
+    const clone = join('/work', 'acme.api', 'clone.git');
+    const read = await touchedPaths(git, () => clone)('acme/api', 'a1', 'c3', [
+      '.foedrum/test-map.jsonc',
+      '**/package.json',
+    ]);
+    assert.deepEqual(read, { paths: ['api/package.json'] });
+    assert.deepEqual(calls, [
+      `diff --name-only -z --no-renames a1 c3 -- :(glob).foedrum/test-map.jsonc :(glob)**/package.json in ${clone}`,
+    ]);
+  });
+
+  it('says why git could not read the change: regression test', async () => {
+    const git: Git = async () => ({ code: 128, stdout: '', stderr: 'fatal: bad object c3\n' });
+    const read = await touchedPaths(git, () => '/clone')('acme/api', 'a1', 'c3', ['**/x']);
+    assert.deepEqual(read, { unread: 'fatal: bad object c3' });
+  });
+});
+
+describe('reportUnder: a report at or under a report path (ADR 0282)', () => {
+  it('reads a report in a folder pattern, and not a sibling whose name starts the same: regression test', () => {
+    assert.equal(reportUnder('svc/test/A/TestResults/run.trx', 'svc/test/*/TestResults'), true);
+    assert.equal(reportUnder('svc/test/A/TestResults', 'svc/test/*/TestResults'), true);
+    assert.equal(reportUnder('svc/test/A/TestResultsOld/run.trx', 'svc/test/*/TestResults'), false);
+    assert.equal(reportUnder('svc/test', 'svc/test/*/TestResults'), false);
+    assert.equal(reportUnder('web/test-results.xml', 'web/test-results.xml'), true);
+    assert.equal(reportUnder('web/test-results.xml.bak', 'web/test-results.xml'), false);
   });
 });
