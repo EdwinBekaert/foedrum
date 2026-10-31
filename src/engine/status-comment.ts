@@ -895,8 +895,13 @@ const staleMapLines = (batch: Batch): string[] => {
       lines.push(`${whose} of ${plain(staleMap.repo)} is stale: ${paths}${more}`);
       read.add(repo.toLowerCase());
     }
-    // A later run of the tests that found it fresh.
-    else if (ran.readings?.some((reading) => reading.check === 'test') === true) {
+    // A later run of the tests that passed, so found it fresh: a failing run judges no map.
+    else if (
+      ran.readings?.some(
+        (reading) =>
+          reading.check === 'test' && reading.result === 'exited' && reading.exitCode === 0,
+      ) === true
+    ) {
       read.add(repo.toLowerCase());
     }
   }
