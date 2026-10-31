@@ -465,4 +465,39 @@ describe('sameAnswerMutants', () => {
     };
     assert.deepEqual(sameAnswerMutants([add], [tests]), []);
   });
+
+  it('reads every assertion form it names, each with a negation', () => {
+    const forms = [
+      "assert(!isBreweryName(''));",
+      "assert.ok(!isBreweryName(''));",
+      "assert.strictEqual(isBreweryName(''), false);",
+      "assert.deepEqual(isBreweryName(''), false, 'rejects');",
+      "assert.deepStrictEqual(!isBreweryName(''), true);",
+    ];
+    for (const form of forms) {
+      const [scripted] = sameAnswerMutants([breweryName], [breweryNameTests(form)]);
+      assert.match(scripted?.replacement ?? '', /=> false && \(/, form);
+    }
+    const [accepted] = sameAnswerMutants(
+      [breweryName],
+      [breweryNameTests("assert(isBreweryName('a'));")],
+    );
+    assert.match(accepted?.replacement ?? '', /=> true \|\| \(/);
+  });
+
+  it('gives no mutant when the result is not one expression on one line', () => {
+    const tests = breweryNameTests(...rejections);
+    const sources = [
+      'export const isBreweryName = (name: string): boolean =>\n  name === "a";\n',
+      'export function isBreweryName(name: string): boolean {\n  if (name === "") return false;\n  return name === "a";\n}\n',
+      'export function isBreweryName(name: string): boolean {\n  return (\n    name === "a"\n  );\n}\n',
+      'export const isBreweryName = (name: string): number => name.length;\n',
+    ];
+    for (const content of sources) {
+      assert.deepEqual(sameAnswerMutants([{ ...breweryName, content }], [tests]), [], content);
+    }
+    const arrowBlock =
+      'export const isBreweryName = (name: string): boolean => {\n  return name === "a";\n};\n';
+    assert.equal(sameAnswerMutants([{ ...breweryName, content: arrowBlock }], [tests]).length, 1);
+  });
 });
