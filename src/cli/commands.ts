@@ -43,6 +43,7 @@ import { worktreeClaims } from '../engine/worktree-claims.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
+  ApproveCommand,
   BrewCommand,
   BrewersCommand,
   CancelCommand,
@@ -695,6 +696,18 @@ export const commands: readonly RegisteredCommand[] = [
           answers: asked.map((q, i) => ({ q, answer: answers[i] ?? '' })),
         };
       }),
+  }),
+  define({
+    name: 'approve',
+    summary: 'Sign off the plan a Stuck batch waits with a review of; the batch goes on tap',
+    changesState: true,
+    positionals: ['batch'],
+    schema: ApproveCommand,
+    handler: async ({ batch }, context) =>
+      changeBrewery('approve', context, (_state, issued) => ({
+        kind: 'approve',
+        ...issued(batch),
+      })),
   }),
   define({
     name: 'recipe',

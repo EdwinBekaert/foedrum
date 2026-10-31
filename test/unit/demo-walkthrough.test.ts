@@ -23,7 +23,7 @@ import type { Batch } from '../../src/engine/fold.ts';
 import type { Event } from '../../src/schemas/events.ts';
 
 describe('the walkthrough steps', () => {
-  it('go from the diagnosis to the replay, in the order a batch lives them, with the lenses, brew and resume after on tap', () => {
+  it('go from the diagnosis to the mash, in the order a batch lives them, with the lenses, brew, resume and replay after on tap', () => {
     assert.deepStrictEqual(
       STEPS.map(({ id }) => id),
       [
@@ -38,8 +38,13 @@ describe('the walkthrough steps', () => {
         'brew',
         'resume',
         'replay',
+        'mash',
       ],
     );
+  });
+
+  it('end with a mash of the third order', () => {
+    assert.equal(STEPS.find((step) => step.id === 'mash')?.title, 'foedrum mash 3 --as ann');
   });
 
   it("name the commands of brew and resume, the latter with the Cellarman's second attempt", () => {
@@ -60,7 +65,7 @@ describe('the walkthrough steps', () => {
   });
 
   it('are numbered in their headings, each heading its own', () => {
-    assert.equal(headingOf(2), `Step 3 of 11: ${STEPS[2]?.title}`);
+    assert.equal(headingOf(2), `Step 3 of 12: ${STEPS[2]?.title}`);
     assert.equal(new Set(STEPS.map((_, index) => headingOf(index))).size, STEPS.length);
   });
 

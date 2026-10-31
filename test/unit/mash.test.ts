@@ -225,13 +225,13 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.deepEqual(log().state().batches.get('12-1')?.lane, {
       kind: 'stuck',
       reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
-      options: ['retry', 'recipe', 'cancel'],
+      options: ['approve', 'retry', 'recipe', 'cancel'],
       remindAt: '2026-10-30T12:00:00.000Z',
     });
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     assert.equal(
       lines.at(-1),
-      `foedrum brew: batch 12-1 is stuck: the plan of plan #1 is ready for your review; reminder 2026-10-30T12:00:00.000Z; options: retry, recipe, cancel; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
+      `foedrum brew: batch 12-1 is stuck: the plan of plan #1 is ready for your review; reminder 2026-10-30T12:00:00.000Z; options: approve, retry, recipe, cancel; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
     );
   });
 

@@ -129,6 +129,16 @@ const valid: Record<Event['type'], Event> = {
     shas: { 'acme/lib-core': sha },
   },
   'batch.on_tap': { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest] },
+  'batch.approved': {
+    type: 'batch.approved',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt: 2,
+    plan: '0123456789abcdef',
+    by: 'octocat',
+    via: 'plugin',
+    at: '2026-10-15T12:00:00.000Z',
+  },
   'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'comment' },
   'batch.taken_over': {
     type: 'batch.taken_over',

@@ -1,11 +1,12 @@
 // npm run demo's decisions (ADR 0097, ADR 0139, ADR 0185): where its scratch folder may be, the
 // Brewery it makes there and its recipe, the orders on the fake code host, and whether a run ended
-// as it should. The shell is scripts/demo.ts; one life of the Cellar, or foedrum brew's run, is
-// scripts/demo/cellar.ts.
+// as it should. The shell is scripts/demo.ts; one life of the Cellar, or foedrum brew's or foedrum
+// mash's run, is scripts/demo/cellar.ts.
 
 import nodePath, { dirname, join, type PlatformPath } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import { PLAN_HEADING } from '../../src/engine/plan-comment.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
 import { NIP_ORDER, nipBreweryFiles } from '../../test/helpers/nip-fixture.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
@@ -87,6 +88,19 @@ export const ORDER = { ...NIP_ORDER, author: USER, labels: [`recipe:${RECIPE}`] 
 export const BREW_ORDER = { ...ORDER, number: 2, labels: [] as string[] };
 
 /**
+ * The issue `foedrum mash` routes to the Innkeeper (ADR 0232): an order of its own, broad enough to
+ * plan first, filed unlabelled so the Cellar leaves it; the answer to the Innkeeper's question
+ * chooses its recipe, and the engine labels it with it (ADR 0232), never a person.
+ */
+export const MASH_ORDER = {
+  ...ORDER,
+  number: 3,
+  labels: [] as string[],
+  title: 'Greet in French and Dutch, and say so in the README',
+  body: 'greet takes a language, fr or nl, and greets in it; the README shows how to ask for one.',
+};
+
+/**
  * What serve would learn from doctor: no claude is started, so none is looked for, and no brewer
  * runs in Claude Code's sandbox.
  */
@@ -147,6 +161,11 @@ export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is ki
 export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
 /** The start of foedrum brew's last line once the second order's batch is on tap. */
 export const BREW_ON_TAP_LINE = 'foedrum brew: batch 2-1 is on tap';
+/** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
+export const QUESTION_LINE = 'foedrum mash: batch 3-1 needs input at innkeep:';
+/** The start of foedrum brew's last line once the Brewmaster's plan waits for its review. */
+export const PLAN_REVIEW_LINE =
+  'foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review';
 
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against
@@ -224,6 +243,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.stuck':
         end = { kind: 'stuck', reason: stuckReason(event.reason) };
         break;
+      case 'batch.approved':
       case 'batch.resumed':
       case 'batch.rewound':
         end = undefined;
@@ -271,6 +291,10 @@ export interface DemoRun {
   restart: ProcessOutcome;
   /** foedrum brew's run of the second order. */
   brew: ProcessOutcome;
+  /** foedrum mash's run of the third order, to the Innkeeper's question. */
+  mash: ProcessOutcome;
+  /** foedrum brew's run of the third order after the answer, to its plan. */
+  plan: ProcessOutcome;
   /** The pull requests on the fake code host. */
   pulls: readonly { title: string; head: string; base: string }[];
   /** The comments on each order's issue there, by issue number. */
@@ -291,7 +315,7 @@ const ending = ({ exitCode, killed }: ProcessOutcome): string =>
 
 /** What went wrong in a run, one line each; none when it ended as it should. */
 export const problemsOf = (run: DemoRun): string[] => {
-  const { crash, restart, brew, pulls, comments } = run;
+  const { crash, restart, brew, mash, plan, pulls, comments } = run;
   const problems: string[] = [];
   // Killed by the process itself, never by the runner: a deadline means it never crashed.
   if (crash.exitCode === 0 || crash.killed !== undefined || !crash.output.includes(CRASH_LINE)) {
@@ -309,10 +333,30 @@ export const problemsOf = (run: DemoRun): string[] => {
       `foedrum brew did not put batch 2-1 on tap (${ending(brew)}):\n${tail(brew.output)}`,
     );
   }
+  // foedrum brew's exit codes (ADR 0123): 4 when the batch needs input, 3 when it is Stuck.
+  if (mash.exitCode !== 4 || !mash.output.includes(QUESTION_LINE)) {
+    problems.push(
+      `foedrum mash did not stop batch 3-1 at its question (${ending(mash)}):
+${tail(mash.output)}`,
+    );
+  }
+  if (plan.exitCode !== 3 || !plan.output.includes(PLAN_REVIEW_LINE)) {
+    problems.push(
+      `foedrum brew did not leave the plan of batch 3-1 Stuck for its review (${ending(plan)}):
+${tail(plan.output)}`,
+    );
+  }
   if (pulls.length !== 2) problems.push(`the code host has ${pulls.length} pull requests, not 2`);
-  for (const { number } of [ORDER, BREW_ORDER]) {
-    const count = comments.get(number)?.length ?? 0;
+  for (const { number } of [ORDER, BREW_ORDER, MASH_ORDER]) {
+    const all = comments.get(number) ?? [];
+    // The mashed order has a plan comment beside its status comment (ADR 0233), told by its heading.
+    const plans = all.filter(({ body }) => body.includes(PLAN_HEADING)).length;
+    const count = all.length - plans;
     if (count !== 1) problems.push(`order #${number} has ${count} status comments, not 1`);
+    const expected = number === MASH_ORDER.number ? 1 : 0;
+    if (plans !== expected) {
+      problems.push(`order #${number} has ${plans} plan comments, not ${expected}`);
+    }
   }
   for (const { argv, exitCode, stderr } of run.commands ?? []) {
     if (exitCode !== 0) {

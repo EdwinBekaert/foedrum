@@ -15,7 +15,7 @@ stateDiagram-v2
   Ordered --> Stuck: past the routing deadline
   Brewing --> Stuck: batch.stuck
   Stuck --> Stuck: reminder
-  Stuck --> Brewing: retry, answer, skip, recipe, rewind
+  Stuck --> Brewing: retry, answer, skip, recipe, rewind, approve
   Stuck --> Ordered: retry, when stuck on routing
   OnTap --> Brewing: its pull request failed, step.scheduled
   OnTap --> Stuck: its pull request failed, no rounds left
@@ -26,6 +26,7 @@ stateDiagram-v2
 
 Brewing → Conditioning between steps comes once a recipe step needs it (ADR 0025); until then a batch enters Conditioning only from Ordered.
 A retry of a batch Stuck on routing sends it back to Ordered with a new routing deadline; `recipe` brews it (ADR 0032).
+An approve of a batch Stuck as `plan_review` appends `batch.approved`, which the guard admits only for the step, attempt and digest of the plan its review names, then `batch.on_tap` in the same decision, so no reader sees it Brewing between them ([ADR 0281](../../adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)).
 
 The state machine (`src/engine/decide.ts`) is the core of the command layer: it takes the folded state and one command and returns the events to append, or a refusal ([ADR 0025](../../adr/0025-batch-lifecycle-stuck-reminders-and-rewind.md)).
 It handles every step outcome and blocker kind itself, and asks the recipe only where a step leads, through a small interface (`src/engine/recipes.ts`).
