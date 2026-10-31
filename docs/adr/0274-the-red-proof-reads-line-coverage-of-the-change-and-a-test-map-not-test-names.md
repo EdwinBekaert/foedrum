@@ -61,7 +61,7 @@ This record writes them down.
 - **A module with no coverage tool still brews.** The map marks it `coverage: none`. The red proof still runs, the uncovered check is skipped for that module, and the status comment says so.
   ColdFusion and other languages with weak coverage tooling are brewed this way.
 - **Every test project the map lists runs.** Selecting the tests that reach a change (goal 3), by the .NET reference graph with coverage as the check after the run, gets an issue and an ADR of its own once a real multi-project target brews.
-- This is not the coverage delta that [ADR 0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) removed (a percentage table for Foedrum's own pull requests). A threshold cannot see one uncovered changed line.
+- This is not the coverage delta that [ADR 0134](0134-the-red-proof-runs-once-the-review-drops-its-coverage-delta-and-property-and-chaos-run-on-one-leg-per-pull-request.md) removed (a percentage table for Foedrum's own pull requests).
 
 ### testsUnchanged keeps every line the red step added to a test file
 - In each separate test file of the map, every line the proven step added must still be there at the guarded attempt's tip, as often as before, compared trimmed. Moving a test within its file is still fine.
