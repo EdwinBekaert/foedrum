@@ -1946,6 +1946,70 @@ describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () =
   });
 });
 
+describe('loadRecipes: a plan step counts its attempts since its latest plan (ADR 0289, #731)', () => {
+  /** Batch 12-1 whose step `stepId` ended each attempt as `outcomes` say, in order. */
+  const ended = (stepId: string, outcomes: readonly ('ok' | 'failed')[]): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        stepId,
+        {
+          id: stepId,
+          inputs: [],
+          attempts: new Map(
+            outcomes.map((outcome, i): [number, Attempt] => [
+              i + 1,
+              {
+                phase: 'finished',
+                attempt: i + 1,
+                deadlineAt: D,
+                outcome:
+                  outcome === 'ok'
+                    ? { kind: 'succeeded', output: null }
+                    : { kind: 'failed', retryable: true, reason: 'the plan is invalid' },
+              },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  });
+  // Both brewers have two attempts; the planner writes a plan (ADR 0233), the scribe does not.
+  const mash = (steps: readonly unknown[]) => {
+    const brewers = [
+      brewer('planner', { output: { doc: 'plan.md', schema: 'plan' } }),
+      brewer('scribe'),
+    ];
+    const result = loadRecipes({ recipes: [recipe('mash', steps)], brewers });
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    return result.recipes.find('mash') ?? assert.fail('no recipe mash');
+  };
+  const planning = () => mash([{ id: 'plan', brewer: 'planner' }]);
+
+  it('gives up on a plan step that fails maxAttempts times from its first attempt: regression test (#731)', () => {
+    assert.equal(planning().mayRetry(ended('plan', ['failed']), 'plan'), true);
+    assert.equal(planning().mayRetry(ended('plan', ['failed', 'failed']), 'plan'), false);
+  });
+
+  it('counts a step that writes no plan over the batch: regression test (#731)', () => {
+    const recipe = mash([{ id: 'notes', brewer: 'scribe' }]);
+    assert.equal(recipe.mayRetry(ended('notes', ['ok', 'ok', 'failed']), 'notes'), false);
+  });
+
+  it("keeps a lauter's count since its latest success: regression test (#731)", () => {
+    const lauter = {
+      id: 'fix',
+      brewer: 'planner',
+      interactive: true,
+      prompt: 'Walk the plan through with me.',
+      chosenBy: 'lauter',
+    };
+    const recipe = mash([{ id: 'plan', brewer: 'planner' }, lauter]);
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'ok', 'failed']), 'fix'), true);
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed']), 'fix'), false);
+  });
+});
+
 describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
   const open = 'open-pull-request';
   const fixing = (onPullRequestFail?: unknown) =>
