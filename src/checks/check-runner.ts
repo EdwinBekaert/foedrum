@@ -846,20 +846,31 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     );
     // The check sandbox runs in the worktree's real path, so a report may name its files by either.
     const real = (options.testMap?.realPath ?? realPath)(worktree.path);
-    // A skip the batch added weakens a test the change was proven by: named first, as the red
-    // proof names the first of its checks that fails (ADR 0274).
+    // A skip the batch added in a separate test file of the map weakens a test the change was
+    // proven by: named first, as the red proof names the first of its checks that fails. Inline
+    // tests are the test-design lens's (ADR 0274).
+    const inTests = changed.flatMap((file) => {
+      const area = areaOf(modules, file.path, foldCase);
+      return area?.area === 'tests' ? [{ ...file, module: area.module }] : [];
+    });
     const tests: MappedReport[] = [];
     for (const { module } of modules) {
       // A TRX report's skips are left unread at green, where a .NET target brewed before (#727).
       if (module.testReport.format === 'trx') continue;
       const wrote = testReportsOf(module, worktree);
       if ('stuck' in wrote) return stuck(wrote.stuck);
-      if ('failed' in wrote) return failed(wrote.failed);
+      if ('failed' in wrote) {
+        // A module whose tests the change touches none of writes its report for the environment.
+        if (!inTests.some((file) => file.module === module.name)) {
+          return stuck(`${wrote.failed}, though the change touches none of its tests`);
+        }
+        return failed(wrote.failed);
+      }
       tests.push(...wrote.reports);
     }
     const skip = skipInAddedLines(
       tests,
-      new Map(changed.map(({ path, addedAt }) => [path, new Set(addedAt)])),
+      new Map(inTests.map(({ path, addedAt }) => [path, new Set(addedAt)])),
       worktree.path,
       foldCase,
       real === worktree.path ? undefined : real,
