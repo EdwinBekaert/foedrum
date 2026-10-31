@@ -1917,6 +1917,17 @@ describe('runBrew', () => {
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'stout');
     });
 
+    it('brews a claimed batch routed before its Brewery issue is recorded, without waiting for a label: exit 0', async () => {
+      const host = github();
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const route = { kind: 'route', batchId: 'web-7', recipe: 'stout', reason: 'label' } as const;
+      log().issue({ ...route, source: 'label' }, t0);
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 0, lines.join('\n'));
+      assert.equal(log().state().batches.get('web-7')?.lane.kind, 'on_tap');
+      assert.ok(!lines.some((line) => line.includes('waits for')), lines.join('\n'));
+    });
+
     it('orders a claimed issue, opens its Brewery issue and waits there for its recipe label, never routing by the target issue: exit 5 (ADR 0156)', async () => {
       const host = github();
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
