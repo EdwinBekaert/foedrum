@@ -213,13 +213,9 @@ const expected = (
   const [actual = '', value] = args;
   const call = new RegExp(`^(!?)\\s*${literal(name)}\\s*\\(`, 'u').exec(actual);
   const open = call === null ? -1 : call[0].length - 1;
-  if (
-    call === null ||
-    closing(actual, open) !== actual.length - 1 ||
-    mentions(actual, name) !== 1
-  ) {
-    return undefined;
-  }
+  // A call that names the function again in its arguments is read here, but leaves a mention
+  // over that sameAnswer's count then refuses.
+  if (call === null || closing(actual, open) !== actual.length - 1) return undefined;
   const negated = call[1] === '!';
   if (method === undefined || method === 'ok') return !negated;
   if (EQUAL.has(method) && (value === 'true' || value === 'false')) {
