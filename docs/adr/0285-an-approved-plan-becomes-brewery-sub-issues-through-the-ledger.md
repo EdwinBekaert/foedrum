@@ -24,6 +24,7 @@ A plan could also name `mash` as a sub-order's recipe, which would plan the sub-
 Rejected: appending `order.decomposed` in the intake pass (the intake holds no batch lease, and the event belongs with the writes it records); recording the not-ready mark on the event (a person could then never lift it but by a new plan); the label check in the ready set (it would need the tracker's listing, which the fold does not have); a sub-order planned again by `mash` (two levels of plans, and of approvals, for one order).
 
 ## Consequences
+- A sub-order the plan marked not ready waits for a person with no deadline and no reminder, a third exception to "every wait has a deadline" beside a person's pause (ADR 0202) and a blocked sub-order (ADR 0211): the sub-issue's `needs-refinement` label and the plan comment's `Not ready:` line show it, and what it blocks waits with it (decided by the maintainer, 2026-10-31).
 - A plan of n sub-orders with d links costs n opens, n sub-issue adds and d link adds, each with a read before it, as `trackers.md` counts them.
 - An order's sub-orders appear on GitHub one by one; until the last effect is applied, none of them is ready, since `order.decomposed` is not yet recorded.
 - A sub-issue a person deletes before the event is recorded leaves its key in the ledger; the event still names it, and the intake never starts it, since it is not listed open.
