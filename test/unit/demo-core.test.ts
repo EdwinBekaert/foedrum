@@ -374,6 +374,17 @@ describe('problemsOf', () => {
       'order #3 has 2 status comments, not 1',
     ]);
   });
+
+  it('says when an order brewed to a pull request has a plan comment too', () => {
+    const planned = new Map([
+      [ORDER.number, [...comment, planComment]],
+      [BREW_ORDER.number, comment],
+      [3, [statusComment, planComment]],
+    ]);
+    assert.deepStrictEqual(problemsOf(run({ comments: planned })), [
+      'order #1 has 1 plan comments, not 0',
+    ]);
+  });
 });
 
 describe('lifeEndOf', () => {
