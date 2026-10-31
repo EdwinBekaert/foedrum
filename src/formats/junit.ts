@@ -1,7 +1,7 @@
 // JUnit XML as a test report for the red proof (ADR 0078): the `testcase` elements of a
 // `testsuites` or `testsuite` root, read by Foedrum's small XML reader. Pure.
 
-import type { ReadReport, ReportedTest } from './test-report.ts';
+import { type ReadReport, type ReportedTest, testLocation } from './test-report.ts';
 import { type Element, elements, NotXml, readXml, textOf } from './xml.ts';
 
 /** A failure, error or skip as a line of what it says: its type, message and text. */
@@ -19,7 +19,11 @@ function testcase(element: Element): ReportedTest {
   const output = children.filter(({ name }) => SYSTEM_OUTPUT.has(name));
   const result = failed.length > 0 ? 'failed' : skipped.length > 0 ? 'skipped' : 'passed';
   const detail = [...failed, ...skipped, ...output].map(said).join('\n');
-  return { name: element.attributes.get('name') ?? '', result, leaf: true, detail };
+  const name = element.attributes.get('name') ?? '';
+  // Where the writer gives it, as node's (a file) and pytest's (a file and a line) do (ADR 0274).
+  const { attributes } = element;
+  const location = testLocation(attributes.get('file'), attributes.get('line'));
+  return { name, result, leaf: true, detail, ...(location === undefined ? {} : { location }) };
 }
 
 /** The tests of a JUnit XML report, or why it is not one. */

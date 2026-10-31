@@ -25,6 +25,16 @@ export interface TestLocation {
   line?: number;
 }
 
+/** The location a report writes as a file and a line: none without a file, no line but a positive number. */
+export const testLocation = (
+  file: string | undefined,
+  line: string | undefined,
+): TestLocation | undefined => {
+  if (file === undefined || file === '') return undefined;
+  const number = line !== undefined && /^\d+$/.test(line) ? Number(line) : 0;
+  return number > 0 ? { file, line: number } : { file };
+};
+
 export interface TestReport {
   tests: readonly ReportedTest[];
   /** What the report holds outside any test: TAP comments and other lines, JUnit system output. */

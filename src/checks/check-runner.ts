@@ -5,7 +5,7 @@
 // A red proof runs the test check and judges the structured test report against the tests the
 // proven step committed, never the exit code (ADR 0078).
 
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBase } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -15,16 +15,18 @@ import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
-import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
+import { MAX_REPORT_BYTES, type TestReport } from '../formats/test-report.ts';
+import type { DiffFile } from '../formats/unified-diff.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
-import { pathInside } from '../platform/paths.ts';
+import { foldsCase, pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-config.ts';
 import type { GravityReading, WorktreeRef } from '../schemas/events.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
+import type { TestMap } from '../schemas/test-map.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   type PlannedCheck,
@@ -33,10 +35,17 @@ import {
   type RepositoryChecks,
   settleReadings,
 } from './gravity.ts';
-import { judgeRed, needsTestReport } from './red-proof.ts';
+import { judgeMapped, judgeRed, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
-import { type MapRead, type ReadTestMapAt, reportPaths } from './test-map.ts';
+import {
+  clearReportPaths,
+  type EffectiveModule,
+  effectiveMap,
+  type MapRead,
+  type ReadTestMapAt,
+  reportPaths,
+} from './test-map.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
@@ -104,6 +113,11 @@ export const fileReports: ReportFiles = {
   },
   read: (file, root) => readOutDocFile(file, MAX_REPORT_BYTES, root),
 };
+
+/** The test maps of a red proof's repository: none, or the base's and the batch's (ADR 0274). */
+type Maps =
+  | { kind: 'none' }
+  | { kind: 'maps'; base?: { commit: string; map: TestMap }; batch?: TestMap };
 
 // None of a repository's checks: what a step of literal commands plans against.
 const NO_CHECKS: RepositoryChecks = {
@@ -180,6 +194,192 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
+   * The test maps of a red proof's repository at the batch's base and at the proven tip (ADR 0274),
+   * or how the step ends: Stuck when the base's map cannot be read, failed for its onFail route
+   * when the batch's own map cannot be, as after any test check.
+   */
+  const mapsOf = async (
+    batch: Batch,
+    worktree: WorktreeRef,
+    signal: AbortSignal,
+  ): Promise<Maps | AttemptEnd> => {
+    const { testMap } = options;
+    if (testMap === undefined) return { kind: 'none' };
+    const { repo } = worktree;
+    // Where the batch's change starts: the base it merged, else its start (ADR 0164).
+    const base = mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+    const before: MapRead =
+      base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
+    if (before.kind === 'unreadable') {
+      const why = `the test map of ${repo} at ${base} cannot be read: ${before.reason}`;
+      return blocked('environment', why);
+    }
+    const after = await testMap.at(repo, worktree.commit, signal);
+    if (after.kind === 'unreadable') {
+      const reason = `the test map of ${repo} at ${worktree.commit} cannot be read: ${after.reason}`;
+      return { ending: { kind: 'failed', retryable: false, reason } };
+    }
+    if (before.kind === 'none' && after.kind === 'none') return { kind: 'none' };
+    return {
+      kind: 'maps',
+      ...(before.kind === 'map' && base !== undefined
+        ? { base: { commit: base, map: before.map } }
+        : {}),
+      ...(after.kind === 'map' ? { batch: after.map } : {}),
+    };
+  };
+
+  /**
+   * The modules of the effective map (ADR 0274): a base module drops out only when the batch
+   * deleted every file the base had under its areas, so git lists the base's files only when the
+   * batch deleted one. A TRX report, which Foedrum does not read, sticks the step before its run.
+   */
+  const modulesOf = async (
+    maps: Extract<Maps, { kind: 'maps' }>,
+    repo: string,
+    tip: string,
+    signal: AbortSignal,
+  ): Promise<EffectiveModule[] | AttemptEnd> => {
+    const files = { atBase: [] as string[], deleted: [] as string[] };
+    if (maps.base !== undefined) {
+      const { commit } = maps.base;
+      const list = async (args: string[]): Promise<string[] | string> => {
+        const options = { maxOutputBytes: MAX_REPORT_BYTES, signal };
+        const result = await git(clone(repo), args, options);
+        if (result.code === 0) return result.stdout.split('\0').filter((path) => path !== '');
+        const last = result.stderr.trim().split(/\r?\n/).at(-1);
+        return last === undefined || last === '' ? `git exited with ${result.code}` : last;
+      };
+      const deleted = await list([
+        'diff',
+        '--name-only',
+        '-z',
+        '--no-renames',
+        '--diff-filter=D',
+        commit,
+        tip,
+      ]);
+      if (typeof deleted === 'string') {
+        return blocked(
+          'environment',
+          `the files deleted since ${commit} cannot be read: ${deleted}`,
+        );
+      }
+      if (deleted.length > 0) {
+        const atBase = await list(['ls-tree', '-r', '-z', '--name-only', commit]);
+        if (typeof atBase === 'string') {
+          return blocked('environment', `the files at ${commit} cannot be read: ${atBase}`);
+        }
+        files.atBase = atBase;
+        files.deleted = deleted;
+      }
+    }
+    const modules = effectiveMap(maps.base?.map, maps.batch, files, foldsCase(platform));
+    const trx = modules.find(({ module }) => module.testReport.format === 'trx');
+    if (trx !== undefined) {
+      return blocked(
+        'environment',
+        `module "${trx.module.name}" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML (such as with JunitXml.TestLogger) and name that in the test map (ADR 0274)`,
+      );
+    }
+    return modules;
+  };
+
+  /**
+   * A red proof in a repository with a test map (ADR 0274): every report path of the map cleared,
+   * the confirmed test line run once, and each module's report read where the map says, judged by
+   * the five checks that read no test's name. A module the base lists that wrote no report is a
+   * load error; one only the batch lists is left to the unreached rule after a passing run.
+   */
+  const proveMapped = async (
+    modules: readonly EffectiveModule[],
+    worktree: WorktreeRef,
+    deadlineAt: string,
+    of: string,
+    signal: AbortSignal,
+    check: Extract<PlannedCheck, { kind: 'run' }>,
+    before: GravityReading[],
+    diff: readonly DiffFile[],
+  ): Promise<AttemptEnd> => {
+    const find = options.testMap?.reports ?? reportPaths;
+    const patterns = modules.flatMap(({ module }) => [
+      module.testReport.path,
+      ...(module.coverage === 'none' ? [] : [module.coverage.path]),
+    ]);
+    // A report an earlier run left must never stand for this run's, nor merge its hits into it.
+    const unclear = await clearReportPaths(patterns, worktree.path, find, reports.clear);
+    if (unclear !== undefined) {
+      return blocked('environment', `the reports of the test map cannot be cleared: ${unclear}`);
+    }
+    const reading = readingIn(check, await runCheck(check, worktree, deadlineAt, signal));
+    const readings = [...before, reading];
+    // A check that did not exit read no report: it ends as any check does (ADR 0069).
+    if (reading.result !== 'exited') return { ending: settleReadings(readings), readings };
+    const failed = (why: string): AttemptEnd => ({
+      ending: {
+        kind: 'failed',
+        retryable: false,
+        reason: `the red proof of step ${of} failed: ${why}`,
+      },
+      readings,
+    });
+    const stuck = (why: string): AttemptEnd => ({ ...blocked('environment', why), readings });
+    const read: TestReport[] = [];
+    const unreported: string[] = [];
+    for (const { module, added } of modules) {
+      const { name, testReport } = module;
+      const found = find(testReport.path, worktree.path);
+      if ('refused' in found) {
+        return stuck(`the test report of module "${name}" cannot be looked for: ${found.refused}`);
+      }
+      let wrote = 0;
+      for (const file of found.paths) {
+        const shown = relative(worktree.path, file).split(sep).join('/');
+        const text = reports.read(file, worktree.path);
+        if (text.kind === 'missing') continue;
+        if (text.kind === 'unread') {
+          return failed(
+            `the test report ${shown} of module "${name}" cannot be read: ${text.reason}`,
+          );
+        }
+        const parsed = testReport.format === 'tap' ? parseTap(text.text) : parseJunit(text.text);
+        if (!parsed.readable) {
+          const format = testReport.format === 'tap' ? 'TAP' : 'JUnit XML';
+          return failed(
+            `the test report ${shown} of module "${name}" is not ${format}: ${parsed.reason}`,
+          );
+        }
+        read.push(parsed.report);
+        wrote++;
+      }
+      // A module the batch added that wrote nothing may be one no confirmed line reaches (ADR 0280).
+      if (added) continue;
+      if (wrote === 0)
+        unreported.push(`module "${name}" wrote no test report at ${testReport.path}`);
+      if (module.coverage === 'none') continue;
+      const coverage = find(module.coverage.path, worktree.path);
+      if ('refused' in coverage) {
+        return stuck(
+          `the coverage report of module "${name}" cannot be looked for: ${coverage.refused}`,
+        );
+      }
+      if (coverage.paths.length === 0) {
+        unreported.push(`module "${name}" wrote no coverage report at ${module.coverage.path}`);
+      }
+    }
+    const verdict = judgeMapped({
+      reports: read,
+      unreported,
+      diff,
+      modules,
+      root: worktree.path,
+      foldCase: foldsCase(platform),
+    });
+    if (!verdict.proven) return failed(verdict.why);
+    return { ending: { kind: 'succeeded', output: null }, readings };
+  };
+
+  /**
    * A red proof (ADR 0078): the test check's reading, then the report it wrote, judged against
    * what step `of` committed.
    */
@@ -192,8 +392,14 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     signal: AbortSignal,
   ): Promise<AttemptEnd> => {
     const recipe = batch.recipe?.name ?? '';
+    // A repository with a test map proves red from its modules' reports, reading no test names;
+    // one without proves it from foedrum.jsonc's test report, by name, until #708 (ADR 0274).
+    const maps = await mapsOf(batch, worktree, signal);
+    if ('ending' in maps) return maps;
     const report = options.testReport(worktree.repo);
-    if (report === undefined) return blocked('environment', needsTestReport(recipe, worktree.repo));
+    if (maps.kind === 'none' && report === undefined) {
+      return blocked('environment', needsTestReport(recipe, worktree.repo));
+    }
     const commits = stepCommits(batch, of);
     if (commits === undefined) {
       return blocked(
@@ -215,11 +421,17 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (check?.kind !== 'run') {
       return blocked('environment', `foedrum.jsonc gives ${worktree.repo} no test check`);
     }
+    const modules =
+      maps.kind === 'maps' ? await modulesOf(maps, worktree.repo, worktree.commit, signal) : [];
+    if ('ending' in modules) return modules;
     // The repository's setup once nothing else blocks the run, so the run finds what it
     // installed (ADR 0140).
     const preparing = prepare(worktree, deadlineAt, signal);
     const before = preparing === undefined ? [] : await preparing;
     if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
+    if (maps.kind === 'maps' || report === undefined) {
+      return proveMapped(modules, worktree, deadlineAt, of, signal, check, before, diff.files);
+    }
     // A report the tree holds, committed or left over, must not stand for this run's.
     const file =
       report.path === undefined ? undefined : join(worktree.path, ...report.path.split('/'));

@@ -2,9 +2,11 @@
 // step committed failing because the behaviour is missing. Pure; check-runner.ts runs the tests
 // and reads the report and the step's diff.
 
+import { posix } from 'node:path';
+import { reportPath } from '../formats/coverage-report.ts';
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
-import type { EffectiveModule } from './test-map.ts';
+import { areaOf, type EffectiveModule } from './test-map.ts';
 import { assertsOnly, isTestFile } from './tests-unchanged.ts';
 
 export type RedVerdict =
@@ -231,22 +233,105 @@ export interface MappedRun {
   foldCase: boolean;
 }
 
-/** Whether `run` proves the step red, reading no test's name (ADR 0274). */
-export function judgeMapped(_run: MappedRun): { proven: true } | { proven: false; why: string } {
-  throw new Error('not implemented');
+/** A path as the step's files are compared: in either case where the file system folds case. */
+const keyOf = (path: string, foldCase: boolean): string => (foldCase ? path.toLowerCase() : path);
+
+/** A test's file relative to `root` with `/` between folders, or undefined outside it. */
+const fileOf = ({ location }: ReportedTest, root: string): string | undefined =>
+  location === undefined ? undefined : reportPath(location.file, root);
+
+/** A test's file as a reason shows it: relative to the root, else with `/` between folders. */
+const shownFile = (test: ReportedTest, root: string): string =>
+  fileOf(test, root) ?? posix.normalize((test.location?.file ?? '').replaceAll('\\', '/'));
+
+/**
+ * Whether `run` proves the step red, reading no test's name (ADR 0274): checked in this order, the
+ * first that fails names why. The run did not bail out; it shows no load error, and every module
+ * the base's map lists wrote its reports; the step changed a file in a test area, or in a module
+ * whose tests are inline; a test fails, and where the report places every failing test, one lies
+ * in such a file; and no skip lies in a line the step added. The base is green, so a failing test
+ * is the step's doing, and a passing one is just a passing test.
+ */
+export function judgeMapped(run: MappedRun): { proven: true } | { proven: false; why: string } {
+  const { reports, unreported, diff, modules, root, foldCase } = run;
+  const refused = (why: string) => ({ proven: false as const, why });
+  const bailedOut = reports.find((report) => report.bailedOut !== undefined)?.bailedOut;
+  if (bailedOut !== undefined) return refused(`the run bailed out: ${bailedOut}`);
+  const failures = reports.flatMap(({ tests }) =>
+    tests.filter(({ result }) => result === 'failed'),
+  );
+  const text = [...reports.map(({ other }) => other), ...failures.map(({ detail }) => detail)];
+  const error = loadError(text.join('\n')) ?? unreported[0];
+  if (error !== undefined) {
+    return refused(`the run has a load, compile, import or collection error: ${error}`);
+  }
+  // A file the step changed in a test area: a module's tests, or a module whose tests are inline.
+  const inTests = (path: string): boolean => {
+    const area = areaOf(modules, path, foldCase);
+    if (area?.area === 'tests') return true;
+    const module = modules.find(({ module }) => module.name === area?.module)?.module;
+    return module !== undefined && 'inline' in module.tests;
+  };
+  const testFiles = new Set(
+    diff.flatMap(({ newPath }) =>
+      newPath !== undefined && inTests(newPath) ? [keyOf(newPath, foldCase)] : [],
+    ),
+  );
+  if (testFiles.size === 0) {
+    return refused(
+      'the step changed no file in a test area of the test map, nor in a module whose tests are inline',
+    );
+  }
+  // A suite's own result follows its tests'.
+  const failing = failures.filter(({ leaf }) => leaf);
+  if (failing.length === 0) return refused('no test fails, so none shows the behaviour missing');
+  // By file: the report places a test at its declaration, which a row added to a table leaves as
+  // it was. A failing test the report does not place may be the step's.
+  const inChanged = (test: ReportedTest): boolean => {
+    const file = fileOf(test, root);
+    return file !== undefined && testFiles.has(keyOf(file, foldCase));
+  };
+  const [placed] = failing;
+  if (placed !== undefined && failing.every(({ location }) => location !== undefined)) {
+    if (!failing.some(inChanged)) {
+      return refused(
+        `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, root))}`,
+      );
+    }
+  }
+  const added = new Map(
+    diff.flatMap(({ newPath, addedAt }) =>
+      newPath === undefined ? [] : [[newPath, new Set(addedAt ?? [])] as const],
+    ),
+  );
+  const skipped = skipsInAddedLines(reports, added, root, foldCase);
+  return skipped === undefined ? { proven: true } : refused(skipped);
 }
 
 /**
  * Why a skip in `reports` is the step's: the report places it in a line `added` holds, by the
- * path relative to `root` with `/` between folders; undefined when none is (ADR 0274).
+ * path relative to `root` with `/` between folders; undefined when none is (ADR 0274). By line: a
+ * step's skip sits on a declaration it adds or edits, and a skip the base had is not the step's.
+ * A skip the report places on no line is the test-design lens's to find.
  */
 export function skipsInAddedLines(
-  _reports: readonly TestReport[],
-  _added: ReadonlyMap<string, ReadonlySet<number>>,
-  _root: string,
-  _foldCase: boolean,
+  reports: readonly TestReport[],
+  added: ReadonlyMap<string, ReadonlySet<number>>,
+  root: string,
+  foldCase: boolean,
 ): string | undefined {
-  throw new Error('not implemented');
+  const lines = new Map([...added].map(([path, at]) => [keyOf(path, foldCase), at]));
+  for (const test of reports.flatMap(({ tests }) => tests)) {
+    const line = test.location?.line;
+    const file = fileOf(test, root);
+    if (test.result !== 'skipped' || !test.leaf || line === undefined || file === undefined) {
+      continue;
+    }
+    if (lines.get(keyOf(file, foldCase))?.has(line) === true) {
+      return `test "${cut(test.name)}" is skipped at ${cut(file)}:${line}, a line the step added, so it proves nothing`;
+    }
+  }
+  return undefined;
 }
 
 /** Why a recipe that proves its tests red cannot brew in `repo`: it has no test report. */

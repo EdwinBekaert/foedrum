@@ -57,15 +57,24 @@ function headerPath(rest: string, prefix: 'a/' | 'b/'): string | undefined {
 
 /** The files of `git diff` output made with `--no-color`, `--no-renames` and the a/ b/ prefixes. */
 export function parseDiff(text: string): DiffFile[] {
-  const files: { oldPath?: string; newPath?: string; added: string[]; removed: string[] }[] = [];
+  const files: {
+    oldPath?: string;
+    newPath?: string;
+    added: string[];
+    addedAt: number[];
+    removed: string[];
+  }[] = [];
   // Lines left in the current hunk, old and new: inside one, every line is content.
   let oldLeft = 0;
   let newLeft = 0;
+  // The line at the tip the hunk's next added or context line is.
+  let next = 0;
   for (const line of text.split('\n')) {
     const file = files.at(-1);
     if (file !== undefined && (oldLeft > 0 || newLeft > 0)) {
       if (line.startsWith('+')) {
         file.added.push(line.slice(1));
+        file.addedAt.push(next++);
         newLeft--;
       } else if (line.startsWith('-')) {
         file.removed.push(line.slice(1));
@@ -73,12 +82,13 @@ export function parseDiff(text: string): DiffFile[] {
       } else if (line.startsWith(' ')) {
         oldLeft--;
         newLeft--;
+        next++;
       }
       // `\ No newline at end of file` takes no line of either side.
       continue;
     }
     if (line.startsWith('diff --git ')) {
-      files.push({ added: [], removed: [] });
+      files.push({ added: [], addedAt: [], removed: [] });
     } else if (file !== undefined && line.startsWith('--- ')) {
       const path = headerPath(line.slice(4), 'a/');
       if (path !== undefined) file.oldPath = path;
@@ -86,10 +96,11 @@ export function parseDiff(text: string): DiffFile[] {
       const path = headerPath(line.slice(4), 'b/');
       if (path !== undefined) file.newPath = path;
     } else {
-      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+      const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (hunk !== null) {
         oldLeft = Number(hunk[1] ?? 1);
-        newLeft = Number(hunk[2] ?? 1);
+        next = Number(hunk[2]);
+        newLeft = Number(hunk[3] ?? 1);
       }
     }
   }
