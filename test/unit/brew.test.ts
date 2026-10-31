@@ -1699,6 +1699,27 @@ describe('runBrew', () => {
       assert.deepStrictEqual([...log().state().batches.keys()], ['web-7']);
     });
 
+    it('mashes a claimed issue with no batch: claims it, orders it and routes it to mash-in, exit 4 (ADR 0232)', async () => {
+      const web = { alias: 'web', intake: { labels: ['foedrum'] } };
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/web': [
+            { number: 7, labels: ['foedrum'], author: 'ann', title: 'Dark theme', body: 'Dark.' },
+          ],
+        },
+      });
+      const claimed = mashSetup({ config: config({}, web) });
+      const asks = shell(behave.needInput([which(7)]));
+      const fresh = { ...request, target: { alias: 'web', issue: 7 }, mash: true } as const;
+      assert.equal(await runBrew(claimed, asks, fresh), 4, lines.join('\n'));
+      assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'mash-in');
+      assert.ok(
+        lines.includes('foedrum mash: ordered acme/web#7 as batch web-7'),
+        lines.join('\n'),
+      );
+    });
+
     it('refuses a batch that started a recipe, naming foedrum recipe: exit 5', async () => {
       log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
       const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
@@ -1874,6 +1895,26 @@ describe('runBrew', () => {
         batches.map(({ id, lane }) => ({ id, lane: lane.kind })),
         [{ id: 'web-7', lane: 'on_tap' }],
       );
+    });
+
+    it("routes an Ordered claimed batch by its recorded Brewery issue's label, brewed by its target issue: exit 0 (ADR 0156)", async () => {
+      const host = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 40, labels: ['recipe:stout'], author: 'ann', title: 'Dark', body: 'web#7' },
+          ],
+          'acme/web': [
+            { number: 7, labels: ['foedrum', 'recipe:nip'], author: 'ann', title: 'Dark' },
+          ],
+        },
+      });
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 0, lines.join('\n'));
+      assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'stout');
     });
 
     it('orders a claimed issue, opens its Brewery issue and waits there for its recipe label, never routing by the target issue: exit 5 (ADR 0156)', async () => {
