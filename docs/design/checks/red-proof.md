@@ -1,5 +1,9 @@
 # The red proof
 
+> **Decided, not built yet.** [ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) replaces how the red proof finds the step's tests by name with rules that read no names, from the runner's reports and the repository's test map; the record's Decision states them with each of their conditions.
+> The same record changes what `testsUnchanged` keeps, and adds a check that fails on a changed line that no test runs.
+> This page says what the red proof does today. It stays true until the build issues of #618 land.
+
 Recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity reading with `"expect": "fail"`, read from the repository's structured test report), then Cellarman, whose `testsUnchanged` guard protects the red tests' assertions ([ADR 0017](../../adr/0017-test-first-recipes-and-tasting-lenses.md)).
 
 A red proof's `of` must name a step whose brewer commits; it runs the `test` check and judges the repository's test report, never the exit code, and a brewer with the `testsUnchanged` guard keeps the proven step's tests ([ADR 0078](../../adr/0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md), below).
