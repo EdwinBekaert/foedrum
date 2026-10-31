@@ -1015,6 +1015,14 @@ Plan the order in {order}.
       createCommandLog({ store, recipes: setup.recipes }).state().orders.get(12)?.subOrders,
       [15],
     );
+    // The sub-issues open before the plan comment is written, which names them in one revision.
+    const plan = (api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
+      body.startsWith('### Foedrum · plan of batch'),
+    );
+    assert.equal(plan.length, 1);
+    assert.match(plan[0]?.body ?? '', /\nSub-issues: `json-flag` #15\.\n/);
+    assert.notEqual(store.findEffect({ batchId: '12-1', effect: 'plan.1' }), undefined);
+    assert.equal(store.findEffect({ batchId: '12-1', effect: 'plan.2' }), undefined);
   });
 
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
