@@ -365,6 +365,37 @@ describe('planIssueEffects (ADR 0285)', () => {
     assert.ok(!(api.issue(brewery, 9)?.body ?? '').includes('Not ready'));
   });
 
+  it('links a sub-order blocked by two others to both, each once: regression test', async () => {
+    const twice: PlanReport = {
+      subOrders: [
+        ...three.subOrders.slice(0, 2),
+        subOrder('cli', {
+          dependencies: [
+            { on: 'api', kind: 'release' },
+            { on: 'ui', kind: 'code' },
+          ],
+        }),
+      ],
+    };
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    const ref = { batchId: '7-1', stepId: 'plan', attempt: 1 };
+    issue({ kind: 'record', event: { type: 'step.started', ...ref } });
+    issue({ kind: 'finish', ...ref, ending: planned(twice) });
+    issue({ kind: 'approve', batchId: '7-1', by: 'grace', via: 'terminal' });
+    const driver = await open();
+    await driver.applyEffects();
+    await driver.applyEffects();
+    assert.deepStrictEqual(failed(), []);
+    assert.deepStrictEqual(api.issue(brewery, 10)?.blockedBy, [8, 9]);
+    assert.equal(posts('issues/10/dependencies/blocked_by'), 2);
+    assert.deepStrictEqual(log.state().orders.get(7)?.dependencies, [
+      { subOrder: 9, blockedBy: 8, kind: 'code' },
+      { subOrder: 10, blockedBy: 8, kind: 'release' },
+      { subOrder: 10, blockedBy: 9, kind: 'code' },
+    ]);
+  });
+
   it('opens nothing for a plan that waits for its review, nor for a batch on tap without a plan', async () => {
     issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
     issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
