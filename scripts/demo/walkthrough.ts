@@ -6,10 +6,12 @@ import { columns } from '../../src/cli/columns.ts';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import { lostBecause } from '../../src/engine/supervisor.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { BREW_ORDER, USER } from './core.ts';
+import { BREW_ORDER, MASH_ORDER, USER } from './core.ts';
 
 /** The Cellar's batch: its order is the Brewery's first issue, decomposed into one batch. */
 export const BATCH = '1-1';
+/** The batch foedrum mash orders of the third issue, which `foedrum answer` answers. */
+export const MASHED = `${MASH_ORDER.number}-1`;
 /** The attempt foedrum resume names: the Cellarman's second, the one the failed check sent back. */
 export const RESUMED = 'implement#2';
 
@@ -26,7 +28,8 @@ export interface Step {
     | 'lenses'
     | 'brew'
     | 'resume'
-    | 'replay';
+    | 'replay'
+    | 'mash';
   title: string;
   lookFor: string;
 }
@@ -96,6 +99,11 @@ export const STEPS: readonly Step[] = [
     title: `foedrum replay ${BATCH}`,
     lookFor:
       "the state the fold makes of the batch's events; foedrum replay lists every event above it.",
+  },
+  {
+    id: 'mash',
+    title: `foedrum mash ${MASH_ORDER.number} --as ${USER}`,
+    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash, and the Brewmaster's plan waits Stuck for review.`,
   },
 ];
 

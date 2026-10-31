@@ -55,7 +55,7 @@ export const formatStuck = (state: State): string => {
         )
       : []),
     ...openLines(state, batch, lane.reason),
-    // Until the gate signs a plan off (#588), what to do with it by hand (ADR 0275).
+    // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
     ...(lane.reason.kind === 'plan_review'
       ? [`  next: ${planNextStep(batch.id, (command) => command)}`]
       : []),

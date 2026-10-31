@@ -425,7 +425,15 @@ export const StuckReason = z.discriminatedUnion('kind', [
 export type StuckReason = z.infer<typeof StuckReason>;
 
 /** The commands that can get a Stuck batch moving again. */
-export const StuckOption = z.enum(['answer', 'retry', 'skip', 'recipe', 'rewind', 'cancel']);
+export const StuckOption = z.enum([
+  'answer',
+  'approve',
+  'retry',
+  'skip',
+  'recipe',
+  'rewind',
+  'cancel',
+]);
 export type StuckOption = z.infer<typeof StuckOption>;
 
 /** What a Conditioning batch waits for: a merge, a release or a sibling batch. */
@@ -654,6 +662,19 @@ export const Event = z.discriminatedUnion('type', [
     action: z.enum(['retry', 'skip', 'recipe', 'answer']),
     // A retry of a batch Stuck on routing sends it back to Ordered with this deadline (ADR 0032).
     routeBy: Timestamp.optional(),
+  }),
+  // A person signed off the plan attempt `attempt` of `stepId` wrote, the batch Stuck for its
+  // review; `plan`: the digest of that attempt's recorded out doc (ADR 0281). An older Foedrum
+  // cannot read it.
+  z.strictObject({
+    type: z.literal('batch.approved'),
+    batchId: BatchId,
+    stepId: StepId,
+    attempt: Attempt,
+    plan: z.string().regex(/^[0-9a-f]{16}$/),
+    by: NonEmpty,
+    via: Surface,
+    at: Timestamp,
   }),
   orderDecomposed,
   orderRanked,

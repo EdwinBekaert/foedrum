@@ -2690,10 +2690,29 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
       `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: <${planComment}>`,
-      'Next: read the plan and its assumptions. To plan it again, run `foedrum retry 7-1`; to build it, end it with `foedrum cancel 7-1` and order its sub-orders by hand: Foedrum builds nothing from a plan yet.',
+      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`. Its sub-orders become issues once #590 is built.',
       'Get it moving with `retry`, `cancel`.',
     ]);
     assert.doesNotMatch(text, /On tap|No pull request/);
+  });
+
+  it('says on tap who approved the plan, and from where (#588)', () => {
+    const text = rendered(
+      batch({
+        lane: { kind: 'on_tap', pullRequests: [] },
+        steps: new Map([step('plan', planned(2, ['Kept the flag.']))]),
+        approval: {
+          stepId: 'plan',
+          attempt: 2,
+          plan: '0123456789abcdef',
+          by: 'grace',
+          via: 'plugin',
+          at,
+        },
+      }),
+    );
+    assert.ok(text.split('\n').includes('🍻 **On tap**: plan approved by grace (plugin)'), text);
+    assert.doesNotMatch(text, /Stuck|Next:/);
   });
 
   it('shows one line per assumption of a plan: its first sentence, cut at a word near 120 characters', () => {
