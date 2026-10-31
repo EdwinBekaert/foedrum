@@ -37,3 +37,4 @@ flowchart LR
 - A step with `"chosenBy": "lauter"` runs only when a person chooses it: no step continues to it, and `foedrum lauter <batch>` on a batch Stuck as `plan_review` schedules a fresh attempt of it, taking the batch over as `brew --take` does, so its session opens as this page says ([ADR 0286](../../adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)).
   Only an interactive step is chosen, and a recipe has one step per option.
   After it the recipe is done, so the batch waits for a review of its plan; the plan comment says the plan was changed in a session, by whom and when it opened.
+  The status comment lists the step only once it has an attempt.
