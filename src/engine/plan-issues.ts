@@ -169,9 +169,9 @@ export const planIssueEffects = (options: PlanIssueEffectsOptions): DriverEffect
       if (keys === undefined) return [];
       const { applied, issues, due } = keys;
       const { plan, stepId, attempt } = applied;
-      // Each sub-order's issue and parent, and one link per dependency.
-      const all = plan.subOrders.reduce((n, s) => n + 2 + s.dependencies.length, 0);
-      if (due.length < all || due.some(({ key }) => !state.effects.has(effectKey.encode(key)))) {
+      // Every issue key is due from the start, and its parent and links once it is recorded, so a
+      // key not yet in the ledger is the only sign that something is left.
+      if (due.some(({ key }) => !state.effects.has(effectKey.encode(key)))) {
         return [];
       }
       const number = (id: string): number => {
