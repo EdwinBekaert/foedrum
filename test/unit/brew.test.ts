@@ -1984,6 +1984,32 @@ describe('runBrew', () => {
       );
     });
 
+    /** The live lease of the claimed batch web-7. */
+    const webLease = () => store.batchLeases(t0).find(({ batchId }) => batchId === 'web-7');
+
+    it('lets a claimed batch go once it waits for a label on its Brewery issue, holding no lease: exit 5 (ADR 0123)', async () => {
+      const host = github();
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, lines.join('\n'));
+      assert.match(lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
+      assert.equal(webLease(), undefined);
+    });
+
+    it('lets a claimed batch go when its Brewery issue is not open yet, holding no lease: exit 1 (ADR 0123)', async () => {
+      const host = fakeGitHubApi({
+        login: 'ann',
+        issues: github().issues,
+        instead: (method, url) =>
+          method === 'POST' && url.pathname.toLowerCase() === '/repos/acme/brewery/issues'
+            ? { status: 500, body: { message: 'Server Error' } }
+            : undefined,
+      });
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 1, lines.join('\n'));
+      assert.match(lines.at(-1) ?? '', /waits for its Brewery issue, which is not open yet/);
+      assert.equal(webLease(), undefined);
+    });
+
     it('refuses it, ordering nothing, when another holds its claim: exit 5', async () => {
       const host = github();
       // Another Brewery's claim: its record as a commit, and the ref at it (ADR 0043).
