@@ -325,7 +325,8 @@ export const runBrew = async (
     // claimed batch by its Brewery issue's, and it waits for that issue until the ledger records
     // it, never reading the target issue's (ADR 0156).
     const labelled = latest === undefined ? undefined : breweryIssueOf(log.state(), latest);
-    const waitsForOrder = order.repo !== undefined && labelled === undefined;
+    const waitsForOrder =
+      request.mash !== true && order.repo !== undefined && labelled === undefined;
     let recipe: string | undefined;
     if (request.mash === true) {
       const refused = mashRefusal(setup, latest, named);
@@ -379,7 +380,7 @@ export const runBrew = async (
     const batch = latestBatch(log.state().batches.values(), order.issue, order.repo);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
-    if (request.mash !== true && waitsForOrder && batch.lane.kind === 'ordered') {
+    if (waitsForOrder && batch.lane.kind === 'ordered') {
       // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
       // Brewery issue has no label yet, so the batch waits for a person to give it one.
       await tick(driver, report);
