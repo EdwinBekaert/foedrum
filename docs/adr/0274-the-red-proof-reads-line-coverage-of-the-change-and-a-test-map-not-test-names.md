@@ -39,9 +39,11 @@ This record writes them down.
   1. the run did not bail out;
   2. no load, compile, import or collection error appears. `LOAD_ERRORS` stays as ADR 0078 and [ADR 0269](0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) have it. **A module that the base's test map lists and that wrote no test report, or no coverage report where it has a coverage tool, counts as one** (the spike's .NET compile error). A module that only the batch's map lists is the unreached case below;
   3. the step changed a file in a test area of the map, or in a module whose tests are inline. This replaces the spike's rule, which asked for a changed code file. That rule refuses a step that adds only tests, such as the Microbiologist's reproducing test or a test of existing behaviour that is wrong, and it lets through a step that changes only code and breaks older tests;
-  4. at least one test fails;
-  5. no test is skipped in a test area the step changed (attributed by the map, for separate test files).
-- **What it gives up.** A stub that returns a value, so that one new test passes while another fails, is not seen. Neither is a skip inside inline tests. Both go to the test-design lens ([`defaults/lenses/diff/test-design.md`](../../defaults/lenses/diff/test-design.md)), which sees the red diff.
+  4. at least one test fails, and where the report gives a failing test's location, at least one failing test lies inside lines the step added;
+  5. no skip the report places inside lines the step added.
+
+  Checks 4 and 5 read a test's location from the runner's report (node's TAP gives one for a failing or skipped test, and many JUnit writers a `file` and `line`), never from the source, so they keep "no source reading". A skip that was on the base, such as a platform-conditional one in a file the step added a test to, is not the step's.
+- **What it gives up.** A stub that returns a value, so that one new test passes while another fails, is not seen. Where the report gives no location, neither is a skip the step added, nor a run whose only failures are older tests the step's helper edit broke, or a flaky one. All of these go to the test-design lens ([`defaults/lenses/diff/test-design.md`](../../defaults/lenses/diff/test-design.md)), which sees the red diff.
 - **Regression tests need no name.** A passing test is just a passing test. The red proof no longer reads `regressionTests` (ADR 0170's checks 3 and 4 go). The gauge out doc keeps the list for the test-design lens and the status comment, which show it as before.
 - **ADR 0258's names-only `done` goes.** Names no longer change what the next red proof reads, so a Gauger that a failed red proof sent back and that commits nothing would meet the same failure again. Its `done` without a commit is ADR 0074's divergence once more.
 - **What goes**: the name forms of ADR 0176, 0178 and 0182, ADR 0262's test files read at the tip (`readTestFiles`), ADR 0078's name matching (`judgeRed`'s `declares`), and the `#406` short forms.
@@ -56,7 +58,11 @@ This record writes them down.
   A report path or folder pattern of the map is resolved by its real path and refused when it leads out of the worktree, and a report is read as ADR 0078 reads one (a regular file, at most 16 MiB), with a cap on how many files a folder pattern may match; past either, the check is blocked on its environment, naming why.
 - **A changed line must be hit**, in the union of the reports of every module the run covers.
   **Where the report has branch data for that line** (LCOV `BRDA`, coverlet `condition-coverage`), every branch on it must be taken as well. A tool without branch data is read by lines alone.
-- **Not measured.** A changed file in a code area of the map that no report holds counts as uncovered, every changed line at 0 hits (Node's unloaded file). Changed data, docs and config outside every code area are listed in the status comment for the lenses, and never fail the check.
+- **Only the lines a report lists as executable are judged** (LCOV `DA`, Cobertura `line`), so a declaration, a type or a brace a tool leaves out never fails.
+- **Not measured.** A changed file in a code area of the map that no report holds counts as uncovered, every changed line at 0 hits, only where its module's tool lists the files it did not load (coverlet, JaCoCo).
+  Where the tool leaves unloaded files out (Node), the status comment lists the file as "not loaded by any test" for the lenses, and the check does not fail on it: a types-only file imported with `import type` is never loaded, and no test could run it.
+  This refines decision 4 of #618, as the maintainer settled it on 2026-10-31.
+  Changed data, docs and config outside every code area are listed in the status comment for the lenses as well, and never fail the check.
 - **An uncovered changed line fails the check.** The check is the `test` reading of a check step in a repository with a test map (Nip's `green`). It reads the batch's change, from where that change starts to the step's tip, and a failure takes the step's `onFail` route, so Cellarman retries: it adds a test that runs the line, or removes the line.
   A Refactor over uncovered behaviour fails the same way until a pinning regression test comes first (#645).
   The reason names up to 10 lines (file and line), with a count of the rest.
@@ -73,11 +79,14 @@ This record writes them down.
 
 ### The test map
 - **What it is.** One file per target repository says, for each module, where its code is, where its tests live (separate paths, test projects, or inline), and the formats and paths of the test and coverage reports its tests write, or `coverage: none`. It says where things are, and holds no commands.
-  The red proof's changed test area, its load error for a module with no report, skip attribution, `testsUnchanged` and the not-measured rule read it. Which tests fail and which lines ran come from the reports alone.
+  The red proof's changed test area, its load error for a module with no report, `testsUnchanged` and the not-measured rule read it. Which tests fail or are skipped, where the report places them, and which lines ran come from the reports alone.
   Prior art: SonarQube's `sonar.tests`, Stryker's `mutate`, Codecov's `ignore`, and cargo-mutants skipping `#[cfg(test)]`.
 - **Where it lives**: `.foedrum/test-map.jsonc` in the target repository, beside `.foedrum/house-yeast/`. Every Brewery on the repository shares it (#120), and it is versioned with the code.
   A repository whose owners refuse it uses the Brewery fallback of [ADR 0018](0018-house-yeast-layers.md): a `houseYeast`-style setting in its `foedrum.jsonc` entry keeps the map under the Brewery's files.
   Its content is repository content, untrusted input like the house-yeast rules (ADR 0018, ADR 0041).
+- **The base's map governs what the base lists.** For every module and area the base's map lists, the checks read the base's map, as `/brew-review` takes its criteria from the base ([ADR 0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)).
+  The batch's map may add modules and areas, but it does not narrow or remove them, nor set `coverage: none` on a module the base measured, until a person merges it. So a brewer cannot switch off the checks of its own change by editing the map.
+  One exception, so that a deleted project does not read as a load error: a base module whose manifest the batch deletes drops out, and the status comment names that change through the sensitive path.
 - **Who writes it.** An agent derives it from the repository's manifests, and a person confirms it in a reviewed change: the pull request that carries it. Which brewer and which command derive it is the build's choice.
 - **Freshness is judged by change, not by age.** The map is stale when:
   - the manifest files it was derived from (its globs, read with `git ls-files` at the step's tip) differ from the matched paths it records; or
@@ -141,7 +150,8 @@ This record writes them down.
 
 ## Consequences
 - Test names stop mattering. A string, a free function's call or a regenerated schema can no longer be taken for a test's declaration, and the name lists stop growing, language by language.
-- Fewer failures to attribute: a skip or a stub inside inline tests, and a stub that lets one new test pass while another fails, are the test-design lens's to find, not the engine's.
+- Fewer failures to attribute: a stub that lets one new test pass while another fails, and, where the report gives no location, a skip the step added or a failure only in older tests, are the test-design lens's to find, not the engine's.
+- A changed file in a Node module that no test loads, such as the spike's untested `legacy.ts`, no longer fails the check: it stays visible as "not loaded by any test" in the status comment. Where the tool lists unloaded files (coverlet, JaCoCo), the same change still fails.
 - A red step whose only change is outside every test area (a Gauger that only wrote code) is refused.
 - Every test-first batch runs its tests with coverage on: +18% on a Node run and about 3–5 s per .NET test project, measured on a busy machine. The cost is accepted.
 - A changed line after a condition on the same line is caught only where the tool writes branch data.
@@ -157,7 +167,7 @@ This record writes them down.
 - **Keep the name reading and grow its lists.** Four records in a week each closed one case, and ADR 0262 itself says the list stays incomplete and loose.
 - **A baseline run before the red step** (ADR 0078's first alternative). It finds the new tests exactly, but it doubles the runs, and a base that does not build says nothing. A green base is what CI already proves.
 - **Tell code from tests by coverage alone.** Node leaves out unloaded code and the tests alike, so "absent from the report" mixes the two (the spike's `legacy.ts`).
-- **Tell test files by the test report's `file`.** Most JUnit writers leave it out, and TAP and TRX have none.
+- **Tell test files by the test report's `file`.** Most JUnit writers leave it out, TRX has none, and node's TAP gives a location only for a failing or skipped test, so a passing test's file is unknown. The red proof uses a location only where a failing or skipped test has one (checks 4 and 5).
 - **Lines only.** Simpler, but it misses the untaken half of a one-line condition, which the reports already carry where the tool writes branches.
 - **Fail the step on a not-measured data or config file.** Every change to a fixture or a workflow would need a test that cannot exist.
 - **Coverage thresholds.** A percentage cannot see one uncovered changed line.
