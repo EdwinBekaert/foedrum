@@ -103,6 +103,38 @@ describe('githubSubIssues', () => {
     assert.equal(await githubSubIssues({ client, brewery, login }).findIssue(marker), undefined);
   });
 
+  it('finds an issue by its own login in any case, never one by another login or by nobody, even when the listing holds it', async () => {
+    const listed = (author: { login: string } | null, id: number) => ({
+      id,
+      number: id,
+      state: 'open',
+      user: author,
+      labels: [],
+      body: marker,
+    });
+    const found = async (answer: unknown[]) => {
+      const fake = fakeFetch([{ status: 200, body: answer }]);
+      const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+      return githubSubIssues({ client, brewery, login }).findIssue(marker);
+    };
+    assert.equal(await found([listed({ login: 'mallory' }, 4), listed(null, 5)]), undefined);
+    assert.deepStrictEqual(await found([listed({ login: 'Foedrum-Bot' }, 6)]), {
+      number: 6,
+      id: 6,
+    });
+  });
+
+  it('asks nothing once its signal has aborted, for a read and for a write', async () => {
+    const fake = fakeFetch([]);
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+    const subIssues = githubSubIssues({ client, brewery, login });
+    const signal = AbortSignal.abort(new Error('stopped'));
+    await assert.rejects(subIssues.subIssues(7, signal));
+    await assert.rejects(subIssues.addBlockedBy(9, idOf(8), signal));
+    await assert.rejects(subIssues.openIssue('Title', 'Body', [], signal));
+    assert.deepStrictEqual(fake.requests, []);
+  });
+
   it('sends the numeric id and the API version 2026-03-10 on every call', async () => {
     const issue = (number: number) => ({
       id: idOf(number),
