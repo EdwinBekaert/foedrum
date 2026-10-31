@@ -546,6 +546,31 @@ describe('sameAnswerMutants', () => {
     assert.deepEqual(sameAnswerMutants([breweryName], [unclosed]), []);
   });
 
+  it('mutates the arrow a line declares, not a typed callback inside it', () => {
+    const allOk: ChangedFile = {
+      path: 'src/all-ok.ts',
+      content: 'export const allOk = (xs: Item[]): boolean => xs.every((x): boolean => x.ok);\n',
+    };
+    const tests: ChangedFile = {
+      path: 'test/unit/all-ok.test.ts',
+      content: "import { allOk } from '../../src/all-ok.ts';\nassert.equal(allOk([]), false);\n",
+    };
+    const [scripted] = sameAnswerMutants([allOk], [tests]);
+    assert.equal(
+      scripted?.replacement,
+      'export const allOk = (xs: Item[]): boolean => false && (xs.every((x): boolean => x.ok));',
+    );
+  });
+
+  it('gives no mutant when the tests import the name from another module', () => {
+    const tests = breweryNameTests(...rejections);
+    const elsewhere = {
+      ...tests,
+      content: tests.content.replace('src/workspace/brewery-name.ts', 'src/other/brewery-name.ts'),
+    };
+    assert.deepEqual(sameAnswerMutants([breweryName], [elsewhere]), []);
+  });
+
   it('prints a mutant as its function always giving its value', () => {
     const lines = ["assert(isBreweryName('a'));", "assert(!isBreweryName(''));"].map((form) =>
       sameAnswerMutants([breweryName], [breweryNameTests(form)]).map(sameAnswerLine),
