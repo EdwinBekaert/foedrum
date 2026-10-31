@@ -374,6 +374,29 @@ export type RoundsOut = z.infer<typeof RoundsOut>;
 /** The most findings `step.finished` keeps of an attempt blocked by findings: one per disposition. */
 export const MOST_RECORDED_FINDINGS = MOST_DISPOSITIONS;
 
+/** The most files or modules of each kind a check step's coverage listing keeps (ADR 0274). */
+export const MOST_LISTED = 10;
+
+/** Some of a kind of file the uncovered-line check did not judge: the first, and how many more. */
+const ListedFiles = z.strictObject({
+  files: z.array(NonEmpty.max(MAX_OPEN_FINDING_TEXT)).min(1).max(MOST_LISTED),
+  more: Count,
+});
+
+/**
+ * What a check step's uncovered-line check did not measure (ADR 0274), for the status comment:
+ * changed code files no LCOV report loaded, changed files outside every code and test area, and
+ * the modules with `coverage: none` whose code the change touched.
+ */
+export const CoverageListing = z.strictObject({
+  notLoaded: ListedFiles.optional(),
+  /** Changed code files no Cobertura report lists, so with no executable lines (ADR 0288). */
+  noLines: ListedFiles.optional(),
+  outside: ListedFiles.optional(),
+  unmeasured: z.array(NonEmpty.max(MAX_OPEN_FINDING_TEXT)).min(1).max(MOST_LISTED).optional(),
+});
+export type CoverageListing = z.infer<typeof CoverageListing>;
+
 /**
  * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
  * first of them, cut as a Stuck reason's open findings are, and how many more there were.
@@ -676,6 +699,8 @@ export const Event = z.discriminatedUnion('type', [
     findings: RecordedFindings.optional(),
     // A check step's: the test map it found stale without failing for it (ADR 0282).
     staleMap: StaleMap.optional(),
+    // What a check step's uncovered-line check did not measure (ADR 0274).
+    coverage: CoverageListing.optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

@@ -1729,12 +1729,17 @@ Plan the order in {order}.
         // The worktree's manifests are listed for the Brewery's map too (ADR 0282).
         if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
         asked.push(args.join(' '));
+        // The uncovered-line check reads the batch's change, an empty one here (ADR 0274).
+        if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
         throw new Error('no git read of the map');
       };
       // The Brewery's map is the base's too: its module is taken as reached.
       const { batch } = await brewWithChecks(0, { serving, git });
       assert.equal(batch?.lane.kind, 'on_tap');
-      assert.deepStrictEqual(asked, []);
+      assert.ok(
+        asked.length > 0 && asked.every((args) => args.includes(' diff ')),
+        asked.join('\n'),
+      );
     });
 
     it('records a stale Brewery-kept test map and the batch goes on tap: the wiring says where it is kept (ADR 0282)', async () => {
@@ -1758,15 +1763,16 @@ Plan the order in {order}.
         })),
       };
       const git: Git = async (_cwd, args) => {
-        // A manifest the map does not record, and a change that touched it.
+        // A manifest the map does not record. The batch's change is not read for the Brewery's
+        // map, only by the uncovered-line check, to which it adds no line (ADR 0274).
         if (args[0] === 'ls-files') {
           return { code: 0, stdout: 'package.json\0api/package.json\0', stderr: '' };
         }
-        if (args[0] === 'diff') return { code: 0, stdout: 'api/package.json\0', stderr: '' };
+        if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
         throw new Error(`unexpected: ${args.join(' ')}`);
       };
       const { batch, events } = await brewWithChecks(0, { serving, git });
-      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.equal(batch?.lane.kind, 'on_tap', JSON.stringify(batch?.lane));
       const green = events.find(
         (event) => event.type === 'step.finished' && event.stepId === 'green',
       );

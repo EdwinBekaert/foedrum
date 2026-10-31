@@ -2,7 +2,13 @@
 // it with a typed outcome (ADR 0005). The real runner drives the `claude` CLI; tests use a fake.
 // Both turn what the process did into the outcome through settleAttempt, so the rules are shared.
 
-import type { GravityReading, Receipt, StaleMap, Usage } from '../schemas/events.ts';
+import type {
+  CoverageListing,
+  GravityReading,
+  Receipt,
+  StaleMap,
+  Usage,
+} from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import { gaugeOf, type OutDocFrontmatter, readOutDoc, tastingOf } from '../schemas/out-doc.ts';
 import { unreadableBody } from '../schemas/plan.ts';
@@ -63,6 +69,8 @@ export interface AttemptEnd {
   readings?: readonly GravityReading[];
   /** A check step's: the test map it found stale without failing for it (ADR 0282). */
   staleMap?: StaleMap;
+  /** What a check step's uncovered-line check did not measure (ADR 0274). */
+  coverage?: CoverageListing;
   /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
   houseYeast?: HouseYeastSelection;
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */

@@ -5,6 +5,7 @@
 import {
   type Answer,
   type ClaudeReport,
+  type CoverageListing,
   type Event,
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
@@ -158,6 +159,8 @@ export type EngineCommand =
       readings?: readonly GravityReading[];
       /** A check step's: the test map it found stale without failing for it (ADR 0282). */
       staleMap?: StaleMap;
+      /** What a check step's uncovered-line check did not measure (ADR 0274). */
+      coverage?: CoverageListing;
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
@@ -636,6 +639,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     usage,
     readings,
     staleMap,
+    coverage,
     claude,
     receipt,
     houseYeast,
@@ -663,6 +667,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(usage === undefined ? {} : { usage }),
     ...(readings === undefined ? {} : { readings: [...readings] }),
     ...(staleMap === undefined ? {} : { staleMap }),
+    ...(coverage === undefined ? {} : { coverage }),
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),

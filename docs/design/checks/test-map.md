@@ -1,7 +1,7 @@
 # The test map
 
-> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709), what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711) and freshness (#718) are built.
-> The survey step that proposes a map (#708) and the uncovered-line check (#710) are not.
+> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709), what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711), the uncovered-line check (#710) and freshness (#718) are built.
+> The survey step that proposes a map (#708) and a skip the batch added failing the green check (#727) are not.
 
 A target repository's test map says, for each module, where its code is, where its tests live, and where its test and coverage reports are written ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 It says where things are and holds no commands: the commands stay in `foedrum.jsonc`, confirmed by a person ([ADR 0023](../../adr/0023-language-independent-recipes.md)).
@@ -52,6 +52,20 @@ A failing run is not read, as for the unreached rule.
 **Named in the status comment.** `step.finished` keeps a `staleMap`: its repository, where the map is kept, its first 10 stale paths with why, and how many more.
 The status comment names each repository's latest one on a line of its own after the sensitive-path lines, `The test map of <repository> is stale: …`, until a later run of the tests in that repository finds its map fresh.
 A map the Brewery keeps is read the same way but never fails a step, since a batch cannot change it: the line says `The Brewery's test map of <repository> is stale: …`, and a person refreshes the Brewery's file.
+
+**Uncovered changed lines.** After a check step's `test` check exited 0, in a step that is not a red proof (Nip's `green`), the lines the batch's change added, from where it starts to the step's tip (`git diff`, so a Refactor's changed lines count and its deleted ones do not), are judged against the union of the coverage reports of every module of the effective map that has a coverage tool (`checks/uncovered.ts`, [ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
+Before the `test` check runs, every coverage report path either map names is cleared, so a report an earlier run left neither stands for this run's nor adds its hits to it.
+A path with a `.git` segment, or a lone pattern such as `*` that names every top folder of the worktree, is never cleared: the step blocks on its environment, naming it, since a batch's map is a brewer's to write.
+A line is judged only where a report lists it as executable (LCOV `DA`, Cobertura `line`): it must have run, and where the report has branch data for it (LCOV `BRDA`, coverlet's `condition-coverage`), every branch on it must have been taken.
+A changed line in a test area is not judged.
+A changed file in a code area that no report holds never fails: for LCOV, whose Node writer leaves out every file no test loaded, it is listed as not loaded by any test, so a types-only file no test could run passes; for Cobertura, whose coverlet lists every file with a sequence point, run or not, it has no executable lines, such as an interface or a project file, and is listed as such ([ADR 0288](../../adr/0288-a-code-file-no-cobertura-report-lists-has-no-executable-lines.md)).
+A changed file outside every code and test area (data, docs, config) is listed and never fails, and a module with `coverage: none` is skipped and listed as not measured.
+An uncovered line fails the step without a retry, along its `onFail` route (Nip's `green` → `implement`), with the reason `<n> changed lines no test runs: <file>:<line>, …`, ten lines at most and `and <k> more`, a line whose only untaken part is a branch marked `(branch not taken)`; the Cellarman's next attempt gets the reason ([ADR 0128](../../adr/0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)) and adds a test that runs the line, or removes the line, and a Refactor over uncovered behaviour fails the same way until a regression test that pins it comes first (#645).
+A coverage report that is missing or does not parse fails the step the same way when the change touched its module's code, and blocks it on its environment, naming the module and its report path, when the change touched none, since then only the repository's test line can write it; one whose path or folder pattern is refused (out of the worktree by its real path, or past 64 matches), or that cannot be read at all (past 16 MiB, not a regular file), blocks it on its environment, naming why.
+Each report is read under the worktree's path and under its real path, where the check sandbox runs, and the two are merged.
+The check runs only on a step every check passed; a step another check failed or blocked keeps that ending.
+The lists of what was not measured, ten files of each kind and a count of the rest, each name cut to 1,000 characters and a name of blanks shown as `(a name of blanks)`, are recorded on the step's `step.finished` (`coverage`) and shown in the status comment under the step's line.
+Merged reports keep a line's higher branch count, not the union of the branches, as [the red proof](red-proof.md)'s readers say.
 
 **It is a sensitive path.** A change to `.foedrum/test-map.jsonc` gets the status comment's sensitive-path line without the repository naming it in `sensitivePaths` ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)), and the line after it names each module the batch's map adds with `coverage: none`.
 A repository whose map the Brewery keeps has no such file to name.

@@ -72,12 +72,19 @@ const billing: TestMapModule = {
   code: ['svc/src/**'],
   tests: { projects: [{ path: 'svc/test/Billing.Tests' }] },
   testReport: { format: 'trx', path: 'svc/test/*/TestResults' },
-  coverage: { format: 'cobertura', path: 'svc/test/*/TestResults' },
+  coverage: { format: 'cobertura', path: 'svc/coverage/*' },
 };
 const mapOf = (...modules: TestMapModule[]): MapRead => ({
   kind: 'map',
   map: { derivedFrom: { globs: ['**/*.csproj'], paths: [] }, modules } satisfies TestMap,
 });
+
+// Before the test check runs, the coverage report paths of both maps' modules are looked for, to
+// be cleared; neither holds a report here.
+const clearing = [
+  `reports web/coverage/lcov.info in ${worktree}`,
+  `reports svc/coverage/* in ${worktree}`,
+];
 
 const compileError = 'svc/test/Billing.Tests/InvoiceTests.cs(3,1): error CS1002: ; expected';
 
@@ -128,7 +135,17 @@ const setup = ({
     repositoryChecks: () => repository,
     testReport: () => testReport,
     exec,
-    git: () => Promise.reject(new Error('the maps come from testMap')),
+    // The batch's change is empty: the uncovered-line check has no line to judge.
+    git: async (_cwd, args) =>
+      args.includes('diff')
+        ? { code: 0, stdout: '', stderr: '' }
+        : Promise.reject(new Error('the maps come from testMap')),
+    reports: {
+      clear: (file) => {
+        asked.push(`clear ${file}`);
+      },
+      read: () => ({ kind: 'missing' }),
+    },
     clone: () => join('/work', 'acme.api', 'clone.git'),
     env: { base: {}, forced: {} },
     clock: () => now,
@@ -187,6 +204,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       `map of acme/api at ${tip}`,
       `manifests **/*.csproj in ${worktree}`,
       `map of acme/api at ${base}`,
+      ...clearing,
       `reports svc/test/*/TestResults in ${worktree}`,
     ]);
   });
@@ -219,14 +237,24 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       ['failed', false],
     );
     // The manifests before the run, and nothing of the map after it.
-    assert.deepEqual(asked, [`map of acme/api at ${tip}`, `manifests **/*.csproj in ${worktree}`]);
+    assert.deepEqual(asked, [
+      `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${base}`,
+      ...clearing,
+    ]);
   });
 
-  it('reads no map after a test check that did not exit', async () => {
+  it("looks for no new module's report for a test check that did not exit", async () => {
     const { run, asked } = setup({ testExit: null });
     const end = await run();
     assert.equal(end.ending.kind, 'failed');
-    assert.deepEqual(asked, [`map of acme/api at ${tip}`, `manifests **/*.csproj in ${worktree}`]);
+    assert.deepEqual(asked, [
+      `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${base}`,
+      ...clearing,
+    ]);
   });
 
   it('finds the start of a repository whose worktree names it in another case: regression test', async () => {
@@ -244,6 +272,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       `map of Acme/API at ${tip}`,
       `manifests **/*.csproj in ${worktree}`,
       `map of Acme/API at ${base}`,
+      ...clearing,
       `reports web/test-results.xml in ${worktree}`,
       `reports svc/test/*/TestResults in ${worktree}`,
     ]);
@@ -266,6 +295,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       `map of acme/api at ${tip}`,
       `manifests **/*.csproj in ${worktree}`,
       `map of acme/api at ${merged}`,
+      ...clearing,
       `reports web/test-results.xml in ${worktree}`,
       `reports svc/test/*/TestResults in ${worktree}`,
     ]);
