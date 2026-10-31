@@ -1,14 +1,23 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
-import { orderName } from '../engine/claim-orders.ts';
-import { type Batch, type Pause, runningAttempt, type State } from '../engine/fold.ts';
+import { claimOfOrder, orderName } from '../engine/claim-orders.ts';
+import {
+  attemptRecipeOf,
+  type Batch,
+  type Pause,
+  runningAttempt,
+  type State,
+} from '../engine/fold.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
-import type { StuckReason, WaitCondition } from '../schemas/events.ts';
+import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
+import { PLANNING_RECIPES } from '../schemas/plan.ts';
+import { addUsage, number } from './brewer-report.ts';
 import { columns } from './columns.ts';
 
 const waitingFor = (on: WaitCondition): string => {
@@ -164,4 +173,95 @@ export const formatStatus = (
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
   const after = kept.length === 0 ? [] : ['', ...kept];
   return `${[...window, count, '', ...columns(rows), ...after].join('\n')}\n`;
+};
+
+/**
+ * The batches of `order`, in the order they were ordered: its own and its sub-orders' (ADR 0295).
+ * A Brewery issue with no batch of its own is the order of the claimed issue it names (ADR 0144).
+ * Sub-orders never plan again (ADR 0285), so one level holds them all.
+ */
+export const orderBatches = (state: State, order: OrderRef): Batch[] => {
+  const all = [...state.batches.values()];
+  const of = ({ issue, repo }: OrderRef) =>
+    all.filter(
+      (batch) =>
+        batch.issue === issue &&
+        (repo === undefined
+          ? batch.repo === undefined
+          : batch.repo !== undefined && sameRepo(batch.repo, repo)),
+    );
+  const own = of(order);
+  if (own.length === 0 && order.repo === undefined) {
+    const claimed = claimOfOrder(state, order.issue);
+    if (claimed !== undefined) return of({ issue: claimed.issue, repo: claimed.repo });
+  }
+  if (order.repo !== undefined) return own;
+  const subOrders = state.orders.get(order.issue)?.subOrders ?? [];
+  const ids = new Set([
+    ...own.map(({ id }) => id),
+    ...subOrders.flatMap((issue) => state.subOrders.get(issue)?.batchIds ?? []),
+  ]);
+  return all.filter(({ id }) => ids.has(id));
+};
+
+/** What an order's attempts used: its planning (`mash-in`, `mash`) and its brewing (ADR 0295). */
+export interface OrderTokens {
+  planning: Usage;
+  brewing: Usage;
+}
+
+/**
+ * The usage of `batches`' attempts, split by the recipe each was scheduled under: a planning
+ * recipe's is planning, any other's brewing; an attempt that reported none adds nothing.
+ */
+export const orderTokens = (state: State, batches: readonly Batch[]): OrderTokens => {
+  const none = (): Usage => ({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  });
+  const tokens = { planning: none(), brewing: none() };
+  for (const batch of batches) {
+    for (const step of batch.steps.values()) {
+      for (const attempt of step.attempts.values()) {
+        if (attempt.phase !== 'finished') continue;
+        const ref = { batchId: batch.id, stepId: step.id, attempt: attempt.attempt };
+        const recipe = attemptRecipeOf(state, ref);
+        const planning = recipe !== undefined && PLANNING_RECIPES.includes(recipe);
+        addUsage(planning ? tokens.planning : tokens.brewing, attempt.usage);
+      }
+    }
+  }
+  return tokens;
+};
+
+/** `3,675 tokens (310 input, 65 output, 3,000 cache read, 300 cache write)`, or none reported. */
+const usageText = (usage: Usage): string => {
+  const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens } = usage;
+  const total = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
+  if (total === 0) return 'none reported';
+  return `${number(total)} tokens (${number(inputTokens)} input, ${number(outputTokens)} output, ${number(cacheReadTokens)} cache read, ${number(cacheWriteTokens)} cache write)`;
+};
+
+/**
+ * What `foedrum status <order>` prints: the board of the order's `batches`, then what its planning
+ * and its brewing took, never a cost (ADR 0181, ADR 0295).
+ */
+export const formatOrderStatus = (
+  state: State,
+  batches: readonly Batch[],
+  interactive: ReadonlyMap<string, string> = new Map(),
+): string => {
+  const rows = batches.map((batch) => statusRow(state, batch, interactive));
+  const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
+  const { planning, brewing } = orderTokens(state, batches);
+  return `${[
+    count,
+    '',
+    ...columns(rows),
+    '',
+    `planning: ${usageText(planning)}`,
+    `brewing: ${usageText(brewing)}`,
+  ].join('\n')}\n`;
 };

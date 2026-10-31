@@ -37,7 +37,7 @@ export const Touch = z.strictObject({
 export type Touch = z.infer<typeof Touch>;
 
 /** The recipes that plan, which a sub-order may not name (ADR 0285). */
-const PLANNING_RECIPES = ['mash', 'mash-in'];
+export const PLANNING_RECIPES: readonly string[] = ['mash', 'mash-in'];
 
 /** A sub-order of the plan waits for another's code or for its release, as `Dependency` does. */
 export const PlanDependency = z.strictObject({ on: PlanId, kind: Dependency.shape.kind });
