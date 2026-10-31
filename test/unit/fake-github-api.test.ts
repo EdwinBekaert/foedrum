@@ -8,7 +8,7 @@ import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { githubTargetTracker } from '../../src/github/tracker.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { fakeGitHubApi, headOf } from '../helpers/fake-github-api.ts';
 
 const api = 'https://api.github.com';
 
@@ -55,5 +55,24 @@ describe('the fake GitHub API', () => {
     const { github, number } = await opened();
     const answer = await github.fetch(`${api}/repos/acme/web/pulls/${number + 1}`);
     assert.equal(answer.status, 404);
+  });
+
+  it('answers 404 to a change of a pull request it opened, which it does not make (regression test)', async () => {
+    const { github, number } = await opened();
+    const answer = await github.fetch(`${api}/repos/acme/web/pulls/${number}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ body: 'Closes #7, again' }),
+    });
+    assert.equal(answer.status, 404);
+  });
+
+  it('answers 404 to the checks of a commit no pull request it opened heads (regression test)', async () => {
+    const { github, number } = await opened();
+    for (const sha of [headOf(number + 1), headOf(number).replace(/^e/, 'a')]) {
+      const answer = await github.fetch(`${api}/repos/acme/web/commits/${sha}/check-runs`);
+      assert.equal(answer.status, 404, sha);
+    }
+    const ours = await github.fetch(`${api}/repos/acme/web/commits/${headOf(number)}/status`);
+    assert.equal(ours.status, 200);
   });
 });
