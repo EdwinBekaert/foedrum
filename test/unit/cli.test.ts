@@ -983,6 +983,54 @@ describe('foedrum status <order> (ADR 0295)', () => {
     );
   });
 
+  it("status of a target issue leaves out another repository's issue with its number", async () => {
+    const twoRepos: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: 'web-11',
+        order: { issue: 11, repo: 'acme/web' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      ...attempt('web-11', 'build', 1, [9000, 0, 0, 0]),
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+    ];
+    const result = await run(['status', 'app#11'], {
+      openStore: () => storeWith(twoRepos),
+      config: appConfig,
+    });
+    assert.match(result.stdout, /^1 batch\n/);
+    assert.match(result.stdout, /^ +app-11 /m);
+    assert.doesNotMatch(result.stdout, /^ +web-11 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it('status of an order shows the interactive driver that leases one of its batches', async () => {
+    const store = storeWith([ordered(11)]);
+    const expiresAt = new Date(new Date(D1).getTime() + 60_000);
+    store.withTransaction((tx) => {
+      tx.putBatchLease({ batchId: '11-1', owner: 'session-abc', expiresAt });
+    });
+    const result = await run(['status', '11'], { openStore: () => store, config: roomy });
+    assert.match(result.stdout, /^ +11-1 +#11 +ordered +.*; brewed interactively by session-abc$/m);
+  });
+
+  it('status of an order in a Brewery without an event store is refused, exit 1', async () => {
+    assert.deepEqual(await run(['status', '12']), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status: no batch brews #12\n',
+    });
+  });
+
   it('status --watch with an order is refused, since the board shows every batch', async () => {
     assert.deepEqual(await run(['status', '11', '--watch']), {
       exitCode: 1,
