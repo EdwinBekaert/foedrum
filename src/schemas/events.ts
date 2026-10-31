@@ -313,6 +313,21 @@ export const MAX_UNCHECKED_LENGTH = 500;
 export const Answer = z.strictObject({ q: NonEmpty, answer: NonEmpty });
 export type Answer = z.infer<typeof Answer>;
 
+/** The most stale paths `step.finished` keeps of a stale test map (ADR 0282). */
+export const MOST_STALE_PATHS = 10;
+
+/**
+ * A test map a check step found stale and did not fail for (ADR 0274, ADR 0282): where it is kept,
+ * the first stale paths (a manifest added or removed, a report outside the map, a module's missing
+ * report), and how many more there were.
+ */
+export const StaleMap = z.strictObject({
+  kept: z.enum(['repo', 'brewery']),
+  paths: z.array(NonEmpty.max(1_000)).min(1).max(MOST_STALE_PATHS),
+  more: Count,
+});
+export type StaleMap = z.infer<typeof StaleMap>;
+
 /** The most open findings a Stuck reason keeps of a findings route that ran out (ADR 0192). */
 export const MOST_OPEN_FINDINGS = 10;
 /** The most of a kept finding's file or `why`: what the status comment reads of it (ADR 0088). */
@@ -626,6 +641,8 @@ export const Event = z.discriminatedUnion('type', [
     usageLimited: z.literal(true).optional(),
     // A blocking Taster's findings, when it asked for changes (ADR 0221).
     findings: RecordedFindings.optional(),
+    // A check step's: the test map it found stale without failing for it (ADR 0282).
+    staleMap: StaleMap.optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

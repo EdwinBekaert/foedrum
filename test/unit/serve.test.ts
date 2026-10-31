@@ -1602,15 +1602,18 @@ Plan the order in {order}.
           },
         ],
       });
-      // Every worktree is at one commit: the base has no map, the check step's tip has one.
+      // Every worktree is at one commit: the check step's tip has a map, read first for its
+      // manifests (ADR 0282), and the base has none.
       let lists = 0;
       const git: Git = async (_cwd, args) => {
         if (args[0] === 'ls-tree') {
           lists += 1;
-          const stdout = lists === 1 ? '' : `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`;
+          const stdout = lists === 2 ? '' : `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`;
           return { code: 0, stdout, stderr: '' };
         }
         if (args[0] === 'cat-file' && args[2] === blob) return { code: 0, stdout: map, stderr: '' };
+        // The map's manifests at the step's tip, as it records them (ADR 0282).
+        if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
         throw new Error(`unexpected: ${args.join(' ')}`);
       };
       const { batch } = await brewWithChecks(0, { git });
@@ -1645,6 +1648,8 @@ Plan the order in {order}.
       };
       const asked: string[] = [];
       const git: Git = async (_cwd, args) => {
+        // The worktree's manifests are listed for the Brewery's map too (ADR 0282).
+        if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
         asked.push(args.join(' '));
         throw new Error('no git read of the map');
       };
@@ -1652,6 +1657,46 @@ Plan the order in {order}.
       const { batch } = await brewWithChecks(0, { serving, git });
       assert.equal(batch?.lane.kind, 'on_tap');
       assert.deepStrictEqual(asked, []);
+    });
+
+    it('records a stale Brewery-kept test map and the batch goes on tap: the wiring says where it is kept (ADR 0282)', async () => {
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['test/**'] },
+            testReport: { format: 'junit', path: 'web-results.xml' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const serving = {
+        ...setup,
+        repositories: setup.repositories.map((repository) => ({
+          ...repository,
+          testMap: { text: map },
+        })),
+      };
+      const git: Git = async (_cwd, args) => {
+        // A manifest the map does not record, and a change that touched it.
+        if (args[0] === 'ls-files') {
+          return { code: 0, stdout: 'package.json\0api/package.json\0', stderr: '' };
+        }
+        if (args[0] === 'diff') return { code: 0, stdout: 'api/package.json\0', stderr: '' };
+        throw new Error(`unexpected: ${args.join(' ')}`);
+      };
+      const { batch, events } = await brewWithChecks(0, { serving, git });
+      assert.equal(batch?.lane.kind, 'on_tap');
+      const green = events.find(
+        (event) => event.type === 'step.finished' && event.stepId === 'green',
+      );
+      assert.deepStrictEqual(green?.type === 'step.finished' ? green.staleMap : undefined, {
+        kept: 'brewery',
+        paths: ['api/package.json (added)', 'web-results.xml (no report of module "web")'],
+        more: 0,
+      });
     });
 
     it("sticks the batch when the Brewery's test map of the repository does not parse: regression test", async () => {

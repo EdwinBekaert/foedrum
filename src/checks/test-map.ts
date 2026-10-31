@@ -261,3 +261,28 @@ export const sensitivePathsOf = (repository: {
   ...(repository.sensitivePaths ?? []),
   ...(repository.testMap === 'brewery' ? [] : [TEST_MAP_PATH]),
 ];
+
+/**
+ * How a test map's manifests compare with the files its `derivedFrom.globs` match in a worktree
+ * (ADR 0274, ADR 0282): fresh, stale with the paths the globs match now and the map does not
+ * record (`added`) and those it records that they no longer match (`removed`), or why git could
+ * not list them.
+ */
+export type ManifestFreshness =
+  | { kind: 'fresh' }
+  | { kind: 'stale'; added: string[]; removed: string[] }
+  | { kind: 'unread'; reason: string };
+
+/** Compares `map`'s manifests with the files of the worktree `worktree` at its checked-out tip. */
+export type ReadManifestFreshness = (
+  worktree: string,
+  map: TestMap,
+  signal?: AbortSignal,
+) => Promise<ManifestFreshness>;
+
+/** `git ls-files` of the map's globs in the worktree, compared as sets with `derivedFrom.paths`. */
+export const manifestFreshness =
+  (_git: Git): ReadManifestFreshness =>
+  async () => {
+    throw new Error('not implemented');
+  };

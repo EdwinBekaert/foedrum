@@ -194,6 +194,7 @@ const setup = ({
           testMap: {
             at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
             reports: () => ({ paths: [] }),
+            manifests: async () => ({ kind: 'fresh' as const }),
           },
         }),
   });

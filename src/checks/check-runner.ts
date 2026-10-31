@@ -36,7 +36,12 @@ import {
 import { judgeRed, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
-import { type MapRead, type ReadTestMapAt, reportPaths } from './test-map.ts';
+import {
+  type MapRead,
+  type ReadManifestFreshness,
+  type ReadTestMapAt,
+  reportPaths,
+} from './test-map.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
@@ -86,6 +91,21 @@ export interface CheckRunnerOptions {
     at: ReadTestMapAt;
     /** Default the file system's. */
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
+    /** Where a repository's map is kept (ADR 0018); default in the repository. */
+    keptIn?: (repo: string) => 'repo' | 'brewery';
+    /** A map's manifests against a worktree's files (ADR 0282); default git's. */
+    manifests?: ReadManifestFreshness;
+    /**
+     * The paths among `paths` (globs) that the commits from `from` to `to` changed, read in the
+     * clone; default git's.
+     */
+    touched?: (
+      repo: string,
+      from: string,
+      to: string,
+      paths: readonly string[],
+      signal?: AbortSignal,
+    ) => Promise<{ paths: string[] } | { unread: string }>;
   };
 }
 

@@ -7,11 +7,12 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { ManifestFreshness, MapRead } from '../../src/checks/test-map.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
+import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { CheckRef } from '../../src/schemas/recipe.ts';
@@ -96,6 +97,14 @@ const setup = ({
   refused = {} as Record<string, string>,
   /** null: the test check was killed at its deadline. */
   testExit = 0 as number | null,
+  /** Where the map is kept (ADR 0018). */
+  keptIn = 'repo' as 'repo' | 'brewery',
+  /** The tip map's manifests against the worktree's files. */
+  manifests = { kind: 'fresh' } as ManifestFreshness,
+  /** The paths among the map and its globs that the batch's change touched. */
+  touched = [] as string[],
+  /** The test report foedrum.jsonc names. */
+  testReport = undefined as { format: 'junit'; path: string } | undefined,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -117,7 +126,7 @@ const setup = ({
     state: () => fold([...started, ...more]),
     checks: stepChecks,
     repositoryChecks: () => repository,
-    testReport: () => undefined,
+    testReport: () => testReport,
     exec,
     git: () => Promise.reject(new Error('the maps come from testMap')),
     clone: () => join('/work', 'acme.api', 'clone.git'),
@@ -133,6 +142,15 @@ const setup = ({
         asked.push(`reports ${pattern} in ${root}`);
         const why = refused[pattern];
         return why === undefined ? { paths: found[pattern] ?? [] } : { refused: why };
+      },
+      keptIn: () => keptIn,
+      manifests: async (root, map) => {
+        asked.push(`manifests ${map.derivedFrom.globs.join(' ')} in ${root}`);
+        return manifests;
+      },
+      touched: async (repo, from, to, paths) => {
+        asked.push(`touched ${paths.join(' ')} in ${repo} from ${from} to ${to}`);
+        return { paths: touched };
       },
     },
   });
@@ -164,9 +182,11 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
         ['test', 'exited'],
       ],
     );
+    // The tip's map is read once, for its manifests before the run (ADR 0282).
     assert.deepEqual(asked, [
-      `map of acme/api at ${base}`,
       `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${base}`,
       `reports svc/test/*/TestResults in ${worktree}`,
     ]);
   });
@@ -198,14 +218,15 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       end.ending.kind === 'failed' ? [end.ending.kind, end.ending.retryable] : end.ending,
       ['failed', false],
     );
-    assert.deepEqual(asked, []);
+    // The manifests before the run, and nothing of the map after it.
+    assert.deepEqual(asked, [`map of acme/api at ${tip}`, `manifests **/*.csproj in ${worktree}`]);
   });
 
-  it('reads no map for a test check that did not exit', async () => {
+  it('reads no map after a test check that did not exit', async () => {
     const { run, asked } = setup({ testExit: null });
     const end = await run();
     assert.equal(end.ending.kind, 'failed');
-    assert.deepEqual(asked, []);
+    assert.deepEqual(asked, [`map of acme/api at ${tip}`, `manifests **/*.csproj in ${worktree}`]);
   });
 
   it('finds the start of a repository whose worktree names it in another case: regression test', async () => {
@@ -219,7 +240,13 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const { run, asked } = setup({ started: renamed, maps });
     const end = await run();
     assert.equal(end.ending.kind, 'succeeded');
-    assert.deepEqual(asked, [`map of Acme/API at ${base}`, `map of Acme/API at ${tip}`]);
+    assert.deepEqual(asked, [
+      `map of Acme/API at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of Acme/API at ${base}`,
+      `reports web/test-results.xml in ${worktree}`,
+      `reports svc/test/*/TestResults in ${worktree}`,
+    ]);
   });
 
   it('takes the base the batch merged as the base of its map (ADR 0164)', async () => {
@@ -235,7 +262,13 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const { run, asked } = setup({ more, maps });
     const end = await run();
     assert.equal(end.ending.kind, 'succeeded');
-    assert.deepEqual(asked, [`map of acme/api at ${merged}`, `map of acme/api at ${tip}`]);
+    assert.deepEqual(asked, [
+      `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${merged}`,
+      `reports web/test-results.xml in ${worktree}`,
+      `reports svc/test/*/TestResults in ${worktree}`,
+    ]);
   });
 
   it("sticks the batch on its environment when the base's map cannot be read", async () => {
@@ -271,5 +304,135 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       blockerKind: 'environment',
       summary: `the test report of module "billing" cannot be looked for: ${why}`,
     });
+  });
+});
+
+describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
+  const fresh = { [base]: mapOf(web), [tip]: mapOf(web) };
+  const stale: ManifestFreshness = {
+    kind: 'stale',
+    added: ['svc/test/Billing.Tests/Billing.Tests.csproj'],
+    removed: ['old/Old.csproj'],
+  };
+  const named = ['svc/test/Billing.Tests/Billing.Tests.csproj (added)', 'old/Old.csproj (removed)'];
+
+  it('a step whose tip leaves the map stale by manifests fails back along onFail naming the paths', async () => {
+    const { run, asked } = setup({
+      maps: fresh,
+      manifests: stale,
+      touched: ['svc/test/Billing.Tests/Billing.Tests.csproj'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason:
+        'the test map of acme/api is stale: its derivedFrom.globs match ' +
+        'svc/test/Billing.Tests/Billing.Tests.csproj (added), old/Old.csproj (removed); ' +
+        'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+    });
+    // Before the run: no check ran.
+    assert.equal(end.readings, undefined);
+    assert.deepEqual(asked, [
+      `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `touched .foedrum/test-map.jsonc **/*.csproj in acme/api from ${base} to ${tip}`,
+    ]);
+  });
+
+  it('records a map the batch did not make stale without failing the step', async () => {
+    const { run } = setup({ maps: fresh, manifests: stale, touched: [] });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap, { kept: 'repo', paths: named, more: 0 });
+  });
+
+  it('finds the map stale when a run writes a report outside every module', async () => {
+    const { run } = setup({
+      maps: fresh,
+      testReport: { format: 'junit', path: 'out/results.xml' },
+      found: {
+        'web/test-results.xml': [join(worktree, 'web', 'test-results.xml')],
+        'out/results.xml': [join(worktree, 'out', 'results.xml')],
+      },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap, {
+      kept: 'repo',
+      paths: ['out/results.xml (a report outside the map)'],
+      more: 0,
+    });
+  });
+
+  it("finds the map stale when a passing run writes no report where the map says a module's is", async () => {
+    const { run } = setup({ maps: fresh, found: {} });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap, {
+      kept: 'repo',
+      paths: ['web/test-results.xml (no report of module "web")'],
+      more: 0,
+    });
+  });
+
+  it('names a stale Brewery-kept map in the status comment without failing the step', async () => {
+    const { run, asked } = setup({
+      maps: fresh,
+      keptIn: 'brewery',
+      manifests: stale,
+      touched: ['svc/test/Billing.Tests/Billing.Tests.csproj'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    const staleMap = { kept: 'brewery' as const, paths: named, more: 0 };
+    assert.deepEqual(end.staleMap, staleMap);
+    // A batch cannot change the Brewery's map, so what its change touched is not read.
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('touched')),
+      [],
+    );
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      staleMap,
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    assert.ok(
+      renderStatus(batch).includes(
+        "The Brewery's test map is stale: svc/test/Billing.Tests/Billing.Tests.csproj (added), old/Old.csproj (removed)",
+      ),
+      renderStatus(batch),
+    );
+    // Without the stale map, no such line.
+    const { staleMap: _, ...without } = finished;
+    const plain = fold([...events, without]).batches.get('12-1') ?? assert.fail();
+    assert.ok(!renderStatus(plain).includes('test map is stale'), renderStatus(plain));
+  });
+
+  it('a fresh map passes every step as before: regression test', async () => {
+    const { run } = setup({ maps: fresh });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.check, reading.result]),
+      [
+        ['typecheck', 'exited'],
+        ['test', 'exited'],
+      ],
+    );
+  });
+
+  it('a repository with no test map brews as before: regression test', async () => {
+    const { run, asked } = setup({ maps: {}, manifests: stale, touched: ['a.csproj'] });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('manifests') || line.startsWith('touched')),
+      [],
+    );
   });
 });

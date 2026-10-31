@@ -11,6 +11,7 @@ import {
   breweryMapPath,
   type EffectiveModule,
   effectiveMap,
+  manifestFreshness,
   readTestMap,
   reportPaths,
   testMaps,
@@ -467,5 +468,45 @@ describe('the test map: edges the review of #715 named', () => {
     const every = { atBase: ['Web/Src/a.ts'], deleted: ['web/src/a.ts'] };
     assert.deepEqual(names(effectiveMap(mapOf(web), undefined, every, true)), []);
     assert.deepEqual(names(effectiveMap(mapOf(web), undefined, every, false)), [['web', false]]);
+  });
+});
+
+describe("manifestFreshness: the map against its manifests at a step's tip (ADR 0274, ADR 0282)", () => {
+  const worktree = join('/work', 'acme.api', 'attempts', '12-1', 'green', '1');
+  const recorded: TestMap = {
+    derivedFrom: { globs: ['**/package.json', '--output=x'], paths: ['web/package.json'] },
+    modules: [web],
+  };
+  /** git in the worktree: `ls-files` lists `listed`. */
+  const gitListing = (listed: readonly string[]) => {
+    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const git: Git = (cwd, args) => {
+      calls.push({ cwd, args });
+      const stdout = listed.map((path) => `${path}\0`).join('');
+      return Promise.resolve({ code: 0, stdout, stderr: '' });
+    };
+    return { git, calls };
+  };
+
+  it('finds the map stale when a manifest its globs match is added', async () => {
+    const { git } = gitListing(['web/package.json', 'api/package.json']);
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'stale', added: ['api/package.json'], removed: [] });
+  });
+
+  it('passes the globs to git ls-files after --', async () => {
+    const { git, calls } = gitListing(['web/package.json']);
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'fresh' });
+    assert.equal(calls.length, 1);
+    const [call] = calls;
+    assert.equal(call?.cwd, worktree);
+    const args = call?.args ?? [];
+    assert.equal(args[0], 'ls-files');
+    // Every glob after --, so one that starts with a dash is never read as an option.
+    const dashes = args.indexOf('--');
+    assert.ok(dashes > 0, args.join(' '));
+    assert.deepEqual(args.slice(dashes + 1), [':(glob)**/package.json', ':(glob)--output=x']);
+    assert.ok(args.includes('-z'), args.join(' '));
   });
 });
