@@ -436,6 +436,15 @@ describe('decide finish', () => {
     });
   });
 
+  it("records what a check step's uncovered-line check did not measure (ADR 0274): regression test", () => {
+    const coverage = { notLoaded: { files: ['src/types.ts'], more: 0 }, unmeasured: ['legacy'] };
+    const decision = decide(fold(brewing()), { ...finish(final), coverage } as Command, context);
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events[0], {
+      ...finished(final),
+      coverage,
+    });
+  });
+
   it('records the house-yeast rules the attempt was given (ADR 0169)', () => {
     const houseYeast = { selected: ['cents'], cut: [], invalid: ['house-yeast/x.md'] };
     const decision = decide(fold(brewing()), { ...finish(final), houseYeast } as Command, context);

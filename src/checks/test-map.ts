@@ -254,6 +254,21 @@ export const reportPaths = (
 };
 
 /**
+ * Why a report pattern a map names is never cleared, or undefined: one that names git's own files,
+ * or a lone `*` that names every top folder of the worktree. A batch's map is a brewer's to write.
+ */
+export const unclearable = (pattern: string): string | undefined => {
+  const segments = pattern.split('/');
+  if (segments.some((segment) => segment.toLowerCase() === '.git')) {
+    return `${pattern} is git's own, never a report`;
+  }
+  if (segments.length === 1 && pattern.includes('*')) {
+    return `${pattern} names every top folder of the worktree`;
+  }
+  return undefined;
+};
+
+/**
  * Clears every file or folder the report patterns name in the worktree `root`, before a run, so a
  * report an earlier run left never stands for this one's (ADR 0274); why not, or undefined.
  */
