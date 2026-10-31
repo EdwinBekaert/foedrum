@@ -41,7 +41,7 @@ import {
   type WorktreeRef,
 } from '../schemas/events.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
-import type { TestMap } from '../schemas/test-map.ts';
+import type { TestMap, TestMapModule } from '../schemas/test-map.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   type PlannedCheck,
@@ -374,6 +374,53 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
+   * The test reports `module` wrote where the test map says, after a run in `worktree`: why the
+   * step is Stuck on its environment when its pattern is refused or names a folder, or why it
+   * failed when a report cannot be read or is not of its format (ADR 0274).
+   */
+  const testReportsOf = (
+    module: TestMapModule,
+    worktree: WorktreeRef,
+  ): { reports: MappedReport[] } | { stuck: string } | { failed: string } => {
+    const find = options.testMap?.reports ?? reportPaths;
+    const isFolder = options.testMap?.isFolder ?? folderAt;
+    const { name, testReport } = module;
+    const found = find(testReport.path, worktree.path);
+    if ('refused' in found) {
+      return {
+        stuck: `the test report of module "${name}" cannot be looked for: ${found.refused}`,
+      };
+    }
+    const read: MappedReport[] = [];
+    for (const file of found.paths) {
+      const shown = relative(worktree.path, file).split(sep).join('/');
+      // A test report is a file: a folder is no report a brewer could fix by committing.
+      if (isFolder(file)) {
+        const extension = testReport.format === 'tap' ? 'tap' : 'xml';
+        return {
+          stuck: `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension} (ADR 0274)`,
+        };
+      }
+      const text = reports.read(file, worktree.path);
+      if (text.kind === 'missing') continue;
+      if (text.kind === 'unread') {
+        return {
+          failed: `the test report ${shown} of module "${name}" cannot be read: ${text.reason}`,
+        };
+      }
+      const parsed = testReport.format === 'tap' ? parseTap(text.text) : parseJunit(text.text);
+      if (!parsed.readable) {
+        const format = testReport.format === 'tap' ? 'TAP' : 'JUnit XML';
+        return {
+          failed: `the test report ${shown} of module "${name}" is not ${format}: ${parsed.reason}`,
+        };
+      }
+      read.push({ ...parsed.report, module: name });
+    }
+    return { reports: read };
+  };
+
+  /**
    * A red proof in a repository with a test map (ADR 0274): every report path of the map cleared,
    * the confirmed test line run once, and each module's report read where the map says, judged by
    * the five checks that read no test's name. A module the base lists that wrote no report is a
@@ -390,7 +437,6 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     diff: readonly DiffFile[],
   ): Promise<AttemptEnd> => {
     const find = options.testMap?.reports ?? reportPaths;
-    const isFolder = options.testMap?.isFolder ?? folderAt;
     const patterns = modules.flatMap(({ module }) => [
       module.testReport.path,
       ...(module.coverage === 'none' ? [] : [module.coverage.path]),
@@ -419,40 +465,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const unreported: string[] = [];
     for (const { module, added } of modules) {
       const { name, testReport } = module;
-      const found = find(testReport.path, worktree.path);
-      if ('refused' in found) {
-        return stuck(`the test report of module "${name}" cannot be looked for: ${found.refused}`);
-      }
-      let wrote = 0;
-      for (const file of found.paths) {
-        const shown = relative(worktree.path, file).split(sep).join('/');
-        // A test report is a file: a folder is no report a brewer could fix by committing.
-        if (isFolder(file)) {
-          const extension = testReport.format === 'tap' ? 'tap' : 'xml';
-          return stuck(
-            `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension} (ADR 0274)`,
-          );
-        }
-        const text = reports.read(file, worktree.path);
-        if (text.kind === 'missing') continue;
-        if (text.kind === 'unread') {
-          return failed(
-            `the test report ${shown} of module "${name}" cannot be read: ${text.reason}`,
-          );
-        }
-        const parsed = testReport.format === 'tap' ? parseTap(text.text) : parseJunit(text.text);
-        if (!parsed.readable) {
-          const format = testReport.format === 'tap' ? 'TAP' : 'JUnit XML';
-          return failed(
-            `the test report ${shown} of module "${name}" is not ${format}: ${parsed.reason}`,
-          );
-        }
-        read.push({ ...parsed.report, module: name });
-        wrote++;
-      }
+      const wrote = testReportsOf(module, worktree);
+      if ('stuck' in wrote) return stuck(wrote.stuck);
+      if ('failed' in wrote) return failed(wrote.failed);
+      read.push(...wrote.reports);
       // A module the batch added that wrote nothing may be one no confirmed line reaches (ADR 0280).
       if (added) continue;
-      if (wrote === 0)
+      if (wrote.reports.length === 0)
         unreported.push(`module "${name}" wrote no test report at ${testReport.path}`);
       if (module.coverage === 'none') continue;
       const coverage = find(module.coverage.path, worktree.path);
