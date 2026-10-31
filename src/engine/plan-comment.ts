@@ -14,7 +14,7 @@ import {
   longestComment,
 } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
-import type { Batch, State } from './fold.ts';
+import type { Approval, Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink } from './state-branch.ts';
@@ -114,6 +114,8 @@ export const renderPlan = (
   fullPlan?: string,
   /** Whether the batch waits Stuck for a review of this plan, which the last line says what to do with. */
   waitsForReview = false,
+  /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
+  approval?: Approval,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -146,10 +148,19 @@ export const renderPlan = (
             `Chosen because: ${plain(told(alternatives.whyThis))}`,
           ],
         ];
-  // Filled by the plan lenses (#587) and the gate (#588).
+  // The Review is filled by the plan lenses (#587); the Gate by approve (ADR 0281).
+  // An approved plan's sub-orders that are not ready stay so until #589 corrects them.
+  const notReady = subOrders.filter(({ ready }) => !ready).map(({ id }) => code(told(id)));
+  const gate =
+    approval !== undefined
+      ? [
+          `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`,
+          ...(notReady.length === 0 ? [] : ['', `Not ready: ${notReady.join(', ')}.`]),
+        ]
+      : [waitsForReview ? `Waiting for ${code(`foedrum approve ${batchId}`)}.` : 'None yet.'];
   const after = [
     ['**Review**', '', 'None yet.'],
-    ['**Gate**', '', 'None yet.'],
+    ['**Gate**', '', ...gate],
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
@@ -248,9 +259,11 @@ const planDue = (
     stateBranchUrl === undefined
       ? undefined
       : outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true);
-  const { lane } = batch;
+  const { lane, approval } = batch;
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
-  const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan, review);
+  // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
+  const commits = knownCommits(state, batchId);
+  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };

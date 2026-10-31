@@ -224,6 +224,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.stuck':
         end = { kind: 'stuck', reason: stuckReason(event.reason) };
         break;
+      case 'batch.approved':
       case 'batch.resumed':
       case 'batch.rewound':
         end = undefined;

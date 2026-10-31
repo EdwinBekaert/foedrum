@@ -125,11 +125,11 @@ export const code = (id: string): string => `\`${id}\``;
 export const STEP_BACK = 'Another round is unlikely to help: plan the order again, or split it.';
 
 /**
- * What a person does with a plan that waits for its review, until the gate signs one off (#588)
- * and its sub-orders become sub-issues (#590): `command` writes a command as the reader shows it.
+ * What a person does with a plan that waits for its review (ADR 0281), until its sub-orders become
+ * sub-issues (#590): `command` writes a command as the reader shows it.
  */
 export const planNextStep = (batchId: string, command: (text: string) => string): string =>
-  `read the plan and its assumptions. To plan it again, run ${command(`foedrum retry ${batchId}`)}; to build it, end it with ${command(`foedrum cancel ${batchId}`)} and order its sub-orders by hand: Foedrum builds nothing from a plan yet.`;
+  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}. Its sub-orders become issues once #590 is built.`;
 
 /** `rounds` rounds of a findings route, in words. */
 export const roundsText = (rounds: number): string =>
@@ -439,7 +439,7 @@ const laneText = (batch: Batch, told: Told, planComment?: string): string[] => {
       return [
         `🔔 **Stuck**: ${stuckText(reason, told, batch, planComment)}`,
         ...questions,
-        // Until the gate signs a plan off (#588), what to do with it by hand (ADR 0275).
+        // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
         ...(reason.kind === 'plan_review' ? [`Next: ${planNextStep(batch.id, code)}`] : []),
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
@@ -447,8 +447,12 @@ const laneText = (batch: Batch, told: Told, planComment?: string): string[] => {
         `Get it moving with ${options.map(code).join(', ')}.`,
       ];
     }
-    case 'on_tap':
-      return ['🍻 **On tap**'];
+    case 'on_tap': {
+      // A plan a person signed off is on tap with no pull request (ADR 0281).
+      const { approval } = batch;
+      if (approval === undefined) return ['🍻 **On tap**'];
+      return [`🍻 **On tap**: plan approved by ${plain(approval.by)} (${approval.via})`];
+    }
     case 'cancelled':
       return [`🚫 **Cancelled** by ${plain(lane.by)} (${lane.via})`];
     default:
@@ -458,7 +462,8 @@ const laneText = (batch: Batch, told: Told, planComment?: string): string[] => {
 
 /**
  * What a batch on tap with a plan and no pull request says: the plan comment shows it (ADR 0234).
- * Only a batch recorded before a plan waited Stuck for its review (ADR 0275) is on tap with one.
+ * A batch is on tap with one when a person approved it (ADR 0281), or when it was recorded before
+ * a plan waited Stuck for its review (ADR 0275).
  */
 const PLANNED =
   'No pull request: the plan is in its own comment on this issue, and nothing is built from it yet.';
