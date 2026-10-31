@@ -16,6 +16,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
+import { expiredLeaseReason } from '../../src/engine/supervisor.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
@@ -386,6 +387,28 @@ describe('runResumeRunning (ADR 0127)', () => {
       'foedrum resume: brew#1 succeeded before it was stopped; nothing was resumed',
     );
     assert.equal(resumeLease(t0), undefined);
+  });
+
+  it('says the attempt the Cellar lost before it was stopped was lost because the Cellar stopped, without the owner of the lease or a UTC time (#277)', async () => {
+    const setup = setupWith(1);
+    cellarRuns(setup);
+    // The supervisor finds the Cellar's lease of brew#1 expired before the Cellar stops its run, and
+    // brew has no retry left.
+    const lost = (): void => {
+      const log = createCommandLog({ store, recipes: setup.recipes });
+      const state = log.state().batches.get('12-1')?.steps.get('brew')?.attempts.get(1);
+      if (state?.phase !== 'started') return;
+      const reason = expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z'));
+      assert.equal(log.issue({ kind: 'lose', ...brew1, reason }, t0).kind, 'accepted');
+      store.withTransaction((tx) => tx.releaseLease(attemptKey.encode(brew1)));
+    };
+    const result = await runResumeRunning(setup, shell(behave.succeed(), lost), request);
+    assert.equal(result, 1);
+    assert.deepStrictEqual(started, []);
+    assert.equal(
+      lines.at(-1),
+      'foedrum resume: brew#1 failed: the attempt was lost: the Cellar running it stopped, so its lease ran out before it was stopped; nothing was resumed',
+    );
   });
 
   it('keeps its lease of the batch while it waits for the stopped run to end, with no effect due', async () => {

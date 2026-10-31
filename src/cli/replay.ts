@@ -2,6 +2,7 @@
 
 import type { StoredEvent } from '../engine/event-store.ts';
 import type { Attempt, Batch, Pause } from '../engine/fold.ts';
+import { plainReason } from '../engine/supervisor.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { columns } from './columns.ts';
 import { describeLane, issueOf, pauseLine } from './status.ts';
@@ -11,7 +12,7 @@ const outcomeOf = (outcome: StepOutcome): string => {
     case 'succeeded':
       return 'succeeded';
     case 'failed':
-      return `failed: ${outcome.reason}`;
+      return `failed: ${plainReason(outcome.reason)}`;
     case 'needs_input':
       return 'needs input';
     case 'cancelled':
