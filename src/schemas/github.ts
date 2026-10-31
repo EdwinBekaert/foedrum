@@ -49,6 +49,9 @@ export const GitHubIssue = z.object({
   body: z.string().nullable().optional(),
 });
 
+/** An issue with its REST id, which a sub-issue or "blocked by" link names it by (#723). */
+export const GitHubIssueWithId = GitHubIssue.extend({ id: z.number().int().positive() });
+
 /** One item of the intake's listing: with its creation time, its arrival in the queue (ADR 0208). */
 export const GitHubListedIssue = GitHubIssue.extend({
   created_at: z.iso.datetime({ offset: true }),
