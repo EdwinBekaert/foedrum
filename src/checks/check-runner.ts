@@ -453,7 +453,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const find = options.testMap?.reports ?? reportPaths;
     const patterns = modules.flatMap(({ module }) => [
       module.testReport.path,
-      ...(module.coverage === 'none' ? [] : [module.coverage.path]),
+      ...coveragePath(module),
     ]);
     // A report an earlier run left must never stand for this run's, nor merge its hits into it.
     const unclear =
