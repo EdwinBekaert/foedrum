@@ -15,6 +15,7 @@ import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
+import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
 import { pathInside } from '../platform/paths.ts';
@@ -87,9 +88,6 @@ export interface CheckRunnerOptions {
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
   };
 }
-
-/** A test report file's largest size: a report of a large suite, read once per red proof. */
-const MAX_REPORT_BYTES = 16 * 1024 * 1024;
 
 /**
  * The test report files of the real file system: removed, a folder included, through the platform's
