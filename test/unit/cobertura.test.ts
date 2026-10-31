@@ -177,6 +177,20 @@ describe('parseCobertura', () => {
     assert.deepEqual([...report.keys()], ['src/a.cs']);
   });
 
+  it('refuses a Cobertura line whose hits is not a whole number or is missing', () => {
+    for (const line of ['<line number="1" hits="x"/>', '<line number="1"/>']) {
+      const parsed = parseCobertura(
+        `<coverage><packages><package><classes><class filename="a.cs"><lines>${line}</lines></class></classes></package></packages></coverage>`,
+        '/repo',
+      );
+      assert.equal(
+        parsed.readable ? '' : parsed.reason,
+        'it has a <line> whose number or hits is not a whole number',
+        line,
+      );
+    }
+  });
+
   it('reads an absolute Cobertura filename as it is, and ignores an empty source', () => {
     const coverage = (sources: string, classes: string[]) =>
       `<coverage><sources>${sources}</sources><packages><package><classes>${classes

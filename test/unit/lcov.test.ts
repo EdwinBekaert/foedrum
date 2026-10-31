@@ -171,4 +171,19 @@ describe('parseLcov', () => {
     assert.equal(refused.readable, false);
     assert.equal(refused.readable ? '' : refused.reason, 'its line 3 is not LCOV');
   });
+
+  it('refuses a DA or BRDA whose counts are not whole numbers', () => {
+    for (const record of ['DA:1,x', 'DA:1,2,a,b', 'BRDA:1,0,0,x']) {
+      const parsed = parseLcov(`SF:a.ts\n${record}\nend_of_record\n`, '/repo');
+      assert.equal(parsed.readable ? '' : parsed.reason, 'its line 2 is not LCOV', record);
+    }
+  });
+
+  it('keeps the branches a later record gives a line that had none', () => {
+    const report = read(
+      'SF:a.ts\nDA:1,1\nend_of_record\nSF:a.ts\nDA:1,1\nBRDA:1,0,0,1\nBRDA:1,0,1,0\nend_of_record\n',
+      '/repo',
+    );
+    assert.deepEqual(report.get('a.ts')?.get(1), { hits: 1, branches: { taken: 1, total: 2 } });
+  });
 });
