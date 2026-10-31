@@ -482,7 +482,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // Only a passing run says a module no report came from was not reached, or that the map is
     // stale by it: a failing one may have stopped before it, so its own verdict stands and goes
     // along onFail (ADR 0280).
-    if (testMap !== undefined && tip !== undefined && test?.exitCode === 0) {
+    // A repository with no map has none to be stale (ADR 0282).
+    if (testMap !== undefined && tip !== undefined && tip.kind !== 'none' && test?.exitCode === 0) {
       const judged = await unreached(batch, worktree, end, tip, test, signal);
       if ('end' in judged) return withStale(judged.end, kept, named);
       named.push(...staleByRun(worktree, judged.modules));

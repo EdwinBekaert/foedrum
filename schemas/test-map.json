@@ -21,9 +21,9 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1
+            "pattern": "^(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|(?:[cC][oO][mM]|[lL][pP][tT])[1-9])(?:\\.|\\/|$))[^/\\\\:*?\"<>|\\x00-\\x1f]*[^/\\\\:*?\"<>|\\x00-\\x1f. ](?:\\/(?!(?:[cC][oO][nN]|[pP][rR][nN]|[aA][uU][xX]|[nN][uU][lL]|(?:[cC][oO][mM]|[lL][pP][tT])[1-9])(?:\\.|\\/|$))[^/\\\\:*?\"<>|\\x00-\\x1f]*[^/\\\\:*?\"<>|\\x00-\\x1f. ])*$"
           },
-          "description": "The paths the globs matched when it was"
+          "description": "The paths the globs matched when it was, as git names them"
         }
       },
       "required": [

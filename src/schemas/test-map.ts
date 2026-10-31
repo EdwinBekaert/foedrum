@@ -2,6 +2,7 @@
 // tests and its reports are; places only, never a command (ADR 0274).
 
 import { SensitivePath } from './brewery-config.ts';
+import { RelativePath } from './primitives.ts';
 import { z } from './zod.ts';
 
 /** A path glob relative to the repository, with `/` between folders, as a sensitive path is. */
@@ -47,7 +48,9 @@ export const TestMap = z.strictObject({
   derivedFrom: z
     .strictObject({
       globs: z.array(Glob).min(1).describe('The manifest globs the map was derived from'),
-      paths: z.array(z.string().min(1)).describe('The paths the globs matched when it was'),
+      paths: z
+        .array(RelativePath)
+        .describe('The paths the globs matched when it was, as git names them'),
     })
     .describe('What the map was derived from, so a change to the manifests makes it stale'),
   modules: z.array(TestMapModule).min(1),
