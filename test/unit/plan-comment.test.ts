@@ -585,6 +585,14 @@ describe('planEntryText (ADR 0290)', () => {
       /^Error: the plan of batch 7-1, step plan#3, holds no entry ui$/,
     );
   });
+
+  it('throws, naming the entry, when the attempt the origin names has started but not finished: regression test', () => {
+    // The log without attempt 2's step.finished.
+    assert.throws(
+      () => planEntryText(fold(events(three).slice(0, -1)), origin),
+      /^Error: the plan of batch 7-1, step plan#2, holds no entry ui$/,
+    );
+  });
 });
 
 const planned = (plan: PlanReport): Ending => ({
