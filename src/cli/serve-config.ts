@@ -99,7 +99,11 @@ const breweryTestMap = (
   problems: string[],
 ): { text?: string } => {
   const path = breweryMapPath(repo);
-  const file = files.find((found) => found.path.toLowerCase() === path);
+  // The file, or the folder above it that could not be listed, named by its own path.
+  const folders = ['test-maps', path.slice(0, path.lastIndexOf('/'))];
+  const file =
+    files.find((found) => found.path.toLowerCase() === path) ??
+    files.find((found) => 'unreadable' in found && folders.includes(found.path.toLowerCase()));
   if (file === undefined) return {};
   if ('unreadable' in file) {
     problems.push(`${file.path}: the test map of ${repo} cannot be read: ${file.unreadable}`);

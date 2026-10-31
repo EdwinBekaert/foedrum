@@ -365,7 +365,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       (reading): reading is Extract<GravityReading, { result: 'exited' }> =>
         reading.result === 'exited' && reading.check === 'test',
     );
-    if (testMap === undefined || test === undefined) return end;
+    // Only a passing run says a module no report came from was not reached: a failing one may have
+    // stopped before it, so its own verdict stands and goes along onFail (ADR 0280).
+    if (testMap === undefined || test === undefined || test.exitCode !== 0) return end;
     const { repo } = worktree;
     const ended = (ending: AttemptEnd['ending']): AttemptEnd => ({ ...end, ending });
     const stuck = (why: string): AttemptEnd => ended(blocked('environment', why).ending);
@@ -396,8 +398,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       const why = [
         `module "${name}" of the test map is new in this batch, and no confirmed line reaches it:`,
         `the test check wrote no test report at ${testReport.path};`,
-        `make "checks"."test" of ${repo} in foedrum.jsonc also run its tests,`,
-        `such as "${test.command} && <${name}'s test command>" (ADR 0023, ADR 0274).`,
+        `make "checks"."test" of ${repo} in foedrum.jsonc, now "${test.command}", also run its tests,`,
+        `whatever the tests before them give (ADR 0023, ADR 0274).`,
         `The test check's output ended: ${test.tail}`,
       ].join(' ');
       return stuck(why);

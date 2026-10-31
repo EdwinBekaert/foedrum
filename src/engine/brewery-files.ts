@@ -141,9 +141,10 @@ export function readTestMaps(root: string): BreweryFile[] {
       .filter((entry) => entry.isDirectory())
       .map((entry) => `test-maps/${entry.name}`)
       .sort();
-  } catch {
-    // A missing folder has no maps.
-    return [];
+  } catch (error) {
+    // A missing folder has no maps; one that cannot be listed is named by its own path.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    return [{ path: 'test-maps', unreadable: messageOf(error) }];
   }
   return owners.flatMap((folder) => readFolder(root, folder, '.jsonc'));
 }
