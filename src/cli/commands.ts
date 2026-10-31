@@ -355,6 +355,14 @@ const orderRefOf = (target: OrderTarget, context: CliContext): OrderRef | { refu
 };
 
 /**
+ * What `foedrum status <order>` prints: the order's batches and its sub-orders', and what its
+ * planning and its brewing took (ADR 0295).
+ */
+const orderStatus = async (_target: OrderTarget, _context: CliContext): Promise<CliResult> => {
+  throw new Error('not implemented');
+};
+
+/**
  * The intake's queue as a pass would read it now, in rank order (ADR 0208): the Brewery's open
  * issues and every intake repository's, through gh's login; or what could not be read. `placed`,
  * the order being ranked, is in it while sub-orders of it are left, ready or not (ADR 0211).
@@ -497,12 +505,14 @@ export const commands: readonly RegisteredCommand[] = [
   }),
   define({
     name: 'status',
-    summary: 'List the batches and their lanes',
+    summary: "List the batches and their lanes, or an order's with its planning and brewing tokens",
     changesState: false,
     positionals: [],
+    optional: ['order'],
     flags: ['watch'],
     schema: StatusCommand,
     handler: async (input, context) => {
+      if (input.order !== undefined) return orderStatus(input.order, context);
       // A board on the terminal, run by it as brew's live line is (ADR 0188).
       if (input.watch === true) return context.watch();
       return readBrewery(

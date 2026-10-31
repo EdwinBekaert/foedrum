@@ -396,7 +396,10 @@ describe('foedrum: the command line', () => {
   });
 
   it('refuses an argument a command does not take', async () => {
-    assertUsageError(await run(['status', 'now']), 'foedrum status: unexpected argument "now"');
+    assertUsageError(
+      await run(['status', '11', 'now']),
+      'foedrum status: unexpected argument "now"',
+    );
     assertUsageError(
       await run(['replay', '12-1', '14-1']),
       'foedrum replay: unexpected argument "14-1"',
@@ -790,6 +793,94 @@ describe('foedrum status <order> (ADR 0295)', () => {
     // A retry that reported no usage counts as none.
     ...attempt('21-1', 'build', 2),
   ];
+
+  it("status of a mashed order sums its planning attempts apart from its sub-orders' brewing", async () => {
+    const result = await run(['status', '11'], {
+      openStore: () => storeWith(mashed),
+      config: roomy,
+    });
+    assert.equal(result.stderr, '');
+    assert.equal(result.exitCode, 0);
+    const rows = result.stdout.split('\n').filter((line) => /^ +\d+-\d+ /.test(line));
+    assert.deepEqual(
+      rows.map((row) => row.trim().split(/ +/)[0]),
+      ['11-1', '22-1', '21-1'],
+    );
+    assert.match(
+      result.stdout,
+      /\nplanning: 3,675 tokens \(310 input, 65 output, 3,000 cache read, 300 cache write\)\nbrewing: 20,400 tokens \(4,000 input, 800 output, 15,000 cache read, 600 cache write\)\n$/,
+    );
+  });
+
+  it('status of an order brewed straight by nip shows brewing only', async () => {
+    const straight: Event[] = [
+      ordered(30),
+      chosen('30-1', 'nip'),
+      ...attempt('30-1', 'build', 1, [1000, 200, 3000, 0]),
+    ];
+    const result = await run(['status', '#30'], {
+      openStore: () => storeWith(straight),
+      config: roomy,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(
+      result.stdout,
+      /\nplanning: none reported\nbrewing: 4,200 tokens \(1,000 input, 200 output, 3,000 cache read, 0 cache write\)\n$/,
+    );
+  });
+
+  it('status of an issue with no batch is refused, exit 1', async () => {
+    assert.deepEqual(await run(['status', '12'], { openStore: () => storeWith(mashed) }), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status: no batch brews #12\n',
+    });
+  });
+
+  it('status of a claimed order finds its batch by its Brewery issue or its alias', async () => {
+    // app-11 brews acme/app#11, whose order is the Brewery issue #200 (ADR 0144); 11-1 is the
+    // Brewery's own #11, which neither form names.
+    const claimed: Event[] = [
+      ordered(11),
+      ...attempt('11-1', 'build', 1, [7, 7, 7, 7]),
+      {
+        type: 'batch.ordered',
+        batchId: 'app-11',
+        order: { issue: 11, repo: 'acme/app' },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      { type: 'effect.applied', key: '["app-11","order.issue"]', result: 200 },
+      ...attempt('app-11', 'build', 1, [50, 5, 0, 0]),
+    ];
+    const config = () =>
+      BreweryConfig.parse({
+        repositories: {
+          'acme/app': {
+            checks: { build: null, typecheck: null, lint: null, format: null, test: null },
+            alias: 'app',
+          },
+        },
+      });
+    for (const order of ['200', 'app#11']) {
+      const result = await run(['status', order], { openStore: () => storeWith(claimed), config });
+      assert.equal(result.stderr, '', order);
+      assert.match(result.stdout, /^ +app-11 +#200 \(app#11\) /m, order);
+      assert.doesNotMatch(result.stdout, /^ +11-1 /m, order);
+      assert.match(
+        result.stdout,
+        /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+        order,
+      );
+    }
+  });
+
+  it('status --watch with an order is refused, since the board shows every batch', async () => {
+    assert.deepEqual(await run(['status', '11', '--watch']), {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'foedrum status: --watch shows every batch; give it without an order\n',
+    });
+  });
 
   it('status without an order prints the board as before', async () => {
     const result = await run(['status'], { openStore: () => storeWith(mashed), config: roomy });

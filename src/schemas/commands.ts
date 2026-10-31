@@ -63,6 +63,8 @@ const IssueTarget = z
 
 export const StatusCommand = z.strictObject({
   command: z.literal('status'),
+  /** An order as `order` takes it: its batches and its sub-orders', and their tokens (ADR 0295). */
+  order: IssueTarget.optional(),
   /** `--watch`: draw a board of the live batches until Ctrl+C (ADR 0188). */
   watch: z.literal(true).optional(),
 });

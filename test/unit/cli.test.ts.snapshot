@@ -135,7 +135,7 @@ Commands:
   serve                                                   Run the Cellar: brew the Brewery's batches until Ctrl+C
   doctor                                                  Check the tools Foedrum needs and the isolation level
   init [--<question> <answer>]... [--no-input]            Set up a Brewery from a few questions, each answerable by its option, then run doctor
-  status [--watch]                                        List the batches and their lanes
+  status [<order>] [--watch]                              List the batches and their lanes, or an order's with its planning and brewing tokens
   stuck                                                   List the Stuck batches with their options and questions
   brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
   lenses                                                  Report each lens's findings, how they ended, and its tokens
