@@ -650,9 +650,10 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
   });
 
   it('names no module whose report path cannot be looked for after a passing run: regression test', async () => {
+    // A TRX module's: the green check clears and reads a JUnit or TAP report path too (#727).
     const { run } = setup({
-      maps: fresh,
-      refused: { 'web/test-results.xml': 'web/test-results.xml leads out of the worktree' },
+      maps: { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) },
+      refused: { 'svc/test/*/TestResults': 'svc/test/*/TestResults leads out of the worktree' },
     });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
