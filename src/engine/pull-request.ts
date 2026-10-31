@@ -458,6 +458,8 @@ export interface PullRequestTextInput {
   attempts?: readonly AttemptRow[];
   /** The effect that writes the body, which its last line names with a marker (ADR 0227). */
   key?: BatchEffectKey;
+  /** The section that names the order's other pull requests and the merge order (ADR 0292). */
+  siblings?: string;
 }
 
 export interface PullRequestText {

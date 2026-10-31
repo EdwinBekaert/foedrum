@@ -1,0 +1,266 @@
+// The pull requests of one order name each other and the merge order (ADR 0292): a section of each
+// sub-order pull request's body, revised through the ledger as its siblings open and end, and the
+// order's status comment, which lists them. Recorded events and a fake code host, no network
+// (ADR 0021).
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import { fold, type State } from '../../src/engine/fold.ts';
+import { bodyOwner, pullRequestKey, pullRequestText } from '../../src/engine/pull-request.ts';
+import type { PullRequestHost } from '../../src/engine/pull-request-actions.ts';
+import {
+  siblingEffects,
+  siblingSection,
+  subOrderPullRequests,
+} from '../../src/engine/sibling-pull-requests.ts';
+import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
+import type { Event } from '../../src/schemas/events.ts';
+import { fakeRecipes } from '../helpers/fake-recipes.ts';
+
+const brewery = 'alice/brewery';
+const lib = 'acme/lib-core';
+const web = 'acme/web';
+const libPull = 'https://github.com/acme/lib-core/pull/7';
+const webPull = 'https://github.com/acme/web/pull/12';
+const routeBy = '2026-10-31T13:00:00.000Z';
+
+const ordered = (batchId: string, issue: number, parentBatchId?: string): Event => ({
+  type: 'batch.ordered',
+  batchId,
+  order: { issue },
+  ...(parentBatchId === undefined ? {} : { parentBatchId }),
+  routeBy,
+});
+/** The ledger's open of `batchId`'s pull request, and the batch on tap with it. */
+const opened = (batchId: string, url: string): Event[] => [
+  { type: 'effect.applied', key: effectKey.encode(pullRequestKey(batchId)), result: url },
+  { type: 'batch.on_tap', batchId, pullRequests: [url] },
+];
+const merged = (batchId: string, pullRequest: string): Event => ({
+  type: 'pull_request.ended',
+  batchId,
+  pullRequest,
+  state: 'merged',
+});
+
+/**
+ * Order #1 split into #3 in acme/web, listed first, and #2 in acme/lib-core, which #3 waits for a
+ * release of: the merge order is the dependencies', not the plan's.
+ */
+const decomposed: Event[] = [
+  ordered('1-1', 1),
+  {
+    type: 'order.decomposed',
+    batchId: '1-1',
+    subOrders: [
+      { issue: 3, repo: web },
+      { issue: 2, repo: lib },
+    ],
+    dependencies: [{ subOrder: 3, blockedBy: 2, kind: 'release' }],
+  },
+  { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+  ordered('2-1', 2, '1-1'),
+  ordered('3-1', 3, '1-1'),
+];
+
+/** The body Foedrum opened `batchId`'s pull request with, from its sub-order #`issue`. */
+const openedBody = (batchId: string, issue: number): string =>
+  pullRequestText({
+    title: 'Order',
+    closes: { repo: brewery, issue },
+    reports: [{ stepId: 'build', summary: 'Built it.', assumptions: [] }],
+    key: pullRequestKey(batchId),
+  }).body;
+
+/** A code host with the bodies of the pull requests, by URL, recording each update. */
+const fakeHost = (bodies: Record<string, string>) => {
+  const updates: { url: string; body: string }[] = [];
+  const host: Pick<PullRequestHost, 'body' | 'update'> = {
+    body: async (url) => bodies[url] ?? assert.fail(`no pull request ${url}`),
+    update: async (url, body) => {
+      updates.push({ url, body });
+      bodies[url] = body;
+    },
+  };
+  return { host, updates, bodies };
+};
+
+/**
+ * One pass of the driver over the effects of `batchIds`: each due key found first, else applied,
+ * and recorded. `killAfter` stops before the record of that many applied effects, as a kill does.
+ */
+const pass = async (
+  effects: ReturnType<typeof siblingEffects>,
+  state: State,
+  batchIds: readonly string[],
+  killAfter?: number,
+): Promise<State> => {
+  let current = state;
+  let applied = 0;
+  for (const batchId of batchIds) {
+    for (const key of effects.due(current, batchId)) {
+      const text = effectKey.encode(key);
+      if (current.effects.has(text)) continue;
+      const found = await effects.target.find(text);
+      const result = found === undefined ? await effects.target.apply(text) : found.result;
+      if (found === undefined && killAfter !== undefined && ++applied > killAfter) return current;
+      current = fold([{ type: 'effect.applied', key: text, result }], current);
+    }
+  }
+  return current;
+};
+
+describe('sibling pull requests (ADR 0292)', () => {
+  it('names the second pull request in the first one once the second opens', async () => {
+    const libOnly = fold([...decomposed, ...opened('2-1', libPull)]);
+    const { host, bodies } = fakeHost({ [libPull]: openedBody('2-1', 2) });
+    const effects = siblingEffects({ host });
+    const before = await pass(effects, libOnly, ['2-1', '3-1']);
+    assert.doesNotMatch(bodies[libPull] ?? '', /acme\/web#12/);
+    bodies[webPull] = openedBody('3-1', 3);
+    await pass(effects, fold(opened('3-1', webPull), before), ['2-1', '3-1']);
+    assert.match(bodies[libPull] ?? '', /acme\/web#12/);
+    assert.match(bodies[webPull] ?? '', /acme\/lib-core#7/);
+    // Still Foedrum's own, so a later round renders it again (ADR 0227).
+    assert.equal(bodyOwner('2-1', bodies[libPull] ?? '').kind, 'own');
+  });
+
+  it('gives both pull requests the merge order of the plan dependencies', () => {
+    const state = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    assert.deepEqual(
+      subOrderPullRequests(state, 1).map(({ subOrder, pullRequest, state }) => [
+        subOrder,
+        pullRequest,
+        state,
+      ]),
+      [
+        [2, libPull, 'open'],
+        [3, webPull, 'open'],
+      ],
+    );
+    for (const batchId of ['2-1', '3-1']) {
+      const section = siblingSection(state, batchId) ?? '';
+      const first = section.indexOf('1. acme/lib-core#7');
+      const second = section.indexOf('2. acme/web#12');
+      assert.ok(first >= 0 && second > first, section);
+      assert.match(
+        section,
+        /acme\/web#12[^\n]*after acme\/lib-core#7 merges and acme\/lib-core has a release/,
+      );
+      assert.match(section, /acme\/lib-core#7[^\n]*merge first/);
+    }
+    assert.match(siblingSection(state, '2-1') ?? '', /1\. acme\/lib-core#7 \(this pull request\)/);
+    assert.match(siblingSection(state, '3-1') ?? '', /2\. acme\/web#12 \(this pull request\)/);
+  });
+
+  it('renders the opened body with the sibling section first', () => {
+    const state = fold([...decomposed, ...opened('2-1', libPull)]);
+    const section = siblingSection(state, '3-1') ?? assert.fail('no section');
+    const { body } = pullRequestText({
+      title: 'Order',
+      closes: { repo: brewery, issue: 3 },
+      reports: [],
+      key: pullRequestKey('3-1'),
+      siblings: section,
+    });
+    assert.ok(body.startsWith(section), body);
+    assert.match(section, /acme\/lib-core#7/);
+  });
+
+  it('renders the body again when a sibling merges', async () => {
+    const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    const { host, bodies, updates } = fakeHost({
+      [libPull]: openedBody('2-1', 2),
+      [webPull]: openedBody('3-1', 3),
+    });
+    const effects = siblingEffects({ host });
+    const settled = await pass(effects, both, ['2-1', '3-1']);
+    assert.match(bodies[webPull] ?? '', /acme\/lib-core#7[^\n]*open/);
+    updates.length = 0;
+    await pass(effects, fold([merged('2-1', libPull)], settled), ['2-1', '3-1']);
+    // Only the open one: a merged pull request's body is the merge commit's already.
+    assert.deepEqual(
+      updates.map(({ url }) => url),
+      [webPull],
+    );
+    assert.match(bodies[webPull] ?? '', /acme\/lib-core#7[^\n]*merged/);
+  });
+
+  it('names neither the Brewery issue nor the Brewery repository in the sibling section', () => {
+    const state = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    for (const batchId of ['2-1', '3-1']) {
+      const section = siblingSection(state, batchId) ?? assert.fail('no section');
+      assert.doesNotMatch(section, /alice\/brewery|brewery/i);
+      // No bare issue number: GitHub would link it to the target repository's own issue.
+      assert.doesNotMatch(section, /(^|[^\w/-])#\d/m);
+    }
+  });
+
+  it('leaves a body a person edited as it is', async () => {
+    const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    const edited = `${openedBody('2-1', 2)}\n\nA reviewer's note.`;
+    const { host, bodies, updates } = fakeHost({
+      [libPull]: edited,
+      [webPull]: openedBody('3-1', 3),
+    });
+    const settled = await pass(siblingEffects({ host }), both, ['2-1', '3-1']);
+    assert.equal(bodies[libPull], edited);
+    assert.deepEqual(
+      updates.map(({ url }) => url),
+      [webPull],
+    );
+    // Recorded as left, so the next pass asks nothing again.
+    updates.length = 0;
+    await pass(siblingEffects({ host }), settled, ['2-1', '3-1']);
+    assert.deepEqual(updates, []);
+  });
+
+  it('writes nothing twice after a kill between two body updates', async () => {
+    const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    const { host, bodies, updates } = fakeHost({
+      [libPull]: openedBody('2-1', 2),
+      [webPull]: openedBody('3-1', 3),
+    });
+    // The first body is updated and the driver killed before it records it.
+    const killed = await pass(siblingEffects({ host }), both, ['2-1', '3-1'], 0);
+    assert.equal(updates.length, 1);
+    assert.equal(killed.effects.size, both.effects.size);
+    const after = await pass(siblingEffects({ host }), killed, ['2-1', '3-1']);
+    assert.deepEqual(
+      updates.map(({ url }) => url),
+      [libPull, webPull],
+    );
+    assert.equal(after.effects.size, both.effects.size + 2);
+    assert.equal(bodyOwner('2-1', bodies[libPull] ?? '').kind, 'own');
+  });
+
+  it("lists the sub-orders' pull requests with their state in the order's status comment", async () => {
+    const state = fold([...decomposed, ...opened('2-1', libPull), merged('2-1', libPull)]);
+    const created: string[] = [];
+    const comments: StatusComments = {
+      find: async () => undefined,
+      read: async () => undefined,
+      create: async (_repo, _issue, body) => {
+        created.push(body);
+        return created.length;
+      },
+      edit: async () => 'gone',
+    };
+    const status = statusEffects({
+      brewery,
+      comments,
+      recipes: fakeRecipes({}),
+      clock: () => new Date('2026-10-31T12:00:00.000Z'),
+    });
+    const [key] = status.due(state, '1-1');
+    assert.ok(key !== undefined);
+    await status.target.apply(effectKey.encode(key));
+    const lines = (created[0] ?? '').split('\n');
+    assert.ok(
+      lines.includes('- #2 in acme/lib-core: <https://github.com/acme/lib-core/pull/7>, merged'),
+      created[0],
+    );
+    assert.ok(lines.includes('- #3 in acme/web: no pull request yet'), created[0]);
+  });
+});
