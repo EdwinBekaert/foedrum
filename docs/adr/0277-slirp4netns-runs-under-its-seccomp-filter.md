@@ -47,8 +47,9 @@ Foedrum does not fall back to pasta then: slirp4netns is the stack found first, 
 
 ### Doctor
 Doctor says nothing new.
-It cannot tell beforehand from the version alone: a version since 0.4.0 knows the flag, but whether the build has libseccomp the version does not say.
-The setup's `unstarted` reading names the cause where it happens.
+The version number alone does not decide it: a version since 0.4.0 knows the flag, but a build without libseccomp refuses it.
+The `libseccomp:` line slirp4netns prints in its `--version`, which doctor already runs, would tell; doctor does not read it, since no machine has been seen without it and the setup's `unstarted` reading already names the cause where it happens.
+A new doctor problem waits for such a machine.
 
 ### pasta unchanged
 pasta sandboxes itself by default, in namespaces of its own with a seccomp profile and no capabilities (Context), so its arguments do not change.
@@ -64,4 +65,4 @@ pasta sandboxes itself by default, in namespaces of its own with a seccomp profi
 - **Map the user to root in the setup's namespace, so the sandbox can start.** It changes what every setup runs as (Decision). Out of scope.
 - **Read `--help` and pass what slirp4netns lists, as Podman does.** An older or smaller build would then parse a brewer's packets without a filter, without a word. Rejected: the setup does not run instead, and says why.
 - **Fall back to pasta when slirp4netns refuses the flag.** It hides a broken slirp4netns behind pasta's resolver gap (ADR 0218's Consequences) on a desktop with systemd-resolved, where the setup would then fail to resolve names instead of saying why.
-- **A doctor problem from the version.** The version alone does not decide it (Decision).
+- **A doctor problem from `--version`'s `libseccomp:` line.** It would tell, but no machine has been seen without it, and the setup's `unstarted` reading names the cause (Decision).
