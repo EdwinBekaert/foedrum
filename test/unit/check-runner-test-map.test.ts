@@ -79,11 +79,16 @@ const mapOf = (...modules: TestMapModule[]): MapRead => ({
 });
 
 // Before the test check runs, the coverage report paths of both maps' modules are looked for, to
-// be cleared; neither holds a report here.
+// be cleared, and neither holds a report here; then the test report paths but TRX's, which no
+// reader reads (#727).
 const clearing = [
   `reports web/coverage/lcov.info in ${worktree}`,
   `reports svc/coverage/* in ${worktree}`,
+  `reports web/test-results.xml in ${worktree}`,
+  `clear ${join(worktree, 'web', 'test-results.xml')}`,
 ];
+// After a passing run, the test reports are read for a skip the batch added, but TRX's.
+const readingTests = [`reports web/test-results.xml in ${worktree}`];
 
 const compileError = 'svc/test/Billing.Tests/InvoiceTests.cs(3,1): error CS1002: ; expected';
 
@@ -249,6 +254,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       `map of Acme/API at ${base}`,
       `map of Acme/API at ${tip}`,
       ...clearing,
+      ...readingTests,
     ]);
   });
 
@@ -269,6 +275,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       `map of acme/api at ${merged}`,
       `map of acme/api at ${tip}`,
       ...clearing,
+      ...readingTests,
     ]);
   });
 
