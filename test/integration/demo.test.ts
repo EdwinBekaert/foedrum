@@ -391,6 +391,8 @@ describe('npm run demo', () => {
   });
 
   it("prints no line of the intake's failures, the reads of the on-tap pull request among them (#721)", () => {
+    // A guard on the output only: an intake pass reads the on-tap pull request only when one lands
+    // before serve stops, so the read itself is pinned in test/unit/demo-code-host.test.ts.
     assert.ok(result.stdout.includes(ON_TAP_LINE), result.output);
     assert.deepStrictEqual(
       result.output.split(/\r?\n/).filter((line) => line.includes('the intake failed')),
