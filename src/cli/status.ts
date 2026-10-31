@@ -200,11 +200,9 @@ export const orderBatches = (state: State, order: OrderRef): Batch[] => {
     }
   }
   if (order.repo !== undefined) return own;
-  const subOrders = state.orders.get(order.issue)?.subOrders ?? [];
-  const ids = new Set([
-    ...own.map(({ id }) => id),
-    ...subOrders.flatMap((issue) => state.subOrders.get(issue)?.batchIds ?? []),
-  ]);
+  // Every sub-order it ever had, also one a later breakdown cancelled: its tokens were spent.
+  const subOrders = [...state.subOrders.values()].filter((sub) => sub.order === order.issue);
+  const ids = new Set([...own.map(({ id }) => id), ...subOrders.flatMap((sub) => sub.batchIds)]);
   return all.filter(({ id }) => ids.has(id));
 };
 
