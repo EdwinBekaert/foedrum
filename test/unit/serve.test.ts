@@ -1930,7 +1930,10 @@ Plan the order in {order}.
       const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' });
       const git: Git = async (_cwd, args) => {
         const path = args.at(-1) ?? '';
-        if (args[0] === 'ls-tree') {
+        if (args.includes('ls-tree')) {
+          // The Gauger's test file is on its branch and the cellarman's, not where it started.
+          const ref = args[args.indexOf('--') - 1] ?? '';
+          if (path !== '.foedrum/test-map.jsonc' && !ref.startsWith('refs/heads/')) return ok('');
           const blob = path === '.foedrum/test-map.jsonc' ? mapBlob : testBlob;
           return ok(`100644 blob ${blob}\t${path}\0`);
         }

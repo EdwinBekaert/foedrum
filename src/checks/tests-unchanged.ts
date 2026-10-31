@@ -129,9 +129,9 @@ export const guardedFiles = (
 
 /**
  * The lines `proven` added to a separate test file of `modules` that the attempt's tip holds fewer
- * times than the step added them; a file in no test area, or in a module whose tests are inline,
- * keeps none, unless the map is new in the batch (`newMap`), which then keeps there what no map
- * keeps (ADR 0274, ADR 0078).
+ * times than the file held them where the step started plus the copies the step added; a file in
+ * no test area, or in a module whose tests are inline, keeps none, unless the map is new in the
+ * batch (`newMap`), which then keeps there what no map keeps (ADR 0274, ADR 0078).
  */
 export function changedTestLines(
   proven: readonly DiffFile[],
@@ -141,16 +141,27 @@ export function changedTestLines(
 ): ChangedTestLine[] {
   const guarded = guardedFiles(proven, modules, foldCase);
   const found: ChangedTestLine[] = [];
+  const linesOf = (text: string | undefined) => counts(text?.split(/\r?\n/) ?? []);
   for (const path of guarded) {
-    // By what the tip holds, so a later step's own copy of a red line may go.
-    const left = counts(tip.files.get(path)?.split(/\r?\n/) ?? []);
-    for (const { newPath, added } of proven) {
-      if (newPath !== path) continue;
-      for (const line of added.map((text) => text.trim()).filter((text) => text !== '')) {
-        const copies = left.get(line) ?? 0;
-        if (copies > 0) left.set(line, copies - 1);
-        else found.push({ path, line });
-      }
+    const kept = proven
+      .flatMap(({ newPath, added }) => (newPath === path ? added : []))
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+    // By what the tip holds against what the file held before plus the step's copies, so a later
+    // step's own copy of a red line may go, and an older copy hides no red one.
+    const atTip = linesOf(tip.files.get(path));
+    const before = linesOf(tip.before.get(path));
+    const short = new Map(
+      [...counts(kept)].map(([line, copies]) => {
+        const held = (before.get(line) ?? 0) + copies - (atTip.get(line) ?? 0);
+        return [line, held] as const;
+      }),
+    );
+    for (const line of kept) {
+      const missing = short.get(line) ?? 0;
+      if (missing <= 0) continue;
+      short.set(line, missing - 1);
+      found.push({ path, line });
     }
   }
   if (!newMap) return found;

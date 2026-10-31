@@ -62,7 +62,9 @@ async function readTip(
   const files = new Map<string, string>();
   if (paths.length === 0) return { files };
   const options = { maxOutputBytes: MAX_TIP_BYTES, timeoutMs: TIP_READ_MS, signal };
-  const listed = await git(cwd, ['ls-tree', '-z', '--full-tree', ref, '--', ...paths], options);
+  // A brewer names the files: a name that starts with ":" is no pathspec magic.
+  const args = ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', ref, '--', ...paths];
+  const listed = await git(cwd, args, options);
   if (listed.code !== 0) return { error: failure('ls-tree', listed) };
   for (const entry of listed.stdout.split('\0')) {
     const [, blob, path] = /^\d+ blob ([0-9a-f]+)\t(.+)$/s.exec(entry) ?? [];
@@ -182,15 +184,15 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       const options = { foldCase: fold, newMap: atBase === undefined };
       return {
         keep: async (tests, changes) => {
-          // Each test file as the attempt left it, so a later step's own copy of a line may go.
-          const files = await readTip(git, cwd, tip, guardedFiles(tests, modules, fold), signal);
+          // Each test file as the attempt left it, and as it was where the proven step started, so
+          // a later step's own copy of a line may go and an older copy hides no red one.
+          const paths = guardedFiles(tests, modules, fold);
+          const files = await readTip(git, cwd, tip, paths, signal);
           if ('error' in files) return files;
-          return changedTestLines(
-            tests,
-            { files: files.files, before: new Map(), changes },
-            modules,
-            options,
-          );
+          const before = await readTip(git, cwd, proven.from, paths, signal);
+          if ('error' in before) return before;
+          const read = { files: files.files, before: before.files, changes };
+          return changedTestLines(tests, read, modules, options);
         },
       };
     };
