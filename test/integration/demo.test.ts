@@ -66,8 +66,9 @@ describe('npm run demo', () => {
     result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
-      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe, counted by the
-      // attempts its script plays in a batch, the tasting loop's second round too (ADR 0193).
+      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe and the mash's
+      // Innkeeper and Brewmaster, counted by the attempts its script plays in a batch, the
+      // tasting loop's second round too (ADR 0193).
       timeoutMs: scriptedAttempts * hangGuardMs,
     });
     at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));

@@ -90,7 +90,7 @@ export const BREW_ORDER = { ...ORDER, number: 2, labels: [] as string[] };
 /**
  * The issue `foedrum mash` routes to the Innkeeper (ADR 0232): an order of its own, broad enough to
  * plan first, filed unlabelled so the Cellar leaves it; the answer to the Innkeeper's question
- * chooses its recipe, and nobody labels it.
+ * chooses its recipe, and the engine labels it with it (ADR 0232), never a person.
  */
 export const MASH_ORDER = {
   ...ORDER,
