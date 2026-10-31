@@ -5,6 +5,7 @@
 import {
   type Answer,
   type ClaudeReport,
+  type CoverageListing,
   type Event,
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
@@ -155,6 +156,8 @@ export type EngineCommand =
       usage?: Usage;
       /** A check step's gravity readings (ADR 0069), or a brewer's setup's (ADR 0163). */
       readings?: readonly GravityReading[];
+      /** What a check step's uncovered-line check did not measure (ADR 0274). */
+      coverage?: CoverageListing;
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
@@ -632,6 +635,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ending,
     usage,
     readings,
+    coverage,
     claude,
     receipt,
     houseYeast,
@@ -658,6 +662,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     outcome,
     ...(usage === undefined ? {} : { usage }),
     ...(readings === undefined ? {} : { readings: [...readings] }),
+    ...(coverage === undefined ? {} : { coverage }),
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),

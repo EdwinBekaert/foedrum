@@ -75,7 +75,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | `deadline` | Wall-clock limit per attempt |
 | `maxTurns` | Turn limit |
 | `stall` | No file write or commit for N turns or M minutes → abort; the batch becomes Stuck (`stalled`, [ADR 0027](../../adr/0027-supervisor-lost-and-stalled-attempts.md)). The runner sees a `Write`, `Edit`, `MultiEdit` or `NotebookEdit` call, or a shell command whose subcommand of `git` is `commit` (ADR 0048), that succeeded; files changed by other shell commands count only once committed ([ADR 0047](../../adr/0047-the-claude-brewer-runner-its-stream-endings-and-progress.md)) |
-| `maxAttempts` | Attempts before the batch becomes Stuck |
+| `maxAttempts` | Attempts before the batch becomes Stuck, over the batch's whole life ([ADR 0053](../../adr/0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md)); a step a person's choice schedules, or whose brewer writes a plan, counts only those since its latest success ([ADR 0286](../../adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md), [ADR 0289](../../adr/0289-a-step-that-writes-a-plan-counts-its-attempts-since-its-latest-plan.md)) |
 | `retryMode` | `resume` (same session) or `fresh` (new session with the same in-docs); while `foedrum resume` drives a running batch, every retry or answer of it continues its session whatever this says ([ADR 0127](../../adr/0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)), and so does the retry of a run that went past `maxTurns` ([ADR 0175](../../adr/0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md)) |
 | `maxDenials` | Permission denials per attempt before aborting with `blocker_kind: environment` |
 

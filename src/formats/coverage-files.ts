@@ -23,7 +23,7 @@ const LINE_BREAKS = new RegExp(`[\\r\\n${String.fromCodePoint(0x2028, 0x2029)}]`
  * A report path as a reason quotes it: the tested code names the folders it writes and the map
  * names the paths, so a line break in either is escaped and cannot start a line of its own.
  */
-const shown = (path: string): string =>
+export const shown = (path: string): string =>
   path.replace(LINE_BREAKS, (character) =>
     character === '\n'
       ? '\\n'
@@ -59,7 +59,7 @@ export function readCoverage(format: CoverageFormat, path: string, root: string)
       case 'missing':
         return undefined;
       case 'unread':
-        return { readable: false, reason: `${shown(file)}: ${text.reason}` };
+        return { readable: false, reason: `${shown(file)}: ${text.reason}`, environment: true };
       case 'text': {
         const parsed = parse(text.text);
         return parsed.readable

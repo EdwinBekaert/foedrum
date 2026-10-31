@@ -6,6 +6,7 @@
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { TASTING } from '../schemas/out-doc.ts';
+import { PLAN } from '../schemas/plan.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
@@ -753,9 +754,12 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     deadline,
     stall: brewer.stall,
     // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
-    // schedules counts each choice's attempts, those since its latest success (ADR 0286).
+    // schedules (ADR 0286), or one that writes a plan a person can have planned again from its
+    // review (ADR 0289), counts each round's attempts, those since its latest success.
     mayRetry: (attempts) =>
-      (step.chosenBy === undefined ? attempts.length : sinceSuccess(attempts)) < brewer.maxAttempts,
+      (step.chosenBy === undefined && brewer.output.schema !== PLAN
+        ? attempts.length
+        : sinceSuccess(attempts)) < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
     ...(step.interactive === true ? { interactive: true } : {}),

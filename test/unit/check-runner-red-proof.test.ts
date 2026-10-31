@@ -822,6 +822,56 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     );
   });
 
+  it("judges no uncovered lines in a red proof that passes on a run that exited 0: the uncovered-line check is a check step's: regression test", async () => {
+    // The exit code decides nothing: a red proof can pass on a run that exited 0.
+    const { order, run } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(web, api), [tip]: mapOf(web, api) },
+      report: null,
+      test: { exitCode: 0, stdout: 'not TAP' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.coverage, undefined);
+    // The red proof reads the proven step's commits; the uncovered-line check would read the
+    // batch's change from its base to the step's tip, line by line.
+    assert.ok(
+      !order.some((line) => line.includes('--unified=0') && line.includes(tip)),
+      order.join('|'),
+    );
+    // Its reports are cleared once, by the red proof, never again for a check step's reading.
+    assert.deepEqual(
+      order.filter((line) => line === `clear ${webLcov}`),
+      [`clear ${webLcov}`],
+    );
+  });
+
+  it("blocks a red proof on its environment when the batch's map names git's own files as a report", async () => {
+    const odd: TestMapModule = {
+      name: 'odd',
+      code: ['odd/**'],
+      tests: { paths: ['odd-test/**'] },
+      testReport: { format: 'tap', path: 'odd.tap' },
+      coverage: { format: 'lcov', path: '.git' },
+    };
+    const { order, run } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(web, api), [tip]: mapOf(web, api, odd) },
+      report: null,
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: "the reports of the test map cannot be cleared: .git is git's own, never a report",
+    });
+    assert.ok(
+      order.some((line) => line.startsWith('git')),
+      order.join('|'),
+    );
+    assert.ok(!order.some((line) => line.startsWith('clear')), order.join('|'));
+  });
+
   it("counts a module the base's map lists that wrote no report as a load error", async () => {
     const { run } = setup({ maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web) } });
     assert.deepEqual(
