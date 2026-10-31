@@ -1009,7 +1009,7 @@ Plan the order in {order}.
     assert.equal(await runServe(setup, shell()), 0);
     const opened = api.issue('acme/brewery', 15);
     assert.equal(opened?.title, 'A --json flag', lines.join('\n'));
-    assert.deepStrictEqual(opened?.labels, ['recipe:stout']);
+    assert.deepStrictEqual(opened?.labels, ['foedrum:sub-order', 'recipe:stout']);
     assert.deepStrictEqual(api.issue('acme/brewery', 12)?.subIssues, [15]);
     assert.deepStrictEqual(
       createCommandLog({ store, recipes: setup.recipes }).state().orders.get(12)?.subOrders,

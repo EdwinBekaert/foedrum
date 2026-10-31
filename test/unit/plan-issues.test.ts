@@ -10,16 +10,20 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { combineEffects } from '../../src/engine/effects.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { createIntake } from '../../src/engine/intake.ts';
 import { PLAN_HEADING, planEffects } from '../../src/engine/plan-comment.ts';
 import { openedSubIssues, planIssueEffects } from '../../src/engine/plan-issues.ts';
 import { readySubOrders } from '../../src/engine/ready-set.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
+import { createGitHubReads } from '../../src/github/reads.ts';
 import { githubSubIssues } from '../../src/github/sub-issues.ts';
+import { githubTargetTracker } from '../../src/github/tracker.ts';
 import type { PlannedSubOrder, PlanReport } from '../../src/schemas/plan.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
+import { fakeGitHub } from '../helpers/fake-github.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -169,9 +173,19 @@ describe('planIssueEffects (ADR 0285)', () => {
   const failed = () => notices.filter(({ kind }) => kind === 'effect_failed');
   /** What a whole run leaves on GitHub: three issues under order 7, each with its labels and links. */
   const created = [
-    { number: 8, title: 'Build api', labels: ['recipe:tdd'], blockedBy: undefined },
-    { number: 9, title: 'Build ui', labels: ['recipe:docs'], blockedBy: [8] },
-    { number: 10, title: 'Build cli', labels: ['recipe:tdd', 'needs-refinement'], blockedBy: [8] },
+    {
+      number: 8,
+      title: 'Build api',
+      labels: ['foedrum:sub-order', 'recipe:tdd'],
+      blockedBy: undefined,
+    },
+    { number: 9, title: 'Build ui', labels: ['foedrum:sub-order', 'recipe:docs'], blockedBy: [8] },
+    {
+      number: 10,
+      title: 'Build cli',
+      labels: ['foedrum:sub-order', 'recipe:tdd', 'needs-refinement'],
+      blockedBy: [8],
+    },
   ];
 
   it('creates three Brewery sub-issues of an approved plan with their labels and "blocked by" links, once', async () => {
@@ -258,6 +272,31 @@ describe('planIssueEffects (ADR 0285)', () => {
         plan: { batchId: '7-1', stepId: 'plan', attempt: 1, entry: 'api' },
       },
     ]);
+  });
+
+  it("never orders an approved plan's sub-issue as an order of its own before its breakdown is recorded", async () => {
+    approved();
+    // The last "blocked by" link fails and does not land: the breakdown waits for it.
+    const isLink = (method: string, path: string) =>
+      method === 'POST' && path.endsWith('/dependencies/blocked_by');
+    const serverError = () => new Response('{"message":"Server Error"}', { status: 500 });
+    await (await open(losing(api, isLink, 2, serverError, false))).applyEffects();
+    assert.deepStrictEqual(api.issue(brewery, 7)?.subIssues, [8, 9, 10]);
+    assert.deepStrictEqual(log.state().orders.get(7)?.subOrders, []);
+    // An intake pass of a Brewery whose own login is allow-listed, between the issues and the event.
+    const client = createGitHubClient({ exec: ghOver(api.fetch).exec });
+    await createIntake({
+      log,
+      brewery,
+      tracker: githubTargetTracker(createGitHubReads(client)),
+      claims: fakeGitHub().host,
+      claimant: { brewery, login },
+      authors: [login],
+      repositories: [],
+      capacity: 5,
+      clock: () => at,
+    }).poll();
+    assert.deepStrictEqual([...log.state().batches.keys()], ['7-1']);
   });
 
   it('opens nothing for a plan that waits for its review, nor for a batch on tap without a plan', async () => {
