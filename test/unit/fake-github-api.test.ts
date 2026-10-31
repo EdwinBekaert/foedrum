@@ -3,8 +3,10 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { githubCheckReader } from '../../src/github/checks.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
+import { githubTargetTracker } from '../../src/github/tracker.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 
@@ -24,6 +26,31 @@ const opened = async () => {
 };
 
 describe('the fake GitHub API', () => {
+  it('answers a pull request it opened by its number', async () => {
+    const { github, url, number, reads } = await opened();
+    assert.equal(await githubTargetTracker(reads).pullRequest(url), 'open');
+    const answer = await github.fetch(`${api}/repos/acme/web/pulls/${number}`);
+    assert.equal(answer.status, 200);
+    const pull = (await answer.json()) as {
+      number: number;
+      html_url: string;
+      body: string;
+      head: { ref: string; sha: string };
+    };
+    assert.deepStrictEqual(
+      { number: pull.number, url: pull.html_url, body: pull.body, ref: pull.head.ref },
+      { number, url, body: 'Closes #7', ref: 'foedrum/7' },
+    );
+    assert.match(pull.head.sha, /^[0-9a-f]{40}$/);
+  });
+
+  it("answers the check runs of a fresh pull request's head as none", async () => {
+    const { url, reads, client } = await opened();
+    const reader = githubCheckReader(reads, client);
+    const head = await reader.head(url);
+    assert.deepStrictEqual(await reader.checks(url, head), []);
+  });
+
   it('answers 404 to a pull request it never opened (regression test)', async () => {
     const { github, number } = await opened();
     const answer = await github.fetch(`${api}/repos/acme/web/pulls/${number + 1}`);
