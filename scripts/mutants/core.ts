@@ -192,13 +192,13 @@ const argumentsOf = (text: string): string[] => {
   return [...parts, text.slice(start).trim()].filter((part) => part !== '');
 };
 
+// A function's name inside a regular expression: `$` is the one character of a name it reads
+// specially.
+const literal = (name: string): string => name.replace(/\$/g, '\\$');
+
 const mentions = (code: string, name: string): number =>
-  code.match(
-    new RegExp(
-      `(?<![\\p{ID_Continue}$])${name.replace(/\$/g, '\\$')}(?![\\p{ID_Continue}$])`,
-      'gu',
-    ),
-  )?.length ?? 0;
+  code.match(new RegExp(`(?<![\\p{ID_Continue}$])${literal(name)}(?![\\p{ID_Continue}$])`, 'gu'))
+    ?.length ?? 0;
 
 const EQUAL = new Set(['equal', 'strictEqual', 'deepEqual', 'deepStrictEqual']);
 
@@ -211,7 +211,7 @@ const expected = (
   name: string,
 ): boolean | undefined => {
   const [actual = '', value] = args;
-  const call = new RegExp(`^(!?)\\s*${name.replace(/\$/g, '\\$')}\\s*\\(`, 'u').exec(actual);
+  const call = new RegExp(`^(!?)\\s*${literal(name)}\\s*\\(`, 'u').exec(actual);
   const open = call === null ? -1 : call[0].length - 1;
   if (
     call === null ||

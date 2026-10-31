@@ -23,7 +23,10 @@ import {
 
 type Result = { ok: boolean; lines: string[] };
 
-const readAnswer = async (answer: string): Promise<unknown[] | string> => {
+// Brett's answer as it was read, with its other fields, so --same-answer can write them back.
+type Answer = Record<string, unknown> & { mutants: unknown[] };
+
+const readAnswer = async (answer: string): Promise<Answer | string> => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readFile(answer, 'utf8'));
@@ -31,7 +34,7 @@ const readAnswer = async (answer: string): Promise<unknown[] | string> => {
     return `cannot read the answer: ${(error as Error).message}`;
   }
   const { mutants } = (parsed ?? {}) as { mutants?: unknown };
-  return Array.isArray(mutants) ? mutants : 'the answer has no "mutants" list';
+  return Array.isArray(mutants) ? (parsed as Answer) : 'the answer has no "mutants" list';
 };
 
 const realOrUndefined = (path: string): Promise<string | undefined> =>
@@ -90,8 +93,9 @@ export const checkMutants = async (
   answer: string,
   files?: string,
 ): Promise<Result> => {
-  const mutants = await readAnswer(answer);
-  if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
+  const parsed = await readAnswer(answer);
+  if (typeof parsed === 'string') return { ok: false, lines: [parsed] };
+  const { mutants } = parsed;
   const read = await readTouched(files);
   if (!read.ok) return read;
   const lines: string[] = [];
@@ -110,8 +114,9 @@ export const applyMutant = async (
   n: number,
   files?: string,
 ): Promise<Result> => {
-  const mutants = await readAnswer(answer);
-  if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
+  const parsed = await readAnswer(answer);
+  if (typeof parsed === 'string') return { ok: false, lines: [parsed] };
+  const { mutants } = parsed;
   const entry = mutants[n - 1];
   if (!Number.isInteger(n) || entry === undefined) {
     return { ok: false, lines: [`mutant ${n}: no such mutant (the answer has ${mutants.length})`] };
@@ -129,15 +134,8 @@ export const applyMutant = async (
 // The sources are the touched files under src/ and scripts/, the tests the touched test files,
 // as the tree has them; a file it cannot read gives no mutant.
 export const sameAnswer = async (tree: string, answer: string, files: string): Promise<Result> => {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(await readFile(answer, 'utf8'));
-  } catch (error) {
-    return { ok: false, lines: [`cannot read the answer: ${(error as Error).message}`] };
-  }
-  if (!Array.isArray(parsed?.mutants)) {
-    return { ok: false, lines: ['the answer has no "mutants" list'] };
-  }
+  const parsed = await readAnswer(answer);
+  if (typeof parsed === 'string') return { ok: false, lines: [parsed] };
   const read = await readTouched(files);
   if (!read.ok) return read;
   const changed = async (pattern: RegExp): Promise<ChangedFile[]> => {
