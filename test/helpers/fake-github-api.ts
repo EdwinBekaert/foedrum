@@ -28,10 +28,10 @@ export const createdOf = (number: number): string =>
   new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString();
 
 /**
- * The commit a pull request the fake opened heads: one per number, never a commit the fake made, so
- * a test can tell it from them.
+ * The commit a pull request the fake opened heads: one per number, zero-padded after an `e`, never a
+ * commit the fake made (zero-padded from the start), so a test can tell it from them.
  */
-export const headOf = (number: number): string => number.toString(16).padStart(40, 'e');
+export const headOf = (number: number): string => `e${number.toString(16).padStart(39, '0')}`;
 
 /** A pull request the fake opened, as `POST /repos/{owner}/{repo}/pulls` asked for it. */
 export interface FakeApiPull {
