@@ -214,7 +214,18 @@ export const SubOrderRef = z.strictObject({
   issue: IssueNumber,
   repo: Repo,
   touches: z.array(RelativePath).min(1).max(20).optional(),
+  // The id of the plan entry it was opened from (ADR 0285).
+  entry: PlanId.optional(),
 });
+
+/** Where a sub-order's batch came from: the approved plan's batch, step and attempt, and its entry (ADR 0285). */
+export const PlanOrigin = z.strictObject({
+  batchId: BatchId,
+  stepId: StepId,
+  attempt: Attempt,
+  entry: PlanId,
+});
+export type PlanOrigin = z.infer<typeof PlanOrigin>;
 export type SubOrderRef = z.infer<typeof SubOrderRef>;
 
 /** `subOrder` waits for `blockedBy`'s branch (`code`) or for its release (`release`). */
@@ -470,6 +481,8 @@ const orderDecomposed = z
     // Limits for a model-written breakdown; they also bound the cost of the checks below.
     subOrders: z.array(SubOrderRef).min(1).max(MOST_SUB_ORDERS),
     dependencies: z.array(Dependency).max(MOST_PLAN_DEPENDENCIES),
+    // The approved plan it applies, by its step and attempt (ADR 0285); absent before it.
+    plan: z.strictObject({ stepId: StepId, attempt: Attempt }).optional(),
   })
   .superRefine(({ subOrders, dependencies }, ctx) => {
     const issues = new Set(subOrders.map((subOrder) => subOrder.issue));
@@ -577,6 +590,8 @@ export const Event = z.discriminatedUnion('type', [
       batchId: BatchId,
       order: OrderRef,
       parentBatchId: BatchId.optional(),
+      // A sub-order's plan entry, when the intake ordered it from an applied plan (ADR 0285).
+      plan: PlanOrigin.optional(),
       // An Ordered batch waits to be routed, never silently: this is its deadline (ADR 0032).
       routeBy: Timestamp,
       // When the engine ordered it (ADR 0179); absent on the orders from before it recorded this.

@@ -53,6 +53,11 @@ export interface DriverEffects {
    * one, so a slower effect could let a second driver start it too (ADR 0044, #130).
    */
   deadlineMs?: number;
+  /**
+   * The events to record once every effect `due` gives for `batchId` is in the ledger, which the
+   * driver records under the batch's lease after the pass (ADR 0285); none by default.
+   */
+  recorded?(state: State, batchId: string): RecordedEvent[];
 }
 
 /**

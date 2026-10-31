@@ -1263,7 +1263,7 @@ describe('foedrum stuck', () => {
         '',
         `12-1  #12  the plan of plan #2 is ready for your review; reminder ${iso(2880)}`,
         '  options: retry, recipe, cancel',
-        '  next: read the plan and its assumptions; sign it off with foedrum approve 12-1, plan it again with foedrum retry 12-1, or end it with foedrum cancel 12-1. Its sub-orders become issues once #590 is built.',
+        '  next: read the plan and its assumptions; sign it off with foedrum approve 12-1, plan it again with foedrum retry 12-1, or end it with foedrum cancel 12-1.',
         '',
       ].join('\n'),
       stderr: '',

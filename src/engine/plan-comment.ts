@@ -16,6 +16,7 @@ import {
 import type { DriverEffects } from './driver.ts';
 import type { Approval, Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
+import type { OpenedSubIssue } from './plan-issues.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink } from './state-branch.ts';
 import {
@@ -119,6 +120,8 @@ export const renderPlan = (
   waitsForReview = false,
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
   approval?: Approval,
+  /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
+  _opened: readonly OpenedSubIssue[] = [],
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;

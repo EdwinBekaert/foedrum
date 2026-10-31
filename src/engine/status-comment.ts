@@ -938,6 +938,8 @@ export const renderStatus = (
   stateBranchUrl?: string,
   /** The plan comment of the batch's order, which the lane and the Assumptions link (ADR 0275). */
   planComment?: string,
+  /** The sub-issues its approved plan opened, once all are, which the On tap line names (ADR 0285). */
+  _subIssues?: readonly number[],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {

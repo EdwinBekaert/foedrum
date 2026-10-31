@@ -58,7 +58,7 @@ const three: PlanReport = {
 
 describe('renderPlan (ADR 0233)', () => {
   const next =
-    'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`. Its sub-orders become issues once #590 is built.';
+    'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.';
   const outDoc = 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md';
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
@@ -228,6 +228,28 @@ describe('renderPlan (ADR 0233)', () => {
         '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
       ),
       text.slice(-160),
+    );
+  });
+
+  it('names in the Gate section each sub-issue the approved plan has opened so far (ADR 0285)', () => {
+    const approval = {
+      stepId: 'plan',
+      attempt: 2,
+      plan: '0123456789abcdef',
+      by: 'grace',
+      via: 'plugin',
+      at: '2026-10-28T10:30:00.000Z',
+    } as const;
+    const opened = [
+      { id: 'api', number: 8 },
+      { id: 'ui', number: 9 },
+    ];
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc, false, approval, opened);
+    assert.ok(
+      text.endsWith(
+        '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nSub-issues: `api` #8, `ui` #9.\n\nNot ready: `cli`.',
+      ),
+      text.slice(-200),
     );
   });
 

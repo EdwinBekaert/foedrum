@@ -9,6 +9,7 @@ import type {
   GravityReading,
   HeadCheck,
   OrderRef,
+  PlanOrigin,
   RankPlace,
   Receipt,
   RecordedFindings,
@@ -202,6 +203,8 @@ export interface Batch {
   /** The target repository of a claimed issue (ADR 0043); absent for a Brewery issue. */
   repo?: string;
   parentBatchId?: string;
+  /** The plan entry a sub-order's batch was ordered from (ADR 0285). */
+  plan?: PlanOrigin;
   /** When it was ordered (ADR 0179); absent for an order that did not record it. */
   orderedAt?: string;
   /** What chose the recipe; a human's choice also records who issued it and from where. */
