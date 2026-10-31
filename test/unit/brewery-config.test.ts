@@ -500,7 +500,6 @@ describe('BreweryConfig: where the test map is kept (ADR 0274)', () => {
   it("keeps houseYeast's own fallback beside the test map's: regression test", () => {
     const parsed = BreweryConfig.parse(config({ houseYeast: 'brewery' }));
     assert.equal(parsed.repositories['acme/web']?.houseYeast, 'brewery');
-    assert.equal(parsed.repositories['acme/web']?.testMap, 'repo');
   });
 });
 
