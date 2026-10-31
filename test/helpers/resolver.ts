@@ -8,8 +8,8 @@
  */
 export const resolverLeavesMachine = (resolvConf: string | undefined): string | undefined => {
   if (resolvConf === undefined) return '/etc/resolv.conf cannot be read';
-  const servers = resolvConf.match(/^nameserver\s+\S+/gm) ?? [];
-  return servers.length > 0 && servers.every((server) => server.endsWith('127.0.0.53'))
+  const servers = [...resolvConf.matchAll(/^nameserver\s+(\S+)/gm)].map((line) => line[1]);
+  return servers.length > 0 && servers.every((server) => server === '127.0.0.53')
     ? undefined
     : "the host's resolver is not systemd-resolved's stub alone";
 };
