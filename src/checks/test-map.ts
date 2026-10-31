@@ -3,7 +3,7 @@
 // repository whose map it keeps (ADR 0018). The base's map governs every module it lists; a batch's
 // map may only add. Repository content, so untrusted input (ADR 0041).
 
-import { existsSync, readdirSync } from 'node:fs';
+import { type Dir, existsSync, opendirSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchesWithDots } from '../engine/path-globs.ts';
 import { pathInside } from '../platform/paths.ts';
@@ -220,19 +220,25 @@ export const reportPaths = (
         if (existsSync(join(folder, segment))) next.push(join(folder, segment));
         continue;
       }
-      let names: string[];
+      let dir: Dir;
       try {
-        names = readdirSync(folder);
+        dir = opendirSync(folder);
       } catch {
         // A file, or a folder that cannot be listed, holds no report.
         continue;
       }
-      for (const name of names) {
-        if (matchesSegment(name, segment)) next.push(join(folder, name));
+      try {
+        // Read one entry at a time, so a folder of many entries is refused once the count passes.
+        for (let entry = dir.readSync(); entry !== null; entry = dir.readSync()) {
+          if (!matchesSegment(entry.name, segment)) continue;
+          next.push(join(folder, entry.name));
+          if (next.length > MAX_REPORT_PATHS) {
+            return { refused: `${pattern} matches more than ${MAX_REPORT_PATHS} paths` };
+          }
+        }
+      } finally {
+        dir.closeSync();
       }
-    }
-    if (next.length > MAX_REPORT_PATHS) {
-      return { refused: `${pattern} matches more than ${MAX_REPORT_PATHS} paths` };
     }
     found = next;
   }
