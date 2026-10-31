@@ -1,7 +1,7 @@
 // The coverage report files of a worktree (ADR 0274): LCOV by file, Cobertura as every
 // `coverage.cobertura.xml` under a folder pattern, each read as a test report is (ADR 0078).
 
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { parseCobertura } from './cobertura.ts';
@@ -43,7 +43,7 @@ export function readCoverage(
   root: string,
   read: (file: string) => BoundedRead = (file) => readOutDocFile(file, MAX_REPORT_BYTES, root),
 ): ReadCoverage {
-  const one = (file: string, parse: typeof parseLcov): ReadCoverage | undefined => {
+  const one = (file: string, parse: (text: string) => ReadCoverage): ReadCoverage | undefined => {
     const text = read(join(root, ...file.split('/')));
     switch (text.kind) {
       case 'missing':
@@ -51,7 +51,7 @@ export function readCoverage(
       case 'unread':
         return { readable: false, reason: `${file}: ${text.reason}` };
       case 'text': {
-        const parsed = parse(text.text, root);
+        const parsed = parse(text.text);
         return parsed.readable ? parsed : { readable: false, reason: `${file}: ${parsed.reason}` };
       }
       default: {
@@ -60,13 +60,20 @@ export function readCoverage(
       }
     }
   };
+  // Which of several sources a Cobertura filename is under: the one where the file is.
+  const there = (file: string): boolean => existsSync(join(root, ...file.split('/')));
   switch (format) {
     case 'lcov':
-      return one(path, parseLcov) ?? { readable: false, reason: `no LCOV report at ${path}` };
+      return (
+        one(path, (text) => parseLcov(text, root)) ?? {
+          readable: false,
+          reason: `no LCOV report at ${path}`,
+        }
+      );
     case 'cobertura': {
       const reports: CoverageReport[] = [];
       for (const file of coberturaFiles(root, path)) {
-        const parsed = one(file, parseCobertura);
+        const parsed = one(file, (text) => parseCobertura(text, root, there));
         // A file gone since the walk is no report of this run.
         if (parsed === undefined) continue;
         if (!parsed.readable) return parsed;

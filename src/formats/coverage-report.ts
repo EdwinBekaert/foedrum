@@ -22,8 +22,7 @@ export type CoverageFormat = 'lcov' | 'cobertura';
 
 const DRIVE = /^[A-Za-z]:\//;
 
-/** Whether a path `reportPath` gave is still absolute: outside the root it was given. */
-export const isAbsolutePath = (path: string): boolean => path.startsWith('/') || DRIVE.test(path);
+const isAbsolutePath = (path: string): boolean => path.startsWith('/') || DRIVE.test(path);
 
 const slashed = (path: string): string => posix.normalize(path.replaceAll('\\', '/'));
 /** A drive letter in one case: Windows tells no case apart there, and tools write either. */
@@ -32,14 +31,15 @@ const folded = (path: string): string =>
 
 /**
  * A report's path relative to `root` with `/` between folders, both sides normalized first and a
- * drive letter compared in either case; a relative path is taken as relative to `root`, and one
- * outside `root` is kept, absolute, as written. The rest of its case is left as the tool wrote it.
+ * drive letter compared in either case; a relative path is taken as relative to `root`. Undefined
+ * for a path outside `root`, which no change in the worktree can name. The rest of its case is
+ * left as the tool wrote it.
  */
-export function reportPath(path: string, root: string): string {
+export function reportPath(path: string, root: string): string | undefined {
   const file = slashed(path);
-  if (!isAbsolutePath(file)) return file;
+  if (!isAbsolutePath(file)) return file === '..' || file.startsWith('../') ? undefined : file;
   const prefix = `${folded(slashed(root)).replace(/\/+$/, '')}/`;
-  return folded(file).startsWith(prefix) ? file.slice(prefix.length) : file;
+  return folded(file).startsWith(prefix) ? file.slice(prefix.length) : undefined;
 }
 
 /**

@@ -4,7 +4,6 @@
 import {
   addLine,
   type CoveredLine,
-  isAbsolutePath,
   linesOf,
   type ReadCoverage,
   reportPath,
@@ -22,22 +21,28 @@ const COUNT = /^\d+$/;
 const CONDITIONS = /\((\d+)\/(\d+)\)$/;
 
 /**
- * A class's file relative to `root`: the first `<source>` that, joined with its filename, lands
- * inside `root`. coverlet writes a second source (`C:\`) when it also measures the test assembly,
- * and a filename is relative to one of them.
+ * A class's file relative to `root`, or undefined outside it. Its filename is relative to one of
+ * the `<source>`s. With several (coverlet adds `C:\` when it also measures the test assembly), a
+ * filename may land inside `root` under more than one, so the one whose file `exists` there wins.
  */
-function fileOf(filename: string, sources: readonly string[], root: string): string {
-  const candidates = sources.map((source) => reportPath(`${source}/${filename}`, root));
-  return (
-    candidates.find((path) => !isAbsolutePath(path)) ?? candidates[0] ?? reportPath(filename, root)
-  );
+function fileOf(
+  filename: string,
+  sources: readonly string[],
+  root: string,
+  exists: (file: string) => boolean,
+): string | undefined {
+  if (sources.length === 0) return reportPath(filename, root);
+  const inside = sources
+    .map((source) => reportPath(`${source}/${filename}`, root))
+    .filter((file) => file !== undefined);
+  return sources.length === 1 ? inside[0] : inside.find(exists);
 }
 
 /** The lines of a Cobertura report, its paths relative to `root`, or why it is not one. */
 export function parseCobertura(
   text: string,
   root: string,
-  _exists: (file: string) => boolean = () => true,
+  exists: (file: string) => boolean = () => true,
 ): ReadCoverage {
   let coverage: Element;
   try {
@@ -57,8 +62,9 @@ export function parseCobertura(
   // A file in several classes (partial, nested, compiler-made) takes the most hits per line.
   for (const element of descendants(coverage, 'class')) {
     const filename = element.attributes.get('filename');
-    if (filename === undefined) continue;
-    const lines = linesOf(files, fileOf(filename, sources, root));
+    const file = filename === undefined ? undefined : fileOf(filename, sources, root, exists);
+    if (file === undefined) continue;
+    const lines = linesOf(files, file);
     for (const line of descendants(element, 'line')) {
       const number = line.attributes.get('number') ?? '';
       const hits = line.attributes.get('hits') ?? '';

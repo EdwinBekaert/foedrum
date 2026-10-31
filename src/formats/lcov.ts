@@ -17,15 +17,20 @@ const BRDA = /^BRDA:(\d+),[^,]+,[^,]+,(\d+|-)$/;
 /** The lines of an LCOV report, its paths relative to `root`, or why it is not one. */
 export function parseLcov(text: string, root: string): ReadCoverage {
   const files = new Map<string, Map<number, CoveredLine>>();
+  let records = 0;
   let record:
     | {
-        file: string;
+        /** Undefined outside the root: its lines are read, and left out. */
+        file: string | undefined;
         hits: Map<number, number>;
         branches: Map<number, NonNullable<CoveredLine['branches']>>;
       }
     | undefined;
   const end = (): void => {
-    if (record === undefined) return;
+    if (record?.file === undefined) {
+      record = undefined;
+      return;
+    }
     const lines = linesOf(files, record.file);
     // Only the lines LCOV lists as executable: a branch on any other line is not judged.
     for (const [number, hits] of record.hits) {
@@ -38,6 +43,7 @@ export function parseLcov(text: string, root: string): ReadCoverage {
     const line = raw.trim();
     if (line.startsWith('SF:')) {
       end();
+      records += 1;
       record = { file: reportPath(line.slice(3), root), hits: new Map(), branches: new Map() };
     } else if (line === 'end_of_record') {
       end();
@@ -56,6 +62,6 @@ export function parseLcov(text: string, root: string): ReadCoverage {
     }
   }
   end();
-  if (files.size === 0) return { readable: false, reason: 'it has no SF record' };
+  if (records === 0) return { readable: false, reason: 'it has no SF record' };
   return { readable: true, report: files };
 }
