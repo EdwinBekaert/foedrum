@@ -1,7 +1,7 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
-import { claimOfOrder, orderName } from '../engine/claim-orders.ts';
+import { claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
 import {
   attemptRecipeOf,
   type Batch,
@@ -193,7 +193,11 @@ export const orderBatches = (state: State, order: OrderRef): Batch[] => {
   const own = of(order);
   if (own.length === 0 && order.repo === undefined) {
     const claimed = claimOfOrder(state, order.issue);
-    if (claimed !== undefined) return of(claimed);
+    // Only the claimed issue's batches whose order this Brewery issue is, not an earlier or a
+    // later one's.
+    if (claimed !== undefined) {
+      return of(claimed).filter(({ id }) => claimOrderOf(state, id).issue === order.issue);
+    }
   }
   if (order.repo !== undefined) return own;
   const subOrders = state.orders.get(order.issue)?.subOrders ?? [];
