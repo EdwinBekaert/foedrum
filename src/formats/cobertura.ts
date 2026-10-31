@@ -34,7 +34,11 @@ function fileOf(filename: string, sources: readonly string[], root: string): str
 }
 
 /** The lines of a Cobertura report, its paths relative to `root`, or why it is not one. */
-export function parseCobertura(text: string, root: string): ReadCoverage {
+export function parseCobertura(
+  text: string,
+  root: string,
+  _exists: (file: string) => boolean = () => true,
+): ReadCoverage {
   let coverage: Element;
   try {
     coverage = readXml(text.replace(/^﻿/, ''));

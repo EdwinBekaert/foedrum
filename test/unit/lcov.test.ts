@@ -104,21 +104,21 @@ describe('parseLcov', () => {
         'SF:src\\deep\\..\\b.ts',
         'DA:1,1',
         'end_of_record',
-        // A sibling whose name starts with the root's stays outside it, as written.
+        // A sibling whose name starts with the root's is outside it, so not in the report.
         'SF:C:\\Repo2\\c.ts',
         'DA:1,1',
         'end_of_record',
       ].join('\n'),
       'C:\\Repo\\',
     );
-    assert.deepEqual([...report.keys()], ['src/a.ts', 'src/b.ts', 'C:/Repo2/c.ts']);
+    assert.deepEqual([...report.keys()], ['src/a.ts', 'src/b.ts']);
     assert.deepEqual(report.get('src/a.ts')?.get(1), { hits: 2 });
     // POSIX paths: the root itself as the folder, and a sibling near miss.
     const posix = read(
       'SF:/home/ada/x.ts\nDA:1,1\nend_of_record\nSF:/home/adam/y.ts\nDA:1,1\nend_of_record\n',
       '/home/ada',
     );
-    assert.deepEqual([...posix.keys()], ['x.ts', '/home/adam/y.ts']);
+    assert.deepEqual([...posix.keys()], ['x.ts']);
   });
 
   it('refuses text that is not an LCOV report', () => {

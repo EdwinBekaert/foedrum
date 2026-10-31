@@ -110,6 +110,39 @@ describe('parseCobertura', () => {
     assert.deepEqual([...second.keys()], ['lib/a.ts']);
   });
 
+  it('leaves out a Cobertura file that resolves outside the root', () => {
+    // One source outside the root, and a filename that climbs out of the other.
+    const outside = read(
+      `<coverage><sources><source>/elsewhere/</source></sources><packages><package><classes>
+<class filename="a.ts"><lines><line number="1" hits="0"/></lines></class>
+</classes></package></packages></coverage>`,
+      '/repo',
+    );
+    assert.deepEqual([...outside.keys()], []);
+    const climbs = read(
+      `<coverage><sources><source>/repo/src/</source></sources><packages><package><classes>
+<class filename="../../etc/b.ts"><lines><line number="1" hits="0"/></lines></class>
+<class filename="c.ts"><lines><line number="1" hits="0"/></lines></class>
+</classes></package></packages></coverage>`,
+      '/repo',
+    );
+    assert.deepEqual([...climbs.keys()], ['src/c.ts']);
+    // With two sources, `C:\spike\cs\` joined with the test SDK's NuGet filename also lands
+    // inside the root: the file that is there in the worktree decides which source it has.
+    const there = new Set([
+      'src/Calc/Calculator.cs',
+      'src/Calc/Legacy.cs',
+      'test/Calc.Tests/CalculatorTests.cs',
+    ]);
+    const parsed = parseCobertura(
+      spike('1b-red-skipped', 'Calc.Tests.with-tests.cobertura.xml'),
+      'C:\\spike\\cs',
+      (file) => there.has(file),
+    );
+    assert.ok(parsed.readable);
+    assert.deepEqual([...parsed.report.keys()].sort(), [...there].sort());
+  });
+
   it('refuses text that is not a Cobertura report', () => {
     const refuses = (text: string, reason: RegExp) => {
       const parsed = parseCobertura(text, '/repo');
