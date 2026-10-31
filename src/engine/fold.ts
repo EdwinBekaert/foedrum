@@ -619,6 +619,7 @@ function apply(state: State, event: Event): State {
           outcome: event.outcome,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
           ...(event.readings === undefined ? {} : { readings: event.readings }),
+          ...(event.coverage === undefined ? {} : { coverage: event.coverage }),
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),

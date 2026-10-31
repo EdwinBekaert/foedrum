@@ -2,8 +2,9 @@
 // every line the batch's change added in a code area must have run, in the union of the modules'
 // coverage reports, each of its branches too where the report has branch data. Pure.
 
-import type { CoverageReport } from '../formats/coverage-report.ts';
-import type { EffectiveModule } from './test-map.ts';
+import { shown } from '../formats/coverage-files.ts';
+import type { CoverageReport, CoveredLine } from '../formats/coverage-report.ts';
+import { areaOf, type EffectiveModule } from './test-map.ts';
 
 /** A file of the batch's change at the step's tip, and the lines it added there. */
 export interface ChangedFile {
@@ -29,17 +30,81 @@ export interface CoverageVerdict {
   unmeasured: string[];
 }
 
+/** The lines of `path` in `report`, its name compared in either case where `foldCase`. */
+const linesIn = (
+  report: CoverageReport,
+  path: string,
+  foldCase: boolean,
+): ReadonlyMap<number, CoveredLine> | undefined => {
+  const exact = report.get(path);
+  if (exact !== undefined || !foldCase) return exact;
+  const folded = path.toLowerCase();
+  return [...report].find(([file]) => file.toLowerCase() === folded)?.[1];
+};
+
 /** Judges the batch's changed files against the union of the reports. */
-export const judgeCoverage = (_input: {
+export const judgeCoverage = ({
+  modules,
+  changed,
+  report,
+  foldCase,
+}: {
   modules: readonly EffectiveModule[];
   changed: readonly ChangedFile[];
   report: CoverageReport;
   foldCase: boolean;
 }): CoverageVerdict => {
-  throw new Error('not implemented');
+  const verdict: CoverageVerdict = { uncovered: [], notLoaded: [], outside: [], unmeasured: [] };
+  for (const { path, addedAt } of changed) {
+    if (addedAt.length === 0) continue;
+    const area = areaOf(modules, path, foldCase);
+    if (area === undefined) {
+      verdict.outside.push(path);
+      continue;
+    }
+    // A test is not code a test must run.
+    if (area.area === 'tests') continue;
+    const { coverage } = modules.find(({ module }) => module.name === area.module)?.module ?? {};
+    if (coverage === undefined) continue;
+    if (coverage === 'none') {
+      if (!verdict.unmeasured.includes(area.module)) verdict.unmeasured.push(area.module);
+      continue;
+    }
+    const lines = linesIn(report, path, foldCase);
+    if (lines === undefined) {
+      // coverlet and JaCoCo list every file they did not load, so one no report holds ran under no
+      // test; Node leaves such a file out, as it does a types-only one no test could run.
+      if (coverage.format === 'cobertura') {
+        verdict.uncovered.push(...addedAt.map((line) => ({ file: path, line, branch: false })));
+      } else {
+        verdict.notLoaded.push(path);
+      }
+      continue;
+    }
+    for (const line of addedAt) {
+      // Only the lines a report lists as executable are judged.
+      const covered = lines.get(line);
+      if (covered === undefined) continue;
+      if (covered.hits === 0) verdict.uncovered.push({ file: path, line, branch: false });
+      else if (covered.branches !== undefined && covered.branches.taken < covered.branches.total) {
+        verdict.uncovered.push({ file: path, line, branch: true });
+      }
+    }
+  }
+  return verdict;
 };
 
+/** How many uncovered lines the reason names. */
+const MOST_NAMED = 10;
+
 /** The check's reason for uncovered lines: the first ten, and a count of the rest. */
-export const uncoveredReason = (_lines: readonly UncoveredLine[]): string => {
-  throw new Error('not implemented');
+export const uncoveredReason = (lines: readonly UncoveredLine[]): string => {
+  const named = lines
+    .slice(0, MOST_NAMED)
+    .map(
+      ({ file, line, branch }) => `${shown(file)}:${line}${branch ? ' (branch not taken)' : ''}`,
+    );
+  const more = lines.length - named.length;
+  const count = `${lines.length} changed line${lines.length === 1 ? '' : 's'}`;
+  return `${count} no test runs: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };

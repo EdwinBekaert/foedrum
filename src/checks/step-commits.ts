@@ -136,3 +136,20 @@ export async function readDiff(
   }
   return { files: parseDiff(result.stdout) };
 }
+
+/** The paths of every file at `commit`, read in `cwd`, the repository's clone; or why not. */
+export async function readFilesAt(
+  git: Git,
+  cwd: string,
+  commit: string,
+  signal?: AbortSignal,
+): Promise<{ files: string[] } | { error: string }> {
+  const result = await git(cwd, ['ls-tree', '-r', '-z', '--name-only', commit, '--'], {
+    maxOutputBytes: MAX_DIFF_BYTES,
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (result.code !== 0) {
+    return { error: lastLine(result.stderr) ?? `git exited with ${result.code ?? 'no code'}` };
+  }
+  return { files: result.stdout.split('\0').filter((path) => path !== '') };
+}

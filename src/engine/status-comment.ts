@@ -3,7 +3,13 @@
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
+import type {
+  CoverageListing,
+  GravityReading,
+  RoundsOut,
+  StuckReason,
+  WaitCondition,
+} from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { planOf } from '../schemas/plan.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
@@ -585,6 +591,30 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
   }
 };
 
+/**
+ * What the uncovered-line check of a check step's latest finished attempt did not measure, under the
+ * step's line (ADR 0274): changed code no test loaded, changed files outside every code area, and
+ * the modules with `coverage: none` it skipped.
+ */
+const coverageLines = (batch: Batch, stepId: string): string[] => {
+  const latest = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
+  const listing = latest?.phase === 'finished' ? latest.coverage : undefined;
+  if (listing === undefined) return [];
+  const files = (what: string, listed: CoverageListing['notLoaded']): string[] =>
+    listed === undefined
+      ? []
+      : [
+          `  - ${what}: ${listed.files.map(plain).join(', ')}${listed.more > 0 ? ` and ${listed.more} more` : ''}`,
+        ];
+  return [
+    ...files('not loaded by any test', listing.notLoaded),
+    ...files('outside every code area', listing.outside),
+    ...(listing.unmeasured === undefined
+      ? []
+      : [`  - not measured, coverage none: ${listing.unmeasured.map(plain).join(', ')}`]),
+  ];
+};
+
 /** How attempt `n` of `stepId` stands, as the step list marks it. */
 const markOf = (batch: Batch, stepId: string, n: number): string => {
   const attempt = batch.steps.get(stepId)?.attempts.get(n);
@@ -952,7 +982,10 @@ export const renderStatus = (
     [
       recipeText(batch.recipe),
       ...pathLines(batch, told),
-      ...stepIds.map((stepId) => stepLine(batch, stepId, told, stateBranchUrl)),
+      ...stepIds.flatMap((stepId) => [
+        stepLine(batch, stepId, told, stateBranchUrl),
+        ...coverageLines(batch, stepId),
+      ]),
     ],
   ];
   // Before the sections that grow with the out docs, so a comment cut to length keeps it.
