@@ -110,8 +110,11 @@ export const siblingSection = (state: State, batchId: string): string | undefine
   const entries = subOrderPullRequests(state, own.order);
   if (entries.length < 2) return undefined;
   const dependencies: readonly Dependency[] = state.orders.get(own.order)?.dependencies ?? [];
+  // The batch names itself the same before and after its pull request opens, so the open's section
+  // is the one the next pass computes.
   const refs = new Map(
     entries.map(({ subOrder, repo, pullRequest }) => {
+      if (subOrder === own.issue) return [subOrder, 'this pull request'];
       if (pullRequest === undefined) return [subOrder, repo];
       const { repo: at, number } = pullRequestOf(pullRequest);
       return [subOrder, `${at}#${number}`];
@@ -136,9 +139,8 @@ export const siblingSection = (state: State, batchId: string): string | undefine
         : waiters.length > 0
           ? `merge first (${named(waiters, ', ')})`
           : 'merge in any order';
-    const self = subOrder === own.issue ? ' (this pull request)' : '';
-    const ref = refs.get(subOrder) ?? repo;
-    return `${at + 1}. ${ref}${self}: ${stateText[where]}, ${when}.`;
+    if (subOrder === own.issue) return `${at + 1}. This pull request, in ${repo}: ${when}.`;
+    return `${at + 1}. ${refs.get(subOrder) ?? repo}: ${stateText[where]}, ${when}.`;
   });
   const intro = `This pull request is one of ${entries.length} of one order. Merge them in this order:`;
   // Whole lines, within the room every body keeps for the section.
@@ -182,11 +184,14 @@ interface DueSection {
   url: string;
   section: string;
   digest: string;
+  /** How many sub-orders of the order have a pull request, which the section names. */
+  opened: number;
 }
 
 /**
- * The revisions of each open sub-order pull request's sibling section, for the driver: one
- * whenever the section changed since the latest recorded, as its siblings open and end (ADR 0292).
+ * The revisions of each sub-order pull request's sibling section, for the driver: one whenever the
+ * section changed since the latest recorded, as its siblings open and end, while it is open, and
+ * once it merged only when a sibling opened since (ADR 0292).
  * A body someone edited is left as it is, as a later round leaves it (ADR 0227).
  */
 export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects => {
@@ -200,48 +205,55 @@ export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects =>
   const target: EffectTarget = {
     // Written by a run before that was killed before it recorded it, or by the open or a round.
     find: async (key, signal) => {
-      const { url, section, digest } = dueFor(key);
+      const { url, section, digest, opened } = dueFor(key);
       const { batchId } = effectKey.decode(key);
       const body = await host.body(url, signal);
       if (bodyOwner(batchId, body).kind !== 'own') return undefined;
       return sectionOf(textAboveMarker(body)) === section
-        ? { result: { section: digest } satisfies SiblingResult }
+        ? { result: { section: digest, opened } satisfies SiblingResult }
         : undefined;
     },
     apply: async (key, signal): Promise<SiblingResult> => {
-      const { url, section, digest } = dueFor(key);
+      const { url, section, digest, opened } = dueFor(key);
       const decoded = effectKey.decode(key);
       const body = await host.body(url, signal);
       const owner = bodyOwner(decoded.batchId, body);
-      if (owner.kind === 'left') return { section: digest, left: owner.left };
+      if (owner.kind === 'left') return { section: digest, opened, left: owner.left };
       await host.update(
         url,
         markedBody(decoded, withSection(textAboveMarker(body), section)),
         signal,
       );
-      return { section: digest };
+      return { section: digest, opened };
     },
   };
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
       const url = openedPullRequest(state, batchId);
-      // Only while its pull request is open: a merged one's body is the merge commit's already.
-      if (batch === undefined || url === undefined || batch.pullRequestEnds?.[url] !== undefined) {
-        return [];
-      }
+      const end = url === undefined ? undefined : batch?.pullRequestEnds?.[url];
+      // A pull request closed without merging is no part of the order's merge any more.
+      if (batch === undefined || url === undefined || end === 'closed') return [];
       const section = siblingSection(state, batchId);
-      if (section === undefined) return [];
+      const order = state.subOrders.get(batch.issue)?.order;
+      if (section === undefined || order === undefined) return [];
       const recorded = numberedEffects(
         state,
         (n) => siblingKey(batchId, n),
         SiblingResult,
         "a sibling section's revision",
       );
+      const latest = recorded.at(-1);
       const digest = digestOf(section);
-      if (recorded.at(-1)?.section === digest) return [];
+      if (latest?.section === digest) return [];
+      const opened = subOrderPullRequests(state, order).filter(
+        ({ pullRequest }) => pullRequest !== undefined,
+      ).length;
+      // A merged body is written again only to name a sibling that opened since: a blocker merges
+      // before what waits for it opens (ADR 0211), and is its merge commit's description already.
+      if (end === 'merged' && (latest?.opened ?? 0) >= opened) return [];
       const key = siblingKey(batchId, recorded.length + 1);
-      due.set(effectKey.encode(key), { url, section, digest });
+      due.set(effectKey.encode(key), { url, section, digest, opened });
       return [key];
     },
     target,

@@ -168,6 +168,8 @@ export type BodyResult = z.infer<typeof BodyResult>;
  */
 export const SiblingResult = z.strictObject({
   section: z.string().regex(/^[0-9a-f]{16}$/),
+  /** How many of the order's sub-orders had a pull request it names. */
+  opened: z.int().nonnegative(),
   left: z.enum(['edited', 'unmarked']).exactOptional(),
 });
 export type SiblingResult = z.infer<typeof SiblingResult>;
