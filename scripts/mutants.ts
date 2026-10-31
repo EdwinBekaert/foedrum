@@ -8,7 +8,7 @@
 
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
+import { isDeepStrictEqual, parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import {
   type ChangedFile,
@@ -129,8 +129,8 @@ export const applyMutant = async (
   return { ok: true, lines: [`mutant ${n}: applied ${result.path}`] };
 };
 
-// Appends the same-answer mutants of the change to the answer file, in place of the ones an
-// earlier run appended (#223).
+// Appends the same-answer mutants of the change to the answer file, except one already in it from
+// an earlier run, and removes nothing (#223).
 // The sources are the touched files under src/ and scripts/, the tests the touched test files,
 // as the tree has them; a file it cannot read gives no mutant.
 export const sameAnswer = async (tree: string, answer: string, files: string): Promise<Result> => {
@@ -150,12 +150,12 @@ export const sameAnswer = async (tree: string, answer: string, files: string): P
   };
   const sources = await changed(/^(?:src|scripts)\/(?!.*\.test\.ts$).*\.ts$/);
   const scripted = sameAnswerMutants(sources, await changed(/^test\/.*\.test\.ts$/));
-  const brett = parsed.mutants.filter(
-    (entry: unknown) => (entry as { source?: unknown } | null)?.source !== 'script',
+  const added = scripted.filter(
+    (mutant) => !parsed.mutants.some((entry) => isDeepStrictEqual(entry, mutant)),
   );
   await writeFile(
     answer,
-    `${JSON.stringify({ ...parsed, mutants: [...brett, ...scripted] }, null, 2)}\n`,
+    `${JSON.stringify({ ...parsed, mutants: [...parsed.mutants, ...added] }, null, 2)}\n`,
   );
   const lines = scripted.map((mutant) => `same answer: ${sameAnswerLine(mutant)}`);
   return { ok: true, lines: lines.length > 0 ? lines : ['same answer: none'] };

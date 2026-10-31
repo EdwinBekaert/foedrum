@@ -320,23 +320,19 @@ export const sameAnswerMutants = (
   tests: readonly ChangedFile[],
 ): ScriptedMutant[] => {
   const code = tests.map((test) => codeOf(test.content)).join('\n');
-  return sources.flatMap((source) =>
-    booleanFunctions(source.content).flatMap(({ name, line, original, rewrite }) => {
-      const value = sameAnswer(code, name);
-      if (value === undefined) return [];
-      const description = `${name} returns ${value} for every input: every assertion on it in the changed tests expects ${value}`;
-      return [
-        {
-          file: source.path,
-          line,
-          original,
-          replacement: rewrite(value),
-          description,
-          source: 'script' as const,
-        },
-      ];
-    }),
+  const found = sources.flatMap((source) =>
+    booleanFunctions(source.content).map((fn) => ({ ...fn, file: source.path })),
   );
+  // The tests are matched to a function by its name, so a name declared twice is left to Brett.
+  const once = (name: string): boolean => found.filter((fn) => fn.name === name).length === 1;
+  return found.flatMap(({ name, file, line, original, rewrite }) => {
+    const value = once(name) ? sameAnswer(code, name) : undefined;
+    if (value === undefined) return [];
+    const description = `${name} returns ${value} for every input: every assertion on it in the changed tests expects ${value}`;
+    return [
+      { file, line, original, replacement: rewrite(value), description, source: 'script' as const },
+    ];
+  });
 };
 
 // The line the command prints for a mutant of sameAnswerMutants.
