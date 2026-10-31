@@ -342,6 +342,15 @@ describe('npm run demo', () => {
     );
   });
 
+  it("step 12's answer is the demo user's, who mashed the order, not the machine's account", () => {
+    const mash = part('mash');
+    assert.match(mash, /^ +Recipe \*\*mash\*\*, chosen by ann \(terminal\)$/m);
+    assert.match(
+      mash,
+      /`innkeep`: attempt 1 asked for input, answered by ann \(terminal\): mash$/m,
+    );
+  });
+
   it("the walkthrough has twelve steps, step 12's heading among them", () => {
     assert.equal(STEPS.length, 12);
     assert.equal(headingOf(11), 'Step 12 of 12: foedrum mash 3 --as ann');

@@ -36,6 +36,8 @@ export const cliFromCheckout = async (
   cwd: string,
   options?: Partial<Pick<DoctorShell, 'exec' | 'resolve' | 'denylist'>> & {
     board?: { stream: TerminalStream; env: Readonly<Record<string, string | undefined>> };
+    /** Who a command that changes state is recorded as; default the account's name. */
+    user?: () => string;
   },
 ): Promise<CliResult> => {
   const readText = (...path: string[]): string | undefined => {
