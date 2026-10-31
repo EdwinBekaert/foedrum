@@ -27,6 +27,12 @@ export const idOf = (number: number): number => 6_000_000_000 + number;
 export const createdOf = (number: number): string =>
   new Date(Date.UTC(2026, 9, 1) + number * 60_000).toISOString();
 
+/**
+ * The commit a pull request the fake opened heads: one per number, never a commit the fake made, so
+ * a test can tell it from them.
+ */
+export const headOf = (number: number): string => number.toString(16).padStart(40, 'e');
+
 /** A pull request the fake opened, as `POST /repos/{owner}/{repo}/pulls` asked for it. */
 export interface FakeApiPull {
   repo: string;
@@ -284,9 +290,23 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     user: { login: pull.author },
     head: { ref: pull.head, repo: { full_name: pull.repo } },
   });
-  // The pull requests of a repository: listed by head (`owner:branch`), and opened.
+  // The pull requests of a repository: listed by head (`owner:branch`), opened, and read by number,
+  // each open on its head with no check run or commit status on it, as a fresh one is on GitHub.
   const onPulls = (method: string, repo: string, url: URL, body: unknown): Response => {
     const ofRepo = pulls.filter((pull) => pull.repo === repo.toLowerCase());
+    const [, number] = /\/pulls\/(\d+)$/.exec(url.pathname) ?? [];
+    if (number !== undefined) {
+      const found = ofRepo.find((pull) => pull.number === Number(number));
+      if (method !== 'GET' || found === undefined) return notFound();
+      return json(200, {
+        ...asPull(found),
+        state: 'open',
+        merged: false,
+        merged_at: null,
+        body: found.body,
+        head: { ref: found.head, sha: headOf(found.number), repo: { full_name: found.repo } },
+      });
+    }
     if (method === 'GET') {
       const head = url.searchParams.get('head')?.split(':').slice(1).join(':');
       return json(
@@ -301,6 +321,18 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const pull = { repo: repo.toLowerCase(), number: ++ids, author: login, ...fields };
     pulls.push(pull);
     return json(201, asPull(pull));
+  };
+
+  // The check runs and commit statuses on the head of a pull request the fake opened: none.
+  const onCommit = (method: string, repo: string, rest: string): Response => {
+    const [, sha, what] = /^commits\/([0-9a-f]{40})\/(check-runs|status)$/.exec(rest) ?? [];
+    const headed = pulls.some(
+      (pull) => pull.repo === repo.toLowerCase() && headOf(pull.number) === sha,
+    );
+    if (method !== 'GET' || !headed) return notFound();
+    return what === 'check-runs'
+      ? json(200, { total_count: 0, check_runs: [] })
+      : json(200, { state: 'pending', total_count: 0, statuses: [] });
   };
 
   const onGit = (method: string, repo: string, rest: string, body: unknown): Response => {
@@ -354,7 +386,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (id !== undefined) return onComment(method, repo, Number(id), body);
     if (rest.startsWith('issues/')) return onIssue(method, repo, rest, body);
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
-    if (rest === 'pulls') return onPulls(method, repo, url, body);
+    if (/^pulls(?:\/\d+)?$/.test(rest)) return onPulls(method, repo, url, body);
+    if (rest.startsWith('commits/')) return onCommit(method, repo, rest);
     if (method === 'POST' && rest === 'labels') {
       const { name } = body as { name: string };
       const made = labels.get(repo.toLowerCase()) ?? new Set();
