@@ -926,6 +926,72 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     );
   });
 
+  it("places a skip the run names by the worktree's real path, as the check sandbox runs it: regression test", async () => {
+    const real = join('/private', 'work', 'real');
+    const skip = `<testsuites>
+  <testcase name="clamps below" file="${join(real, 'test', 'calc.test.ts')}" line="5"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'text', text: skip } },
+      realPath: () => real,
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      'test "clamps below" is skipped at test/calc.test.ts:5, a line the batch added: a change may not skip a test it was proven by',
+    );
+  });
+
+  it("places a report's relative skip only in a test file of its own module: regression test", async () => {
+    const web: TestMapModule = {
+      ...junit,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      testReport: { format: 'junit', path: 'web.xml' },
+      coverage: 'none',
+    };
+    // calc's report names a relative calc.test.ts, which only web's added test file ends with.
+    const skip = `<testsuites>
+  <testcase name="later" file="calc.test.ts" line="5"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      maps: { [base]: mapOf(junit, web), [tip]: mapOf(junit, web) },
+      diff: adding('web-test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'text', text: skip } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
+  it('blocks the green check on its environment when a test report pattern is refused after the run: regression test', async () => {
+    const why = 'junit.xml leads out of the worktree';
+    const { run, asked } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      refusedAfterRun: { 'junit.xml': why },
+    });
+    const { ending } = await run();
+    assert.ok(asked.includes('run npm test'), asked.join('|'));
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the test report of module "calc" cannot be looked for: ${why}`,
+    });
+  });
+
+  it('fails the green check along its onFail route when a test report is not JUnit XML: regression test', async () => {
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'text', text: 'TAP version 13' } },
+    });
+    const end = await run();
+    assert.match(reasonOf(end), /^the test report junit\.xml of module "calc" is not JUnit XML: /);
+  });
+
   it('passes a green check whose report places a skip in a code file the batch added a line to: only a separate test file is judged', async () => {
     const inCode = `<testsuites>
   <testcase name="clamps inline" file="src/calc.ts" line="12"><skipped/></testcase>
