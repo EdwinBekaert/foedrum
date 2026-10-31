@@ -46,6 +46,12 @@ describe('the plugin and the terminal (ADR 0125)', () => {
     for (const name of ['order', 'recipe']) assert.ok(existsSync(skillFile(name)), name);
   });
 
+  it('carries approve as a skill, a sign-off the engineer gives in Claude Code (#588)', () => {
+    assert.ok(existsSync(skillFile('approve')));
+    assert.equal(commands.find(({ name }) => name === 'approve')?.terminalOnly, undefined);
+    assert.ok(commands.some(({ name }) => name === 'approve'));
+  });
+
   it('has no skill that is not a command of the registry', () => {
     const names = new Set(commands.map(({ name }) => name));
     assert.deepStrictEqual(

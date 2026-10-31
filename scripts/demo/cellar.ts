@@ -7,11 +7,12 @@
 // demo's own, whose insteadOf sends the target's GitHub URL there. In the life that crashes, the
 // process is killed with SIGKILL once the brewer has committed: no finally block runs, and the
 // lock, the lease and the attempt's worktree are left as a crash leaves them. scripts/demo.ts
-// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish|brew`. For the walkthrough (#268)
-// it shows `foedrum status` whenever the store has changed and once an attempt has started, in the
-// restart the line that says which attempt was lost and which one brews it again, and what an
-// attempt a failed check sent back was told (ADR 0128). With `brew` it runs `foedrum brew`'s own
-// runBrew on the second order instead of the Cellar, on the same machine and seams (ADR 0139).
+// starts it: `node scripts/demo/cellar.ts <scratch> crash|finish`, or `… brew <issue> [mash]`. For
+// the walkthrough (#268) it shows `foedrum status` whenever the store has changed and once an
+// attempt has started, in the restart the line that says which attempt was lost and which one
+// brews it again, and what an attempt a failed check sent back was told (ADR 0128). With `brew` it
+// runs `foedrum brew`'s own runBrew on the issue instead of the Cellar, on the same machine and
+// seams (ADR 0139), and with `mash` as `foedrum mash` runs it (ADR 0232).
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,15 +27,22 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { demoBrewers } from './brewer.ts';
 import { codeHost, fileJournal } from './code-host.ts';
-import { BREW_ORDER, CRASH_LINE, DIAGNOSIS, lifeEndOf, ON_TAP_LINE, USER } from './core.ts';
+import { CRASH_LINE, DIAGNOSIS, lifeEndOf, ON_TAP_LINE, USER } from './core.ts';
 import { laterRoundLines, lostAttemptLine, routeLines, STATUS_LINE } from './walkthrough.ts';
 
 /** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
 const INTERVAL_MS = 100;
 
-const [scratch, life] = process.argv.slice(2);
-if (scratch === undefined || (life !== 'crash' && life !== 'finish' && life !== 'brew')) {
-  process.stderr.write('usage: node scripts/demo/cellar.ts <scratch> crash|finish|brew\n');
+const [scratch, life, issue, mash] = process.argv.slice(2);
+const brewed = Number(issue);
+const given =
+  life === 'brew'
+    ? Number.isInteger(brewed) && (mash === undefined || mash === 'mash')
+    : issue === undefined;
+if (scratch === undefined || (life !== 'crash' && life !== 'finish' && life !== 'brew') || !given) {
+  process.stderr.write(
+    'usage: node scripts/demo/cellar.ts <scratch> crash|finish, or <scratch> brew <issue> [mash]\n',
+  );
   process.exit(2);
 }
 const out = (line: string): void => {
@@ -162,10 +170,11 @@ try {
   const code =
     life === 'brew'
       ? await runBrew(setup, shell, {
-          target: { issue: BREW_ORDER.number },
+          target: { issue: brewed },
           owner: USER,
           by: USER,
           via: 'terminal',
+          ...(mash === 'mash' ? { mash: true as const } : {}),
         })
       : await runServe(setup, shell);
   process.exitCode = failed ? 1 : code;

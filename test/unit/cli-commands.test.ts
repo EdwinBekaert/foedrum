@@ -3,6 +3,7 @@
 // the command log with who issued it and from where, and refuses what decide refuses.
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { BrewerSource } from '../../src/cli/brewer-report.ts';
@@ -29,6 +30,8 @@ const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
   stout: fakeRecipe({ steps: ['analyze', 'plan', 'implement'] }),
+  // One plan step and no pull request: its plan waits for review (ADR 0275).
+  mash: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
 });
 const questions: Question[] = [
   {
@@ -138,6 +141,47 @@ describe('foedrum: commands that change state', () => {
     stderr: `foedrum ${command}: ${reason}\n`,
   });
 
+  const plan = {
+    status: 'done',
+    summary: 'Planned',
+    assumptions: [],
+    subOrders: [
+      {
+        id: 'one',
+        title: 'One',
+        repo: 'acme/api',
+        size: { lines: 10, mechanism: 'a flag' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src' }],
+        recipe: 'pint',
+        why: 'small',
+        ready: true,
+      },
+    ],
+  };
+  const digest = createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16);
+  /** Batch 27-1 of mash, its plan #1 waiting Stuck for its review. */
+  const waiting = (): void => {
+    const log = createCommandLog({ store, recipes });
+    const issue = (command: Parameters<typeof log.issue>[0]) =>
+      assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+    const batchId = '27-1';
+    issue({ kind: 'order', batchId, order: { issue: 27 } });
+    issue({ kind: 'route', batchId, recipe: 'mash', reason: 'label', source: 'label' });
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', batchId, stepId: 'plan', attempt: 1 },
+    });
+    issue({
+      kind: 'finish',
+      batchId,
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'succeeded', output: plan },
+    });
+    assert.equal(log.state().batches.get(batchId)?.lane.kind, 'stuck');
+  };
+
   it('opens only the read-only store for a read-only command, and appends nothing', async () => {
     const before = lastId();
     for (const argv of [
@@ -175,11 +219,14 @@ describe('foedrum: commands that change state', () => {
   });
 
   it('opens the writable store in .foedrum of the working directory for each one that does', async () => {
+    waiting();
     // One accepted command line per command the registry says changes state.
     const lines: Record<string, string[]> = {
       retry: ['retry', '22-1'],
       skip: ['skip', '24-1'],
       answer: ['answer', '21-1', 'sqlite', 'yes'],
+      // 27-1's plan waits for its review.
+      approve: ['approve', '27-1'],
       recipe: ['recipe', '25-1', 'stout', 'start over'],
       rewind: ['rewind', '26-1', 'plan', `acme/app=${SHA}`],
       cancel: ['cancel', '23-1'],
@@ -349,6 +396,73 @@ describe('foedrum: commands that change state', () => {
           'batch 23-1 is cancelled; cancel needs it ordered, brewing, conditioning or stuck',
         ),
       );
+    });
+  });
+
+  describe('approve (ADR 0281, #588)', () => {
+    it('signs off the plan, recorded with who, from where and its digest, and the batch goes on tap', async () => {
+      waiting();
+      assert.deepStrictEqual(
+        await run(['approve', '27-1'], { user: () => 'grace', surface: 'plugin' }),
+        ok('27-1 on tap: plan approved by grace via plugin\n'),
+      );
+      assert.deepStrictEqual(appended(2), [
+        {
+          type: 'batch.approved',
+          batchId: '27-1',
+          stepId: 'plan',
+          attempt: 1,
+          plan: digest,
+          by: 'grace',
+          via: 'plugin',
+          at: t0.toISOString(),
+        },
+        { type: 'batch.on_tap', batchId: '27-1', pullRequests: [] },
+      ]);
+    });
+
+    it('appends the approval and on tap in one transaction', async () => {
+      waiting();
+      const transactions: string[][] = [];
+      const counted = (): EventStore => ({
+        ...kept(),
+        withTransaction: (use) =>
+          store.withTransaction((tx) => {
+            const types: string[] = [];
+            transactions.push(types);
+            return use({
+              ...tx,
+              append: (event) => {
+                types.push(event.type);
+                return tx.append(event);
+              },
+            });
+          }),
+      });
+      assert.equal((await run(['approve', '27-1'], { openWritableStore: counted })).exitCode, 0);
+      assert.deepStrictEqual(
+        transactions.filter((types) => types.length > 0),
+        [['batch.approved', 'batch.on_tap']],
+      );
+    });
+
+    it('refuses a batch that waits for no plan review, naming its lane, and appends nothing', async () => {
+      const before = lastId();
+      assert.deepStrictEqual(
+        await run(['approve', '23-1']),
+        refused('approve', 'batch 23-1 is brewing; approve needs it stuck'),
+      );
+      assert.deepStrictEqual(
+        await run(['approve', '22-1']),
+        refused('approve', 'batch 22-1 is stuck on attempts exhausted, not on a plan to review'),
+      );
+      assert.equal(lastId(), before);
+    });
+
+    it('is a command of the registry that changes state', () => {
+      const approve = commands.find(({ name }) => name === 'approve');
+      assert.equal(approve?.changesState, true);
+      assert.deepStrictEqual(approve?.positionals, ['batch']);
     });
   });
 
@@ -1149,7 +1263,7 @@ describe('foedrum stuck', () => {
         '',
         `12-1  #12  the plan of plan #2 is ready for your review; reminder ${iso(2880)}`,
         '  options: retry, recipe, cancel',
-        '  next: read the plan and its assumptions. To plan it again, run foedrum retry 12-1; to build it, end it with foedrum cancel 12-1 and order its sub-orders by hand: Foedrum builds nothing from a plan yet.',
+        '  next: read the plan and its assumptions; sign it off with foedrum approve 12-1, plan it again with foedrum retry 12-1, or end it with foedrum cancel 12-1. Its sub-orders become issues once #590 is built.',
         '',
       ].join('\n'),
       stderr: '',

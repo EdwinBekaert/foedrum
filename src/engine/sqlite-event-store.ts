@@ -292,6 +292,9 @@ export const openSqliteEventStore = (
           setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.routeBy));
         }
         return;
+      // The on tap that follows it clears the batch's deadlines (ADR 0281).
+      case 'batch.approved':
+        return;
       case 'step.finished':
         clearDeadline.run(event.batchId, event.stepId, event.attempt);
         return;
