@@ -98,6 +98,8 @@ export interface CheckRunnerOptions {
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
     /** A worktree's real path, where a sandboxed run writes its absolute paths. Default the file system's. */
     realPath?: (path: string) => string;
+    /** Whether a report path is a folder. Default the file system's. */
+    isFolder?: (path: string) => boolean;
   };
 }
 

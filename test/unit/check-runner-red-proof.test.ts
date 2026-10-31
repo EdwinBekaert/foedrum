@@ -139,6 +139,8 @@ const setup = ({
   atBase = '' as string | GitResult,
   /** The worktree's real path: no link leads to it unless the test says so. */
   realPathOf = (path: string) => path,
+  /** The report paths that are folders. */
+  folders = [] as string[],
 } = {}) => {
   const listed = (answer: string | GitResult): GitResult =>
     typeof answer === 'string' ? { code: 0, stdout: answer, stderr: '' } : answer;
@@ -216,6 +218,7 @@ const setup = ({
               return why === undefined ? { paths: found[pattern] ?? [] } : { refused: why };
             },
             realPath: realPathOf,
+            isFolder: (path: string) => folders.includes(path),
           },
         }),
   });
@@ -860,6 +863,23 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
   });
 
+  it("sticks a red proof on its environment when a module's test report pattern names a folder", async () => {
+    const results = join(redTree, 'api', 'TestResults');
+    const folderApi: TestMapModule = { ...api, testReport: { format: 'junit', path: 'api/*' } };
+    const { run } = setup({
+      ...wrote,
+      found: { ...wrote.found, 'api/*': [results] },
+      folders: [results],
+      maps: { [gaugeStart]: mapOf(web, folderApi), [tip]: mapOf(web, folderApi) },
+    });
+    assert.deepEqual((await run()).ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the test report pattern api/* of module "api" names a folder, api/TestResults: name the report file in the test map, such as api/TestResults/<file>.xml (ADR 0274)',
+    });
+  });
+
   it('reads the map the batch added when the base has none, and lists no deleted files', async () => {
     const { order, run } = setup({ ...wrote, maps: { [tip]: mapOf(web) } });
     assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
@@ -922,7 +942,7 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'module "billing" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML (such as with JunitXml.TestLogger) and name that in the test map (ADR 0274)',
+        'module "billing" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map (ADR 0274)',
     });
     assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
   });

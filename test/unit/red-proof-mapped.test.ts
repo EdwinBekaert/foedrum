@@ -284,6 +284,38 @@ describe('judgeMapped (ADR 0274)', () => {
     }
   });
 
+  it('places a relative path only in a changed file of the module whose report names it', () => {
+    const junitOf = (module: string, body: string) => ({
+      ...readable(parseJunit(`<testsuites>${body}</testsuites>`)),
+      module,
+    });
+    const area = (name: string): EffectiveModule => ({
+      module: { ...ts, name, code: [`${name}/src/**`], tests: { paths: [`${name}/tests/**`] } },
+      added: false,
+    });
+    const more = { modules: [area('a'), area('b')] };
+    const failing =
+      '<testcase name="old" file="tests/test_x.py" line="3"><failure message="boom"/></testcase>';
+    // Only b's file changed: an older test of a, named the same from a's folder, is not the step's.
+    assert.match(
+      why([junitOf('a', failing)], [changed('b/tests/test_x.py', [12])], more),
+      /^no failing test lies in a test file the step changed/,
+    );
+    assert.deepEqual(run([junitOf('b', failing)], [changed('b/tests/test_x.py', [3])], more), {
+      proven: true,
+    });
+    // Both changed, a's first: b's skip is judged against b's added lines.
+    const skip = '<testcase name="later" file="tests/test_x.py" line="13"><skipped/></testcase>';
+    assert.equal(
+      why(
+        [junitOf('a', failing), junitOf('b', skip)],
+        [changed('a/tests/test_x.py', [3]), changed('b/tests/test_x.py', [13])],
+        more,
+      ),
+      'test "later" is skipped at b/tests/test_x.py:13, a line the step added, so it proves nothing',
+    );
+  });
+
   it("finds a skip the report names relative to its module's folder in the lines the step added", () => {
     const report = readable(
       parseJunit(`<testsuites>

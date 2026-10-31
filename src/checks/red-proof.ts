@@ -218,10 +218,13 @@ export function judgeRed(
   return { proven: true, tests: proven.map(({ name }) => name) };
 }
 
+/** A module's test report, with the name of the module that wrote it. */
+export type MappedReport = TestReport & { module?: string };
+
 /** What a red proof in a repository with a test map judges (ADR 0274). */
 export interface MappedRun {
   /** The test report of each module that wrote one. */
-  reports: readonly TestReport[];
+  reports: readonly MappedReport[];
   /** Why each module the base's map lists counts as a load error: it wrote no report. */
   unreported: readonly string[];
   /** The proven step's commits. */
