@@ -1082,11 +1082,6 @@ export interface StatusEffectsOptions {
 const minuteMs = 60_000;
 
 /**
- * The status comment of every batch of a Brewery issue, a claimed batch's order included, for the
- * driver: a revision whenever its text changed, at most one a minute per batch, except its first
- * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
- */
-/**
  * The steps of `recipe` the status comment lists before the batch reaches them: all but a step
  * only a person's choice schedules, which it lists once it has an attempt (ADR 0286).
  */
@@ -1096,6 +1091,11 @@ const listedSteps = (recipe: Recipe | undefined): readonly string[] | undefined 
   return recipe.steps.filter((stepId) => !chosen.has(stepId));
 };
 
+/**
+ * The status comment of every batch of a Brewery issue, a claimed batch's order included, for the
+ * driver: a revision whenever its text changed, at most one a minute per batch, except its first
+ * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
+ */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
   const { brewery, comments, recipes, clock, stateBranchUrl, planComment } = options;
   // When this driver last applied or found a revision of each batch.

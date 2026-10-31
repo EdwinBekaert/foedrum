@@ -8,7 +8,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
-import { attemptBefore, type Batch } from '../engine/fold.ts';
+import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
@@ -224,14 +224,9 @@ export function toolsOf(rules: readonly string[]): string[] {
   return [...new Set(rules.map((rule) => parseRule(rule).tool))];
 }
 
-/** The worktree the attempt `ref` of `batch` ran in, a resumed one its session's (ADR 0117). */
-const ranWorktree = (
-  batch: Batch,
-  { stepId, attempt }: { stepId: string; attempt: number },
-): string | undefined => {
-  const ran = batch.steps.get(stepId)?.attempts.get(attempt);
-  return ran?.phase === 'finished' ? (ran.worktree?.path ?? ran.session?.worktree) : undefined;
-};
+/** The worktree a finished attempt ran in, a resumed one its session's (ADR 0117). */
+const worktreeOf = (ran: Attempt | undefined): string | undefined =>
+  ran?.phase === 'finished' ? (ran.worktree?.path ?? ran.session?.worktree) : undefined;
 
 /** The latest attempt of `stepId` in `batch` that succeeded, with the worktree it ran in. */
 const succeededIn = (batch: Batch, stepId: string): string | undefined => {
@@ -239,8 +234,7 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   const done = attempts.find(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
-  // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
-  return done?.phase === 'finished' ? (done.worktree?.path ?? done.session?.worktree) : undefined;
+  return worktreeOf(done);
 };
 
 /** The Brewery's repositories and their bases, and the one an attempt's worktree holds. */
@@ -299,7 +293,10 @@ export function inputsOf(
       }
       if (from === 'plan') {
         const latest = latestPlan(batch);
-        const root = latest === undefined ? undefined : ranWorktree(batch, latest);
+        const root =
+          latest === undefined
+            ? undefined
+            : worktreeOf(batch.steps.get(latest.stepId)?.attempts.get(latest.attempt));
         const doc = latest === undefined ? undefined : stepBrewer(latest.stepId)?.brewer.output.doc;
         if (latest === undefined || root === undefined || doc === undefined) {
           throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
