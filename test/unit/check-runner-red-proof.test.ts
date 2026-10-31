@@ -681,6 +681,16 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
 });
 
 describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
+  it('proves red as before in a repository with no test map and a testReport: regression test', async () => {
+    const { order, run } = setup({ maps: {} });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [`exec npm test in ${redTree}`],
+    );
+  });
+
   it('sticks a red proof on its environment for a new module no confirmed line reaches', async () => {
     const module = {
       code: ['src/**'],
