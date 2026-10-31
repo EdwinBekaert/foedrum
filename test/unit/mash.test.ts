@@ -4,12 +4,14 @@
 // (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { planDigest } from '../../src/engine/admit.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -143,10 +145,16 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       return {
         start: (start) => {
           started.push(`${start.ref.stepId}#${start.ref.attempt}`);
-          const ended = plan(start).then((made) => {
+          const ended = plan(start).then(async (made) => {
             prompts.push(made.prompt);
             models.push(made.call.model);
-            return inner.start(start).ended;
+            const end = await inner.start(start).ended;
+            // The Brewmaster's out doc stays in its worktree, as the real session leaves it.
+            if (end.outDoc !== undefined) {
+              mkdirSync(made.cwd, { recursive: true });
+              writeFileSync(join(made.cwd, 'plan.md'), end.outDoc);
+            }
+            return end;
           });
           return { ended, stop: () => {} };
         },
@@ -225,13 +233,13 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.deepEqual(log().state().batches.get('12-1')?.lane, {
       kind: 'stuck',
       reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
-      options: ['approve', 'retry', 'recipe', 'cancel'],
+      options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
       remindAt: '2026-10-30T12:00:00.000Z',
     });
     const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
     assert.equal(
       lines.at(-1),
-      `foedrum brew: batch 12-1 is stuck: the plan of plan #1 is ready for your review; reminder 2026-10-30T12:00:00.000Z; options: approve, retry, recipe, cancel; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
+      `foedrum brew: batch 12-1 is stuck: the plan of plan #1 is ready for your review; reminder 2026-10-30T12:00:00.000Z; options: approve, lauter, retry, recipe, cancel; the plan: https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`,
     );
   });
 
@@ -291,5 +299,209 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.equal(two?.resumes, one?.id);
     assert.match(prompts[1] ?? '', /A: sqlite/);
     assert.ok(planComment()?.includes('`schema`'));
+  });
+
+  describe('foedrum lauter: the plan corrected in a session at gate 1 (ADR 0286, #589)', () => {
+    const [first, ...rest] = subOrders;
+    const corrected = behave.succeedWith(
+      {
+        subOrders: [
+          { ...(first ?? assert.fail()), title: 'The export schema, corrected' },
+          ...rest,
+        ],
+        alternatives,
+      },
+      'Corrected',
+    );
+    const lauter: BrewRequest = { ...request, lauter: '12-1' };
+    const resumedBy = () =>
+      store
+        .eventsAfter(0)
+        .flatMap(({ event }) =>
+          event.type === 'batch.resumed' ? [`${event.action} by ${event.by} via ${event.via}`] : [],
+        );
+
+    it("opens the Brewmaster's session on the plan, then waits for a review of the session's plan (#589)", async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'lauter#1']);
+      assert.deepStrictEqual(resumedBy(), ['lauter by ann via terminal']);
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
+        kind: 'plan_review',
+        stepId: 'lauter',
+        attempt: 1,
+      });
+      // The session reads the plan it corrects; the plan step read none.
+      assert.match(prompts[1] ?? '', /name="plan">[^<]*"summary": "Planned"/);
+      assert.doesNotMatch(prompts[0] ?? '', /name="plan">/);
+      assert.ok(planComment()?.includes('The export schema, corrected'), planComment());
+    });
+
+    it('says on the plan comment that the plan was changed in a session, by whom and when (#589)', async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.doesNotMatch(planComment() ?? '', /Changed in a session/);
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
+      assert.ok(
+        planComment()?.includes(
+          'Changed in a session by ann (terminal) at 2026-10-28T12:00:00.000Z.',
+        ),
+        planComment(),
+      );
+    });
+
+    it('waits for a session again when the session ends with an invalid plan (#589)', async () => {
+      const { doneWhen: _, ...missing } = first ?? assert.fail();
+      const invalid = behave.succeedWith({ subOrders: [missing, ...rest] }, 'Corrected');
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([invalid]), lauter), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'lauter#1']);
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
+        kind: 'waiting_for_session',
+        stepId: 'lauter',
+      });
+    });
+
+    it("signs off the session's plan, by its digest, on an approve after it (#589)", async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
+      const approve = { kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+      assert.equal(log().issue(approve, t0).kind, 'accepted');
+      const batch = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      const digest = planDigest(batch, 'lauter', 1) ?? assert.fail('no plan of lauter #1');
+      assert.notEqual(digest, planDigest(batch, 'plan', 1));
+      assert.deepStrictEqual(batch.approval && { ...batch.approval }, {
+        stepId: 'lauter',
+        attempt: 1,
+        plan: digest,
+        by: 'ann',
+        via: 'terminal',
+        at: t0.toISOString(),
+      });
+    });
+
+    it('records the lauter and parks the batch for a session without a terminal (#589)', async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      const piped = { ...lauter, noSessions: 'no-terminal' } as const;
+      assert.equal(await runBrew(setup, shell([]), piped), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1']);
+      assert.deepStrictEqual(resumedBy(), ['lauter by ann via terminal']);
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
+        kind: 'waiting_for_session',
+        stepId: 'lauter',
+      });
+    });
+
+    it('refuses a lauter of a batch not waiting for a review of its plan, naming its lane (#589)', async () => {
+      assert.equal(await runBrew(setup, shell([behave.needInput()]), request), 4);
+      assert.equal(await runBrew(setup, shell([]), lauter), 5, lines.join('\n'));
+      assert.equal(
+        lines.at(-1),
+        'foedrum lauter: batch 12-1 is stuck on needs input, not on a plan to review',
+      );
+      assert.deepStrictEqual(resumedBy(), []);
+    });
+
+    it('lists the lauter step in the status comment only once a lauter ran it (#589)', async () => {
+      const status = () =>
+        comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.match(status(), /^- [^\n]*`plan`/m);
+      assert.doesNotMatch(status(), /^- [^\n]*`lauter`/m);
+      // Two minutes on, past the status comment's limit of one revision a minute (ADR 0072).
+      now = new Date(t0.getTime() + 2 * 60_000);
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
+      assert.match(status(), /^- [^\n]*`lauter`/m);
+    });
+
+    it("opens a second lauter on the first session's plan, not the plan step's: regression test (#589)", async () => {
+      const twice = behave.succeedWith(
+        { subOrders: [{ ...(first ?? assert.fail()), title: 'Twice' }, ...rest], alternatives },
+        'Corrected twice',
+      );
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([twice]), lauter), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'lauter#1', 'lauter#2']);
+      assert.match(prompts[2] ?? '', /name="plan">[^<]*"title": "The export schema, corrected"/);
+      assert.doesNotMatch(prompts[2] ?? '', /name="plan">[^<]*"title": "The export schema"/);
+    });
+
+    it('says when the session opened, not when the plan comment was edited: regression test (#589)', async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      const session = shell([corrected]);
+      const runner = session.runner;
+      const later = new Date(t0.getTime() + 5 * 60_000);
+      // The session runs five minutes, so its end and the comment's edit are past its opening.
+      const timed: ServeShell = {
+        ...session,
+        runner: (claude, plan) => {
+          const inner = runner(claude, plan);
+          return {
+            ...inner,
+            start: (start) => {
+              const running = inner.start(start);
+              now = later;
+              return running;
+            },
+          };
+        },
+      };
+      assert.equal(await runBrew(setup, timed, lauter), 3, lines.join('\n'));
+      const body = planComment() ?? '';
+      assert.ok(body.includes(`by ann (terminal) at ${t0.toISOString()}.`), body);
+      assert.doesNotMatch(body, new RegExp(later.toISOString().replaceAll('.', '\\.')));
+    });
+
+    it("refuses a lauter of a batch on tap, in decide's words: regression test (#589)", async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      const approve = { kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+      assert.equal(log().issue(approve, t0).kind, 'accepted');
+      assert.equal(await runBrew(setup, shell([]), lauter), 5, lines.join('\n'));
+      assert.equal(lines.at(-1), 'foedrum lauter: batch 12-1 is on_tap; lauter needs it stuck');
+      assert.deepStrictEqual(resumedBy(), []);
+    });
+
+    it('refuses a lauter of an issue with no batch, ordering nothing: regression test (#589)', async () => {
+      const none: BrewRequest = { ...lauter, target: { issue: 13 } };
+      assert.equal(await runBrew(setup, shell([]), none), 5, lines.join('\n'));
+      assert.equal(lines.at(-1), 'foedrum lauter: #13 has no batch to correct a plan of');
+      assert.equal(log().state().batches.size, 0);
+    });
+
+    it("lauters the batch it names, never the issue's later batch (#589)", async () => {
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      const approve = { kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' } as const;
+      assert.equal(log().issue(approve, t0).kind, 'accepted');
+      const order = { issue: 12 };
+      const again = {
+        kind: 'order_again',
+        batchId: '12-2',
+        order,
+        by: 'ann',
+        via: 'terminal',
+      } as const;
+      assert.equal(log().issue(again, t0).kind, 'accepted');
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 5, lines.join('\n'));
+      assert.equal(lines.at(-1), 'foedrum lauter: batch 12-1 is on_tap; lauter needs it stuck');
+      assert.deepStrictEqual(resumedBy(), []);
+    });
+
+    it('keeps who chose the session when it reopens after an invalid plan (#589)', async () => {
+      const { doneWhen: _, ...missing } = first ?? assert.fail();
+      const invalid = behave.succeedWith({ subOrders: [missing, ...rest] }, 'Corrected');
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.equal(await runBrew(setup, shell([invalid]), lauter), 3, lines.join('\n'));
+      // brew finds the batch waiting for a session and reopens it (ADR 0222).
+      assert.equal(await runBrew(setup, shell([corrected]), request), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'lauter#1', 'lauter#2']);
+      assert.ok(
+        planComment()?.includes('Changed in a session by ann (terminal) at'),
+        planComment(),
+      );
+    });
   });
 });

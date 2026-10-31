@@ -8,8 +8,9 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
-import { attemptBefore, type Batch } from '../engine/fold.ts';
+import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
+import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
 import { ranIn } from '../engine/session-resume.ts';
@@ -223,14 +224,17 @@ export function toolsOf(rules: readonly string[]): string[] {
   return [...new Set(rules.map((rule) => parseRule(rule).tool))];
 }
 
+/** The worktree a finished attempt ran in, a resumed one its session's (ADR 0117). */
+const worktreeOf = (ran: Attempt | undefined): string | undefined =>
+  ran?.phase === 'finished' ? (ran.worktree?.path ?? ran.session?.worktree) : undefined;
+
 /** The latest attempt of `stepId` in `batch` that succeeded, with the worktree it ran in. */
 const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   const attempts = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].reverse();
   const done = attempts.find(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
-  // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
-  return done?.phase === 'finished' ? (done.worktree?.path ?? done.session?.worktree) : undefined;
+  return worktreeOf(done);
 };
 
 /** The Brewery's repositories and their bases, and the one an attempt's worktree holds. */
@@ -264,9 +268,12 @@ export function inputsOf(
   lenses: ReadonlyMap<string, Lens> = new Map(),
   brewery?: BreweryRepositories,
   choices: readonly RecipeChoice[] = [],
+  chosen = false,
 ): PlannedInput[] {
+  // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere.
   const skipped = (from: string): boolean =>
-    from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false);
+    (from === 'plan' && !chosen) ||
+    (from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false));
   return inputs
     .filter(({ from }) => !skipped(from))
     .map(({ name, from }): PlannedInput => {
@@ -283,6 +290,22 @@ export function inputsOf(
       if (from === 'recipes') {
         const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
         return { name, source: { kind: 'recipes' }, read: { kind: 'text', text } };
+      }
+      if (from === 'plan') {
+        const latest = latestPlan(batch);
+        const root =
+          latest === undefined
+            ? undefined
+            : worktreeOf(batch.steps.get(latest.stepId)?.attempts.get(latest.attempt));
+        const doc = latest === undefined ? undefined : stepBrewer(latest.stepId)?.brewer.output.doc;
+        if (latest === undefined || root === undefined || doc === undefined) {
+          throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
+        }
+        return {
+          name,
+          source: { kind: 'out-doc', step: latest.stepId },
+          read: { kind: 'file', path: join(root, doc), root },
+        };
       }
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);

@@ -91,6 +91,7 @@ A recipe does not choose the orders it runs: the load refuses a `match` field wi
 | `deadline` | Overrides the brewer's deadline for this step |
 | `interactive`, `prompt` | Brewer steps only, each with the other: the step runs as a person's session in `foedrum brew`'s terminal, `prompt` its first message, at most 4 KiB ([interactive steps](interactive-steps.md)) |
 | `chooses` | `"recipe"`, on a brewer step whose brewer's out doc schema is `recipeChoice`, and required there: the answer to the step's one question chooses the batch's recipe, which starts from its first step ([ADR 0232](../../adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)) |
+| `chosenBy` | `"lauter"`, on an interactive brewer step only: only a person's `foedrum lauter` schedules it, no step continues to it, and a recipe has one step per option ([interactive steps](interactive-steps.md), [ADR 0286](../../adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)) |
 
 The red proof and `testsUnchanged`: [the red proof](../checks/red-proof.md).
 Parallel groups and Brett: [tasting](tasting.md).

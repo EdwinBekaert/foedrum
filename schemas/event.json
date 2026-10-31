@@ -1595,6 +1595,7 @@
             "enum": [
               "answer",
               "approve",
+              "lauter",
               "retry",
               "skip",
               "recipe",
@@ -1648,7 +1649,8 @@
             "retry",
             "skip",
             "recipe",
-            "answer"
+            "answer",
+            "lauter"
           ]
         },
         "routeBy": {

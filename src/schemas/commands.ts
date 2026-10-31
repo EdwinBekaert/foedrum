@@ -240,6 +240,17 @@ export const MashCommand = z.strictObject({
 });
 export type MashCommand = z.infer<typeof MashCommand>;
 
+/**
+ * `foedrum lauter <batch> [--as <name>]` (ADR 0286): the plan the batch waits with, corrected in a
+ * session that brew's driver opens.
+ */
+export const LauterCommand = z.strictObject({
+  command: z.literal('lauter'),
+  batch: PathSafeId,
+  as: DriverName.optional(),
+});
+export type LauterCommand = z.infer<typeof LauterCommand>;
+
 /** A local time `HH:MM` on a 24-hour clock, such as `17:30` (ADR 0202). */
 export const LocalTime = z.string().regex(/^([01][0-9]|2[0-3]):([0-5][0-9])$/);
 

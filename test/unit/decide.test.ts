@@ -1847,6 +1847,7 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
           { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 2, outcome: succeeded },
           stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 2 }, [
             'approve',
+            'lauter',
             'retry',
             'recipe',
             'cancel',
@@ -3139,7 +3140,7 @@ describe('decide: approve signs off a plan (ADR 0281, #588)', () => {
     attempt,
     outcome: { kind: 'succeeded', output: output as null },
   });
-  const options = ['approve', 'retry', 'recipe', 'cancel'] as const;
+  const options = ['approve', 'lauter', 'retry', 'recipe', 'cancel'] as const;
   const review = (attempt: number): Event =>
     stuckOn({ kind: 'plan_review', stepId: 'plan', attempt }, options);
   /** Batch b1 of `mash`, its plan #2 waiting Stuck for its review. */
@@ -3164,8 +3165,13 @@ describe('decide: approve signs off a plan (ADR 0281, #588)', () => {
   ];
 
   it('offers approve first for a plan to review (#588)', () => {
+    // And lauter after it (ADR 0286).
     assert.deepStrictEqual(stuckOptions({ kind: 'plan_review', stepId: 'plan', attempt: 1 }), [
-      ...options,
+      'approve',
+      'lauter',
+      'retry',
+      'recipe',
+      'cancel',
     ]);
   });
 
@@ -3318,5 +3324,195 @@ describe('decide: approve signs off a plan (ADR 0281, #588)', () => {
       events.some((event) => event.type === 'batch.resumed' && event.action === 'recipe'),
       JSON.stringify(decision),
     );
+  });
+});
+
+describe('decide: lauter corrects a plan in a session at gate 1 (ADR 0286, #589)', () => {
+  // mash with its lauter step, which only a person's lauter schedules.
+  const mashRecipe = fakeRecipe({
+    steps: ['plan', 'fix'],
+    pullRequests: [],
+    interactive: ['fix'],
+    chosen: { lauter: 'fix' },
+  });
+  const mash = { ...context, recipes: fakeRecipes({ mash: mashRecipe }) };
+  const subOrder = {
+    id: 'one',
+    title: 'One',
+    repo: 'acme/api',
+    size: { lines: 10, mechanism: 'a flag' },
+    doneWhen: 'a test passes',
+    touches: [{ path: 'src' }],
+    recipe: 'nip',
+    why: 'small',
+    ready: true,
+  };
+  const plan = { status: 'done', summary: 'Planned', assumptions: [], subOrders: [subOrder] };
+  const done = (output: unknown) => ({ kind: 'succeeded', output: output as null }) as const;
+  const review = (stepId: string, attempt: number): Event =>
+    stuckOn({ kind: 'plan_review', stepId, attempt }, [
+      'approve',
+      'lauter',
+      'retry',
+      'recipe',
+      'cancel',
+    ]);
+  /** Batch b1 of `mash`, its plan #1 waiting Stuck for its review. */
+  const waiting = (): Event[] => [
+    ...brewing('plan', 1, 'mash'),
+    { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 1, outcome: done(plan) },
+    review('plan', 1),
+  ];
+  const lauter = { kind: 'lauter', batchId: 'b1', ...by } as const;
+
+  it('offers lauter after approve for a plan to review (#589)', () => {
+    assert.deepStrictEqual(stuckOptions({ kind: 'plan_review', stepId: 'plan', attempt: 1 }), [
+      'approve',
+      'lauter',
+      'retry',
+      'recipe',
+      'cancel',
+    ]);
+  });
+
+  it("records the person's lauter and schedules the step it chooses, as a fresh attempt (#589)", () => {
+    assert.deepStrictEqual(decide(fold(waiting()), lauter, mash), {
+      kind: 'accepted',
+      events: [{ type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' }, next('fix', 1)],
+    });
+  });
+
+  it('schedules the next attempt of the chosen step after an earlier session, not a retry (#589)', () => {
+    const again = [
+      ...waiting().slice(0, -1),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const,
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+    ] satisfies Event[];
+    assert.deepStrictEqual(decide(fold(again), lauter, mash), {
+      kind: 'accepted',
+      events: [{ type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' }, next('fix', 2)],
+    });
+  });
+
+  it('refuses a lauter of a batch in another lane, naming the lane (#589)', () => {
+    const named = otherLanes('stuck');
+    assert.equal(named.length, 5);
+    for (const [lane, events] of named) {
+      refuses(events, lauter, new RegExp(`^batch b1 is ${lane}; lauter needs it stuck$`));
+    }
+  });
+
+  it('refuses a lauter of a batch Stuck for another reason, naming it (#589)', () => {
+    refuses(stuck(), lauter, /^batch b1 is stuck on needs input, not on a plan to review$/);
+  });
+
+  it('refuses a lauter when the recipe has no step a lauter chooses (#589)', () => {
+    const plain = fakeRecipe({ steps: ['plan'], pullRequests: [] });
+    const decision = decide(fold(waiting()), lauter, {
+      ...context,
+      recipes: fakeRecipes({ mash: plain }),
+    });
+    assert.deepStrictEqual(decision, {
+      kind: 'refused',
+      reason: 'the recipe mash of batch b1 has no step a lauter chooses',
+    });
+  });
+
+  it('waits for a review of the plan of the session, naming its attempt (#589)', () => {
+    const session = [
+      ...waiting(),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const,
+      next('fix', 1),
+      started('fix', 1),
+    ] satisfies Event[];
+    const finish = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'fix',
+      attempt: 1,
+      ending: done(plan),
+    } as const;
+    const decision = decide(fold(session), finish, mash);
+    assert.deepStrictEqual(
+      decision.kind === 'accepted' && decision.events.at(-1),
+      review('fix', 1),
+    );
+  });
+
+  it('plans again in the plan step on a retry after a lauter, not in another session (#589)', () => {
+    const corrected = [
+      ...waiting(),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const,
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+    ] satisfies Event[];
+    assert.deepStrictEqual(decide(fold(corrected), { kind: 'retry', batchId: 'b1', ...by }, mash), {
+      kind: 'accepted',
+      events: [{ type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' }, next('plan', 2)],
+    });
+  });
+
+  it('accepts a lauter of a batch recorded Stuck for its review before lauter was offered (#589)', () => {
+    const recorded = [
+      ...waiting().slice(0, -1),
+      stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 1 }, [
+        'approve',
+        'retry',
+        'recipe',
+        'cancel',
+      ]),
+    ];
+    assert.deepStrictEqual(decide(fold(recorded), lauter, mash), {
+      kind: 'accepted',
+      events: [{ type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' }, next('fix', 1)],
+    });
+  });
+
+  it('refuses a recorded lauter of a batch Stuck for another reason: regression test (#589)', () => {
+    const resumed = { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const;
+    assert.deepStrictEqual(check(fold(stuck()), resumed), {
+      kind: 'refused',
+      reason: 'batch b1 is stuck on needs input, not on a plan to review',
+    });
+  });
+
+  it('refuses a retry after a lauter when no step but the chosen one planned: regression test (#589)', () => {
+    const onlySession = [
+      ordered,
+      chosen('mash'),
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+    ] satisfies Event[];
+    assert.deepStrictEqual(
+      decide(fold(onlySession), { kind: 'retry', batchId: 'b1', ...by }, mash),
+      { kind: 'refused', reason: 'batch b1 has no plan to plan again' },
+    );
+  });
+
+  it("gives the lauter's chooser to the attempt it schedules alone: regression test (#589)", () => {
+    const after = [
+      ...waiting(),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const,
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' } as const,
+      next('plan', 2),
+    ] satisfies Event[];
+    const batch = fold(after).batches.get('b1');
+    assert.deepStrictEqual(batch?.steps.get('fix')?.attempts.get(1)?.chosen, {
+      option: 'lauter',
+      ...by,
+    });
+    assert.equal(batch?.steps.get('plan')?.attempts.get(2)?.chosen, undefined);
+    assert.equal(batch?.choosing, undefined);
   });
 });
