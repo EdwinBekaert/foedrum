@@ -262,10 +262,11 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'stopped':
     case 'pull_request_failed':
       return [...withoutAnswer];
-    // A plan to review: sign it off (ADR 0281), plan it again, choose another recipe, or end it
-    // (ADR 0275). A skip or a rewind would end the recipe on the same plan again.
+    // A plan to review: sign it off (ADR 0281), correct it in a session (ADR 0286), plan it again,
+    // choose another recipe, or end it (ADR 0275). A skip or a rewind would end the recipe on the
+    // same plan again.
     case 'plan_review':
-      return ['approve', 'retry', 'recipe', 'cancel'];
+      return ['approve', 'lauter', 'retry', 'recipe', 'cancel'];
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
@@ -490,7 +491,8 @@ function run(draft: Draft, command: Command): Event[] {
       approve(draft, command);
       break;
     case 'lauter':
-      throw new Error('not implemented');
+      lauter(draft, command);
+      break;
     case 'cancel': {
       const { batchId, by, via } = command;
       requireLane(draft.batch(batchId), 'cancel', nonTerminal);
@@ -1172,6 +1174,25 @@ function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kin
     at: draft.after(0),
   });
   draft.push({ type: 'batch.on_tap', batchId, pullRequests: [] });
+}
+
+/**
+ * A person's choice to correct the plan its batch waits Stuck with a review of in a session: a fresh
+ * attempt of the step the recipe has a lauter choose (ADR 0286), never a retry of one before it. Read
+ * by the lane's reason, as approve is.
+ */
+function lauter(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kind: 'lauter' }>) {
+  const batch = requireLane(draft.batch(batchId), 'lauter', ['stuck']);
+  const { reason } = batch.lane as Extract<Lane, { kind: 'stuck' }>;
+  if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason.kind));
+  const stepId = recipeOf(draft, batch).chosen('lauter');
+  if (stepId === undefined) {
+    throw new Refusal(
+      `the recipe ${batch.recipe?.name} of batch ${batchId} has no step a lauter chooses`,
+    );
+  }
+  draft.push({ type: 'batch.resumed', batchId, by, via, action: 'lauter' });
+  schedule(draft, batchId, stepId);
 }
 
 /** Enters the step that follows `stepId` in the batch's recipe, or puts the batch on tap. */

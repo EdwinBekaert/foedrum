@@ -3,13 +3,14 @@
 // questions, so recipe files (#52) can change without touching the lifecycle.
 
 import type { ScheduleRoute } from '../schemas/events.ts';
+import type { ChosenBy } from '../schemas/recipe.ts';
 import type { Batch } from './fold.ts';
 
 /** Why a route sends a batch back: a failed check, findings, or its pull request (ADR 0219). */
 export type RouteWhy = ScheduleRoute['why'];
 
 /** A person's choice that schedules a step of its own (ADR 0286). */
-export type ChosenOption = 'lauter';
+export type ChosenOption = ChosenBy;
 
 /** An action step the engine runs itself, never a brewer (brewers-and-recipes §1, ADR 0071). */
 export type RecipeAction = 'openPullRequest';

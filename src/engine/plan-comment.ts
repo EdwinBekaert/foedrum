@@ -4,6 +4,7 @@
 // applied (ADR 0033).
 
 import type { IsCommit } from '../formats/secrets.ts';
+import type { Surface } from '../schemas/events.ts';
 import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
 import type { StatusRevision } from '../schemas/status-comment.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -104,6 +105,13 @@ const graph = (subOrders: readonly PlannedSubOrder[], told: Told): string[] => {
   ];
 };
 
+/** Who chose the session that wrote a plan, from where, and when it opened (ADR 0286). */
+export interface ChangedInSession {
+  by: string;
+  via: Surface;
+  at?: string;
+}
+
 /**
  * The plan comment's text for the plan `stepId` of `batchId` wrote, without its marker: every text
  * the brewer wrote one escaped line, left out when it looks like a secret.
@@ -119,6 +127,8 @@ export const renderPlan = (
   waitsForReview = false,
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
   approval?: Approval,
+  /** The session a person's lauter opened, which wrote this plan (ADR 0286). */
+  changed?: ChangedInSession,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -126,6 +136,12 @@ export const renderPlan = (
   const top = [
     `${PLAN_HEADING} ${code(batchId)}`,
     ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan)}`]),
+    ...(changed === undefined
+      ? []
+      : [
+          '',
+          `Changed in a session by ${plain(changed.by)} (${changed.via})${changed.at === undefined ? '' : ` at ${changed.at}`}.`,
+        ]),
   ];
   const table = [
     '**Sub-orders**',
@@ -266,7 +282,14 @@ const planDue = (
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
   // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
   const commits = knownCommits(state, batchId);
-  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval);
+  const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+  const chosen = ran?.chosen;
+  const at = ran?.phase === 'finished' ? ran.interactiveSince : undefined;
+  const changed =
+    chosen === undefined
+      ? undefined
+      : { by: chosen.by, via: chosen.via, ...(at === undefined ? {} : { at }) };
+  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval, changed);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };

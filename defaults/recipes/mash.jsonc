@@ -1,12 +1,24 @@
 // Mash, a plan of an order (ADR 0234): the Brewmaster reads the order and its repository and breaks
 // the order into sub-orders, one repository each, with the recipe each should run with. Nothing is
 // built: the plan is shown on the order's issue (ADR 0233), and the batch waits Stuck for its
-// review (ADR 0275). The plan lenses come in #587, the gate that signs a plan off in #588.
+// review (ADR 0275) until foedrum approve signs it off (ADR 0281). The plan lenses come in #587.
+// The lauter step runs only when a person chooses foedrum lauter at that review: the Brewmaster
+// corrects the plan with them in a session, and the batch waits for a review of that plan
+// (ADR 0286).
 {
   "$schema": "../../schemas/recipe.json",
   "name": "mash",
   "description": "Plan an order as sub-orders, shown on its issue; nothing is built",
   // It commits nothing, so there is no test to write first.
   "testFirst": false,
-  "steps": [{ "id": "plan", "brewer": "brewmaster" }]
+  "steps": [
+    { "id": "plan", "brewer": "brewmaster" },
+    {
+      "id": "lauter",
+      "brewer": "brewmaster",
+      "interactive": true,
+      "chosenBy": "lauter",
+      "prompt": "The person in this session reviews the plan in {plan} and chose to correct it with you. Greet them, sum the plan up in a few lines, and ask what they want to change. Then correct it together, as your instructions say, and end with the whole corrected plan as your out doc."
+    }
+  ]
 }

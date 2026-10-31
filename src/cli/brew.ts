@@ -4,6 +4,8 @@
 // alone, orders and routes the issue first when it has no batch (a claimed one only by its Brewery
 // issue, ADR 0156), and ticks until the batch is on tap, cancelled or Stuck. Its exit code says
 // which, so the plugin's session can ask the engineer and brew again.
+// `foedrum mash` routes the batch to mash-in first (ADR 0232), and `foedrum lauter` records a
+// person's lauter of the plan its batch waits with first, so its session opens (ADR 0286).
 // On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
@@ -50,6 +52,12 @@ export interface BrewRequest {
    */
   noSessions?: 'claude-code' | 'no-terminal';
 }
+
+/** The command a request runs as, which its lines name. */
+const commandOf = (request: BrewRequest): string => {
+  if (request.mash === true) return 'mash';
+  return request.lauter === true ? 'lauter' : 'brew';
+};
 
 /** How `foedrum brew` ends (ADR 0123); 2, a wrong command line, is the terminal's. */
 export const BREW_EXIT = {
@@ -229,7 +237,7 @@ export const runBrew = async (
   const say = (line: string): void => {
     const wasOnScreen = onScreen;
     clearLive();
-    out(oneLine(printable(`foedrum ${request.mash === true ? 'mash' : 'brew'}: ${line}`)));
+    out(oneLine(printable(`foedrum ${commandOf(request)}: ${line}`)));
     if (wasOnScreen) draw();
   };
   const refuse = (reason: string): number => {
@@ -294,7 +302,12 @@ export const runBrew = async (
         : undefined;
     if (claimed?.repo !== undefined) order = { issue: claimed.issue, repo: claimed.repo };
     const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
+    // A lauter names a batch, whose lane its refusal names (ADR 0286).
+    if (request.lauter === true && latest === undefined) {
+      return refuse(`${named} has no batch to correct a plan of`);
+    }
     if (
+      request.lauter !== true &&
       latest !== undefined &&
       (latest.lane.kind === 'on_tap' || latest.lane.kind === 'cancelled')
     ) {
@@ -323,6 +336,13 @@ export const runBrew = async (
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
+    // The person's lauter first, so a refused one takes nothing over; its session opens below as
+    // every interactive step's does (ADR 0286, ADR 0222).
+    if (request.lauter === true && latest !== undefined) {
+      const decision = log.issue({ kind: 'lauter', batchId: latest.id, by, via }, clock());
+      if (decision.kind === 'refused') return refuse(decision.reason);
+      say(`batch ${latest.id} goes to a session on its plan`);
+    }
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068); a
     // claimed batch by its Brewery issue's, and it waits for that issue until the ledger records
     // it, never reading the target issue's (ADR 0156).

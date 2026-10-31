@@ -129,7 +129,7 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
  * sub-issues (#590): `command` writes a command as the reader shows it.
  */
 export const planNextStep = (batchId: string, command: (text: string) => string): string =>
-  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}. Its sub-orders become issues once #590 is built.`;
+  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, correct it in a session with ${command(`foedrum lauter ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}. Its sub-orders become issues once #590 is built.`;
 
 /** `rounds` rounds of a findings route, in words. */
 export const roundsText = (rounds: number): string =>
