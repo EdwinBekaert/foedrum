@@ -367,12 +367,12 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (testMap === undefined || test === undefined) return end;
     const { repo } = worktree;
     const ended = (ending: AttemptEnd['ending']): AttemptEnd => ({ ...end, ending });
+    const stuck = (why: string): AttemptEnd => ended(blocked('environment', why).ending);
     const base = batch.starts?.[repo.toLowerCase()]?.commit;
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
     if (before.kind === 'unreadable') {
-      const why = `the test map of ${repo} at ${base} cannot be read: ${before.reason}`;
-      return ended(blocked('environment', why).ending);
+      return stuck(`the test map of ${repo} at ${base} cannot be read: ${before.reason}`);
     }
     const after = await testMap.at(repo, worktree.commit, signal);
     // The batch's own map: the brewer that broke it fixes it.
@@ -387,8 +387,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if (listed.has(name)) continue;
       const found = find(testReport.path, worktree.path);
       if ('refused' in found) {
-        const why = `the test report of module "${name}" cannot be looked for: ${found.refused}`;
-        return ended(blocked('environment', why).ending);
+        return stuck(`the test report of module "${name}" cannot be looked for: ${found.refused}`);
       }
       if (found.paths.length > 0) continue;
       const why = [
@@ -398,7 +397,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         `such as "${test.command} && <${name}'s test command>" (ADR 0023, ADR 0274).`,
         `The test check's output ended: ${test.tail}`,
       ].join(' ');
-      return ended(blocked('environment', why).ending);
+      return stuck(why);
     }
     return end;
   };

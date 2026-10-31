@@ -167,10 +167,8 @@ export const wireDriver = async (
     worktrees.push({ repo, base, manager, merge });
     // The test map is a sensitive path where the repository keeps it (ADR 0274).
     const sensitivePaths = sensitivePathsOf({
-      ...(repository.sensitivePaths === undefined
-        ? {}
-        : { sensitivePaths: repository.sensitivePaths }),
-      ...(repository.testMap === undefined ? {} : { testMap: 'brewery' }),
+      ...repository,
+      testMap: repository.testMap === undefined ? 'repo' : 'brewery',
     });
     pushes.push({
       repo,
