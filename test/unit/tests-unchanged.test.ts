@@ -305,6 +305,14 @@ describe('changedTestLines (ADR 0274)', () => {
     ]);
   });
 
+  it('counts a line the red step added twice as often as it added it', () => {
+    const twice = [added(test, ['  assert.equal(add(1, 2), 3);', '  assert.equal(add(1, 2), 3);'])];
+    const tip = tipOf({ [test]: ['  assert.equal(add(1, 2), 3);'] });
+    assert.deepEqual(changedTestLines(twice, tip, modules, mapped), [
+      { path: test, line: 'assert.equal(add(1, 2), 3);' },
+    ]);
+  });
+
   it('names every line of a test file the attempt removed', () => {
     assert.deepEqual(
       changedTestLines(gauged, tipOf({}), modules, mapped).map(({ line }) => line),

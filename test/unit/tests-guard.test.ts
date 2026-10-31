@@ -145,6 +145,7 @@ const setup = ({
   mapAt,
   tip = tips.weakened,
   before = {},
+  platform = 'linux',
 }: {
   events?: Event[];
   behaviour?: Behaviour;
@@ -160,6 +161,8 @@ const setup = ({
   tip?: Readonly<Record<string, readonly string[]>>;
   /** The files where the proven step started, by path: what `ls-tree` lists at `gaugeStart`. */
   before?: Readonly<Record<string, readonly string[]>>;
+  /** Whose case rule the guard matches the map's globs by. */
+  platform?: NodeJS.Platform;
 } = {}) => {
   const mapReads: [string, string][] = [];
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
@@ -210,7 +213,7 @@ const setup = ({
             return Promise.resolve(maps[commit] ?? none);
           },
         }),
-    platform: 'linux',
+    platform,
   });
   return { calls, asked, runner, mapReads };
 };
@@ -515,6 +518,72 @@ describe('guardTests: the test map (ADR 0274)', () => {
 });
 
 describe('guardTests: regression tests', () => {
+  /** A clone whose ls-tree at the attempt's branch names the red test file and `listed`. */
+  const tipGit =
+    (listed: string[], read: (blob: string) => GitResult, calls: string[][] = []): Git =>
+    (_cwd, args) => {
+      calls.push([...args]);
+      if (args.includes('ls-tree')) {
+        const atTip = args.includes('refs/heads/foedrum/12-1/implement/1');
+        const names = atTip ? listed : [];
+        return Promise.resolve(
+          ok(names.map((path) => `100644 blob ${blobOf(path)}\t${path}\0`).join('')),
+        );
+      }
+      if (args.includes('cat-file')) return Promise.resolve(read(args.at(-1) ?? ''));
+      return Promise.resolve(ok(args.includes(gaugeStart) ? gaugeDiff : closingDropped));
+    };
+
+  it('is blocked on the environment when git cannot read a test file it listed at the tip', async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    const failed = { code: 128, stdout: '', stderr: 'fatal: unable to read blob\n' };
+    const git = tipGit(['test/add.test.mjs'], () => failed);
+    const { runner } = setup({ maps, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged cannot read the commits of step implement: fatal: unable to read blob',
+    });
+  });
+
+  it('reads no file ls-tree lists past the paths it asked for', async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    const calls: string[][] = [];
+    const text = (lines: readonly string[]) => ok(`${lines.join('\n')}\n`);
+    const git = tipGit(
+      ['test/add.test.mjs', 'test/other.test.mjs'],
+      (blob) => text(blob === blobOf('test/add.test.mjs') ? gaugeLines : ['other']),
+      calls,
+    );
+    const { runner } = setup({ maps, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    assert.deepEqual(
+      calls.filter((args) => args.includes('cat-file')),
+      [['cat-file', 'blob', blobOf('test/add.test.mjs')]],
+    );
+  });
+
+  it("matches the map's globs in either case where the platform folds case", async () => {
+    const maps = { [gaugeStart]: mapOf('TEST/**') };
+    const folding = setup({
+      maps,
+      platform: 'win32',
+      changes: ok(closingDropped),
+      tip: tips.closing,
+    });
+    const end = await folding.runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: });',
+    );
+    const exact = setup({ maps, changes: ok(closingDropped), tip: tips.closing });
+    const ended = await exact.runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(ended.ending.kind, 'succeeded');
+  });
+
   it("reads the base's map where the batch's latest merge of the base brought it in (ADR 0164)", async () => {
     const moved = 'd'.repeat(40);
     const merged: Event = {
