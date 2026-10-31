@@ -2,8 +2,9 @@
 // the driver started, it runs the step's checks one after another in the attempt's worktree through
 // the platform shell and the process runner, which kills the whole tree at the step's deadline or
 // when the engine stops the attempt; the first check that does not pass ends the step. No model.
-// A red proof runs the test check and judges the structured test report against the tests the
-// proven step committed, never the exit code (ADR 0078).
+// A red proof runs the test check and judges its structured reports, never the exit code: in a
+// repository with a test map, each module's report by checks that read no test name (ADR 0274);
+// in one without, the test report against the tests the proven step committed (ADR 0078).
 
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
@@ -384,8 +385,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
-   * A red proof (ADR 0078): the test check's reading, then the report it wrote, judged against
-   * what step `of` committed.
+   * A red proof: the test check's reading, then the reports it wrote, judged against what step
+   * `of` committed; by the test map's modules where the repository has one (ADR 0274), else by
+   * the names its tests declare (ADR 0078).
    */
   const proveRed = async (
     batch: Batch,

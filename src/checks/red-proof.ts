@@ -1,6 +1,7 @@
-// The red proof's verdict, the core (ADR 0017, ADR 0078): whether a test report shows the tests a
-// step committed failing because the behaviour is missing. Pure; check-runner.ts runs the tests
-// and reads the report and the step's diff.
+// The red proof's verdict, the core (ADR 0017): whether the run shows the behaviour a step's tests
+// describe missing. With a test map, by checks that read no test name (judgeMapped, ADR 0274);
+// without one, by the tests a step committed, found by name (judgeRed, ADR 0078). Pure;
+// check-runner.ts runs the tests and reads the reports and the step's diff.
 
 import { posix } from 'node:path';
 import { isAbsolutePath, reportPath } from '../formats/coverage-report.ts';
