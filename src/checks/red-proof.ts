@@ -292,12 +292,14 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
     return file !== undefined && testFiles.has(keyOf(file, foldCase));
   };
   const [placed] = failing;
-  if (placed !== undefined && failing.every(({ location }) => location !== undefined)) {
-    if (!failing.some(inChanged)) {
-      return refused(
-        `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, root))}`,
-      );
-    }
+  if (
+    placed !== undefined &&
+    failing.every(({ location }) => location !== undefined) &&
+    !failing.some(inChanged)
+  ) {
+    return refused(
+      `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, root))}`,
+    );
   }
   const added = new Map(
     diff.flatMap(({ newPath, addedAt }) =>

@@ -19,9 +19,9 @@ function testcase(element: Element): ReportedTest {
   const output = children.filter(({ name }) => SYSTEM_OUTPUT.has(name));
   const result = failed.length > 0 ? 'failed' : skipped.length > 0 ? 'skipped' : 'passed';
   const detail = [...failed, ...skipped, ...output].map(said).join('\n');
-  const name = element.attributes.get('name') ?? '';
-  // Where the writer gives it, as node's (a file) and pytest's (a file and a line) do (ADR 0274).
   const { attributes } = element;
+  const name = attributes.get('name') ?? '';
+  // Where the writer gives it, as node's (a file) and pytest's (a file and a line) do (ADR 0274).
   const location = testLocation(attributes.get('file'), attributes.get('line'));
   return { name, result, leaf: true, detail, ...(location === undefined ? {} : { location }) };
 }
