@@ -143,7 +143,10 @@ function rule(state: State, event: Event): string | undefined {
         rewindable(state, event)
       );
     case 'order.decomposed':
-      return lanes(state, event, nonTerminal) ?? keepsRepositories(state, event);
+      return (
+        (appliesApproval(state, event) ? undefined : lanes(state, event, nonTerminal)) ??
+        keepsRepositories(state, event)
+      );
     case 'batch.waiting':
       return lanes(state, event, ['ordered', 'conditioning']);
     case 'bottle.opened':
@@ -404,6 +407,24 @@ function unpaired(
   return same
     ? `${event.pullRequest} on ${event.head} is already checked against ${event.other} on ${event.otherHead}`
     : undefined;
+}
+
+/**
+ * Whether `event` records the breakdown of the plan its batch's approval signed off, which waits
+ * on tap (ADR 0285): its plan names that approval's step and attempt.
+ */
+function appliesApproval(
+  state: State,
+  event: Extract<Event, { type: 'order.decomposed' }>,
+): boolean {
+  const batch = state.batches.get(event.batchId);
+  const { approval } = batch ?? {};
+  return (
+    batch?.lane.kind === 'on_tap' &&
+    approval !== undefined &&
+    event.plan?.stepId === approval.stepId &&
+    event.plan.attempt === approval.attempt
+  );
 }
 
 /** A sub-order keeps its repository once it has batches: they, and their branches, live there. */
