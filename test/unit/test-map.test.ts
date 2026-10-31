@@ -134,6 +134,16 @@ describe('readTestMap (ADR 0274)', () => {
     const deep = readTestMap(example.replace('"web/test-results.xml"', '"web/**/results.xml"'));
     assert.equal(deep.kind, 'unreadable');
   });
+
+  it('refuses a derived-from path that is not as git names it, with / between folders', () => {
+    const backslash = readTestMap(
+      example.replace('"svc/Billing.sln"', JSON.stringify('svc\\Billing.sln')),
+    );
+    assert.equal(backslash.kind, 'unreadable');
+    assert.match(backslash.kind === 'unreadable' ? backslash.reason : '', /derivedFrom/);
+    const parent = readTestMap(example.replace('"svc/Billing.sln"', '"../svc/Billing.sln"'));
+    assert.equal(parent.kind, 'unreadable');
+  });
 });
 
 describe('readTestMap: report paths a reader matches at once (ADR 0274)', () => {

@@ -436,6 +436,17 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     );
   });
 
+  it('records no stale map for a repository with no test map whose run writes its test report', async () => {
+    const { run } = setup({
+      maps: {},
+      testReport: { format: 'junit', path: 'out/results.xml' },
+      found: { 'out/results.xml': [join(worktree, 'out', 'results.xml')] },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
   it('names ten stale paths and counts the rest: regression test', async () => {
     const many: ManifestFreshness = {
       kind: 'stale',
