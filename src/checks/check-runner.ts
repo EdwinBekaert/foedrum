@@ -1029,17 +1029,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     });
     const tests: MappedReport[] = [];
     for (const { module } of modules) {
-      // A TRX report's skips are left unread at green, where a .NET target brewed before (#727).
+      // Only a module whose test files the batch added to can report a skip the batch added. A TRX
+      // report's skips are left unread at green, where a .NET target brewed before (#727).
+      if (!inTests.some((file) => file.module === module.name)) continue;
       if (module.testReport.format === 'trx') continue;
       const wrote = testReportsOf(module, worktree);
       if ('stuck' in wrote) return stuck(wrote.stuck);
-      if ('failed' in wrote) {
-        // A module whose tests the change touches none of writes its report for the environment.
-        if (!inTests.some((file) => file.module === module.name)) {
-          return stuck(`${wrote.failed}, though the change touches none of its tests`);
-        }
-        return failed(wrote.failed);
-      }
+      if ('failed' in wrote) return failed(wrote.failed);
       tests.push(...wrote.reports);
     }
     const skip = skipInAddedLines(
