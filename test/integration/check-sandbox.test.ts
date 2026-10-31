@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { join, relative } from 'node:path';
@@ -61,6 +61,36 @@ const setupUnavailable = (): string | undefined => {
   if (process.platform !== 'linux' || inCi) return undefined;
   const found = ['slirp4netns', 'pasta'].some((tool) => resolveExecutable(tool) !== undefined);
   return found ? undefined : 'neither slirp4netns nor pasta (passt) is on PATH';
+};
+
+/**
+ * Why a name query from a setup could leave this machine, or undefined when it cannot: only
+ * systemd-resolved's stub answers localhost itself.
+ */
+const resolverLeavesMachine = (): string | undefined => {
+  let names = '';
+  try {
+    names = readFileSync('/etc/resolv.conf', 'utf8');
+  } catch {
+    return '/etc/resolv.conf cannot be read';
+  }
+  const servers = names.match(/^nameserver\s+\S+/gm) ?? [];
+  return servers.length > 0 && servers.every((server) => server.endsWith('127.0.0.53'))
+    ? undefined
+    : "the host's resolver is not systemd-resolved's stub alone";
+};
+
+/**
+ * Off CI a host whose query could leave it, or whose stack is pasta, which has no resolver to
+ * forward to behind systemd-resolved's stub (ADR 0218), skips; CI's Linux leg runs and fails.
+ */
+const linuxResolverUnavailable = (): string | undefined => {
+  if (process.platform !== 'linux') return 'the stack is a Linux one';
+  if (inCi) return undefined;
+  if (resolveExecutable('slirp4netns') === undefined) {
+    return "the stack here is pasta, whose resolver misses systemd-resolved's stub (ADR 0218)";
+  }
+  return resolverLeavesMachine();
 };
 
 /** A server that counts its connections, listening where it is told. */
@@ -366,6 +396,19 @@ describe('a setup in the real sandbox, the network kept', {
     const result = await setup('cat /etc/resolv.conf');
     assert.equal(result.exitCode, 0, result.output);
     assert.equal(result.stdout, 'nameserver 10.0.2.3\n');
+  });
+
+  // The query goes to the stack's 10.0.2.3, which slirp4netns answers under its seccomp filter
+  // (ADR 0277) through the host's systemd-resolved, which answers localhost itself, so nothing
+  // leaves the machine: a host with another resolver skips it, and on CI's ubuntu leg it fails
+  // before it sends the query (review of #702).
+  it("resolves a name through the stack's resolver on Linux", {
+    skip: linuxResolverUnavailable() ?? false,
+  }, async () => {
+    assert.equal(resolverLeavesMachine(), undefined);
+    const query = `require('dns').resolve4('localhost',(e,a)=>process.exit(!e&&a.includes('127.0.0.1')?0:3))`;
+    const result = await setup(`"${process.execPath}" -e "${query}"`);
+    assert.equal(result.exitCode, 0, result.output);
   });
 
   it('sees no user folder under /run on Linux, where the D-Bus socket was', {
