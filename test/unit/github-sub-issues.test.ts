@@ -20,11 +20,17 @@ const onFake = (issues: FakeApiIssue[] = []) => {
   return { api, subIssues: githubSubIssues({ client, brewery, login }) };
 };
 
-const order: FakeApiIssue = { number: 7, labels: ['recipe:mash'], author: 'alice', title: 'Order' };
+// A new one each time: the fake records links on the issue it is given.
+const order = (): FakeApiIssue => ({
+  number: 7,
+  labels: ['recipe:mash'],
+  author: 'alice',
+  title: 'Order',
+});
 
 describe('githubSubIssues', () => {
   it('opens an issue with its labels and reads its id', async () => {
-    const { api, subIssues } = onFake([order]);
+    const { api, subIssues } = onFake([order()]);
     const opened = await subIssues.openIssue('Add the API', `Body\n\n${marker}`, [
       'recipe:nip',
       'needs-refinement',
@@ -44,7 +50,7 @@ describe('githubSubIssues', () => {
       body: `Planted\n\n${marker}`,
       id: 555,
     };
-    const { subIssues } = onFake([order, planted]);
+    const { subIssues } = onFake([order(), planted]);
     assert.equal(await subIssues.findIssue(marker), undefined);
     const opened = await subIssues.openIssue('Add the API', `Body\n\n${marker}`, []);
     assert.deepStrictEqual(await subIssues.findIssue(marker), opened);
@@ -52,7 +58,7 @@ describe('githubSubIssues', () => {
   });
 
   it('adds a sub-issue by its id and reads the list back in order', async () => {
-    const { api, subIssues } = onFake([order]);
+    const { api, subIssues } = onFake([order()]);
     const first = await subIssues.openIssue('First', 'one', []);
     const second = await subIssues.openIssue('Second', 'two', []);
     await subIssues.addSubIssue(7, second.id);
@@ -62,7 +68,7 @@ describe('githubSubIssues', () => {
   });
 
   it('a repeated add answers 422, and a list read shows the sub-issue is there', async () => {
-    const { subIssues } = onFake([order]);
+    const { subIssues } = onFake([order()]);
     const child = await subIssues.openIssue('Child', 'one', []);
     await subIssues.addSubIssue(7, child.id);
     await assert.rejects(subIssues.addSubIssue(7, child.id), /GitHub answered 422 .*duplicate/);
@@ -70,7 +76,7 @@ describe('githubSubIssues', () => {
   });
 
   it('adds and reads "blocked by"', async () => {
-    const { subIssues } = onFake([order]);
+    const { subIssues } = onFake([order()]);
     const blocker = await subIssues.openIssue('Blocker', 'one', []);
     const blocked = await subIssues.openIssue('Blocked', 'two', []);
     assert.deepStrictEqual(await subIssues.blockedBy(blocked.number), []);
