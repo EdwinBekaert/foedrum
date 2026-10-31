@@ -43,18 +43,20 @@ type Told = (text: string) => string;
 const named = ({ id, title }: PlannedSubOrder, told: Told): string =>
   `${code(told(id))}: ${plain(told(title))}`;
 
+/** What a sub-order depends on, each with its kind, or `none`. */
+const waitsOf = ({ dependencies }: PlannedSubOrder, told: Told): string =>
+  dependencies.length === 0
+    ? 'none'
+    : dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
+
 /** A row of the summary table (#658): what to take in at a glance, the rest in its section. */
 const row = (subOrder: PlannedSubOrder, told: Told): string => {
-  const { size, dependencies, recipe, ready } = subOrder;
-  const waits =
-    dependencies.length === 0
-      ? 'none'
-      : dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
+  const { size, recipe, ready } = subOrder;
   const cells = [
     named(subOrder, told),
     `about ${size.lines} lines`,
     code(told(recipe)),
-    waits,
+    waitsOf(subOrder, told),
     ready ? 'yes' : 'no',
   ];
   return `| ${cells.join(' | ')} |`;
@@ -145,13 +147,9 @@ export const planEntryText = (state: State, origin: PlanOrigin): string => {
   }
   const isCommit = knownCommits(state, batchId);
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
-  const waits =
-    subOrder.dependencies.length === 0
-      ? 'none'
-      : subOrder.dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
   const { alternatives } = plan;
   return [
-    ...section(subOrder, told, [`- Depends on: ${waits}`]),
+    ...section(subOrder, told, [`- Depends on: ${waitsOf(subOrder, told)}`]),
     ...(alternatives === undefined ? [] : ['', ...alternativesOf(alternatives, told)]),
   ].join('\n');
 };
