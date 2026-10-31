@@ -1883,6 +1883,49 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
     );
   });
 
+  it('puts a batch on tap whose plan came from the recipe before its recipe now (#658)', () => {
+    const recipes = fakeRecipes({
+      mash: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
+      porter: fakeRecipe({ steps: ['notes'], pullRequests: [] }),
+    });
+    const planned: Event = {
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: plan },
+    };
+    // A person chose another recipe while the plan waited for review.
+    const rerouted: Event = { ...chosen('porter'), source: 'human', ...by } as Event;
+    const events = [
+      ordered,
+      chosen('mash'),
+      scheduled('plan'),
+      started('plan'),
+      planned,
+      rerouted,
+      scheduled('notes'),
+      started('notes'),
+    ];
+    const notes = { status: 'done', summary: 'Noted', assumptions: [] };
+    const decision = decide(
+      fold(events),
+      {
+        kind: 'finish',
+        batchId: 'b1',
+        stepId: 'notes',
+        attempt: 1,
+        ending: { kind: 'succeeded', output: notes },
+      },
+      { ...context, recipes },
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), {
+      type: 'batch.on_tap',
+      batchId: 'b1',
+      pullRequests: [],
+    });
+  });
+
   it('keeps a recorded batch on tap with a plan on tap: regression test (#658)', () => {
     const planned: Event = {
       type: 'step.finished',

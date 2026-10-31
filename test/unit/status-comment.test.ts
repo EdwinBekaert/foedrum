@@ -2660,6 +2660,24 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
   });
 
+  it('links no out doc of a step that wrote none, as a check step (#658)', () => {
+    // A check step and the red proof end with no output, and keep no out doc (ADR 0069).
+    const checked: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: null },
+    };
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([step('plan', planned(2, ['Kept the flag.'])), step('green', checked)]),
+      }),
+    );
+    assert.equal(stepOf(text, 'green'), '- ✅ `green`');
+    assert.match(stepOf(text, 'plan'), /out doc: </);
+  });
+
   it("links each step's out doc on its line: the plan's as it reads, another's in its plain view", () => {
     const text = rendered(
       batch({

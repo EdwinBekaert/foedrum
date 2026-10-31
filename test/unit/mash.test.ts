@@ -235,6 +235,14 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     );
   });
 
+  it('leaves the status comment naming the plan comment when foedrum brew ends, within the minute (#658)', async () => {
+    assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+    const id = comments().find(({ body }) => body.includes('plan of batch'))?.id;
+    const url = `https://github.com/${setup.brewery}/issues/12#issuecomment-${id}`;
+    const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
+    assert.ok(status.includes(`is ready for your review: <${url}>`), status);
+  });
+
   it('links the plan comment from the status comment, on the Brewery issue (#658)', async () => {
     assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
     // Two minutes on, past the status comment's limit of one revision a minute (ADR 0072).
