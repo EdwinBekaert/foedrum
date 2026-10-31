@@ -700,11 +700,14 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
     const web = { ...module, name: 'web', testReport: { format: 'tap' as const, path: 'web.tap' } };
     const cli = { ...module, name: 'cli', testReport: { format: 'tap' as const, path: 'cli.tap' } };
     const derivedFrom = { globs: ['**/package.json'], paths: ['package.json'] };
+    const maps: Record<string, MapRead> = {
+      [gaugeStart]: { kind: 'map', map: { derivedFrom, modules: [web] } },
+      ['b'.repeat(40)]: { kind: 'map', map: { derivedFrom, modules: [web, cli] } },
+    };
+    // A run whose every test passes: the red proof fails, and the new module wrote no report.
     const { run } = setup({
-      maps: {
-        [gaugeStart]: { kind: 'map', map: { derivedFrom, modules: [web] } },
-        ['b'.repeat(40)]: { kind: 'map', map: { derivedFrom, modules: [web, cli] } },
-      },
+      maps,
+      test: { exitCode: 0, stdout: 'TAP version 13\nok 1 - adds\n1..1' },
     });
     const end = await run();
     assert.equal(end.ending.kind, 'blocked');
@@ -712,5 +715,8 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
       end.ending.kind === 'blocked' ? end.ending.summary : '',
       /^module "cli" of the test map is new in this batch/,
     );
+    // A failing run keeps the red proof's own verdict (ADR 0280).
+    const failing = setup({ maps });
+    assert.deepEqual((await failing.run()).ending, { kind: 'succeeded', output: null });
   });
 });

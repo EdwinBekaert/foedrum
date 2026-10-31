@@ -95,7 +95,7 @@ const setup = ({
   /** Why a pattern is refused, by pattern. */
   refused = {} as Record<string, string>,
   /** null: the test check was killed at its deadline. */
-  testExit = 1 as number | null,
+  testExit = 0 as number | null,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -152,9 +152,9 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     assert.match(summary, /no test report at svc\/test\/\*\/TestResults/);
     assert.match(
       summary,
-      /make "checks"\."test" of acme\/api in foedrum\.jsonc also run its tests, such as "npm test && <billing's test command>"/,
+      /make "checks"\."test" of acme\/api in foedrum\.jsonc, now "npm test", also run its tests, whatever the tests before them give/,
     );
-    // The check's recorded output tail, so the compile error shows.
+    // The check's recorded output tail.
     assert.ok(summary.includes(compileError), summary);
     // The readings stay as they ran.
     assert.deepEqual(
@@ -174,7 +174,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
   it("takes a module the base's map lists as reached: its missing report is no Stuck", async () => {
     const { run } = setup({ maps: { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) } });
     const end = await run();
-    assert.equal(end.ending.kind, 'failed');
+    assert.equal(end.ending.kind, 'succeeded');
   });
 
   it('takes a new module whose report the run wrote as reached', async () => {
@@ -188,6 +188,16 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const { run, asked } = setup({ checks: ['typecheck'] });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(asked, []);
+  });
+
+  it('judges a new module unreached only on a passing test reading: a failing run goes along onFail (ADR 0280)', async () => {
+    const { run, asked } = setup({ testExit: 1 });
+    const end = await run();
+    assert.deepEqual(
+      end.ending.kind === 'failed' ? [end.ending.kind, end.ending.retryable] : end.ending,
+      ['failed', false],
+    );
     assert.deepEqual(asked, []);
   });
 
@@ -208,7 +218,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const maps = { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) };
     const { run, asked } = setup({ started: renamed, maps });
     const end = await run();
-    assert.equal(end.ending.kind, 'failed');
+    assert.equal(end.ending.kind, 'succeeded');
     assert.deepEqual(asked, [`map of Acme/API at ${base}`, `map of Acme/API at ${tip}`]);
   });
 
@@ -224,7 +234,7 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const maps = { [base]: mapOf(web), [merged]: mapOf(web, billing), [tip]: mapOf(web, billing) };
     const { run, asked } = setup({ more, maps });
     const end = await run();
-    assert.equal(end.ending.kind, 'failed');
+    assert.equal(end.ending.kind, 'succeeded');
     assert.deepEqual(asked, [`map of acme/api at ${merged}`, `map of acme/api at ${tip}`]);
   });
 

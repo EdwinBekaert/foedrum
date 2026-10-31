@@ -150,6 +150,25 @@ describe('serveSetup', () => {
     );
   });
 
+  it('refuses a Brewery whose test-maps folder cannot be read, for a repository whose map it keeps (review of #715)', () => {
+    const keptIn = (testMap: 'repo' | 'brewery') =>
+      serveSetup(
+        inputs({
+          files: {
+            ...inputs().files,
+            config: config({}, { testMap }),
+            testMaps: [{ path: 'test-maps', unreadable: 'ENOTDIR' }],
+          },
+        }),
+      );
+    const refusedHere = keptIn('brewery');
+    assert.deepStrictEqual(refusedHere.kind === 'refused' ? refusedHere.problems : [], [
+      'test-maps: the test map of acme/web cannot be read: ENOTDIR',
+    ]);
+    // A repository that keeps its own map reads no Brewery map.
+    assert.equal(keptIn('repo').kind, 'ready');
+  });
+
   it("passes on each repository's sensitive paths, and none when it names none (ADR 0201)", () => {
     const sensitivePaths = ['.github/workflows/**', 'src/auth/**'];
     const setup = ready(

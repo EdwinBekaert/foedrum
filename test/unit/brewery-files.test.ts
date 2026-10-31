@@ -79,6 +79,14 @@ describe('readBreweryFiles', () => {
     ]);
   });
 
+  it('reads a test-maps folder it cannot list as unreadable, never as no maps (review of #715)', () => {
+    write('test-maps', 'a file where the folder should be');
+    const read = readTestMaps(brewery.path);
+    assert.equal(read.length, 1);
+    assert.equal(read[0]?.path, 'test-maps');
+    assert.ok(read[0] !== undefined && 'unreadable' in read[0], JSON.stringify(read));
+  });
+
   it("reads the defaults' models.jsonc by its path in defaults/, and has none where it is missing (ADR 0153)", () => {
     const defaults = join(brewery.path, 'foedrum', 'defaults');
     write('models.jsonc', "the Brewery's own, which is not read here");
