@@ -644,6 +644,59 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     );
   });
 
+  it("clears the coverage report of a module only the base's map lists: regression test", async () => {
+    const old: TestMapModule = {
+      ...calc,
+      name: 'old',
+      code: ['old/**'],
+      tests: { paths: ['old-test/**'] },
+      coverage: { format: 'lcov', path: 'old/lcov.info' },
+    };
+    const { run, asked } = setup({
+      maps: { [base]: mapOf(calc, old), [tip]: mapOf(calc) },
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    await run();
+    const cleared = asked.indexOf(`clear ${join(worktree, 'old', 'lcov.info')}`);
+    assert.ok(cleared >= 0, asked.join('|'));
+    assert.ok(cleared < asked.indexOf('run npm test'), asked.join('|'));
+  });
+
+  it("judges a changed file only by a report's file of its own case where the file system tells case apart: regression test", async () => {
+    const { run } = setup({
+      platform: 'linux',
+      diff: adding('src/Calc.ts', 2, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 2: 0 })) },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.coverage, { notLoaded: { files: ['src/Calc.ts'], more: 0 } });
+  });
+
+  it("shows the coverage lines of the check step's latest finished attempt only: regression test", () => {
+    const first: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'failed', retryable: true, reason: 'the check "test" (npm test) failed' },
+      coverage: { notLoaded: { files: ['src/types.ts'], more: 0 } },
+    };
+    const again = { ...ref, attempt: 2 };
+    const later: Event[] = [
+      { type: 'step.scheduled', ...again, deadlineAt },
+      {
+        type: 'step.started',
+        ...again,
+        worktree: { repo: 'acme/api', path: worktree, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      { type: 'step.finished', ...again, outcome: { kind: 'succeeded', output: null } },
+    ];
+    const batch = fold([...events, first, ...later]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch, ['implement', 'green']);
+    assert.match(text, /- ✅ `green`/);
+    assert.doesNotMatch(text, /not loaded by any test/);
+  });
+
   it('a test reading in a repository with no test map passes as today: regression test', async () => {
     const { run, asked } = setup({ maps: {}, diff: adding('src/calc.ts', 1, 1) });
     const end = await run();

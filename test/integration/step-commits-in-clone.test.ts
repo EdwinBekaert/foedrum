@@ -5,11 +5,11 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
-import { readDiff, readTestFiles } from '../../src/checks/step-commits.ts';
+import { readDiff, readFilesAt, readTestFiles } from '../../src/checks/step-commits.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -205,5 +205,31 @@ describe('the red proof reads a table its step added a row to at the tip, with r
     const diff = await readDiff(runGit, repo, { from: before, to: tip });
     assert.ok('files' in diff, JSON.stringify(diff));
     assert.deepEqual([...(await readTestFiles(runGit, repo, tip, diff.files))], ['sum.test.mjs']);
+  });
+});
+
+describe("the uncovered-line check lists a commit's files with real git (ADR 0274)", () => {
+  let dir: TempDir;
+  afterEach(async () => {
+    await removeTree(dir.path);
+  });
+
+  it('lists every file of a commit, those in folders by their whole path: regression test', async () => {
+    dir = makeTempDir('read-files-at');
+    const repo = join(dir.path, 'repo');
+    git(dir.path, ['init', '-q', '-b', 'main', repo]);
+    mkdirSync(join(repo, 'legacy', 'deep'), { recursive: true });
+    const tip = commit(
+      repo,
+      {
+        'README.md': 'hi\n',
+        'legacy/old.ts': 'export {};\n',
+        'legacy/deep/a b.ts': 'export {};\n',
+      },
+      'Files in folders',
+    );
+    assert.deepEqual(await readFilesAt(runGit, repo, tip), {
+      files: ['README.md', 'legacy/deep/a b.ts', 'legacy/old.ts'],
+    });
   });
 });
