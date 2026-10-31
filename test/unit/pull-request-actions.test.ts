@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { sensitivePathsOf, TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type State } from '../../src/engine/fold.ts';
@@ -12,9 +13,11 @@ import { knownCommits } from '../../src/engine/pull-request.ts';
 import {
   type BranchPush,
   type PullRequestHost,
+  type PullRequestRepository,
   type PullRequestRequest,
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
+import { sensitiveLine } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { ScanFinding } from '../../src/schemas/store.ts';
 
@@ -160,6 +163,7 @@ const actionsWith = (
     fetched?: string;
     touched?: string[];
     sensitivePaths?: string[];
+    unmeasured?: PullRequestRepository['unmeasured'];
     commits?: Record<string, string>;
     bodies?: Record<string, string>;
   } = {},
@@ -183,6 +187,7 @@ const actionsWith = (
         base: 'main',
         push: pushed.target,
         ...(options.sensitivePaths === undefined ? {} : { sensitivePaths: options.sensitivePaths }),
+        ...(options.unmeasured === undefined ? {} : { unmeasured: options.unmeasured }),
       },
     ],
     host: code.host,
@@ -1143,5 +1148,60 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
         assert.ok(!keysOf(state, actions).includes(body2), JSON.stringify(result));
       }
     });
+  });
+});
+
+describe('pullRequestActions: the test map is a sensitive path (ADR 0274)', () => {
+  const touched = ['README.md', TEST_MAP_PATH];
+
+  it("names a change to the test map in the status comment's sensitive-path line", async () => {
+    // The repository names no sensitive path of its own.
+    const { actions } = actionsWith({ sensitivePaths: sensitivePathsOf({}), touched });
+    keysOf(brewing(), actions);
+    const result = await actions.target.apply(push);
+    const sensitive = { count: 1, files: [TEST_MAP_PATH] };
+    assert.deepEqual(result, { branch, commit: tip, from, sensitive });
+    assert.equal(sensitiveLine(sensitive), 'Touches sensitive paths: .foedrum/test-map.jsonc');
+    // Beside the paths the repository names, and not where the Brewery keeps its map.
+    assert.deepEqual(sensitivePathsOf({ sensitivePaths: ['src/auth/**'] }), [
+      'src/auth/**',
+      TEST_MAP_PATH,
+    ]);
+    assert.deepEqual(sensitivePathsOf({ sensitivePaths: ['src/auth/**'], testMap: 'brewery' }), [
+      'src/auth/**',
+    ]);
+    assert.deepEqual(sensitivePathsOf({ testMap: 'brewery' }), []);
+  });
+
+  it('records the modules the batch adds with coverage none when its change touches the map', async () => {
+    const asked: string[] = [];
+    const unmeasured = async (since: string, commit: string) => {
+      asked.push(`${since}..${commit}`);
+      return ['engine', 'tools'];
+    };
+    const { actions } = actionsWith({ sensitivePaths: sensitivePathsOf({}), touched, unmeasured });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: { count: 1, files: [TEST_MAP_PATH], unmeasured: ['engine', 'tools'] },
+    });
+    assert.deepEqual(asked, [`${other}..${tip}`]);
+    // A change that leaves the map alone reads no map.
+    const untouched = actionsWith({
+      sensitivePaths: ['src/**', TEST_MAP_PATH],
+      touched: ['src/a.ts'],
+      unmeasured,
+    });
+    keysOf(brewing(), untouched.actions);
+    const result = await untouched.actions.target.apply(push);
+    assert.deepEqual(result, {
+      branch,
+      commit: tip,
+      from,
+      sensitive: { count: 1, files: ['src/a.ts'] },
+    });
+    assert.equal(asked.length, 1);
   });
 });

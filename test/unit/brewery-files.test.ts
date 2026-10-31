@@ -9,6 +9,7 @@ import {
   breweryRecipes,
   readBreweryFiles,
   readHouseYeast,
+  readTestMaps,
 } from '../../src/engine/brewery-files.ts';
 import { INVALID_RECIPES, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { BrewerFrontmatter } from '../../src/schemas/brewer.ts';
@@ -62,6 +63,19 @@ describe('readBreweryFiles', () => {
     assert.deepEqual(readHouseYeast(brewery.path), [
       { path: 'house-yeast/cents.md', text: 'cents' },
       { path: 'house-yeast/acme/web/web-rule.md', text: 'web' },
+    ]);
+  });
+
+  it("reads the Brewery's test maps by path, one per repository (ADR 0274)", () => {
+    assert.deepEqual(readTestMaps(brewery.path), []);
+    write('test-maps/acme/web.jsonc', 'web');
+    write('test-maps/acme/api.jsonc', 'api');
+    write('test-maps/acme/notes.txt', 'not a map');
+    write('test-maps/stray.jsonc', 'not in an owner folder');
+    write('test-maps/acme/deeper/no.jsonc', 'too deep');
+    assert.deepEqual(readTestMaps(brewery.path), [
+      { path: 'test-maps/acme/api.jsonc', text: 'api' },
+      { path: 'test-maps/acme/web.jsonc', text: 'web' },
     ]);
   });
 

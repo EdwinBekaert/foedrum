@@ -129,3 +129,11 @@ export function readHouseYeast(root: string): BreweryFile[] {
     ...repositories.flatMap((folder) => readFolder(root, folder, '.md')),
   ];
 }
+
+/**
+ * The Brewery's test maps, `test-maps/<owner>/<name>.jsonc`, for the repositories whose map it
+ * keeps (ADR 0274), by their path from the Brewery's root.
+ */
+export function readTestMaps(_root: string): BreweryFile[] {
+  throw new Error('not implemented');
+}

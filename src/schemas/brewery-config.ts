@@ -98,7 +98,7 @@ const PollEvery = Duration.refine((duration) => {
  * `posix.matchesGlob` (ADR 0201): one that starts at `/` or `!`, holds a `\` or has a `.` or `..`
  * segment would match nothing git names, or not what it seems to.
  */
-const SensitivePath = z
+export const SensitivePath = z
   .string()
   .refine(
     (glob) =>

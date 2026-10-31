@@ -98,6 +98,11 @@ export interface PullRequestRepository {
   push: BranchPush;
   /** The path globs whose files the pull request names when its change touches them (ADR 0201). */
   sensitivePaths?: readonly string[];
+  /**
+   * The modules the batch's test map adds with `coverage: none`, from where its change starts to
+   * `commit`, read when the change touches the map (ADR 0274).
+   */
+  unmeasured?: (since: string, commit: string, signal?: AbortSignal) => Promise<string[]>;
 }
 
 export interface PullRequestActionsOptions {

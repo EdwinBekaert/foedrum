@@ -55,6 +55,8 @@ export interface ServeInputs {
     brewery: BreweryFiles;
     /** The Brewery's house-yeast rule files (`readHouseYeast`, ADR 0169). */
     houseYeast?: readonly BreweryFile[];
+    /** The Brewery's test maps, `test-maps/<owner>/<name>.jsonc` (`readTestMaps`, ADR 0274). */
+    testMaps?: readonly BreweryFile[];
   };
   diagnosis: Pick<Diagnosis, 'tools' | 'isolation' | 'problems'>;
 }
@@ -77,6 +79,11 @@ export interface ServeRepository {
   setup?: RepositorySetup;
   /** Where its own house-yeast rules are kept (ADR 0018); default in the repository. */
   houseYeast?: 'repo' | 'brewery';
+  /**
+   * The Brewery's test map of it, for a repository whose map the Brewery keeps (ADR 0018, ADR
+   * 0274): its text, none when the Brewery has none; without it, the map is the repository's own.
+   */
+  testMap?: { text?: string };
   /** The path globs a batch's pull request names when its change touches them (ADR 0201). */
   sensitivePaths?: readonly string[];
 }

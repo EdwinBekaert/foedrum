@@ -27,6 +27,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { Git } from '../../src/workspace/git.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -192,7 +193,11 @@ describe('runServe', () => {
     exec: () => Promise.reject(new Error('no check step runs here')),
     setup: () => Promise.reject(new Error('no repository setup runs here')),
     gh: ghOver(fetch).exec,
-    git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
+    // A check step looks for the test map (ADR 0274): the clone has none.
+    git: (_cwd, args) =>
+      args[0] === 'ls-tree'
+        ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+        : Promise.reject(new Error('no red proof or guarded step runs here')),
     ...overrides,
   });
 
@@ -1148,10 +1153,12 @@ Plan the order in {order}.
         prepare,
         merge,
         steps = [],
+        git,
       }: {
         serving?: ServeSetup;
         prepare?: ExecProcess;
         merge?: WorktreeMerge;
+        git?: Git;
         /** What ran, in order: each check's command and its folder, after whatever else wrote here. */
         steps?: string[];
       } = {},
@@ -1183,6 +1190,7 @@ Plan the order in {order}.
           exec,
           ...(prepare === undefined ? {} : { setup: prepare }),
           ...(merge === undefined ? {} : { merge: () => merge }),
+          ...(git === undefined ? {} : { git }),
           wait: async () => {
             calls.push('wait');
             const lane = log.state().batches.get('13-1')?.lane.kind;
@@ -1469,6 +1477,41 @@ Plan the order in {order}.
       assert.ok(!lines.some((line) => line.includes('longer than its deadline')), lines.join('\n'));
     });
 
+    it("sticks the batch when the batch's test map adds a module the test command wrote no report for (ADR 0274)", async () => {
+      const blob = 'e'.repeat(40);
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['test/**'] },
+            testReport: { format: 'junit', path: 'web-results.xml' },
+            coverage: 'none',
+          },
+        ],
+      });
+      // Every worktree is at one commit: the base has no map, the check step's tip has one.
+      let lists = 0;
+      const git: Git = async (_cwd, args) => {
+        if (args[0] === 'ls-tree') {
+          lists += 1;
+          const stdout = lists === 1 ? '' : `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`;
+          return { code: 0, stdout, stderr: '' };
+        }
+        if (args[0] === 'cat-file' && args[2] === blob) return { code: 0, stdout: map, stderr: '' };
+        throw new Error(`unexpected: ${args.join(' ')}`);
+      };
+      const { batch } = await brewWithChecks(0, { git });
+      assert.equal(batch?.lane.kind, 'stuck');
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.equal(reason?.kind === 'blocked' && reason.blockerKind, 'environment');
+      assert.match(
+        reason?.kind === 'blocked' ? reason.summary : '',
+        /^module "web" of the test map is new in this batch/,
+      );
+    });
+
     it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {
       const { checks, events, batch } = await brewWithChecks(0);
       assert.equal(batch?.lane.kind, 'on_tap');
@@ -1652,6 +1695,8 @@ Plan the order in {order}.
           runner: () => succeeding,
           exec,
           git: async (cwd, args) => {
+            // The clone has no test map (ADR 0274).
+            if (args[0] === 'ls-tree') return { code: 0, stdout: '', stderr: '' };
             folders.push(cwd);
             // The two revisions before the `--` that ends the options.
             const end = args.indexOf('--');

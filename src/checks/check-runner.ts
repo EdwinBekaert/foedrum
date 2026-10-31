@@ -34,6 +34,7 @@ import {
 import { judgeRed, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
+import type { ReadTestMapAt } from './test-map.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
@@ -74,6 +75,16 @@ export interface CheckRunnerOptions {
   clock: () => Date;
   /** Default this process's. */
   platform?: NodeJS.Platform;
+  /**
+   * The test maps of a repository by commit, and the files a report path names in a worktree
+   * (ADR 0274): after a test check ran, a module only the batch's map lists that wrote no report
+   * sticks the batch.
+   */
+  testMap?: {
+    at: ReadTestMapAt;
+    /** Default the file system's. */
+    reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
+  };
 }
 
 /** A test report file's largest size: a report of a large suite, read once per red proof. */

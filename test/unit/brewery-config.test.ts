@@ -32,7 +32,7 @@ describe('BreweryConfig', () => {
   it('fills in the defaults of a repository and the ceiling', () => {
     assert.deepEqual(BreweryConfig.parse({ repositories: { 'acme/web': { checks } } }), {
       permissionCeiling: [],
-      repositories: { 'acme/web': { checks, tools: [], houseYeast: 'repo' } },
+      repositories: { 'acme/web': { checks, tools: [], houseYeast: 'repo', testMap: 'repo' } },
     });
   });
 
@@ -81,7 +81,7 @@ describe('BreweryConfig', () => {
   it('accepts a repository whose issues the intake polls, under a short alias (ADR 0043)', () => {
     const intake = { labels: ['foedrum', 'ready'], milestone: 'v2' };
     assert.deepEqual(BreweryConfig.parse(config({ alias: 'web', intake })).repositories, {
-      'acme/web': { checks, alias: 'web', intake, tools: [], houseYeast: 'repo' },
+      'acme/web': { checks, alias: 'web', intake, tools: [], houseYeast: 'repo', testMap: 'repo' },
     });
     assert.equal(accepted(config({ alias: 'w2', intake: { labels: ['foedrum'] } })), true);
     assert.equal(accepted(config({ alias: 'a'.repeat(20) })), true);
@@ -482,6 +482,19 @@ describe('BreweryConfig for the intake in foedrum serve (ADR 0068)', () => {
     for (const pollEvery of ['29s', '10s', '61m', '2h', '1d', '60', 'soon']) {
       assert.equal(accepted(config({}, { pollEvery })), false, pollEvery);
     }
+  });
+});
+
+describe('BreweryConfig: where the test map is kept (ADR 0274)', () => {
+  it('keeps the test map in the repository or the Brewery, nowhere else', () => {
+    const kept = (testMap: unknown): unknown => {
+      const web = BreweryConfig.safeParse(config({ testMap })).data?.repositories['acme/web'];
+      return ({ ...web } as { testMap?: unknown }).testMap;
+    };
+    assert.equal(kept('brewery'), 'brewery');
+    assert.equal(kept('repo'), 'repo');
+    assert.equal(accepted(config({ testMap: 'git' })), false);
+    assert.equal(accepted(config({ testMap: true })), false);
   });
 });
 
