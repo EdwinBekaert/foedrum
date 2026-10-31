@@ -1013,6 +1013,39 @@
             "more"
           ],
           "additionalProperties": false
+        },
+        "staleMap": {
+          "type": "object",
+          "properties": {
+            "kept": {
+              "type": "string",
+              "enum": [
+                "repo",
+                "brewery"
+              ]
+            },
+            "paths": {
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "more": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "kept",
+            "paths",
+            "more"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
