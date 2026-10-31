@@ -345,11 +345,11 @@ const stackArgs = (tool: NetworkStackTool, pid: number): string[] => {
         String(pid),
       ];
     case 'slirp4netns':
-      // It parses the setup's packets outside bwrap's sandbox, so it runs in one of its own, as
-      // rootless Podman starts it; one that refuses either flag does not start (ADR 0277).
+      // It parses the setup's packets outside bwrap's sandbox, so it runs under a seccomp filter;
+      // one that refuses it does not start. Not --enable-sandbox, which needs uid 0 in the setup's
+      // user namespace, where bwrap maps the Cellar's uid to itself (ADR 0277).
       return [
-        ...['--configure', '--mtu=65520', '--disable-host-loopback'],
-        ...['--enable-sandbox', '--enable-seccomp'],
+        ...['--configure', '--mtu=65520', '--disable-host-loopback', '--enable-seccomp'],
         ...['--ready-fd=3', '--exit-fd=4'],
         ...[String(pid), 'tap0'],
       ];
