@@ -9,3 +9,4 @@ Orchestration should cost (almost) nothing:
 - Prompts are ordered static-first for prompt-cache reuse (instructions and contract, then the rule with its per-prompt nonce, then the inputs); effort stays constant per brewer.
 - Every attempt records tokens; Foedrum reports **orchestration overhead** (router + contract + input-rule tokens ÷ total).
   Target: below 5 %.
+- `foedrum status <order>` shows what an order's **planning** took (the attempts scheduled under `mash` or `mash-in`) apart from its **brewing** (every other attempt of the order and its sub-orders), in tokens, never a cost ([ADR 0295](../adr/0295-foedrum-status-order-shows-planning-tokens-apart-from-brewing-tokens.md)).
