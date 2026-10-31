@@ -4,8 +4,13 @@
 // applied (ADR 0033).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import type { Surface } from '../schemas/events.ts';
-import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
+import type { PlanOrigin, Surface } from '../schemas/events.ts';
+import {
+  type PlanAlternatives,
+  type PlannedSubOrder,
+  type PlanReport,
+  planOf,
+} from '../schemas/plan.ts';
 import type { StatusRevision } from '../schemas/status-comment.ts';
 import { breweryIssueOf } from './claim-orders.ts';
 import {
@@ -38,18 +43,20 @@ type Told = (text: string) => string;
 const named = ({ id, title }: PlannedSubOrder, told: Told): string =>
   `${code(told(id))}: ${plain(told(title))}`;
 
+/** What a sub-order depends on, each with its kind, or `none`. */
+const waitsOf = ({ dependencies }: PlannedSubOrder, told: Told): string =>
+  dependencies.length === 0
+    ? 'none'
+    : dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
+
 /** A row of the summary table (#658): what to take in at a glance, the rest in its section. */
 const row = (subOrder: PlannedSubOrder, told: Told): string => {
-  const { size, dependencies, recipe, ready } = subOrder;
-  const waits =
-    dependencies.length === 0
-      ? 'none'
-      : dependencies.map(({ on, kind }) => `${code(told(on))} (${kind})`).join(', ');
+  const { size, recipe, ready } = subOrder;
   const cells = [
     named(subOrder, told),
     `about ${size.lines} lines`,
     code(told(recipe)),
-    waits,
+    waitsOf(subOrder, told),
     ready ? 'yes' : 'no',
   ];
   return `| ${cells.join(' | ')} |`;
@@ -57,9 +64,10 @@ const row = (subOrder: PlannedSubOrder, told: Told): string => {
 
 /**
  * A sub-order's section (#658): what it builds, when it is done, why its recipe, why it is not
- * ready, and its touched paths folded away, since a list of twenty paths is read only on demand.
+ * ready, the `more` lines its caller adds, and its touched paths folded away, since a list of
+ * twenty paths is read only on demand.
  */
-const section = (subOrder: PlannedSubOrder, told: Told): string[] => {
+const section = (subOrder: PlannedSubOrder, told: Told, more: readonly string[] = []): string[] => {
   const { repo, size, doneWhen, touches, recipe, why } = subOrder;
   const off =
     subOrder.testFirst === false
@@ -75,6 +83,7 @@ const section = (subOrder: PlannedSubOrder, told: Told): string[] => {
     `- Done when: ${plain(told(doneWhen))}`,
     `- Recipe ${code(told(recipe))}: ${plain(told(why))}${off}`,
     ...(subOrder.ready ? [] : [`- Not ready: ${plain(told(subOrder.refinement ?? ''))}`]),
+    ...more,
     '',
     `<details><summary>Touches ${touches.length} ${touches.length === 1 ? 'path' : 'paths'}</summary>`,
     '',
@@ -104,6 +113,45 @@ const graph = (subOrders: readonly PlannedSubOrder[], told: Told): string[] => {
     ...edges,
     '```',
   ];
+};
+
+/** The other cuts a plan considered, and why this one. */
+const alternativesOf = (alternatives: PlanAlternatives, told: Told): string[] => [
+  '**Alternatives**',
+  '',
+  ...alternatives.considered.map(
+    ({ cut, whyNot }) => `- ${plain(told(cut))}: ${plain(told(whyNot))}`,
+  ),
+  '',
+  `Chosen because: ${plain(told(alternatives.whyThis))}`,
+];
+
+/**
+ * The text of the plan entry `origin` names, for a sub-order's brewers (ADR 0290): its section as
+ * the plan comment shows it, with what it depends on, then the plan's alternatives. Read from the
+ * attempt's recorded out doc, which the approval signed (ADR 0281), never from a worktree; throws
+ * when that attempt wrote no plan holding the entry.
+ */
+export const planEntryText = (state: State, origin: PlanOrigin): string => {
+  const { batchId, stepId, attempt, entry } = origin;
+  const ended = state.batches.get(batchId)?.steps.get(stepId)?.attempts.get(attempt);
+  const plan =
+    ended?.phase === 'finished' && ended.outcome.kind === 'succeeded'
+      ? planOf(ended.outcome.output)
+      : undefined;
+  const subOrder = plan?.subOrders.find(({ id }) => id === entry);
+  if (plan === undefined || subOrder === undefined) {
+    throw new Error(
+      `the plan of batch ${batchId}, step ${stepId}#${attempt}, holds no entry ${entry}`,
+    );
+  }
+  const isCommit = knownCommits(state, batchId);
+  const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
+  const { alternatives } = plan;
+  return [
+    ...section(subOrder, told, [`- Depends on: ${waitsOf(subOrder, told)}`]),
+    ...(alternatives === undefined ? [] : ['', ...alternativesOf(alternatives, told)]),
+  ].join('\n');
 };
 
 /** Who chose the session that wrote a plan, from where, and when it opened (ADR 0286). */
@@ -156,20 +204,7 @@ export const renderPlan = (
   // A graph of one node says nothing the table does not (#658).
   const order = subOrders.length < 2 ? [] : [['**Order**', '', ...graph(subOrders, told)]];
   const sections = subOrders.map((subOrder) => section(subOrder, told));
-  const others =
-    alternatives === undefined
-      ? []
-      : [
-          [
-            '**Alternatives**',
-            '',
-            ...alternatives.considered.map(
-              ({ cut, whyNot }) => `- ${plain(told(cut))}: ${plain(told(whyNot))}`,
-            ),
-            '',
-            `Chosen because: ${plain(told(alternatives.whyThis))}`,
-          ],
-        ];
+  const others = alternatives === undefined ? [] : [alternativesOf(alternatives, told)];
   // The Review is filled by the plan lenses (#587); the Gate by approve (ADR 0281).
   // An approved plan's sub-orders that are not ready stay so until #589 corrects them.
   const notReady = subOrders.filter(({ ready }) => !ready).map(({ id }) => code(told(id)));

@@ -12,6 +12,7 @@ import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts'
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
+import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import {
   MAX_INPUT_BYTES,
@@ -513,6 +514,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
     const repositories = { repositories: options.repositories ?? [], own: worktree.repo };
+    // A sub-order's plan entry, read from its parent's recorded plan when its brewer asks (ADR 0290).
+    const asks = found.brewer.inputs.some(({ from }) => from === 'plan-entry');
+    const entry = asks && batch.plan !== undefined ? planEntryText(state(), batch.plan) : undefined;
     const planned = inputsOf(
       found.brewer.inputs,
       batch,
@@ -522,6 +526,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       repositories,
       found.choices,
       found.chosenBy !== undefined,
+      entry,
     );
     const inputs: PromptInput[] = [];
     for (const input of planned) {

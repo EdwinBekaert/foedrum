@@ -849,6 +849,116 @@ describe('inputsOf', () => {
     );
   });
 
+  const planEntryInput = [{ name: 'planEntry', from: 'plan-entry', trusted: false as const }];
+  const origin = { batchId: '7-1', stepId: 'plan', attempt: 2, entry: 'api' };
+  const subOrder = () => ({ ...batch(), plan: origin });
+
+  it('leaves the plan entry input out for a batch that is no sub-order (ADR 0290)', () => {
+    const inputs = [{ name: 'order', from: 'order', trusted: false as const }, ...planEntryInput];
+    assert.deepEqual(
+      inputsOf(inputs, batch(), stepBrewer, brewWorktree, new Map(), undefined, [], false, 'x').map(
+        ({ name }) => name,
+      ),
+      ['order'],
+    );
+  });
+
+  it("gives a sub-order's batch its plan entry as text, its source the entry of the parent's plan (ADR 0290)", () => {
+    const text = '#### `api`: Build the API\n\n- Done when: a test passes';
+    assert.deepEqual(
+      inputsOf(
+        planEntryInput,
+        subOrder(),
+        stepBrewer,
+        brewWorktree,
+        new Map(),
+        undefined,
+        [],
+        false,
+        text,
+      ),
+      [{ name: 'planEntry', source: { kind: 'plan-entry', origin }, read: { kind: 'text', text } }],
+    );
+  });
+
+  it("throws for a sub-order's plan entry input when its text was not read (ADR 0290)", () => {
+    assert.throws(
+      () => inputsOf(planEntryInput, subOrder(), stepBrewer, brewWorktree),
+      /^Error: the input "planEntry" needs the plan entry api of batch 7-1, which was not read$/,
+    );
+  });
+
+  it("reads a chosen step's plan input from the batch's latest plan in a sub-order too: regression test (ADR 0290)", () => {
+    const plan = {
+      status: 'done',
+      summary: 'Planned',
+      assumptions: [],
+      subOrders: [
+        {
+          id: 'api',
+          title: 'Build the API',
+          repo: 'acme/api',
+          size: { lines: 200, mechanism: 'one handler' },
+          doneWhen: 'a test passes',
+          touches: [{ path: 'src/api.ts' }],
+          recipe: 'tdd',
+          why: 'testable',
+          ready: true,
+        },
+      ],
+    };
+    const planned: Event[] = [
+      ...events,
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'plan',
+        attempt: 1,
+        deadlineAt: '2026-10-17T13:00:00.000Z',
+      },
+      {
+        type: 'step.started',
+        batchId: '12-1',
+        stepId: 'plan',
+        attempt: 1,
+        worktree: worktreeOf('plan-1'),
+      },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'plan',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: plan },
+      },
+    ];
+    const found = fold(planned).batches.get('12-1');
+    assert.ok(found !== undefined);
+    const planner: StepBrewer = {
+      brewer: brewer({ name: 'brewmaster', output: { doc: 'plan.md', schema: 'plan' } }),
+      instructions: 'Plan.',
+    };
+    const [input] = inputsOf(
+      planInput,
+      { ...found, plan: origin },
+      (id) => (id === 'plan' ? planner : stepBrewer(id)),
+      brewWorktree,
+      new Map(),
+      undefined,
+      [],
+      true,
+      'the entry',
+    );
+    assert.deepEqual(input, {
+      name: 'plan',
+      source: { kind: 'out-doc', step: 'plan' },
+      read: {
+        kind: 'file',
+        path: join('/work', 'plan-1', 'plan.md'),
+        root: join('/work', 'plan-1'),
+      },
+    });
+  });
+
   it("reads each input in order: the order's issue, an earlier step's out doc, a file of the worktree", () => {
     const inputs = brewer({
       inputs: [

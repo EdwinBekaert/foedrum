@@ -201,6 +201,8 @@ const setup = ({
       },
       ...(realPath === undefined ? {} : { realPath }),
       isFolder: (path: string) => folders.includes(path),
+      // The maps' manifests are as they record them: freshness is not this file's (ADR 0282).
+      manifests: async () => ({ kind: 'fresh' }),
     },
   });
   const run = () =>
