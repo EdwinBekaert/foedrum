@@ -192,6 +192,8 @@ const setup = ({
         return coverage[path] ?? { readable: false, reason: `no report at ${path}` };
       },
       ...(realPath === undefined ? {} : { realPath }),
+      // The maps' manifests are as they record them: freshness is not this file's (ADR 0282).
+      manifests: async () => ({ kind: 'fresh' }),
     },
   });
   const run = () =>

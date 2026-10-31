@@ -11,9 +11,12 @@ import {
   breweryMapPath,
   type EffectiveModule,
   effectiveMap,
+  manifestFreshness,
   readTestMap,
   reportPaths,
+  reportUnder,
   testMaps,
+  touchedPaths,
 } from '../../src/checks/test-map.ts';
 import type { TestMap, TestMapModule } from '../../src/schemas/test-map.ts';
 import type { Git } from '../../src/workspace/git.ts';
@@ -130,6 +133,27 @@ describe('readTestMap (ADR 0274)', () => {
     // A folder pattern across folders would match without bound.
     const deep = readTestMap(example.replace('"web/test-results.xml"', '"web/**/results.xml"'));
     assert.equal(deep.kind, 'unreadable');
+  });
+
+  it('refuses a derived-from path that is not as git names it, with / between folders', () => {
+    const backslash = readTestMap(
+      example.replace('"svc/Billing.sln"', JSON.stringify('svc\\Billing.sln')),
+    );
+    assert.equal(backslash.kind, 'unreadable');
+    assert.match(backslash.kind === 'unreadable' ? backslash.reason : '', /derivedFrom/);
+    const parent = readTestMap(example.replace('"svc/Billing.sln"', '"../svc/Billing.sln"'));
+    assert.equal(parent.kind, 'unreadable');
+  });
+
+  it("refuses a derived-from glob that git's glob magic does not read as the map's readers do", () => {
+    for (const glob of ['**/*.{csproj,fsproj}', '**/+(a|b).csproj', '**/!(x).csproj']) {
+      const read = readTestMap(example.replace('"**/*.csproj"', JSON.stringify(glob)));
+      assert.equal(read.kind, 'unreadable', glob);
+      assert.match(read.kind === 'unreadable' ? read.reason : '', /derivedFrom/, glob);
+    }
+    // What git and the map's readers both read stays.
+    const read = readTestMap(example.replace('"**/*.csproj"', '"svc/**/[A-Z]*.?sproj"'));
+    assert.equal(read.kind, 'map');
   });
 });
 
@@ -467,5 +491,97 @@ describe('the test map: edges the review of #715 named', () => {
     const every = { atBase: ['Web/Src/a.ts'], deleted: ['web/src/a.ts'] };
     assert.deepEqual(names(effectiveMap(mapOf(web), undefined, every, true)), []);
     assert.deepEqual(names(effectiveMap(mapOf(web), undefined, every, false)), [['web', false]]);
+  });
+});
+
+describe("manifestFreshness: the map against its manifests at a step's tip (ADR 0274, ADR 0282)", () => {
+  const worktree = join('/work', 'acme.api', 'attempts', '12-1', 'green', '1');
+  const recorded: TestMap = {
+    derivedFrom: { globs: ['**/package.json', '--output=x'], paths: ['web/package.json'] },
+    modules: [web],
+  };
+  /** git in the worktree: `ls-files` lists `listed`. */
+  const gitListing = (listed: readonly string[]) => {
+    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const git: Git = (cwd, args) => {
+      calls.push({ cwd, args });
+      const stdout = listed.map((path) => `${path}\0`).join('');
+      return Promise.resolve({ code: 0, stdout, stderr: '' });
+    };
+    return { git, calls };
+  };
+
+  it('finds the map stale when a manifest its globs match is added', async () => {
+    const { git } = gitListing(['web/package.json', 'api/package.json']);
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'stale', added: ['api/package.json'], removed: [] });
+  });
+
+  it('passes the globs to git ls-files after --', async () => {
+    const { git, calls } = gitListing(['web/package.json']);
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'fresh' });
+    assert.equal(calls.length, 1);
+    const [call] = calls;
+    assert.equal(call?.cwd, worktree);
+    const args = call?.args ?? [];
+    assert.equal(args[0], 'ls-files');
+    // Every glob after --, so one that starts with a dash is never read as an option.
+    const dashes = args.indexOf('--');
+    assert.ok(dashes > 0, args.join(' '));
+    assert.deepEqual(args.slice(dashes + 1), [':(glob)**/package.json', ':(glob)--output=x']);
+    assert.ok(args.includes('-z'), args.join(' '));
+  });
+
+  it('finds the map stale when a manifest it records is gone: regression test', async () => {
+    const { git } = gitListing([]);
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'stale', added: [], removed: ['web/package.json'] });
+  });
+
+  it('says why git could not list the manifests: regression test', async () => {
+    const git: Git = async () => ({
+      code: 128,
+      stdout: '',
+      stderr: 'fatal: not a git repository\n',
+    });
+    const read = await manifestFreshness(git)(worktree, recorded);
+    assert.deepEqual(read, { kind: 'unread', reason: 'fatal: not a git repository' });
+  });
+});
+
+describe('touchedPaths: what a change did to the map and its manifests (ADR 0282)', () => {
+  it('reads the paths in the clone with git diff, every glob after --: regression test', async () => {
+    const calls: string[] = [];
+    const git: Git = async (cwd, args) => {
+      calls.push(`${args.join(' ')} in ${cwd}`);
+      return { code: 0, stdout: 'api/package.json\0', stderr: '' };
+    };
+    const clone = join('/work', 'acme.api', 'clone.git');
+    const read = await touchedPaths(git, () => clone)('acme/api', 'a1', 'c3', [
+      '.foedrum/test-map.jsonc',
+      '**/package.json',
+    ]);
+    assert.deepEqual(read, { paths: ['api/package.json'] });
+    assert.deepEqual(calls, [
+      `diff --name-only -z --no-renames a1 c3 -- :(glob).foedrum/test-map.jsonc :(glob)**/package.json in ${clone}`,
+    ]);
+  });
+
+  it('says why git could not read the change: regression test', async () => {
+    const git: Git = async () => ({ code: 128, stdout: '', stderr: 'fatal: bad object c3\n' });
+    const read = await touchedPaths(git, () => '/clone')('acme/api', 'a1', 'c3', ['**/x']);
+    assert.deepEqual(read, { unread: 'fatal: bad object c3' });
+  });
+});
+
+describe('reportUnder: a report at or under a report path (ADR 0282)', () => {
+  it('reads a report in a folder pattern, and not a sibling whose name starts the same: regression test', () => {
+    assert.equal(reportUnder('svc/test/A/TestResults/run.trx', 'svc/test/*/TestResults'), true);
+    assert.equal(reportUnder('svc/test/A/TestResults', 'svc/test/*/TestResults'), true);
+    assert.equal(reportUnder('svc/test/A/TestResultsOld/run.trx', 'svc/test/*/TestResults'), false);
+    assert.equal(reportUnder('svc/test', 'svc/test/*/TestResults'), false);
+    assert.equal(reportUnder('web/test-results.xml', 'web/test-results.xml'), true);
+    assert.equal(reportUnder('web/test-results.xml.bak', 'web/test-results.xml'), false);
   });
 });
