@@ -84,4 +84,15 @@ describe('readCoverage', () => {
     assert.equal(missing.readable, false);
     assert.match(missing.readable ? '' : missing.reason, /no LCOV report at gone\/lcov\.info/);
   });
+
+  it('tells two Cobertura sources apart by the file in the worktree', () => {
+    // `a.ts` lands inside the root under both sources; only `two/lib/a.ts` is there.
+    write('two/lib/a.ts', 'export {};\n');
+    write(
+      'two/TestResults/7c3d/coverage.cobertura.xml',
+      `<coverage><sources><source>${dir.path}/two/</source><source>${dir.path}/two/lib/</source></sources>
+<packages><package><classes><class filename="a.ts"><lines><line number="1" hits="1"/></lines></class></classes></package></packages></coverage>`,
+    );
+    assert.deepEqual([...read('cobertura', 'two/TestResults').keys()], ['two/lib/a.ts']);
+  });
 });
