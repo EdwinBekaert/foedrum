@@ -2859,12 +2859,22 @@ Plan the order in {order}.
             : { status: 200, body: {} };
         },
       });
+      // What each PATCH sent, by its path: the body names the other pull request.
+      const sent = new Map<string, string>();
+      const fetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
+        if (init.method === 'PATCH' && typeof init.body === 'string') {
+          sent.set(new URL(String(input)).pathname, JSON.parse(init.body).body);
+        }
+        return github.fetch(input, init);
+      }) as typeof globalThis.fetch;
       const patched = () =>
         ['/repos/acme/lib-core/pulls/7', '/repos/acme/web/pulls/12'].every((path) =>
           github.requests.includes(`PATCH ${path}`),
         );
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(patched) })), 0);
+      assert.equal(await runServe(setup, shell({ fetch, ...ticking(patched) })), 0);
       assert.ok(patched(), github.requests.join('\n'));
+      assert.match(sent.get('/repos/acme/lib-core/pulls/7') ?? '', /acme\/web#12/);
+      assert.match(sent.get('/repos/acme/web/pulls/12') ?? '', /acme\/lib-core#7/);
     });
 
     it("stops when it cannot read the token's login for a target intake", async () => {

@@ -439,6 +439,99 @@ describe('sibling pull requests (ADR 0292)', () => {
     assert.equal(siblingSection(state, '9-1'), undefined);
   });
 
+  it("keeps the plan's order where no dependency orders sub-orders (regression test)", () => {
+    const state = fold([
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 3, repo: web },
+          { issue: 2, repo: lib },
+          { issue: 4, repo: 'acme/cli' },
+        ],
+        dependencies: [],
+      },
+    ]);
+    assert.deepEqual(
+      subOrderPullRequests(state, 1).map(({ subOrder }) => subOrder),
+      [3, 2, 4],
+    );
+  });
+
+  it('places a sub-order whose blocker the latest breakdown cancelled, in the plan order (regression test)', () => {
+    const first: Event = {
+      type: 'order.decomposed',
+      batchId: '1-1',
+      subOrders: [
+        { issue: 3, repo: web },
+        { issue: 4, repo: 'acme/cli' },
+        { issue: 2, repo: lib },
+      ],
+      dependencies: [{ subOrder: 3, blockedBy: 4, kind: 'code' }],
+    };
+    const again: Event = {
+      ...first,
+      subOrders: [
+        { issue: 3, repo: web },
+        { issue: 2, repo: lib },
+      ],
+      dependencies: [{ subOrder: 3, blockedBy: 4, kind: 'code' }],
+    };
+    const state = fold([ordered('1-1', 1), first, again]);
+    assert.deepEqual(
+      subOrderPullRequests(state, 1).map(({ subOrder }) => subOrder),
+      [3, 2],
+    );
+  });
+
+  it('asks for no revision of a pull request closed without merging (regression test)', async () => {
+    const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
+    const { host, updates } = fakeHost({
+      [libPull]: openedBody('2-1', 2),
+      [webPull]: openedBody('3-1', 3),
+    });
+    const closed = fold(
+      [{ type: 'pull_request.ended', batchId: '2-1', pullRequest: libPull, state: 'closed' }],
+      both,
+    );
+    const effects = siblingEffects({ host });
+    assert.deepEqual(effects.due(closed, '2-1'), []);
+    await pass(effects, closed, ['2-1', '3-1']);
+    assert.deepEqual(
+      updates.map(({ url }) => url),
+      [webPull],
+    );
+  });
+
+  it("names five of a line's blockers and counts the rest (regression test)", () => {
+    const others = [2, 3, 4, 5, 6, 7];
+    const state = fold([
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          ...others.map((issue) => ({ issue, repo: `acme/lib${issue}` })),
+          { issue: 8, repo: web },
+        ],
+        dependencies: others.map((blockedBy) => ({
+          subOrder: 8,
+          blockedBy,
+          kind: 'code' as const,
+        })),
+      },
+      ordered('8-1', 8, '1-1'),
+    ]);
+    const own = (siblingSection(state, '8-1') ?? '')
+      .split('\n')
+      .find((line) => line.startsWith('7. '));
+    assert.equal(
+      own,
+      '7. This pull request, in acme/web: merge after acme/lib2 merges and acme/lib3 merges and acme/lib4 merges and acme/lib5 merges and acme/lib6 merges and 1 more.',
+    );
+  });
+
   it('words a code dependency, no dependency and a closed sibling (regression test)', () => {
     const split = (dependencies: Extract<Event, { type: 'order.decomposed' }>['dependencies']) =>
       fold([
