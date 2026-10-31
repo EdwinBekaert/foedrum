@@ -319,17 +319,18 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     );
   });
 
-  it('fails a changed code file no Cobertura report holds, every changed line at 0 hits', async () => {
+  it('lists a changed code file no Cobertura report holds as having no executable lines, without failing (ADR 0288)', async () => {
     const { run } = setup({
       maps: { [base]: mapOf(dotnet), [tip]: mapOf(dotnet) },
-      diff: adding('src/Calc/Unloaded.cs', 4, 2),
+      // An interface, a project file: coverlet lists only files with sequence points.
+      diff: `${adding('src/Calc/IShape.cs', 4, 2)}${adding('src/Calc/Calc.csproj', 1, 3)}`,
       coverage: { 'test/*/TestResults': cobertura('3-refactor') },
     });
     const end = await run();
-    assert.equal(
-      reasonOf(end),
-      '2 changed lines no test runs: src/Calc/Unloaded.cs:4, src/Calc/Unloaded.cs:5',
-    );
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.coverage, {
+      noLines: { files: ['src/Calc/IShape.cs', 'src/Calc/Calc.csproj'], more: 0 },
+    });
   });
 
   it('lists a changed fixture outside every code area without failing', async () => {
@@ -695,6 +696,81 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     const text = renderStatus(batch, ['implement', 'green']);
     assert.match(text, /- ✅ `green`/);
     assert.doesNotMatch(text, /not loaded by any test/);
+  });
+
+  it("shows a code file with no executable lines in any report under the check step's line (ADR 0288)", () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      coverage: { noLines: { files: ['src/Calc/IShape.cs'], more: 0 } },
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch, ['implement', 'green']);
+    assert.match(
+      text,
+      /- ✅ `green`\n {2}- no executable lines in any report: src\/Calc\/IShape\.cs(\n|$)/,
+    );
+  });
+
+  it('leaves a listed file name that looks like a secret out of the status comment', () => {
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      coverage: { notLoaded: { files: [`src/${token}.ts`], more: 0 } },
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch, ['implement', 'green']);
+    assert.doesNotMatch(text, /ghp|A1b2/);
+    assert.match(
+      text,
+      /- not loaded by any test: \\\[left out: a text of step green that looks like a secret\\\]/,
+    );
+  });
+
+  it("blocks the check step on its environment when an untouched module's coverage report cannot be read", async () => {
+    const web: TestMapModule = {
+      ...calc,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      coverage: { format: 'lcov', path: 'web/lcov.info' },
+    };
+    const { run } = setup({
+      maps: { [base]: mapOf(calc, web), [tip]: mapOf(calc, web) },
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the coverage report of module "web" at web/lcov.info cannot be read, though the change touches none of its code: no report at web/lcov.info',
+    });
+  });
+
+  it("refuses to clear a coverage path that names git's own files or every top folder", async () => {
+    for (const [path, why] of [
+      ['.git', ".git is git's own, never a report"],
+      ['src/.git/x', "src/.git/x is git's own, never a report"],
+      ['*', '* names every top folder of the worktree'],
+    ] as const) {
+      const odd: TestMapModule = { ...calc, coverage: { format: 'lcov', path } };
+      const { run, asked } = setup({
+        maps: { [base]: mapOf(calc), [tip]: mapOf(odd) },
+        diff: adding('src/calc.ts', 1, 1),
+      });
+      const end = await run();
+      assert.deepEqual(end.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: `a coverage report of the test map cannot be cleared: ${why}`,
+      });
+      assert.ok(!asked.some((line) => line.startsWith('clear')), asked.join('|'));
+    }
   });
 
   it('a test reading in a repository with no test map passes as today: regression test', async () => {

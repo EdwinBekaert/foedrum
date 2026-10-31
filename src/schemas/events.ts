@@ -355,6 +355,8 @@ const ListedFiles = z.strictObject({
  */
 export const CoverageListing = z.strictObject({
   notLoaded: ListedFiles.optional(),
+  /** Changed code files no Cobertura report lists, so with no executable lines (ADR 0288). */
+  noLines: ListedFiles.optional(),
   outside: ListedFiles.optional(),
   unmeasured: z.array(NonEmpty.max(MAX_OPEN_FINDING_TEXT)).min(1).max(MOST_LISTED).optional(),
 });
