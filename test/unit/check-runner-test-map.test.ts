@@ -80,10 +80,13 @@ const mapOf = (...modules: TestMapModule[]): MapRead => ({
 });
 
 // Before the test check runs, the coverage report paths of both maps' modules are looked for, to
-// be cleared; neither holds a report here.
+// be cleared, and neither holds a report here; then the test report paths but TRX's, which no
+// reader reads (#727). The batch's change adds no test line, so no test report is read after it.
 const clearing = [
   `reports web/coverage/lcov.info in ${worktree}`,
   `reports svc/coverage/* in ${worktree}`,
+  `reports web/test-results.xml in ${worktree}`,
+  `clear ${join(worktree, 'web', 'test-results.xml')}`,
 ];
 
 const compileError = 'svc/test/Billing.Tests/InvoiceTests.cs(3,1): error CS1002: ; expected';
@@ -643,9 +646,10 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
   });
 
   it('names no module whose report path cannot be looked for after a passing run: regression test', async () => {
+    // A TRX module's: the green check clears and reads a JUnit or TAP report path too (#727).
     const { run } = setup({
-      maps: fresh,
-      refused: { 'web/test-results.xml': 'web/test-results.xml leads out of the worktree' },
+      maps: { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) },
+      refused: { 'svc/test/*/TestResults': 'svc/test/*/TestResults leads out of the worktree' },
     });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
