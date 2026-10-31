@@ -385,14 +385,14 @@ export const runBrew = async (
       // Brewery issue has no label yet, so the batch waits for a person to give it one.
       await tick(driver, report);
       const opened = breweryIssueOf(driver.state(), batch);
+      // A tick that did not open it (a failed or a put-off effect) said why first.
       if (opened === undefined) {
-        say(
-          `${named} waits for its Brewery issue, which could not be opened; brew ${asGiven} again`,
-        );
+        say(`${named} waits for its Brewery issue, which is not open yet; brew ${asGiven} again`);
         return BREW_EXIT.failed;
       }
+      // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
       return refuse(
-        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew '#${opened}', or foedrum mash ${asGiven}`,
+        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, or foedrum mash ${asGiven}`,
       );
     }
     if (request.mash === true && batch.recipe === undefined) {
