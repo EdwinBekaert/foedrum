@@ -23,7 +23,7 @@ Review the tests in the change, and the existing tests that run the code it chan
 - Asserting only that a fake was called, not what the code produced or did as a result.
 - A test the change skips (`skip`, `todo`, `[Ignore]`, `t.Skip()`, `#[ignore]`) where the test report gives no location for it: the red proof cannot tell whose skip it is.
 - A red test that a later step weakened by lines it added, not by changing the test's own: an early `return;`, a `try { … } catch {}` around its assertions, or a condition that skips them. Compare the test with how the red step committed it.
-- An inline test (one in a code file, such as a Rust `#[cfg(test)]` module) that a later step changed or removed: no guard keeps it, so compare it with the red diff.
+- An inline test (one in a code file, such as a Rust `#[cfg(test)]` module) of a module the repository's test map marks as having inline tests, which a later step changed or removed: no guard keeps it, so compare it with the red diff.
 
 **Red for the wrong reason.** A test committed before its implementation must fail because the behaviour is missing: a failed assertion, or an error thrown by the code under test, such as a stub that throws `not implemented`. Flag:
 - a red caused by a missing file, import or compile error;

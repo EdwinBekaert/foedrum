@@ -1,0 +1,40 @@
+From 6591dc48aa6a0ced9365a7dcedc9ebed89c8bca6 Mon Sep 17 00:00:00 2001
+From: Edwin Bekaert <48248357+EdwinBekaert@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 18:25:18 +0100
+Subject: [PATCH] Add a failing test for a delay of at least the base
+
+---
+ src/engine/backoff.ts     | 6 ++++--
+ test/unit/backoff.test.ts | 5 +++++
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/engine/backoff.ts b/src/engine/backoff.ts
+index e72a95f5..edf2a95a 100644
+--- a/src/engine/backoff.ts
++++ b/src/engine/backoff.ts
+@@ -1,4 +1,6 @@
+ export type BackoffOptions = { readonly baseMs: number; readonly capMs: number };
+ 
+-export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number =>
+-  Math.min(capMs, baseMs * 2 ** (attempt - 1));
++export const backoffMs = (attempt: number, { baseMs, capMs }: BackoffOptions): number => {
++  if (attempt < 1) throw new Error('not implemented');
++  return Math.min(capMs, baseMs * 2 ** (attempt - 1));
++};
+diff --git a/test/unit/backoff.test.ts b/test/unit/backoff.test.ts
+index 71f7fb2a..da6829b5 100644
+--- a/test/unit/backoff.test.ts
++++ b/test/unit/backoff.test.ts
+@@ -9,4 +9,9 @@ describe('backoffMs', () => {
+       [100, 200, 400],
+     );
+   });
++
++  it('never waits less than the base', () => {
++    assert.equal(backoffMs(0, { baseMs: 100, capMs: 10_000 }), 100);
++    assert.equal(backoffMs(-1, { baseMs: 100, capMs: 10_000 }), 100);
++  });
+ });
+-- 
+2.56.0.windows.2
+
