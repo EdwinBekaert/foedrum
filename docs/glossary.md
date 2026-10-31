@@ -9,7 +9,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Brewery** | The control repository: configuration, brewers, recipes, house yeast, evaluations |
 | **Order** | An issue in the Brewery; the unit of intake. An issue of a target repository the Brewery claimed (an issue claim) gets a Brewery issue that is its order, which the driver opens for it, linked to it (ADR 0144). In M1 a Brewery issue is an order once an allow-listed user opened it with a `recipe:<name>` label (ADR 0068) |
 | **Issue claim** | The ref `refs/foedrum/claims/issues/<n>` by which one Brewery takes a target-repository issue; exactly one Brewery can create it, and it is released when the batch ends. Not the claims of attempt worktrees (ADR 0029), which say what a cleanup must keep |
-| **Sub-order** | A sub-issue of an order, targeting exactly one repository |
+| **Sub-order** | A sub-issue of an order, targeting exactly one repository; an approved plan's sub-orders are opened as Brewery issues under the order's issue (ADR 0285) |
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
 | **Gate 1** | A person's sign-off of a plan: `foedrum approve <batch>` on a batch Stuck for its plan's review, recorded with the digest of the plan it signs off; a plan written again needs a sign-off of its own ([ADR 0281](adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)) |
