@@ -496,6 +496,14 @@ describe('createAttemptPlans: plan', () => {
         /^Error: the plan of batch 7-1, step plan#2, holds no entry web$/,
       );
     });
+
+    it("never reads the parent's plan for a sub-order's brewer that does not ask for its entry: regression test", async () => {
+      // The parent's plan holds no entry web: reading it would fail the plan.
+      const { plans } = setup(subOrder('web'), {}, undefined, loaded.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, /name="order">\nAdd a --json flag\.\n/);
+      assert.doesNotMatch(prompt, /name="planEntry"/);
+    });
   });
 
   it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
