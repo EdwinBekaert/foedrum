@@ -260,8 +260,7 @@ export const brewFromCheckout = async (
         return {
           exitCode: 5,
           stdout: '',
-          stderr: `foedrum lauter: ${found.refused}
-`,
+          stderr: `foedrum lauter: ${found.refused}\n`,
         };
       }
       target = found.target;
