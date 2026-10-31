@@ -1158,9 +1158,10 @@ function continueAfter(draft: Draft, batchId: string, stepId: string): void {
         }
         pullRequests.push(opened);
       }
-      // A plan and nothing built from it waits for a person's review, not on tap (ADR 0275).
+      // A plan and nothing built from it waits for a person's review, not on tap (ADR 0275): a
+      // plan of this recipe's, not of one a person moved the batch away from.
       const plan = pullRequests.length === 0 ? latestPlan(batch) : undefined;
-      if (plan !== undefined) {
+      if (plan !== undefined && recipe.has(plan.stepId)) {
         stick(draft, batchId, { kind: 'plan_review', stepId: plan.stepId, attempt: plan.attempt });
         return;
       }

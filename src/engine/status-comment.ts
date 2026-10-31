@@ -562,9 +562,9 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
   }
   const { outcome } = latest;
   switch (outcome.kind) {
-    // The out doc the step's line sums up, linked (ADR 0275).
+    // The out doc the step's line sums up, linked (ADR 0275); a check step writes none.
     case 'succeeded':
-      return stateBranchUrl === undefined
+      return stateBranchUrl === undefined || outcome.output === null
         ? `- ✅ ${id}`
         : `- ✅ ${id}: out doc: ${link(outDocUrl(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl))}`;
     case 'failed':
@@ -1089,7 +1089,9 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
         planComment?.(state, batchId),
       );
       if (batch === undefined || due === undefined) return [];
-      const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled';
+      // A plan to review is where the recipe ended, so its revision is due at once (ADR 0275).
+      const review = batch.lane.kind === 'stuck' && batch.lane.reason.kind === 'plan_review';
+      const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled' || review;
       const last = lastAt.get(batchId);
       if (due.previous !== undefined && !ended && last !== undefined) {
         if (clock().getTime() - last < minuteMs) return [];
