@@ -12,6 +12,7 @@ import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
 import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
+import type { ReadTestMapAt } from './test-map.ts';
 import { changedTests } from './tests-unchanged.ts';
 
 export interface TestsGuardOptions {
@@ -29,6 +30,14 @@ export interface TestsGuardOptions {
    * the attempt's worktree, whose `.git` file its brewer can rewrite.
    */
   clone: (repo: string) => string;
+  /**
+   * A repository's test map by commit (ADR 0274): where the base's or the proven step's map lists
+   * modules, the attempt keeps every line the step added to their separate test files. Absent, or
+   * no map at either, the guard keeps the step's test declarations and assertions (ADR 0078).
+   */
+  testMap?: ReadTestMapAt;
+  /** Whose file system's case rule the map's globs are matched by. Default this process's. */
+  platform?: NodeJS.Platform;
   /** Default the system clock. */
   clock?: () => Date;
 }

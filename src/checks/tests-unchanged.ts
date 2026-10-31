@@ -1,8 +1,10 @@
-// The testsUnchanged guard, the core (ADR 0017, ADR 0078): which test declarations and assertions
-// that the proven step committed an attempt changed or removed. Pure; tests-guard.ts reads the
-// diffs.
+// The testsUnchanged guard, the core (ADR 0017, ADR 0078, ADR 0274): which lines the proven step
+// added to a separate test file of the test map an attempt changed or removed, or in a repository
+// with no map, which of its test declarations and assertions. Pure; tests-guard.ts reads the diffs
+// and the maps.
 
 import type { DiffFile } from '../formats/unified-diff.ts';
+import type { EffectiveModule } from './test-map.ts';
 
 /** A line of the proven step's tests that an attempt changed or removed, in the file it was in. */
 export interface ChangedTestLine {
@@ -93,4 +95,18 @@ export function changedTests(
     }
   }
   return found;
+}
+
+/**
+ * The lines `proven` added to a separate test file of `modules` that `changes` removed or changed,
+ * as often as it added them; a file in no test area, or in a module whose tests are inline, keeps
+ * none (ADR 0274).
+ */
+export function changedTestLines(
+  _proven: readonly DiffFile[],
+  _changes: readonly DiffFile[],
+  _modules: readonly EffectiveModule[],
+  _foldCase: boolean,
+): ChangedTestLine[] {
+  throw new Error('not implemented');
 }

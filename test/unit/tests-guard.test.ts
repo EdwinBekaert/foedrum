@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import type { MapRead } from '../../src/checks/test-map.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -97,12 +98,34 @@ const fixture = [
 
 const ok = (stdout: string): GitResult => ({ code: 0, stdout, stderr: '' });
 
+const gaugeTip = 'refs/heads/foedrum/12-1/gauge/1';
+/** A test map whose one module keeps its tests under `tests`. */
+const mapOf = (tests: string): MapRead => ({
+  kind: 'map',
+  map: {
+    derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+    modules: [
+      {
+        name: 'api',
+        code: ['src/**'],
+        tests: { paths: [tests] },
+        testReport: { format: 'tap', path: 'report.tap' },
+        coverage: 'none',
+      },
+    ],
+  },
+});
+const none: MapRead = { kind: 'none' };
+/** What the fake brewer committed: a line of the red test that declares and asserts nothing. */
+const closingDropped = diff('test/add.test.mjs', ['});'], []);
+
 const setup = ({
   events = [...ordered, ...gauged, ...implementing],
   behaviour = behave.succeed(),
   changes = ok(weakened),
   protects = 'gauge' as string | null,
   git: gitOverride,
+  maps,
 }: {
   events?: Event[];
   behaviour?: Behaviour;
@@ -110,7 +133,10 @@ const setup = ({
   /** `null`: the step has no testsUnchanged guard. */
   protects?: string | null;
   git?: Git;
+  /** The test map by commit; absent, the guard reads none. */
+  maps?: Readonly<Record<string, MapRead>>;
 } = {}) => {
+  const mapReads: [string, string][] = [];
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
   const git: Git =
     gitOverride ??
@@ -128,8 +154,17 @@ const setup = ({
     },
     git,
     clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
+    ...(maps === undefined
+      ? {}
+      : {
+          testMap: (repo: string, commit: string) => {
+            mapReads.push([repo, commit]);
+            return Promise.resolve(maps[commit] ?? none);
+          },
+        }),
+    platform: 'linux',
   });
-  return { calls, asked, runner };
+  return { calls, asked, runner, mapReads };
 };
 
 describe('guardTests (ADR 0078)', () => {
@@ -293,5 +328,56 @@ describe('guardTests (ADR 0078)', () => {
     assert.deepEqual(end.ending, { kind: 'cancelled' });
     assert.equal(runner.progress(ref), undefined);
     release(ok(''));
+  });
+});
+
+describe('guardTests: the test map (ADR 0274)', () => {
+  const failedOn = (line: string) => ({
+    kind: 'failed',
+    retryable: true,
+    reason: `the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: ${line}`,
+  });
+
+  it("keeps every line the red step added to a separate test file of the base's map", async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    const { runner, mapReads } = setup({ changes: ok(closingDropped), maps });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, failedOn('});'));
+    // The base's map, where the batch started, and the map the proven step committed.
+    assert.deepEqual(mapReads, [
+      ['acme/api', gaugeStart],
+      ['acme/api', gaugeTip],
+    ]);
+  });
+
+  it("guards a test file only the proven step's map lists", async () => {
+    const maps = { [gaugeTip]: mapOf('test/**') };
+    const { runner } = setup({ changes: ok(closingDropped), maps });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, failedOn('});'));
+  });
+
+  it('leaves a file in no test area of the map unguarded', async () => {
+    const maps = { [gaugeStart]: mapOf('spec/**') };
+    const { runner } = setup({ maps });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it('is blocked on the environment when a test map cannot be read', async () => {
+    const unreadable: MapRead = { kind: 'unreadable', reason: 'it is not JSONC' };
+    for (const commit of [gaugeStart, gaugeTip]) {
+      const { runner } = setup({ maps: { [commit]: unreadable } });
+      const end = await runner.start({ ref, limits: defaultLimits }).ended;
+      assert.deepEqual(
+        end.ending,
+        {
+          kind: 'blocked',
+          blockerKind: 'environment',
+          summary: `the guard testsUnchanged cannot read the test map of acme/api at ${commit}: it is not JSONC`,
+        },
+        commit,
+      );
+    }
   });
 });
