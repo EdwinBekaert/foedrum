@@ -4,7 +4,7 @@
 // map may only add. Repository content, so untrusted input (ADR 0041).
 
 import { existsSync, readdirSync } from 'node:fs';
-import { join, posix } from 'node:path';
+import { join } from 'node:path';
 import { matchesWithDots } from '../engine/path-globs.ts';
 import { pathInside } from '../platform/paths.ts';
 import { realPath } from '../platform/real-path.ts';
@@ -183,8 +183,25 @@ export const addedUnmeasured = (base: MapRead, batch: MapRead): string[] => {
 /** The most paths a report's folder pattern may match. */
 const MAX_REPORT_PATHS = 64;
 
-/** Whether a segment of a report path is a pattern rather than a name. */
-const isPattern = (segment: string): boolean => /[*?[\]{}]/.test(segment);
+/**
+ * Whether `name` matches `segment`, whose only wildcard is `*`: its literal parts in order, the
+ * first at the start and the last at the end. No regular expression, so a segment a batch's map
+ * wrote is matched in time linear in its length for each name.
+ */
+const matchesSegment = (name: string, segment: string): boolean => {
+  const [first = '', ...rest] = segment.split('*');
+  const last = rest.pop();
+  if (last === undefined) return name === first;
+  if (!name.startsWith(first) || name.length < first.length + last.length) return false;
+  let at = first.length;
+  const end = name.length - last.length;
+  for (const part of rest) {
+    const found = name.indexOf(part, at);
+    if (found < 0 || found + part.length > end) return false;
+    at = found + part.length;
+  }
+  return name.endsWith(last);
+};
 
 /**
  * The files or folders a report's file or folder pattern names in the worktree `root`, each by its
@@ -199,7 +216,7 @@ export const reportPaths = (
   for (const segment of pattern.split('/')) {
     const next: string[] = [];
     for (const folder of found) {
-      if (!isPattern(segment)) {
+      if (!segment.includes('*')) {
         if (existsSync(join(folder, segment))) next.push(join(folder, segment));
         continue;
       }
@@ -211,7 +228,7 @@ export const reportPaths = (
         continue;
       }
       for (const name of names) {
-        if (posix.matchesGlob(name, segment)) next.push(join(folder, name));
+        if (matchesSegment(name, segment)) next.push(join(folder, name));
       }
     }
     if (next.length > MAX_REPORT_PATHS) {

@@ -7,6 +7,7 @@
 
 import { basename, dirname, join } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
+import { mergedBase } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
@@ -368,17 +369,19 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const { repo } = worktree;
     const ended = (ending: AttemptEnd['ending']): AttemptEnd => ({ ...end, ending });
     const stuck = (why: string): AttemptEnd => ended(blocked('environment', why).ending);
-    const base = batch.starts?.[repo.toLowerCase()]?.commit;
+    // Where the batch's change starts: the base it merged, else its start (ADR 0164).
+    const base = mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
     if (before.kind === 'unreadable') {
       return stuck(`the test map of ${repo} at ${base} cannot be read: ${before.reason}`);
     }
     const after = await testMap.at(repo, worktree.commit, signal);
-    // The batch's own map: the brewer that broke it fixes it.
+    // The batch's own map: the same tree reads the same, so the step's onFail route sends it back
+    // to the brewer that broke it.
     if (after.kind === 'unreadable') {
       const reason = `the test map of ${repo} at ${worktree.commit} cannot be read: ${after.reason}`;
-      return ended({ kind: 'failed', retryable: true, reason });
+      return ended({ kind: 'failed', retryable: false, reason });
     }
     if (after.kind === 'none') return end;
     const listed = new Set(before.kind === 'map' ? before.map.modules.map(({ name }) => name) : []);

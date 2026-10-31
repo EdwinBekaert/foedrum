@@ -7,10 +7,13 @@ import { z } from './zod.ts';
 /** A path glob relative to the repository, with `/` between folders, as a sensitive path is. */
 const Glob = SensitivePath;
 
-/** A report's file or folder pattern: `*` within a folder name, never `**` across folders. */
+/**
+ * A report's file or folder pattern: `*` within a folder name, never `**` across folders, and no
+ * other wildcard, so a reader matches it at once whatever a batch's map writes.
+ */
 const ReportPath = Glob.refine(
-  (path) => !path.includes('**'),
-  'Must be a file or a folder pattern without "**", such as "svc/test/*/TestResults"',
+  (path) => path.length <= 256 && !path.includes('**') && !/[?[\]{}()+@!]/.test(path),
+  'Must be a file or a folder pattern of at most 256 characters with "*" as its only wildcard, such as "svc/test/*/TestResults"',
 );
 
 const Tests = z.union([
