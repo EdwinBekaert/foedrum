@@ -84,6 +84,8 @@ export type HumanCommand =
   | ({ kind: 'cancel' } & Issuer)
   /** A person's sign-off of the plan a batch Stuck as `plan_review` waits with (ADR 0281). */
   | ({ kind: 'approve' } & Issuer)
+  /** A person's choice to correct the plan a batch waits with a review of in a session (ADR 0286). */
+  | ({ kind: 'lauter' } & Issuer)
   /**
    * A new batch of an issue a person orders by hand (`foedrum order`, ADR 0105): refused while the
    * issue has a live batch, while its last claim is held or being released, or when it is a
@@ -487,6 +489,8 @@ function run(draft: Draft, command: Command): Event[] {
     case 'approve':
       approve(draft, command);
       break;
+    case 'lauter':
+      throw new Error('not implemented');
     case 'cancel': {
       const { batchId, by, via } = command;
       requireLane(draft.batch(batchId), 'cancel', nonTerminal);

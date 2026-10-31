@@ -12,6 +12,7 @@ import {
   brewInNewWindow,
   brewRequestOf,
   brewShellOf,
+  lauterTarget,
   noSessionsOf,
   thisMachine,
 } from '../../src/cli/brew-main.ts';
@@ -25,12 +26,13 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { FlushResult } from '../../src/engine/state-branch-git.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { launchProcess } from '../../src/platform/processes.ts';
-import { BrewCommand, MashCommand } from '../../src/schemas/commands.ts';
+import { BrewCommand, type LauterCommand, MashCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import {
   type Behaviour,
@@ -202,6 +204,38 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       mash: true,
     });
     assert.equal('mash' in brewRequestOf(command, 'ann', issued, undefined), false);
+  });
+
+  it('asks runBrew to lauter the issue of the batch, taking it over, for foedrum lauter (ADR 0286, #589)', () => {
+    const lauter: LauterCommand = { command: 'lauter', batch: '12-1' };
+    assert.deepStrictEqual(brewRequestOf(lauter, 'ann', issued, undefined, { issue: 12 }), {
+      target: { issue: 12 },
+      owner: 'ann',
+      ...issued,
+      take: true,
+      lauter: true,
+    });
+    assert.equal('lauter' in brewRequestOf(command, 'ann', issued, undefined), false);
+  });
+
+  it('finds the issue of the batch foedrum lauter names, by its alias in a target repository (#589)', () => {
+    const ordered = (batchId: string, order: { issue: number; repo?: string }) =>
+      ({ type: 'batch.ordered', batchId, order, routeBy: '2026-10-28T13:00:00.000Z' }) as const;
+    const state = fold([
+      ordered('12-1', { issue: 12 }),
+      ordered('web-7-1', { issue: 7, repo: 'acme/web' }),
+    ]);
+    const repositories = [{ alias: 'web', repo: 'acme/web' }];
+    assert.deepStrictEqual(lauterTarget(state, '12-1', repositories), { target: { issue: 12 } });
+    assert.deepStrictEqual(lauterTarget(state, 'web-7-1', repositories), {
+      target: { alias: 'web', issue: 7 },
+    });
+    assert.deepStrictEqual(lauterTarget(state, '99-1', repositories), {
+      refused: 'there is no batch 99-1',
+    });
+    assert.deepStrictEqual(lauterTarget(state, 'web-7-1', []), {
+      refused: 'batch web-7-1 is of acme/web, which foedrum.jsonc names with no alias and intake',
+    });
   });
 
   it("keeps serve's runner without sessions, and with them runs every attempt through the interactive runner, a resumed one headless", () => {

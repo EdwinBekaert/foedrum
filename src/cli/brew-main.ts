@@ -6,10 +6,11 @@
 
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import type { BrewerRunner } from '../engine/brewer-runner.ts';
+import type { State } from '../engine/fold.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
 import { openInNewWindow, type WindowFacts } from '../platform/new-window.ts';
 import { foregroundProcess, type LaunchProcess, launchProcess } from '../platform/processes.ts';
-import type { BrewCommand, MashCommand } from '../schemas/commands.ts';
+import type { BrewCommand, LauterCommand, MashCommand, OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
 import { type BrewRequest, runBrew } from './brew.ts';
@@ -54,6 +55,17 @@ export const brewShellOf = (
 
 /** What brew is asked to brew, as whom and who asked, and why it opens no session, if it does not. */
 export const brewRequestOf = (
+  input: BrewCommand | MashCommand | LauterCommand,
+  owner: string,
+  issued: { by: string; via: Surface },
+  noSessions: BrewRequest['noSessions'],
+  _target?: OrderTarget,
+): BrewRequest => {
+  if (input.command === 'lauter') throw new Error('not implemented');
+  return brewOrMash(input, owner, issued, noSessions);
+};
+
+const brewOrMash = (
   input: BrewCommand | MashCommand,
   owner: string,
   issued: { by: string; via: Surface },
@@ -66,6 +78,15 @@ export const brewRequestOf = (
   ...(input.command === 'mash' ? { mash: true } : {}),
   ...(noSessions === undefined ? {} : { noSessions }),
 });
+
+/** The issue of the batch `foedrum lauter` names, as brew takes it, or why it has none (ADR 0286). */
+export const lauterTarget = (
+  _state: State,
+  _batchId: string,
+  _repositories: readonly { alias: string; repo: string }[],
+): { target: OrderTarget } | { refused: string } => {
+  throw new Error('not implemented');
+};
 
 /** What `--new-window` starts the brew with: the machine's launcher facts, node and program. */
 export interface NewWindowDeps extends WindowFacts {

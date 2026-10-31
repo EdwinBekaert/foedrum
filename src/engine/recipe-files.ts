@@ -528,6 +528,9 @@ function lineRecipe(
     group: (id) => byId.get(id)?.group,
     interactive: (id) => byId.get(id)?.interactive === true,
     choosesRecipe: (id) => byId.get(id)?.chooses === true,
+    chosen: () => {
+      throw new Error('not implemented');
+    },
     action: (id) => at(id).action,
     mergesBase: (id) => id === merges,
     deadlineMs: (id) => durationMs(at(id).deadline),
