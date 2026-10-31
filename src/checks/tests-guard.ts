@@ -125,7 +125,11 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       // Every module the base lists stays: the guard keeps more, never less, than the map says.
       const fold = foldsCase(platform);
       const modules = effectiveMap(atBase, atStep, { atBase: [], deleted: [] }, fold);
-      return { keep: (tests, changes) => changedTestLines(tests, changes, modules, fold) };
+      const options = { foldCase: fold, newMap: atBase === undefined };
+      return {
+        keep: (tests, changes) =>
+          changedTestLines(tests, { files: new Map(), changes }, modules, options),
+      };
     };
     try {
       const kept = await keeping();

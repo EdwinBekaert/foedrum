@@ -103,23 +103,32 @@ export const changedTests = (
   changes: readonly DiffFile[],
 ): ChangedTestLine[] => lostLines(testLines(proven), changes);
 
+/** What a guarded attempt left: each guarded test file's text at its tip, absent where it is gone, and its diff. */
+export interface AttemptTip {
+  files: ReadonlyMap<string, string>;
+  changes: readonly DiffFile[];
+}
+
+/** The files of `proven` whose every line the map keeps: in a test area of a module, never inline. */
+export const guardedFiles = (
+  _proven: readonly DiffFile[],
+  _modules: readonly EffectiveModule[],
+  _foldCase: boolean,
+): string[] => {
+  throw new Error('not implemented');
+};
+
 /**
- * The lines `proven` added to a separate test file of `modules` that `changes` removed or changed,
- * as often as it added them; a file in no test area, or in a module whose tests are inline, keeps
- * none (ADR 0274).
+ * The lines `proven` added to a separate test file of `modules` that the attempt's tip holds fewer
+ * times than the step added them; a file in no test area, or in a module whose tests are inline,
+ * keeps none, unless the map is new in the batch (`newMap`), which then keeps there what no map
+ * keeps (ADR 0274, ADR 0078).
  */
 export function changedTestLines(
-  proven: readonly DiffFile[],
-  changes: readonly DiffFile[],
-  modules: readonly EffectiveModule[],
-  foldCase: boolean,
+  _proven: readonly DiffFile[],
+  _tip: AttemptTip,
+  _modules: readonly EffectiveModule[],
+  _options: { foldCase: boolean; newMap: boolean },
 ): ChangedTestLine[] {
-  const kept = new Map<string, string[]>();
-  for (const { newPath, added } of proven) {
-    // An inline module's tests have no area of their own, so its files read as code.
-    if (newPath === undefined || areaOf(modules, newPath, foldCase)?.area !== 'tests') continue;
-    const lines = added.map((line) => line.trim()).filter((line) => line !== '');
-    kept.set(newPath, [...(kept.get(newPath) ?? []), ...lines]);
-  }
-  return lostLines(kept, changes);
+  throw new Error('not implemented');
 }

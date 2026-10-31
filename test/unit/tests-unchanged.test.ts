@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EffectiveModule } from '../../src/checks/test-map.ts';
-import { changedTestLines, changedTests } from '../../src/checks/tests-unchanged.ts';
+import { changedTestLines, changedTests, guardedFiles } from '../../src/checks/tests-unchanged.ts';
 import type { DiffFile } from '../../src/formats/unified-diff.ts';
 import type { TestMapModule } from '../../src/schemas/test-map.ts';
 
@@ -221,79 +221,115 @@ const modules = [
   module('engine', 'engine/src/**', { inline: true }),
 ];
 
+/** The red test file as the Gauger committed it. */
+const gaugedTest = gauged[0]?.added ?? [];
+/** What the attempt left: each file's lines at its tip; a file not named is gone. */
+const tipOf = (files: Record<string, readonly string[]>, changes: DiffFile[] = []) => ({
+  files: new Map(Object.entries(files).map(([path, lines]) => [path, `${lines.join('\n')}\n`])),
+  changes,
+});
+const mapped = { foldCase: false, newMap: false };
+
 describe('changedTestLines (ADR 0274)', () => {
   it('refuses a green step that drops a line the red step added to a test file', () => {
-    const dropped = changed(test, ['const pair = () => [1, 2];']);
-    assert.deepEqual(changedTestLines(gauged, [dropped], modules, false), [
+    const tip = tipOf({ [test]: gaugedTest.filter((line) => !line.startsWith('const pair')) });
+    assert.deepEqual(changedTestLines(gauged, tip, modules, mapped), [
       { path: test, line: 'const pair = () => [1, 2];' },
     ]);
   });
 
   it('refuses a green step that weakens an assertion the red step added', () => {
-    const weakened = changed(test, ['  assert.equal(add(...pair()), 3);'], ['  assert.ok(true);']);
-    assert.deepEqual(changedTestLines(gauged, [weakened], modules, false), [
+    const tip = tipOf({
+      [test]: gaugedTest.map((line) =>
+        line.replace('assert.equal(add(...pair()), 3)', 'assert.ok(true)'),
+      ),
+    });
+    assert.deepEqual(changedTestLines(gauged, tip, modules, mapped), [
       { path: test, line: 'assert.equal(add(...pair()), 3);' },
     ]);
   });
 
   it('refuses a green step that edits an import line the red step added', () => {
-    const imported = changed(
-      test,
-      ["import { add } from '../src/add.mjs';"],
-      ["import { add } from '../src/math.mjs';"],
-    );
-    assert.deepEqual(changedTestLines(gauged, [imported], modules, false), [
+    const tip = tipOf({
+      [test]: gaugedTest.map((line) => line.replace("'../src/add.mjs'", "'../src/math.mjs'")),
+    });
+    assert.deepEqual(changedTestLines(gauged, tip, modules, mapped), [
       { path: test, line: "import { add } from '../src/add.mjs';" },
     ]);
   });
 
   it('allows a green step that moves a red test within its file', () => {
-    const moved = changed(
-      test,
-      ["test('adds two numbers', () => {", '  assert.equal(add(...pair()), 3);', '});'],
-      [
+    const tip = tipOf({
+      [test]: [
+        ...gaugedTest.slice(0, 3),
         "describe('add', () => {",
         "  test('adds two numbers', () => {",
         '    assert.equal(add(...pair()), 3);',
         '  });',
         '});',
       ],
+    });
+    assert.deepEqual(changedTestLines(gauged, tip, modules, mapped), []);
+  });
+
+  it('allows a later step that removes its own line equal to a red line', () => {
+    // Cellarman added two tests that each end in `});`; the Finer merged them and removed one.
+    const tip = tipOf({
+      [test]: [
+        ...gaugedTest,
+        "test('adds zero and one', () => {",
+        '  assert.equal(add(0, 1), 1);',
+        '});',
+      ],
+    });
+    assert.deepEqual(changedTestLines(gauged, tip, modules, mapped), []);
+  });
+
+  it('names every line of a test file the attempt removed', () => {
+    assert.deepEqual(
+      changedTestLines(gauged, tipOf({}), modules, mapped).map(({ line }) => line),
+      gaugedTest.map((line) => line.trim()),
     );
-    const stub = changed(
-      'src/add.mjs',
-      ["export const add = () => { throw new Error('not implemented'); };"],
-      ['export const add = (a, b) => a + b;'],
-    );
-    assert.deepEqual(changedTestLines(gauged, [moved, stub], modules, false), []);
   });
 
   it('does not guard a module whose tests are inline', () => {
     const path = 'engine/src/lib.rs';
     const inline = [added(path, ['#[test]', 'fn adds() {', '    assert_eq!(add(1, 2), 3);'])];
-    const weakened = changed(path, ['    assert_eq!(add(1, 2), 3);'], ['    assert!(true);']);
-    assert.deepEqual(changedTestLines(inline, [weakened], modules, false), []);
+    const tip = tipOf({ [path]: ['#[test]', 'fn adds() {', '    assert!(true);'] });
+    assert.deepEqual(changedTestLines(inline, tip, modules, mapped), []);
   });
 
   it('does not guard a file the map places in no test area', () => {
     const path = 'scripts/check.mjs';
     const script = [added(path, ["test('checks', () => {", '  assert.ok(check());'])];
     const weakened = changed(path, ['  assert.ok(check());'], ['  assert.ok(true);']);
-    assert.deepEqual(changedTestLines(script, [weakened], modules, false), []);
+    assert.deepEqual(changedTestLines(script, tipOf({}, [weakened]), modules, mapped), []);
+  });
+
+  it('a map new in the batch guards the files it places in no test area as no map does', () => {
+    const path = 'scripts/check.mjs';
+    const script = [added(path, ["test('checks', () => {", '  assert.ok(check());'])];
+    const weakened = changed(path, ['  assert.ok(check());'], ['  assert.ok(true);']);
+    const newMap = { foldCase: false, newMap: true };
+    assert.deepEqual(changedTestLines(script, tipOf({}, [weakened]), modules, newMap), [
+      { path, line: 'assert.ok(check());' },
+    ]);
   });
 
   it('counts no blank line the red step added', () => {
     const spaced = [added(test, ["test('adds', () => {", '', '  assert.equal(add(1, 2), 3);'])];
-    const closed = changed(test, ['   '], []);
-    assert.deepEqual(changedTestLines(spaced, [closed], modules, false), []);
+    const tip = tipOf({ [test]: ["test('adds', () => {", '  assert.equal(add(1, 2), 3);'] });
+    assert.deepEqual(changedTestLines(spaced, tip, modules, mapped), []);
   });
 
   it('reads a test file by the map in either case where the file system folds case', () => {
     const upper = 'Test/Add.test.mjs';
     const red = [added(upper, ['  assert.equal(add(1, 2), 3);'])];
-    const weakened = changed(upper, ['  assert.equal(add(1, 2), 3);']);
-    assert.deepEqual(changedTestLines(red, [weakened], modules, true), [
+    assert.deepEqual(changedTestLines(red, tipOf({}), modules, { ...mapped, foldCase: true }), [
       { path: upper, line: 'assert.equal(add(1, 2), 3);' },
     ]);
-    assert.deepEqual(changedTestLines(red, [weakened], modules, false), []);
+    assert.deepEqual(changedTestLines(red, tipOf({}), modules, mapped), []);
+    assert.deepEqual(guardedFiles(red, modules, true), [upper]);
+    assert.deepEqual(guardedFiles(red, modules, false), []);
   });
 });

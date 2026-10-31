@@ -118,6 +118,20 @@ const mapOf = (tests: string): MapRead => ({
 const none: MapRead = { kind: 'none' };
 /** What the fake brewer committed: a line of the red test that declares and asserts nothing. */
 const closingDropped = diff('test/add.test.mjs', ['});'], []);
+/** The red test file's lines as the Gauger committed them. */
+const gaugeLines = ["test('adds two numbers', () => {", '  assert.equal(add(1, 2), 3);', '});'];
+/** The red test file at the attempt's tip: as the Gauger left it, weakened, or without its `});`. */
+const tips = {
+  kept: { 'test/add.test.mjs': gaugeLines },
+  weakened: {
+    'test/add.test.mjs': gaugeLines.map((line) =>
+      line.replace('assert.equal(add(1, 2), 3)', 'assert.ok(add(1, 2))'),
+    ),
+  },
+  closing: { 'test/add.test.mjs': gaugeLines.slice(0, 2) },
+} satisfies Record<string, Record<string, readonly string[]>>;
+/** The object id the fake clone gives a file at the attempt's tip. */
+const blobOf = (path: string) => `b${path.length.toString().padStart(39, '0')}`;
 
 const setup = ({
   events = [...ordered, ...gauged, ...implementing],
@@ -126,6 +140,7 @@ const setup = ({
   protects = 'gauge' as string | null,
   git: gitOverride,
   maps,
+  tip = tips.weakened,
 }: {
   events?: Event[];
   behaviour?: Behaviour;
@@ -135,6 +150,8 @@ const setup = ({
   git?: Git;
   /** The test map by commit; absent, the guard reads none. */
   maps?: Readonly<Record<string, MapRead>>;
+  /** The files at the attempt's branch, by path: what `ls-tree` lists and `cat-file` reads. */
+  tip?: Readonly<Record<string, readonly string[]>>;
 } = {}) => {
   const mapReads: [string, string][] = [];
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
@@ -142,6 +159,22 @@ const setup = ({
     gitOverride ??
     ((cwd, args, options) => {
       calls.push({ cwd, args, ...(options === undefined ? {} : { options }) });
+      if (args.includes('ls-tree')) {
+        const asked = args.slice(args.indexOf('--') + 1);
+        const listed = asked.filter((path) => tip[path] !== undefined);
+        return Promise.resolve(
+          ok(listed.map((path) => `100644 blob ${blobOf(path)}\t${path}\0`).join('')),
+        );
+      }
+      if (args.includes('cat-file')) {
+        const path = Object.keys(tip).find((name) => args.includes(blobOf(name)));
+        const lines = path === undefined ? undefined : tip[path];
+        return Promise.resolve(
+          lines === undefined
+            ? { code: 128, stdout: '', stderr: 'fatal: Not a valid object name\n' }
+            : ok(`${lines.join('\n')}\n`),
+        );
+      }
       return Promise.resolve(args.includes(gaugeStart) ? ok(gaugeDiff) : changes);
     });
   const asked: AttemptRef[] = [];
@@ -340,7 +373,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
 
   it("keeps every line the red step added to a separate test file of the base's map", async () => {
     const maps = { [gaugeStart]: mapOf('test/**') };
-    const { runner, mapReads } = setup({ changes: ok(closingDropped), maps });
+    const { runner, mapReads } = setup({ changes: ok(closingDropped), maps, tip: tips.closing });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, failedOn('});'));
     // The base's map, where the batch started, and the map the proven step committed.
@@ -352,7 +385,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
 
   it("guards a test file only the proven step's map lists", async () => {
     const maps = { [gaugeTip]: mapOf('test/**') };
-    const { runner } = setup({ changes: ok(closingDropped), maps });
+    const { runner } = setup({ changes: ok(closingDropped), maps, tip: tips.closing });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, failedOn('});'));
   });
@@ -362,6 +395,61 @@ describe('guardTests: the test map (ADR 0274)', () => {
     const { runner } = setup({ maps });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
+  });
+
+  it("reads each guarded test file at the attempt's branch in the clone, and a file it removed loses every line", async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    const { runner, calls } = setup({ changes: ok(closingDropped), maps, tip: {} });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      "the guard testsUnchanged: the attempt changed or removed 3 lines of the tests of step gauge, test/add.test.mjs: test('adds two numbers', () => { (and 2 more)",
+    );
+    const listed = calls.find(({ args }) => args.includes('ls-tree'));
+    assert.deepEqual(listed && [listed.cwd, listed.args.slice(-3)], [
+      clone,
+      ['refs/heads/foedrum/12-1/implement/1', '--', 'test/add.test.mjs'],
+    ]);
+    assert.equal(
+      calls.some(({ args }) => args.includes('cat-file')),
+      false,
+    );
+  });
+
+  it('keeps a red line a later step removed a copy of, while the tip still holds it', async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    const kept = setup({ changes: ok(closingDropped), maps, tip: tips.kept });
+    const end = await kept.runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(end.ending.kind, 'succeeded');
+    // The tip's text is read by the object `ls-tree` named, with the diff's bounds.
+    const read = kept.calls.find(({ args }) => args.includes('cat-file'));
+    assert.deepEqual(read?.args, ['cat-file', 'blob', blobOf('test/add.test.mjs')]);
+    assert.equal(read?.options?.maxOutputBytes, 16 * 1024 * 1024);
+  });
+
+  it('a map only the proven step commits guards the files it places in no test area as no map does', async () => {
+    const maps = { [gaugeTip]: mapOf('spec/**') };
+    const { runner } = setup({ maps });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, failedOn('assert.equal(add(1, 2), 3);'));
+  });
+
+  it('is blocked on the environment when a test file cannot be read at the tip', async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    const git: Git = (_cwd, args) =>
+      Promise.resolve(
+        args.includes('ls-tree')
+          ? { code: 128, stdout: '', stderr: 'fatal: not a tree object\n' }
+          : ok(args.includes(gaugeStart) ? gaugeDiff : closingDropped),
+      );
+    const { runner } = setup({ maps, git });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged cannot read the commits of step implement: fatal: not a tree object',
+    });
   });
 
   it('is blocked on the environment when a test map cannot be read', async () => {
