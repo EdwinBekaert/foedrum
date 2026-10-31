@@ -59,7 +59,7 @@ export const cliFromCheckout = async (
       recipes: () => breweryRecipes(cwd),
       brewers: () => brewerSource(loadBrewery(cwd)),
       lenses: () => lensSource(loadBrewery(cwd)),
-      user: () => userName(() => userInfo().username, process.env),
+      user: options?.user ?? (() => userName(() => userInfo().username, process.env)),
       surface: 'terminal',
       now: () => new Date(),
       zone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,

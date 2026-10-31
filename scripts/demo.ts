@@ -134,7 +134,8 @@ const next = async (): Promise<void> => {
 /** The foedrum commands the walkthrough ran, and how each ended. */
 const commands: { argv: string[]; exitCode: number; stderr: string }[] = [];
 /**
- * `foedrum <argv>` as the CLI runs it in the Brewery: status and replay read only its store. Its
+ * `foedrum <argv>` as the CLI runs it in the Brewery: status and replay read only its store. A
+ * command that changes state, such as answer, is the demo user's, never the machine's account. Its
  * output is shown as the lines `shown` makes of it.
  */
 const foedrum = async (
@@ -142,7 +143,7 @@ const foedrum = async (
   argv: string[],
   shown = (output: string): string[] => output.trimEnd().split('\n'),
 ): Promise<void> => {
-  const { exitCode, stdout, stderr } = await cliFromCheckout(argv, brewery);
+  const { exitCode, stdout, stderr } = await cliFromCheckout(argv, brewery, { user: () => USER });
   commands.push({ argv, exitCode, stderr });
   say(`$ foedrum ${argv.join(' ')}`);
   indented(shown(`${stdout}${stderr}`));
