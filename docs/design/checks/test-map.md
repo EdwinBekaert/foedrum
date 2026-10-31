@@ -37,19 +37,20 @@ A base map that cannot be read makes the batch Stuck (`environment`); a batch's 
 
 **Freshness by manifests.** A map goes stale by change, never by age ([ADR 0282](../../adr/0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)).
 Before a check step that runs the tests (a red proof, or a step whose checks include `test`) runs anything, the map is read at the step's tip and `git ls-files -z` lists its `derivedFrom.globs` in the worktree, each after `--` with git's `glob` magic (`manifestFreshness` in `src/checks/test-map.ts`).
+So that git and the map's other readers read them alike, a `derivedFrom` glob may use `*`, `**`, `?` and `[…]` only, and a recorded path is relative with `/` between folders, as git names it; a map that breaks either is refused as unreadable.
 A file listed and not recorded in `derivedFrom.paths` is added, one recorded and not listed is removed, and either makes the map stale.
 A step without a test check never reads the map.
 When the map is in the repository and the batch's change, from where it starts to the tip, touched the map or a path its globs match (`git diff --name-only` in the clone), the step fails without a retry, so its `onFail` route sends the batch back to the brewer, and the reason names up to 10 paths, each `(added)` or `(removed)`, with a count of the rest and the file to update.
 A map the batch did not make stale, such as one stale on the base, never fails a step: it is recorded on the step and named.
 A git read that fails blocks the step on its environment.
 
-**Freshness by runs.** After a test check that exited 0, and after the unreached rule above, the map is stale by the run when a module the base's map lists has no report at its `testReport` path, or when the test report `foedrum.jsonc` names was written under no module's report path.
+**Freshness by runs.** In a repository with a map at the step's tip, after a test check that exited 0, and after the unreached rule above, the map is stale by the run when a module the base's map lists has no report at its `testReport` path, or when the test report `foedrum.jsonc` names was written under no module's report path.
 A map stale by a run never fails a step, since a run can disagree for reasons the brewer does not control; it is recorded and named.
 A failing run is not read, as for the unreached rule.
 
-**Named in the status comment.** `step.finished` keeps a `staleMap`: where the map is kept, its first 10 stale paths with why, and how many more.
-The status comment names the batch's latest one on a line after the sensitive-path lines, `The test map is stale: …`, until a later run of the tests finds the map fresh.
-A map the Brewery keeps is read the same way but never fails a step, since a batch cannot change it: the line says `The Brewery's test map is stale: …`, and a person refreshes the Brewery's file.
+**Named in the status comment.** `step.finished` keeps a `staleMap`: its repository, where the map is kept, its first 10 stale paths with why, and how many more.
+The status comment names each repository's latest one on a line of its own after the sensitive-path lines, `The test map of <repository> is stale: …`, until a later run of the tests in that repository finds its map fresh.
+A map the Brewery keeps is read the same way but never fails a step, since a batch cannot change it: the line says `The Brewery's test map of <repository> is stale: …`, and a person refreshes the Brewery's file.
 
 **It is a sensitive path.** A change to `.foedrum/test-map.jsonc` gets the status comment's sensitive-path line without the repository naming it in `sensitivePaths` ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)), and the line after it names each module the batch's map adds with `coverage: none`.
 A repository whose map the Brewery keeps has no such file to name.

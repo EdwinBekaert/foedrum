@@ -20,6 +20,7 @@ Three facts of the engine shaped the choices below.
 ### Freshness by manifests, before the run
 - **Which steps read it**: a check step that runs the tests (a red proof, or a step whose checks include `test`), in a repository that has a test map at the step's tip. A step without a test check never reads the map.
 - **How**: before the repository's setup and the first check, `git ls-files -z` in the attempt's worktree, with every glob after `--` and given git's `glob` magic (`:(glob)<glob>`), so `**` crosses folders, `*` stays within one, no glob is read as an option, and a glob that starts with `:` is a path. The files listed are compared as sets with `derivedFrom.paths`: a file listed and not recorded is `added`, one recorded and not listed is `removed`.
+- **The map's schema holds `derivedFrom` to what git reads.** A glob there may use `*`, `**`, `?` and `[…]` only: git's glob magic reads a brace or an extended glob as text, where the map's other readers expand it, so such a map would be stale, or fresh, for no change. A recorded path is a relative path with `/` between folders, as git names it.
 - **A map in the repository that the batch made stale fails the step** back along its `onFail` route, not retryably, so the brewer the route names (the one whose change it checks) updates the map in its change. The batch made the map stale when the map is stale at the tip and the batch's change, from where it starts (the base it merged, else its start, [ADR 0164](0164-a-batch-merges-its-base-before-its-last-check.md)) to the tip, touched the map or a path its globs match: `git diff --name-only -z --no-renames` in the clone, with the same pathspecs. The brewer then refreshes the whole map, base-stale paths included.
   The reason names up to 10 paths, each with `(added)` or `(removed)`, and counts the rest:
 
@@ -29,16 +30,16 @@ Three facts of the engine shaped the choices below.
 
 ### Freshness by runs, after a passing run
 - **Only a run whose test check exited 0 is read**, as only such a run judges a module unreached ([ADR 0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md)): a failing run may stop before a module it reaches.
-- After the unreached rule of ADR 0274, the map is stale by the run when a module the base's map lists has no report at its `testReport` path, or when the test report `foedrum.jsonc` names was written under no module's `testReport` or `coverage` path. A module only the batch adds was looked for by the unreached rule already.
+- In a repository with a test map at the step's tip, after the unreached rule of ADR 0274, the map is stale by the run when a module the base's map lists has no report at its `testReport` path, or when the test report `foedrum.jsonc` names was written under no module's `testReport` or `coverage` path. A module only the batch adds was looked for by the unreached rule already.
 - **A map stale by a run never fails a step**: a run can disagree for reasons the brewer does not control, such as a runner that writes its report elsewhere on one platform. It is recorded and named, as a base-stale map is.
 - A reported test whose location lies outside every module and area of the effective map makes the map stale too. It needs the locations #709 adds, and whichever of #709 and #718 lands second adds it.
 
 ### Recorded on the step, named in the status comment
-- `step.finished` gains `staleMap`: where the map is kept (`repo` or `brewery`), the first 10 stale paths, each with why (`(added)`, `(removed)`, `(a report outside the map)`, `(no report of module "<name>")`), and how many more.
-- The status comment names the latest one, from the batch's latest finished attempt that recorded a stale map or ran the tests, as one line after the sensitive-path lines: `The test map is stale: …`, or `The Brewery's test map is stale: …`. A later run of the tests that found the map fresh takes the line off.
+- `step.finished` gains `staleMap`: the repository, where the map is kept (`repo` or `brewery`), the first 10 stale paths, each with why (`(added)`, `(removed)`, `(a report outside the map)`, `(no report of module "<name>")`), and how many more.
+- For each repository of the batch, the status comment names the latest one, from the batch's latest finished attempt in that repository that recorded a stale map or ran the tests, as one line after the sensitive-path lines: `The test map of <repository> is stale: …`, or `The Brewery's test map of <repository> is stale: …`. A later run of the tests in that repository that found its map fresh takes the line off.
 
 ### The Brewery fallback: named, never a failure
-- With `"testMap": "brewery"`, freshness by manifests and by runs is read as for a map in the repository, but a stale map never fails a step and the batch's change is not read: the batch goes on with the Brewery's map, and the status comment says `The Brewery's test map is stale: <paths>`.
+- With `"testMap": "brewery"`, freshness by manifests and by runs is read as for a map in the repository, but a stale map never fails a step and the batch's change is not read: the batch goes on with the Brewery's map, and the status comment says `The Brewery's test map of <repository> is stale: <paths>`.
 - A person refreshes the Brewery's file. The line stays on every batch of the repository until the file changes and serve reads it again.
 
 ### The Maltster's `survey` step proposes a map
@@ -68,3 +69,4 @@ This part is built by [#708](https://github.com/EdwinBekaert/foedrum/issues/708)
 - **Compare the tip's stale paths with the base's**, instead of asking whether the batch touched the map or a manifest. The same reads, but a batch that touched a manifest could leave the base's stale paths in the map it ships.
 - **Record a stale Brewery-kept map at the push**, as `unmeasured` is. Freshness by runs is read in the check runner anyway, so one field on `step.finished` serves both, and a later fresh run clears it.
 - **Make a stale Brewery-kept map Stuck.** The batch can do nothing about it; a person refreshes the Brewery's file whenever they choose.
+- **List every tracked file and match the globs in process**, as the map's other readers do, instead of narrowing `derivedFrom.globs` to what git's glob magic reads. It reads the whole tree's names on every check step that runs the tests, and the map's globs are a person's to confirm in any case; a glob git cannot read is refused when the map is read, with the reason.
