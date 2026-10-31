@@ -16,6 +16,7 @@ import {
   type Receipt,
   type RoundsOut,
   type ScheduleRoute,
+  type StaleMap,
   type StuckOption,
   type StuckReason,
   type Surface,
@@ -134,6 +135,8 @@ export type EngineCommand =
       usage?: Usage;
       /** A check step's gravity readings (ADR 0069), or a brewer's setup's (ADR 0163). */
       readings?: readonly GravityReading[];
+      /** A check step's: the test map it found stale without failing for it (ADR 0282). */
+      staleMap?: StaleMap;
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
@@ -601,6 +604,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ending,
     usage,
     readings,
+    staleMap,
     claude,
     receipt,
     houseYeast,
@@ -627,6 +631,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     outcome,
     ...(usage === undefined ? {} : { usage }),
     ...(readings === undefined ? {} : { readings: [...readings] }),
+    ...(staleMap === undefined ? {} : { staleMap }),
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),

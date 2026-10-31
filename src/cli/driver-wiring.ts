@@ -277,10 +277,12 @@ export const wireDriver = async (
   };
   const clone = (repo: string) => worktreeClonePath(setup.workRoot, repositoryCalled(repo));
   // A repository's test map at a commit of its clone, or the Brewery's for it (ADR 0274).
+  const mapKeptIn = (repo: string) =>
+    repositoryNamed(repo)?.testMap === undefined ? 'repo' : 'brewery';
   const mapAt = testMaps({
     git: shell.git,
     clone,
-    keptIn: (repo) => (repositoryNamed(repo)?.testMap === undefined ? 'repo' : 'brewery'),
+    keptIn: mapKeptIn,
     brewery: (repo) => repositoryNamed(repo)?.testMap?.text,
   });
   const plans = createAttemptPlans({
@@ -322,7 +324,8 @@ export const wireDriver = async (
     checks: setup.checks,
     repositoryChecks: (repo) => repositoryNamed(repo)?.checks,
     testReport: (repo) => repositoryNamed(repo)?.testReport,
-    testMap: { at: mapAt },
+    // A Brewery-kept map that is stale is named, never failed for: a batch cannot change it (ADR 0282).
+    testMap: { at: mapAt, keptIn: mapKeptIn },
     exec: shell.exec,
     // A repository's setup installs before the checks, with the network (ADR 0140).
     setup: { of: (repo) => repositoryNamed(repo)?.setup, exec: shell.setup },

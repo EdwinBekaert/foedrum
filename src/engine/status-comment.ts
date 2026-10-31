@@ -868,6 +868,27 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
+/**
+ * The test map the batch's latest check that ran the tests found stale without failing for it, as
+ * one line, or none (ADR 0282): the Brewery's, which a batch cannot change, or one only a person's
+ * change can refresh.
+ */
+const staleMapLines = (batch: Batch): string[] => {
+  for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
+    const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+    if (ran?.phase !== 'finished') continue;
+    const { staleMap } = ran;
+    if (staleMap !== undefined) {
+      const whose = staleMap.kept === 'brewery' ? "The Brewery's test map" : 'The test map';
+      const more = staleMap.more > 0 ? ` and ${staleMap.more} more` : '';
+      return [`${whose} is stale: ${staleMap.paths.map(plain).join(', ')}${more}`];
+    }
+    // A later run of the tests that found it fresh.
+    if (ran.readings?.some((reading) => reading.check === 'test') === true) return [];
+  }
+  return [];
+};
+
 /** The modules the batch's test map adds with `coverage: none`, as one line, or none (ADR 0274). */
 const unmeasuredLines = ({ unmeasured }: SensitiveFiles): string[] =>
   unmeasured === undefined
@@ -959,6 +980,8 @@ export const renderStatus = (
   if (sensitive !== undefined) {
     sections.push([sensitiveLine(sensitive), ...unmeasuredLines(sensitive)]);
   }
+  const stale = staleMapLines(batch);
+  if (stale.length > 0) sections.push(stale);
   const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl, planComment);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);

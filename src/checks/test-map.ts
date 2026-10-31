@@ -57,19 +57,21 @@ const MAX_MAP_BYTES = 1024 * 1024;
 /** How long one git read of the map may take. */
 const MAP_READ_MS = 10_000;
 
-/** Why git could not read the map. */
-const gitFailed = (result: GitResult): MapRead => {
-  if (result.killed === 'too-much-output') {
-    return { kind: 'unreadable', reason: `it is larger than ${MAX_MAP_BYTES} bytes` };
-  }
+/** Why git failed: the last line it wrote on stderr, or how it ended. */
+const gitFailedWhy = (result: GitResult): string => {
   const last = result.stderr
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line !== '')
     .at(-1);
-  const why = last ?? `git exited with ${result.code ?? result.killed ?? 'no code'}`;
-  return { kind: 'unreadable', reason: `git could not read it: ${why}` };
+  return last ?? `git exited with ${result.code ?? result.killed ?? 'no code'}`;
 };
+
+/** Why git could not read the map. */
+const gitFailed = (result: GitResult): MapRead =>
+  result.killed === 'too-much-output'
+    ? { kind: 'unreadable', reason: `it is larger than ${MAX_MAP_BYTES} bytes` }
+    : { kind: 'unreadable', reason: `git could not read it: ${gitFailedWhy(result)}` };
 
 /**
  * Reads a repository's test map at a commit, from where it is kept: with git in the clone, as
@@ -280,9 +282,67 @@ export type ReadManifestFreshness = (
   signal?: AbortSignal,
 ) => Promise<ManifestFreshness>;
 
+/**
+ * The globs as git's pathspecs, each after `--` so none is read as an option, and with `glob`
+ * magic, so `**` crosses folders and `*` stays within one, as the map's globs read, and a glob that
+ * starts with `:` is a path, not git's magic.
+ */
+const pathspecs = (globs: readonly string[]): string[] => [
+  '--',
+  ...globs.map((glob) => `:(glob)${glob}`),
+];
+
+/** How long git may take to list a map's manifests, or the paths a change touched. */
+const LIST_MS = 30_000;
+
+const listed = (stdout: string): string[] => stdout.split('\0').filter((path) => path !== '');
+
 /** `git ls-files` of the map's globs in the worktree, compared as sets with `derivedFrom.paths`. */
 export const manifestFreshness =
-  (_git: Git): ReadManifestFreshness =>
-  async () => {
-    throw new Error('not implemented');
+  (git: Git): ReadManifestFreshness =>
+  async (worktree, map, signal) => {
+    const { globs, paths } = map.derivedFrom;
+    const options = { timeoutMs: LIST_MS, ...(signal === undefined ? {} : { signal }) };
+    const result = await git(worktree, ['ls-files', '-z', ...pathspecs(globs)], options);
+    if (result.code !== 0) return { kind: 'unread', reason: gitFailedWhy(result) };
+    const now = listed(result.stdout);
+    const found = new Set(now);
+    const recorded = new Set(paths);
+    const added = now.filter((path) => !recorded.has(path));
+    const removed = paths.filter((path) => !found.has(path));
+    return added.length === 0 && removed.length === 0
+      ? { kind: 'fresh' }
+      : { kind: 'stale', added, removed };
   };
+
+/**
+ * The paths matching `globs` that the commits from `from` to `to` changed, read with
+ * `git diff --name-only` in the clone `clone`, or why git could not.
+ */
+export const touchedPaths =
+  (git: Git, clone: (repo: string) => string) =>
+  async (
+    repo: string,
+    from: string,
+    to: string,
+    globs: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<{ paths: string[] } | { unread: string }> => {
+    const options = { timeoutMs: LIST_MS, ...(signal === undefined ? {} : { signal }) };
+    const args = ['diff', '--name-only', '-z', '--no-renames', from, to, ...pathspecs(globs)];
+    const result = await git(clone(repo), args, options);
+    return result.code === 0 ? { paths: listed(result.stdout) } : { unread: gitFailedWhy(result) };
+  };
+
+/**
+ * Whether `path`, a report the run wrote, lies at or under the report file or folder pattern
+ * `pattern`: its first folders match the pattern's segments one by one.
+ */
+export const reportUnder = (path: string, pattern: string): boolean => {
+  const parts = path.split('/');
+  const segments = pattern.split('/');
+  return (
+    parts.length >= segments.length &&
+    segments.every((segment, at) => matchesSegment(parts[at] ?? '', segment))
+  );
+};
