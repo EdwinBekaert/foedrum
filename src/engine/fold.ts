@@ -773,8 +773,14 @@ function apply(state: State, event: Event): State {
         };
       });
     }
-    case 'batch.approved':
-      throw new Error('not implemented');
+    case 'batch.approved': {
+      const { batchId, stepId, attempt, plan, by, via, at } = event;
+      // The decider puts it on tap in the same decision (ADR 0281).
+      return updateBatch(setLane(state, batchId, { kind: 'brewing' }), batchId, (batch) => ({
+        ...batch,
+        approval: { stepId, attempt, plan, by, via, at },
+      }));
+    }
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.taken_over': {

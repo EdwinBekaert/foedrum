@@ -87,8 +87,13 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
       };
     case 'stuck':
       return { lane: 'stuck', detail: `${stuckOn(lane.reason, batch)}; reminder ${lane.remindAt}` };
-    case 'on_tap':
-      return { lane: 'on tap', detail: lane.pullRequests.join(' ') };
+    case 'on_tap': {
+      // A plan a person signed off is on tap with no pull request (ADR 0281).
+      const { approval } = batch;
+      const approved =
+        approval === undefined ? [] : [`plan approved by ${approval.by} via ${approval.via}`];
+      return { lane: 'on tap', detail: [...lane.pullRequests, ...approved].join(' ') };
+    }
     case 'cancelled':
       return { lane: 'cancelled', detail: `by ${lane.by} via ${lane.via}` };
     default: {

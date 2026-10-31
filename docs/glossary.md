@@ -12,6 +12,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Sub-order** | A sub-issue of an order, targeting exactly one repository |
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
+| **Gate 1** | A person's sign-off of a plan: `foedrum approve <batch>` on a batch Stuck for its plan's review, recorded with the digest of the plan it signs off; a plan written again needs a sign-off of its own ([ADR 0281](adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)) |
 | **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges, and a `release` blocker's release after its merge, without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
 | **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
@@ -34,7 +35,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
-| **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071); not a recipe that ends with a plan, which waits Stuck for its review (ADR 0275) |
+| **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071); not a recipe that ends with a plan, which waits Stuck for its review (ADR 0275) until a person approves it, and then goes on tap (gate 1, ADR 0281) |
 | **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
 | **Driver** | What moves a batch forward: an engineer's Claude Code session or terminal through `foedrum brew` (interactive, ADR 0123) or the Cellar (autonomous); one at a time per batch, held as a batch lease it renews |
 | **Interactive step** | A brewer step with `"interactive": true` and a `prompt`, whose attempt runs as a person's `claude` session in `foedrum brew`'s terminal, with the brewer's guards and out doc (ADR 0222) |

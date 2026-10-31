@@ -115,7 +115,7 @@ export const renderPlan = (
   /** Whether the batch waits Stuck for a review of this plan, which the last line says what to do with. */
   waitsForReview = false,
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
-  _approval?: Approval,
+  approval?: Approval,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -148,10 +148,16 @@ export const renderPlan = (
             `Chosen because: ${plain(told(alternatives.whyThis))}`,
           ],
         ];
-  // Filled by the plan lenses (#587) and the gate (#588).
+  // The Review is filled by the plan lenses (#587); the Gate by approve (ADR 0281).
+  const gate =
+    approval !== undefined
+      ? `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`
+      : waitsForReview
+        ? `Waiting for ${code(`foedrum approve ${batchId}`)}.`
+        : 'None yet.';
   const after = [
     ['**Review**', '', 'None yet.'],
-    ['**Gate**', '', 'None yet.'],
+    ['**Gate**', '', gate],
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
@@ -250,9 +256,12 @@ const planDue = (
     stateBranchUrl === undefined
       ? undefined
       : outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true);
-  const { lane } = batch;
+  const { lane, approval } = batch;
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
-  const text = renderPlan(batchId, stepId, plan, knownCommits(state, batchId), fullPlan, review);
+  // The sign-off of this plan only: a later plan of the batch waits for one of its own.
+  const signed = approval?.stepId === stepId && approval.attempt === attempt ? approval : undefined;
+  const commits = knownCommits(state, batchId);
+  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, signed);
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };

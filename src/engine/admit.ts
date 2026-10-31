@@ -1,7 +1,7 @@
 // The guard before append: refuses events the fold would throw on, and the lifecycle and bottling
 // rules the fold leaves out (architecture §4.1, §4.3, ADR 0013, ADR 0025). Pure: no clock or I/O.
 
-import { Event } from '../schemas/events.ts';
+import { Event, type StuckReason } from '../schemas/events.ts';
 import { z } from '../schemas/zod.ts';
 import {
   type Batch,
@@ -12,6 +12,7 @@ import {
   type State,
   sameHeadChecks,
 } from './fold.ts';
+import { digestOf } from './pull-request.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 
 /** What the command layer appends, or why it appends nothing. */
@@ -130,7 +131,7 @@ function rule(state: State, event: Event): string | undefined {
         reordered(state, event)
       );
     case 'batch.approved':
-      throw new Error('not implemented');
+      return lanes(state, event, ['stuck']) ?? approvable(state, event);
     case 'batch.rewound':
       return (
         lanes(state, event, ['stuck']) ??
@@ -200,6 +201,41 @@ function stuckOn(state: State, batchId: string, routing: boolean): string | unde
   return routing
     ? `batch ${batchId} is stuck at a step (${lane.reason.kind}), not on routing`
     : `batch ${batchId} is stuck on routing, not at a step`;
+}
+
+/**
+ * The digest of the out doc attempt `attempt` of `stepId` recorded, as `batch.approved` names its
+ * plan (ADR 0281); undefined when that attempt did not succeed.
+ */
+export function planDigest(batch: Batch, stepId: string, attempt: number): string | undefined {
+  const ended = batch.steps.get(stepId)?.attempts.get(attempt);
+  if (ended?.phase !== 'finished' || ended.outcome.kind !== 'succeeded') return undefined;
+  return digestOf(JSON.stringify(ended.outcome.output));
+}
+
+/** Why a batch Stuck for `reason` has no plan to approve, or undefined when it has one. */
+export function noPlanToReview(batchId: string, reason: StuckReason): string | undefined {
+  if (reason.kind === 'plan_review') return undefined;
+  return `batch ${batchId} is stuck on ${reason.kind.replaceAll('_', ' ')}, not on a plan to review`;
+}
+
+/** An approval names the plan its batch waits with a review of, by its attempt and its digest. */
+function approvable(
+  state: State,
+  event: Extract<Event, { type: 'batch.approved' }>,
+): string | undefined {
+  const { batchId, stepId, attempt, plan } = event;
+  const batch = state.batches.get(batchId);
+  if (batch?.lane.kind !== 'stuck') return undefined;
+  const { reason } = batch.lane;
+  if (reason.kind !== 'plan_review') return noPlanToReview(batchId, reason);
+  if (reason.stepId !== stepId || reason.attempt !== attempt) {
+    return `batch ${batchId} waits for a review of the plan of ${reason.stepId} #${reason.attempt}, not of ${stepId} #${attempt}`;
+  }
+  const recorded = planDigest(batch, stepId, attempt);
+  return recorded === plan
+    ? undefined
+    : `the plan of ${stepId} #${attempt} of batch ${batchId} is ${recorded ?? 'not recorded'}, not ${plan}`;
 }
 
 /**
