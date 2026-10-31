@@ -1847,6 +1847,7 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
           { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 2, outcome: succeeded },
           stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 2 }, [
             'approve',
+            'lauter',
             'retry',
             'recipe',
             'cancel',
@@ -3335,7 +3336,18 @@ describe('decide: lauter corrects a plan in a session at gate 1 (ADR 0286, #589)
     chosen: { lauter: 'fix' },
   });
   const mash = { ...context, recipes: fakeRecipes({ mash: mashRecipe }) };
-  const plan = { status: 'done', summary: 'Planned', assumptions: [], subOrders: [] };
+  const subOrder = {
+    id: 'one',
+    title: 'One',
+    repo: 'acme/api',
+    size: { lines: 10, mechanism: 'a flag' },
+    doneWhen: 'a test passes',
+    touches: [{ path: 'src' }],
+    recipe: 'nip',
+    why: 'small',
+    ready: true,
+  };
+  const plan = { status: 'done', summary: 'Planned', assumptions: [], subOrders: [subOrder] };
   const done = (output: unknown) => ({ kind: 'succeeded', output: output as null }) as const;
   const review = (stepId: string, attempt: number): Event =>
     stuckOn({ kind: 'plan_review', stepId, attempt }, [
