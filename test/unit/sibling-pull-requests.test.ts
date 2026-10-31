@@ -180,22 +180,48 @@ describe('sibling pull requests (ADR 0292)', () => {
   });
 
   it('stops writing a merged body once every sibling has a pull request', async () => {
-    const both = fold([
-      ...decomposed,
-      ...opened('2-1', libPull),
-      merged('2-1', libPull),
-      ...opened('3-1', webPull),
-    ]);
     const { host, updates } = fakeHost({
       [libPull]: openedBody('2-1', 2),
       [webPull]: openedBody('3-1', 3),
     });
+    // Revised while open, as every pass after the open does.
+    const libOpen = await pass(
+      siblingEffects({ host }),
+      fold([...decomposed, ...opened('2-1', libPull)]),
+      ['2-1'],
+    );
+    updates.length = 0;
+    const both = fold([merged('2-1', libPull), ...opened('3-1', webPull)], libOpen);
     const settled = await pass(siblingEffects({ host }), both, ['2-1', '3-1']);
     assert.deepEqual(updates.map(({ url }) => url).sort(), [libPull, webPull]);
     updates.length = 0;
     await pass(siblingEffects({ host }), fold([merged('3-1', webPull)], settled), ['2-1', '3-1']);
     // The merged lib-core body names every sibling already, so a later end leaves it as it is.
     assert.deepEqual(updates, []);
+  });
+
+  it('leaves a merged body it never revised as it is, as one merged before this change', async () => {
+    const libMerged = fold([...decomposed, ...opened('2-1', libPull), merged('2-1', libPull)]);
+    const opening = openedBody('2-1', 2);
+    const { host, updates } = fakeHost({ [libPull]: opening });
+    const effects = siblingEffects({ host });
+    assert.notEqual(siblingSection(libMerged, '2-1'), undefined);
+    assert.deepEqual(effects.due(libMerged, '2-1'), []);
+    await pass(effects, libMerged, ['2-1']);
+    assert.deepEqual(updates, []);
+  });
+
+  it("gives an older batch's pull request no section once a newer batch of its sub-order opened one", () => {
+    const newer = 'https://github.com/acme/lib-core/pull/8';
+    const state = fold([
+      ...decomposed,
+      ...opened('2-1', libPull),
+      ordered('2-2', 2, '1-1'),
+      ...opened('2-2', newer),
+    ]);
+    assert.equal(siblingSection(state, '2-1'), undefined);
+    assert.match(siblingSection(state, '3-1') ?? '', /acme\/lib-core#8/);
+    assert.match(siblingSection(state, '2-2') ?? '', /This pull request, in acme\/lib-core/);
   });
 
   it('renders the opened body with the sibling section first', () => {
