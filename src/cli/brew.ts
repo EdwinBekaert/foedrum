@@ -1,13 +1,13 @@
 // `foedrum brew`, the interactive driver of one batch (ADR 0123): under an owner of its own (`--as`,
 // or the Claude Code session it runs in, else `terminal`), it takes that owner's lock, opens the
 // driver on the wiring it shares with `foedrum serve` (driver-wiring.ts) with `takes` that batch
-// alone, orders and routes the issue first when it has no batch, and ticks until the batch is on
-// tap, cancelled or Stuck. Its exit code says which, so the plugin's session can ask the engineer
-// and brew again.
+// alone, orders and routes the issue first when it has no batch (a claimed one only by its Brewery
+// issue, ADR 0156), and ticks until the batch is on tap, cancelled or Stuck. Its exit code says
+// which, so the plugin's session can ask the engineer and brew again.
 // On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
+import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
@@ -321,14 +321,17 @@ export const runBrew = async (
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
-    // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068).
+    // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068); a
+    // claimed batch by its Brewery issue's, and it waits for that issue until the ledger records
+    // it, never reading the target issue's (ADR 0156).
+    const labelled = latest === undefined ? undefined : breweryIssueOf(log.state(), latest);
+    const waitsForOrder =
+      request.mash !== true && order.repo !== undefined && labelled === undefined;
     let recipe: string | undefined;
     if (request.mash === true) {
       const refused = mashRefusal(setup, latest, named);
       if (refused !== undefined) return refuse(refused);
-    } else if (latest === undefined || latest.lane.kind === 'ordered') {
-      // A claimed batch by its Brewery issue, once the ledger records it (ADR 0156).
-      const labelled = latest === undefined ? undefined : breweryIssueOf(log.state(), latest);
+    } else if (!waitsForOrder && (latest === undefined || latest.lane.kind === 'ordered')) {
       const labels = githubOrderLabels(reads, setup.brewery);
       const on = await labels(labelled === undefined ? order : { issue: labelled }, signal);
       const names = recipeLabels(on);
@@ -377,6 +380,23 @@ export const runBrew = async (
     const batch = latestBatch(log.state().batches.values(), order.issue, order.repo);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
+    if (waitsForOrder && batch.lane.kind === 'ordered') {
+      // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
+      // Brewery issue has no label yet, so the batch waits for a person to give it one.
+      await tick(driver, report);
+      // A batch that waits for a person is not Stuck: it keeps no lease (ADR 0123).
+      store.withTransaction((tx) => releaseBatch(tx, batch.id, owner));
+      const opened = breweryIssueOf(driver.state(), batch);
+      // A tick that did not open it (a failed or a put-off effect) said why first.
+      if (opened === undefined) {
+        say(`${named} waits for its Brewery issue, which is not open yet; brew ${asGiven} again`);
+        return BREW_EXIT.failed;
+      }
+      // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
+      return refuse(
+        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, or foedrum mash ${asGiven}`,
+      );
+    }
     if (request.mash === true && batch.recipe === undefined) {
       const mashIn = {
         kind: 'recipe',
