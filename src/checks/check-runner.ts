@@ -6,6 +6,7 @@
 // repository with a test map, each module's report by checks that read no test name (ADR 0274);
 // in one without, the test report against the tests the proven step committed (ADR 0078).
 
+import { statSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBase } from '../engine/base-merge.ts';
@@ -16,7 +17,7 @@ import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
-import { MAX_REPORT_BYTES, type TestReport } from '../formats/test-report.ts';
+import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
@@ -36,7 +37,7 @@ import {
   type RepositoryChecks,
   settleReadings,
 } from './gravity.ts';
-import { judgeMapped, judgeRed, needsTestReport } from './red-proof.ts';
+import { judgeMapped, judgeRed, type MappedReport, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
 import {
@@ -123,6 +124,15 @@ export const fileReports: ReportFiles = {
 type Maps =
   | { kind: 'none' }
   | { kind: 'maps'; base?: { commit: string; map: TestMap }; batch?: TestMap };
+
+/** Whether `path` is a folder: a path that cannot be read is none. */
+const folderAt = (path: string): boolean => {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 // None of a repository's checks: what a step of literal commands plans against.
 const NO_CHECKS: RepositoryChecks = {
@@ -284,7 +294,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (trx !== undefined) {
       return blocked(
         'environment',
-        `module "${trx.module.name}" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML (such as with JunitXml.TestLogger) and name that in the test map (ADR 0274)`,
+        `module "${trx.module.name}" of the test map writes a TRX test report, which Foedrum does not read yet: make its tests write JUnit XML to a file and name that file in the test map (ADR 0274)`,
       );
     }
     return modules;
@@ -307,6 +317,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     diff: readonly DiffFile[],
   ): Promise<AttemptEnd> => {
     const find = options.testMap?.reports ?? reportPaths;
+    const isFolder = options.testMap?.isFolder ?? folderAt;
     const patterns = modules.flatMap(({ module }) => [
       module.testReport.path,
       ...(module.coverage === 'none' ? [] : [module.coverage.path]),
@@ -329,7 +340,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       readings,
     });
     const stuck = (why: string): AttemptEnd => ({ ...blocked('environment', why), readings });
-    const read: TestReport[] = [];
+    const read: MappedReport[] = [];
     const unreported: string[] = [];
     for (const { module, added } of modules) {
       const { name, testReport } = module;
@@ -340,6 +351,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       let wrote = 0;
       for (const file of found.paths) {
         const shown = relative(worktree.path, file).split(sep).join('/');
+        // A test report is a file: a folder is no report a brewer could fix by committing.
+        if (isFolder(file)) {
+          const extension = testReport.format === 'tap' ? 'tap' : 'xml';
+          return stuck(
+            `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension} (ADR 0274)`,
+          );
+        }
         const text = reports.read(file, worktree.path);
         if (text.kind === 'missing') continue;
         if (text.kind === 'unread') {
@@ -354,7 +372,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
             `the test report ${shown} of module "${name}" is not ${format}: ${parsed.reason}`,
           );
         }
-        read.push(parsed.report);
+        read.push({ ...parsed.report, module: name });
         wrote++;
       }
       // A module the batch added that wrote nothing may be one no confirmed line reaches (ADR 0280).
