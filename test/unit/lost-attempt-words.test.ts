@@ -152,6 +152,19 @@ describe('a lost attempt as recorded', () => {
     assert.ok(gaugeLine(reason).includes(`#1 finished: failed: ${reason};`));
   });
 
+  it('shows a lost reason with more before its prefix as recorded (regression test)', () => {
+    const reason = `again ${recorded('cellar')}`;
+    assert.ok(gaugeLine(reason).includes(`#1 finished: failed: ${reason};`));
+  });
+
+  it('shows a lost reason whose time has no milliseconds as recorded (regression test)', () => {
+    const reason = lostReason(expiredLeaseReason('cellar', new Date(expiredAt))).replace(
+      '.640Z',
+      'Z',
+    );
+    assert.ok(gaugeLine(reason).includes(`#1 finished: failed: ${reason};`));
+  });
+
   it('shows a lost reason whose time is no ISO time as recorded (regression test)', () => {
     const reason = 'the attempt was lost: the lease of cellar expired at yesterday';
     assert.ok(gaugeLine(reason).includes(`#1 finished: failed: ${reason};`));
