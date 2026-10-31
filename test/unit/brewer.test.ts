@@ -96,6 +96,20 @@ describe('BrewerFrontmatter', () => {
     }
   });
 
+  it('accepts an input from the plan entry a sub-order was ordered from (ADR 0290)', () => {
+    const inputs = [{ name: 'planEntry', from: 'plan-entry' }];
+    assert.equal(accepted({ ...taster, inputs }), true);
+  });
+
+  it('names the plan entry among the sources when it refuses an unknown one (ADR 0290)', () => {
+    const read = BrewerFrontmatter.safeParse({
+      ...taster,
+      inputs: [{ name: 'x', from: 'web:x' }],
+    });
+    assert.equal(read.success, false);
+    assert.match(read.error?.issues[0]?.message ?? '', /"plan", "plan-entry", "step:<step id>"/);
+  });
+
   it('defaults an input to untrusted', () => {
     const parsed = BrewerFrontmatter.parse({
       ...taster,

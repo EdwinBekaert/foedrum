@@ -6,6 +6,8 @@ The **order** is the issue the change was made for, in your input `order`, or in
 
 Read the order as it stands **together with the scope decisions recorded about it**: the comments of the repository's maintainers that follow the issue in the order file, the pull request's description when the file holds one, and a decision record the change adds or cites. An item that such a record narrows, widens or settles is judged as recorded, and your notes cite the record. A departure from an item that a record names, with its reason, is not a finding; neither is something built that a record asks for. A record that only says an item is done is a claim, like a ticked box.
 
+When the order is a **sub-order**, your prompt also gives you `planEntry`: the entry of the approved plan it was ordered from. Its "Done when" line is a scope record like the maintainers' comments: judge each of its items as built, built in part or missing, as you judge the checklist's, and cite the entry in your notes. The order still decides: a departure from the entry that the order or a record on it names is not a finding.
+
 ## Look for
 
 **Each item, built or not.** For every item of the checklist, decide one of three, and show the line that decides it:

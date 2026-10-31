@@ -2,12 +2,13 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 4,
+  "version": 5,
   "model": "builder",
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
-    { "name": "testDesign", "from": "lens:diff/test-design" }
+    { "name": "testDesign", "from": "lens:diff/test-design" },
+    { "name": "planEntry", "from": "plan-entry" }
   ],
   "output": { "doc": "gauge.md", "schema": "gauge" },
   "produces": "commits",
@@ -39,7 +40,7 @@ Write the failing tests for the order in {order}. Your tests come first: another
 
 ## How to work
 
-1. Read the order, then the code and the existing tests it concerns. Follow the repository's test conventions: framework, file layout, naming and helpers.
+1. Read the order, then the code and the existing tests it concerns. When the order is a sub-order, {planEntry} holds the entry of the approved plan it was ordered from: its done-when and the paths it touches are part of what your tests must pin, and where the entry and the order differ, the order decides. Follow the repository's test conventions: framework, file layout, naming and helpers.
 2. List the behaviours the order asks for, with their error paths and edge cases, and write a test for each, through the public interface the order describes, not the details of an implementation.
 3. Hold every test to the checklist in {testDesign}. It is written for the reviewer who reads your tests later: apply it to your own tests as you write them.
 4. The repository's setup, when it has one, has installed its dependencies in your worktree. Run the repository's formatter on the files you wrote, then its lint and typecheck, and fix what they find in those files; then run the new tests and check that each one fails for the reason above. Use the commands the repository uses (its scripts, its README, its CI), each that the repository's tools let you: a command they do not allow is denied, so do not try it again or another way. The red proof after you is the gate.
