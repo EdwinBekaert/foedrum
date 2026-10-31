@@ -28,9 +28,17 @@ export type Behaviour =
   /** A check step read these, and ends as the check runner settles them (ADR 0069). */
   | { kind: 'read'; readings: readonly GravityReading[] };
 
-/** An out doc with this frontmatter. */
-export const outDoc = (frontmatter: Record<string, unknown>): string =>
-  `---\n${JSON.stringify(frontmatter, null, 2)}\n---\nThe brewer's notes.\n`;
+/**
+ * An out doc with this frontmatter. A plan's body reads as the engine asks of one (ADR 0275): its
+ * summary, then its assumptions as a list.
+ */
+export const outDoc = (frontmatter: Record<string, unknown>): string => {
+  const { summary, subOrders, assumptions = [] } = frontmatter;
+  const listed = Array.isArray(assumptions) ? assumptions.map((each) => `- ${String(each)}\n`) : [];
+  const body =
+    subOrders === undefined ? "The brewer's notes.\n" : `${String(summary)}\n\n${listed.join('')}`;
+  return `---\n${JSON.stringify(frontmatter, null, 2)}\n---\n${body}`;
+};
 
 /**
  * A process that ends at once: a clean exit with `doc` and one commit, which counts only for a

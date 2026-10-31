@@ -492,6 +492,8 @@ export const runBrew = async (
     // When the last line was said, and when this driver first saw each attempt run.
     let saidAt = clock().getTime();
     let linked = false;
+    // Whether brew ticked once more after its batch stuck with a plan to review (ADR 0275).
+    let reviewed = false;
     stopResize = terminal?.onResize(draw);
     for (;;) {
       await tick(driver, report);
@@ -539,7 +541,18 @@ export const runBrew = async (
             for (const line of questionLines(batchId, reason.stepId, now)) say(line);
             return BREW_EXIT.needsInput;
           }
-          say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}`);
+          // The tick that sticks a plan applies the status revision decided before the plan comment
+          // was made: one tick more applies the one that names it (ADR 0275).
+          if (reason.kind === 'plan_review' && !reviewed) {
+            reviewed = true;
+            continue;
+          }
+          // A plan to review names its comment, as on tap did before (#656, ADR 0275).
+          const plan =
+            reason.kind === 'plan_review' ? planCommentOf(driver.state(), batchId) : undefined;
+          const shown =
+            plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
+          say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
           if (reason.kind === 'waiting_for_session') say(sessionLine(request.noSessions));
           return BREW_EXIT.stuck;
         }

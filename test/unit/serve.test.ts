@@ -944,7 +944,7 @@ Plan the order in {order}.
     );
     assert.equal(posted.length, 1, lines.join('\n'));
     assert.match(posted[0]?.body ?? '', /^### Foedrum · plan of batch `12-1`/);
-    assert.match(posted[0]?.body ?? '', /\| `json-flag`: A --json flag \| acme\/web \|/);
+    assert.match(posted[0]?.body ?? '', /\n- Builds in acme\/web: one option, about 120 lines\n/);
   });
 
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
