@@ -397,3 +397,75 @@ describe('reportPaths: a report path in the worktree (ADR 0274)', () => {
     }
   });
 });
+
+describe('the test map: edges the review of #715 named', () => {
+  it('reads a folder pattern that matches exactly 64 paths: regression test', () => {
+    const dir = makeTempDir('test-map');
+    try {
+      const worktree = join(dir.path, 'worktree');
+      for (let n = 0; n < 64; n += 1)
+        mkdirSync(join(worktree, 'test', `P${n}`), { recursive: true });
+      const found = reportPaths('test/*', worktree);
+      assert.equal('paths' in found ? found.paths.length : found.refused, 64);
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('matches no name a star pattern only overlaps: regression test', () => {
+    const dir = makeTempDir('test-map');
+    try {
+      const worktree = join(dir.path, 'worktree');
+      for (const name of ['a', 'ab', 'aba', 'abxb']) {
+        mkdirSync(join(worktree, 'out', name), { recursive: true });
+      }
+      assert.deepEqual(reportPaths('out/a*a', worktree), { paths: [join(worktree, 'out', 'aba')] });
+      assert.deepEqual(reportPaths('out/*ab*b', worktree), {
+        paths: [join(worktree, 'out', 'abxb')],
+      });
+    } finally {
+      dir.remove();
+    }
+  });
+
+  it('names why git could not read a map, with no stderr or past 1 MiB, and bounds each read: regression test', async () => {
+    const options: unknown[] = [];
+    const answer =
+      (result: { code: number | null; stderr: string; killed?: 'too-much-output' }): Git =>
+      (_cwd, _args, given) => {
+        options.push(given);
+        return Promise.resolve({ stdout: '', ...result });
+      };
+    const read = (git: Git) =>
+      testMaps({ git, clone: () => 'clone', keptIn: () => 'repo', brewery: () => undefined })(
+        'acme/web',
+        'd'.repeat(40),
+      );
+    assert.deepEqual(await read(answer({ code: 128, stderr: '' })), {
+      kind: 'unreadable',
+      reason: 'git could not read it: git exited with 128',
+    });
+    assert.deepEqual(await read(answer({ code: null, stderr: '', killed: 'too-much-output' })), {
+      kind: 'unreadable',
+      reason: 'it is larger than 1048576 bytes',
+    });
+    assert.deepEqual(options[0], { timeoutMs: 10_000, maxOutputBytes: 1024 * 1024 });
+  });
+
+  it("reads a path both a module's code and test globs match as its tests: regression test", () => {
+    const node: TestMapModule = {
+      ...web,
+      code: ['src/**'],
+      tests: { paths: ['src/**/*.test.ts'] },
+    };
+    const modules = effectiveMap(mapOf(node), undefined, noFiles, false);
+    assert.deepEqual(areaOf(modules, 'src/app.test.ts', false), { module: 'web', area: 'tests' });
+    assert.deepEqual(areaOf(modules, 'src/app.ts', false), { module: 'web', area: 'code' });
+  });
+
+  it('folds the case of a file the base had, too, where the file system does: regression test', () => {
+    const every = { atBase: ['Web/Src/a.ts'], deleted: ['web/src/a.ts'] };
+    assert.deepEqual(names(effectiveMap(mapOf(web), undefined, every, true)), []);
+    assert.deepEqual(names(effectiveMap(mapOf(web), undefined, every, false)), [['web', false]]);
+  });
+});

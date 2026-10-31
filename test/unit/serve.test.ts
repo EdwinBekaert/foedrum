@@ -1654,6 +1654,25 @@ Plan the order in {order}.
       assert.deepStrictEqual(asked, []);
     });
 
+    it("sticks the batch when the Brewery's test map of the repository does not parse: regression test", async () => {
+      const serving = {
+        ...setup,
+        repositories: setup.repositories.map((repository) => ({
+          ...repository,
+          testMap: { text: '{ "modules": [' },
+        })),
+      };
+      const git: Git = async () => {
+        throw new Error('no git read of the map');
+      };
+      const { batch } = await brewWithChecks(0, { serving, git });
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.match(
+        reason?.kind === 'blocked' ? reason.summary : '',
+        /^the test map of acme\/web at [0-9a-f]{40} cannot be read: /,
+      );
+    });
+
     it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {
       const { checks, events, batch } = await brewWithChecks(0);
       assert.equal(batch?.lane.kind, 'on_tap');
