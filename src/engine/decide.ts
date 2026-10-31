@@ -73,6 +73,8 @@ export type HumanCommand =
   /** `shas`: the commit of each repository at `toStepId`, by `owner/name`. */
   | ({ kind: 'rewind'; toStepId: string; shas: Readonly<Record<string, string>> } & Issuer)
   | ({ kind: 'cancel' } & Issuer)
+  /** A person's sign-off of the plan a batch Stuck as `plan_review` waits with (ADR 0281). */
+  | ({ kind: 'approve' } & Issuer)
   /**
    * A new batch of an issue a person orders by hand (`foedrum order`, ADR 0105): refused while the
    * issue has a live batch, while its last claim is held or being released, or when it is a
@@ -472,6 +474,8 @@ function run(draft: Draft, command: Command): Event[] {
     case 'rewind':
       rewind(draft, command);
       break;
+    case 'approve':
+      throw new Error('not implemented');
     case 'cancel': {
       const { batchId, by, via } = command;
       requireLane(draft.batch(batchId), 'cancel', nonTerminal);

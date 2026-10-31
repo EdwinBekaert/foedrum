@@ -14,7 +14,7 @@ import {
   longestComment,
 } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
-import type { Batch, State } from './fold.ts';
+import type { Approval, Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink } from './state-branch.ts';
@@ -114,6 +114,8 @@ export const renderPlan = (
   fullPlan?: string,
   /** Whether the batch waits Stuck for a review of this plan, which the last line says what to do with. */
   waitsForReview = false,
+  /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
+  _approval?: Approval,
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;

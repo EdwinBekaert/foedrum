@@ -292,6 +292,8 @@ export const openSqliteEventStore = (
           setDeadline.run(event.batchId, BATCH, 0, Date.parse(event.routeBy));
         }
         return;
+      case 'batch.approved':
+        throw new Error('not implemented');
       case 'step.finished':
         clearDeadline.run(event.batchId, event.stepId, event.attempt);
         return;

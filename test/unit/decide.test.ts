@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
+import { check } from '../../src/engine/admit.ts';
 import {
   type Command,
   type Context,
@@ -1844,6 +1846,7 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
         events: [
           { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 2, outcome: succeeded },
           stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 2 }, [
+            'approve',
             'retry',
             'recipe',
             'cancel',
@@ -3107,5 +3110,194 @@ describe('decide: a conflict with the moved base sends the batch back (ADR 0244)
         },
       ],
     });
+  });
+});
+
+describe('decide: approve signs off a plan (ADR 0281, #588)', () => {
+  const mashRecipe = fakeRecipe({ steps: ['plan'], pullRequests: [] });
+  const mash = { ...context, recipes: fakeRecipes({ mash: mashRecipe }) };
+  const subOrder = {
+    id: 'one',
+    title: 'One',
+    repo: 'acme/api',
+    size: { lines: 10, mechanism: 'a flag' },
+    doneWhen: 'a test passes',
+    touches: [{ path: 'src' }],
+    recipe: 'nip',
+    why: 'small',
+    ready: true,
+  };
+  const first = { status: 'done', summary: 'Planned', assumptions: [], subOrders: [subOrder] };
+  const second = { ...first, summary: 'Planned again', subOrders: [{ ...subOrder, id: 'two' }] };
+  /** The digest ADR 0281 names: of the recorded out doc's JSON, as the comments' digests are. */
+  const digestOf = (output: unknown): string =>
+    createHash('sha256').update(JSON.stringify(output)).digest('hex').slice(0, 16);
+  const planned = (attempt: number, output: unknown): Event => ({
+    type: 'step.finished',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt,
+    outcome: { kind: 'succeeded', output: output as null },
+  });
+  const options = ['approve', 'retry', 'recipe', 'cancel'] as const;
+  const review = (attempt: number): Event =>
+    stuckOn({ kind: 'plan_review', stepId: 'plan', attempt }, options);
+  /** Batch b1 of `mash`, its plan #2 waiting Stuck for its review. */
+  const waiting = (): Event[] => [...brewing('plan', 2, 'mash'), planned(2, first), review(2)];
+  const approved = (attempt: number, output: unknown): Event => ({
+    type: 'batch.approved',
+    batchId: 'b1',
+    stepId: 'plan',
+    attempt,
+    plan: digestOf(output),
+    ...by,
+    at: atNow,
+  });
+  const onTapped: Event = { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] };
+  const approve = { kind: 'approve', batchId: 'b1', ...by } as const;
+  /** `waiting()`, retried: plan #3 wrote `second` and waits Stuck for its review. */
+  const retried = (): Event[] => [
+    ...waiting(),
+    { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
+    scheduled('plan', 3),
+    started('plan', 3),
+  ];
+
+  it('offers approve first for a plan to review (#588)', () => {
+    assert.deepStrictEqual(stuckOptions({ kind: 'plan_review', stepId: 'plan', attempt: 1 }), [
+      ...options,
+    ]);
+  });
+
+  it("records who approved the plan its review names, from where, when and the plan's digest, then puts the batch on tap (#588)", () => {
+    assert.deepStrictEqual(decide(fold(waiting()), approve, mash), {
+      kind: 'accepted',
+      events: [approved(2, first), onTapped],
+    });
+  });
+
+  it('keeps the approval on the batch, on tap with no pull request (#588)', () => {
+    const batch = fold([...waiting(), approved(2, first), onTapped]).batches.get('b1');
+    assert.deepStrictEqual(batch?.lane, { kind: 'on_tap', pullRequests: [] });
+    assert.deepStrictEqual(batch?.approval, {
+      stepId: 'plan',
+      attempt: 2,
+      plan: digestOf(first),
+      ...by,
+      at: atNow,
+    });
+  });
+
+  it('refuses an approve of a batch in another lane, naming the lane (#588)', () => {
+    const named = otherLanes('stuck');
+    assert.equal(named.length, 5);
+    for (const [lane, events] of named) {
+      refuses(events, approve, new RegExp(`^batch b1 is ${lane}; approve needs it stuck$`));
+    }
+  });
+
+  it('refuses an approve of a batch Stuck for another reason, naming it (#588)', () => {
+    refuses(stuck(), approve, /^batch b1 is stuck on needs input, not on a plan to review$/);
+  });
+
+  it('waits for a new approve after a retry that plans again (#588)', () => {
+    const finish = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 3,
+      ending: { kind: 'succeeded', output: second },
+    } as const;
+    const decision = decide(fold(retried()), finish, mash);
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), review(3));
+    const again = [...retried(), planned(3, second), review(3)];
+    assert.deepStrictEqual(decide(fold(again), approve, mash), {
+      kind: 'accepted',
+      events: [approved(3, second), onTapped],
+    });
+  });
+
+  it('refuses a recorded approval of an attempt other than the one its review names (#588)', () => {
+    const again = [...retried(), planned(3, second), review(3)];
+    assert.deepStrictEqual(check(fold(again), approved(2, first)), {
+      kind: 'refused',
+      reason: 'batch b1 waits for a review of the plan of plan #3, not of plan #2',
+    });
+  });
+
+  it('refuses a recorded approval of a step other than the one its review names (#588)', () => {
+    const other = { ...approved(2, first), stepId: 'notes' } as Event;
+    assert.deepStrictEqual(check(fold(waiting()), other), {
+      kind: 'refused',
+      reason: 'batch b1 waits for a review of the plan of plan #2, not of notes #2',
+    });
+  });
+
+  it("refuses a recorded approval whose digest is not its plan's (#588)", () => {
+    assert.deepStrictEqual(check(fold(waiting()), approved(2, second)), {
+      kind: 'refused',
+      reason: `the plan of plan #2 of batch b1 is ${digestOf(first)}, not ${digestOf(second)}`,
+    });
+  });
+
+  it('refuses a recorded approval of a batch Stuck for another reason (#588)', () => {
+    assert.deepStrictEqual(check(fold(stuck()), approved(1, first)), {
+      kind: 'refused',
+      reason: 'batch b1 is stuck on needs input, not on a plan to review',
+    });
+  });
+
+  it('refuses a recorded approval of a batch that is not Stuck (#588)', () => {
+    assert.deepStrictEqual(check(fold(brewing()), approved(1, first)), {
+      kind: 'refused',
+      reason: 'batch b1 is brewing; batch.approved needs it stuck',
+    });
+  });
+
+  it('approves a batch recorded Stuck for a review of its plan before approve was offered (#588)', () => {
+    const recorded = [
+      ...brewing('plan', 2, 'mash'),
+      planned(2, first),
+      stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 2 }, ['retry', 'recipe', 'cancel']),
+    ];
+    assert.deepStrictEqual(decide(fold(recorded), approve, mash), {
+      kind: 'accepted',
+      events: [approved(2, first), onTapped],
+    });
+  });
+
+  it('replays a batch recorded Stuck for a review of its plan before approve, as it was: regression test (#588)', () => {
+    const reason = { kind: 'plan_review', stepId: 'plan', attempt: 2 } as const;
+    const recorded = [
+      ...brewing('plan', 2, 'mash'),
+      planned(2, first),
+      stuckOn(reason, ['retry', 'recipe', 'cancel']),
+    ];
+    assert.deepStrictEqual(fold(recorded).batches.get('b1')?.lane, {
+      kind: 'stuck',
+      reason,
+      options: ['retry', 'recipe', 'cancel'],
+      remindAt: inTwoDays,
+    });
+  });
+
+  it('cancels a batch that waits for a review of its plan: regression test (#588)', () => {
+    accepts(waiting(), { kind: 'cancel', batchId: 'b1', ...by }, [
+      { type: 'batch.cancelled', batchId: 'b1', ...by },
+    ]);
+  });
+
+  it('moves a batch that waits for a review of its plan to another recipe: regression test (#588)', () => {
+    const recipes = fakeRecipes({ mash: mashRecipe, nip: fakeRecipe({ steps: ['patch'] }) });
+    const decision = decide(
+      fold(waiting()),
+      { kind: 'recipe', batchId: 'b1', ...by, recipe: 'nip', reason: 'build it' },
+      { ...context, recipes },
+    );
+    const events = decision.kind === 'accepted' ? decision.events : [];
+    assert.ok(
+      events.some((event) => event.type === 'batch.resumed' && event.action === 'recipe'),
+      JSON.stringify(decision),
+    );
   });
 });

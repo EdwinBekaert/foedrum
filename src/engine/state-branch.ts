@@ -40,6 +40,8 @@ export const batchOf = (event: Event): string | undefined => {
     case 'usage.window_closed':
     case 'usage.window_opened':
       return undefined;
+    case 'batch.approved':
+      throw new Error('not implemented');
     case 'batch.ordered':
     case 'batch.recipe_chosen':
     case 'step.scheduled':

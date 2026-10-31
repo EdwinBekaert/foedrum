@@ -58,7 +58,7 @@ const three: PlanReport = {
 
 describe('renderPlan (ADR 0233)', () => {
   const next =
-    'Next: read the plan and its assumptions. To plan it again, run `foedrum retry 7-1`; to build it, end it with `foedrum cancel 7-1` and order its sub-orders by hand: Foedrum builds nothing from a plan yet.';
+    'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`. Its sub-orders become issues once #590 is built.';
   const outDoc = 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md';
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
@@ -130,7 +130,7 @@ describe('renderPlan (ADR 0233)', () => {
         '',
         '**Gate**',
         '',
-        'None yet.',
+        'Waiting for `foedrum approve 7-1`.',
         '',
         next,
       ].join('\n'),
@@ -186,6 +186,28 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
     assert.doesNotMatch(text, /Next:|foedrum retry/);
     assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
+  });
+
+  it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc, true);
+    assert.ok(text.includes('\n\n**Gate**\n\nWaiting for `foedrum approve 7-1`.\n\n'), text);
+  });
+
+  it('says who approved the plan, from where and when, with no next step, once it is approved (#588)', () => {
+    const approval = {
+      stepId: 'plan',
+      attempt: 2,
+      plan: '0123456789abcdef',
+      by: 'grace',
+      via: 'plugin',
+      at: '2026-10-28T10:30:00.000Z',
+    } as const;
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc, false, approval);
+    assert.ok(
+      text.endsWith('**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.'),
+      text.slice(-120),
+    );
+    assert.doesNotMatch(text, /Next:|Waiting for/);
   });
 
   it('ends with the next step (#658)', () => {
@@ -252,7 +274,7 @@ describe('renderPlan (ADR 0233)', () => {
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
-    assert.match(text, /\*\*Gate\*\*\n\nNone yet\.\n\nNext: /);
+    assert.match(text, /\*\*Gate\*\*\n\nWaiting for `foedrum approve 7-1`\.\n\nNext: /);
   });
 
   /** 100 sub-orders at the longest the schema takes: past GitHub's length even without the graph. */
@@ -465,6 +487,22 @@ describe('planEffects (ADR 0233)', () => {
       `${renderPlan('7-1', 'plan', three, undefined, undefined, true)}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
+  });
+
+  it('edits the plan comment once its plan is approved, to say by whom, with no next step (#588)', async () => {
+    const driver = await open();
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    step('plan', planned(three));
+    await driver.applyEffects();
+    assert.match(only().body, /\n\nWaiting for `foedrum approve 7-1`\.\n\nNext: /);
+    issue({ kind: 'approve', batchId: '7-1', by: 'grace', via: 'terminal' });
+    assert.equal(log.state().batches.get('7-1')?.lane.kind, 'on_tap');
+    await driver.applyEffects();
+    assert.ok(
+      only().body.endsWith(`**Gate**\n\nApproved by grace (terminal) at ${at}.\n\n${marker(2)}`),
+      only().body.slice(-200),
+    );
   });
 
   it('makes no comment before a plan succeeded, nor for a plan that asks a question', async () => {

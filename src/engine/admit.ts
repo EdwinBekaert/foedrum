@@ -129,6 +129,8 @@ function rule(state: State, event: Event): string | undefined {
         offered(state, event.batchId, event.action) ??
         reordered(state, event)
       );
+    case 'batch.approved':
+      throw new Error('not implemented');
     case 'batch.rewound':
       return (
         lanes(state, event, ['stuck']) ??
