@@ -11,9 +11,6 @@ import {
 } from './events.ts';
 import { PathSafeId } from './ids.ts';
 import { lineOf, outDocFrontmatter } from './out-doc.ts';
-
-export { PlanId };
-
 import { RelativePath } from './primitives.ts';
 import { z } from './zod.ts';
 

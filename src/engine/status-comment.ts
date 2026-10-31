@@ -126,8 +126,8 @@ export const code = (id: string): string => `\`${id}\``;
 export const STEP_BACK = 'Another round is unlikely to help: plan the order again, or split it.';
 
 /**
- * What a person does with a plan that waits for its review (ADR 0281), until its sub-orders become
- * sub-issues (#590): `command` writes a command as the reader shows it.
+ * What a person does with a plan that waits for its review (ADR 0281): `command` writes a command
+ * as the reader shows it.
  */
 export const planNextStep = (batchId: string, command: (text: string) => string): string =>
   `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}.`;

@@ -15,15 +15,14 @@ import {
   approvedPlan,
   issueKey,
   linkKey,
-  type OpenedIssue,
-  OpenedIssue as OpenedIssueSchema,
+  OpenedIssue,
   openedIssue,
   parentKey,
 } from './plan-applied.ts';
 import { code, plain } from './status-comment.ts';
 import type { SubIssues } from './sub-issues.ts';
 
-export { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
+export { openedSubIssues } from './plan-applied.ts';
 
 /** The label of a sub-order the plan marked not ready: the intake leaves it to a person (ADR 0285). */
 export const NEEDS_REFINEMENT = 'needs-refinement';
@@ -59,16 +58,22 @@ const bodyOf = (batch: Batch, stepId: string, subOrder: PlannedSubOrder): string
   ].join('\n');
 };
 
-/** Applies `write`, and when it is refused, reads whether it is there all the same. */
-const added = async (write: () => Promise<void>, holds: () => Promise<boolean>): Promise<null> => {
-  try {
-    await write();
-  } catch (error) {
-    // A repeat answers a refusal (422 on GitHub), and the list shows it (trackers.md).
-    if (!(await holds())) throw error;
-  }
-  return null;
-};
+/** A link found in its list first, added when it is not, and read again when the add is refused. */
+const listedTarget = (
+  holds: (signal?: AbortSignal) => Promise<boolean>,
+  add: (signal?: AbortSignal) => Promise<void>,
+): EffectTarget => ({
+  find: async (_key, signal) => ((await holds(signal)) ? { result: null } : undefined),
+  apply: async (_key, signal) => {
+    try {
+      await add(signal);
+    } catch (error) {
+      // A repeat answers a refusal (422 on GitHub), and the list shows it (trackers.md).
+      if (!(await holds(signal))) throw error;
+    }
+    return null;
+  },
+});
 
 /**
  * The effects that apply the plan an approval signed off, for the driver, in their order: each
@@ -81,41 +86,29 @@ export const planIssueEffects = (options: PlanIssueEffectsOptions): DriverEffect
   const issueTarget = (batch: Batch, stepId: string, subOrder: PlannedSubOrder): EffectTarget => ({
     find: async (key, signal) => {
       const found = await subIssues.findIssue(effectMarker(key), signal);
-      return found === undefined ? undefined : { result: OpenedIssueSchema.parse(found) };
+      return found === undefined ? undefined : { result: OpenedIssue.parse(found) };
     },
     apply: async (key, signal) => {
       const labels = [`recipe:${subOrder.recipe}`, ...(subOrder.ready ? [] : [NEEDS_REFINEMENT])];
       const title = withoutSecrets(subOrder.title, stepId, () => false);
       const body = `${bodyOf(batch, stepId, subOrder)}\n\n${effectMarker(key)}`;
-      return OpenedIssueSchema.parse(await subIssues.openIssue(title, body, labels, signal));
+      return OpenedIssue.parse(await subIssues.openIssue(title, body, labels, signal));
     },
   });
-  const parentTarget = (order: number, child: OpenedIssue): EffectTarget => {
-    const holds = async (signal?: AbortSignal) =>
-      (await subIssues.subIssues(order, signal)).some(({ number }) => number === child.number);
-    return {
-      find: async (_key, signal) => ((await holds(signal)) ? { result: null } : undefined),
-      apply: (_key, signal) =>
-        added(
-          () => subIssues.addSubIssue(order, child.id, signal),
-          () => holds(signal),
+  const parentTarget = (order: number, child: OpenedIssue): EffectTarget =>
+    listedTarget(
+      async (signal) =>
+        (await subIssues.subIssues(order, signal)).some(({ number }) => number === child.number),
+      (signal) => subIssues.addSubIssue(order, child.id, signal),
+    );
+  const linkTarget = (blocked: OpenedIssue, blocker: OpenedIssue): EffectTarget =>
+    listedTarget(
+      async (signal) =>
+        (await subIssues.blockedBy(blocked.number, signal)).some(
+          ({ number }) => number === blocker.number,
         ),
-    };
-  };
-  const linkTarget = (blocked: OpenedIssue, blocker: OpenedIssue): EffectTarget => {
-    const holds = async (signal?: AbortSignal) =>
-      (await subIssues.blockedBy(blocked.number, signal)).some(
-        ({ number }) => number === blocker.number,
-      );
-    return {
-      find: async (_key, signal) => ((await holds(signal)) ? { result: null } : undefined),
-      apply: (_key, signal) =>
-        added(
-          () => subIssues.addBlockedBy(blocked.number, blocker.id, signal),
-          () => holds(signal),
-        ),
-    };
-  };
+      (signal) => subIssues.addBlockedBy(blocked.number, blocker.id, signal),
+    );
   const targetOf = (key: string): EffectTarget => {
     const target = targets.get(key);
     if (target === undefined) throw new Error(`No plan effect ${key} is due`);
@@ -169,8 +162,8 @@ export const planIssueEffects = (options: PlanIssueEffectsOptions): DriverEffect
       if (keys === undefined) return [];
       const { applied, issues, due } = keys;
       const { plan, stepId, attempt } = applied;
-      const all =
-        plan.subOrders.length + plan.subOrders.reduce((n, s) => n + 1 + s.dependencies.length, 0);
+      // Each sub-order's issue and parent, and one link per dependency.
+      const all = plan.subOrders.reduce((n, s) => n + 2 + s.dependencies.length, 0);
       if (due.length < all || due.some(({ key }) => !state.effects.has(effectKey.encode(key)))) {
         return [];
       }
