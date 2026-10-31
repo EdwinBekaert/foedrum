@@ -125,6 +125,8 @@ export const MAX_SENSITIVE = 50;
 export const SensitiveFiles = z.strictObject({
   count: z.int().min(1),
   files: z.array(Filled).min(1).max(MAX_SENSITIVE),
+  /** The modules the batch's test map adds with `coverage: none` (ADR 0274). */
+  unmeasured: z.array(Filled).min(1).max(MAX_SENSITIVE).optional(),
 });
 export type SensitiveFiles = z.infer<typeof SensitiveFiles>;
 

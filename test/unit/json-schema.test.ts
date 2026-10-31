@@ -36,6 +36,7 @@ describe('writeJsonSchemas', () => {
       'out-doc.json',
       'recipe.json',
       'step-outcome.json',
+      'test-map.json',
     ]);
   });
 

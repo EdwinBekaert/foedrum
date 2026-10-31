@@ -120,6 +120,55 @@ describe('serveSetup', () => {
     assert.equal(ready(inputs()).repositories[0]?.houseYeast, undefined);
   });
 
+  it("passes on the Brewery's test map of a repository whose map it keeps (ADR 0274)", () => {
+    const testMaps = [
+      { path: 'test-maps/acme/api.jsonc', text: 'the map of acme/api' },
+      { path: 'test-maps/Acme/Web.jsonc', text: 'the map of acme/web' },
+    ];
+    const kept = (testMap: 'repo' | 'brewery', maps = testMaps) =>
+      ready(
+        inputs({
+          files: { ...inputs().files, config: config({}, { testMap }), testMaps: maps },
+        }),
+      ).repositories[0]?.testMap;
+    assert.deepStrictEqual(kept('brewery'), { text: 'the map of acme/web' });
+    // The repository's own, read with git at each commit.
+    assert.equal(kept('repo'), undefined);
+    assert.deepStrictEqual(kept('brewery', testMaps.slice(0, 1)), {});
+    const unreadable = [{ path: 'test-maps/acme/web.jsonc', unreadable: 'EACCES' }];
+    assert.deepStrictEqual(
+      refused(
+        inputs({
+          files: {
+            ...inputs().files,
+            config: config({}, { testMap: 'brewery' }),
+            testMaps: unreadable,
+          },
+        }),
+      ),
+      ['test-maps/acme/web.jsonc: the test map of acme/web cannot be read: EACCES'],
+    );
+  });
+
+  it('refuses a Brewery whose test-maps folder cannot be read, for a repository whose map it keeps (review of #715)', () => {
+    const keptIn = (testMap: 'repo' | 'brewery') =>
+      serveSetup(
+        inputs({
+          files: {
+            ...inputs().files,
+            config: config({}, { testMap }),
+            testMaps: [{ path: 'test-maps', unreadable: 'ENOTDIR' }],
+          },
+        }),
+      );
+    const refusedHere = keptIn('brewery');
+    assert.deepStrictEqual(refusedHere.kind === 'refused' ? refusedHere.problems : [], [
+      'test-maps: the test map of acme/web cannot be read: ENOTDIR',
+    ]);
+    // A repository that keeps its own map reads no Brewery map.
+    assert.equal(keptIn('repo').kind, 'ready');
+  });
+
   it("passes on each repository's sensitive paths, and none when it names none (ADR 0201)", () => {
     const sensitivePaths = ['.github/workflows/**', 'src/auth/**'];
     const setup = ready(

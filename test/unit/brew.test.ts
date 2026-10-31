@@ -440,7 +440,11 @@ describe('runBrew', () => {
       exec: () => Promise.reject(new Error('no check step runs here')),
       setup: () => Promise.reject(new Error('no repository setup runs here')),
       gh: ghOver(api.fetch).exec,
-      git: () => Promise.reject(new Error('no red proof or guarded step runs here')),
+      // A check step looks for the test map (ADR 0274): the clone has none.
+      git: (_cwd, args) =>
+        args[0] === 'ls-tree'
+          ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+          : Promise.reject(new Error('no red proof or guarded step runs here')),
       ...overrides,
     };
   };

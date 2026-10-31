@@ -98,7 +98,7 @@ const PollEvery = Duration.refine((duration) => {
  * `posix.matchesGlob` (ADR 0201): one that starts at `/` or `!`, holds a `\` or has a `.` or `..`
  * segment would match nothing git names, or not what it seems to.
  */
-const SensitivePath = z
+export const SensitivePath = z
   .string()
   .refine(
     (glob) =>
@@ -128,6 +128,12 @@ const RepositoryConfig = z
       .enum(['repo', 'brewery'])
       .default('repo')
       .describe('Where repository-layer house-yeast rules are kept (ADR 0018)'),
+    testMap: z
+      .enum(['repo', 'brewery'])
+      .default('repo')
+      .describe(
+        "Where the test map is kept: the repository's .foedrum/test-map.jsonc, or the Brewery's test-maps/<owner>/<name>.jsonc (ADR 0018, ADR 0274)",
+      ),
     alias: RepositoryAlias.optional().describe(
       'The short name that starts the batch ids of its claimed issues; required with an intake',
     ),

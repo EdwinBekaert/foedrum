@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
+import type { MapRead } from '../../src/checks/test-map.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
@@ -123,6 +124,8 @@ const setup = ({
   tips = {} as Record<string, string>,
   /** The files at the tip whose read git was killed for, by `<rev>:<path>`. */
   killedTips = [] as string[],
+  /** The test map at each commit, when the runner reads maps (ADR 0274). */
+  maps = undefined as Record<string, MapRead> | undefined,
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -185,6 +188,14 @@ const setup = ({
     env: { base: {}, forced: {} },
     clock: () => now,
     platform,
+    ...(maps === undefined
+      ? {}
+      : {
+          testMap: {
+            at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
+            reports: () => ({ paths: [] }),
+          },
+        }),
   });
   const run = () =>
     runner.start({ ref, limits: { outDoc: { file: 'out.md', schema: undefined as never } } }).ended;
@@ -666,5 +677,46 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       summary: 'the commits of step gauge cannot be read: fatal: bad revision',
     });
     assert.equal(order.length, 1);
+  });
+});
+
+describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
+  it('proves red as before in a repository with no test map and a testReport: regression test', async () => {
+    const { order, run } = setup({ maps: {} });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [`exec npm test in ${redTree}`],
+    );
+  });
+
+  it('sticks a red proof on its environment for a new module no confirmed line reaches', async () => {
+    const module = {
+      code: ['src/**'],
+      tests: { paths: ['test/**'] },
+      coverage: 'none' as const,
+    };
+    const web = { ...module, name: 'web', testReport: { format: 'tap' as const, path: 'web.tap' } };
+    const cli = { ...module, name: 'cli', testReport: { format: 'tap' as const, path: 'cli.tap' } };
+    const derivedFrom = { globs: ['**/package.json'], paths: ['package.json'] };
+    const maps: Record<string, MapRead> = {
+      [gaugeStart]: { kind: 'map', map: { derivedFrom, modules: [web] } },
+      ['b'.repeat(40)]: { kind: 'map', map: { derivedFrom, modules: [web, cli] } },
+    };
+    // A run whose every test passes: the red proof fails, and the new module wrote no report.
+    const { run } = setup({
+      maps,
+      test: { exitCode: 0, stdout: 'TAP version 13\nok 1 - adds\n1..1' },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'blocked');
+    assert.match(
+      end.ending.kind === 'blocked' ? end.ending.summary : '',
+      /^module "cli" of the test map is new in this batch/,
+    );
+    // A failing run keeps the red proof's own verdict (ADR 0280).
+    const failing = setup({ maps });
+    assert.deepEqual((await failing.run()).ending, { kind: 'succeeded', output: null });
   });
 });
