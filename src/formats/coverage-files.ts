@@ -59,7 +59,7 @@ export function readCoverage(format: CoverageFormat, path: string, root: string)
       case 'missing':
         return undefined;
       case 'unread':
-        return { readable: false, reason: `${shown(file)}: ${text.reason}` };
+        return { readable: false, reason: `${shown(file)}: ${text.reason}`, environment: true };
       case 'text': {
         const parsed = parse(text.text);
         return parsed.readable

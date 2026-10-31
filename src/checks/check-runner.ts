@@ -33,6 +33,7 @@ import type { RepositorySetup, TestReportConfig } from '../schemas/brewery-confi
 import {
   type CoverageListing,
   type GravityReading,
+  MAX_OPEN_FINDING_TEXT,
   MOST_LISTED,
   type WorktreeRef,
 } from '../schemas/events.ts';
@@ -157,11 +158,21 @@ const coveragePaths = ({ before, after }: StepMaps): string[] => [
   ),
 ];
 
+/**
+ * A file or module name as the listing records it: a brewer names the files, so one longer than
+ * the event holds is cut, and one of blanks only is said so.
+ */
+const recorded = (name: string): string =>
+  /\S/.test(name) ? name.slice(0, MAX_OPEN_FINDING_TEXT) : '(a name of blanks)';
+
 /** The first of some files, and how many more there are; none for no files. */
 const listed = (files: readonly string[]): { files: string[]; more: number } | undefined =>
   files.length === 0
     ? undefined
-    : { files: files.slice(0, MOST_LISTED), more: Math.max(0, files.length - MOST_LISTED) };
+    : {
+        files: files.slice(0, MOST_LISTED).map(recorded),
+        more: Math.max(0, files.length - MOST_LISTED),
+      };
 
 /** What the uncovered-line check did not measure, for the status comment; none when nothing. */
 const listingOf = ({
@@ -174,7 +185,9 @@ const listingOf = ({
   const listing: CoverageListing = {
     ...(loaded === undefined ? {} : { notLoaded: loaded }),
     ...(out === undefined ? {} : { outside: out }),
-    ...(unmeasured.length === 0 ? {} : { unmeasured: unmeasured.slice(0, MOST_LISTED) }),
+    ...(unmeasured.length === 0
+      ? {}
+      : { unmeasured: unmeasured.slice(0, MOST_LISTED).map(recorded) }),
   };
   return Object.keys(listing).length === 0 ? undefined : listing;
 };
@@ -505,7 +518,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       return stuck(why);
     }
     // A red proof reads no coverage: the uncovered-line check is a check step's (ADR 0274).
-    if (read === undefined || base === undefined) return end;
+    // A step another check already failed or blocked keeps that ending.
+    if (read === undefined || base === undefined || end.ending.kind !== 'succeeded') return end;
     return uncovered(end, worktree, { base, before, after: after.map }, signal);
   };
 
@@ -560,16 +574,26 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       return area?.area === 'code' && module !== undefined && module.coverage !== 'none';
     });
     const read = options.testMap?.coverage ?? readCoverage;
+    const find = options.testMap?.reports ?? reportPaths;
+    // The check sandbox runs in the worktree's real path, so a report may name its files by either.
+    const real = (options.testMap?.realPath ?? realPath)(worktree.path);
+    const roots = real === worktree.path ? [worktree.path] : [worktree.path, real];
     const reportsRead: CoverageReport[] = [];
     for (const { module } of measured ? modules : []) {
       if (module.coverage === 'none') continue;
-      const report = read(module.coverage.format, module.coverage.path, worktree.path);
-      if (!report.readable) {
-        return failed(
-          `the coverage report of module "${module.name}" cannot be read: ${report.reason}`,
-        );
+      const { format, path } = module.coverage;
+      const cannot = `the coverage report of module "${module.name}" cannot`;
+      // Refused out of the worktree, or past the paths a pattern may match (ADR 0274).
+      const found = find(path, worktree.path);
+      if ('refused' in found) return stuck(`${cannot} be looked for: ${found.refused}`);
+      for (const root of roots) {
+        const report = read(format, path, root);
+        if (!report.readable) {
+          const why = `${cannot} be read: ${report.reason}`;
+          return report.environment === true ? stuck(why) : failed(why);
+        }
+        reportsRead.push(report.report);
       }
-      reportsRead.push(report.report);
     }
     const verdict = judgeCoverage({
       modules,
