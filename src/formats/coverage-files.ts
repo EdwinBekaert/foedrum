@@ -17,6 +17,21 @@ import { MAX_REPORT_BYTES } from './test-report.ts';
 /** coverlet's collector names every report so, each under a new folder per test project. */
 const COBERTURA_FILE = 'coverage.cobertura.xml';
 
+const LINE_BREAKS = new RegExp(`[\\r\\n${String.fromCodePoint(0x2028, 0x2029)}]`, 'g');
+
+/**
+ * A report path as a reason quotes it: the tested code names the folders it writes and the map
+ * names the paths, so a line break in either is escaped and cannot start a line of its own.
+ */
+const shown = (path: string): string =>
+  path.replace(LINE_BREAKS, (character) =>
+    character === '\n'
+      ? '\\n'
+      : character === '\r'
+        ? '\\r'
+        : `\\u${(character.codePointAt(0) ?? 0).toString(16)}`,
+  );
+
 /** The `coverage.cobertura.xml` files under the folders `pattern` matches, relative, sorted. */
 function coberturaFiles(root: string, pattern: string): string[] {
   // The walk starts at the folders before the pattern's first glob, not at the whole worktree.
@@ -44,10 +59,12 @@ export function readCoverage(format: CoverageFormat, path: string, root: string)
       case 'missing':
         return undefined;
       case 'unread':
-        return { readable: false, reason: `${file}: ${text.reason}` };
+        return { readable: false, reason: `${shown(file)}: ${text.reason}` };
       case 'text': {
         const parsed = parse(text.text);
-        return parsed.readable ? parsed : { readable: false, reason: `${file}: ${parsed.reason}` };
+        return parsed.readable
+          ? parsed
+          : { readable: false, reason: `${shown(file)}: ${parsed.reason}` };
       }
       default: {
         const unhandled: never = text;
@@ -62,7 +79,7 @@ export function readCoverage(format: CoverageFormat, path: string, root: string)
       return (
         one(path, (text) => parseLcov(text, root)) ?? {
           readable: false,
-          reason: `no LCOV report at ${path}`,
+          reason: `no LCOV report at ${shown(path)}`,
         }
       );
     case 'cobertura': {
@@ -75,7 +92,7 @@ export function readCoverage(format: CoverageFormat, path: string, root: string)
         reports.push(parsed.report);
       }
       if (reports.length === 0) {
-        return { readable: false, reason: `no ${COBERTURA_FILE} under ${path}` };
+        return { readable: false, reason: `no ${COBERTURA_FILE} under ${shown(path)}` };
       }
       return { readable: true, report: mergeReports(reports) };
     }

@@ -4,6 +4,7 @@
 import {
   addLine,
   type CoveredLine,
+  isAbsolutePath,
   linesOf,
   type ReadCoverage,
   reportPath,
@@ -24,6 +25,7 @@ const CONDITIONS = /\((\d+)\/(\d+)\)$/;
  * A class's file relative to `root`, or undefined outside it. Its filename is relative to one of
  * the `<source>`s. With several (coverlet adds `C:\` when it also measures the test assembly), a
  * filename may land inside `root` under more than one, so the one whose file `exists` there wins.
+ * A filename some writers give whole, from a root or a drive, is under none.
  */
 function fileOf(
   filename: string,
@@ -31,7 +33,7 @@ function fileOf(
   root: string,
   exists: (file: string) => boolean,
 ): string | undefined {
-  if (sources.length === 0) return reportPath(filename, root);
+  if (sources.length === 0 || isAbsolutePath(filename)) return reportPath(filename, root);
   const inside = sources
     .map((source) => reportPath(`${source}/${filename}`, root))
     .filter((file) => file !== undefined);
@@ -57,7 +59,10 @@ export function parseCobertura(
       reason: `its root element <${coverage.name}> is no Cobertura report`,
     };
   }
-  const sources = descendants(coverage, 'source').map((source) => textOf(source).trim());
+  // An empty source would put every filename under the file system's root.
+  const sources = descendants(coverage, 'source')
+    .map((source) => textOf(source).trim())
+    .filter((source) => source !== '');
   const files = new Map<string, Map<number, CoveredLine>>();
   // A file in several classes (partial, nested, compiler-made) takes the most hits per line.
   for (const element of descendants(coverage, 'class')) {

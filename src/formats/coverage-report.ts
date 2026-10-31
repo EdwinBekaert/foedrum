@@ -22,7 +22,11 @@ export type CoverageFormat = 'lcov' | 'cobertura';
 
 const DRIVE = /^[A-Za-z]:\//;
 
-const isAbsolutePath = (path: string): boolean => path.startsWith('/') || DRIVE.test(path);
+/** Whether `path`, with `/` or `\` between folders, starts at a root or a drive. */
+export const isAbsolutePath = (path: string): boolean => {
+  const slashedPath = path.replaceAll('\\', '/');
+  return slashedPath.startsWith('/') || DRIVE.test(slashedPath);
+};
 
 const slashed = (path: string): string => posix.normalize(path.replaceAll('\\', '/'));
 
