@@ -1,7 +1,7 @@
 # The test map
 
-> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706) and [the red proof](red-proof.md) that reads it (#709) are built.
-> Discovery and freshness (#708), the uncovered-line check (#710) and `testsUnchanged` (#711) are not.
+> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709) and what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711) are built.
+> Discovery and freshness (#708) and the uncovered-line check (#710) are not.
 
 A target repository's test map says, for each module, where its code is, where its tests live, and where its test and coverage reports are written ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 It says where things are and holds no commands: the commands stay in `foedrum.jsonc`, confirmed by a person ([ADR 0023](../../adr/0023-language-independent-recipes.md)).

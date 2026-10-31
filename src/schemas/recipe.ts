@@ -43,6 +43,12 @@ const Route = z.strictObject({ goto: StepId, maxRounds: z.int().positive() });
 
 const when = Expression.optional().describe('Run the step only when this expression is true');
 
+/** A person's choice that schedules a step of its own (ADR 0286). */
+export const ChosenBy = z.enum(['lauter']);
+export type ChosenBy = z.infer<typeof ChosenBy>;
+
+const CHOSEN_INTERACTIVE = 'Only an interactive step is chosen by a person (ADR 0286)';
+
 /** The longest prompt of an interactive step, in UTF-16 units: about 4 KiB (ADR 0222). */
 const MAX_PROMPT_LENGTH = 4096;
 
@@ -83,6 +89,9 @@ const BrewerStep = z
       .max(MAX_PROMPT_LENGTH)
       .optional()
       .describe("An interactive step's first message to its session (ADR 0222)"),
+    chosenBy: ChosenBy.optional().describe(
+      "Only a person's choice of this option schedules the step, and no step continues to it; for an interactive step (ADR 0286)",
+    ),
     chooses: z
       .literal('recipe')
       .optional()
@@ -97,7 +106,8 @@ const BrewerStep = z
   .refine(
     (step) => (step.interactive === undefined) === (step.prompt === undefined),
     'An interactive step needs a prompt, and only an interactive step has one (ADR 0222)',
-  );
+  )
+  .refine((step) => step.chosenBy === undefined || step.interactive === true, CHOSEN_INTERACTIVE);
 
 /** A named check, or in a Brewery's own recipe a literal command (ADR 0023). */
 const CheckRef = z.union([CheckName, CommandObject]);
@@ -174,14 +184,23 @@ const FanOutStep = z.strictObject({
 const retiredSession = (input: unknown): boolean =>
   typeof input === 'object' && input !== null && 'session' in input;
 
+/** Whether `input` is a step chosen by a person that is not interactive, which ADR 0286 refuses. */
+const unchosen = (input: unknown): boolean =>
+  typeof input === 'object' &&
+  input !== null &&
+  'chosenBy' in input &&
+  !('interactive' in input && input.interactive === true);
+
 export const Step = z
   .xor(
     [BrewerStep, CheckStep, RedProofStep, ParallelStep, LoopStep, GateStep, ActionStep, FanOutStep],
     {
-      error: (issue) =>
-        retiredSession(issue.input)
-          ? 'The session step is gone: write a brewer step with "interactive": true and a "prompt" (ADR 0222)'
-          : undefined,
+      error: (issue) => {
+        if (retiredSession(issue.input)) {
+          return 'The session step is gone: write a brewer step with "interactive": true and a "prompt" (ADR 0222)';
+        }
+        return unchosen(issue.input) ? CHOSEN_INTERACTIVE : undefined;
+      },
     },
   )
   .meta({

@@ -5,7 +5,7 @@ import { posix, win32 } from 'node:path';
 
 const pathModule = (platform: NodeJS.Platform) => (platform === 'win32' ? win32 : posix);
 
-/** Whether the platform's file system takes two paths that differ only in case for one: Windows and macOS. */
+/** Whether the platform's file system takes two paths that differ only in case for one. */
 export const foldsCase = (platform = process.platform): boolean =>
   platform === 'win32' || platform === 'darwin';
 

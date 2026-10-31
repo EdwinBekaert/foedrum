@@ -335,7 +335,7 @@ export const wireDriver = async (
   const brewerOf = (batchId: string, stepId: string) =>
     setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer;
   const guardsOf = (batchId: string, stepId: string) => brewerOf(batchId, stepId)?.guards ?? [];
-  // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078).
+  // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078, ADR 0274).
   const brewer = guardTests({
     runner: shell.runner(setup.claude, plans.plan),
     state,
@@ -345,6 +345,8 @@ export const wireDriver = async (
         : undefined,
     git: shell.git,
     clone,
+    // Where a repository's map lists modules, every line the red step added to a test file stays.
+    testMap: mapAt,
     clock,
   });
   const isCheck = ({ batchId, stepId }: AttemptRef) => {

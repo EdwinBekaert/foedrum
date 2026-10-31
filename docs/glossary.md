@@ -13,6 +13,7 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Bottle** | A pull request: one or more finished sub-orders of one repository |
 | **Bottling** | Choosing which sub-orders go into a bottle |
 | **Gate 1** | A person's sign-off of a plan: `foedrum approve <batch>` on a batch Stuck for its plan's review, recorded with the digest of the plan it signs off; a plan written again needs a sign-off of its own ([ADR 0281](adr/0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md)) |
+| **Lauter** | At gate 1, the plan corrected with the Brewmaster in an interactive session: `foedrum lauter <batch>` on a batch Stuck for its plan's review runs the recipe's step `chosenBy` lauter, which reads the plan, and the batch waits for a review of the corrected plan; the plan lenses do not run again ([ADR 0286](adr/0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md)) |
 | **Conditioning** ⏳ | A batch waiting for a merge, a release or a sibling batch — visible, with a reminder, never a failure; a sub-order not yet ordered waits for its blockers' merges, and a `release` blocker's release after its merge, without a batch ([ADR 0211](adr/0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md), [ADR 0216](adr/0216-a-release-blocker-is-done-once-its-repository-is-released-after-its-merge.md)) |
 | **Release signal** | How Foedrum learns a library version was published (GitHub release or tag first; NuGet, npm and others later) |
 | **Triage source** | Issues in target repositories configured for triage, read by Infection check and turned into Brewery orders |
@@ -77,7 +78,7 @@ The bigger the work, the bigger the vessel. Choose one with a label such as `rec
 |---|---|
 | Mash-in | Suggest a recipe for an order and ask which brews it (`foedrum mash`) |
 | Nip | Quick fix |
-| Mash | A plan of sub-orders for an order, shown on its issue; nothing built |
+| Mash | A plan of sub-orders for an order, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
 | Half-pint | Small feature |
 | Pint | Medium feature, with plan approval |
 | Growler | Large feature, split into sub-orders |

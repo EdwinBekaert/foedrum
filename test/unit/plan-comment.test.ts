@@ -57,8 +57,14 @@ const three: PlanReport = {
 };
 
 describe('renderPlan (ADR 0233)', () => {
+  it('says who changed the plan in a session without a time when it has none: regression test (#589)', () => {
+    const changed = { by: 'ann', via: 'terminal' } as const;
+    const text = renderPlan('7-1', 'lauter', three, undefined, undefined, true, undefined, changed);
+    assert.match(text, /\nChanged in a session by ann \(terminal\)\.\n/);
+  });
+
   const next =
-    'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`. Its sub-orders become issues once #590 is built.';
+    'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`. Its sub-orders become issues once #590 is built.';
   const outDoc = 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md';
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
