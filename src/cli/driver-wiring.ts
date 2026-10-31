@@ -32,6 +32,7 @@ import { keepOutDocs } from '../engine/kept-out-docs.ts';
 import { laneLabelEffects } from '../engine/lane-labels.ts';
 import { mergeBriefEffects } from '../engine/merge-brief-post.ts';
 import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
+import { planIssueEffects } from '../engine/plan-issues.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
@@ -47,6 +48,7 @@ import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
+import { githubSubIssues } from '../github/sub-issues.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
 import { worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import type { ServeShell } from './serve.ts';
@@ -241,9 +243,15 @@ export const wireDriver = async (
     recipes: setup.recipes,
     redProof: (recipe) => setup.checks.redProof(recipe)?.id,
   });
+  // An approved plan's sub-orders, as Brewery sub-issues through the ledger (ADR 0285), first, so
+  // a pass opens them all before the comments that name them are written.
+  const planIssues = planIssueEffects({
+    subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
+  });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
+          planIssues,
           status,
           planComments,
           labels,
@@ -252,7 +260,7 @@ export const wireDriver = async (
           briefs,
           claimEffects({ claimant, marks, claims }),
         )
-      : combineEffects(status, planComments, labels, recipeLabels, conflicts, briefs);
+      : combineEffects(planIssues, status, planComments, labels, recipeLabels, conflicts, briefs);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
@@ -338,7 +346,7 @@ export const wireDriver = async (
   const brewerOf = (batchId: string, stepId: string) =>
     setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer;
   const guardsOf = (batchId: string, stepId: string) => brewerOf(batchId, stepId)?.guards ?? [];
-  // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078).
+  // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078, ADR 0274).
   const brewer = guardTests({
     runner: shell.runner(setup.claude, plans.plan),
     state,
@@ -348,6 +356,8 @@ export const wireDriver = async (
         : undefined,
     git: shell.git,
     clone,
+    // Where a repository's map lists modules, every line the red step added to a test file stays.
+    testMap: mapAt,
     clock,
   });
   const isCheck = ({ batchId, stepId }: AttemptRef) => {

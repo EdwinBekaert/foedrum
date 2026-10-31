@@ -1849,6 +1849,103 @@ describe('loadRecipes: an interactive brewer step (ADR 0222)', () => {
   });
 });
 
+describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () => {
+  const lauter = (id: string) => ({
+    id,
+    brewer: 'brewmaster',
+    interactive: true,
+    prompt: 'Walk the plan through with me.',
+    chosenBy: 'lauter',
+  });
+
+  it('loads a step chosen by lauter, which no step before it continues to (#589)', () => {
+    const result = loadRecipes(
+      brewery({ recipes: [recipe('pale', [{ id: 'plan', brewer: 'brewmaster' }, lauter('fix')])] }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale') ?? assert.fail('no recipe pale');
+    assert.equal(pale.chosen('lauter'), 'fix');
+    assert.deepEqual(pale.after(batch({ plan: 1 }), 'plan'), { kind: 'done', pullRequests: [] });
+    assert.deepEqual(pale.after(batch({ plan: 1, fix: 1 }), 'fix'), {
+      kind: 'done',
+      pullRequests: [],
+    });
+  });
+
+  /** Batch 12-1 whose step `stepId` ended each attempt as `outcomes` say, in order. */
+  const ended = (stepId: string, outcomes: readonly ('ok' | 'failed')[]): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        stepId,
+        {
+          id: stepId,
+          inputs: [],
+          attempts: new Map(
+            outcomes.map((outcome, i): [number, Attempt] => [
+              i + 1,
+              {
+                phase: 'finished',
+                attempt: i + 1,
+                deadlineAt: D,
+                outcome:
+                  outcome === 'ok'
+                    ? { kind: 'succeeded', output: null }
+                    : { kind: 'failed', retryable: true, reason: 'the plan is invalid' },
+              },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  });
+  // The brewmaster has three attempts.
+  const pale = () => {
+    const steps = [{ id: 'plan', brewer: 'brewmaster' }, lauter('fix')];
+    const result = loadRecipes(brewery({ recipes: [recipe('pale', steps)] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    return result.recipes.find('pale') ?? assert.fail('no recipe pale');
+  };
+
+  it('counts the attempts of a chosen step since its latest success, not over the batch (#589)', () => {
+    const recipe = pale();
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'ok', 'failed']), 'fix'), true);
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed']), 'fix'), true);
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed', 'failed']), 'fix'), false);
+  });
+
+  it("counts a step's attempts over the batch when no choice schedules it: regression test (#589)", () => {
+    assert.equal(pale().mayRetry(ended('plan', ['ok', 'ok', 'failed']), 'plan'), false);
+  });
+
+  it('goes past a chosen step to the step after it: regression test (#589)', () => {
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      lauter('fix'),
+      { id: 'tail', brewer: 'brewmaster' },
+    ];
+    const result = loadRecipes(brewery({ recipes: [recipe('pale', steps)] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale') ?? assert.fail('no recipe pale');
+    assert.deepEqual(pale.after(batch({ plan: 1 }), 'plan'), { kind: 'step', stepId: 'tail' });
+  });
+
+  it('chooses no step in a recipe without one (#589)', () => {
+    const result = loadRecipes(
+      brewery({ recipes: [recipe('pale', [{ id: 'plan', brewer: 'brewmaster' }])] }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.equal(result.recipes.find('pale')?.chosen('lauter'), undefined);
+  });
+
+  it('refuses two steps chosen by the same option (#589)', () => {
+    const steps = [{ id: 'plan', brewer: 'brewmaster' }, lauter('fix'), lauter('mend')];
+    assert.deepEqual(problemsOf(brewery({ recipes: [recipe('pale', steps)] })), [
+      'recipes/pale.jsonc: steps "fix" and "mend" are both chosen by lauter: a person\'s choice schedules one step (ADR 0286)',
+    ]);
+  });
+});
+
 describe('loadRecipes: onPullRequestFail (ADR 0219)', () => {
   const open = 'open-pull-request';
   const fixing = (onPullRequestFail?: unknown) =>

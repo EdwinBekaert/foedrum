@@ -12,7 +12,16 @@ export interface FakeApiIssue {
   state?: 'open' | 'closed';
   /** When it was created; by default a minute after 2026-10-01 per issue number. */
   created?: string;
+  /** Its REST id, which the links name it by; by default `idOf` its number. */
+  id?: number;
+  /** The numbers of its sub-issues, in their order. */
+  subIssues?: number[];
+  /** The numbers of the issues it is blocked by. */
+  blockedBy?: number[];
 }
+
+/** The REST id the fake gives an issue that names none: never its number, as on GitHub. */
+export const idOf = (number: number): number => 6_000_000_000 + number;
 
 /** The creation time the fake gives an issue that names none: one minute per issue number. */
 export const createdOf = (number: number): string =>
@@ -82,7 +91,10 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   let commits = 0;
   const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
   // An issue opened through the API, numbered after every issue and pull request of its repository.
-  const openIssue = (repo: string, fields: { title?: string; body?: string }): FakeApiIssue => {
+  const openIssue = (
+    repo: string,
+    fields: { title?: string; body?: string; labels?: string[] },
+  ): FakeApiIssue => {
     const key = repo.toLowerCase();
     const listed = options.issues[key] ?? [];
     options.issues[key] = listed;
@@ -92,7 +104,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     ];
     const made: FakeApiIssue = {
       number: Math.max(0, ...numbers) + 1,
-      labels: [],
+      labels: [...(fields.labels ?? [])],
       author: login,
       title: fields.title ?? '',
       body: fields.body ?? '',
@@ -104,6 +116,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   const issue = (repo: string, number: number) =>
     repoIssues(repo).find((each) => each.number === number);
   const asIssue = (found: FakeApiIssue) => ({
+    id: found.id ?? idOf(found.number),
     number: found.number,
     state: found.state ?? 'open',
     user: { login: found.author },
@@ -134,7 +147,57 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     return json(200, { data: { updateRefs: { clientMutationId: null } } });
   };
 
+  // An issue's sub-issues and "blocked by" links (spike #18): each names the other issue by its
+  // REST id, a number where the id belongs is not found, and a repeated add answers 422.
+  const onLinks = (
+    method: string,
+    repo: string,
+    found: FakeApiIssue,
+    what: 'sub_issues' | 'blocked_by',
+    body: unknown,
+  ): Response => {
+    if (what === 'sub_issues') found.subIssues ??= [];
+    else found.blockedBy ??= [];
+    const linked = (what === 'sub_issues' ? found.subIssues : found.blockedBy) ?? [];
+    if (method === 'GET') {
+      const listed = linked.flatMap((number) => {
+        const each = issue(repo, number);
+        return each === undefined ? [] : [asIssue(each)];
+      });
+      return json(200, listed);
+    }
+    if (method !== 'POST') return notFound();
+    const fields = (body ?? {}) as { sub_issue_id?: number; issue_id?: number };
+    const id = what === 'sub_issues' ? fields.sub_issue_id : fields.issue_id;
+    const other = repoIssues(repo).find((each) => (each.id ?? idOf(each.number)) === id);
+    if (other === undefined) return notFound();
+    if (what === 'sub_issues') {
+      const parented = repoIssues(repo).some((each) => each.subIssues?.includes(other.number));
+      if (parented) {
+        return json(422, {
+          message:
+            'An error occurred while adding the sub-issue to the parent issue. Issue may not contain duplicate sub-issues and Sub issue may only have one parent',
+        });
+      }
+    } else if (linked.includes(other.number)) {
+      return json(422, {
+        message:
+          'An error occurred while adding the blocking issue to the issue. Validation failed: Target issue has already been taken',
+      });
+    }
+    linked.push(other.number);
+    return json(201, asIssue(found));
+  };
+
   const onIssue = (method: string, repo: string, rest: string, body: unknown): Response => {
+    const [, linkedTo, link] =
+      /^issues\/(\d+)\/(sub_issues|dependencies\/blocked_by)$/.exec(rest) ?? [];
+    if (linkedTo !== undefined) {
+      const found = issue(repo, Number(linkedTo));
+      if (found === undefined) return notFound();
+      const what = link === 'sub_issues' ? 'sub_issues' : 'blocked_by';
+      return onLinks(method, repo, found, what, body);
+    }
     const [, number, what = '', label] =
       /^issues\/(\d+)(?:\/(assignees|labels|comments)(?:\/(.+))?)?$/.exec(rest) ?? [];
     const found = issue(repo, Number(number));
@@ -284,7 +347,8 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
       return json(200, listed.map(asIssue));
     }
     if (method === 'POST' && rest === 'issues') {
-      return json(201, asIssue(openIssue(repo, body as { title?: string; body?: string })));
+      const fields = body as { title?: string; body?: string; labels?: string[] };
+      return json(201, asIssue(openIssue(repo, fields)));
     }
     const [, id] = /^issues\/comments\/(\d+)$/.exec(rest) ?? [];
     if (id !== undefined) return onComment(method, repo, Number(id), body);

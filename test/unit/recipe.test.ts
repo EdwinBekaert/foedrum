@@ -585,6 +585,31 @@ describe('an interactive brewer step (ADR 0222)', () => {
   });
 });
 
+describe('a step a person chooses at gate 1 (ADR 0286, #589)', () => {
+  const lauter = {
+    id: 'lauter',
+    brewer: 'brewmaster',
+    interactive: true,
+    prompt: 'Walk the plan through with me.',
+    chosenBy: 'lauter',
+  };
+
+  it('accepts chosenBy lauter on an interactive brewer step (#589)', () => {
+    const result = Step.safeParse(lauter);
+    assert.equal(result.success, true, result.error?.message);
+  });
+
+  it('refuses chosenBy on a step that is not interactive, naming why (#589)', () => {
+    const { interactive: _, prompt: __, ...headless } = lauter;
+    const result = Step.safeParse(headless);
+    assert.equal(result.success, false);
+    assert.match(
+      result.error?.issues.map(({ message }) => message).join('\n') ?? '',
+      /^Only an interactive step is chosen by a person \(ADR 0286\)$/m,
+    );
+  });
+});
+
 describe('Recipe: onPullRequestFail (ADR 0219)', () => {
   const route = { goto: 'plan', maxRounds: 2 };
 

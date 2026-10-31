@@ -1,7 +1,7 @@
 # The test map
 
-> **Partly built.** The map's file, its schema, where it is kept, the effective map and the Stuck reason for a module no confirmed line reaches are built (#706), and so is freshness (#718).
-> The survey step that proposes a map (#708), the red proof that reads the map (#709), the uncovered-line check (#710) and `testsUnchanged` (#711) are not: until they land, the red proof works as [the red proof](red-proof.md) says.
+> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709), what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711) and freshness (#718) are built.
+> The survey step that proposes a map (#708) and the uncovered-line check (#710) are not.
 
 A target repository's test map says, for each module, where its code is, where its tests live, and where its test and coverage reports are written ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 It says where things are and holds no commands: the commands stay in `foedrum.jsonc`, confirmed by a person ([ADR 0023](../../adr/0023-language-independent-recipes.md)).
@@ -11,6 +11,7 @@ Its JSON Schema is `schemas/test-map.json`.
 `derivedFrom` holds the manifest globs the map was derived from and the paths they matched then.
 Each of `modules` has a `name`, its `code` globs, its `tests` (separate `paths` globs, test `projects` by folder, or `inline: true`), its `testReport` (`tap`, `junit` or `trx`, and a file or folder pattern) and its `coverage` (`lcov` or `cobertura` with a path, or `"none"`).
 A glob is a path relative to the repository with `/` between folders, read as a sensitive path is; a report path is a file or a folder pattern of at most 256 characters with `*` inside a folder's name as its only wildcard, never `**`, matched without a regular expression, so a batch's map cannot make the match run long.
+A TAP or JUnit test report's pattern names report files: when the red proof finds a folder there, the batch is Stuck (`environment`), naming the file to give instead ([the red proof](red-proof.md)); a Cobertura coverage pattern names folders.
 Every object is closed, so a map that holds a key the schema does not name, such as a `command`, is refused.
 
 **Reading it.** The map is read at a commit of the repository's clone, as committed: `git ls-tree` finds its entry and `git cat-file` reads its blob, at most 1 MiB and 10 s per read.

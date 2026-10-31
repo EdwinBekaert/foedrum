@@ -262,7 +262,8 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
       ...headers,
       accept: 'application/vnd.github+json',
       'user-agent': 'foedrum',
-      'x-github-api-version': '2022-11-28',
+      // A caller's own wins: the sub-issue calls were tried under 2026-03-10 only (#723).
+      'x-github-api-version': headers['x-github-api-version'] ?? '2022-11-28',
     };
     const args = [
       'api',

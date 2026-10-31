@@ -1,7 +1,7 @@
 // Ranks (ADR 0208): the order in which the intake orders and claims its queue, by arrival unless a
 // person moved an order with `foedrum rank`. Pure: the intake and `rank` both sort through it.
 
-import type { OrderRef } from '../schemas/events.ts';
+import type { OrderRef, PlanOrigin } from '../schemas/events.ts';
 import { claimedName, claimOfOrder } from './claim-orders.ts';
 import { orderKey, type Rank, type State } from './fold.ts';
 
@@ -16,7 +16,7 @@ export interface QueuedOrder {
    * A ready sub-order of `order`, started under `parentBatchId` (ADR 0211): it sorts at its order's
    * place, ahead of a new order of the same place.
    */
-  subOrder?: { issue: number; parentBatchId: string };
+  subOrder?: { issue: number; parentBatchId: string; plan?: PlanOrigin };
 }
 
 type Ranks = ReadonlyMap<string, Rank>;

@@ -173,6 +173,17 @@ describe('createGitHubClient', () => {
       assert.equal(call?.options.stdin, undefined);
     });
 
+    it("sends a caller's API version instead of its own, once", async () => {
+      const { client, gh } = capturedClient([captured.ok as GhOutput]);
+      await client.rest('GET', '/repos/acme/web/issues/7/sub_issues', undefined, undefined, {
+        'x-github-api-version': '2026-03-10',
+      });
+      const versions = (gh.calls[0]?.args ?? []).filter((arg) =>
+        arg.startsWith('x-github-api-version:'),
+      );
+      assert.deepStrictEqual(versions, ['x-github-api-version: 2026-03-10']);
+    });
+
     it('sends a body as JSON on stdin, never as an argument', async () => {
       const { client, gh } = capturedClient([captured.ok as GhOutput]);
       await client.rest('POST', '/repos/acme/web/issues/7/labels', { labels: ['--help'] });

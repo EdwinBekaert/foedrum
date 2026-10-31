@@ -4,12 +4,16 @@
 // terminal outside Claude Code, an interactive step's session opens in the foreground (ADR 0222).
 // cli-main.ts loads it.
 
+import { existsSync } from 'node:fs';
 import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import type { BrewerRunner } from '../engine/brewer-runner.ts';
+import { emptyState, fold, type State } from '../engine/fold.ts';
+import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { environmentVariable, resolveExecutable } from '../platform/executables.ts';
 import { openInNewWindow, type WindowFacts } from '../platform/new-window.ts';
 import { foregroundProcess, type LaunchProcess, launchProcess } from '../platform/processes.ts';
-import type { BrewCommand, MashCommand } from '../schemas/commands.ts';
+import type { BrewCommand, LauterCommand, MashCommand, OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { runGit } from '../workspace/git.ts';
 import { type BrewRequest, runBrew } from './brew.ts';
@@ -54,6 +58,27 @@ export const brewShellOf = (
 
 /** What brew is asked to brew, as whom and who asked, and why it opens no session, if it does not. */
 export const brewRequestOf = (
+  input: BrewCommand | MashCommand | LauterCommand,
+  owner: string,
+  issued: { by: string; via: Surface },
+  noSessions: BrewRequest['noSessions'],
+  /** For `foedrum lauter`: the issue of its batch (`lauterTarget`). */
+  target?: OrderTarget,
+): BrewRequest => {
+  if (input.command !== 'lauter') return brewOrMash(input, owner, issued, noSessions);
+  if (target === undefined) throw new Error(`foedrum lauter ${input.batch} needs its issue`);
+  // A lauter takes the batch over from the driver that holds it, as brew --take (ADR 0286).
+  return {
+    target,
+    owner,
+    ...issued,
+    take: true,
+    lauter: input.batch,
+    ...(noSessions === undefined ? {} : { noSessions }),
+  };
+};
+
+const brewOrMash = (
   input: BrewCommand | MashCommand,
   owner: string,
   issued: { by: string; via: Surface },
@@ -66,6 +91,42 @@ export const brewRequestOf = (
   ...(input.command === 'mash' ? { mash: true } : {}),
   ...(noSessions === undefined ? {} : { noSessions }),
 });
+
+/** The issue of the batch `foedrum lauter` names, as brew takes it, or why it has none (ADR 0286). */
+export const lauterTarget = (
+  state: State,
+  batchId: string,
+  repositories: readonly { alias: string; repo: string }[],
+): { target: OrderTarget } | { refused: string } => {
+  const batch = state.batches.get(batchId);
+  if (batch === undefined) return { refused: `there is no batch ${batchId}` };
+  const { issue, repo } = batch;
+  if (repo === undefined) return { target: { issue } };
+  const alias = repositories.find((each) => sameRepo(each.repo, repo))?.alias;
+  return alias === undefined
+    ? {
+        refused: `batch ${batchId} is of ${repo}, which foedrum.jsonc names with no alias and intake`,
+      }
+    : { target: { alias, issue } };
+};
+
+/** The state of the Brewery's event store at `path`, read only; none yet is no batch. */
+const readState = (path: string): State => {
+  if (!existsSync(path)) return emptyState;
+  const store = openSqliteEventStore(path, { readOnly: true });
+  try {
+    return fold(store.eventsAfter(0).map(({ event }) => event));
+  } finally {
+    store.close();
+  }
+};
+
+/** `lauterTarget` of the Brewery's event store at `storePath`, read only. */
+export const lauterTargetIn = (
+  storePath: string,
+  batchId: string,
+  repositories: readonly { alias: string; repo: string }[],
+): ReturnType<typeof lauterTarget> => lauterTarget(readState(storePath), batchId, repositories);
 
 /** What `--new-window` starts the brew with: the machine's launcher facts, node and program. */
 export interface NewWindowDeps extends WindowFacts {
@@ -131,7 +192,7 @@ export const brewInNewWindow = async (
  */
 export const brewFromCheckout = async (
   cwd: string,
-  input: BrewCommand | MashCommand,
+  input: BrewCommand | MashCommand | LauterCommand,
   issued: { by: string; via: Surface },
   options?: StartOptions,
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -199,7 +260,19 @@ export const brewFromCheckout = async (
             }),
         }),
     );
-    const request = brewRequestOf(input, owner.owner, issued, noSessions);
+    let target: OrderTarget | undefined;
+    if (input.command === 'lauter') {
+      const found = lauterTargetIn(setup.store, input.batch, setup.intake.repositories);
+      if ('refused' in found) {
+        return {
+          exitCode: 5,
+          stdout: '',
+          stderr: `foedrum lauter: ${found.refused}\n`,
+        };
+      }
+      target = found.target;
+    }
+    const request = brewRequestOf(input, owner.owner, issued, noSessions, target);
     const exitCode = await runBrew(setup, shell, request);
     return { exitCode, stdout: '', stderr: '' };
   } finally {

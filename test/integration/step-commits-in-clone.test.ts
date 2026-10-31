@@ -5,11 +5,12 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import { readDiff, readTestFiles } from '../../src/checks/step-commits.ts';
+import { testMaps } from '../../src/checks/test-map.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -140,6 +141,55 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
       retryable: true,
       reason:
         'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, add.test.mjs: assert.equal(add(1, 2), 3);',
+    });
+  });
+
+  it('the guard reads the test map the proven step committed, in the clone (ADR 0274)', async () => {
+    const gauge = join(dir.path, 'gauge');
+    mkdirSync(join(gauge, '.foedrum'));
+    const map = {
+      derivedFrom: { globs: ['package.json'], paths: [] },
+      modules: [
+        {
+          name: 'app',
+          code: ['add.mjs'],
+          tests: { paths: ['add.test.mjs'] },
+          testReport: { format: 'tap', path: 'report.tap' },
+          coverage: 'none',
+        },
+      ],
+    };
+    const mapped = commit(
+      gauge,
+      { '.foedrum/test-map.jsonc': JSON.stringify(map) },
+      'Map the tests',
+    );
+    const implement = addWorktree('implement', mapped);
+    // An import line, which only the map's rule keeps: ADR 0078's let it change.
+    const edited = test.replace("from './add.mjs';", "from './sum.mjs';");
+    commit(implement, { 'add.test.mjs': edited }, 'Edit the import');
+    const events = [...gauged, ...started('implement', implement, mapped)];
+    const guarded = guardTests({
+      runner: fakeBrewerRunner({ implement: [behave.succeed()] }),
+      state: () => fold(events),
+      protects: () => 'gauge',
+      git: runGit,
+      clone: () => user,
+      testMap: testMaps({
+        git: runGit,
+        clone: () => user,
+        keptIn: () => 'repo',
+        brewery: () => undefined,
+      }),
+      clock,
+    });
+    const ref = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+    const end = await guarded.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        "the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, add.test.mjs: import { add } from './add.mjs';",
     });
   });
 

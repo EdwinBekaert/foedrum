@@ -521,6 +521,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       found.lenses,
       repositories,
       found.choices,
+      found.chosenBy !== undefined,
     );
     const inputs: PromptInput[] = [];
     for (const input of planned) {

@@ -4,7 +4,7 @@
 // and ends each attempt itself; no process starts (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -945,6 +945,84 @@ Plan the order in {order}.
     assert.equal(posted.length, 1, lines.join('\n'));
     assert.match(posted[0]?.body ?? '', /^### Foedrum · plan of batch `12-1`/);
     assert.match(posted[0]?.body ?? '', /\n- Builds in acme\/web: one option, about 120 lines\n/);
+  });
+
+  it("opens an approved plan's sub-orders as sub-issues of its order's issue, with their labels (ADR 0285, regression test)", async () => {
+    const planner = `---\n${JSON.stringify({
+      name: 'brewmaster',
+      description: 'Plans the order.',
+      version: 1,
+      inputs: [{ name: 'order', from: 'order' }],
+      output: { doc: 'plan.md', schema: 'plan' },
+      produces: 'report',
+      model: 'quick',
+      effort: 'low',
+      tools: { allow: ['Read'] },
+      access: 'read',
+      tree: 'task',
+      deadline: '10m',
+      maxAttempts: 1,
+    })}\n---\nPlan the order in {order}.\n`;
+    const mash = JSON.stringify({
+      name: 'mash',
+      description: 'Plans an order.',
+      steps: [{ id: 'plan', brewer: 'brewmaster' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [{ path: 'recipes/mash.jsonc', text: mash }],
+            brewers: [{ path: 'brewers/brewmaster.md', text: planner }],
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    const accept = (command: Parameters<typeof log.issue>[0]): void =>
+      assert.equal(log.issue(command, t0).kind, 'accepted');
+    accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+    accept({ kind: 'route', batchId: '12-1', recipe: 'mash', reason: 'label', source: 'label' });
+    const ref = { batchId: '12-1', stepId: 'plan', attempt: 1 };
+    accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+    const subOrder = {
+      id: 'json-flag',
+      title: 'A --json flag',
+      repo: 'acme/web',
+      size: { lines: 120, mechanism: 'one option' },
+      doneWhen: 'foedrum --json prints JSON',
+      touches: [{ path: 'src/cli.ts' }],
+      dependencies: [],
+      recipe: 'stout',
+      why: 'one change',
+      ready: true,
+    };
+    const output = { status: 'done', summary: 'Planned', assumptions: [], subOrders: [subOrder] };
+    accept({ kind: 'finish', ...ref, ending: { kind: 'succeeded', output } });
+    accept({ kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' });
+    assert.equal(await runServe(setup, shell()), 0);
+    const opened = api.issue('acme/brewery', 15);
+    assert.equal(opened?.title, 'A --json flag', lines.join('\n'));
+    assert.deepStrictEqual(opened?.labels, ['foedrum:sub-order', 'recipe:stout']);
+    assert.deepStrictEqual(api.issue('acme/brewery', 12)?.subIssues, [15]);
+    assert.deepStrictEqual(
+      createCommandLog({ store, recipes: setup.recipes }).state().orders.get(12)?.subOrders,
+      [15],
+    );
+    // The sub-issues open before the plan comment is written, which names them in one revision.
+    const plan = (api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
+      body.startsWith('### Foedrum · plan of batch'),
+    );
+    assert.equal(plan.length, 1);
+    assert.match(plan[0]?.body ?? '', /\nSub-issues: `json-flag` #15\.\n/);
+    assert.notEqual(store.findEffect({ batchId: '12-1', effect: 'plan.1' }), undefined);
+    assert.equal(store.findEffect({ batchId: '12-1', effect: 'plan.2' }), undefined);
   });
 
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
@@ -1919,7 +1997,15 @@ Plan the order in {order}.
       "diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1 @@\n+test('adds two numbers', () => assert.equal(add(1, 2), 3));\n";
 
     /** Serve brewing batch 14-1 with the nip recipe: what the brewers, the checks and git saw. */
-    const brewTestFirst = async (testFirst: ServeSetup, taps: string[] = []) => {
+    const brewTestFirst = async (
+      testFirst: ServeSetup,
+      taps: string[] = [],
+      clonedGit?: Git,
+      /** The text of the clone's test map at every commit, when it has one (ADR 0274). */
+      testMap?: string,
+      /** Where in its worktree the test run also writes its TAP, as a test map names it (ADR 0274). */
+      reportAt?: string,
+    ) => {
       const log = createCommandLog({ store, recipes: testFirst.recipes });
       log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
       const route = { kind: 'route', batchId: '14-1', recipe: 'nip', reason: 'label' } as const;
@@ -1938,9 +2024,13 @@ Plan the order in {order}.
         progress: () => undefined,
       };
       const checks: string[] = [];
-      const exec: ExecProcess = async (file) => {
+      const exec: ExecProcess = async (file, _args, options) => {
         checks.push(file);
         const stdout = taps.shift() ?? tap;
+        if (reportAt !== undefined && options.cwd !== undefined) {
+          mkdirSync(options.cwd, { recursive: true });
+          writeFileSync(join(options.cwd, reportAt), stdout);
+        }
         return { exitCode: 1, stdout, stderr: '', output: stdout };
       };
       const diffs: string[] = [];
@@ -1951,8 +2041,22 @@ Plan the order in {order}.
           runner: () => succeeding,
           exec,
           git: async (cwd, args) => {
-            // The clone has no test map (ADR 0274).
-            if (args[0] === 'ls-tree') return { code: 0, stdout: '', stderr: '' };
+            if (clonedGit !== undefined) return clonedGit(cwd, args);
+            // The clone has no test map unless the test gives one, and nothing deleted (ADR 0274).
+            if (args[0] === 'ls-tree') {
+              const entry = `100644 blob ${'e'.repeat(40)}\t.foedrum/test-map.jsonc\u0000`;
+              return { code: 0, stdout: testMap === undefined ? '' : entry, stderr: '' };
+            }
+            if (args[0] === 'cat-file' && testMap !== undefined) {
+              return { code: 0, stdout: testMap, stderr: '' };
+            }
+            // The worktree's manifests, as the map records them: the map is fresh (ADR 0282).
+            if (args[0] === 'ls-files' && testMap !== undefined) {
+              const { paths } = (JSON.parse(testMap) as { derivedFrom: { paths: string[] } })
+                .derivedFrom;
+              return { code: 0, stdout: paths.map((path) => `${path}\u0000`).join(''), stderr: '' };
+            }
+            if (args.includes('--diff-filter=D')) return { code: 0, stdout: '', stderr: '' };
             folders.push(cwd);
             // The two revisions before the `--` that ends the options.
             const end = args.indexOf('--');
@@ -2001,6 +2105,58 @@ Plan the order in {order}.
       assert.match(diffs[2] ?? '', /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/implement\/1$/);
     });
 
+    it('keeps every line the Gauger added to a test file of the test map, through serve (ADR 0274)', async () => {
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['add.mjs'],
+            tests: { paths: ['add.test.mjs'] },
+            testReport: { format: 'tap', path: 'report.tap' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const importLine = "import { add } from './add.mjs';";
+      const test = "test('adds two numbers', () => assert.equal(add(1, 2), 3));";
+      const gauged = `diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1,2 @@\n+${importLine}\n+${test}\n`;
+      // The cellarman edits only the import line, which ADR 0078's rule lets change.
+      const edited = importLine.replace('./add.mjs', './sum.mjs');
+      const own = `diff --git a/add.test.mjs b/add.test.mjs\n--- a/add.test.mjs\n+++ b/add.test.mjs\n@@ -1 +1 @@\n-${importLine}\n+${edited}\n`;
+      const [mapBlob, testBlob] = ['a'.repeat(40), 'b'.repeat(40)];
+      const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' });
+      const git: Git = async (_cwd, args) => {
+        const path = args.at(-1) ?? '';
+        if (args.includes('ls-tree')) {
+          // The Gauger's test file is on its branch and the cellarman's, not where it started.
+          const ref = args[args.indexOf('--') - 1] ?? '';
+          if (path !== '.foedrum/test-map.jsonc' && !ref.startsWith('refs/heads/')) return ok('');
+          const blob = path === '.foedrum/test-map.jsonc' ? mapBlob : testBlob;
+          return ok(`100644 blob ${blob}\t${path}\0`);
+        }
+        if (args[0] === 'cat-file') return ok(path === mapBlob ? map : `${edited}\n${test}\n`);
+        // The worktree's manifests, as the map records them: the map is fresh (ADR 0282).
+        if (args[0] === 'ls-files') return ok('package.json\0');
+        const end = args.indexOf('--');
+        return ok(args[end - 1]?.endsWith('/implement/1') ? own : gauged);
+      };
+      // The run writes the report the map names, so the red proof proves the Gauger's test red.
+      const { batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }),
+        [],
+        git,
+        undefined,
+        'report.tap',
+      );
+      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'implement',
+        attempts: 1,
+        lastReason: `the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, add.test.mjs: ${importLine}`,
+      });
+    });
+
     it('lets a batch whose red proof it skips brew in a repository without a test report', async () => {
       const off = JSON.stringify({
         name: 'nip',
@@ -2046,6 +2202,52 @@ Plan the order in {order}.
       // Two red proofs, then the guard of the cellarman: nothing for the Gauger's second attempt.
       assert.equal(diffs.length, 4, diffs.join('\n'));
       assert.match(diffs[1] ?? '', /refs\/heads\/foedrum\/14-1\/gauge\/2$/);
+    });
+
+    it('a failed red proof still takes its onFail route', async () => {
+      // regression test: in a repository with a test map, whose module wrote no report (ADR 0274).
+      const routed = JSON.stringify({
+        name: 'nip',
+        description: 'Proves the tests red, once more after a failure, then brews.',
+        steps: [
+          { id: 'gauge', brewer: 'gauger' },
+          {
+            id: 'red',
+            check: 'test',
+            expect: 'fail',
+            of: 'gauge',
+            onFail: { goto: 'gauge', maxRounds: 1 },
+          },
+          { id: 'implement', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
+        ],
+      });
+      const testMap = JSON.stringify({
+        derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['**/*.test.mjs'] },
+            testReport: { format: 'tap', path: 'test-results.tap' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }, routed),
+        [],
+        undefined,
+        testMap,
+      );
+      assert.deepStrictEqual(brewed, ['gauge', 'gauge']);
+      // Sent back once, then out of rounds.
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.equal(reason?.kind, 'attempts_exhausted');
+      assert.match(
+        reason?.kind === 'attempts_exhausted' ? reason.lastReason : '',
+        /^the red proof of step gauge failed: .*module "web" wrote no test report at test-results\.tap$/,
+      );
     });
   });
 

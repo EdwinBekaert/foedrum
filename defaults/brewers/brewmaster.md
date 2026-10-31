@@ -8,7 +8,8 @@
   "inputs": [
     { "name": "order", "from": "order" },
     { "name": "repositories", "from": "repositories" },
-    { "name": "recipes", "from": "recipes" }
+    { "name": "recipes", "from": "recipes" },
+    { "name": "plan", "from": "plan" }
   ],
   "output": { "doc": "plan.md", "schema": "plan" },
   "produces": "report",
@@ -45,6 +46,10 @@ Plan the order in {order}: break it into sub-orders that other brewers build one
 - **A recipe for each.** Name the recipe each sub-order should run with, one of the Brewery's recipes in {recipes} (a recipe such as `nip` for a small, test-first change), and say in `why` what fits. Leave test-first on; turn it off with `"testFirst": false` only for work no test can show, such as prose, and give the reason in `testFirstOff`.
 - **Ready, or what is missing.** A sub-order is `ready` when a brewer could build it from its entry alone. When it needs a decision or a detail first, mark it `"ready": false` and say in `refinement` what needs refining.
 - **Say what else you considered.** When another cut was close (fewer sub-orders, another order, another seam), list it in `alternatives` with why not, and say why this one.
+
+## Correcting a plan with a person
+
+When {plan} is given, a person chose to correct that plan with you in this session, at its review. Read it whole first, then walk it through with them: the cut into sub-orders, each sub-order's size, `doneWhen`, touches, dependencies, recipe and readiness, the assumptions and the alternatives. Change what they ask for, check every changed path as for a new plan, and say what you changed and why. Ask them directly in the conversation, never with a question tool; a sub-order they settle is ready. When they are done, write the whole corrected plan as your out doc, every field, not only what changed: it replaces the plan for the review that follows.
 
 ## Ask instead of guessing
 
