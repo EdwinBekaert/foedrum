@@ -252,6 +252,34 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
+  it('says why a batch whose lost attempts used its retries is Stuck in plain words, without the owner of the lease or a UTC time (#277)', () => {
+    const lost = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: lost }),
+        steps: new Map([step('brew', failed(1, lost), failed(2, lost))]),
+      }),
+      steps,
+    );
+    assert.ok(
+      text.includes(
+        'used its 2 attempts; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out',
+      ),
+      text,
+    );
+    assert.ok(!text.includes('lease of') && !text.includes('14:05:04'), text);
+  });
+
+  it("says on a step's line that its attempt was lost because the Cellar running it stopped, without the owner of the lease or a UTC time (#277)", () => {
+    const lost = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
+    const text = renderStatus(batch({ steps: new Map([step('plan', failed(1, lost))]) }), steps);
+    assert.match(
+      lineOf(text, 'plan'),
+      /attempt 1 failed: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
+    );
+    assert.ok(!text.includes('lease of') && !text.includes('14:05:04'), text);
+  });
+
   it('shows the attempts in the order they ran on one line before the steps (#406)', () => {
     const text = renderStatus(
       batch({
