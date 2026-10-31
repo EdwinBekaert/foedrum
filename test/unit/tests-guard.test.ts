@@ -6,9 +6,11 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { MapRead, ReadTestMapAt } from '../../src/checks/test-map.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
@@ -140,6 +142,7 @@ const setup = ({
   protects = 'gauge' as string | null,
   git: gitOverride,
   maps,
+  mapAt,
   tip = tips.weakened,
 }: {
   events?: Event[];
@@ -150,6 +153,8 @@ const setup = ({
   git?: Git;
   /** The test map by commit; absent, the guard reads none. */
   maps?: Readonly<Record<string, MapRead>>;
+  /** The test map reader itself, in place of `maps`. */
+  mapAt?: ReadTestMapAt;
   /** The files at the attempt's branch, by path: what `ls-tree` lists and `cat-file` reads. */
   tip?: Readonly<Record<string, readonly string[]>>;
 } = {}) => {
@@ -187,6 +192,7 @@ const setup = ({
     },
     git,
     clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
+    ...(mapAt !== undefined ? { testMap: mapAt } : {}),
     ...(maps === undefined
       ? {}
       : {
@@ -471,6 +477,59 @@ describe('guardTests: the test map (ADR 0274)', () => {
 });
 
 describe('guardTests: regression tests', () => {
+  it("reads the base's map where the batch's latest merge of the base brought it in (ADR 0164)", async () => {
+    const moved = 'd'.repeat(40);
+    const merged: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: { base: moved, merged: 'e'.repeat(40) },
+    };
+    const events = [...ordered, ...gauged, ...implementing, merged];
+    // Only the moved base has the map: read at the batch's start, nothing would be guarded by it.
+    const maps = { [moved]: mapOf('test/**') };
+    const { runner, mapReads } = setup({
+      events,
+      changes: ok(closingDropped),
+      maps,
+      tip: tips.closing,
+    });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: });',
+    );
+    assert.deepEqual(mapReads[0], ['acme/api', moved]);
+  });
+
+  it("lets no map the proven step committed narrow the base's", async () => {
+    const maps = { [gaugeStart]: mapOf('test/**'), [gaugeTip]: mapOf('spec/**') };
+    const { runner } = setup({ changes: ok(closingDropped), maps, tip: tips.closing });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: });',
+    );
+  });
+
+  it('cancels the attempt when stopped while it reads a test map, and reads no commits', async () => {
+    let asked = false;
+    const mapAt: ReadTestMapAt = (_repo, _commit, signal) => {
+      asked = true;
+      // A read asked for once stopped ends at once, as git does on an aborted signal.
+      if (signal?.aborted) return Promise.resolve({ kind: 'none' });
+      return new Promise((resolve) =>
+        signal?.addEventListener('abort', () => resolve({ kind: 'none' })),
+      );
+    };
+    const { runner, calls } = setup({ mapAt });
+    const running = runner.start({ ref, limits: defaultLimits });
+    while (!asked) await new Promise((resolve) => setImmediate(resolve));
+    running.stop();
+    const end = await running.ended;
+    assert.deepEqual(end.ending, { kind: 'cancelled' });
+    assert.deepEqual(calls, []);
+  });
+
   it("a repository with no test map keeps today's testsUnchanged", async () => {
     const maps = { [gaugeStart]: none, [gaugeTip]: none };
     const weakening = setup({ maps });
