@@ -2,7 +2,10 @@
 // their order as sub-issues and to each other as "blocked by", the way GitHub records them
 // (docs/design/intake/trackers.md). The target issues' `TargetTracker` stays read-only.
 
-/** A Brewery issue: its number, and the code host's own id, which every link names it by. */
+/**
+ * A Brewery issue: its number, and the tracker's own handle for it, opaque to the engine, which a
+ * link to it names it by (on GitHub, its REST id).
+ */
 export interface BreweryIssue {
   number: number;
   id: number;
