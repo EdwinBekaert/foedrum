@@ -1,19 +1,27 @@
-// The testsUnchanged guard, the shell (ADR 0017, ADR 0078): around the brewer runner, once an
-// attempt of a guarded step succeeded, it reads from git what the proven step committed and what
-// the attempt changed, and fails the attempt when it changed or removed a test declaration or
-// assertion. tests-unchanged.ts decides.
+// The testsUnchanged guard, the shell (ADR 0017, ADR 0078, ADR 0274): around the brewer runner,
+// once an attempt of a guarded step succeeded, it reads from git what the proven step committed,
+// what the attempt changed and the repository's test maps, and fails the attempt when it changed or
+// removed a line the step added to a separate test file of the map, or with no map, a test
+// declaration or assertion. tests-unchanged.ts decides.
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
+import { mergedBase } from '../engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import type { DiffFile } from '../formats/unified-diff.ts';
+import { foldsCase } from '../platform/paths.ts';
+import type { TestMap } from '../schemas/test-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git } from '../workspace/git.ts';
 import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
-import type { ReadTestMapAt } from './test-map.ts';
-import { changedTests } from './tests-unchanged.ts';
+import { effectiveMap, type ReadTestMapAt } from './test-map.ts';
+import { type ChangedTestLine, changedTestLines, changedTests } from './tests-unchanged.ts';
+
+/** Which lines the proven step committed, `proven`, an attempt's `changes` changed or removed. */
+type Keep = (proven: readonly DiffFile[], changes: readonly DiffFile[]) => ChangedTestLine[];
 
 export interface TestsGuardOptions {
   runner: BrewerRunner;
@@ -43,7 +51,16 @@ export interface TestsGuardOptions {
 }
 
 export function guardTests(options: TestsGuardOptions): BrewerRunner {
-  const { runner, state, protects, git, clone, clock = () => new Date() } = options;
+  const {
+    runner,
+    state,
+    protects,
+    git,
+    clone,
+    testMap,
+    platform,
+    clock = () => new Date(),
+  } = options;
   // The attempts whose commits it is reading: it reports their progress, so their leases hold.
   const checking = new Map<string, AttemptProgress>();
 
@@ -84,14 +101,48 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       const changes = await readDiff(git, cwd, own, { signal, paths });
       return 'error' in changes ? changes : { tests: tests.files, changes: changes.files };
     };
+    // What it keeps: by the map where the base's or the proven step's lists modules (ADR 0274),
+    // else the declarations and assertions (ADR 0078); or why a map cannot be read.
+    const keeping = async (): Promise<{ keep: Keep } | { summary: string }> => {
+      if (testMap === undefined) return { keep: changedTests };
+      const { repo } = worktree;
+      // The base the batch's change starts from (ADR 0164), and the map the proven step committed,
+      // which a later attempt cannot narrow.
+      const base = mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+      const maps: (TestMap | undefined)[] = [];
+      for (const commit of [base, proven.to]) {
+        const map =
+          commit === undefined ? { kind: 'none' as const } : await testMap(repo, commit, signal);
+        if (map.kind === 'unreadable') {
+          return {
+            summary: `the guard testsUnchanged cannot read the test map of ${repo} at ${commit}: ${map.reason}`,
+          };
+        }
+        maps.push(map.kind === 'map' ? map.map : undefined);
+      }
+      const [atBase, atStep] = maps;
+      if (atBase === undefined && atStep === undefined) return { keep: changedTests };
+      // Every module the base lists stays: the guard keeps more, never less, than the map says.
+      const fold = foldsCase(platform);
+      const modules = effectiveMap(atBase, atStep, { atBase: [], deleted: [] }, fold);
+      return { keep: (tests, changes) => changedTestLines(tests, changes, modules, fold) };
+    };
     try {
+      const kept = await keeping();
+      if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
+      if ('summary' in kept) {
+        return {
+          ...end,
+          ending: { kind: 'blocked', blockerKind: 'environment', summary: kept.summary },
+        };
+      }
       const diffs = await read();
       if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
       if ('error' in diffs) {
         const summary = `the guard testsUnchanged cannot read the commits of step ${ref.stepId}: ${diffs.error}`;
         return { ...end, ending: { kind: 'blocked', blockerKind: 'environment', summary } };
       }
-      const changed = changedTests(diffs.tests, diffs.changes);
+      const changed = kept.keep(diffs.tests, diffs.changes);
       const [first] = changed;
       if (first === undefined) return end;
       const lines = changed.length === 1 ? 'a line' : `${changed.length} lines`;

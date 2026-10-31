@@ -4,7 +4,7 @@
 // and the maps.
 
 import type { DiffFile } from '../formats/unified-diff.ts';
-import type { EffectiveModule } from './test-map.ts';
+import { areaOf, type EffectiveModule } from './test-map.ts';
 
 /** A line of the proven step's tests that an attempt changed or removed, in the file it was in. */
 export interface ChangedTestLine {
@@ -74,13 +74,13 @@ function counts(lines: readonly string[]): Map<string, number> {
   return found;
 }
 
-/** The declarations and assertions `proven` added that `changes` removed or changed. */
-export function changedTests(
-  proven: readonly DiffFile[],
+/** The lines kept in each file, by path, that `changes` removed or changed, as often as kept. */
+function lostLines(
+  kept: ReadonlyMap<string, readonly string[]>,
   changes: readonly DiffFile[],
 ): ChangedTestLine[] {
   const found: ChangedTestLine[] = [];
-  for (const [path, lines] of testLines(proven)) {
+  for (const [path, lines] of kept) {
     // A line moved within its file is removed and added again: only the lines lost count.
     const removed = counts(changes.flatMap((file) => (file.oldPath === path ? file.removed : [])));
     const added = counts(changes.flatMap((file) => (file.newPath === path ? file.added : [])));
@@ -97,16 +97,29 @@ export function changedTests(
   return found;
 }
 
+/** The declarations and assertions `proven` added that `changes` removed or changed. */
+export const changedTests = (
+  proven: readonly DiffFile[],
+  changes: readonly DiffFile[],
+): ChangedTestLine[] => lostLines(testLines(proven), changes);
+
 /**
  * The lines `proven` added to a separate test file of `modules` that `changes` removed or changed,
  * as often as it added them; a file in no test area, or in a module whose tests are inline, keeps
  * none (ADR 0274).
  */
 export function changedTestLines(
-  _proven: readonly DiffFile[],
-  _changes: readonly DiffFile[],
-  _modules: readonly EffectiveModule[],
-  _foldCase: boolean,
+  proven: readonly DiffFile[],
+  changes: readonly DiffFile[],
+  modules: readonly EffectiveModule[],
+  foldCase: boolean,
 ): ChangedTestLine[] {
-  throw new Error('not implemented');
+  const kept = new Map<string, string[]>();
+  for (const { newPath, added } of proven) {
+    // An inline module's tests have no area of their own, so its files read as code.
+    if (newPath === undefined || areaOf(modules, newPath, foldCase)?.area !== 'tests') continue;
+    const lines = added.map((line) => line.trim()).filter((line) => line !== '');
+    kept.set(newPath, [...(kept.get(newPath) ?? []), ...lines]);
+  }
+  return lostLines(kept, changes);
 }
