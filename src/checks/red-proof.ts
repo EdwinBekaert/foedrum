@@ -229,6 +229,11 @@ export interface MappedRun {
   modules: readonly EffectiveModule[];
   /** The worktree's root, which a report's absolute paths start at. */
   root: string;
+  /**
+   * The root's real path, where a run started in the worktree writes its absolute paths when a
+   * link leads to it (macOS's /tmp, a junction), when it differs.
+   */
+  realRoot?: string;
   /** Whether the worktree's file system takes paths that differ only in case for one. */
   foldCase: boolean;
 }

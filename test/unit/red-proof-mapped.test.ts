@@ -241,6 +241,70 @@ describe('judgeMapped (ADR 0274)', () => {
     );
   });
 
+  it("places a test the runner writes under the worktree's real path, such as macOS's /private/tmp", () => {
+    const report = tap(
+      'not ok 1 - multiplies',
+      '  ---',
+      "  location: '/private/tmp/work/test/calc.test.ts:18:1'",
+      '  ...',
+    );
+    const diff = [changed('test/calc.test.ts', [18])];
+    const linked = { root: '/tmp/work', realRoot: '/private/tmp/work', foldCase: false };
+    assert.deepEqual(run([report], diff, linked), { proven: true });
+    // Neither root: placed outside the worktree.
+    assert.match(
+      why([report], diff, { ...linked, realRoot: '/private/var/work' }),
+      /^no failing test lies in a test file the step changed/,
+    );
+  });
+
+  it("places a test whose report names it relative to its module's folder, as pytest does from its rootdir", () => {
+    const junitOf = (file: string) =>
+      readable(
+        parseJunit(
+          `<testsuites><testcase name="test_x" file="${file}" line="12"><failure message="boom"/></testcase></testsuites>`,
+        ),
+      );
+    const diff = [changed('api/tests/test_x.py', [12])];
+    const api: TestMapModule = {
+      ...ts,
+      name: 'api',
+      code: ['api/src/**'],
+      tests: { paths: ['api/tests/**'] },
+    };
+    const more = { modules: [{ module: api, added: false }] };
+    assert.deepEqual(run([junitOf('tests/test_x.py')], diff, more), { proven: true });
+    // A relative path that ends no file the step changed, and one that only ends a name, are elsewhere.
+    for (const file of ['tests/other_x.py', 'test_x.py/../s/test_x.py', 'sts/test_x.py']) {
+      assert.match(
+        why([junitOf(file)], diff, more),
+        /^no failing test lies in a test file the step changed/,
+        file,
+      );
+    }
+  });
+
+  it("finds a skip the report names relative to its module's folder in the lines the step added", () => {
+    const report = readable(
+      parseJunit(`<testsuites>
+  <testcase name="test_x" file="tests/test_x.py" line="12"><failure message="boom"/></testcase>
+  <testcase name="test_y" file="tests/test_x.py" line="13"><skipped/></testcase>
+</testsuites>`),
+    );
+    const api: TestMapModule = {
+      ...ts,
+      name: 'api',
+      code: ['api/src/**'],
+      tests: { paths: ['api/tests/**'] },
+    };
+    assert.equal(
+      why([report], [changed('api/tests/test_x.py', [12, 13])], {
+        modules: [{ module: api, added: false }],
+      }),
+      'test "test_y" is skipped at api/tests/test_x.py:13, a line the step added, so it proves nothing',
+    );
+  });
+
   it("compares a report's path with git's in either case only where the file system folds case", () => {
     const report = tap(...fails(1, 'multiplies', 'Test\\Calc.test.ts:18:1'), '1..1');
     const diff = [changed('test/calc.test.ts', [18])];
