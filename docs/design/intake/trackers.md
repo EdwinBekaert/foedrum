@@ -4,7 +4,7 @@ Foedrum separates three roles that GitHub happens to play all at once in 1.0:
 
 | Role | Interface | 1.0 | Later candidates |
 |---|---|---|---|
-| Where orders come from and where status is shown | `Tracker`: list orders, read comments/commands, post and edit the status comment, set state markers (labels, statuses) | GitHub Issues | Jira, Linear, GitLab Issues |
+| Where orders come from and where status is shown | `Tracker`: list orders, read comments/commands, post and edit the status comment, set state markers (labels, statuses); on the Brewery, open sub-orders as issues with their labels and link them under their order and to each other (`SubIssues`) | GitHub Issues | Jira, Linear, GitLab Issues |
 | Where code lives and pull requests are opened | `CodeHost`: clone, push, open pull request, read review comments; for now its push is `BranchPush` (git in the clone) and its pull requests `PullRequestHost` ([ADR 0071](../../adr/0071-the-openpullrequest-action-two-effects-of-the-batch.md)) | GitHub | GitLab, Bitbucket, Azure DevOps |
 | Where configuration lives | the Brewery: any git repository | GitHub | any git host |
 
@@ -19,7 +19,10 @@ The claim on a target-repository issue ([target-repository issues](../intake/tar
 
 These are the notes the GitHub `Tracker` adapter is designed from, for the sub-orders and their "blocked by" links ([work breakdown](work-breakdown.md)).
 They were taken on 2026-10-23 from GitHub's REST and GraphQL docs and then tried with `gh api` (keyring login) on the private Brewery `EdwinBekaert/foedrum-brewery`, issues #2–#6, labelled `spike:18` and closed afterwards.
-It is a spike: no code and no ADR follow from it here.
+The notes are the spike's record; what was built from them follows.
+The adapter built from them is `githubSubIssues` (`src/github/sub-issues.ts`, #723), the Brewery's side of the `SubIssues` interface (`src/engine/sub-issues.ts`); the target issues' `TargetTracker` stays read-only.
+It opens a Brewery issue with its labels, finds one its own login opened by a marker in its body, adds and lists sub-issues and "blocked by" links, and answers each issue as its number and its REST `id`, which the engine holds as an opaque handle that links name the issue by.
+Every call, reads too, sends `X-GitHub-Api-Version: 2026-03-10`, the version these calls were tried under ([ADR 0287](../../adr/0287-the-sub-issue-and-dependency-calls-send-api-version-2026-03-10.md)), and names the other issue by its `id`; a refused add, a repeat's `422` included, fails like any other, and the caller reads the list to tell a repeat from a failure.
 
 ### Identifiers and the version header
 
