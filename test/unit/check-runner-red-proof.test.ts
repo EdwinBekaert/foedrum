@@ -747,33 +747,6 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
     const failing = setup(wrote);
     assert.deepEqual((await failing.run()).ending, { kind: 'succeeded', output: null });
   });
-
-  it("clears and reads no coverage in a red proof: the uncovered-line check is a check step's: regression test", async () => {
-    const web = {
-      name: 'web',
-      code: ['src/**'],
-      tests: { paths: ['test/**'] },
-      testReport: { format: 'tap' as const, path: 'web.tap' },
-      coverage: { format: 'lcov' as const, path: 'lcov.info' },
-    };
-    const derivedFrom = { globs: ['**/package.json'], paths: ['package.json'] };
-    const map: MapRead = { kind: 'map', map: { derivedFrom, modules: [web] } };
-    // A run whose every test passes, so the test reading exited 0, and a report path that is there.
-    const { order, run } = setup({
-      maps: { [gaugeStart]: map, ['b'.repeat(40)]: map },
-      found: { 'lcov.info': [join(redTree, 'lcov.info')], 'web.tap': [join(redTree, 'web.tap')] },
-      test: { exitCode: 0, stdout: 'TAP version 13\nok 1 - adds\n1..1' },
-    });
-    const end = await run();
-    assert.equal(end.ending.kind, 'failed');
-    assert.match(
-      end.ending.kind === 'failed' ? end.ending.reason : '',
-      /^the red proof of step gauge failed/,
-    );
-    assert.ok(order.includes(`exec npm test in ${redTree}`), order.join('|'));
-    assert.ok(!order.some((line) => line.startsWith('clear')), order.join('|'));
-    assert.equal(order.filter((line) => line.includes(' diff ')).length, 1, order.join('|'));
-  });
 });
 
 describe('createCheckRunner: the red proof reads every module of the test map (ADR 0274)', () => {
@@ -846,6 +819,30 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     assert.deepEqual(
       order.filter((line) => line.startsWith('git ls-tree')),
       [],
+    );
+  });
+
+  it("judges no uncovered lines in a red proof that passes on a run that exited 0: the uncovered-line check is a check step's: regression test", async () => {
+    // The exit code decides nothing: a red proof can pass on a run that exited 0.
+    const { order, run } = setup({
+      ...wrote,
+      maps: { [gaugeStart]: mapOf(web, api), [tip]: mapOf(web, api) },
+      report: null,
+      test: { exitCode: 0, stdout: 'not TAP' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.coverage, undefined);
+    // The red proof reads the proven step's commits; the uncovered-line check would read the
+    // batch's change from its base to the step's tip, line by line.
+    assert.ok(
+      !order.some((line) => line.includes('--unified=0') && line.includes(tip)),
+      order.join('|'),
+    );
+    // Its reports are cleared once, by the red proof, never again for a check step's reading.
+    assert.deepEqual(
+      order.filter((line) => line === `clear ${webLcov}`),
+      [`clear ${webLcov}`],
     );
   });
 
