@@ -333,4 +333,31 @@ describe('same-answer mutants on a scratch tree', () => {
     });
     assert.equal(readFileSync(answer, 'utf8'), '{ "patches": [] }');
   });
+
+  it('refuses --same-answer with a mutant number and leaves the answer as it is', async () => {
+    const before = readFileSync(answer, 'utf8');
+    const result = await main([tree, answer, '1', '--same-answer', '--touched', files]);
+    assert.equal(result.exitCode, 2);
+    assert.equal(readFileSync(answer, 'utf8'), before);
+  });
+
+  it('keeps the answer’s other fields and takes sources only from src/ and scripts/', async () => {
+    writeFileSync(answer, JSON.stringify({ notes: 'n', mutants: [] }));
+    mkdirSync(join(tree, 'test', 'helpers'), { recursive: true });
+    writeFileSync(
+      join(tree, 'test', 'helpers', 'is-odd.ts'),
+      'export const isOdd = (n: number): boolean => n % 2 === 1;\n',
+    );
+    writeFileSync(
+      join(tree, 'test', 'unit', 'is-odd.test.ts'),
+      "import { isOdd } from '../helpers/is-odd.ts';\nassert.equal(isOdd(2), false);\n",
+    );
+    writeFileSync(
+      files,
+      'A\tsrc/is-even.ts\nA\ttest/unit/is-even.test.ts\nA\ttest/helpers/is-odd.ts\nA\ttest/unit/is-odd.test.ts\n',
+    );
+    const result = await main([tree, answer, '--same-answer', '--touched', files]);
+    assert.deepEqual(result.stdout, ['mutants: same answer: src/is-even.ts:1 isEven always false']);
+    assert.equal((JSON.parse(readFileSync(answer, 'utf8')) as { notes: string }).notes, 'n');
+  });
 });

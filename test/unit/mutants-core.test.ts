@@ -505,4 +505,43 @@ describe('sameAnswerMutants', () => {
       'export const isBreweryName = (name: string): boolean => {\n  return name === "a";\n};\n';
     assert.equal(sameAnswerMutants([{ ...breweryName, content: arrowBlock }], [tests]).length, 1);
   });
+
+  it('gives no mutant to a function declaration that does not return a boolean', () => {
+    const declarations = [
+      'export function isBreweryName(name: string): number {\n  return name.length;\n}\n',
+      'export function isBreweryName(name: string): boolean {\n  return name === "a";\n}\n',
+    ];
+    const counts = declarations.map(
+      (content) =>
+        sameAnswerMutants([{ ...breweryName, content }], [breweryNameTests(...rejections)]).length,
+    );
+    assert.deepEqual(counts, [0, 1]);
+  });
+
+  it('skips comments and multi-line imports, and reads a call only as a whole first argument', () => {
+    const tests: ChangedFile = {
+      path: 'test/unit/brewery-name.test.ts',
+      content: [
+        'import {',
+        '  isBreweryName,',
+        "} from '../../src/workspace/brewery-name.ts';",
+        '// isBreweryName rejects names that leave the directory',
+        ...rejections,
+        '',
+      ].join('\n'),
+    };
+    assert.equal(sameAnswerMutants([breweryName], [tests]).length, 1);
+    for (const assertion of [
+      "assert.ok(isBreweryName('a') === true);",
+      "assert.equal(isBreweryName(String(isBreweryName('a'))), false);",
+    ]) {
+      assert.deepEqual(
+        sameAnswerMutants([breweryName], [breweryNameTests(assertion)]),
+        [],
+        assertion,
+      );
+    }
+    const unclosed = { ...tests, content: `${tests.content}assert.equal(isBreweryName(''\n` };
+    assert.deepEqual(sameAnswerMutants([breweryName], [unclosed]), []);
+  });
 });
