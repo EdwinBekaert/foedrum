@@ -635,6 +635,41 @@ describe('the intake starts ready sub-orders (ADR 0211)', () => {
     assert.deepStrictEqual(newBatches(['1-1']), []);
   });
 
+  it('never orders a sub-order labelled needs-refinement, even with a recipe label, until the label goes (ADR 0285)', async () => {
+    recorded(...started(1, [2, 3]));
+    const marked = issue(2, at(1), { labels: ['recipe:half', 'needs-refinement'] });
+    await poll(tracker([issue(1, at(0)), marked, issue(3, at(2))]));
+    assert.deepStrictEqual(newBatches(['1-1']), ['3-1 under 1-1']);
+    await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));
+    assert.deepStrictEqual(newBatches(['1-1', '3-1']), ['2-1 under 1-1']);
+  });
+
+  it("records on a sub-order's batch the plan entry it was opened from (ADR 0285)", async () => {
+    recorded(
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 2, repo: web, entry: 'api' },
+          { issue: 3, repo: web, entry: 'ui' },
+        ],
+        dependencies: [],
+        plan: { stepId: 'plan', attempt: 2 },
+      },
+      onTap('1-1'),
+    );
+    await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));
+    assert.deepStrictEqual(log.state().batches.get('3-1')?.plan, {
+      batchId: '1-1',
+      stepId: 'plan',
+      attempt: 2,
+      entry: 'ui',
+    });
+    assert.deepStrictEqual(log.state().batches.get('2-1')?.plan?.entry, 'api');
+    assert.equal(log.state().batches.get('1-1')?.plan, undefined);
+  });
+
   it('never orders a sub-order that a later breakdown cancelled', async () => {
     recorded(...started(1, [2, 3]), decomposed('1-1', [3]));
     await poll(tracker([issue(1, at(0)), issue(2, at(1)), issue(3, at(2))]));

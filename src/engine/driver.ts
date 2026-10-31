@@ -53,6 +53,11 @@ export interface DriverEffects {
    * one, so a slower effect could let a second driver start it too (ADR 0044, #130).
    */
   deadlineMs?: number;
+  /**
+   * The events to record once every effect `due` gives for `batchId` is in the ledger, which the
+   * driver records under the batch's lease after the pass (ADR 0285); none by default.
+   */
+  recorded?(state: State, batchId: string): RecordedEvent[];
 }
 
 /**
@@ -933,6 +938,18 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
   };
 
+  /**
+   * Records what the effects of `batchId` call for once every one is in the ledger, under the
+   * batch's lease (ADR 0285). A driver killed before it leaves them to the next pass.
+   */
+  const recordAfter = (batchId: string): void => {
+    const state = log.state();
+    if (effects?.recorded === undefined || pending(state, batchId).length > 0) return;
+    const events = effects.recorded(state, batchId);
+    if (events.length === 0 || !claim(batchId)) return;
+    for (const event of events) issue({ kind: 'record', event });
+  };
+
   const ledger: Ledger = {
     find: (key) => store.findEffect(key),
     record: (key, result) => {
@@ -1010,7 +1027,10 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           break;
         }
       }
-      if (!stopped) finishActions(batch.id);
+      if (!stopped) {
+        finishActions(batch.id);
+        recordAfter(batch.id);
+      }
     }
   };
   let pass: Promise<unknown> = Promise.resolve();

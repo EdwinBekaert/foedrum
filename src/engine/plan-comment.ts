@@ -17,6 +17,7 @@ import {
 import type { DriverEffects } from './driver.ts';
 import type { Approval, Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
+import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink } from './state-branch.ts';
 import {
@@ -129,6 +130,8 @@ export const renderPlan = (
   approval?: Approval,
   /** The session a person's lauter opened, which wrote this plan (ADR 0286). */
   changed?: ChangedInSession,
+  /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
+  opened: readonly OpenedSubIssue[] = [],
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -174,6 +177,12 @@ export const renderPlan = (
     approval !== undefined
       ? [
           `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`,
+          ...(opened.length === 0
+            ? []
+            : [
+                '',
+                `Sub-issues: ${opened.map(({ id, number }) => `${code(told(id))} #${number}`).join(', ')}.`,
+              ]),
           ...(notReady.length === 0 ? [] : ['', `Not ready: ${notReady.join(', ')}.`]),
         ]
       : [waitsForReview ? `Waiting for ${code(`foedrum approve ${batchId}`)}.` : 'None yet.'];
@@ -294,7 +303,18 @@ const planDue = (
     chosen === undefined
       ? undefined
       : { by: chosen.by, via: chosen.via, ...(at === undefined ? {} : { at }) };
-  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval, changed);
+  const opened = openedSubIssues(state, batchId);
+  const text = renderPlan(
+    batchId,
+    stepId,
+    plan,
+    commits,
+    fullPlan,
+    review,
+    approval,
+    changed,
+    opened,
+  );
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };
@@ -312,7 +332,8 @@ export interface PlanEffectsOptions {
 /**
  * The plan comment of every order whose batch has a succeeded plan, for the driver: a revision
  * whenever its text changed, edited in place, a later batch of the order editing the same comment.
- * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233).
+ * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233), and its Gate when
+ * a pass opens the approved plan's sub-issues, which the driver applies before it (ADR 0285).
  */
 export const planEffects = (options: PlanEffectsOptions): DriverEffects => {
   const { brewery, comments, stateBranchUrl } = options;

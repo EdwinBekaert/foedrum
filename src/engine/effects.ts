@@ -87,6 +87,8 @@ export const combineEffects = (...sources: readonly DriverEffects[]): DriverEffe
       find: async (key, signal) => ownerOf(key).target.find(key, signal),
       apply: async (key, signal) => ownerOf(key).target.apply(key, signal),
     },
+    recorded: (state, batchId) =>
+      sources.flatMap((source) => source.recorded?.(state, batchId) ?? []),
     ...(deadlines.length === 0 ? {} : { deadlineMs: Math.min(...deadlines) }),
   };
 };

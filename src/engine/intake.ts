@@ -39,6 +39,7 @@ import {
   type TargetIssue,
 } from './issue-claims.ts';
 import { holdText, type Limits, routeHold, startTally } from './limits.ts';
+import { NEEDS_REFINEMENT, SUB_ORDER } from './plan-issues.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 import { checkPairs } from './pull-request-pairs.ts';
@@ -165,7 +166,8 @@ export const recipeLabels = (labels: readonly string[]): string[] =>
  * Whether the intake orders the Brewery's issue `issue` (ADR 0068): open, not a pull request, opened
  * by one of `authors`, with a `recipe:<name>` label, and with no batch here in any lane. A
  * sub-order is ordered by its decomposition, and the order of a claimed issue by its claim, never by
- * the intake (ADR 0144).
+ * the intake (ADR 0144); an approved plan's sub-issue carries `foedrum:sub-order` from its opening,
+ * before its decomposition is recorded (ADR 0285).
  */
 export const isBreweryOrder = (
   issue: TargetIssue,
@@ -175,6 +177,8 @@ export const isBreweryOrder = (
   issue.state === 'open' &&
   !issue.pullRequest &&
   recipeLabels(issue.labels).length > 0 &&
+  // An approved plan's sub-issue, also before its breakdown is recorded (ADR 0285).
+  !issue.labels.some((label) => same(label, SUB_ORDER)) &&
   authors.some((author) => same(author, issue.author)) &&
   (state.orders.get(issue.number)?.batchIds.length ?? 0) === 0 &&
   !state.subOrders.has(issue.number) &&
@@ -208,10 +212,14 @@ const subOrdersQueued = (state: State, listed: readonly TargetIssue[]): QueuedIs
       .filter((found) => found.state === 'open' && !found.pullRequest)
       .map((found) => [found.number, found]),
   );
-  return readySubOrders(state).flatMap(({ order, issue, parentBatchId }) => {
+  return readySubOrders(state).flatMap(({ order, issue, parentBatchId, plan }) => {
     const created = open.get(order)?.created;
-    if (created === undefined || !open.has(issue)) return [];
-    return [{ order: { issue: order }, created, source: 0, subOrder: { issue, parentBatchId } }];
+    const listed = open.get(issue);
+    if (created === undefined || listed === undefined) return [];
+    // A sub-order waits for a person while it is marked, recipe label or not (ADR 0285).
+    if (listed.labels.some((label) => same(label, NEEDS_REFINEMENT))) return [];
+    const subOrder = { issue, parentBatchId, ...(plan === undefined ? {} : { plan }) };
+    return [{ order: { issue: order }, created, source: 0, subOrder }];
   });
 };
 
@@ -371,7 +379,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
         // A ready sub-order is ordered under its order's batch (ADR 0211).
         const number = subOrder?.issue ?? order.issue;
         const batchId = nextBatchId(log.state(), number);
-        const parent = subOrder === undefined ? {} : { parentBatchId: subOrder.parentBatchId };
+        const parent =
+          subOrder === undefined
+            ? {}
+            : {
+                parentBatchId: subOrder.parentBatchId,
+                ...(subOrder.plan === undefined ? {} : { plan: subOrder.plan }),
+              };
         if (issue({ kind: 'order', batchId, order: { issue: number }, ...parent })) {
           ordered++;
           tally.start(entry);

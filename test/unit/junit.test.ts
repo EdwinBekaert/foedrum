@@ -114,6 +114,30 @@ describe('parseJunit', () => {
     refuses('<testsuites><testcase name="a &bogus;"/></testsuites>', /not XML/);
   });
 
+  it("reads a testcase's file and line where the writer gives them (ADR 0274)", () => {
+    const report = read(`<testsuites>
+  <testcase name="node" file="C:\\spike\\ts\\test\\calc.test.ts"><failure message="boom"/></testcase>
+  <testcase name="pytest" file="tests/test_add.py" line="12"><skipped message="later"/></testcase>
+  <testcase name="none"/>
+  <testcase name="no number" file="a.py" line="twelve"/>
+  <testcase name="no file" line="3"/>
+  <testcase name="empty file" file="" line="3"/>
+  <testcase name="zero" file="a.py" line="0"/>
+</testsuites>`);
+    assert.deepEqual(
+      report.tests.map(({ location }) => location),
+      [
+        { file: 'C:\\spike\\ts\\test\\calc.test.ts' },
+        { file: 'tests/test_add.py', line: 12 },
+        undefined,
+        { file: 'a.py' },
+        undefined,
+        undefined,
+        { file: 'a.py' },
+      ],
+    );
+  });
+
   it('junit.ts reads every existing fixture the same after its XML reader moves', () => {
     // Every report this file reads, with the whole reading pinned as it was before the move.
     const fixtures = [
