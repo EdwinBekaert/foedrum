@@ -75,4 +75,23 @@ describe('the fake GitHub API', () => {
     const ours = await github.fetch(`${api}/repos/acme/web/commits/${headOf(number)}/status`);
     assert.equal(ours.status, 200);
   });
+
+  it('answers 404 to a pull request it opened and its head, asked for in another repository (regression test)', async () => {
+    const { github, number } = await opened();
+    const pull = await github.fetch(`${api}/repos/acme/api/pulls/${number}`);
+    assert.equal(pull.status, 404);
+    const runs = await github.fetch(`${api}/repos/acme/api/commits/${headOf(number)}/check-runs`);
+    assert.equal(runs.status, 404);
+    const ours = await github.fetch(`${api}/repos/ACME/Web/pulls/${number}`);
+    assert.equal(ours.status, 200);
+  });
+
+  it('answers 404 to a write of the checks on the head of a pull request it opened (regression test)', async () => {
+    const { github, number } = await opened();
+    const answer = await github.fetch(`${api}/repos/acme/web/commits/${headOf(number)}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ state: 'success', context: 'ci' }),
+    });
+    assert.equal(answer.status, 404);
+  });
 });
