@@ -925,4 +925,41 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
       /^the test report pattern junit\.xml of module "calc" names a folder, junit\.xml:/,
     );
   });
+
+  it('passes a green check whose report places a skip in a code file the batch added a line to: only a separate test file is judged', async () => {
+    const inCode = `<testsuites>
+  <testcase name="clamps inline" file="src/calc.ts" line="12"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('src/calc.ts', 12, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 12: 1 })) },
+      testReports: { [junitFile]: { kind: 'text', text: inCode } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
+  it('blocks the green check on its environment when the test report of a module whose tests the change touches none of cannot be read', async () => {
+    const web: TestMapModule = {
+      ...junit,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      testReport: { format: 'junit', path: 'web.xml' },
+      coverage: 'none',
+    };
+    const { run } = setup({
+      maps: { [base]: mapOf(junit, web), [tip]: mapOf(junit, web) },
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [join(worktree, 'web.xml')]: { kind: 'unread', reason: 'it is past 16 MiB' } },
+    });
+    const { ending } = await run();
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the test report web.xml of module "web" cannot be read: it is past 16 MiB, though the change touches none of its tests',
+    });
+  });
 });
