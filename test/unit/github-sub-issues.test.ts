@@ -89,6 +89,20 @@ describe('githubSubIssues', () => {
     );
   });
 
+  it('finds no pull request by its marker, and asks nothing for an issue number that is none', async () => {
+    const { api, subIssues } = onFake([order()]);
+    const fetched = api.requests.length;
+    for (const issue of [0, -1, 1.5]) {
+      await assert.rejects(subIssues.subIssues(issue), /positive integer/);
+      await assert.rejects(subIssues.addBlockedBy(issue, idOf(7)), /positive integer/);
+    }
+    assert.equal(api.requests.length, fetched);
+    const pull = { id: 777, number: 3, state: 'open', user: { login }, labels: [], body: marker };
+    const fake = fakeFetch([{ status: 200, body: [{ ...pull, pull_request: {} }] }]);
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+    assert.equal(await githubSubIssues({ client, brewery, login }).findIssue(marker), undefined);
+  });
+
   it('sends the numeric id and the API version 2026-03-10 on every call', async () => {
     const issue = (number: number) => ({
       id: idOf(number),
