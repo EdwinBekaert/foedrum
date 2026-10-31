@@ -10,7 +10,7 @@ It says where things are and holds no commands: the commands stay in `foedrum.js
 Its JSON Schema is `schemas/test-map.json`.
 `derivedFrom` holds the manifest globs the map was derived from and the paths they matched then.
 Each of `modules` has a `name`, its `code` globs, its `tests` (separate `paths` globs, test `projects` by folder, or `inline: true`), its `testReport` (`tap`, `junit` or `trx`, and a file or folder pattern) and its `coverage` (`lcov` or `cobertura` with a path, or `"none"`).
-A glob is a path relative to the repository with `/` between folders, read as a sensitive path is; a report path is a file or a folder pattern with `*` inside a folder's name, never `**`.
+A glob is a path relative to the repository with `/` between folders, read as a sensitive path is; a report path is a file or a folder pattern of at most 256 characters with `*` inside a folder's name as its only wildcard, never `**`, matched without a regular expression, so a batch's map cannot make the match run long.
 Every object is closed, so a map that holds a key the schema does not name, such as a `command`, is refused.
 
 **Reading it.** The map is read at a commit of the repository's clone, as committed: `git ls-tree` finds its entry and `git cat-file` reads its blob, at most 1 MiB and 10 s per read.
@@ -28,10 +28,10 @@ Paths are compared in git's case, folding case only where the worktree's file sy
 
 **Report paths.** A report path or folder pattern is looked for in the worktree segment by segment, each match by its real path; one that leads out of the worktree, or a pattern that matches more than 64 paths, is refused.
 
-**A module no confirmed line reaches.** After a check step's `test` check ran and exited, in a red proof or any other check step, a module that only the batch's map lists and whose report path holds no report makes the batch Stuck (`environment`).
+**A module no confirmed line reaches.** After a check step's `test` check ran and exited, in a red proof or any other check step, the map is read at the base, the base the batch merged before its last check or else where its change starts ([ADR 0164](../../adr/0164-a-batch-merges-its-base-before-its-last-check.md)), and at the step's tip; a module that only the batch's map lists and whose report path holds no report makes the batch Stuck (`environment`).
 The reason names the module and the report path, says to make the repository's `"checks"."test"` line in `foedrum.jsonc` also run the module's tests, and carries the end of the test check's recorded output, cut and read for secrets as every reading's is, so a compile error shows.
 A module the base's map lists is taken as reached, as the base is taken as green.
-A base map that cannot be read makes the batch Stuck (`environment`); a batch's map that cannot be read fails the step retryably, for its brewer to fix.
+A base map that cannot be read makes the batch Stuck (`environment`); a batch's map that cannot be read fails the step without a retry, so its `onFail` route sends the batch back to the brewer that broke it.
 
 **It is a sensitive path.** A change to `.foedrum/test-map.jsonc` gets the status comment's sensitive-path line without the repository naming it in `sensitivePaths` ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)), and the line after it names each module the batch's map adds with `coverage: none`.
 A repository whose map the Brewery keeps has no such file to name.
