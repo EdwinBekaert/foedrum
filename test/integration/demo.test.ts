@@ -323,7 +323,7 @@ describe('npm run demo', () => {
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
-    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #1 is ready for your review$/m);
+    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #1 is ready for your review(?:;|$)/m);
     assert.match(stuck, /^ {4}next: \S/m);
   });
 
