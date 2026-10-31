@@ -1,6 +1,9 @@
 // A structured test report as the red proof reads it (ADR 0017, ADR 0078): each test with its
 // result and what it said, and the text outside any test. tap.ts and junit.ts read the formats.
 
+/** A report file's largest size: a test report of a large suite, or a coverage report. */
+export const MAX_REPORT_BYTES = 16 * 1024 * 1024;
+
 export type TestResult = 'passed' | 'failed' | 'skipped';
 
 export interface ReportedTest {
