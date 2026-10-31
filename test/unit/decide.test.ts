@@ -3114,6 +3114,75 @@ describe('decide: a conflict with the moved base sends the batch back (ADR 0244)
   });
 });
 
+describe('decide: a plan step planned again from review counts each round (ADR 0289, #731)', () => {
+  // The planner writes a plan (ADR 0233) and has two attempts.
+  const loaded = loadRecipes({
+    recipes: [
+      { path: 'recipes/mash.jsonc', text: recipeText('mash', [{ id: 'plan', brewer: 'planner' }]) },
+    ],
+    brewers: [
+      {
+        path: 'brewers/planner.md',
+        text: brewerText('planner', { output: { doc: 'plan.md', schema: 'plan' } }),
+      },
+    ],
+  });
+  assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+  const plan = {
+    status: 'done',
+    summary: 'Planned',
+    assumptions: ['One sub-order is enough.'],
+    subOrders: [
+      {
+        id: 'one',
+        title: 'One',
+        repo: 'acme/api',
+        size: { lines: 10, mechanism: 'a flag' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src' }],
+        recipe: 'nip',
+        why: 'small',
+        ready: true,
+      },
+    ],
+  };
+  const planned = (attempt: number): Event[] => [
+    scheduled('plan', attempt),
+    started('plan', attempt),
+    {
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt,
+      outcome: { kind: 'succeeded', output: plan },
+    },
+    stuckOn({ kind: 'plan_review', stepId: 'plan', attempt }, ['retry', 'recipe', 'cancel']),
+    { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
+  ];
+
+  it('a plan step that failed once after a successful plan waits for a retry, not attempts_exhausted', () => {
+    // Plan, retry, plan, retry: the third plan's first attempt fails.
+    const events = [
+      ordered,
+      chosen('mash'),
+      ...planned(1),
+      ...planned(2),
+      scheduled('plan', 3),
+      started('plan', 3),
+    ];
+    const ending = { kind: 'failed', retryable: true, reason: 'the plan is invalid' } as const;
+    const decision = decide(
+      fold(events),
+      { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 3, ending },
+      { ...context, recipes: loaded.recipes },
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), {
+      ...retried('plan', 4),
+      deadlineAt: '2026-10-15T12:30:00.000Z',
+    });
+  });
+});
+
 describe('decide: approve signs off a plan (ADR 0281, #588)', () => {
   const mashRecipe = fakeRecipe({ steps: ['plan'], pullRequests: [] });
   const mash = { ...context, recipes: fakeRecipes({ mash: mashRecipe }) };

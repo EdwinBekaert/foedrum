@@ -1986,6 +1986,10 @@ describe('loadRecipes: a plan step counts its attempts since its latest plan (AD
   };
   const planning = () => mash([{ id: 'plan', brewer: 'planner' }]);
 
+  it('a retry from plan_review after two successful plans still has its attempts', () => {
+    assert.equal(planning().mayRetry(ended('plan', ['ok', 'ok', 'failed']), 'plan'), true);
+  });
+
   it('gives up on a plan step that fails maxAttempts times from its first attempt: regression test (#731)', () => {
     assert.equal(planning().mayRetry(ended('plan', ['failed']), 'plan'), true);
     assert.equal(planning().mayRetry(ended('plan', ['failed', 'failed']), 'plan'), false);
