@@ -39,10 +39,10 @@ This record writes them down.
   1. the run did not bail out;
   2. no load, compile, import or collection error appears. `LOAD_ERRORS` stays as ADR 0078 and [ADR 0269](0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) have it. **A module that the base's test map lists and that wrote no test report, or no coverage report where it has a coverage tool, counts as one** (the spike's .NET compile error). A module that only the batch's map lists is the unreached case below;
   3. the step changed a file in a test area of the map, or in a module whose tests are inline. This replaces the spike's rule, which asked for a changed code file. That rule refuses a step that adds only tests, such as the Microbiologist's reproducing test or a test of existing behaviour that is wrong, and it lets through a step that changes only code and breaks older tests;
-  4. at least one test fails, and where the report gives a failing test's location, at least one failing test lies inside lines the step added;
-  5. no skip the report places inside lines the step added.
+  4. at least one test fails, and where the report gives a failing test's location, at least one failing test lies in a file the step changed in a test area. By file, not by line: the report places a test at its declaration, so a row added to an existing table or an assertion edited in an existing test fails at a line the base already had;
+  5. no skip the report places inside lines the step added. By line: a step's skip sits on its own line, a declaration it adds or edits, and a skip that was on the base, such as a platform-conditional one in a file the step added a test to, is not the step's.
 
-  Checks 4 and 5 read a test's location from the runner's report (node's TAP gives one for a failing or skipped test, and many JUnit writers a `file` and `line`), never from the source, so they keep "no source reading". A skip that was on the base, such as a platform-conditional one in a file the step added a test to, is not the step's.
+  Checks 4 and 5 read a test's location from the runner's report (node's TAP gives one for a failing or skipped test, and many JUnit writers a `file` and `line`), never from the source, so they keep "no source reading".
 - **What it gives up.** A stub that returns a value, so that one new test passes while another fails, is not seen. Where the report gives no location, neither is a skip the step added, nor a run whose only failures are older tests the step's helper edit broke, or a flaky one. All of these go to the test-design lens ([`defaults/lenses/diff/test-design.md`](../../defaults/lenses/diff/test-design.md)), which sees the red diff.
 - **Regression tests need no name.** A passing test is just a passing test. The red proof no longer reads `regressionTests` (ADR 0170's checks 3 and 4 go). The gauge out doc keeps the list for the test-design lens and the status comment, which show it as before.
 - **ADR 0258's names-only `done` goes.** Names no longer change what the next red proof reads, so a Gauger that a failed red proof sent back and that commits nothing would meet the same failure again. Its `done` without a commit is ADR 0074's divergence once more.
@@ -53,7 +53,7 @@ This record writes them down.
 - **One mechanism**: line-level coverage read from LCOV or Cobertura, the formats the usual tools write (Node's built-in coverage, Go, gcov, coverlet, JaCoCo, cargo-llvm-cov).
   The target repository brings its coverage tool as it brings its test runner.
   Foedrum reads the formats with its own code (ADR 0004): LCOV by file, and Cobertura from a folder whose `coverage.cobertura.xml` files are merged, each line taking its highest hit count across them.
-  The readers sit in `src/formats/` beside `junit.ts` and `tap.ts`, and their path handling on macOS and Linux is proven by reader fixtures on CI's legs.
+  The readers sit in `src/formats/` beside `junit.ts` and `tap.ts`, and their path handling is proven by reader fixtures on CI's Windows, macOS and Linux legs, among them a backslash `SF:` path, a drive letter in either case, and a Cobertura `<source>` with a drive.
   A report's path is made relative to the worktree's root with `/` between folders, then compared with git's path in git's own case, folding case only where the worktree's file system does not tell case apart; the map's globs are matched against those `/` paths.
   A report path or folder pattern of the map is resolved by its real path and refused when it leads out of the worktree, and a report is read as ADR 0078 reads one (a regular file, at most 16 MiB), with a cap on how many files a folder pattern may match; past either, the check is blocked on its environment, naming why.
 - **A changed line must be hit**, in the union of the reports of every module the run covers.
@@ -74,6 +74,8 @@ This record writes them down.
 ### testsUnchanged keeps every line the red step added to a test file
 - In each separate test file of the map, every line the proven step added must still be there at the guarded attempt's tip, as often as before, compared trimmed. Moving a test within its file is still fine.
 - This is coarser than ADR 0078's filter: an edited import line in a test file trips it too, and the brewer restores it on its retry. The `DECLARATIONS` and `ASSERTIONS` pattern lists go.
+- **A skip added at green fails too.** Check 5 also runs at the green check: a skip that the green run's report places in a separate test file of the map, inside lines the batch added, fails that check, so a green step cannot keep every red line and add a `t.skip()` beside them.
+  A green step that weakens a red test by other added lines, such as an early `return;` or a `try { … } catch {}` around its assertions, is the test-design lens's to find.
 - Inline tests (a Rust `#[cfg(test)]` module) are not guarded mechanically. The test-design lens judges them against the red diff.
 - Where the guard runs, its outcome (`failed`, retryable) and its git reads in the clone stay as ADR 0078 has them.
 
@@ -85,11 +87,12 @@ This record writes them down.
   A repository whose owners refuse it uses the Brewery fallback of [ADR 0018](0018-house-yeast-layers.md): a `houseYeast`-style setting in its `foedrum.jsonc` entry keeps the map under the Brewery's files.
   Its content is repository content, untrusted input like the house-yeast rules (ADR 0018, ADR 0041).
 - **The base's map governs what the base lists.** For every module and area the base's map lists, the checks read the base's map, as `/brew-review` takes its criteria from the base ([ADR 0122](0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)).
-  The batch's map may add modules and areas, but it does not narrow or remove them, nor set `coverage: none` on a module the base measured, until a person merges it. So a brewer cannot switch off the checks of its own change by editing the map.
-  One exception, so that a deleted project does not read as a load error: a base module whose manifest the batch deletes drops out, and the status comment names that change through the sensitive path.
+  The batch's map may add modules and areas, but it does not narrow or remove them, nor set `coverage: none` on a module the base measured, until a person merges it. A path in both a base area and one the batch adds is read by the base's entry. So a brewer cannot switch off the checks of the base's modules by editing the map.
+  A module the batch adds with `coverage: none` is named in the status comment, beside the sensitive-path line the map's change already gets.
+  One exception, so that a deleted project does not read as a load error: a base module drops out only when the batch also deletes every file under its code and test areas. Otherwise its missing report stays a load error.
 - **Who writes it.** An agent derives it from the repository's manifests, and a person confirms it in a reviewed change: the pull request that carries it. Which brewer and which command derive it is the build's choice.
 - **Freshness is judged by change, not by age.** The map is stale when:
-  - the manifest files it was derived from (its globs, read with `git ls-files` at the step's tip) differ from the matched paths it records; or
+  - the manifest files it was derived from (its globs, which the map's schema validates, read with `git ls-files` at the step's tip, after `--` so that no glob is read as an option) differ from the matched paths it records; or
   - a run reports a test, or writes a report, outside the map.
 
   The brewer whose change made it stale updates it in that change, so the map ships with the fix, as a repository-layer rule does (ADR 0018).
@@ -100,7 +103,7 @@ This record writes them down.
 - **Commands stay in `foedrum.jsonc`**, confirmed by a person, as [ADR 0023](0023-language-independent-recipes.md) has them. A module's tests run under a confirmed check line, such as one `dotnet test` over the solution that writes a report per test project. The red proof and the uncovered check read the reports of that line's run where the map says they are.
   A module that the map lists and that no confirmed line reaches, such as a new test project the confirmed line does not run, makes the batch Stuck (`environment`). The reason names the module and suggests the line to add. Foedrum never runs a command that the map or a brewer proposed.
   A module the base's map already lists is taken as reached, as the base is taken as green, so when it writes no report that counts as a load error (above). A module the batch's change added to the map, which writes no report, is the unreached case.
-  So a new module that the confirmed line does reach but that fails to compile is read as unreached, and its batch is Stuck instead of retried. That is accepted: a person sees it at once, and the Stuck reason carries the tail of the run's output, so the compile error shows.
+  So a new module that the confirmed line does reach but that fails to compile is read as unreached, and its batch is Stuck instead of retried. That is accepted: a person sees it at once, and the Stuck reason carries the tail of the run's output, the check's recorded tail, cut and read for secrets as every reading's is, so the compile error shows.
 - **It is a sensitive path.** The map is in `sensitivePaths` without being named there, so the status comment names a change to it ([ADR 0201](0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)).
   A map a batch proposed or refreshed is one such change.
 - **Its shape**, a sketch for the build issue rather than a schema:
@@ -152,7 +155,7 @@ This record writes them down.
 - Test names stop mattering. A string, a free function's call or a regenerated schema can no longer be taken for a test's declaration, and the name lists stop growing, language by language.
 - Fewer failures to attribute: a stub that lets one new test pass while another fails, and, where the report gives no location, a skip the step added or a failure only in older tests, are the test-design lens's to find, not the engine's.
 - A changed file in a Node module that no test loads, such as the spike's untested `legacy.ts`, no longer fails the check: it stays visible as "not loaded by any test" in the status comment. Where the tool lists unloaded files (coverlet, JaCoCo), the same change still fails.
-- A red step whose only change is outside every test area (a Gauger that only wrote code) is refused.
+- A red step whose only change is outside every test area (a Gauger that only wrote code) is refused in a module with separate test areas. In a module whose tests are inline, check 3 cannot tell code from tests, and the test-design lens judges such a step.
 - Every test-first batch runs its tests with coverage on: +18% on a Node run and about 3–5 s per .NET test project, measured on a busy machine. The cost is accepted.
 - A changed line after a condition on the same line is caught only where the tool writes branch data.
 - `testsUnchanged` refuses an edited import or helper line in a separate test file that the red step added, which ADR 0078 let change. The retry restores it.
@@ -161,7 +164,7 @@ This record writes them down.
 - A map a batch proposed runs nothing: it only says where the confirmed line's reports and tests are. A person still confirms every command Foedrum runs (ADR 0023), and a module that no confirmed line reaches stops the batch with the line to add, rather than running one.
 - The uncovered check overlaps Brett ([ADR 0017](0017-test-first-recipes-and-tasting-lenses.md)) and the test-design lens, which also look for changed code no test catches; all three stay. Brett runs a few model-chosen mutants and is advisory, and the lens judges; the check is deterministic, reads every changed line and fails the step. It is part of what a test-first recipe checks, as the red proof is, not a guard against a trust boundary, so it takes no row in [who guards what](../trust-boundaries.md).
 - Until the build lands, the red proof works as [the red proof](../design/checks/red-proof.md) describes it today.
-- The build splits into issues for the test map (schema, storage and fallback, freshness, sensitive path, discovery), the coverage readers, the red proof's name-free rule, the uncovered-line check, and `testsUnchanged`. The last one also gives the test-design lens's prompt the duties this record hands it: skipped tests and a stub that lets one new test pass, and inline tests that a later step weakened. Until that prompt says so, the lens does not check them.
+- The build splits into issues for the test map (schema, storage and fallback, freshness, sensitive path, discovery), the coverage readers, the red proof's name-free rule, the uncovered-line check, and `testsUnchanged`. The last one also gives the test-design lens's prompt the duties this record hands it: skipped tests where the report gives no location, inline tests that a later step weakened, and a red test a green step weakened by added lines (an early return, a `try`/`catch` around its assertions). Until that prompt says so, the lens does not check them. It already flags a stub that returns a value.
 
 ## Alternatives considered
 - **Keep the name reading and grow its lists.** Four records in a week each closed one case, and ADR 0262 itself says the list stays incomplete and loose.
