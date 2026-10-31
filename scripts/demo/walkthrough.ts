@@ -161,6 +161,9 @@ export const commentMarkdown = (body: string): string =>
 /** The line the Cellar prints before each `foedrum status` it shows. */
 export const STATUS_LINE = '$ foedrum status';
 
+/** The line serve prints when it stops, which ends a Cellar's life. */
+export const SERVE_STOPPED = 'foedrum serve: stopped';
+
 /** The start of the line the Cellar prints when its restart finds the attempt it lost. */
 export const LOST_LINE = 'demo: the restart found';
 
