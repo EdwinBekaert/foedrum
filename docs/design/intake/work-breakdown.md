@@ -24,11 +24,13 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   The ready set is a pure function of the fold (`readySubOrders`, `src/engine/ready-set.ts`); the intake orders the ready sub-orders of all orders at their order's rank, in their plan's order ([ranking](ranking.md)), within the free capacity and their recipe's `concurrency`, and never beside one whose `touches` overlap theirs; the open-order limit never holds one ([limits](limits.md)).
   A sub-order of a paused order, of an order stopped while a batch of it is still Stuck `stopped`, or of an order whose latest batch was cancelled, is not ordered; a cancelled sub-order never is.
   Nor is one whose issue the pass's listing shows labelled `needs-refinement`, recipe label or not, until a person corrects it and takes the label off; a sub-order's batch records the plan entry it was opened from ([ADR 0285](../../adr/0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md)).
+  Its Gauger and its Tasters read that entry as the input `plan-entry`, from the parent batch's recorded plan, so the sub-order is built and tasted against the plan a person approved ([ADR 0290](../../adr/0290-a-sub-order-s-brewers-read-its-plan-entry-from-the-parent-s-recorded-plan.md)).
   A bottle's pull request counts as merged when a batch it bottles records it `merged`: whoever opens bottles lists it in each bottled batch's `batch.on_tap`.
 - **Bottling: choosing what goes into a pull request.** A **bottle** is a pull request.
   It bundles one or more finished sub-orders of the same repository: their branches are merged into a bottle branch by plain git (conflicts go to the Blender).
   Policy per recipe: `"bottling": "perSubOrder" | "perRepo" | "manual"`; manually with `/foedrum bottle #101 #102`.
   Bottles of the same order reference each other and carry a suggested merge order.
+  Built today for a sub-order's own pull request: its body starts with `## Pull requests of this order`, which names each other sub-order's pull request as `owner/name#n` (or its repository, not opened yet), its state, and when to merge it after the plan's `code` and `release` dependencies, never a Brewery issue; revisions of it go through the ledger as siblings open and end ([open pull request](../recipes/open-pull-request.md), [ADR 0292](../../adr/0292-the-pull-requests-of-one-order-name-each-other-and-the-merge-order.md)).
 - **Dependency kinds:**
 
 | Kind | Meaning | The dependent batch waits for |

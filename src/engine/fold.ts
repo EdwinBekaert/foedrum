@@ -16,6 +16,7 @@ import type {
   RecordedFindings,
   ScheduleRoute,
   SessionRef,
+  StaleMap,
   StuckOption,
   StuckReason,
   Surface,
@@ -120,6 +121,8 @@ export type Attempt =
       usageLimited?: true;
       /** A blocking Taster's findings, when it asked for changes (ADR 0221). */
       findings?: RecordedFindings;
+      /** A check step's: the test map it found stale without failing for it (ADR 0282). */
+      staleMap?: StaleMap;
     };
 
 export interface Input {
@@ -671,6 +674,7 @@ function apply(state: State, event: Event): State {
           ...(event.paused === undefined ? {} : { paused: event.paused }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
           ...(event.findings === undefined ? {} : { findings: event.findings }),
+          ...(event.staleMap === undefined ? {} : { staleMap: event.staleMap }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;

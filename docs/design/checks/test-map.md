@@ -1,7 +1,7 @@
 # The test map
 
-> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709), what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711) and the uncovered-line check (#710) are built.
-> Discovery and freshness (#708) and a skip the batch added failing the green check (#727) are not.
+> **Partly built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709), what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711), the uncovered-line check (#710), a skip the batch added failing it (#727) and freshness (#718) are built.
+> The survey step that proposes a map (#708) is not.
 
 A target repository's test map says, for each module, where its code is, where its tests live, and where its test and coverage reports are written ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 It says where things are and holds no commands: the commands stay in `foedrum.jsonc`, confirmed by a person ([ADR 0023](../../adr/0023-language-independent-recipes.md)).
@@ -11,7 +11,7 @@ Its JSON Schema is `schemas/test-map.json`.
 `derivedFrom` holds the manifest globs the map was derived from and the paths they matched then.
 Each of `modules` has a `name`, its `code` globs, its `tests` (separate `paths` globs, test `projects` by folder, or `inline: true`), its `testReport` (`tap`, `junit` or `trx`, and a file or folder pattern) and its `coverage` (`lcov` or `cobertura` with a path, or `"none"`).
 A glob is a path relative to the repository with `/` between folders, read as a sensitive path is; a report path is a file or a folder pattern of at most 256 characters with `*` inside a folder's name as its only wildcard, never `**`, matched without a regular expression, so a batch's map cannot make the match run long.
-A TAP or JUnit test report's pattern names report files: when the red proof finds a folder there, the batch is Stuck (`environment`), naming the file to give instead ([the red proof](red-proof.md)); a Cobertura coverage pattern names folders.
+A TAP or JUnit test report's pattern names report files: when the red proof or the green check's skip reading finds a folder there, the batch is Stuck (`environment`), naming the file to give instead ([the red proof](red-proof.md)); a Cobertura coverage pattern names folders.
 Every object is closed, so a map that holds a key the schema does not name, such as a `command`, is refused.
 
 **Reading it.** The map is read at a commit of the repository's clone, as committed: `git ls-tree` finds its entry and `git cat-file` reads its blob, at most 1 MiB and 10 s per read.
@@ -36,6 +36,23 @@ The reason names the module and the report path, says to make the repository's `
 A module the base's map lists is taken as reached, as the base is taken as green.
 A base map that cannot be read makes the batch Stuck (`environment`); a batch's map that cannot be read fails the step without a retry, so its `onFail` route sends the batch back to the brewer that broke it.
 
+**Freshness by manifests.** A map goes stale by change, never by age ([ADR 0282](../../adr/0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)).
+Before a check step that runs the tests (a red proof, or a step whose checks include `test`) runs anything, the map is read at the step's tip and `git ls-files -z` lists its `derivedFrom.globs` in the worktree, each after `--` with git's `glob` magic (`manifestFreshness` in `src/checks/test-map.ts`).
+So that git and the map's other readers read them alike, a `derivedFrom` glob may use `*`, `**`, `?` and `[…]` only, and a recorded path is relative with `/` between folders, as git names it; a map that breaks either is refused as unreadable.
+A file listed and not recorded in `derivedFrom.paths` is added, one recorded and not listed is removed, and either makes the map stale.
+A step without a test check never reads the map.
+When the map is in the repository and the batch's change, from where it starts to the tip, touched the map or a path its globs match (`git diff --name-only` in the clone), the step fails without a retry, so its `onFail` route sends the batch back to the brewer, and the reason names up to 10 paths, each `(added)` or `(removed)`, with a count of the rest and the file to update.
+A map the batch did not make stale, such as one stale on the base, never fails a step: it is recorded on the step and named.
+A git read that fails blocks the step on its environment.
+
+**Freshness by runs.** In a repository with a map at the step's tip, after a test check that exited 0, and after the unreached rule above, the map is stale by the run when a module the base's map lists has no report at its `testReport` path, or when the test report `foedrum.jsonc` names was written under no module's report path.
+A map stale by a run never fails a step, since a run can disagree for reasons the brewer does not control; it is recorded and named.
+A failing run is not read, as for the unreached rule.
+
+**Named in the status comment.** `step.finished` keeps a `staleMap`: its repository, where the map is kept, its first 10 stale paths with why, and how many more.
+The status comment names each repository's latest one on a line of its own after the sensitive-path lines, `The test map of <repository> is stale: …`, until a later run of the tests in that repository finds its map fresh.
+A map the Brewery keeps is read the same way but never fails a step, since a batch cannot change it: the line says `The Brewery's test map of <repository> is stale: …`, and a person refreshes the Brewery's file.
+
 **Uncovered changed lines.** After a check step's `test` check exited 0, in a step that is not a red proof (Nip's `green`), the lines the batch's change added, from where it starts to the step's tip (`git diff`, so a Refactor's changed lines count and its deleted ones do not), are judged against the union of the coverage reports of every module of the effective map that has a coverage tool (`checks/uncovered.ts`, [ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 Before the `test` check runs, every coverage report path either map names is cleared, so a report an earlier run left neither stands for this run's nor adds its hits to it.
 A path with a `.git` segment, or a lone pattern such as `*` that names every top folder of the worktree, is never cleared: the step blocks on its environment, naming it, since a batch's map is a brewer's to write.
@@ -49,6 +66,10 @@ Each report is read under the worktree's path and under its real path, where the
 The check runs only on a step every check passed; a step another check failed or blocked keeps that ending.
 The lists of what was not measured, ten files of each kind and a count of the rest, each name cut to 1,000 characters and a name of blanks shown as `(a name of blanks)`, are recorded on the step's `step.finished` (`coverage`) and shown in the status comment under the step's line.
 Merged reports keep a line's higher branch count, not the union of the branches, as [the red proof](red-proof.md)'s readers say.
+
+**A skip the batch added.** In the same step, before the coverage reports are read, the TAP or JUnit test report of each module whose separate test files the batch's change added lines to is read where the map says, and a skip the report places in a separate test file of the map, in a line the batch's change added, fails the step along its `onFail` route, as check 5 of [the red proof](red-proof.md#with-a-test-map) does (`skipInAddedLines`), so a Cellarman cannot weaken a red test by skipping it; the reason, `test "<name>" is skipped at <file>:<line>, a line the batch added: a change may not skip a test it was proven by`, is the step's alone, ahead of any uncovered line.
+Every TAP and JUnit test report path either map names is cleared before the `test` check runs, as the coverage paths are, and a report that is missing holds no skip; one that cannot be read or is not its format fails the step along `onFail`; a refused pattern or one that names a folder blocks it on its environment, with the red proof's reasons.
+A TRX report is neither cleared nor read here, since Foedrum has no TRX reader; a skip in inline tests ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)), and one the report places on no line, as node's reporters write it, are the [test-design lens](../../../defaults/lenses/diff/test-design.md)'s to find, as at the red proof.
 
 **It is a sensitive path.** A change to `.foedrum/test-map.jsonc` gets the status comment's sensitive-path line without the repository naming it in `sensitivePaths` ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)), and the line after it names each module the batch's map adds with `coverage: none`.
 A repository whose map the Brewery keeps has no such file to name.

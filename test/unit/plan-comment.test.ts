@@ -11,9 +11,16 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import { planCommentOf, planEffects, renderPlan } from '../../src/engine/plan-comment.ts';
+import { fold } from '../../src/engine/fold.ts';
+import {
+  planCommentOf,
+  planEffects,
+  planEntryText,
+  renderPlan,
+} from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { StatusComments } from '../../src/engine/status-comment.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import type { PlannedSubOrder, PlanReport } from '../../src/schemas/plan.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -467,6 +474,127 @@ const digest = (text: string): string =>
   createHash('sha256').update(text).digest('hex').slice(0, 16);
 const marker = (revision: number, batchId = '7-1'): string =>
   effectMarker(effectKey.encode({ batchId, effect: `plan.${revision}` }));
+describe('planEntryText (ADR 0290)', () => {
+  const alternatives = {
+    considered: [{ cut: 'one pull request', whyNot: 'over 2,000 lines' }],
+    whyThis: 'each sub-order merges on its own',
+  };
+  const output = (plan: PlanReport) =>
+    JSON.parse(JSON.stringify({ status: 'done', summary: 'A plan', assumptions: [], ...plan }));
+  // Batch 7-1 planned twice: its second attempt's plan is the one approved, the first's differs.
+  const attemptOf = (attempt: number, plan: PlanReport): Event[] => [
+    {
+      type: 'step.scheduled',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt,
+      deadlineAt: '2026-10-31T10:00:00.000Z',
+    },
+    {
+      type: 'step.started',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt,
+      worktree: {
+        repo: 'alice/brewery',
+        path: `/work/plan-${attempt}`,
+        branch: `foedrum/7-1/plan/${attempt}`,
+        commit: 'c'.repeat(40),
+      },
+    },
+    {
+      type: 'step.finished',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt,
+      outcome: { kind: 'succeeded', output: output(plan) },
+    },
+  ];
+  const events = (plan: PlanReport): Event[] => [
+    {
+      type: 'batch.ordered',
+      batchId: '7-1',
+      order: { issue: 7 },
+      routeBy: '2026-10-31T10:00:00.000Z',
+    },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: '7-1',
+      recipe: 'mash',
+      reason: 'label',
+      source: 'label',
+    },
+    ...attemptOf(1, { subOrders: [subOrder('ui', { doneWhen: 'an older plan' })] }),
+    ...attemptOf(2, plan),
+  ];
+  const origin = { batchId: '7-1', stepId: 'plan', attempt: 2, entry: 'ui' };
+
+  it("renders the entry of the attempt the origin names as the plan comment's section, with what it depends on, then the plan's alternatives", () => {
+    const state = fold(events({ ...three, alternatives }));
+    assert.equal(
+      planEntryText(state, origin),
+      [
+        '#### `ui`: Build ui',
+        '',
+        '- Builds in acme/web: one endpoint, about 300 lines',
+        '- Done when: GET /health answers 200',
+        '- Recipe `docs`: copy only; test-first off: documentation only',
+        '- Depends on: `api` (code)',
+        '',
+        '<details><summary>Touches 1 path</summary>',
+        '',
+        '- src/server.ts',
+        '',
+        '</details>',
+        '',
+        '**Alternatives**',
+        '',
+        '- one pull request: over 2,000 lines',
+        '',
+        'Chosen because: each sub-order merges on its own',
+      ].join('\n'),
+    );
+  });
+
+  it('says an entry depends on nothing and leaves the alternatives out when the plan has none', () => {
+    const text = planEntryText(fold(events(three)), { ...origin, entry: 'api' });
+    assert.match(text, /\n- Depends on: none\n/);
+    assert.doesNotMatch(text, /Alternatives/);
+  });
+
+  it('leaves out a text of the entry that looks like a secret', () => {
+    const leaky = { subOrders: [subOrder('ui', { doneWhen: `use ${token}` })] };
+    const text = planEntryText(fold(events(leaky)), origin);
+    assert.doesNotMatch(text, new RegExp(token));
+    assert.match(
+      text,
+      /- Done when: \\\[left out: a text of step plan that looks like a secret\\\]/,
+    );
+  });
+
+  it("throws, naming the entry, when the parent's plan holds no such entry", () => {
+    assert.throws(
+      () => planEntryText(fold(events(three)), { ...origin, entry: 'docs' }),
+      /^Error: the plan of batch 7-1, step plan#2, holds no entry docs$/,
+    );
+  });
+
+  it('throws when the attempt the origin names wrote no plan', () => {
+    assert.throws(
+      () => planEntryText(fold(events(three)), { ...origin, attempt: 3 }),
+      /^Error: the plan of batch 7-1, step plan#3, holds no entry ui$/,
+    );
+  });
+
+  it('throws, naming the entry, when the attempt the origin names has started but not finished: regression test', () => {
+    // The log without attempt 2's step.finished.
+    assert.throws(
+      () => planEntryText(fold(events(three).slice(0, -1)), origin),
+      /^Error: the plan of batch 7-1, step plan#2, holds no entry ui$/,
+    );
+  });
+});
+
 const planned = (plan: PlanReport): Ending => ({
   kind: 'succeeded',
   // Through JSON, as the event log keeps an outcome.

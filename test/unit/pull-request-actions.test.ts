@@ -240,6 +240,32 @@ describe('pullRequestActions: the push', () => {
 });
 
 describe('pullRequestActions: the pull request', () => {
+  it("opens a sub-order's pull request with the section that names its order's other pull requests (ADR 0292)", async () => {
+    const { actions, requests } = actionsWith();
+    const split: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: '1-1',
+        order: { issue: 1 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 12, repo: 'acme/api' },
+          { issue: 13, repo: 'acme/web' },
+        ],
+        dependencies: [{ subOrder: 13, blockedBy: 12, kind: 'code' }],
+      },
+    ];
+    keysOf(fold([...split, ordered({ issue: 12 }), ...brewed, ...opening]), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    assert.match(body, /^## Pull requests of this order\n/);
+    assert.match(body, /acme\/web: not opened yet/);
+  });
+
   it("opens it from the bottle branch into the base, with the order's title and the reports", async () => {
     const { actions, requests, titles } = actionsWith();
     keysOf(brewing(), actions);

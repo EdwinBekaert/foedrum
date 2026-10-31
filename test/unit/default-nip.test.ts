@@ -637,3 +637,152 @@ describe('the default Gauger', () => {
     assert.match(prompt, /source="issue #12 body" name="order">\nAdd a --json flag to status\.\n/);
   });
 });
+
+describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", () => {
+  const sessionId = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const plan = {
+    status: 'done',
+    summary: 'Planned',
+    assumptions: [],
+    subOrders: [
+      {
+        id: 'api',
+        title: 'A --json flag for status',
+        repo: 'acme/api',
+        size: { lines: 120, mechanism: 'one flag on one command' },
+        doneWhen: 'status --json prints every batch as one JSON array',
+        touches: [{ path: 'src/cli/status.ts' }, { path: 'test/unit/status.test.ts' }],
+        recipe: 'nip',
+        why: 'a test pins the output',
+        ready: true,
+      },
+    ],
+    alternatives: {
+      considered: [{ cut: 'a new command', whyNot: 'status already lists the batches' }],
+      whyThis: 'the smallest change that answers the order',
+    },
+  };
+  // Batch 7-1 planned the order, and 12-1 brews its entry api, ordered from it.
+  const parent: Event[] = [
+    {
+      type: 'batch.ordered',
+      batchId: '7-1',
+      order: { issue: 7 },
+      routeBy: '2026-10-21T13:00:00.000Z',
+    },
+    {
+      type: 'step.scheduled',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      deadlineAt: '2026-10-21T13:00:00.000Z',
+    },
+    { type: 'step.started', batchId: '7-1', stepId: 'plan', attempt: 1 },
+    {
+      type: 'step.finished',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: plan },
+    },
+  ];
+  const eventsOf = (stepId: string, subOrder: boolean): Event[] => {
+    const ref = { batchId: '12-1', stepId, attempt: 1 };
+    const path = join('/work', `${stepId}-1`);
+    return [
+      ...parent,
+      {
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        routeBy: '2026-10-21T13:00:00.000Z',
+        ...(subOrder
+          ? {
+              parentBatchId: '7-1',
+              plan: { batchId: '7-1', stepId: 'plan', attempt: 1, entry: 'api' },
+            }
+          : {}),
+      },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '12-1',
+        recipe: 'nip',
+        reason: 'label',
+        source: 'label',
+      },
+      { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-21T13:00:00.000Z' },
+      {
+        type: 'step.started',
+        ...ref,
+        session: { id: sessionId, worktree: path },
+        worktree: {
+          repo: 'acme/api',
+          path,
+          branch: `foedrum/12-1/${stepId}/1`,
+          commit: 'c'.repeat(40),
+        },
+      },
+    ];
+  };
+  const defaults = () => valid(loadRecipes(noFiles)).brewers;
+  /** The defaults' brewers with no plan entry input, as they were before ADR 0290. */
+  const withoutEntry = () => {
+    const brewers = defaults();
+    return {
+      find: (recipe: string, stepId: string) => {
+        const found = brewers.find(recipe, stepId);
+        if (found === undefined) return undefined;
+        const inputs = found.brewer.inputs.filter(({ from }) => from !== 'plan-entry');
+        return { ...found, brewer: { ...found.brewer, inputs } };
+      },
+    };
+  };
+  const promptOf = async (
+    stepId: string,
+    subOrder: boolean,
+    brewers: ReturnType<typeof withoutEntry> = defaults(),
+  ): Promise<string> => {
+    const plans = createAttemptPlans({
+      state: () => fold(eventsOf(stepId, subOrder)),
+      brewers,
+      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      repoTools: () => [],
+      clone: (repo) => join('/clones', repo),
+      sandbox: false,
+      workRoot: join('/root'),
+      env: { base: { PATH: '/usr/bin' }, forced: {} },
+      platform: 'linux',
+      orderText: async () => 'Add a --json flag to status.',
+      // The Taster's change: one commit, no diff to show.
+      git: async () => ({ code: 0, stdout: '', stderr: '' }),
+      files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
+      random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
+    });
+    const ref = { batchId: '12-1', stepId, attempt: 1 };
+    const { prompt } = await plans.plan({
+      ref,
+      limits: { outDoc: { file: 'out.md', schema: OutDocFrontmatter } },
+    });
+    return prompt;
+  };
+  const entry =
+    /source="entry api of the plan of batch 7-1, step plan#1" name="planEntry">\n#### `api`: A --json flag for status\n[\s\S]*- Done when: status --json prints every batch as one JSON array\n[\s\S]*- src\/cli\/status\.ts\n[\s\S]*Chosen because: the smallest change that answers the order\n<\/untrusted-input-/;
+
+  it("puts a sub-order's plan entry in its Gauger's prompt, which says what to do with it", async () => {
+    const prompt = await promptOf('gauge', true);
+    assert.match(prompt, entry);
+    assert.match(prompt.split('## Untrusted input')[0] ?? '', /\{planEntry\}/);
+  });
+
+  it("puts a sub-order's plan entry in its acceptance Taster's prompt", async () => {
+    assert.match(await promptOf('acceptance', true), entry);
+  });
+
+  it('gives an order that is no sub-order the Gauger and acceptance prompts it had without the input: regression test', async () => {
+    for (const step of ['gauge', 'acceptance']) {
+      const prompt = await promptOf(step, false);
+      assert.equal(prompt, await promptOf(step, false, withoutEntry()), step);
+      assert.doesNotMatch(prompt, /name="planEntry"/, step);
+    }
+  });
+});

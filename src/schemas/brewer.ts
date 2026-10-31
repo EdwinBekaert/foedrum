@@ -13,8 +13,9 @@ const Identifier = z.string().regex(/^[a-z][A-Za-z0-9]*$/, 'Must be a camelCase 
 
 // `repositories`: the Brewery's repositories and their bases, which the engine fills (ADR 0234);
 // `recipes`: the Brewery's recipes but those that choose one, which the engine fills (ADR 0232);
-// `plan`: the batch's latest plan, on a step a person's choice schedules (ADR 0286).
-const source = /^(?:order|repositories|recipes|plan|step:(.+)|file:(.+)|lens:(.+))$/;
+// `plan`: the batch's latest plan, on a step a person's choice schedules (ADR 0286);
+// `plan-entry`: a sub-order's entry of the approved plan it was ordered from (ADR 0290).
+const source = /^(?:order|repositories|recipes|plan|plan-entry|step:(.+)|file:(.+)|lens:(.+))$/;
 
 const Input = z.strictObject({
   name: Identifier,
@@ -22,7 +23,7 @@ const Input = z.strictObject({
     .string()
     .regex(
       source,
-      'Must be "order", "repositories", "recipes", "plan", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
+      'Must be "order", "repositories", "recipes", "plan", "plan-entry", "step:<step id>", "file:<path in the repository>" or "lens:<folder>/<lens name>"',
     )
     .refine((from) => {
       const [, step, file, lens] = source.exec(from) ?? [];

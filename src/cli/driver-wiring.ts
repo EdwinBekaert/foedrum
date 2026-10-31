@@ -35,6 +35,7 @@ import { planCommentOf, planEffects } from '../engine/plan-comment.ts';
 import { planIssueEffects } from '../engine/plan-issues.ts';
 import { type PullRequestRepository, pullRequestActions } from '../engine/pull-request-actions.ts';
 import { recipeLabelEffects } from '../engine/recipe-label.ts';
+import { siblingEffects } from '../engine/sibling-pull-requests.ts';
 import { StateBranchStopError } from '../engine/state-branch.ts';
 import { STATE_BRANCH } from '../engine/state-branch-git.ts';
 import { statusEffects } from '../engine/status-comment.ts';
@@ -248,6 +249,9 @@ export const wireDriver = async (
   const planIssues = planIssueEffects({
     subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
   });
+  const pullRequests = githubPullRequests({ client, reads, login: async () => login });
+  // Each sub-order pull request's section naming its order's others, as they open and end (ADR 0292).
+  const siblings = siblingEffects({ host: pullRequests });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
@@ -258,14 +262,24 @@ export const wireDriver = async (
           recipeLabels,
           conflicts,
           briefs,
+          siblings,
           claimEffects({ claimant, marks, claims }),
         )
-      : combineEffects(planIssues, status, planComments, labels, recipeLabels, conflicts, briefs);
+      : combineEffects(
+          planIssues,
+          status,
+          planComments,
+          labels,
+          recipeLabels,
+          conflicts,
+          briefs,
+          siblings,
+        );
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
     repositories: pushes,
-    host: githubPullRequests({ client, reads, login: async () => login }),
+    host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
@@ -285,10 +299,12 @@ export const wireDriver = async (
   };
   const clone = (repo: string) => worktreeClonePath(setup.workRoot, repositoryCalled(repo));
   // A repository's test map at a commit of its clone, or the Brewery's for it (ADR 0274).
+  const mapKeptIn = (repo: string) =>
+    repositoryNamed(repo)?.testMap === undefined ? 'repo' : 'brewery';
   const mapAt = testMaps({
     git: shell.git,
     clone,
-    keptIn: (repo) => (repositoryNamed(repo)?.testMap === undefined ? 'repo' : 'brewery'),
+    keptIn: mapKeptIn,
     brewery: (repo) => repositoryNamed(repo)?.testMap?.text,
   });
   const plans = createAttemptPlans({
@@ -330,7 +346,8 @@ export const wireDriver = async (
     checks: setup.checks,
     repositoryChecks: (repo) => repositoryNamed(repo)?.checks,
     testReport: (repo) => repositoryNamed(repo)?.testReport,
-    testMap: { at: mapAt },
+    // A Brewery-kept map that is stale is named, never failed for: a batch cannot change it (ADR 0282).
+    testMap: { at: mapAt, keptIn: mapKeptIn },
     exec: shell.exec,
     // A repository's setup installs before the checks, with the network (ADR 0140).
     setup: { of: (repo) => repositoryNamed(repo)?.setup, exec: shell.setup },

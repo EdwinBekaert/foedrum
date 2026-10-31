@@ -38,10 +38,12 @@ import {
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
   MOST_LISTED,
+  MOST_STALE_PATHS,
+  type StaleMap,
   type WorktreeRef,
 } from '../schemas/events.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
-import type { TestMap } from '../schemas/test-map.ts';
+import type { TestMap, TestMapModule } from '../schemas/test-map.ts';
 import type { Git } from '../workspace/git.ts';
 import {
   type PlannedCheck,
@@ -50,7 +52,14 @@ import {
   type RepositoryChecks,
   settleReadings,
 } from './gravity.ts';
-import { judgeMapped, judgeRed, type MappedReport, needsTestReport } from './red-proof.ts';
+import {
+  cut,
+  judgeMapped,
+  judgeRed,
+  type MappedReport,
+  needsTestReport,
+  skipInAddedLines,
+} from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readFilesAt, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
 import {
@@ -59,8 +68,13 @@ import {
   type EffectiveModule,
   effectiveMap,
   type MapRead,
+  manifestFreshness,
+  type ReadManifestFreshness,
   type ReadTestMapAt,
   reportPaths,
+  reportUnder,
+  TEST_MAP_PATH,
+  touchedPaths,
   unclearable,
 } from './test-map.ts';
 import { type CoverageVerdict, judgeCoverage, uncoveredReason } from './uncovered.ts';
@@ -113,6 +127,12 @@ export interface CheckRunnerOptions {
     at: ReadTestMapAt;
     /** Default the file system's. */
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
+    /** Where a repository's map is kept (ADR 0018); default in the repository. */
+    keptIn?: (repo: string) => 'repo' | 'brewery';
+    /** A map's manifests against a worktree's files (ADR 0282); default git's. */
+    manifests?: ReadManifestFreshness;
+    /** The paths among some globs that a range of commits changed, read in the clone; default git's. */
+    touched?: ReturnType<typeof touchedPaths>;
     /** A module's coverage report in a worktree (ADR 0274). Default the file system's. */
     coverage?: (format: CoverageFormat, path: string, root: string) => ReadCoverage;
     /** A worktree's real path, where a sandboxed run writes its absolute paths. Default the file system's. */
@@ -137,6 +157,43 @@ export const fileReports: ReportFiles = {
   },
   read: (file, root) => readOutDocFile(file, MAX_REPORT_BYTES, root),
 };
+
+/**
+ * What a check step read of its test map before the run (ADR 0282): the map at its tip, and the
+ * stale manifests it names without failing for them, with where the map is kept.
+ */
+interface Fresh {
+  tip?: MapRead;
+  stale?: { kept: StaleMap['kept']; named: readonly string[] };
+}
+
+/** The most of one stale path a reason or the event keeps. */
+const STALE_PATH_LENGTH = 1_000;
+
+/** Up to `MOST_STALE_PATHS` of `named`, with a count of the rest. */
+const listOf = (named: readonly string[]): string => {
+  const more = named.length - MOST_STALE_PATHS;
+  return `${named.slice(0, MOST_STALE_PATHS).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+};
+
+/** `end` with the test map of `repo` recorded stale by `named`, when it names any (ADR 0282). */
+const withStale = (
+  end: AttemptEnd,
+  repo: string,
+  kept: StaleMap['kept'],
+  named: readonly string[],
+): AttemptEnd =>
+  named.length === 0
+    ? end
+    : {
+        ...end,
+        staleMap: {
+          repo,
+          kept,
+          paths: named.slice(0, MOST_STALE_PATHS).map((path) => path.slice(0, STALE_PATH_LENGTH)),
+          more: Math.max(0, named.length - MOST_STALE_PATHS),
+        },
+      };
 
 /** The test maps of a red proof's repository: none, or the base's and the batch's (ADR 0274). */
 type Maps =
@@ -168,16 +225,23 @@ interface StepMaps {
   after: MapRead;
 }
 
-/** The coverage report paths of every module either map lists, each once (ADR 0274). */
-const coveragePaths = ({ before, after }: StepMaps): string[] => [
+/** The report paths `of` gives each module either map lists, each once (ADR 0274). */
+const pathsOf = (
+  { before, after }: StepMaps,
+  of: (module: TestMapModule) => string[],
+): string[] => [
   ...new Set(
-    [before, after].flatMap((read) =>
-      read.kind === 'map'
-        ? read.map.modules.flatMap(({ coverage }) => (coverage === 'none' ? [] : [coverage.path]))
-        : [],
-    ),
+    [before, after].flatMap((read) => (read.kind === 'map' ? read.map.modules.flatMap(of) : [])),
   ),
 ];
+
+/** A module's coverage report path, when it has a coverage tool. */
+const coveragePath = ({ coverage }: TestMapModule): string[] =>
+  coverage === 'none' ? [] : [coverage.path];
+
+/** A module's test report path, when Foedrum reads its format: it reads no TRX yet. */
+const testReportPath = ({ testReport }: TestMapModule): string[] =>
+  testReport.format === 'trx' ? [] : [testReport.path];
 
 /**
  * A file or module name as the listing records it: a brewer names the files, so one longer than
@@ -374,6 +438,53 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
+   * The test reports `module` wrote where the test map says, after a run in `worktree`: why the
+   * step is Stuck on its environment when its pattern is refused or names a folder, or why it
+   * failed when a report cannot be read or is not of its format (ADR 0274).
+   */
+  const testReportsOf = (
+    module: TestMapModule,
+    worktree: WorktreeRef,
+  ): { reports: MappedReport[] } | { stuck: string } | { failed: string } => {
+    const find = options.testMap?.reports ?? reportPaths;
+    const isFolder = options.testMap?.isFolder ?? folderAt;
+    const { name, testReport } = module;
+    const found = find(testReport.path, worktree.path);
+    if ('refused' in found) {
+      return {
+        stuck: `the test report of module "${name}" cannot be looked for: ${found.refused}`,
+      };
+    }
+    const read: MappedReport[] = [];
+    for (const file of found.paths) {
+      const shown = relative(worktree.path, file).split(sep).join('/');
+      // A test report is a file: a folder is no report a brewer could fix by committing.
+      if (isFolder(file)) {
+        const extension = testReport.format === 'tap' ? 'tap' : 'xml';
+        return {
+          stuck: `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension} (ADR 0274)`,
+        };
+      }
+      const text = reports.read(file, worktree.path);
+      if (text.kind === 'missing') continue;
+      if (text.kind === 'unread') {
+        return {
+          failed: `the test report ${shown} of module "${name}" cannot be read: ${text.reason}`,
+        };
+      }
+      const parsed = testReport.format === 'tap' ? parseTap(text.text) : parseJunit(text.text);
+      if (!parsed.readable) {
+        const format = testReport.format === 'tap' ? 'TAP' : 'JUnit XML';
+        return {
+          failed: `the test report ${shown} of module "${name}" is not ${format}: ${parsed.reason}`,
+        };
+      }
+      read.push({ ...parsed.report, module: name });
+    }
+    return { reports: read };
+  };
+
+  /**
    * A red proof in a repository with a test map (ADR 0274): every report path of the map cleared,
    * the confirmed test line run once, and each module's report read where the map says, judged by
    * the five checks that read no test's name. A module the base lists that wrote no report is a
@@ -390,10 +501,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     diff: readonly DiffFile[],
   ): Promise<AttemptEnd> => {
     const find = options.testMap?.reports ?? reportPaths;
-    const isFolder = options.testMap?.isFolder ?? folderAt;
     const patterns = modules.flatMap(({ module }) => [
       module.testReport.path,
-      ...(module.coverage === 'none' ? [] : [module.coverage.path]),
+      ...coveragePath(module),
     ]);
     // A report an earlier run left must never stand for this run's, nor merge its hits into it.
     const unclear =
@@ -419,40 +529,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const unreported: string[] = [];
     for (const { module, added } of modules) {
       const { name, testReport } = module;
-      const found = find(testReport.path, worktree.path);
-      if ('refused' in found) {
-        return stuck(`the test report of module "${name}" cannot be looked for: ${found.refused}`);
-      }
-      let wrote = 0;
-      for (const file of found.paths) {
-        const shown = relative(worktree.path, file).split(sep).join('/');
-        // A test report is a file: a folder is no report a brewer could fix by committing.
-        if (isFolder(file)) {
-          const extension = testReport.format === 'tap' ? 'tap' : 'xml';
-          return stuck(
-            `the test report pattern ${testReport.path} of module "${name}" names a folder, ${shown}: name the report file in the test map, such as ${shown}/<file>.${extension} (ADR 0274)`,
-          );
-        }
-        const text = reports.read(file, worktree.path);
-        if (text.kind === 'missing') continue;
-        if (text.kind === 'unread') {
-          return failed(
-            `the test report ${shown} of module "${name}" cannot be read: ${text.reason}`,
-          );
-        }
-        const parsed = testReport.format === 'tap' ? parseTap(text.text) : parseJunit(text.text);
-        if (!parsed.readable) {
-          const format = testReport.format === 'tap' ? 'TAP' : 'JUnit XML';
-          return failed(
-            `the test report ${shown} of module "${name}" is not ${format}: ${parsed.reason}`,
-          );
-        }
-        read.push({ ...parsed.report, module: name });
-        wrote++;
-      }
+      const wrote = testReportsOf(module, worktree);
+      if ('stuck' in wrote) return stuck(wrote.stuck);
+      if ('failed' in wrote) return failed(wrote.failed);
+      read.push(...wrote.reports);
       // A module the batch added that wrote nothing may be one no confirmed line reaches (ADR 0280).
       if (added) continue;
-      if (wrote === 0)
+      if (wrote.reports.length === 0)
         unreported.push(`module "${name}" wrote no test report at ${testReport.path}`);
       if (module.coverage === 'none') continue;
       const coverage = find(module.coverage.path, worktree.path);
@@ -655,50 +738,138 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (refs === undefined)
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
     const of = checks.proves(recipe, stepId);
-    // A check step's test reading also reads the coverage of the change (ADR 0274): the reports an
-    // earlier run left are cleared first, so none stands for this run's or adds its hits to it.
+    // The test map matters to a step that runs the tests: a red proof, or a step with a test check.
+    // Without maps nothing is awaited, so the first check starts at once, before the engine could
+    // stop the attempt.
+    const reads = options.testMap !== undefined && (of !== undefined || refs.includes('test'));
+    const fresh = reads ? await manifests(batch, worktree, signal) : {};
+    if ('end' in fresh) return fresh.end;
+    // A check step's test reading also reads the coverage of the change and the skips its tests
+    // report (ADR 0274): the reports an earlier run left are cleared first, so none stands for
+    // this run's or adds its hits to it.
     const maps =
       of === undefined && options.testMap !== undefined && refs.includes('test')
-        ? await stepMapsOf(batch, worktree, signal)
+        ? await stepMapsOf(batch, worktree, signal, fresh.tip)
         : undefined;
     if (maps !== undefined) {
-      const paths = coveragePaths(maps);
-      const why =
-        paths.map(unclearable).find((reason) => reason !== undefined) ??
-        (await clearReportPaths(
-          paths,
-          worktree.path,
-          options.testMap?.reports ?? reportPaths,
-          reports.clear,
-        ));
-      if (why !== undefined) {
-        return blocked(
-          'environment',
-          `a coverage report of the test map cannot be cleared: ${why}`,
-        );
+      for (const [report, path] of [
+        ['a coverage report', coveragePath],
+        ['a test report', testReportPath],
+      ] as const) {
+        const paths = pathsOf(maps, path);
+        const why =
+          paths.map(unclearable).find((reason) => reason !== undefined) ??
+          (await clearReportPaths(
+            paths,
+            worktree.path,
+            options.testMap?.reports ?? reportPaths,
+            reports.clear,
+          ));
+        if (why !== undefined) {
+          return blocked('environment', `${report} of the test map cannot be cleared: ${why}`);
+        }
       }
     }
     const end =
       of !== undefined
         ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
         : await checkTree(refs, worktree, current.deadlineAt, signal);
-    return afterTest(batch, worktree, end, maps, signal);
+    return afterRun(batch, worktree, end, fresh, maps, signal);
   };
 
-  /** A check step's test maps, where the batch's change starts and at the worktree's commit. */
+  /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
+  const baseOf = (batch: Batch, repo: string): string | undefined =>
+    mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+
+  /**
+   * The test map at the step's tip and how it compares with its manifests before the run (ADR 0282):
+   * a map in the repository that the batch's change left stale, by touching it or a manifest its
+   * globs match, fails the step back along its onFail route, so its brewer updates the map in its
+   * change (ADR 0274). A map the batch did not make stale, or the Brewery's, which a batch cannot
+   * change, is only named.
+   */
+  const manifests = async (
+    batch: Batch,
+    worktree: WorktreeRef,
+    signal: AbortSignal,
+  ): Promise<{ end: AttemptEnd } | Fresh> => {
+    const { testMap } = options;
+    if (testMap === undefined) return {};
+    const { repo } = worktree;
+    const tip = await testMap.at(repo, worktree.commit, signal);
+    if (tip.kind !== 'map') return { tip };
+    const read = testMap.manifests ?? manifestFreshness(git);
+    const found = await read(worktree.path, tip.map, signal);
+    if (found.kind === 'fresh') return { tip };
+    if (found.kind === 'unread') {
+      const why = `the manifests of the test map of ${repo} cannot be listed: ${found.reason}`;
+      return { end: blocked('environment', why) };
+    }
+    const named = [
+      ...found.added.map((path) => `${path} (added)`),
+      ...found.removed.map((path) => `${path} (removed)`),
+    ];
+    const kept = testMap.keptIn?.(repo) ?? 'repo';
+    const base = baseOf(batch, repo);
+    if (kept === 'repo' && base !== undefined) {
+      const touched = testMap.touched ?? touchedPaths(git, clone);
+      const paths = [TEST_MAP_PATH, ...tip.map.derivedFrom.globs];
+      const changed = await touched(repo, base, worktree.commit, paths, signal);
+      if ('unread' in changed) {
+        const why = `the files the change of ${repo} touched cannot be read: ${changed.unread}`;
+        return { end: blocked('environment', why) };
+      }
+      if (changed.paths.length > 0) {
+        const reason = [
+          `the test map of ${repo} is stale: its derivedFrom.globs match ${listOf(named)};`,
+          `update ${TEST_MAP_PATH} in this change (ADR 0274, ADR 0282)`,
+        ].join(' ');
+        return { end: { ending: { kind: 'failed', retryable: false, reason } } };
+      }
+    }
+    return { tip, stale: { kept, named } };
+  };
+
+  /**
+   * `end` once the checks ran, judged by `afterTest`, with the test map recorded stale when it was
+   * before the run or a passing run disagrees with it (ADR 0282).
+   */
+  const afterRun = async (
+    batch: Batch,
+    worktree: WorktreeRef,
+    end: AttemptEnd,
+    { tip, stale }: Fresh,
+    read: StepMaps | undefined,
+    signal: AbortSignal,
+  ): Promise<AttemptEnd> => {
+    const named = [...(stale?.named ?? [])];
+    const kept = stale?.kept ?? options.testMap?.keptIn?.(worktree.repo) ?? 'repo';
+    // A repository with no map has none to be stale by a run.
+    const byRun =
+      tip?.kind === 'map'
+        ? (modules: readonly EffectiveModule[]) => named.push(...staleByRun(worktree, modules))
+        : undefined;
+    const judged = await afterTest(batch, worktree, end, read, signal, byRun);
+    return withStale(judged, worktree.repo, kept, named);
+  };
+
+  /**
+   * A check step's test maps, where the batch's change starts and at the worktree's commit, which
+   * `tip` holds when the freshness read already read it.
+   */
   const stepMapsOf = async (
     batch: Batch,
     worktree: WorktreeRef,
     signal: AbortSignal,
+    tip?: MapRead,
   ): Promise<StepMaps | undefined> => {
     const { testMap } = options;
     if (testMap === undefined) return undefined;
     const { repo } = worktree;
-    // Where the batch's change starts: the base it merged, else its start (ADR 0164).
-    const base = mergedBase(state(), batch.id) ?? batch.starts?.[repo.toLowerCase()]?.commit;
+    const base = baseOf(batch, repo);
     const before: MapRead =
       base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
-    const after = await testMap.at(repo, worktree.commit, signal);
+    const after = tip ?? (await testMap.at(repo, worktree.commit, signal));
     return { base, before, after };
   };
 
@@ -706,7 +877,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
    * `end`, or once the test check passed: Stuck on the environment for a module only the batch's
    * test map lists whose report path holds no report, since no confirmed line reaches it, or for a
    * check step, failed on a changed line no test ran (ADR 0274). A module the base's map lists is
-   * taken as reached, as the base is taken as green.
+   * taken as reached, as the base is taken as green. Once every module is reached, `reached` gets
+   * the effective map's modules, for freshness by the run (ADR 0282).
    */
   const afterTest = async (
     batch: Batch,
@@ -714,14 +886,16 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     end: AttemptEnd,
     read: StepMaps | undefined,
     signal: AbortSignal,
+    reached?: (modules: readonly EffectiveModule[]) => void,
   ): Promise<AttemptEnd> => {
     const { testMap } = options;
     const test = end.readings?.find(
       (reading): reading is Extract<GravityReading, { result: 'exited' }> =>
         reading.result === 'exited' && reading.check === 'test',
     );
-    // Only a passing run says a module no report came from was not reached: a failing one may have
-    // stopped before it, so its own verdict stands and goes along onFail (ADR 0280).
+    // Only a passing run says a module no report came from was not reached, or that the map is
+    // stale by it: a failing one may have stopped before it, so its own verdict stands and goes
+    // along onFail (ADR 0280).
     if (testMap === undefined || test === undefined || test.exitCode !== 0) return end;
     const { repo } = worktree;
     const ended = (ending: AttemptEnd['ending']): AttemptEnd => ({ ...end, ending });
@@ -739,10 +913,16 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       return ended({ kind: 'failed', retryable: false, reason });
     }
     if (after.kind === 'none') return end;
-    const listed = new Set(before.kind === 'map' ? before.map.modules.map(({ name }) => name) : []);
+    const modules = effectiveMap(
+      before.kind === 'map' ? before.map : undefined,
+      after.map,
+      { atBase: [], deleted: [] },
+      false,
+    );
     const find = testMap.reports ?? reportPaths;
-    for (const { name, testReport } of after.map.modules) {
-      if (listed.has(name)) continue;
+    for (const { module, added } of modules) {
+      if (!added) continue;
+      const { name, testReport } = module;
       const found = find(testReport.path, worktree.path);
       if ('refused' in found) {
         return stuck(`the test report of module "${name}" cannot be looked for: ${found.refused}`);
@@ -757,6 +937,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       ].join(' ');
       return stuck(why);
     }
+    reached?.(modules);
     // A red proof reads no coverage: the uncovered-line check is a check step's (ADR 0274).
     // A step another check already failed or blocked keeps that ending.
     if (read === undefined || base === undefined || end.ending.kind !== 'succeeded') return end;
@@ -764,8 +945,38 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
-   * `end`, or failed for its onFail route on a line the batch's change added in a code area that no
-   * test ran, with what the check did not measure (ADR 0274).
+   * Where a passing run disagrees with the effective map (ADR 0274, ADR 0282): a module the base
+   * lists whose report path holds no report, and the test report `foedrum.jsonc` names written
+   * under no module's report path. A module only the batch adds was looked for already.
+   */
+  const staleByRun = (worktree: WorktreeRef, modules: readonly EffectiveModule[]): string[] => {
+    const find = options.testMap?.reports ?? reportPaths;
+    const holds = (pattern: string) => {
+      const found = find(pattern, worktree.path);
+      // A pattern that cannot be looked for says nothing of the run.
+      return 'refused' in found || found.paths.length > 0;
+    };
+    const named = modules
+      .filter(({ module, added }) => !added && !holds(module.testReport.path))
+      .map(({ module }) => `${module.testReport.path} (no report of module "${module.name}")`);
+    const written = options.testReport(worktree.repo)?.path;
+    if (written === undefined) return named;
+    const patterns = modules.flatMap(({ module: { testReport, coverage } }) => [
+      testReport.path,
+      ...(coverage === 'none' ? [] : [coverage.path]),
+    ]);
+    if (patterns.some((pattern) => reportUnder(written, pattern))) return named;
+    const found = find(written, worktree.path);
+    if ('paths' in found && found.paths.length > 0) {
+      named.push(`${written} (a report outside the map)`);
+    }
+    return named;
+  };
+
+  /**
+   * `end`, or failed for its onFail route on a skip a test report places in a line the batch's
+   * change added, or on such a line in a code area that no test ran, with what the check did not
+   * measure (ADR 0274).
    */
   const uncovered = async (
     end: AttemptEnd,
@@ -807,6 +1018,39 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const changed = diff.files.flatMap(({ newPath, addedAt = [] }) =>
       newPath === undefined || addedAt.length === 0 ? [] : [{ path: newPath, addedAt }],
     );
+    // The check sandbox runs in the worktree's real path, so a report may name its files by either.
+    const real = (options.testMap?.realPath ?? realPath)(worktree.path);
+    // A skip the batch added in a separate test file of the map weakens a test the change was
+    // proven by: named first, as the red proof names the first of its checks that fails. Inline
+    // tests are the test-design lens's (ADR 0274).
+    const inTests = changed.flatMap((file) => {
+      const area = areaOf(modules, file.path, foldCase);
+      return area?.area === 'tests' ? [{ ...file, module: area.module }] : [];
+    });
+    const tests: MappedReport[] = [];
+    for (const { module } of modules) {
+      // Only a module whose test files the batch added to can report a skip the batch added. A TRX
+      // report's skips are left unread at green, where a .NET target brewed before (#727).
+      if (!inTests.some((file) => file.module === module.name)) continue;
+      if (module.testReport.format === 'trx') continue;
+      const wrote = testReportsOf(module, worktree);
+      if ('stuck' in wrote) return stuck(wrote.stuck);
+      if ('failed' in wrote) return failed(wrote.failed);
+      tests.push(...wrote.reports);
+    }
+    const skip = skipInAddedLines(
+      tests,
+      new Map(inTests.map(({ path, addedAt }) => [path, new Set(addedAt)])),
+      worktree.path,
+      foldCase,
+      real === worktree.path ? undefined : real,
+      (path) => areaOf(modules, path, foldCase)?.module,
+    );
+    if (skip !== undefined) {
+      return failed(
+        `test "${cut(skip.name)}" is skipped at ${cut(skip.path)}:${skip.line}, a line the batch added: a change may not skip a test it was proven by`,
+      );
+    }
     // The reports are read only for a change to code some report measures.
     const measured = changed.some(({ path }) => {
       const area = areaOf(modules, path, foldCase);
@@ -815,8 +1059,6 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     });
     const read = options.testMap?.coverage ?? readCoverage;
     const find = options.testMap?.reports ?? reportPaths;
-    // The check sandbox runs in the worktree's real path, so a report may name its files by either.
-    const real = (options.testMap?.realPath ?? realPath)(worktree.path);
     const roots = real === worktree.path ? [worktree.path] : [worktree.path, real];
     // The modules whose code the change touched: another's report is the environment's to write.
     const touched = new Set(

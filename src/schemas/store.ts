@@ -162,6 +162,18 @@ export const BodyResult = z.union([
 ]);
 export type BodyResult = z.infer<typeof BodyResult>;
 
+/**
+ * What a revision of a pull request's sibling section recorded (ADR 0292): the digest of the
+ * section it wrote or found, and why it left the body as it was when it did.
+ */
+export const SiblingResult = z.strictObject({
+  section: z.string().regex(/^[0-9a-f]{16}$/),
+  /** How many of the order's sub-orders had a pull request it names. */
+  opened: z.int().nonnegative(),
+  left: z.enum(['edited', 'unmarked']).exactOptional(),
+});
+export type SiblingResult = z.infer<typeof SiblingResult>;
+
 /** The most files the ledger names of one merge of the base that conflicts (ADR 0164). */
 export const MAX_CONFLICTS = 50;
 

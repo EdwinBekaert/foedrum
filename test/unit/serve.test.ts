@@ -23,6 +23,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { pullRequestText } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
@@ -1680,15 +1681,18 @@ Plan the order in {order}.
           },
         ],
       });
-      // Every worktree is at one commit: the base has no map, the check step's tip has one.
+      // Every worktree is at one commit: the check step's tip has a map, read first for its
+      // manifests (ADR 0282), and the base has none.
       let lists = 0;
       const git: Git = async (_cwd, args) => {
         if (args[0] === 'ls-tree') {
           lists += 1;
-          const stdout = lists === 1 ? '' : `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`;
+          const stdout = lists === 2 ? '' : `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`;
           return { code: 0, stdout, stderr: '' };
         }
         if (args[0] === 'cat-file' && args[2] === blob) return { code: 0, stdout: map, stderr: '' };
+        // The map's manifests at the step's tip, as it records them (ADR 0282).
+        if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
         throw new Error(`unexpected: ${args.join(' ')}`);
       };
       const { batch } = await brewWithChecks(0, { git });
@@ -1723,6 +1727,8 @@ Plan the order in {order}.
       };
       const asked: string[] = [];
       const git: Git = async (_cwd, args) => {
+        // The worktree's manifests are listed for the Brewery's map too (ADR 0282).
+        if (args[0] === 'ls-files') return { code: 0, stdout: 'package.json\0', stderr: '' };
         asked.push(args.join(' '));
         // The uncovered-line check reads the batch's change, an empty one here (ADR 0274).
         if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
@@ -1734,6 +1740,97 @@ Plan the order in {order}.
       assert.ok(
         asked.length > 0 && asked.every((args) => args.includes(' diff ')),
         asked.join('\n'),
+      );
+    });
+
+    it('records a stale Brewery-kept test map and the batch goes on tap: the wiring says where it is kept (ADR 0282)', async () => {
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['test/**'] },
+            testReport: { format: 'junit', path: 'web-results.xml' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const serving = {
+        ...setup,
+        repositories: setup.repositories.map((repository) => ({
+          ...repository,
+          testMap: { text: map },
+        })),
+      };
+      const git: Git = async (_cwd, args) => {
+        // A manifest the map does not record. The batch's change is not read for the Brewery's
+        // map, only by the uncovered-line check, to which it adds no line (ADR 0274).
+        if (args[0] === 'ls-files') {
+          return { code: 0, stdout: 'package.json\0api/package.json\0', stderr: '' };
+        }
+        if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
+        throw new Error(`unexpected: ${args.join(' ')}`);
+      };
+      const { batch, events } = await brewWithChecks(0, { serving, git });
+      assert.equal(batch?.lane.kind, 'on_tap', JSON.stringify(batch?.lane));
+      const green = events.find(
+        (event) => event.type === 'step.finished' && event.stepId === 'green',
+      );
+      assert.deepStrictEqual(green?.type === 'step.finished' ? green.staleMap : undefined, {
+        repo: 'acme/web',
+        kept: 'brewery',
+        paths: ['api/package.json (added)', 'web-results.xml (no report of module "web")'],
+        more: 0,
+      });
+    });
+
+    it("sends the check step back along onFail when the batch left the repository's test map stale, reading its change in the clone: regression test", async () => {
+      const blob = 'e'.repeat(40);
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['test/**'] },
+            testReport: { format: 'junit', path: 'web-results.xml' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const diffs: string[] = [];
+      const git: Git = async (cwd, args) => {
+        if (args[0] === 'ls-tree') {
+          return { code: 0, stdout: `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`, stderr: '' };
+        }
+        if (args[0] === 'cat-file' && args[2] === blob) return { code: 0, stdout: map, stderr: '' };
+        // A manifest the map does not record, and a change that added it.
+        if (args[0] === 'ls-files') {
+          return { code: 0, stdout: 'package.json\0api/package.json\0', stderr: '' };
+        }
+        if (args[0] === 'diff') {
+          diffs.push(cwd);
+          return { code: 0, stdout: 'api/package.json\0', stderr: '' };
+        }
+        throw new Error(`unexpected: ${args.join(' ')}`);
+      };
+      const { events } = await brewWithChecks(0, { git });
+      const green = events.find(
+        (event) => event.type === 'step.finished' && event.stepId === 'green',
+      );
+      assert.deepStrictEqual(green?.type === 'step.finished' ? green.outcome : undefined, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'the test map of acme/web is stale: its derivedFrom.globs match api/package.json (added); ' +
+          'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+      });
+      // The change is read in the repository's clone, never in the check step's worktree.
+      assert.ok(diffs.length > 0);
+      assert.ok(
+        diffs.every((cwd) => cwd === clone),
+        diffs.join('\n'),
       );
     });
 
@@ -1960,6 +2057,12 @@ Plan the order in {order}.
             if (args[0] === 'cat-file' && testMap !== undefined) {
               return { code: 0, stdout: testMap, stderr: '' };
             }
+            // The worktree's manifests, as the map records them: the map is fresh (ADR 0282).
+            if (args[0] === 'ls-files' && testMap !== undefined) {
+              const { paths } = (JSON.parse(testMap) as { derivedFrom: { paths: string[] } })
+                .derivedFrom;
+              return { code: 0, stdout: paths.map((path) => `${path}\u0000`).join(''), stderr: '' };
+            }
             if (args.includes('--diff-filter=D')) return { code: 0, stdout: '', stderr: '' };
             folders.push(cwd);
             // The two revisions before the `--` that ends the options.
@@ -2040,6 +2143,8 @@ Plan the order in {order}.
           return ok(`100644 blob ${blob}\t${path}\0`);
         }
         if (args[0] === 'cat-file') return ok(path === mapBlob ? map : `${edited}\n${test}\n`);
+        // The worktree's manifests, as the map records them: the map is fresh (ADR 0282).
+        if (args[0] === 'ls-files') return ok('package.json\0');
         const end = args.indexOf('--');
         return ok(args[end - 1]?.endsWith('/implement/1') ? own : gauged);
       };
@@ -2686,6 +2791,90 @@ Plan the order in {order}.
         [`${lib} v1.0.0`],
       );
       assert.ok(lines.includes(`foedrum serve: recorded the release v1.0.0 of ${lib}`));
+    });
+
+    it("names an order's other pull request in each sub-order pull request's body, through GitHub's API (ADR 0292)", async () => {
+      store = empty();
+      const routeBy = '2026-10-17T13:00:00.000Z';
+      const pulls = {
+        '2-1': 'https://github.com/acme/lib-core/pull/7',
+        '3-1': 'https://github.com/acme/web/pull/12',
+      };
+      store.withTransaction((tx) => {
+        for (const event of [
+          { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
+          {
+            type: 'order.decomposed',
+            batchId: '1-1',
+            subOrders: [
+              { issue: 2, repo: 'acme/lib-core' },
+              { issue: 3, repo: 'acme/web' },
+            ],
+            dependencies: [{ subOrder: 3, blockedBy: 2, kind: 'code' }],
+          },
+          { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+          ...Object.entries(pulls).flatMap(([batchId, url]): Event[] => [
+            {
+              type: 'batch.ordered',
+              batchId,
+              order: { issue: Number(batchId[0]) },
+              parentBatchId: '1-1',
+              routeBy,
+            },
+            {
+              type: 'effect.applied',
+              key: JSON.stringify([batchId, 'pull_request']),
+              result: url,
+            },
+            { type: 'batch.on_tap', batchId, pullRequests: [url] },
+          ]),
+        ] satisfies Event[]) {
+          tx.append(event);
+        }
+      });
+      setup = intakeSetup({ concurrency: 2 });
+      const marked = (batchId: string) =>
+        pullRequestText({
+          title: 'Order',
+          closes: { repo: 'acme/brewery', issue: 1 },
+          reports: [],
+          key: { batchId, effect: 'pull_request' },
+        }).body;
+      const github = fakeGitHubApi({
+        login: 'ann',
+        // The status comments of the order and its sub-orders go on their Brewery issues.
+        issues: {
+          'acme/brewery': [1, 2, 3].map((number) => ({ number, labels: [], author: 'ann' })),
+        },
+        instead: (method, url) => {
+          const [batchId] =
+            Object.entries(pulls).find(
+              ([, pull]) =>
+                new URL(pull).pathname.replace('/pull/', '/pulls/') ===
+                url.pathname.replace('/repos', ''),
+            ) ?? [];
+          if (batchId === undefined) return undefined;
+          return method === 'GET'
+            ? { status: 200, body: { state: 'open', body: marked(batchId) } }
+            : { status: 200, body: {} };
+        },
+      });
+      // What each PATCH sent, by its path: the body names the other pull request.
+      const sent = new Map<string, string>();
+      const fetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
+        if (init.method === 'PATCH' && typeof init.body === 'string') {
+          sent.set(new URL(String(input)).pathname, JSON.parse(init.body).body);
+        }
+        return github.fetch(input, init);
+      }) as typeof globalThis.fetch;
+      const patched = () =>
+        ['/repos/acme/lib-core/pulls/7', '/repos/acme/web/pulls/12'].every((path) =>
+          github.requests.includes(`PATCH ${path}`),
+        );
+      assert.equal(await runServe(setup, shell({ fetch, ...ticking(patched) })), 0);
+      assert.ok(patched(), github.requests.join('\n'));
+      assert.match(sent.get('/repos/acme/lib-core/pulls/7') ?? '', /acme\/web#12/);
+      assert.match(sent.get('/repos/acme/web/pulls/12') ?? '', /acme\/lib-core#7/);
     });
 
     it("stops when it cannot read the token's login for a target intake", async () => {

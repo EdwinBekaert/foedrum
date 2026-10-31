@@ -21,6 +21,7 @@ import {
   type ReadCoverage,
 } from '../../src/formats/coverage-report.ts';
 import { parseLcov } from '../../src/formats/lcov.ts';
+import type { BoundedRead } from '../../src/platform/bounded-read.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { Event } from '../../src/schemas/events.ts';
 import type { TestMap, TestMapModule } from '../../src/schemas/test-map.ts';
@@ -124,6 +125,10 @@ const setup = ({
     | undefined,
   /** The worktree's real path, as the check sandbox runs in it. */
   realPath = undefined as ((path: string) => string) | undefined,
+  /** What each test report file reads, by file: none is there unless the test says so. */
+  testReports = {} as Record<string, BoundedRead>,
+  /** The report paths that are folders. */
+  folders = [] as string[],
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -172,7 +177,10 @@ const setup = ({
         asked.push(`clear ${file}`);
         if (clearFails !== undefined) throw new Error(clearFails);
       },
-      read: () => ({ kind: 'missing' }),
+      read: (file) => {
+        asked.push(`read ${file}`);
+        return testReports[file] ?? { kind: 'missing' };
+      },
     },
     env: { base: {}, forced: {} },
     clock: () => now,
@@ -192,6 +200,9 @@ const setup = ({
         return coverage[path] ?? { readable: false, reason: `no report at ${path}` };
       },
       ...(realPath === undefined ? {} : { realPath }),
+      isFolder: (path: string) => folders.includes(path),
+      // The maps' manifests are as they record them: freshness is not this file's (ADR 0282).
+      manifests: async () => ({ kind: 'fresh' }),
     },
   });
   const run = () =>
@@ -779,5 +790,254 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
     assert.equal(end.coverage, undefined);
     assert.deepEqual(asked, ['run npm test']);
+  });
+});
+
+describe('createCheckRunner: a skip the batch added fails the green check (ADR 0274, #727)', () => {
+  // pytest's JUnit, which places a skip on its line: node's reporters do not (#709).
+  const junit: TestMapModule = { ...calc, testReport: { format: 'junit', path: 'junit.xml' } };
+  const junitMaps = { [base]: mapOf(junit), [tip]: mapOf(junit) };
+  const junitFile = join(worktree, 'junit.xml');
+  const skippedAt = (line: number): Record<string, BoundedRead> => ({
+    [junitFile]: {
+      kind: 'text',
+      text: `<testsuites>
+  <testcase name="clamps above" file="test/calc.test.ts" line="3"/>
+  <testcase name="clamps below" file="test/calc.test.ts" line="${line}"><skipped/></testcase>
+</testsuites>`,
+    },
+  });
+
+  it('fails a green check whose report places a skip in a line the batch added', async () => {
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: skippedAt(6),
+    });
+    const end = await run();
+    assert.equal(end.ending.kind === 'failed' && end.ending.retryable, false);
+    assert.equal(
+      reasonOf(end),
+      'test "clamps below" is skipped at test/calc.test.ts:6, a line the batch added: a change may not skip a test it was proven by',
+    );
+  });
+
+  it('passes a green check whose skip sits on a base line', async () => {
+    const { run, asked } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: skippedAt(2),
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes(`read ${junitFile}`), asked.join('|'));
+  });
+
+  it('names the skip the batch added before a changed line no test runs', async () => {
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2) + adding('src/calc.ts', 12, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 12: 0 })) },
+      testReports: skippedAt(5),
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      'test "clamps below" is skipped at test/calc.test.ts:5, a line the batch added: a change may not skip a test it was proven by',
+    );
+  });
+
+  it('a green check whose report holds no skip reads its coverage as before: regression test', async () => {
+    const passing =
+      '<testsuites><testcase name="clamps" file="test/calc.test.ts" line="5"/></testsuites>';
+    const { run } = setup({
+      maps: junitMaps,
+      diff: spike('ts', '2-green', 'step.diff'),
+      coverage: { 'lcov.info': lcov(spike('ts', '2-green', 'lcov.info')) },
+      testReports: { [junitFile]: { kind: 'text', text: passing } },
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      '3 changed lines no test runs: src/calc.ts:12 (branch not taken), src/calc.ts:13, src/calc.ts:14',
+    );
+  });
+
+  it('neither clears nor reads a TRX test report at green, which no reader reads: regression test', async () => {
+    const trx: TestMapModule = { ...calc, testReport: { format: 'trx', path: 'results.trx' } };
+    const trxFile = join(worktree, 'results.trx');
+    const { run, asked } = setup({
+      maps: { [base]: mapOf(trx), [tip]: mapOf(trx) },
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [trxFile]: { kind: 'text', text: '<TestRun/>' } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes('run npm test'), asked.join('|'));
+    assert.ok(!asked.some((line) => line.endsWith(trxFile)), asked.join('|'));
+  });
+
+  it('a test report left from an earlier run is removed before the green test runs', async () => {
+    const { run, asked } = setup({ maps: junitMaps, diff: adding('test/calc.test.ts', 5, 2) });
+    await run();
+    const cleared = asked.indexOf(`clear ${junitFile}`);
+    assert.ok(cleared >= 0, asked.join('|'));
+    assert.ok(cleared < asked.indexOf('run npm test'), asked.join('|'));
+  });
+
+  it('blocks the green check on its environment when a test report cannot be cleared', async () => {
+    const { run, asked } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      refused: { 'junit.xml': 'junit.xml leads out of the worktree' },
+    });
+    const { ending } = await run();
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'a test report of the test map cannot be cleared: junit.xml leads out of the worktree',
+    });
+    assert.ok(!asked.includes('run npm test'), asked.join('|'));
+  });
+
+  it('fails the green check along its onFail route when a test report cannot be read', async () => {
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'unread', reason: 'it is past 16 MiB' } },
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      'the test report junit.xml of module "calc" cannot be read: it is past 16 MiB',
+    );
+  });
+
+  it('blocks the green check on its environment when a test report pattern names a folder', async () => {
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      folders: [junitFile],
+    });
+    const { ending } = await run();
+    assert.equal(ending.kind === 'blocked' && ending.blockerKind, 'environment');
+    assert.match(
+      ending.kind === 'blocked' ? ending.summary : '',
+      /^the test report pattern junit\.xml of module "calc" names a folder, junit\.xml:/,
+    );
+  });
+
+  it("places a skip the run names by the worktree's real path, as the check sandbox runs it: regression test", async () => {
+    const real = join('/private', 'work', 'real');
+    const skip = `<testsuites>
+  <testcase name="clamps below" file="${join(real, 'test', 'calc.test.ts')}" line="5"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'text', text: skip } },
+      realPath: () => real,
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      'test "clamps below" is skipped at test/calc.test.ts:5, a line the batch added: a change may not skip a test it was proven by',
+    );
+  });
+
+  it("places a report's relative skip only in a test file of its own module: regression test", async () => {
+    const web: TestMapModule = {
+      ...junit,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      testReport: { format: 'junit', path: 'web.xml' },
+      coverage: 'none',
+    };
+    // calc's report names a relative calc.test.ts, which only web's added test file ends with.
+    const skip = `<testsuites>
+  <testcase name="later" file="calc.test.ts" line="5"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      maps: { [base]: mapOf(junit, web), [tip]: mapOf(junit, web) },
+      diff: adding('web-test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'text', text: skip } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
+  it('blocks the green check on its environment when a test report pattern is refused after the run: regression test', async () => {
+    const why = 'junit.xml leads out of the worktree';
+    const { run, asked } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      refusedAfterRun: { 'junit.xml': why },
+    });
+    const { ending } = await run();
+    assert.ok(asked.includes('run npm test'), asked.join('|'));
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the test report of module "calc" cannot be looked for: ${why}`,
+    });
+  });
+
+  it('fails the green check along its onFail route when a test report is not JUnit XML: regression test', async () => {
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [junitFile]: { kind: 'text', text: 'TAP version 13' } },
+    });
+    const end = await run();
+    assert.match(reasonOf(end), /^the test report junit\.xml of module "calc" is not JUnit XML: /);
+  });
+
+  it('passes a green check whose report places a skip in a code file the batch added a line to: only a separate test file is judged', async () => {
+    const inCode = `<testsuites>
+  <testcase name="clamps inline" file="src/calc.ts" line="12"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      maps: junitMaps,
+      diff: adding('src/calc.ts', 12, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 12: 1 })) },
+      testReports: { [junitFile]: { kind: 'text', text: inCode } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+  });
+
+  it('reads no test report of a module whose tests the change touches none of', async () => {
+    const web: TestMapModule = {
+      ...junit,
+      name: 'web',
+      code: ['web/**'],
+      tests: { paths: ['web-test/**'] },
+      testReport: { format: 'junit', path: 'web.xml' },
+      coverage: 'none',
+    };
+    const webFile = join(worktree, 'web.xml');
+    const { run, asked } = setup({
+      maps: { [base]: mapOf(junit, web), [tip]: mapOf(junit, web) },
+      diff: adding('test/calc.test.ts', 5, 2),
+      testReports: { [webFile]: { kind: 'unread', reason: 'it is past 16 MiB' } },
+    });
+    const { ending } = await run();
+    assert.deepEqual(ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes(`read ${junitFile}`), asked.join('|'));
+    assert.ok(!asked.includes(`read ${webFile}`), asked.join('|'));
+  });
+
+  it('reads no test report when the batch adds no line to a separate test file', async () => {
+    const { run, asked } = setup({
+      maps: junitMaps,
+      diff: adding('src/calc.ts', 12, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 12: 1 })) },
+      testReports: { [junitFile]: { kind: 'text', text: 'not JUnit' } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(!asked.includes(`read ${junitFile}`), asked.join('|'));
   });
 });
