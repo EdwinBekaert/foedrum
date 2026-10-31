@@ -263,4 +263,24 @@ describe('sibling pull requests (ADR 0292)', () => {
     );
     assert.ok(lines.includes('- #3 in acme/web: no pull request yet'), created[0]);
   });
+
+  it('gives an order with one sub-order no sibling section (regression test)', () => {
+    const state = fold([
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [{ issue: 2, repo: lib }],
+        dependencies: [],
+      },
+      ordered('2-1', 2, '1-1'),
+      ...opened('2-1', libPull),
+    ]);
+    assert.equal(siblingSection(state, '2-1'), undefined);
+  });
+
+  it('gives a plain order with no plan no sibling section (regression test)', () => {
+    const state = fold([ordered('5-1', 5), ...opened('5-1', libPull)]);
+    assert.equal(siblingSection(state, '5-1'), undefined);
+  });
 });
