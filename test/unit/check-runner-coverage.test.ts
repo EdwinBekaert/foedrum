@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import type { MapRead } from '../../src/checks/test-map.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
@@ -110,6 +112,8 @@ const setup = ({
   /** The files at the base, or git's last line of stderr when they cannot be listed. */
   atBase = [] as string[] | string,
   platform = 'linux' as NodeJS.Platform,
+  /** Why clearing a report path throws, when it does. */
+  clearFails = undefined as string | undefined,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -156,6 +160,7 @@ const setup = ({
     reports: {
       clear: (file) => {
         asked.push(`clear ${file}`);
+        if (clearFails !== undefined) throw new Error(clearFails);
       },
       read: () => ({ kind: 'missing' }),
     },
@@ -465,6 +470,90 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     });
     const end = await run();
     assert.equal(reasonOf(end), '1 changed line no test runs: src/Calc.ts:2');
+  });
+
+  it("judges the change from where the batch starts to the step's tip: regression test", async () => {
+    const { run, asked } = setup({
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    await run();
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('diff')),
+      [`diff ${base}..${tip}`],
+    );
+  });
+
+  it('judges the change from the base the batch merged (ADR 0164): regression test', async () => {
+    const merged = 'e'.repeat(40);
+    const key = effectKey.encode(
+      baseMergeKey({ batchId: '12-1', stepId: 'implement', attempt: 1 }),
+    );
+    const { run, asked } = setup({
+      started: [
+        ...events,
+        { type: 'effect.applied', key, result: { base: merged, merged: 'f'.repeat(40) } },
+      ],
+      maps: { [merged]: mapOf(calc), [tip]: mapOf(calc) },
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    await run();
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('diff')),
+      [`diff ${merged}..${tip}`],
+    );
+  });
+
+  it('lists ten files not loaded by any test and counts the rest: regression test', async () => {
+    const files = Array.from({ length: 12 }, (_, index) => `src/t${index + 10}.ts`);
+    const { run } = setup({
+      diff: files.map((file) => adding(file, 1, 1)).join(''),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.coverage, { notLoaded: { files: files.slice(0, 10), more: 2 } });
+  });
+
+  it('reads no coverage for a change only to a test area: regression test', async () => {
+    const { run, asked } = setup({ diff: adding('test/calc.test.ts', 1, 3) });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.coverage, undefined);
+    assert.ok(asked.includes('run npm test'), asked.join('|'));
+    assert.ok(!asked.some((line) => line.startsWith('coverage')), asked.join('|'));
+  });
+
+  it('blocks the check step on its environment when a coverage report cannot be removed: regression test', async () => {
+    const { run, asked } = setup({ diff: adding('src/calc.ts', 1, 1), clearFails: 'EBUSY' });
+    const { ending } = await run();
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'a coverage report of the test map cannot be cleared: lcov.info cannot be cleared: EBUSY',
+    });
+    assert.ok(asked.includes(`clear ${join(worktree, 'lcov.info')}`), asked.join('|'));
+    assert.ok(!asked.includes('run npm test'), asked.join('|'));
+  });
+
+  it("shows the files not loaded and outside every code area under the check step's line: regression test", () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      coverage: {
+        notLoaded: { files: ['src/types.ts'], more: 2 },
+        outside: { files: ['fixtures/rates.json'], more: 0 },
+      },
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch, ['implement', 'green']);
+    assert.match(
+      text,
+      /- ✅ `green`\n {2}- not loaded by any test: src\/types\.ts and 2 more\n {2}- outside every code area: fixtures\/rates\.json(\n|$)/,
+    );
   });
 
   it('a test reading in a repository with no test map passes as today: regression test', async () => {

@@ -126,6 +126,8 @@ const setup = ({
   killedTips = [] as string[],
   /** The test map at each commit, when the runner reads maps (ADR 0274). */
   maps = undefined as Record<string, MapRead> | undefined,
+  /** The paths each report pattern finds in the worktree, when the runner reads maps. */
+  found = {} as Record<string, string[]>,
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -193,7 +195,7 @@ const setup = ({
       : {
           testMap: {
             at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
-            reports: () => ({ paths: [] }),
+            reports: (pattern: string) => ({ paths: found[pattern] ?? [] }),
           },
         }),
   });
@@ -718,5 +720,32 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
     // A failing run keeps the red proof's own verdict (ADR 0280).
     const failing = setup({ maps });
     assert.deepEqual((await failing.run()).ending, { kind: 'succeeded', output: null });
+  });
+
+  it("clears and reads no coverage in a red proof: the uncovered-line check is a check step's: regression test", async () => {
+    const web = {
+      name: 'web',
+      code: ['src/**'],
+      tests: { paths: ['test/**'] },
+      testReport: { format: 'tap' as const, path: 'web.tap' },
+      coverage: { format: 'lcov' as const, path: 'lcov.info' },
+    };
+    const derivedFrom = { globs: ['**/package.json'], paths: ['package.json'] };
+    const map: MapRead = { kind: 'map', map: { derivedFrom, modules: [web] } };
+    // A run whose every test passes, so the test reading exited 0, and a report path that is there.
+    const { order, run } = setup({
+      maps: { [gaugeStart]: map, ['b'.repeat(40)]: map },
+      found: { 'lcov.info': [join(redTree, 'lcov.info')], 'web.tap': [join(redTree, 'web.tap')] },
+      test: { exitCode: 0, stdout: 'TAP version 13\nok 1 - adds\n1..1' },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(
+      end.ending.kind === 'failed' ? end.ending.reason : '',
+      /^the red proof of step gauge failed/,
+    );
+    assert.ok(order.includes(`exec npm test in ${redTree}`), order.join('|'));
+    assert.ok(!order.some((line) => line.startsWith('clear')), order.join('|'));
+    assert.equal(order.filter((line) => line.includes(' diff ')).length, 1, order.join('|'));
   });
 });
