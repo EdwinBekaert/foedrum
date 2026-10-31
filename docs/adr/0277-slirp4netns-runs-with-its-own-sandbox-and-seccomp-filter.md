@@ -27,7 +27,7 @@ slirp4netns's arguments are ADR 0218's with `--enable-sandbox --enable-seccomp`:
 |---|---|
 | slirp4netns | `--configure --mtu=65520 --disable-host-loopback --enable-sandbox --enable-seccomp --ready-fd=3 --exit-fd=4 <pid> tap0` |
 
-- Both, not the sandbox alone: the sandbox narrows what a taken-over slirp4netns sees on the file system (`/etc` and `/run`), and the filter narrows the syscalls it can make. Podman uses both for the same tool.
+- Both, not the sandbox alone: the sandbox narrows what a taken-over slirp4netns sees on the file system to the host's `/etc` and `/run` (Consequences says what `/run` still holds), and the filter narrows the syscalls it can make. Podman uses both for the same tool.
 - Unlike Podman, Foedrum does not read `--help` and drop a flag slirp4netns does not list. A setup's packets are a brewer's, so slirp4netns runs with both or the setup does not run.
 
 ### A slirp4netns that refuses a flag
@@ -45,7 +45,8 @@ The setup's `unstarted` reading names the cause where it happens.
 pasta sandboxes itself by default, in namespaces of its own with a seccomp profile and no capabilities (Context), so its arguments do not change.
 
 ## Consequences
-- A flaw in libslirp reached through a setup's packets runs in slirp4netns's own user and mount namespaces, with only `/etc` and `/run` of the host, under a seccomp filter: the user's home, with gh's login, is out of its reach.
+- A flaw in libslirp reached through a setup's packets runs in slirp4netns's own user and mount namespaces, with only `/etc` and `/run` of the host, under a seccomp filter: the user's home and its files, among them gh's `hosts.yml`, are out of its reach, and so are the syscalls the filter refuses.
+- **What it still reaches:** the host's `/run` and the host's network. `/run/user/<uid>` holds the user's D-Bus session socket, and the bus takes a connection from slirp4netns as the user's, so a taken-over slirp4netns can still ask the Secret Service for a login it keeps, gh's among them where gh stores it in the keyring, and send it out; the filter lets `socket` and `connect` through. bwrap hides `/run` from the setup for this reason (ADR 0158); slirp4netns's own sandbox does not. Closing it (slirp4netns started under a mount namespace that hides `/run/user`, or another stack) is a follow-up of its own; this record narrows the gap and does not claim it closed.
 - A Linux machine whose slirp4netns predates 0.4.0, was built without libseccomp, or whose `/etc/resolv.conf` links outside `/etc` and `/run`, no longer runs a repository's setup: it reads `unstarted` with slirp4netns's message. Ubuntu 24.04 (1.2.1, with libseccomp, the link into `/run`) and current Fedora run it.
 - The unit tests hold the arguments and a fake slirp4netns that refuses `--enable-seccomp`. CI's ubuntu leg runs the integration suite's setup cases against the real slirp4netns with both flags: a setup reaches a server on a non-loopback address of the runner, resolves a name, and is refused the host's loopback and abstract sockets.
 
