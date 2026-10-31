@@ -252,7 +252,6 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     // A plan to review: plan it again, choose another recipe, or end it (ADR 0275). A skip or a
     // rewind would end the recipe on the same plan again; #588's gate adds approve.
     case 'plan_review':
-      return ['retry', 'recipe', 'cancel'];
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];

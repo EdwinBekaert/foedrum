@@ -150,7 +150,7 @@ export const renderPlan = (
     ['**Gate**', '', 'None yet.'],
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
-  const head = `${joined([top])}\n\n`;
+  const head = `${top.join('\n')}\n\n`;
   // Last, and kept by a cut: what to do next.
   const next = `\n\nNext: ${planNextStep(batchId, code)}`;
   const text = joined([table, ...order, ...sections, ...others, ...after]);
