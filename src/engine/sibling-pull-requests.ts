@@ -89,7 +89,8 @@ const named = (items: readonly string[], joiner: string): string => {
   return [...shown, ...(more > 0 ? [`${more} more`] : [])].join(joiner);
 };
 
-const stateText: Record<SubOrderPullRequestState, string> = {
+/** How a sub-order's pull request stands, in words. */
+export const stateText: Record<SubOrderPullRequestState, string> = {
   none: 'not opened yet',
   open: 'open',
   merged: 'merged',
@@ -116,16 +117,15 @@ export const siblingSection = (state: State, batchId: string): string | undefine
       return [subOrder, `${at}#${number}`];
     }),
   );
-  const refOf = (issue: number): string | undefined => refs.get(issue);
   const lines = entries.map(({ subOrder, repo, state: where }, at) => {
     const blockers = dependencies.flatMap(({ subOrder: blocked, blockedBy, kind }) => {
-      const ref = blocked === subOrder ? refOf(blockedBy) : undefined;
+      const ref = blocked === subOrder ? refs.get(blockedBy) : undefined;
       if (ref === undefined) return [];
       const by = state.subOrders.get(blockedBy)?.repo ?? '';
       return [kind === 'code' ? `${ref} merges` : `${ref} merges and ${by} has a release after it`];
     });
     const waiters = dependencies.flatMap(({ subOrder: waiting, blockedBy, kind }) => {
-      const ref = blockedBy === subOrder ? refOf(waiting) : undefined;
+      const ref = blockedBy === subOrder ? refs.get(waiting) : undefined;
       return ref === undefined
         ? []
         : [`${ref} waits for its ${kind === 'code' ? 'merge' : 'release'}`];
@@ -137,7 +137,7 @@ export const siblingSection = (state: State, batchId: string): string | undefine
           ? `merge first (${named(waiters, ', ')})`
           : 'merge in any order';
     const self = subOrder === own.issue ? ' (this pull request)' : '';
-    const ref = refOf(subOrder) ?? repo;
+    const ref = refs.get(subOrder) ?? repo;
     return `${at + 1}. ${ref}${self}: ${stateText[where]}, ${when}.`;
   });
   const intro = `This pull request is one of ${entries.length} of one order. Merge them in this order:`;

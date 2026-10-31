@@ -46,7 +46,11 @@ import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
-import { type SubOrderPullRequest, subOrderPullRequests } from './sibling-pull-requests.ts';
+import {
+  type SubOrderPullRequest,
+  stateText,
+  subOrderPullRequests,
+} from './sibling-pull-requests.ts';
 import { outDocLink } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { usageWindowsText } from './usage-window.ts';
@@ -425,8 +429,7 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
 const subOrderPullLine = ({ subOrder, repo, pullRequest, state }: SubOrderPullRequest): string => {
   const where = `- #${subOrder} in ${plain(repo)}`;
   if (pullRequest === undefined) return `${where}: no pull request yet`;
-  const ended = state === 'closed' ? 'closed without merging' : state;
-  return `${where}: ${link(pullRequest)}, ${ended}`;
+  return `${where}: ${link(pullRequest)}, ${stateText[state]}`;
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */

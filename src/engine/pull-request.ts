@@ -1020,7 +1020,7 @@ export const pullRequestText = ({
   const body = [head, ...reported, closing].join('\n\n');
   return {
     title: oneLine === '' ? order : oneLine.slice(0, MAX_TITLE),
-    body: key === undefined ? body : `${body}\n\n${bodyMarker(key, body)}`,
+    body: key === undefined ? body : markedBody(key, body),
     draft: opensAsDraft(reports) || written?.sections?.howItWorks === undefined,
   };
 };
