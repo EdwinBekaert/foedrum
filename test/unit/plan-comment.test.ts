@@ -320,6 +320,28 @@ describe('renderPlan (ADR 0233)', () => {
     assert.ok(text.includes(link), text.slice(0, 200));
   });
 
+  it('cuts a table too long alone to whole rows, keeping the link and the next step: regression test (#658)', () => {
+    // Ten dependencies of 40-character ids on each row take the table past the limit alone.
+    const id = (i: number) => `s${String(i).padStart(3, '0')}-${'x'.repeat(34)}`;
+    const many = Array.from({ length: 100 }, (_, i) =>
+      subOrder(id(i), {
+        title: 'y'.repeat(120),
+        dependencies: Array.from({ length: Math.min(i, 10) }, (_, j) => ({
+          on: id(j),
+          kind: 'code' as const,
+        })),
+      }),
+    );
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc);
+    assert.ok(text.length <= 60_000, `${text.length}`);
+    assert.doesNotMatch(text, /\n#### /);
+    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.match(
+      text,
+      /\n\| `s\d{3}-x+`: y+ \| [^\n]+ \|\n\n… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/,
+    );
+  });
+
   it('reads as before without a link: regression test (#659)', () => {
     assert.doesNotMatch(renderPlan('7-1', 'plan', three), /Full plan/);
   });

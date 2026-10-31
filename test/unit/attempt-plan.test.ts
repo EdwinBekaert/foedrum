@@ -319,6 +319,12 @@ describe("attemptLimits: a plan's sub-orders (ADR 0233)", () => {
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
   });
 
+  it('reads a `+` item, and counts a marker with no blank after it as no item: regression test (#658)', () => {
+    assert.equal(written('A plan\n\n+ Port 8080 is free.\n').kind, 'succeeded');
+    assert.match(reasonOf(written('A plan\n\n-Port 8080 is free.\n')), /assumptions\[0\]/);
+    assert.match(reasonOf(written('A plan\n\n1.Port 8080 is free.\n')), /assumptions\[0\]/);
+  });
+
   it('asks no body of a plan that asks a question, nor of a brewer that writes no plan: regression test (#658)', () => {
     const question = {
       q: 'One or two?',

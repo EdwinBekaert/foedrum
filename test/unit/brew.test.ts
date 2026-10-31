@@ -1676,6 +1676,58 @@ describe('runBrew', () => {
       );
     });
 
+    it("links a claimed order's plan comment on its Brewery issue and the Brewery's own host: regression test (#658)", async () => {
+      const web = { alias: 'web', intake: { labels: ['foedrum'] } };
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 40, labels: [], author: 'ann', title: 'Export', body: 'web#7' },
+          ],
+          'acme/web': [
+            { number: 7, labels: ['foedrum'], author: 'ann', title: 'Export', body: 'Export.' },
+          ],
+        },
+      });
+      const claimed = {
+        ...mashSetup({ config: config({}, web) }),
+        github: { hostname: 'github.localhost' },
+      };
+      const claimedLog = createCommandLog({ store, recipes: claimed.recipes });
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      for (const command of [
+        { kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } },
+        { kind: 'record', event: { type: 'effect.applied', key, result: 40 } },
+        { kind: 'route', batchId: 'web-7', recipe: 'mash', reason: 'label', source: 'label' },
+      ] as const) {
+        const decision = claimedLog.issue(command, t0);
+        assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      }
+      const subOrder = {
+        id: 'one',
+        title: 'One',
+        repo: 'acme/web',
+        size: { lines: 10, mechanism: 'a flag' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src' }],
+        recipe: 'stout',
+        why: 'small',
+        ready: true,
+      };
+      const plans = behave.succeedWith({ assumptions: ['Kept the flag.'], subOrders: [subOrder] });
+      const target = { ...request, target: { alias: 'web', issue: 7 } };
+      assert.equal(await runBrew(claimed, shell(plans), target), 3, lines.join('\n'));
+      const bodies = (api.comments.get('acme/brewery#40') ?? []).map(({ body }) => body);
+      const plan = (api.comments.get('acme/brewery#40') ?? []).find(({ body }) =>
+        body.includes('plan of batch'),
+      );
+      const url = `https://github.localhost/${claimed.brewery}/issues/40#issuecomment-${plan?.id}`;
+      assert.ok(
+        bodies.some((body) => body.includes(`is ready for your review: <${url}>`)),
+        bodies.join('\n---\n'),
+      );
+    });
+
     it('routes a claimed order through its Brewery issue: exit 4', async () => {
       const web = { alias: 'web', intake: { labels: ['foedrum'] } };
       api = fakeGitHubApi({

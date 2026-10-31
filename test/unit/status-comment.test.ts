@@ -2650,6 +2650,31 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.ok(cut.length <= 121 && cut.length >= 100, `${cut.length}: ${cut}`);
   });
 
+  it('ends a sentence only at a `.`, `!` or `?` before a blank or the end: regression test (#658)', () => {
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([
+          step(
+            'plan',
+            planned(2, [
+              'Use v1.2 of the API. Not v2.',
+              'Is it safe? Yes.',
+              'Stop! Now.',
+              'No end',
+            ]),
+          ),
+        ]),
+      }),
+    );
+    assert.deepEqual(section(text).slice(1, 5), [
+      '- `plan`: Use v1.2 of the API.',
+      '- `plan`: Is it safe?',
+      '- `plan`: Stop\\!',
+      '- `plan`: No end',
+    ]);
+  });
+
   it("ends a plan's assumptions with links to its out doc and to its plan comment", () => {
     const text = rendered(
       batch({ lane: review, steps: new Map([step('plan', planned(2, ['Kept the flag.']))]) }),
