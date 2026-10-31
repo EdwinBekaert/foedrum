@@ -146,7 +146,7 @@ const setup = ({
     });
   const asked: AttemptRef[] = [];
   const runner = guardTests({
-    runner: fakeBrewerRunner({ implement: [behaviour] }),
+    runner: fakeBrewerRunner(() => behaviour),
     state: () => fold(events),
     protects: (attempt) => {
       asked.push(attempt);
@@ -379,5 +379,44 @@ describe('guardTests: the test map (ADR 0274)', () => {
         commit,
       );
     }
+  });
+});
+
+describe('guardTests: regression tests', () => {
+  it("a repository with no test map keeps today's testsUnchanged", async () => {
+    const maps = { [gaugeStart]: none, [gaugeTip]: none };
+    const weakening = setup({ maps });
+    const end = await weakening.runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: assert.equal(add(1, 2), 3);',
+    );
+    // Without a map the guard keeps declarations and assertions only, as ADR 0078 has it.
+    const closing = setup({ changes: ok(closingDropped), maps });
+    const ended = await closing.runner.start({ ref, limits: defaultLimits }).ended;
+    assert.equal(ended.ending.kind, 'succeeded');
+  });
+
+  it('the guard still holds against the Finer', async () => {
+    const fineStart = 'f'.repeat(40);
+    const fine: AttemptRef = { batchId: '12-1', stepId: 'fine', attempt: 1 };
+    const events: Event[] = [
+      ...ordered,
+      ...gauged,
+      { type: 'step.scheduled', ...fine, deadlineAt },
+      { type: 'step.started', ...fine, worktree: worktree('fine', fineStart) },
+    ];
+    const { runner, calls } = setup({ events, maps: { [gaugeStart]: mapOf('test/**') } });
+    const end = await runner.start({ ref: fine, limits: defaultLimits }).ended;
+    assert.equal(
+      end.ending.kind === 'failed' && end.ending.reason,
+      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: assert.equal(add(1, 2), 3);',
+    );
+    // The Finer's own commits, from where it started to its branch (ADR 0166).
+    assert.ok(
+      calls.some(
+        ({ args }) => args.includes(fineStart) && args.includes('refs/heads/foedrum/12-1/fine/1'),
+      ),
+    );
   });
 });
