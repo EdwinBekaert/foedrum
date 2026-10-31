@@ -3,6 +3,8 @@
 // make a mutant fail to apply: each mutant replaces one existing line of a file under src/ or
 // scripts/, where the gate, the check and the review tooling live (ADR 0040).
 
+import { posix } from 'node:path';
+
 export interface Mutant {
   file: string;
   line: number;
@@ -164,6 +166,19 @@ const codeOf = (content: string): string =>
     .join('\n')
     .replace(/^\s*import\b[^;]*;/gm, ' ');
 
+// The file a test imports `name` from by a relative `import { … } from '…'`, as a path from the
+// repository root, or undefined.
+const importedFrom = (test: ChangedFile, name: string): string | undefined => {
+  for (const [, names = '', , from = ''] of test.content.matchAll(
+    /^\s*import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*(['"])(\.[^'"]*)\2/gm,
+  )) {
+    if (names.split(',').some((entry) => entry.trim() === name)) {
+      return posix.normalize(posix.join(posix.dirname(test.path), from));
+    }
+  }
+  return undefined;
+};
+
 // The index of the bracket that closes the one at `open`, or -1.
 const closing = (code: string, open: number): number => {
   let depth = 0;
@@ -247,7 +262,7 @@ const sameAnswer = (code: string, name: string): boolean | undefined => {
 const identifier = '([\\p{ID_Start}$_][\\p{ID_Continue}$]*)';
 // `const name = (…): boolean => …` on one line, and `function name(…): boolean {`.
 const arrow = new RegExp(
-  `^(?:export\\s+)?(?:const|let)\\s+${identifier}\\s*=\\s*(?:<[^>]*>\\s*)?\\(.*\\)\\s*:\\s*boolean\\s*=>\\s*(.*)$`,
+  `^(?:export\\s+)?(?:const|let)\\s+${identifier}\\s*=\\s*(?:<[^>]*>\\s*)?\\(.*?\\)\\s*:\\s*boolean\\s*=>\\s*(.*)$`,
   'u',
 );
 const declaration = new RegExp(
@@ -315,14 +330,18 @@ export const sameAnswerMutants = (
   sources: readonly ChangedFile[],
   tests: readonly ChangedFile[],
 ): ScriptedMutant[] => {
-  const code = tests.map((test) => codeOf(test.content)).join('\n');
+  const read = tests.map((test) => ({ ...test, code: codeOf(test.content) }));
   const found = sources.flatMap((source) =>
     booleanFunctions(source.content).map((fn) => ({ ...fn, file: source.path })),
   );
   // The tests are matched to a function by its name, so a name declared twice is left to Brett.
   const once = (name: string): boolean => found.filter((fn) => fn.name === name).length === 1;
   return found.flatMap(({ name, file, line, original, rewrite }) => {
-    const value = once(name) ? sameAnswer(code, name) : undefined;
+    // Every test file that uses the name imports it from the function's own file.
+    const using = read.filter((test) => mentions(test.code, name) > 0);
+    const imported = using.every((test) => importedFrom(test, name) === file);
+    const code = using.map((test) => test.code).join('\n');
+    const value = once(name) && imported ? sameAnswer(code, name) : undefined;
     if (value === undefined) return [];
     const description = `${name} returns ${value} for every input: every assertion on it in the changed tests expects ${value}`;
     return [
