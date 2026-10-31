@@ -153,7 +153,19 @@ describe('parseCobertura', () => {
     refuses('<testsuites><testcase name="a"/></testsuites>', /root element <testsuites>/);
     refuses(
       '<coverage><packages><package><classes><class filename="a.cs"><lines><line number="x" hits="1"/></lines></class></classes></package></packages></coverage>',
-      /line number="x"/,
+      /a <line> whose number or hits is not a whole number/,
+    );
+  });
+
+  it('refuses a Cobertura line without quoting its attributes', () => {
+    const parsed = parseCobertura(
+      '<coverage><packages><package><classes><class filename="a.cs"><lines><line number="1&#10;forged" hits="1"/></lines></class></classes></package></packages></coverage>',
+      '/repo',
+    );
+    assert.equal(parsed.readable, false);
+    assert.equal(
+      parsed.readable ? '' : parsed.reason,
+      'it has a <line> whose number or hits is not a whole number',
     );
   });
 });

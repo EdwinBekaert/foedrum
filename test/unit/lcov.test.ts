@@ -127,6 +127,24 @@ describe('parseLcov', () => {
     assert.match(refused.readable ? '' : refused.reason, /no SF record/);
     const malformed = parseLcov('SF:a.ts\nDA:one,1\nend_of_record\n', '/repo');
     assert.equal(malformed.readable, false);
-    assert.match(malformed.readable ? '' : malformed.reason, /DA:one,1/);
+    assert.match(malformed.readable ? '' : malformed.reason, /line 2 is not LCOV/);
+  });
+
+  it('names a refused LCOV line by its number, never by its text', () => {
+    // The report is the tested code's output: its text stays out of a reason that reaches a status line.
+    const planted = `DA:${'x'.repeat(500)}${String.fromCodePoint(0x2028)}forged line`;
+    const parsed = parseLcov(['SF:a.ts', 'DA:1,1', planted, 'end_of_record'].join('\n'), '/repo');
+    assert.equal(parsed.readable, false);
+    assert.equal(parsed.readable ? '' : parsed.reason, 'its line 3 is not LCOV');
+  });
+
+  it('compares the root in either case past the drive letter', () => {
+    // Windows and macOS tell no case apart: a tool run from a shell in another spelling of the
+    // worktree writes it so. The part after the root keeps the tool's spelling.
+    const record = (file: string) => [`SF:${file}`, 'DA:1,1', 'end_of_record'].join('\n');
+    const windows = read(record('d:\\Code\\Foedrum\\wt\\Src\\a.ts'), 'D:\\code\\foedrum\\wt');
+    assert.deepEqual([...windows.keys()], ['Src/a.ts']);
+    const mac = read(record('/users/dev/WT/src/b.ts'), '/Users/dev/wt/');
+    assert.deepEqual([...mac.keys()], ['src/b.ts']);
   });
 });
