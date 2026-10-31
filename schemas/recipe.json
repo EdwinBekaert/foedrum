@@ -126,6 +126,13 @@
               "minLength": 1,
               "maxLength": 4096
             },
+            "chosenBy": {
+              "description": "Only a person's choice of this option schedules the step, and no step continues to it; for an interactive step (ADR 0286)",
+              "type": "string",
+              "enum": [
+                "lauter"
+              ]
+            },
             "chooses": {
               "description": "The answer to the step's question chooses the batch's recipe; for a brewer whose out doc schema is recipeChoice, and required there (ADR 0232)",
               "type": "string",
@@ -473,6 +480,13 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 4096
+                  },
+                  "chosenBy": {
+                    "description": "Only a person's choice of this option schedules the step, and no step continues to it; for an interactive step (ADR 0286)",
+                    "type": "string",
+                    "enum": [
+                      "lauter"
+                    ]
                   },
                   "chooses": {
                     "description": "The answer to the step's question chooses the batch's recipe; for a brewer whose out doc schema is recipeChoice, and required there (ADR 0232)",

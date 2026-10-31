@@ -127,7 +127,11 @@ function rule(state: State, event: Event): string | undefined {
     case 'batch.resumed':
       return (
         lanes(state, event, ['stuck']) ??
-        offered(state, event.batchId, event.action) ??
+        // A lauter is admitted by the lane's reason, as an approval is, so a batch recorded Stuck
+        // for its plan's review before lauter was offered takes one too (ADR 0286).
+        (event.action === 'lauter'
+          ? lauterable(state, event.batchId)
+          : offered(state, event.batchId, event.action)) ??
         reordered(state, event)
       );
     case 'batch.approved':
@@ -188,6 +192,14 @@ function lanes(
 ): string | undefined {
   const batch = state.batches.get(event.batchId);
   return batch && laneRefusal(batch, event.type, allowed);
+}
+
+/** Why a batch takes no lauter: it is Stuck for a reason other than its plan's review. */
+function lauterable(state: State, batchId: string): string | undefined {
+  const lane = state.batches.get(batchId)?.lane;
+  return lane?.kind === 'stuck' && lane.reason.kind !== 'plan_review'
+    ? noPlanToReview(batchId, lane.reason.kind)
+    : undefined;
 }
 
 function offered(state: State, batchId: string, option: string): string | undefined {

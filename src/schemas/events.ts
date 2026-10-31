@@ -447,6 +447,7 @@ export type StuckReason = z.infer<typeof StuckReason>;
 export const StuckOption = z.enum([
   'answer',
   'approve',
+  'lauter',
   'retry',
   'skip',
   'recipe',
@@ -682,7 +683,7 @@ export const Event = z.discriminatedUnion('type', [
     batchId: BatchId,
     by: NonEmpty,
     via: Surface,
-    action: z.enum(['retry', 'skip', 'recipe', 'answer']),
+    action: z.enum(['retry', 'skip', 'recipe', 'answer', 'lauter']),
     // A retry of a batch Stuck on routing sends it back to Ordered with this deadline (ADR 0032).
     routeBy: Timestamp.optional(),
   }),

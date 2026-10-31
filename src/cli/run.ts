@@ -9,7 +9,13 @@ import type { TargetTracker } from '../engine/intake.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { BrewCommand, InitCommand, MashCommand, ResumeCommand } from '../schemas/commands.ts';
+import type {
+  BrewCommand,
+  InitCommand,
+  LauterCommand,
+  MashCommand,
+  ResumeCommand,
+} from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
 import type { BrewerSource } from './brewer-report.ts';
@@ -90,9 +96,12 @@ export interface CliContext {
    * owner, recording who issued it and from where on an order it makes; its lines go straight to
    * the terminal.
    */
-  /** `foedrum brew`, or `foedrum mash`, which brews the same way to its question (ADR 0232). */
+  /**
+   * `foedrum brew`, `foedrum mash`, which brews the same way to its question (ADR 0232), or
+   * `foedrum lauter`, which brews its batch with the lauter recorded first (ADR 0286).
+   */
   brew: (
-    input: BrewCommand | MashCommand,
+    input: BrewCommand | MashCommand | LauterCommand,
     issued: { by: string; via: Surface },
   ) => Promise<CliResult>;
   /**

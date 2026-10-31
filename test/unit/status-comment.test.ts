@@ -2690,7 +2690,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
       `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: <${planComment}>`,
-      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.',
+      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.',
       'Get it moving with `retry`, `cancel`.',
     ]);
     assert.doesNotMatch(text, /On tap|No pull request/);

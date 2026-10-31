@@ -4,6 +4,7 @@
 // applied (ADR 0033).
 
 import type { IsCommit } from '../formats/secrets.ts';
+import type { Surface } from '../schemas/events.ts';
 import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
 import type { StatusRevision } from '../schemas/status-comment.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -105,6 +106,13 @@ const graph = (subOrders: readonly PlannedSubOrder[], told: Told): string[] => {
   ];
 };
 
+/** Who chose the session that wrote a plan, from where, and when it opened (ADR 0286). */
+export interface ChangedInSession {
+  by: string;
+  via: Surface;
+  at?: string;
+}
+
 /**
  * The plan comment's text for the plan `stepId` of `batchId` wrote, without its marker: every text
  * the brewer wrote one escaped line, left out when it looks like a secret.
@@ -120,6 +128,8 @@ export const renderPlan = (
   waitsForReview = false,
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
   approval?: Approval,
+  /** The session a person's lauter opened, which wrote this plan (ADR 0286). */
+  changed?: ChangedInSession,
   /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
   opened: readonly OpenedSubIssue[] = [],
 ): string => {
@@ -129,6 +139,12 @@ export const renderPlan = (
   const top = [
     `${PLAN_HEADING} ${code(batchId)}`,
     ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan)}`]),
+    ...(changed === undefined
+      ? []
+      : [
+          '',
+          `Changed in a session by ${plain(changed.by)} (${changed.via})${changed.at === undefined ? '' : ` at ${changed.at}`}.`,
+        ]),
   ];
   const table = [
     '**Sub-orders**',
@@ -212,11 +228,16 @@ const wholeBlocks = (parts: readonly string[][], room: number): string => {
 
 const revisions = commentRevisions('plan', 'plan comment');
 
-/** The plan of the latest attempt of `batch` that succeeded with one, its step and attempt. */
+/**
+ * The plan of the latest attempt of `batch` that succeeded with one, its step and attempt; of a
+ * step `include` takes, when given.
+ */
 export const latestPlan = (
   batch: Batch,
+  include: (stepId: string) => boolean = () => true,
 ): { stepId: string; attempt: number; plan: PlanReport } | undefined => {
   for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
+    if (!include(stepId)) continue;
     const ended = batch.steps.get(stepId)?.attempts.get(attempt);
     if (ended?.phase !== 'finished' || ended.outcome.kind !== 'succeeded') continue;
     const plan = planOf(ended.outcome.output);
@@ -275,8 +296,25 @@ const planDue = (
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
   // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
   const commits = knownCommits(state, batchId);
+  const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+  const chosen = ran?.chosen;
+  const at = ran?.phase === 'finished' ? ran.interactiveSince : undefined;
+  const changed =
+    chosen === undefined
+      ? undefined
+      : { by: chosen.by, via: chosen.via, ...(at === undefined ? {} : { at }) };
   const opened = openedSubIssues(state, batchId);
-  const text = renderPlan(batchId, stepId, plan, commits, fullPlan, review, approval, opened);
+  const text = renderPlan(
+    batchId,
+    stepId,
+    plan,
+    commits,
+    fullPlan,
+    review,
+    approval,
+    changed,
+    opened,
+  );
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
   const due = { key: revisions.keyOf(batchId, next), issue, text, digest };

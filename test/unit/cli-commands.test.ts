@@ -262,11 +262,13 @@ describe('foedrum: commands that change state', () => {
       }),
     };
     // brew is a driver: it opens the store through serve's wiring, as serve does (ADR 0123), and
-    // so is mash, which brews to its question (ADR 0232); so is resume on a running batch
+    // so is mash, which brews to its question (ADR 0232), and lauter, which brews its session
+    // (ADR 0286); so is resume on a running batch
     // (ADR 0127), and on a finished attempt it appends nothing.
     const names = commands
       .filter(
-        (command) => command.changesState && !['brew', 'mash', 'resume'].includes(command.name),
+        (command) =>
+          command.changesState && !['brew', 'mash', 'lauter', 'resume'].includes(command.name),
       )
       .map(({ name }) => name);
     assert.deepStrictEqual(names, Object.keys(lines));
@@ -463,6 +465,28 @@ describe('foedrum: commands that change state', () => {
       const approve = commands.find(({ name }) => name === 'approve');
       assert.equal(approve?.changesState, true);
       assert.deepStrictEqual(approve?.positionals, ['batch']);
+    });
+  });
+
+  describe('lauter (ADR 0286, #589)', () => {
+    it('is a command of the registry that changes state, on a batch', () => {
+      const lauter = commands.find(({ name }) => name === 'lauter');
+      assert.equal(lauter?.changesState, true);
+      assert.deepStrictEqual(lauter?.positionals, ['batch']);
+    });
+
+    it("hands the batch to brew's driver, as the person who issued it, from where", async () => {
+      const issued: unknown[] = [];
+      const brew: CliContext['brew'] = async (input, by) => {
+        issued.push(input, by);
+        return ok('');
+      };
+      const result = await run(['lauter', '27-1', '--as', 'night', '--via', 'plugin'], { brew });
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.deepStrictEqual(issued, [
+        { command: 'lauter', batch: '27-1', as: 'night' },
+        { by: 'ada', via: 'plugin' },
+      ]);
     });
   });
 
@@ -1263,7 +1287,7 @@ describe('foedrum stuck', () => {
         '',
         `12-1  #12  the plan of plan #2 is ready for your review; reminder ${iso(2880)}`,
         '  options: retry, recipe, cancel',
-        '  next: read the plan and its assumptions; sign it off with foedrum approve 12-1, plan it again with foedrum retry 12-1, or end it with foedrum cancel 12-1.',
+        '  next: read the plan and its assumptions; sign it off with foedrum approve 12-1, correct it in a session with foedrum lauter 12-1, plan it again with foedrum retry 12-1, or end it with foedrum cancel 12-1.',
         '',
       ].join('\n'),
       stderr: '',
