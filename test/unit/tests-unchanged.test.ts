@@ -224,10 +224,13 @@ const modules = [
 /** The red test file as the Gauger committed it. */
 const gaugedTest = gauged[0]?.added ?? [];
 /** What the attempt left: each file's lines at its tip; a file not named is gone. */
-const tipOf = (files: Record<string, readonly string[]>, changes: DiffFile[] = []) => ({
-  files: new Map(Object.entries(files).map(([path, lines]) => [path, `${lines.join('\n')}\n`])),
-  changes,
-});
+const textOf = (files: Record<string, readonly string[]>) =>
+  new Map(Object.entries(files).map(([path, lines]) => [path, `${lines.join('\n')}\n`]));
+const tipOf = (
+  files: Record<string, readonly string[]>,
+  changes: DiffFile[] = [],
+  before: Record<string, readonly string[]> = {},
+) => ({ files: textOf(files), before: textOf(before), changes });
 const mapped = { foldCase: false, newMap: false };
 
 describe('changedTestLines (ADR 0274)', () => {
@@ -283,6 +286,23 @@ describe('changedTestLines (ADR 0274)', () => {
       ],
     });
     assert.deepEqual(changedTestLines(gauged, tip, modules, mapped), []);
+  });
+
+  it('refuses a green step that removes a red line the file already held before the red step', () => {
+    const older = "test('answers', () => assert.equal(res.status, 200));";
+    const red = [
+      added(test, ["test('creates', () => {", '  assert.equal(res.status, 200);', '});']),
+    ];
+    // The older test's copy is still there; the red test's is gone.
+    const before = { [test]: ['  assert.equal(res.status, 200);', older] };
+    const tip = tipOf(
+      { [test]: ['  assert.equal(res.status, 200);', older, "test('creates', () => {", '});'] },
+      [],
+      before,
+    );
+    assert.deepEqual(changedTestLines(red, tip, modules, mapped), [
+      { path: test, line: 'assert.equal(res.status, 200);' },
+    ]);
   });
 
   it('names every line of a test file the attempt removed', () => {

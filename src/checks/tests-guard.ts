@@ -185,7 +185,12 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
           // Each test file as the attempt left it, so a later step's own copy of a line may go.
           const files = await readTip(git, cwd, tip, guardedFiles(tests, modules, fold), signal);
           if ('error' in files) return files;
-          return changedTestLines(tests, { files: files.files, changes }, modules, options);
+          return changedTestLines(
+            tests,
+            { files: files.files, before: new Map(), changes },
+            modules,
+            options,
+          );
         },
       };
     };

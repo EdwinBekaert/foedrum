@@ -106,6 +106,8 @@ export const changedTests = (
 /** What a guarded attempt left: each guarded test file's text at its tip, absent where it is gone, and its diff. */
 export interface AttemptTip {
   files: ReadonlyMap<string, string>;
+  /** The same files where the proven step started, absent where they were not yet. */
+  before: ReadonlyMap<string, string>;
   changes: readonly DiffFile[];
 }
 

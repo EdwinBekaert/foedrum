@@ -132,8 +132,8 @@ const tips = {
   },
   closing: { 'test/add.test.mjs': gaugeLines.slice(0, 2) },
 } satisfies Record<string, Record<string, readonly string[]>>;
-/** The object id the fake clone gives a file at the attempt's tip. */
-const blobOf = (path: string) => `b${path.length.toString().padStart(39, '0')}`;
+/** The object id the fake clone gives a file at the attempt's tip, or (`c`) where the proven step started. */
+const blobOf = (path: string, at = 'b') => `${at}${path.length.toString().padStart(39, '0')}`;
 
 const setup = ({
   events = [...ordered, ...gauged, ...implementing],
@@ -144,6 +144,7 @@ const setup = ({
   maps,
   mapAt,
   tip = tips.weakened,
+  before = {},
 }: {
   events?: Event[];
   behaviour?: Behaviour;
@@ -157,6 +158,8 @@ const setup = ({
   mapAt?: ReadTestMapAt;
   /** The files at the attempt's branch, by path: what `ls-tree` lists and `cat-file` reads. */
   tip?: Readonly<Record<string, readonly string[]>>;
+  /** The files where the proven step started, by path: what `ls-tree` lists at `gaugeStart`. */
+  before?: Readonly<Record<string, readonly string[]>>;
 } = {}) => {
   const mapReads: [string, string][] = [];
   const calls: { cwd: string; args: readonly string[]; options?: GitOptions }[] = [];
@@ -165,15 +168,21 @@ const setup = ({
     ((cwd, args, options) => {
       calls.push({ cwd, args, ...(options === undefined ? {} : { options }) });
       if (args.includes('ls-tree')) {
-        const asked = args.slice(args.indexOf('--') + 1);
-        const listed = asked.filter((path) => tip[path] !== undefined);
+        const end = args.indexOf('--');
+        const started = args[end - 1] === gaugeStart;
+        const files = started ? before : tip;
+        const listed = args.slice(end + 1).filter((path) => files[path] !== undefined);
+        const at = started ? 'c' : 'b';
         return Promise.resolve(
-          ok(listed.map((path) => `100644 blob ${blobOf(path)}\t${path}\0`).join('')),
+          ok(listed.map((path) => `100644 blob ${blobOf(path, at)}\t${path}\0`).join('')),
         );
       }
       if (args.includes('cat-file')) {
-        const path = Object.keys(tip).find((name) => args.includes(blobOf(name)));
-        const lines = path === undefined ? undefined : tip[path];
+        const found = [
+          ...Object.entries(tip).map(([path, lines]) => [blobOf(path), lines] as const),
+          ...Object.entries(before).map(([path, lines]) => [blobOf(path, 'c'), lines] as const),
+        ].find(([blob]) => args.includes(blob));
+        const lines = found?.[1];
         return Promise.resolve(
           lines === undefined
             ? { code: 128, stdout: '', stderr: 'fatal: Not a valid object name\n' }
@@ -438,6 +447,35 @@ describe('guardTests: the test map (ADR 0274)', () => {
     const { runner } = setup({ maps });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, failedOn('assert.equal(add(1, 2), 3);'));
+  });
+
+  it('refuses a removed red line that the file held before the red step too', async () => {
+    const maps = { [gaugeStart]: mapOf('test/**') };
+    // An older test with the same assertion was there where the Gauger started.
+    const older = "test('adds once more', () => assert.equal(add(1, 2), 3));";
+    const assertion = '  assert.equal(add(1, 2), 3);';
+    const { runner, calls } = setup({
+      maps,
+      before: { 'test/add.test.mjs': [assertion, older] },
+      tip: {
+        'test/add.test.mjs': [assertion, older, ...gaugeLines.filter((l) => l !== assertion)],
+      },
+    });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, failedOn('assert.equal(add(1, 2), 3);'));
+    // Read where the proven step started, as at the attempt's tip, by the same ls-tree.
+    assert.deepEqual(
+      calls.filter(({ args }) => args.includes('ls-tree')).map(({ args }) => args),
+      ['refs/heads/foedrum/12-1/implement/1', gaugeStart].map((at) => [
+        '--literal-pathspecs',
+        'ls-tree',
+        '-z',
+        '--full-tree',
+        at,
+        '--',
+        'test/add.test.mjs',
+      ]),
+    );
   });
 
   it('is blocked on the environment when a test file cannot be read at the tip', async () => {
