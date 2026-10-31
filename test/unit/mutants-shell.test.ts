@@ -238,6 +238,16 @@ describe('mutants on a scratch tree', () => {
       assert.match(result.stderr.join('\n'), /^usage: /);
     }
   });
+
+  it('checks and applies a mutant the script wrote like one of Brett’s', async () => {
+    write({ mutants: [valid, { ...valid, replacement: 'return a * b;', source: 'script' }] });
+    assert.deepEqual(await checkMutants(tree, answer), {
+      ok: true,
+      lines: ['mutant 1: valid src/add.ts:2', 'mutant 2: valid src/add.ts:2'],
+    });
+    await applyMutant(tree, answer, 2);
+    assert.equal(read(), source.replace('a + b', 'a * b'));
+  });
 });
 
 describe('same-answer mutants on a scratch tree', () => {
