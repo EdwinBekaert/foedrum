@@ -27,15 +27,13 @@ export function parseLcov(text: string, root: string): ReadCoverage {
       }
     | undefined;
   const end = (): void => {
-    if (record?.file === undefined) {
-      record = undefined;
-      return;
-    }
-    const lines = linesOf(files, record.file);
-    // Only the lines LCOV lists as executable: a branch on any other line is not judged.
-    for (const [number, hits] of record.hits) {
-      const branches = record.branches.get(number);
-      addLine(lines, number, branches === undefined ? { hits } : { hits, branches });
+    if (record?.file !== undefined) {
+      const lines = linesOf(files, record.file);
+      // Only the lines LCOV lists as executable: a branch on any other line is not judged.
+      for (const [number, hits] of record.hits) {
+        const branches = record.branches.get(number);
+        addLine(lines, number, branches === undefined ? { hits } : { hits, branches });
+      }
     }
     record = undefined;
   };

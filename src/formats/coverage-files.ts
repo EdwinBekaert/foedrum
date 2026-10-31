@@ -3,7 +3,7 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
+import { readOutDocFile } from '../platform/bounded-read.ts';
 import { parseCobertura } from './cobertura.ts';
 import {
   type CoverageFormat,
@@ -37,14 +37,9 @@ function coberturaFiles(root: string, pattern: string): string[] {
 }
 
 /** The coverage at `path`, a file or a folder pattern relative to `root`, or why it is not read. */
-export function readCoverage(
-  format: CoverageFormat,
-  path: string,
-  root: string,
-  read: (file: string) => BoundedRead = (file) => readOutDocFile(file, MAX_REPORT_BYTES, root),
-): ReadCoverage {
+export function readCoverage(format: CoverageFormat, path: string, root: string): ReadCoverage {
   const one = (file: string, parse: (text: string) => ReadCoverage): ReadCoverage | undefined => {
-    const text = read(join(root, ...file.split('/')));
+    const text = readOutDocFile(join(root, ...file.split('/')), MAX_REPORT_BYTES, root);
     switch (text.kind) {
       case 'missing':
         return undefined;
