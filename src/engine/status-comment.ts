@@ -868,6 +868,12 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
+/** The modules the batch's test map adds with `coverage: none`, as one line, or none (ADR 0274). */
+const unmeasuredLines = ({ unmeasured }: SensitiveFiles): string[] =>
+  unmeasured === undefined
+    ? []
+    : [`Adds test map modules with coverage none: ${unmeasured.map(plain).join(', ')}`];
+
 /** A pull request whose body the latest round left as it is (ADR 0227). */
 export interface LeftBody {
   pullRequest: string;
@@ -950,7 +956,9 @@ export const renderStatus = (
     ],
   ];
   // Before the sections that grow with the out docs, so a comment cut to length keeps it.
-  if (sensitive !== undefined) sections.push([sensitiveLine(sensitive)]);
+  if (sensitive !== undefined) {
+    sections.push([sensitiveLine(sensitive), ...unmeasuredLines(sensitive)]);
+  }
   const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl, planComment);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);

@@ -7,6 +7,7 @@ import { modelOf } from '../brewers/attempt-plan.ts';
 import { type ConfigDirs, configDirsOf } from '../brewers/attempt-settings.ts';
 import type { RepositorySetup } from '../checks/check-runner.ts';
 import type { RepositoryChecks } from '../checks/gravity.ts';
+import { breweryMapPath } from '../checks/test-map.ts';
 import { brewerBaseEnv, brewerForcedEnv, type Env } from '../engine/brewer-env.ts';
 import { type IntakeRepository, intakeRepositories } from '../engine/intake.ts';
 import { DEFAULT_OPEN_ORDERS } from '../engine/limits.ts';
@@ -55,6 +56,8 @@ export interface ServeInputs {
     brewery: BreweryFiles;
     /** The Brewery's house-yeast rule files (`readHouseYeast`, ADR 0169). */
     houseYeast?: readonly BreweryFile[];
+    /** The Brewery's test maps, `test-maps/<owner>/<name>.jsonc` (`readTestMaps`, ADR 0274). */
+    testMaps?: readonly BreweryFile[];
   };
   diagnosis: Pick<Diagnosis, 'tools' | 'isolation' | 'problems'>;
 }
@@ -77,9 +80,37 @@ export interface ServeRepository {
   setup?: RepositorySetup;
   /** Where its own house-yeast rules are kept (ADR 0018); default in the repository. */
   houseYeast?: 'repo' | 'brewery';
+  /**
+   * The Brewery's test map of it, for a repository whose map the Brewery keeps (ADR 0018, ADR
+   * 0274): its text, none when the Brewery has none; without it, the map is the repository's own.
+   */
+  testMap?: { text?: string };
   /** The path globs a batch's pull request names when its change touches them (ADR 0201). */
   sensitivePaths?: readonly string[];
 }
+
+/**
+ * The Brewery's test map of `repo` (ADR 0274): its text, or none when the Brewery has none; a file
+ * that cannot be read is a problem.
+ */
+const breweryTestMap = (
+  files: readonly BreweryFile[],
+  repo: string,
+  problems: string[],
+): { text?: string } => {
+  const path = breweryMapPath(repo);
+  // The file, or the folder above it that could not be listed, named by its own path.
+  const folders = ['test-maps', path.slice(0, path.lastIndexOf('/'))];
+  const file =
+    files.find((found) => found.path.toLowerCase() === path) ??
+    files.find((found) => 'unreadable' in found && folders.includes(found.path.toLowerCase()));
+  if (file === undefined) return {};
+  if ('unreadable' in file) {
+    problems.push(`${file.path}: the test map of ${repo} cannot be read: ${file.unreadable}`);
+    return {};
+  }
+  return { text: file.text };
+};
 
 /** What the intake in serve's loop orders, and how often it polls (ADR 0068). */
 export interface ServeIntake {
@@ -299,6 +330,9 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         ...(repository.testReport === undefined ? {} : { testReport: repository.testReport }),
         ...(repository.setup === undefined ? {} : { setup: repository.setup }),
         ...(repository.houseYeast === 'brewery' ? { houseYeast: 'brewery' as const } : {}),
+        ...(repository.testMap === 'brewery'
+          ? { testMap: breweryTestMap(files.testMaps ?? [], repo, problems) }
+          : {}),
         ...(repository.sensitivePaths === undefined
           ? {}
           : { sensitivePaths: repository.sensitivePaths }),

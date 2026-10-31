@@ -10,6 +10,7 @@ import { ModelsConfig } from './models.ts';
 import { OutDocFrontmatter } from './out-doc.ts';
 import { Recipe } from './recipe.ts';
 import { StepOutcome } from './step-outcome.ts';
+import { TestMap } from './test-map.ts';
 import { z } from './zod.ts';
 
 const schemas: Record<string, z.ZodType> = {
@@ -21,6 +22,7 @@ const schemas: Record<string, z.ZodType> = {
   'out-doc.json': OutDocFrontmatter,
   'recipe.json': Recipe,
   'step-outcome.json': StepOutcome,
+  'test-map.json': TestMap,
 };
 
 /** Writes one file per schema into `dir`; the same schemas always give the same bytes. */

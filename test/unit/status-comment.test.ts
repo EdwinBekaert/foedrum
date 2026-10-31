@@ -2135,6 +2135,25 @@ describe('renderStatus: the sensitive paths the change touches (ADR 0201)', () =
     assert.doesNotMatch(line, /a{300}/);
     assert.match(line, /a…$/);
   });
+  it('names the modules the batch adds with coverage none on the line after it (ADR 0274)', () => {
+    const text = renderStatus(onTap, steps, undefined, undefined, {
+      count: 1,
+      files: ['.foedrum/test-map.jsonc'],
+      unmeasured: ['engine', 'tools_*x*'],
+    });
+    const lines = text.split('\n');
+    const at = lines.indexOf('Touches sensitive paths: .foedrum/test-map.jsonc');
+    assert.ok(at >= 0, text);
+    assert.equal(
+      lines[at + 1],
+      'Adds test map modules with coverage none: engine, tools\\_\\*x\\*',
+    );
+    const without = renderStatus(onTap, steps, undefined, undefined, {
+      count: 1,
+      files: ['.foedrum/test-map.jsonc'],
+    });
+    assert.doesNotMatch(without, /coverage none/);
+  });
 });
 
 describe('statusEffects: the sensitive paths the push recorded (ADR 0201)', () => {
