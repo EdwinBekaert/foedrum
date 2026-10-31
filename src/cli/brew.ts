@@ -7,7 +7,7 @@
 // On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
-import { defaultLeaseMs as leaseMs, takeOver } from '../engine/batch-leases.ts';
+import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
 import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
@@ -384,6 +384,8 @@ export const runBrew = async (
       // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
       // Brewery issue has no label yet, so the batch waits for a person to give it one.
       await tick(driver, report);
+      // A batch that waits for a person is not Stuck: it keeps no lease (ADR 0123).
+      store.withTransaction((tx) => releaseBatch(tx, batch.id, owner));
       const opened = breweryIssueOf(driver.state(), batch);
       // A tick that did not open it (a failed or a put-off effect) said why first.
       if (opened === undefined) {
