@@ -193,7 +193,7 @@ export const orderBatches = (state: State, order: OrderRef): Batch[] => {
   const own = of(order);
   if (own.length === 0 && order.repo === undefined) {
     const claimed = claimOfOrder(state, order.issue);
-    if (claimed !== undefined) return of({ issue: claimed.issue, repo: claimed.repo });
+    if (claimed !== undefined) return of(claimed);
   }
   if (order.repo !== undefined) return own;
   const subOrders = state.orders.get(order.issue)?.subOrders ?? [];
@@ -204,17 +204,11 @@ export const orderBatches = (state: State, order: OrderRef): Batch[] => {
   return all.filter(({ id }) => ids.has(id));
 };
 
-/** What an order's attempts used: its planning (`mash-in`, `mash`) and its brewing (ADR 0295). */
-export interface OrderTokens {
-  planning: Usage;
-  brewing: Usage;
-}
-
 /**
  * The usage of `batches`' attempts, split by the recipe each was scheduled under: a planning
  * recipe's is planning, any other's brewing; an attempt that reported none adds nothing.
  */
-export const orderTokens = (state: State, batches: readonly Batch[]): OrderTokens => {
+const orderTokens = (state: State, batches: readonly Batch[]) => {
   const none = (): Usage => ({
     inputTokens: 0,
     outputTokens: 0,
@@ -251,7 +245,7 @@ const usageText = (usage: Usage): string => {
 export const formatOrderStatus = (
   state: State,
   batches: readonly Batch[],
-  interactive: ReadonlyMap<string, string> = new Map(),
+  interactive: ReadonlyMap<string, string>,
 ): string => {
   const rows = batches.map((batch) => statusRow(state, batch, interactive));
   const count = `${batches.length} ${batches.length === 1 ? 'batch' : 'batches'}`;
