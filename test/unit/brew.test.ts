@@ -1807,10 +1807,26 @@ describe('runBrew', () => {
       });
     const target = { ...request, target: { alias: 'web', issue: 7 } };
 
-    it('claims it before it orders it, as foedrum order does, and brews it on tap: exit 0', async () => {
-      const host = github();
+    /**
+     * Brews the claimed web#7, which waits for its Brewery issue's label (ADR 0156), labels that
+     * issue `recipe:stout`, and brews it again by it (ADR 0240): the second run's exit code.
+     */
+    const brewLabelled = async (host: FakeGitHubApi, brewing: ServeSetup): Promise<number> => {
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 0, lines.join('\n'));
+      assert.equal(await runBrew(brewing, claimed, target), 5, lines.join('\n'));
+      const [order] = host.issues['acme/brewery'] ?? [];
+      assert.ok(order !== undefined, 'its Brewery issue is opened');
+      order.labels.push('recipe:stout');
+      const again = shell(behave.succeed(), {
+        gh: ghOver(host.fetch).exec,
+        lock: () => fakeLock('ann'),
+      });
+      return runBrew(brewing, again, { ...request, target: { issue: order.number } });
+    };
+
+    it('claims it before it orders it, as foedrum order does, and brews it on tap by its Brewery issue: exit 0', async () => {
+      const host = github();
+      assert.equal(await brewLabelled(host, targetSetup()), 0, lines.join('\n'));
       assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
       const batches = [...log().state().batches.values()];
       assert.deepStrictEqual(
@@ -1825,9 +1841,8 @@ describe('runBrew', () => {
 
     it("prints the link to the status comment on the claimed issue's Brewery issue (#413)", async () => {
       const host = github();
-      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       const brewing = targetSetup();
-      assert.equal(await runBrew(brewing, claimed, target), 0, lines.join('\n'));
+      assert.equal(await brewLabelled(host, brewing), 0, lines.join('\n'));
       const [order] = host.issues['acme/brewery'] ?? [];
       const [comment] = host.comments.get(`acme/brewery#${order?.number}`) ?? [];
       assert.ok(comment !== undefined, 'a status comment on the Brewery issue');
@@ -1858,6 +1873,62 @@ describe('runBrew', () => {
       assert.deepStrictEqual(
         batches.map(({ id, lane }) => ({ id, lane: lane.kind })),
         [{ id: 'web-7', lane: 'on_tap' }],
+      );
+    });
+
+    it('orders a claimed issue, opens its Brewery issue and waits there for its recipe label, never routing by the target issue: exit 5 (ADR 0156)', async () => {
+      const host = github();
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, lines.join('\n'));
+      const [order] = host.issues['acme/brewery'] ?? [];
+      assert.ok(order !== undefined, 'its Brewery issue is opened');
+      const batch = log().state().batches.get('web-7');
+      assert.deepStrictEqual(
+        { lane: batch?.lane.kind, recipe: batch?.recipe },
+        { lane: 'ordered', recipe: undefined },
+      );
+      assert.deepStrictEqual(started, []);
+      assert.equal(
+        lines.at(-1),
+        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew '#${order.number}', or foedrum mash web#7`,
+      );
+    });
+
+    it('never routes an Ordered claimed batch whose Brewery issue is not recorded yet by the label of its target issue (ADR 0156)', async () => {
+      const host = github();
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, lines.join('\n'));
+      // Its target issue carries recipe:stout: a run that read it to route would say so.
+      assert.ok(!lines.some((line) => line.includes('routed')), lines.join('\n'));
+      assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
+      const [order] = host.issues['acme/brewery'] ?? [];
+      assert.equal(
+        lines.at(-1),
+        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew '#${order?.number}', or foedrum mash web#7`,
+      );
+    });
+
+    it('fails, routing nothing, when the Brewery issue of a claimed order cannot be opened: exit 1', async () => {
+      const host = fakeGitHubApi({
+        login: 'ann',
+        issues: github().issues,
+        instead: (method, url) =>
+          method === 'POST' && url.pathname.toLowerCase() === '/repos/acme/brewery/issues'
+            ? { status: 500, body: { message: 'Server Error' } }
+            : undefined,
+      });
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 1, lines.join('\n'));
+      assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
+      assert.deepStrictEqual(host.issues['acme/brewery'] ?? [], []);
+      assert.ok(
+        lines.some((line) => line.includes('"order.issue"] failed: GitHub answered 500')),
+        lines.join('\n'),
+      );
+      assert.equal(
+        lines.at(-1),
+        'foedrum brew: acme/web#7 waits for its Brewery issue, which could not be opened; brew web#7 again',
       );
     });
 
