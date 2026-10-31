@@ -63,6 +63,7 @@ import {
 import { rankRefusal } from './ranks.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { checkOf } from './status-comment.ts';
+import { lostReason } from './supervisor.ts';
 import { type Reopen, scopeOf } from './usage-window.ts';
 
 /** Who issued a human command, and from where (ADR 0019). */
@@ -912,7 +913,7 @@ function expire(draft: Draft, command: Extract<Command, { kind: 'expire' }>): vo
 function lose(draft: Draft, command: Extract<Command, { kind: 'lose' }>): void {
   const { batchId, stepId, attempt } = command;
   started(requireLane(draft.batch(batchId), 'lose', ['brewing']), stepId, attempt);
-  const reason = `the attempt was lost: ${command.reason}`;
+  const reason = lostReason(command.reason);
   draft.push({
     type: 'step.finished',
     batchId,

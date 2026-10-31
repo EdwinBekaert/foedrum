@@ -39,6 +39,7 @@ import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { outDocLink } from './state-branch.ts';
+import { plainReason } from './supervisor.ts';
 import { usageWindowsText } from './usage-window.ts';
 
 /**
@@ -211,7 +212,7 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: 
     case 'blocked':
       return `${code(reason.stepId)} is blocked (${reason.blockerKind}): ${told(reason.summary, reason.stepId)}`;
     case 'attempts_exhausted':
-      return `${code(reason.stepId)} used its ${reason.attempts} attempts; the last: ${told(reason.lastReason, reason.stepId)}`;
+      return `${code(reason.stepId)} used its ${reason.attempts} attempts; the last: ${told(plainReason(reason.lastReason), reason.stepId)}`;
     case 'deadline_passed':
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':
@@ -574,7 +575,7 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
         ? `- ✅ ${id}`
         : `- ✅ ${id}: out doc: ${link(outDocUrl(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl))}`;
     case 'failed':
-      return `- ❌ ${id}: attempt ${n} failed: ${told(outcome.reason, stepId)}`;
+      return `- ❌ ${id}: attempt ${n} failed: ${told(plainReason(outcome.reason), stepId)}`;
     case 'needs_input': {
       const asked = `- ❓ ${id}: attempt ${n} asked for input`;
       const input = answerOf(batch, stepId, n);

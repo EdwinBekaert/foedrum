@@ -25,6 +25,7 @@ import {
   type StatusComments,
   statusEffects,
 } from '../../src/engine/status-comment.ts';
+import { expiredLeaseReason, lostReason } from '../../src/engine/supervisor.ts';
 import type { StuckReason } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -251,6 +252,34 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
+  it('says why a batch whose lost attempts used its retries is Stuck in plain words, without the owner of the lease or a UTC time (#277)', () => {
+    const lost = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
+    const text = renderStatus(
+      batch({
+        lane: stuck({ kind: 'attempts_exhausted', stepId: 'brew', attempts: 2, lastReason: lost }),
+        steps: new Map([step('brew', failed(1, lost), failed(2, lost))]),
+      }),
+      steps,
+    );
+    assert.ok(
+      text.includes(
+        'used its 2 attempts; the last: the attempt was lost: the Cellar running it stopped, so its lease ran out',
+      ),
+      text,
+    );
+    assert.ok(!text.includes('lease of') && !text.includes('14:05:04'), text);
+  });
+
+  it("says on a step's line that its attempt was lost because the Cellar running it stopped, without the owner of the lease or a UTC time (#277)", () => {
+    const lost = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
+    const text = renderStatus(batch({ steps: new Map([step('plan', failed(1, lost))]) }), steps);
+    assert.match(
+      lineOf(text, 'plan'),
+      /attempt 1 failed: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
+    );
+    assert.ok(!text.includes('lease of') && !text.includes('14:05:04'), text);
+  });
+
   it('shows the attempts in the order they ran on one line before the steps (#406)', () => {
     const text = renderStatus(
       batch({
@@ -408,6 +437,21 @@ describe('renderStatus', () => {
       pathOf(text),
       'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅ → `green #1` ❌ the check "tests" failed with exit code 1 → `green #2` ✅ → `correctness #1` ❌ blocked (findings) → `correctness #2` ✅',
     );
+  });
+
+  it('says a lost attempt with the reason the supervisor records was lost, and nothing of its lease (regression test)', () => {
+    const reason = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('gauge', failed(1, reason), done(2))]),
+        path: [
+          { stepId: 'gauge', attempt: 1 },
+          { stepId: 'gauge', attempt: 2 },
+        ],
+      }),
+      ['gauge'],
+    );
+    assert.equal(pathOf(text), 'Path: `gauge #1` ❌ the attempt was lost → `gauge #2` ✅');
   });
 
   describe('a batch sent back, a line per round (#662)', () => {
