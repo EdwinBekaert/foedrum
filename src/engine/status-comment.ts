@@ -46,6 +46,11 @@ import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
+import {
+  type SubOrderPullRequest,
+  stateText,
+  subOrderPullRequests,
+} from './sibling-pull-requests.ts';
 import { outDocLink } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { usageWindowsText } from './usage-window.ts';
@@ -418,6 +423,13 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
   const more =
     failed.length > 1 ? `, and ${atLeast ? 'at least ' : ''}${failed.length - 1} more` : '';
   return `- ${link(url)} failed its checks on ${head}: ${plain(named.name)} (${named.conclusion})${at}${more}`;
+};
+
+/** A sub-order of the batch's order and its pull request, by its state (ADR 0292). */
+const subOrderPullLine = ({ subOrder, repo, pullRequest, state }: SubOrderPullRequest): string => {
+  const where = `- #${subOrder} in ${plain(repo)}`;
+  if (pullRequest === undefined) return `${where}: no pull request yet`;
+  return `${where}: ${link(pullRequest)}, ${stateText[state]}`;
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
@@ -1017,6 +1029,8 @@ export const renderStatus = (
   planComment?: string,
   /** The sub-issues its approved plan opened, once all are, which the On tap line names (ADR 0285). */
   subIssues?: readonly number[],
+  /** The pull requests of its order's sub-orders, in merge order, once it is split (ADR 0292). */
+  subOrderPulls: readonly SubOrderPullRequest[] = [],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1030,6 +1044,7 @@ export const renderStatus = (
     [`### Foedrum · batch ${code(batch.id)}`],
     [
       ...laneText(batch, told, planComment, subIssues),
+      ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
     ],
@@ -1144,6 +1159,7 @@ const statusDue = (
     stateBranchUrl,
     planComment,
     allSubIssues(state, batchId),
+    batch.decomposed === true ? subOrderPullRequests(state, batch.issue) : [],
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

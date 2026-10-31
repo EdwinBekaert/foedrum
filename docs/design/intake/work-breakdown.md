@@ -30,6 +30,7 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   It bundles one or more finished sub-orders of the same repository: their branches are merged into a bottle branch by plain git (conflicts go to the Blender).
   Policy per recipe: `"bottling": "perSubOrder" | "perRepo" | "manual"`; manually with `/foedrum bottle #101 #102`.
   Bottles of the same order reference each other and carry a suggested merge order.
+  Built today for a sub-order's own pull request: its body starts with `## Pull requests of this order`, which names each other sub-order's pull request as `owner/name#n` (or its repository, not opened yet), its state, and when to merge it after the plan's `code` and `release` dependencies, never a Brewery issue; revisions of it go through the ledger as siblings open and end ([open pull request](../recipes/open-pull-request.md), [ADR 0292](../../adr/0292-the-pull-requests-of-one-order-name-each-other-and-the-merge-order.md)).
 - **Dependency kinds:**
 
 | Kind | Meaning | The dependent batch waits for |
