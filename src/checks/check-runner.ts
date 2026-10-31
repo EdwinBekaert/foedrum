@@ -57,6 +57,7 @@ import {
   type MapRead,
   type ReadTestMapAt,
   reportPaths,
+  unclearable,
 } from './test-map.ts';
 import { type CoverageVerdict, judgeCoverage, uncoveredReason } from './uncovered.ts';
 
@@ -177,13 +178,16 @@ const listed = (files: readonly string[]): { files: string[]; more: number } | u
 /** What the uncovered-line check did not measure, for the status comment; none when nothing. */
 const listingOf = ({
   notLoaded,
+  noLines,
   outside,
   unmeasured,
 }: CoverageVerdict): CoverageListing | undefined => {
   const loaded = listed(notLoaded);
+  const lineless = listed(noLines);
   const out = listed(outside);
   const listing: CoverageListing = {
     ...(loaded === undefined ? {} : { notLoaded: loaded }),
+    ...(lineless === undefined ? {} : { noLines: lineless }),
     ...(out === undefined ? {} : { outside: out }),
     ...(unmeasured.length === 0
       ? {}
@@ -425,12 +429,15 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         ? await mapsOf(batch, worktree, signal)
         : undefined;
     if (maps !== undefined) {
-      const why = await clearReportPaths(
-        coveragePaths(maps),
-        worktree.path,
-        options.testMap?.reports ?? reportPaths,
-        reports.clear,
-      );
+      const paths = coveragePaths(maps);
+      const why =
+        paths.map(unclearable).find((reason) => reason !== undefined) ??
+        (await clearReportPaths(
+          paths,
+          worktree.path,
+          options.testMap?.reports ?? reportPaths,
+          reports.clear,
+        ));
       if (why !== undefined) {
         return blocked(
           'environment',
@@ -578,6 +585,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // The check sandbox runs in the worktree's real path, so a report may name its files by either.
     const real = (options.testMap?.realPath ?? realPath)(worktree.path);
     const roots = real === worktree.path ? [worktree.path] : [worktree.path, real];
+    // The modules whose code the change touched: another's report is the environment's to write.
+    const touched = new Set(
+      changed.flatMap(({ path }) => {
+        const area = areaOf(modules, path, foldCase);
+        return area?.area === 'code' ? [area.module] : [];
+      }),
+    );
     const reportsRead: CoverageReport[] = [];
     for (const { module } of measured ? modules : []) {
       if (module.coverage === 'none') continue;
@@ -589,8 +603,13 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       for (const root of roots) {
         const report = read(format, path, root);
         if (!report.readable) {
-          const why = `${cannot} be read: ${report.reason}`;
-          return report.environment === true ? stuck(why) : failed(why);
+          if (report.environment === true) return stuck(`${cannot} be read: ${report.reason}`);
+          if (!touched.has(module.name)) {
+            return stuck(
+              `the coverage report of module "${module.name}" at ${path} cannot be read, though the change touches none of its code: ${report.reason}`,
+            );
+          }
+          return failed(`${cannot} be read: ${report.reason}`);
         }
         reportsRead.push(report.report);
       }

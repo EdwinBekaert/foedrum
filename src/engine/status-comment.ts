@@ -601,7 +601,7 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
  * step's line (ADR 0274): changed code no test loaded, changed files outside every code area, and
  * the modules with `coverage: none` it skipped.
  */
-const coverageLines = (batch: Batch, stepId: string): string[] => {
+const coverageLines = (batch: Batch, stepId: string, told: Told): string[] => {
   const latest = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
   const listing = latest?.phase === 'finished' ? latest.coverage : undefined;
   if (listing === undefined) return [];
@@ -609,10 +609,11 @@ const coverageLines = (batch: Batch, stepId: string): string[] => {
     listed === undefined
       ? []
       : [
-          `  - ${what}: ${listed.files.map(plain).join(', ')}${listed.more > 0 ? ` and ${listed.more} more` : ''}`,
+          `  - ${what}: ${listed.files.map((file) => told(file, stepId)).join(', ')}${listed.more > 0 ? ` and ${listed.more} more` : ''}`,
         ];
   return [
     ...files('not loaded by any test', listing.notLoaded),
+    ...files('no executable lines in any report', listing.noLines),
     ...files('outside every code area', listing.outside),
     ...(listing.unmeasured === undefined
       ? []
@@ -989,7 +990,7 @@ export const renderStatus = (
       ...pathLines(batch, told),
       ...stepIds.flatMap((stepId) => [
         stepLine(batch, stepId, told, stateBranchUrl),
-        ...coverageLines(batch, stepId),
+        ...coverageLines(batch, stepId, told),
       ]),
     ],
   ];

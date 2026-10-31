@@ -24,6 +24,8 @@ export interface CoverageVerdict {
   uncovered: UncoveredLine[];
   /** Changed code files a tool that leaves unloaded files out (LCOV) did not list. */
   notLoaded: string[];
+  /** Changed code files no Cobertura report lists: they have no executable lines (ADR 0288). */
+  noLines: string[];
   /** Changed files outside every code and test area: data, docs, config. */
   outside: string[];
   /** The modules with `coverage: none` whose code the change touched. */
@@ -54,7 +56,13 @@ export const judgeCoverage = ({
   report: CoverageReport;
   foldCase: boolean;
 }): CoverageVerdict => {
-  const verdict: CoverageVerdict = { uncovered: [], notLoaded: [], outside: [], unmeasured: [] };
+  const verdict: CoverageVerdict = {
+    uncovered: [],
+    notLoaded: [],
+    noLines: [],
+    outside: [],
+    unmeasured: [],
+  };
   for (const { path, addedAt } of changed) {
     const area = areaOf(modules, path, foldCase);
     if (area === undefined) {
@@ -71,13 +79,10 @@ export const judgeCoverage = ({
     }
     const lines = linesIn(report, path, foldCase);
     if (lines === undefined) {
-      // coverlet and JaCoCo list every file they did not load, so one no report holds ran under no
-      // test; Node leaves such a file out, as it does a types-only one no test could run.
-      if (coverage.format === 'cobertura') {
-        verdict.uncovered.push(...addedAt.map((line) => ({ file: path, line, branch: false })));
-      } else {
-        verdict.notLoaded.push(path);
-      }
+      // coverlet lists every file with a sequence point, run or not, so one no report holds has no
+      // executable line, such as an interface or a project file (ADR 0288); Node leaves out every
+      // file no test loaded, as it does a types-only one no test could run.
+      (coverage.format === 'cobertura' ? verdict.noLines : verdict.notLoaded).push(path);
       continue;
     }
     for (const line of addedAt) {
