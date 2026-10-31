@@ -2731,6 +2731,18 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.match(stepOf(text, 'plan'), /out doc: </);
   });
 
+  it('links no out doc of an action step, which writes none, as openPullRequest (#658)', () => {
+    // The driver ends an action's attempt with what it did, never an out doc (ADR 0071).
+    const opened: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: { kind: 'succeeded', output: { pullRequest: pr } },
+    };
+    const text = rendered(batch({ lane: review, steps: new Map([step('pr', opened)]) }));
+    assert.equal(stepOf(text, 'pr'), '- ✅ `pr`');
+  });
+
   it("links each step's out doc on its line: the plan's as it reads, another's in its plain view", () => {
     const text = rendered(
       batch({

@@ -63,7 +63,7 @@ describe('renderPlan (ADR 0233)', () => {
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
     assert.equal(
-      renderPlan('7-1', 'plan', three),
+      renderPlan('7-1', 'plan', three, undefined, undefined, true),
       [
         '### Foedrum · plan of batch `7-1`',
         '',
@@ -182,8 +182,14 @@ describe('renderPlan (ADR 0233)', () => {
     );
   });
 
+  it('ends with no next step when the plan does not wait for its review (#658)', () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    assert.doesNotMatch(text, /Next:|foedrum retry/);
+    assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
+  });
+
   it('ends with the next step (#658)', () => {
-    assert.ok(renderPlan('7-1', 'plan', three, undefined, outDoc).endsWith(`\n\n${next}`));
+    assert.ok(renderPlan('7-1', 'plan', three, undefined, outDoc, true).endsWith(`\n\n${next}`));
   });
 
   it('shows a text with a quote, a hash, a line break, a mention and a backtick as itself, in the table and the graph', () => {
@@ -242,7 +248,7 @@ describe('renderPlan (ADR 0233)', () => {
     const many = Array.from({ length: 100 }, (_, i) =>
       subOrder(`s${i}`, { title: 'y'.repeat(120), doneWhen: 'x'.repeat(50), why: 'x'.repeat(50) }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many });
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, undefined, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid|rest is cut/);
     assert.match(text, /\*\*Order\*\*\n\nThe graph is left out: GitHub keeps comments shorter\.\n/);
@@ -265,7 +271,7 @@ describe('renderPlan (ADR 0233)', () => {
   };
 
   it("keeps the whole text within GitHub's length, cut after a whole sub-order", () => {
-    const text = renderPlan('7-1', 'plan', longest());
+    const text = renderPlan('7-1', 'plan', longest(), undefined, undefined, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /```mermaid/);
     assert.match(
@@ -281,7 +287,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('keeps the link and the next step when the text is cut to length (#658)', () => {
-    const text = renderPlan('7-1', 'plan', longest(), undefined, outDoc);
+    const text = renderPlan('7-1', 'plan', longest(), undefined, outDoc, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
     assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/);
@@ -332,7 +338,7 @@ describe('renderPlan (ADR 0233)', () => {
         })),
       }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc);
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /\n#### /);
     assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
@@ -390,7 +396,11 @@ const planned = (plan: PlanReport): Ending => ({
 const second: PlanReport = { subOrders: [subOrder('api'), subOrder('docs')] };
 
 describe('planEffects (ADR 0233)', () => {
-  const recipes = fakeRecipes({ mash: fakeRecipe({ steps: ['plan', 'replan'] }) });
+  const recipes = fakeRecipes({
+    mash: fakeRecipe({ steps: ['plan', 'replan'] }),
+    // One plan step and no pull request: its plan waits for review (ADR 0275).
+    pale: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
+  });
   let store: EventStore;
   let log: CommandLog;
   let comments: ReturnType<typeof fakeComments>;
@@ -442,6 +452,20 @@ describe('planEffects (ADR 0233)', () => {
     assert.equal(comments.comments.length, 1, 'one plan comment');
     return comments.comments[0] ?? assert.fail();
   };
+
+  it('ends the comment with the next step while its batch waits Stuck for review: regression test (#658)', async () => {
+    const driver = await open();
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    step('plan', planned(three));
+    assert.equal(log.state().batches.get('7-1')?.lane.kind, 'stuck');
+    await driver.applyEffects();
+    assert.equal(
+      only().body,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true)}\n\n${marker(1)}`,
+    );
+    assert.match(only().body, /\n\nNext: read the plan/);
+  });
 
   it('makes no comment before a plan succeeded, nor for a plan that asks a question', async () => {
     order();
