@@ -558,7 +558,6 @@ const SLIRP4NETNS_ARGS = [
   '--configure',
   '--mtu=65520',
   '--disable-host-loopback',
-  '--enable-sandbox',
   '--enable-seccomp',
   '--ready-fd=3',
   '--exit-fd=4',
@@ -651,14 +650,22 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
   });
 
-  // slirp4netns parses the setup's packets outside bwrap's sandbox, so it runs in its own, with a
-  // seccomp filter, as rootless Podman starts it (ADR 0277).
-  it('starts slirp4netns in its own sandbox with its seccomp filter', async () => {
+  // slirp4netns parses the setup's packets outside bwrap's sandbox, so it runs under a seccomp
+  // filter, as rootless Podman starts it (ADR 0277).
+  it('starts slirp4netns under its seccomp filter', async () => {
     const { calls, exec } = fakeSetup();
     await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(line, [], call);
     assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
-    assert.ok(calls[1]?.args.includes('--enable-sandbox'));
     assert.ok(calls[1]?.args.includes('--enable-seccomp'));
+  });
+
+  // Its own sandbox becomes uid 0 in the setup's user namespace, where bwrap maps the Cellar's
+  // uid to itself: setegid(0) fails and the setup never starts (ADR 0277, CI run of #702).
+  it("starts slirp4netns without its own sandbox, which needs root in the setup's user namespace", async () => {
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
+    assert.equal(calls[1]?.args.includes('--enable-sandbox'), false);
   });
 
   it("reads as not started with slirp4netns's message, and never runs the line, when it refuses a flag", async () => {
