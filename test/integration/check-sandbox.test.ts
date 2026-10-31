@@ -80,10 +80,17 @@ const resolverLeavesMachine = (): string | undefined => {
     : "the host's resolver is not systemd-resolved's stub alone";
 };
 
-/** Off CI a host whose query could leave it skips; CI's Linux leg runs and fails instead. */
+/**
+ * Off CI a host whose query could leave it, or whose stack is pasta, which has no resolver to
+ * forward to behind systemd-resolved's stub (ADR 0218), skips; CI's Linux leg runs and fails.
+ */
 const linuxResolverUnavailable = (): string | undefined => {
   if (process.platform !== 'linux') return 'the stack is a Linux one';
-  return inCi ? undefined : resolverLeavesMachine();
+  if (inCi) return undefined;
+  if (resolveExecutable('slirp4netns') === undefined) {
+    return "the stack here is pasta, whose resolver misses systemd-resolved's stub (ADR 0218)";
+  }
+  return resolverLeavesMachine();
 };
 
 /** A server that counts its connections, listening where it is told. */
