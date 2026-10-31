@@ -36,15 +36,17 @@ describe('parseDiff', () => {
       {
         newPath: 'test/add.test.mjs',
         added: ["test('adds', () => {", '  assert.equal(add(1, 2), 3);'],
+        addedAt: [1, 2],
         removed: [],
       },
       {
         oldPath: 'src/add.mjs',
         newPath: 'src/add.mjs',
         added: ['export const add = (a, b) => a + b;'],
+        addedAt: [1],
         removed: ["export const add = () => { throw new Error('not implemented'); };"],
       },
-      { oldPath: 'old.txt', added: [], removed: ['gone'] },
+      { oldPath: 'old.txt', added: [], addedAt: [], removed: ['gone'] },
     ]);
   });
 
@@ -64,6 +66,7 @@ describe('parseDiff', () => {
         oldPath: 'a.txt',
         newPath: 'a.txt',
         added: ['+++ an added line that starts with +++'],
+        addedAt: [1],
         removed: ['--- a removed line that starts with ---'],
       },
     ]);
@@ -86,9 +89,10 @@ describe('parseDiff', () => {
         oldPath: 'spécial "q".txt',
         newPath: 'spécial "q".txt',
         added: ['new\ttab\r'],
+        addedAt: [1],
         removed: ['old\r'],
       },
-      { added: [], removed: [] },
+      { added: [], addedAt: [], removed: [] },
     ]);
   });
 

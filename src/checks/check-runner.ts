@@ -13,6 +13,7 @@ import type { AttemptEnd, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import type { StepChecks } from '../engine/recipe-files.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import type { CoverageFormat, ReadCoverage } from '../formats/coverage-report.ts';
 import { parseJunit } from '../formats/junit.ts';
 import { parseTap } from '../formats/tap.ts';
 import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
@@ -86,6 +87,8 @@ export interface CheckRunnerOptions {
     at: ReadTestMapAt;
     /** Default the file system's. */
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
+    /** A module's coverage report in a worktree (ADR 0274). Default the file system's. */
+    coverage?: (format: CoverageFormat, path: string, root: string) => ReadCoverage;
   };
 }
 

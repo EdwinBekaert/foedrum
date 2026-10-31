@@ -4,6 +4,7 @@
 import type {
   Answer,
   ClaudeReport,
+  CoverageListing,
   Dependency,
   Event,
   GravityReading,
@@ -91,6 +92,8 @@ export type Attempt =
       usage?: Usage;
       /** A check step's gravity readings (ADR 0069), or a brewer's setup's (ADR 0163). */
       readings?: readonly GravityReading[];
+      /** What a check step's uncovered-line check did not measure (ADR 0274). */
+      coverage?: CoverageListing;
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */

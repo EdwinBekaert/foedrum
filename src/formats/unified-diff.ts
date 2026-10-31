@@ -6,6 +6,8 @@ export interface DiffFile {
   oldPath?: string;
   newPath?: string;
   added: readonly string[];
+  /** The line number at the new side of each of `added`, in its order. */
+  addedAt?: readonly number[];
   removed: readonly string[];
 }
 

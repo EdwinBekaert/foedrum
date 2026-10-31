@@ -343,6 +343,27 @@ export const MOST_RECORDED_FINDINGS = MOST_DISPOSITIONS;
  * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
  * first of them, cut as a Stuck reason's open findings are, and how many more there were.
  */
+/** The most files or modules of each kind a check step's coverage listing keeps (ADR 0274). */
+export const MOST_LISTED = 10;
+
+/** Some of a kind of file the uncovered-line check did not judge: the first, and how many more. */
+const ListedFiles = z.strictObject({
+  files: z.array(NonEmpty.max(MAX_OPEN_FINDING_TEXT)).min(1).max(MOST_LISTED),
+  more: Count,
+});
+
+/**
+ * What a check step's uncovered-line check did not measure (ADR 0274), for the status comment:
+ * changed code files no LCOV report loaded, changed files outside every code and test area, and
+ * the modules with `coverage: none` whose code the change touched.
+ */
+export const CoverageListing = z.strictObject({
+  notLoaded: ListedFiles.optional(),
+  outside: ListedFiles.optional(),
+  unmeasured: z.array(NonEmpty.max(MAX_OPEN_FINDING_TEXT)).min(1).max(MOST_LISTED).optional(),
+});
+export type CoverageListing = z.infer<typeof CoverageListing>;
+
 export const RecordedFindings = z.strictObject({
   kept: z.array(OpenFinding).max(MOST_RECORDED_FINDINGS),
   more: Count,
@@ -626,6 +647,8 @@ export const Event = z.discriminatedUnion('type', [
     usageLimited: z.literal(true).optional(),
     // A blocking Taster's findings, when it asked for changes (ADR 0221).
     findings: RecordedFindings.optional(),
+    // What a check step's uncovered-line check did not measure (ADR 0274).
+    coverage: CoverageListing.optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

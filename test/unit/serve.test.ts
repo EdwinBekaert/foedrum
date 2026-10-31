@@ -1646,12 +1646,17 @@ Plan the order in {order}.
       const asked: string[] = [];
       const git: Git = async (_cwd, args) => {
         asked.push(args.join(' '));
+        // The uncovered-line check reads the batch's change, an empty one here (ADR 0274).
+        if (args.includes('diff')) return { code: 0, stdout: '', stderr: '' };
         throw new Error('no git read of the map');
       };
       // The Brewery's map is the base's too: its module is taken as reached.
       const { batch } = await brewWithChecks(0, { serving, git });
       assert.equal(batch?.lane.kind, 'on_tap');
-      assert.deepStrictEqual(asked, []);
+      assert.ok(
+        asked.length > 0 && asked.every((args) => args.includes(' diff ')),
+        asked.join('\n'),
+      );
     });
 
     it("sticks the batch when the Brewery's test map of the repository does not parse: regression test", async () => {
