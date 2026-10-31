@@ -248,6 +248,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'stopped':
     case 'pull_request_failed':
       return [...withoutAnswer];
+    case 'plan_review':
+      throw new Error('not implemented');
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];

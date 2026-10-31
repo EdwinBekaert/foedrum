@@ -53,6 +53,8 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
       const { branch, tip, check } = reason.cause;
       return `${reason.pullRequest} fails its checks on the merged tree with ${branch} at ${tip}: ${check}, ${after}`;
     }
+    case 'plan_review':
+      throw new Error('not implemented');
     case 'stopped':
       return `stopped at ${reason.stepId} by ${reason.by} via ${reason.via}${reason.why === undefined ? '' : `: ${reason.why}`}`;
     default: {

@@ -410,6 +410,9 @@ export const StuckReason = z.discriminatedUnion('kind', [
       ])
       .optional(),
   }),
+  // The recipe ended with the plan attempt `attempt` of `stepId` wrote, and no pull request: the
+  // plan waits for a person's review (ADR 0275). An older Foedrum cannot read it.
+  z.strictObject({ kind: z.literal('plan_review'), stepId: StepId, attempt: Attempt }),
   // A person stopped the batch's order (ADR 0205): `stepId` is the step a retry schedules again.
   z.strictObject({
     kind: z.literal('stopped'),

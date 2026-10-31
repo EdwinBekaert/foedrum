@@ -254,6 +254,85 @@ describe("attemptLimits: a plan's sub-orders (ADR 0233)", () => {
     );
   });
 
+  const one = {
+    id: 'api',
+    title: 'Build the API',
+    repo: 'acme/api',
+    size: { lines: 200, mechanism: 'one handler' },
+    doneWhen: 'a test passes',
+    touches: [{ path: 'src/api.ts' }],
+    recipe: 'tdd',
+    why: 'testable',
+    ready: true,
+  };
+  /** How an attempt of `brewer` ends whose out doc has `frontmatter` and `body`. */
+  const settled = (frontmatter: Record<string, unknown>, body: string, by = planner) =>
+    settleAttempt(
+      {
+        exit: { kind: 'exited', code: 0 },
+        outDoc: `---\n${JSON.stringify(frontmatter)}\n---\n${body}`,
+        denials: 0,
+        deniedTools: [],
+        turns: 3,
+      },
+      attemptLimits(by),
+    );
+  /** How a done plan of one sub-order with `assumptions` ends, its body `body`. */
+  const written = (body: string, assumptions: string[] = ['Port 8080 is free.']) =>
+    settled({ status: 'done', summary: 'A plan', assumptions, subOrders: [one] }, body);
+  const reasonOf = (ending: ReturnType<typeof settleAttempt>): string =>
+    ending.kind === 'failed' && ending.retryable
+      ? ending.reason
+      : assert.fail(JSON.stringify(ending));
+
+  it('fails a done plan whose body does not list an assumption retryably, naming which (#658)', () => {
+    const ending = written('A plan\n\n- Port 8080 is free.\n', [
+      'Port 8080 is free.',
+      'One repository is enough.',
+    ]);
+    assert.equal(
+      reasonOf(ending),
+      'the out doc plan.md is invalid: its body does not hold assumptions[1] as a list item, as written (ADR 0275)',
+    );
+  });
+
+  it('fails a done plan whose body does not hold its summary retryably (#658)', () => {
+    const ending = written('Notes.\n\n- Port 8080 is free.\n');
+    assert.equal(
+      reasonOf(ending),
+      'the out doc plan.md is invalid: its body does not hold its summary as written (ADR 0275)',
+    );
+  });
+
+  it('counts an assumption only in a paragraph of the body as missing (#658)', () => {
+    assert.match(reasonOf(written('A plan\n\nPort 8080 is free.\n')), /assumptions\[0\]/);
+  });
+
+  it('reads a body whose items are starred or numbered, their blanks collapsed: regression test (#658)', () => {
+    const body =
+      'Plan:\n  A\n  plan\n\n* Port   8080\n  1. One repository is enough.\n2) Port 8080 is free.\n';
+    const ending = written(body, [
+      'Port 8080 is free.',
+      'One repository\nis  enough.',
+      'Port 8080',
+    ]);
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+  });
+
+  it('asks no body of a plan that asks a question, nor of a brewer that writes no plan: regression test (#658)', () => {
+    const question = {
+      q: 'One or two?',
+      options: ['one', 'two'],
+      recommended: 'one',
+      whyBlocking: 'the cut',
+    };
+    const asking = { status: 'needs_input', summary: 'Unsure', questions: [question] };
+    assert.equal(settled(asking, 'Notes.\n').kind, 'needs_input');
+    const maltster = brewer({ name: 'maltster', output: { doc: 'malt.md', schema: 'outDoc' } });
+    const report = { status: 'done', summary: 'Read', assumptions: ['Port 8080 is free.'] };
+    assert.equal(settled(report, 'Notes.\n', maltster).kind, 'succeeded');
+  });
+
   it('succeeds with a done plan, its sub-orders in the output', () => {
     const subOrders = [
       {

@@ -233,6 +233,8 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch): string => {
       const more = reason.more > 0 ? [`and ${reason.more} more`] : [];
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
+    case 'plan_review':
+      throw new Error('not implemented');
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
     case 'stopped': {
       const why = reason.why === undefined ? '' : `: ${plain(reason.why)}`;
@@ -852,6 +854,8 @@ export const renderStatus = (
   pairs: readonly PairConflict[] = [],
   /** The state branch on the code host, whose out doc of the plan the Assumptions link (ADR 0266). */
   stateBranchUrl?: string,
+  /** The plan comment of the batch's order (ADR 0275): not implemented yet. */
+  _planComment?: string,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {

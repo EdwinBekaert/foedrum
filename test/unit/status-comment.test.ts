@@ -2478,7 +2478,7 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
     assert.deepEqual(section(text), [
       '**Assumptions**',
       '- `plan`: Kept the flag',
-      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md?plain=1>`,
+      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md>`,
       '- `brew`: Port 8080 is free',
     ]);
   });
@@ -2505,12 +2505,12 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
       stateBranchUrl,
     );
     assert.deepEqual(section(text), []);
-    assert.doesNotMatch(text, /full plan|foedrum\/state/);
+    assert.doesNotMatch(text, /full plan/);
   });
 
   it('reads as before without a plan: regression test', () => {
     const plain = batch({ steps: new Map([step('plan', done(1, ['Kept the flag']))]) });
-    assert.equal(rendered(plain, stateBranchUrl), rendered(plain));
+    assert.deepEqual(section(rendered(plain, stateBranchUrl)), section(rendered(plain)));
   });
 
   it('links the out doc on the state branch the driver was given', async () => {
@@ -2555,13 +2555,130 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
       }
       const body = comments.comments[0]?.body ?? assert.fail('no status comment');
       assert.ok(
-        section(body).includes(
-          `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-1.md?plain=1>`,
-        ),
+        section(body).includes(`- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-1.md>`),
         body,
       );
     } finally {
       store.close();
     }
+  });
+});
+
+describe('renderStatus: a plan that waits for its review (#658)', () => {
+  const stateBranchUrl = 'https://github.example/alice/brewery/blob/foedrum/state';
+  const planComment = 'https://github.example/alice/brewery/issues/7#issuecomment-41';
+  const subOrder = {
+    id: 'one',
+    title: 'One',
+    repo: 'alice/web',
+    size: { lines: 10, mechanism: 'a flag' },
+    doneWhen: 'a test passes',
+    touches: [{ path: 'src' }],
+    recipe: 'nip',
+    why: 'small',
+    ready: true,
+  };
+  const planned = (attempt: number, assumptions: string[]): Attempt => ({
+    phase: 'finished',
+    attempt,
+    deadlineAt: at,
+    outcome: {
+      kind: 'succeeded',
+      output: { status: 'done', summary: 'Planned', assumptions, subOrders: [subOrder] },
+    },
+  });
+  const review = stuck({ kind: 'plan_review', stepId: 'plan', attempt: 2 });
+  const rendered = (batched: Batch): string =>
+    renderStatus(
+      batched,
+      ['plan'],
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      [],
+      stateBranchUrl,
+      planComment,
+    );
+  /** The step list's line of `id`, after its mark. */
+  const stepOf = (text: string, id: string): string =>
+    text
+      .split('\n')
+      .find((line) => line.startsWith('- ') && line.split(' ')[2]?.startsWith(`\`${id}\``)) ?? '';
+  const section = (text: string): string[] => {
+    const lines = text.split('\n');
+    const from = lines.indexOf('**Assumptions**');
+    if (from < 0) return [];
+    const to = lines.indexOf('', from);
+    return lines.slice(from, to < 0 ? undefined : to);
+  };
+
+  it('says the batch is Stuck with its plan ready for review, not on tap, with the next step by hand', () => {
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([step('plan', failed(1, 'no'), planned(2, ['Kept the flag.']))]),
+      }),
+    );
+    const lines = text.split('\n');
+    const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
+    assert.deepEqual(lines.slice(lane, lane + 3), [
+      `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: <${planComment}>`,
+      'Next: read the plan and its assumptions. To plan it again, run `foedrum retry 7-1`; to build it, end it with `foedrum cancel 7-1` and order its sub-orders by hand: Foedrum builds nothing from a plan yet.',
+      'Get it moving with `retry`, `cancel`.',
+    ]);
+    assert.doesNotMatch(text, /On tap|No pull request/);
+  });
+
+  it('shows one line per assumption of a plan: its first sentence, cut at a word near 120 characters', () => {
+    const long = `${'word '.repeat(40)}end of a long sentence. A second sentence.`;
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([
+          step('plan', planned(2, ['Kept the flag. It was simpler than a new one.', long])),
+        ]),
+      }),
+    );
+    const [, first, second] = section(text);
+    assert.equal(first, '- `plan`: Kept the flag.');
+    const cut = second?.slice('- `plan`: '.length) ?? '';
+    assert.ok(cut.endsWith('word…'), cut);
+    assert.ok(cut.length <= 121 && cut.length >= 100, `${cut.length}: ${cut}`);
+  });
+
+  it("ends a plan's assumptions with links to its out doc and to its plan comment", () => {
+    const text = rendered(
+      batch({ lane: review, steps: new Map([step('plan', planned(2, ['Kept the flag.']))]) }),
+    );
+    assert.equal(
+      section(text).at(-1),
+      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md>; plan comment: <${planComment}>`,
+    );
+  });
+
+  it("links each step's out doc on its line: the plan's as it reads, another's in its plain view", () => {
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([
+          step('plan', planned(2, ['Kept the flag.'])),
+          step('brew', failed(1, 'no'), done(2), failed(3, 'no')),
+          step('taste', done(1)),
+        ]),
+      }),
+    );
+    assert.equal(
+      stepOf(text, 'plan'),
+      `- ✅ \`plan\`: out doc: <${stateBranchUrl}/batches/7-1/plan-2.md>`,
+    );
+    assert.equal(stepOf(text, 'brew'), '- ❌ `brew`: attempt 3 failed: no');
+    assert.equal(
+      stepOf(text, 'taste'),
+      `- ✅ \`taste\`: out doc: <${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>`,
+    );
   });
 });

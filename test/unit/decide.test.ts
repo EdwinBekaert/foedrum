@@ -1809,6 +1809,129 @@ describe('decide: the recipe files are done with no pull request (ADR 0053, #148
       },
     );
   });
+
+  /** A plan of one sub-order, as the Brewmaster's out doc gives it (ADR 0233). */
+  const plan = {
+    status: 'done',
+    summary: 'Planned',
+    assumptions: ['One sub-order is enough.'],
+    subOrders: [
+      {
+        id: 'one',
+        title: 'One',
+        repo: 'acme/api',
+        size: { lines: 10, mechanism: 'a flag' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src' }],
+        recipe: 'nip',
+        why: 'small',
+        ready: true,
+      },
+    ],
+  };
+
+  it('makes the batch Stuck for a review of its plan when its last step wrote one, in place of on tap (#658)', () => {
+    const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 2 } as const;
+    const succeeded = { kind: 'succeeded', output: plan } as const;
+    assert.deepStrictEqual(
+      decide(
+        fold(brewing('plan', 2)),
+        { ...finish, ending: succeeded },
+        { ...context, recipes: loaded.recipes },
+      ),
+      {
+        kind: 'accepted',
+        events: [
+          { type: 'step.finished', batchId: 'b1', stepId: 'plan', attempt: 2, outcome: succeeded },
+          stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 2 }, [
+            'retry',
+            'recipe',
+            'cancel',
+          ]),
+        ],
+      },
+    );
+  });
+
+  it('plans again in an attempt of its own on retry, not as a retry of the plan that succeeded (#658)', () => {
+    const planned: Event = {
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 2,
+      outcome: { kind: 'succeeded', output: plan },
+    };
+    const review = stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 2 }, [
+      'retry',
+      'recipe',
+      'cancel',
+    ]);
+    assert.deepStrictEqual(
+      decide(
+        fold([...brewing('plan', 2), planned, review]),
+        { kind: 'retry', batchId: 'b1', ...by },
+        { ...context, recipes: loaded.recipes },
+      ),
+      {
+        kind: 'accepted',
+        events: [
+          { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' },
+          // The brewer's deadline, 30 minutes on; no retry, so a new session.
+          scheduled('plan', 3, '2026-10-15T12:30:00.000Z'),
+        ],
+      },
+    );
+  });
+
+  it('keeps a recorded batch on tap with a plan on tap: regression test (#658)', () => {
+    const planned: Event = {
+      type: 'step.finished',
+      batchId: 'b1',
+      stepId: 'plan',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: plan },
+    };
+    const onTap: Event = { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] };
+    assert.deepStrictEqual(fold([...brewing(), planned, onTap]).batches.get('b1')?.lane, {
+      kind: 'on_tap',
+      pullRequests: [],
+    });
+  });
+
+  it('still puts a batch with no plan and no pull request on tap: regression test (ADR 0059)', () => {
+    const finish = { kind: 'finish', batchId: 'b1', stepId: 'plan', attempt: 1 } as const;
+    const report = { status: 'done', summary: 'Read it', assumptions: ['Nothing to build.'] };
+    const succeeded = { kind: 'succeeded', output: report } as const;
+    const decision = decide(
+      fold(brewing()),
+      { ...finish, ending: succeeded },
+      { ...context, recipes: loaded.recipes },
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), {
+      type: 'batch.on_tap',
+      batchId: 'b1',
+      pullRequests: [],
+    });
+  });
+
+  it('puts a batch whose last step wrote a plan on tap with its pull request: regression test (ADR 0071)', () => {
+    const decision = decide(
+      fold(brewing('patch', 1, 'nip')),
+      {
+        kind: 'finish',
+        batchId: 'b1',
+        stepId: 'patch',
+        attempt: 1,
+        ending: { kind: 'succeeded', output: plan },
+      },
+      context,
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events.at(-1), {
+      type: 'batch.on_tap',
+      batchId: 'b1',
+      pullRequests: [pullRequest],
+    });
+  });
 });
 
 describe('decide: an onBlocked route of a recipe file (ADR 0064)', () => {
