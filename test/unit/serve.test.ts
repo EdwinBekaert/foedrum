@@ -23,6 +23,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { pullRequestText } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
@@ -2686,6 +2687,80 @@ Plan the order in {order}.
         [`${lib} v1.0.0`],
       );
       assert.ok(lines.includes(`foedrum serve: recorded the release v1.0.0 of ${lib}`));
+    });
+
+    it("names an order's other pull request in each sub-order pull request's body, through GitHub's API (ADR 0292)", async () => {
+      store = empty();
+      const routeBy = '2026-10-17T13:00:00.000Z';
+      const pulls = {
+        '2-1': 'https://github.com/acme/lib-core/pull/7',
+        '3-1': 'https://github.com/acme/web/pull/12',
+      };
+      store.withTransaction((tx) => {
+        for (const event of [
+          { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
+          {
+            type: 'order.decomposed',
+            batchId: '1-1',
+            subOrders: [
+              { issue: 2, repo: 'acme/lib-core' },
+              { issue: 3, repo: 'acme/web' },
+            ],
+            dependencies: [{ subOrder: 3, blockedBy: 2, kind: 'code' }],
+          },
+          { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+          ...Object.entries(pulls).flatMap(([batchId, url]): Event[] => [
+            {
+              type: 'batch.ordered',
+              batchId,
+              order: { issue: Number(batchId[0]) },
+              parentBatchId: '1-1',
+              routeBy,
+            },
+            {
+              type: 'effect.applied',
+              key: JSON.stringify([batchId, 'pull_request']),
+              result: url,
+            },
+            { type: 'batch.on_tap', batchId, pullRequests: [url] },
+          ]),
+        ] satisfies Event[]) {
+          tx.append(event);
+        }
+      });
+      setup = intakeSetup({ concurrency: 2 });
+      const marked = (batchId: string) =>
+        pullRequestText({
+          title: 'Order',
+          closes: { repo: 'acme/brewery', issue: 1 },
+          reports: [],
+          key: { batchId, effect: 'pull_request' },
+        }).body;
+      const github = fakeGitHubApi({
+        login: 'ann',
+        // The status comments of the order and its sub-orders go on their Brewery issues.
+        issues: {
+          'acme/brewery': [1, 2, 3].map((number) => ({ number, labels: [], author: 'ann' })),
+        },
+        instead: (method, url) => {
+          const [batchId] =
+            Object.entries(pulls).find(
+              ([, pull]) =>
+                new URL(pull).pathname.replace('/pull/', '/pulls/') ===
+                url.pathname.replace('/repos', ''),
+            ) ?? [];
+          if (batchId === undefined) return undefined;
+          return method === 'GET'
+            ? { status: 200, body: { state: 'open', body: marked(batchId) } }
+            : { status: 200, body: {} };
+        },
+      });
+      const patched = () =>
+        ['/repos/acme/lib-core/pulls/7', '/repos/acme/web/pulls/12'].every((path) =>
+          github.requests.includes(`PATCH ${path}`),
+        );
+      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(patched) })), 0);
+      assert.ok(patched(), github.requests.join('\n'));
     });
 
     it("stops when it cannot read the token's login for a target intake", async () => {
