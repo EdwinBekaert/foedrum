@@ -8,10 +8,13 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
+import { combineEffects } from '../../src/engine/effects.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { PLAN_HEADING, planEffects } from '../../src/engine/plan-comment.ts';
 import { openedSubIssues, planIssueEffects } from '../../src/engine/plan-issues.ts';
 import { readySubOrders } from '../../src/engine/ready-set.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { githubSubIssues } from '../../src/github/sub-issues.ts';
 import type { PlannedSubOrder, PlanReport } from '../../src/schemas/plan.ts';
@@ -115,8 +118,12 @@ describe('planIssueEffects (ADR 0285)', () => {
     store.close();
   });
 
-  const open = async (fetch: typeof globalThis.fetch = api.fetch): Promise<Driver> => {
+  const open = async (
+    fetch: typeof globalThis.fetch = api.fetch,
+    comments?: StatusComments,
+  ): Promise<Driver> => {
     const client = createGitHubClient({ exec: ghOver(fetch).exec });
+    const planIssues = planIssueEffects({ subIssues: githubSubIssues({ client, brewery, login }) });
     const driver = await openDriver({
       store,
       runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
@@ -126,7 +133,14 @@ describe('planIssueEffects (ADR 0285)', () => {
       takes: () => true,
       stateBranch: { flush: async () => ({ kind: 'unchanged' }) },
       limits: () => defaultLimits,
-      effects: planIssueEffects({ subIssues: githubSubIssues({ client, brewery, login }) }),
+      effects:
+        comments === undefined
+          ? planIssues
+          : combineEffects(
+              planIssues,
+              statusEffects({ brewery, comments, recipes, clock: () => at }),
+              planEffects({ brewery, comments }),
+            ),
       report: (notice) => notices.push(notice),
     });
     drivers.push(driver);
@@ -267,5 +281,60 @@ describe('planIssueEffects (ADR 0285)', () => {
     await driver.applyEffects();
     assert.deepStrictEqual(api.requests, []);
     assert.deepStrictEqual(openedSubIssues(log.state(), '7-1'), []);
+  });
+
+  it('admits the breakdown from the approved batch on tap only for the approved attempt: regression test', () => {
+    approved();
+    const breakdown = (plan?: { stepId: string; attempt: number }) =>
+      log.issue(
+        {
+          kind: 'record',
+          event: {
+            type: 'order.decomposed',
+            batchId: '7-1',
+            subOrders: [{ issue: 8, repo: 'acme/api', entry: 'api' }],
+            dependencies: [],
+            ...(plan === undefined ? {} : { plan }),
+          },
+        },
+        at,
+      ).kind;
+    assert.equal(breakdown(), 'refused');
+    assert.equal(breakdown({ stepId: 'plan', attempt: 2 }), 'refused');
+    assert.equal(breakdown({ stepId: 'replan', attempt: 1 }), 'refused');
+    assert.equal(breakdown({ stepId: 'plan', attempt: 1 }), 'accepted');
+    assert.deepStrictEqual(log.state().orders.get(7)?.subOrders, [8]);
+  });
+
+  it('names the sub-issues in the plan comment and on the On tap line of the status comment: regression test', async () => {
+    approved();
+    const bodies = new Map<number, { issue: number; body: string }>();
+    let ids = 0;
+    const comments: StatusComments = {
+      find: async (_repo, issue, marker) => {
+        const found = [...bodies].find(([, c]) => c.issue === issue && c.body.endsWith(marker));
+        return found === undefined ? undefined : { id: found[0], body: found[1].body };
+      },
+      read: async (_repo, id) => bodies.get(id)?.body,
+      create: async (_repo, issue, body) => {
+        bodies.set(++ids, { issue, body });
+        return ids;
+      },
+      edit: async (_repo, id, body) => {
+        const found = bodies.get(id);
+        if (found === undefined) return 'gone';
+        found.body = body;
+        return 'edited';
+      },
+    };
+    const driver = await open(api.fetch, comments);
+    await driver.applyEffects();
+    assert.deepStrictEqual(failed(), []);
+    const texts = [...bodies.values()].map(({ body }) => body);
+    const plan = texts.find((body) => body.startsWith(PLAN_HEADING)) ?? '';
+    assert.ok(plan.includes('\n\nSub-issues: `api` #8, `ui` #9, `cli` #10.\n'), plan);
+    const status = texts.find((body) => !body.startsWith(PLAN_HEADING)) ?? '';
+    const onTap = '🍻 **On tap**: plan approved by grace (terminal); sub-issues #8, #9, #10';
+    assert.ok(status.split('\n').includes(onTap), status);
   });
 });
