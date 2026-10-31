@@ -2,7 +2,7 @@
 
 > **A spike's findings, not a decision.**
 > Nothing here changes Foedrum's code or what the red proof does today ([the red proof](red-proof.md)).
-> The ADR that follows the spike decides; this page gives it numbers.
+> The ADR that follows the spike decides ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)); this page gives it numbers.
 
 ## The question
 
