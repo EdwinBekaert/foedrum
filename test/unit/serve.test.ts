@@ -1700,6 +1700,55 @@ Plan the order in {order}.
       });
     });
 
+    it("sends the check step back along onFail when the batch left the repository's test map stale, reading its change in the clone: regression test", async () => {
+      const blob = 'e'.repeat(40);
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['test/**'] },
+            testReport: { format: 'junit', path: 'web-results.xml' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const diffs: string[] = [];
+      const git: Git = async (cwd, args) => {
+        if (args[0] === 'ls-tree') {
+          return { code: 0, stdout: `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`, stderr: '' };
+        }
+        if (args[0] === 'cat-file' && args[2] === blob) return { code: 0, stdout: map, stderr: '' };
+        // A manifest the map does not record, and a change that added it.
+        if (args[0] === 'ls-files') {
+          return { code: 0, stdout: 'package.json\0api/package.json\0', stderr: '' };
+        }
+        if (args[0] === 'diff') {
+          diffs.push(cwd);
+          return { code: 0, stdout: 'api/package.json\0', stderr: '' };
+        }
+        throw new Error(`unexpected: ${args.join(' ')}`);
+      };
+      const { events } = await brewWithChecks(0, { git });
+      const green = events.find(
+        (event) => event.type === 'step.finished' && event.stepId === 'green',
+      );
+      assert.deepStrictEqual(green?.type === 'step.finished' ? green.outcome : undefined, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'the test map of acme/web is stale: its derivedFrom.globs match api/package.json (added); ' +
+          'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+      });
+      // The change is read in the repository's clone, never in the check step's worktree.
+      assert.ok(diffs.length > 0);
+      assert.ok(
+        diffs.every((cwd) => !cwd.includes('attempts')),
+        diffs.join('\n'),
+      );
+    });
+
     it("sticks the batch when the Brewery's test map of the repository does not parse: regression test", async () => {
       const serving = {
         ...setup,

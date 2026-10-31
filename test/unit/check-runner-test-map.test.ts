@@ -539,6 +539,62 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.ok(!renderStatus(fresh).includes('test map is stale'), renderStatus(fresh));
   });
 
+  it("names no report under a module's test report or coverage path, nor one the run did not write: regression test", async () => {
+    const webReport = join(worktree, 'web', 'test-results.xml');
+    for (const [path, found] of [
+      ['web/test-results.xml', { 'web/test-results.xml': [webReport] }],
+      [
+        'web/coverage/lcov.info',
+        {
+          'web/test-results.xml': [webReport],
+          'web/coverage/lcov.info': [join(worktree, 'web', 'coverage', 'lcov.info')],
+        },
+      ],
+      ['out/results.xml', { 'web/test-results.xml': [webReport] }],
+    ] as [string, Record<string, string[]>][]) {
+      const { run } = setup({ maps: fresh, testReport: { format: 'junit', path }, found });
+      const end = await run();
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null }, path);
+      assert.equal(end.staleMap, undefined, path);
+    }
+  });
+
+  it('keeps the stale line past a later attempt that ran no tests: regression test', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'failed', retryable: false, reason: 'red' },
+      staleMap: { repo: 'acme/api', kept: 'repo', paths: named, more: 0 },
+    };
+    const later: Event[] = [
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: { repo: 'acme/api', path: worktree, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'succeeded', output: null },
+        readings: [
+          {
+            result: 'exited',
+            check: 'typecheck',
+            command: 'npm run typecheck',
+            exitCode: 0,
+            tail: '',
+          },
+        ],
+      },
+    ];
+    const batch = fold([...events, finished, ...later]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch);
+    assert.ok(text.includes('The test map of acme/api is stale: '), text);
+  });
+
   it("keeps one repository's stale line when a run in another repository finds its own map fresh", () => {
     const finished: Event = {
       type: 'step.finished',

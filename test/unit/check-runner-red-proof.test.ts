@@ -8,12 +8,13 @@ import { describe, it } from 'node:test';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { createCheckRunner, type ReportFiles } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { ManifestFreshness, MapRead } from '../../src/checks/test-map.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from '../../src/platform/processes.ts';
 import type { TestReportConfig } from '../../src/schemas/brewery-config.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import type { CheckRef } from '../../src/schemas/recipe.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 
 const root = join('/work', 'acme.api', 'attempts', '12-1');
@@ -126,6 +127,12 @@ const setup = ({
   killedTips = [] as string[],
   /** The test map at each commit, when the runner reads maps (ADR 0274). */
   maps = undefined as Record<string, MapRead> | undefined,
+  /** The tip map's manifests against the worktree's files (ADR 0282). */
+  manifests = { kind: 'fresh' } as ManifestFreshness,
+  /** The paths among the map and its globs that the batch's change touched. */
+  touched = [] as string[],
+  /** The checks the recipe gives the red proof's step. */
+  redChecks = ['test'] as CheckRef[],
 } = {}) => {
   const order: string[] = [];
   const execOptions: ExecOptions[] = [];
@@ -159,7 +166,7 @@ const setup = ({
     },
   };
   const checks: StepChecks = {
-    find: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? ['test'] : undefined),
+    find: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? redChecks : undefined),
     any: () => true,
     proves: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? 'gauge' : undefined),
     redProof: (recipe) => (recipe === 'nip' ? { id: 'red', of: 'gauge' } : undefined),
@@ -194,7 +201,8 @@ const setup = ({
           testMap: {
             at: async (_repo: string, commit: string) => maps[commit] ?? { kind: 'none' as const },
             reports: () => ({ paths: [] }),
-            manifests: async () => ({ kind: 'fresh' as const }),
+            manifests: async () => manifests,
+            touched: async () => ({ paths: touched }),
           },
         }),
   });
@@ -719,5 +727,32 @@ describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
     // A failing run keeps the red proof's own verdict (ADR 0280).
     const failing = setup({ maps });
     assert.deepEqual((await failing.run()).ending, { kind: 'succeeded', output: null });
+  });
+
+  it('sends a red proof back along onFail before its run when the batch left the map stale, though its step names no test check: regression test', async () => {
+    const derivedFrom = { globs: ['**/package.json'], paths: ['package.json'] };
+    const module = {
+      name: 'web',
+      code: ['src/**'],
+      tests: { paths: ['test/**'] },
+      testReport: { format: 'tap' as const, path: 'web.tap' },
+      coverage: 'none' as const,
+    };
+    const map: MapRead = { kind: 'map', map: { derivedFrom, modules: [module] } };
+    const { order, run } = setup({
+      maps: { ['b'.repeat(40)]: map },
+      manifests: { kind: 'stale', added: ['api/package.json'], removed: [] },
+      touched: ['api/package.json'],
+      redChecks: [],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason:
+        'the test map of acme/api is stale: its derivedFrom.globs match api/package.json (added); ' +
+        'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+    });
+    assert.ok(!order.some((line) => line.startsWith('exec')), order.join('\n'));
   });
 });
