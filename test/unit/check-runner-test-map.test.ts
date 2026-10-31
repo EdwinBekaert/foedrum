@@ -7,11 +7,12 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { ManifestFreshness, MapRead } from '../../src/checks/test-map.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
+import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { CheckRef } from '../../src/schemas/recipe.ts';
@@ -103,6 +104,14 @@ const setup = ({
   refused = {} as Record<string, string>,
   /** null: the test check was killed at its deadline. */
   testExit = 0 as number | null,
+  /** Where the map is kept (ADR 0018). */
+  keptIn = 'repo' as 'repo' | 'brewery',
+  /** The tip map's manifests against the worktree's files. */
+  manifests = { kind: 'fresh' } as ManifestFreshness,
+  /** The paths among the map and its globs that the batch's change touched. */
+  touched = [] as string[] | { unread: string },
+  /** The test report foedrum.jsonc names. */
+  testReport = undefined as { format: 'junit'; path: string } | undefined,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -124,7 +133,7 @@ const setup = ({
     state: () => fold([...started, ...more]),
     checks: stepChecks,
     repositoryChecks: () => repository,
-    testReport: () => undefined,
+    testReport: () => testReport,
     exec,
     // The batch's change is empty: the uncovered-line check has no line to judge.
     git: async (_cwd, args) =>
@@ -150,6 +159,15 @@ const setup = ({
         asked.push(`reports ${pattern} in ${root}`);
         const why = refused[pattern];
         return why === undefined ? { paths: found[pattern] ?? [] } : { refused: why };
+      },
+      keptIn: () => keptIn,
+      manifests: async (root, map) => {
+        asked.push(`manifests ${map.derivedFrom.globs.join(' ')} in ${root}`);
+        return manifests;
+      },
+      touched: async (repo, from, to, paths) => {
+        asked.push(`touched ${paths.join(' ')} in ${repo} from ${from} to ${to}`);
+        return Array.isArray(touched) ? { paths: touched } : touched;
       },
     },
   });
@@ -181,9 +199,11 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
         ['test', 'exited'],
       ],
     );
+    // The tip's map is read once, for its manifests before the run (ADR 0282).
     assert.deepEqual(asked, [
-      `map of acme/api at ${base}`,
       `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${base}`,
       ...clearing,
       `reports svc/test/*/TestResults in ${worktree}`,
     ]);
@@ -216,9 +236,11 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       end.ending.kind === 'failed' ? [end.ending.kind, end.ending.retryable] : end.ending,
       ['failed', false],
     );
+    // The manifests before the run, and nothing of the map after it.
     assert.deepEqual(asked, [
-      `map of acme/api at ${base}`,
       `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${base}`,
       ...clearing,
     ]);
   });
@@ -228,8 +250,9 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const end = await run();
     assert.equal(end.ending.kind, 'failed');
     assert.deepEqual(asked, [
-      `map of acme/api at ${base}`,
       `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${base}`,
       ...clearing,
     ]);
   });
@@ -246,9 +269,12 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const end = await run();
     assert.equal(end.ending.kind, 'succeeded');
     assert.deepEqual(asked, [
-      `map of Acme/API at ${base}`,
       `map of Acme/API at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of Acme/API at ${base}`,
       ...clearing,
+      `reports web/test-results.xml in ${worktree}`,
+      `reports svc/test/*/TestResults in ${worktree}`,
     ]);
   });
 
@@ -266,9 +292,12 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const end = await run();
     assert.equal(end.ending.kind, 'succeeded');
     assert.deepEqual(asked, [
-      `map of acme/api at ${merged}`,
       `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `map of acme/api at ${merged}`,
       ...clearing,
+      `reports web/test-results.xml in ${worktree}`,
+      `reports svc/test/*/TestResults in ${worktree}`,
     ]);
   });
 
@@ -305,5 +334,389 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       blockerKind: 'environment',
       summary: `the test report of module "billing" cannot be looked for: ${why}`,
     });
+  });
+});
+
+describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
+  const fresh = { [base]: mapOf(web), [tip]: mapOf(web) };
+  const stale: ManifestFreshness = {
+    kind: 'stale',
+    added: ['svc/test/Billing.Tests/Billing.Tests.csproj'],
+    removed: ['old/Old.csproj'],
+  };
+  const named = ['svc/test/Billing.Tests/Billing.Tests.csproj (added)', 'old/Old.csproj (removed)'];
+
+  it('a step whose tip leaves the map stale by manifests fails back along onFail naming the paths', async () => {
+    const { run, asked } = setup({
+      maps: fresh,
+      manifests: stale,
+      touched: ['svc/test/Billing.Tests/Billing.Tests.csproj'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason:
+        'the test map of acme/api is stale: its derivedFrom.globs match ' +
+        'svc/test/Billing.Tests/Billing.Tests.csproj (added), old/Old.csproj (removed); ' +
+        'update .foedrum/test-map.jsonc in this change (ADR 0274, ADR 0282)',
+    });
+    // Before the run: no check ran.
+    assert.equal(end.readings, undefined);
+    assert.deepEqual(asked, [
+      `map of acme/api at ${tip}`,
+      `manifests **/*.csproj in ${worktree}`,
+      `touched .foedrum/test-map.jsonc **/*.csproj in acme/api from ${base} to ${tip}`,
+    ]);
+  });
+
+  it('records a map the batch did not make stale without failing the step', async () => {
+    const { run } = setup({ maps: fresh, manifests: stale, touched: [] });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap, { repo: 'acme/api', kept: 'repo', paths: named, more: 0 });
+  });
+
+  it('finds the map stale when a run writes a report outside every module', async () => {
+    const { run } = setup({
+      maps: fresh,
+      testReport: { format: 'junit', path: 'out/results.xml' },
+      found: {
+        'web/test-results.xml': [join(worktree, 'web', 'test-results.xml')],
+        'out/results.xml': [join(worktree, 'out', 'results.xml')],
+      },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap, {
+      repo: 'acme/api',
+      kept: 'repo',
+      paths: ['out/results.xml (a report outside the map)'],
+      more: 0,
+    });
+  });
+
+  it("finds the map stale when a passing run writes no report where the map says a module's is", async () => {
+    const { run } = setup({ maps: fresh, found: {} });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap, {
+      repo: 'acme/api',
+      kept: 'repo',
+      paths: ['web/test-results.xml (no report of module "web")'],
+      more: 0,
+    });
+  });
+
+  it('names a stale Brewery-kept map in the status comment without failing the step', async () => {
+    const { run, asked } = setup({
+      maps: fresh,
+      keptIn: 'brewery',
+      manifests: stale,
+      touched: ['svc/test/Billing.Tests/Billing.Tests.csproj'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    const staleMap = { repo: 'acme/api', kept: 'brewery' as const, paths: named, more: 0 };
+    assert.deepEqual(end.staleMap, staleMap);
+    // A batch cannot change the Brewery's map, so what its change touched is not read.
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('touched')),
+      [],
+    );
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      staleMap,
+    };
+    const batch = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    assert.ok(
+      renderStatus(batch).includes(
+        "The Brewery's test map of acme/api is stale: svc/test/Billing.Tests/Billing.Tests.csproj (added), old/Old.csproj (removed)",
+      ),
+      renderStatus(batch),
+    );
+    // Without the stale map, no such line.
+    const { staleMap: _, ...without } = finished;
+    const plain = fold([...events, without]).batches.get('12-1') ?? assert.fail();
+    assert.ok(
+      !renderStatus(plain).includes("The Brewery's test map of acme/api is stale"),
+      renderStatus(plain),
+    );
+  });
+
+  it('a fresh map passes every step as before: regression test', async () => {
+    const { run } = setup({ maps: fresh });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+    assert.deepEqual(
+      end.readings?.map((reading) => [reading.check, reading.result]),
+      [
+        ['typecheck', 'exited'],
+        ['test', 'exited'],
+      ],
+    );
+  });
+
+  it('a repository with no test map brews as before: regression test', async () => {
+    const { run, asked } = setup({ maps: {}, manifests: stale, touched: ['a.csproj'] });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+    assert.deepEqual(
+      asked.filter((line) => line.startsWith('manifests') || line.startsWith('touched')),
+      [],
+    );
+  });
+
+  it('records no stale map for a repository with no test map whose run writes its test report', async () => {
+    const { run } = setup({
+      maps: {},
+      testReport: { format: 'junit', path: 'out/results.xml' },
+      found: { 'out/results.xml': [join(worktree, 'out', 'results.xml')] },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('names ten stale paths and counts the rest: regression test', async () => {
+    const many: ManifestFreshness = {
+      kind: 'stale',
+      added: Array.from({ length: 12 }, (_, at) => `p${at}/App.csproj`),
+      removed: [],
+    };
+    const recorded = await setup({ maps: fresh, manifests: many }).run();
+    assert.equal(recorded.staleMap?.paths.length, 10);
+    assert.equal(recorded.staleMap?.paths[9], 'p9/App.csproj (added)');
+    assert.equal(recorded.staleMap?.more, 2);
+    const failed = await setup({ maps: fresh, manifests: many, touched: ['p0/App.csproj'] }).run();
+    const reason = failed.ending.kind === 'failed' ? failed.ending.reason : assert.fail();
+    assert.match(reason, /p8\/App\.csproj \(added\), p9\/App\.csproj \(added\) and 2 more;/);
+    assert.ok(!reason.includes('p10/'), reason);
+  });
+
+  it('records a map stale by manifests on a failing run, and judges nothing by that run: regression test', async () => {
+    const { run } = setup({ maps: fresh, manifests: stale, found: {}, testExit: 1 });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(end.staleMap, { repo: 'acme/api', kept: 'repo', paths: named, more: 0 });
+  });
+
+  it('blocks the step on its environment when the manifests cannot be listed: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      manifests: { kind: 'unread', reason: 'fatal: bad index' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the manifests of the test map of acme/api cannot be listed: fatal: bad index',
+    });
+  });
+
+  it("blocks the step on its environment when the change's files cannot be read: regression test", async () => {
+    const { run } = setup({
+      maps: fresh,
+      manifests: stale,
+      touched: { unread: 'fatal: bad object' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: 'the files the change of acme/api touched cannot be read: fatal: bad object',
+    });
+  });
+
+  it('reads no map for a check step that runs no test check, though its manifests are stale: regression test', async () => {
+    const { run, asked } = setup({ checks: ['typecheck'], maps: fresh, manifests: stale });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(asked, []);
+  });
+
+  it('a later run of the tests that finds the map fresh takes the stale line off the status comment: regression test', async () => {
+    const staleMap = { repo: 'acme/api', kept: 'repo' as const, paths: named, more: 0 };
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'failed', retryable: false, reason: 'red' },
+      staleMap,
+    };
+    const stale = fold([...events, finished]).batches.get('12-1') ?? assert.fail();
+    assert.ok(
+      renderStatus(stale).includes('The test map of acme/api is stale: '),
+      renderStatus(stale),
+    );
+    const again: Event[] = [
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: { repo: 'acme/api', path: worktree, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'succeeded', output: null },
+        readings: [{ result: 'exited', check: 'test', command: 'npm test', exitCode: 0, tail: '' }],
+      },
+    ];
+    const fresh = fold([...events, finished, ...again]).batches.get('12-1') ?? assert.fail();
+    assert.ok(
+      !renderStatus(fresh).includes('The test map of acme/api is stale'),
+      renderStatus(fresh),
+    );
+  });
+
+  it("names no report under a module's test report or coverage path, nor one the run did not write: regression test", async () => {
+    const webReport = join(worktree, 'web', 'test-results.xml');
+    for (const [path, found] of [
+      ['web/test-results.xml', { 'web/test-results.xml': [webReport] }],
+      [
+        'web/coverage/lcov.info',
+        {
+          'web/test-results.xml': [webReport],
+          'web/coverage/lcov.info': [join(worktree, 'web', 'coverage', 'lcov.info')],
+        },
+      ],
+      ['out/results.xml', { 'web/test-results.xml': [webReport] }],
+    ] as [string, Record<string, string[]>][]) {
+      const { run } = setup({ maps: fresh, testReport: { format: 'junit', path }, found });
+      const end = await run();
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null }, path);
+      assert.equal(end.staleMap, undefined, path);
+    }
+  });
+
+  it('keeps the stale line past a later attempt that ran no tests: regression test', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'failed', retryable: false, reason: 'red' },
+      staleMap: { repo: 'acme/api', kept: 'repo', paths: named, more: 0 },
+    };
+    const later: Event[] = [
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: { repo: 'acme/api', path: worktree, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'succeeded', output: null },
+        readings: [
+          {
+            result: 'exited',
+            check: 'typecheck',
+            command: 'npm run typecheck',
+            exitCode: 0,
+            tail: '',
+          },
+        ],
+      },
+    ];
+    const batch = fold([...events, finished, ...later]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch);
+    assert.ok(text.includes('The test map of acme/api is stale: '), text);
+  });
+
+  it("records a Brewery-kept map stale by a run alone as the Brewery's: regression test", async () => {
+    const { run } = setup({ maps: fresh, keptIn: 'brewery', found: {} });
+    const end = await run();
+    assert.deepEqual(end.staleMap, {
+      repo: 'acme/api',
+      kept: 'brewery',
+      paths: ['web/test-results.xml (no report of module "web")'],
+      more: 0,
+    });
+  });
+
+  it('names no module whose report path cannot be looked for after a passing run: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      refused: { 'web/test-results.xml': 'web/test-results.xml leads out of the worktree' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('cuts a stale path to the 1,000 characters the event keeps: regression test', async () => {
+    const long = `${'a'.repeat(1_100)}/App.csproj`;
+    const { run } = setup({
+      maps: fresh,
+      manifests: { kind: 'stale', added: [long], removed: [] },
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, [long.slice(0, 1_000)]);
+  });
+
+  it('keeps the stale line past a later run whose tests failed, which judged no map', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      staleMap: { repo: 'acme/api', kept: 'repo', paths: named, more: 0 },
+    };
+    const failing: Event[] = [
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: { repo: 'acme/api', path: worktree, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'failed', retryable: false, reason: 'tests failed' },
+        readings: [{ result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' }],
+      },
+    ];
+    const batch = fold([...events, finished, ...failing]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch);
+    assert.ok(text.includes('The test map of acme/api is stale: '), text);
+  });
+
+  it("keeps one repository's stale line when a run in another repository finds its own map fresh", () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'failed', retryable: false, reason: 'red' },
+      staleMap: { repo: 'acme/api', kept: 'repo', paths: named, more: 0 },
+    };
+    const web = join('/work', 'acme.web', 'attempts', '12-1', 'green', '2');
+    const elsewhere: Event[] = [
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: { repo: 'acme/web', path: web, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'succeeded', output: null },
+        readings: [{ result: 'exited', check: 'test', command: 'npm test', exitCode: 0, tail: '' }],
+      },
+    ];
+    const batch = fold([...events, finished, ...elsewhere]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch);
+    assert.ok(text.includes('The test map of acme/api is stale: '), text);
+    assert.ok(!text.includes('acme/web is stale'), text);
   });
 });

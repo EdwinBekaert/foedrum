@@ -2,6 +2,7 @@
 // tests and its reports are; places only, never a command (ADR 0274).
 
 import { SensitivePath } from './brewery-config.ts';
+import { RelativePath } from './primitives.ts';
 import { z } from './zod.ts';
 
 /** A path glob relative to the repository, with `/` between folders, as a sensitive path is. */
@@ -14,6 +15,15 @@ const Glob = SensitivePath;
 const ReportPath = Glob.refine(
   (path) => path.length <= 256 && !path.includes('**') && !/[?[\]{}()+@!]/.test(path),
   'Must be a file or a folder pattern of at most 256 characters with "*" as its only wildcard, such as "svc/test/*/TestResults"',
+);
+
+/**
+ * A manifest glob: one git's `glob` magic lists as the map's readers match it (ADR 0282), so with
+ * `*`, `**`, `?` and `[…]` only, never a brace or an extended glob, which git reads as text.
+ */
+const ManifestGlob = Glob.refine(
+  (glob) => !/[{}()+@!]/.test(glob),
+  'Must be a glob with "*", "**", "?" and "[...]" only, such as "**/*.csproj": git lists the manifests with its glob magic',
 );
 
 const Tests = z.union([
@@ -46,8 +56,10 @@ export const TestMap = z.strictObject({
   $schema: z.string().optional().describe('The JSON Schema of this file, for editors'),
   derivedFrom: z
     .strictObject({
-      globs: z.array(Glob).min(1).describe('The manifest globs the map was derived from'),
-      paths: z.array(z.string().min(1)).describe('The paths the globs matched when it was'),
+      globs: z.array(ManifestGlob).min(1).describe('The manifest globs the map was derived from'),
+      paths: z
+        .array(RelativePath)
+        .describe('The paths the globs matched when it was, as git names them'),
     })
     .describe('What the map was derived from, so a change to the manifests makes it stale'),
   modules: z.array(TestMapModule).min(1),

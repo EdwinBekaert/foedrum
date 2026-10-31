@@ -258,7 +258,8 @@ const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
  * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
- * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232).
+ * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
+ * a sub-order's plan entry input's in `planEntry` (ADR 0290).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -269,10 +270,13 @@ export function inputsOf(
   brewery?: BreweryRepositories,
   choices: readonly RecipeChoice[] = [],
   chosen = false,
+  planEntry?: string,
 ): PlannedInput[] {
-  // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere.
+  // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere. A
+  // plan entry input is a sub-order's (ADR 0290): left out of a batch that is none.
   const skipped = (from: string): boolean =>
     (from === 'plan' && !chosen) ||
+    (from === 'plan-entry' && batch.plan === undefined) ||
     (from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -290,6 +294,19 @@ export function inputsOf(
       if (from === 'recipes') {
         const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
         return { name, source: { kind: 'recipes' }, read: { kind: 'text', text } };
+      }
+      if (from === 'plan-entry' && batch.plan !== undefined) {
+        const origin = batch.plan;
+        if (planEntry === undefined) {
+          throw new Error(
+            `the input "${name}" needs the plan entry ${origin.entry} of batch ${origin.batchId}, which was not read`,
+          );
+        }
+        return {
+          name,
+          source: { kind: 'plan-entry', origin },
+          read: { kind: 'text', text: planEntry },
+        };
       }
       if (from === 'plan') {
         const latest = latestPlan(batch);

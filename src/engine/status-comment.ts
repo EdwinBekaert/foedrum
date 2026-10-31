@@ -927,6 +927,41 @@ export const sensitiveLine = (sensitive: SensitiveFiles): string => {
   return `Touches sensitive paths: ${named.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 };
 
+/**
+ * For each repository of the batch, the test map its latest check that ran the tests found stale
+ * without failing for it, one line each, or none (ADR 0282): the Brewery's, which a batch cannot
+ * change, or one only a person's change can refresh.
+ */
+const staleMapLines = (batch: Batch): string[] => {
+  // The repositories, in lower case as GitHub's names are, whose latest run is read.
+  const read = new Set<string>();
+  const lines: string[] = [];
+  for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
+    const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+    if (ran?.phase !== 'finished') continue;
+    const { staleMap } = ran;
+    const repo = staleMap?.repo ?? ran.worktree?.repo;
+    if (repo === undefined || read.has(repo.toLowerCase())) continue;
+    if (staleMap !== undefined) {
+      const whose = staleMap.kept === 'brewery' ? "The Brewery's test map" : 'The test map';
+      const more = staleMap.more > 0 ? ` and ${staleMap.more} more` : '';
+      const paths = staleMap.paths.map(plain).join(', ');
+      lines.push(`${whose} of ${plain(staleMap.repo)} is stale: ${paths}${more}`);
+      read.add(repo.toLowerCase());
+    }
+    // A later run of the tests that passed, so found it fresh: a failing run judges no map.
+    else if (
+      ran.readings?.some(
+        (reading) =>
+          reading.check === 'test' && reading.result === 'exited' && reading.exitCode === 0,
+      ) === true
+    ) {
+      read.add(repo.toLowerCase());
+    }
+  }
+  return lines.reverse();
+};
+
 /** The modules the batch's test map adds with `coverage: none`, as one line, or none (ADR 0274). */
 const unmeasuredLines = ({ unmeasured }: SensitiveFiles): string[] =>
   unmeasured === undefined
@@ -1026,6 +1061,8 @@ export const renderStatus = (
   if (sensitive !== undefined) {
     sections.push([sensitiveLine(sensitive), ...unmeasuredLines(sensitive)]);
   }
+  const stale = staleMapLines(batch);
+  if (stale.length > 0) sections.push(stale);
   const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl, planComment);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);
