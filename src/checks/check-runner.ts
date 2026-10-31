@@ -25,7 +25,7 @@ import { parseTap } from '../formats/tap.ts';
 import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
-import { pathInside } from '../platform/paths.ts';
+import { foldsCase, pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
@@ -546,7 +546,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const range = { from: maps.base, to: worktree.commit };
     const diff = await readDiff(git, clone(repo), range, { signal });
     if ('error' in diff) return stuck(`the change of the batch cannot be read: ${diff.error}`);
-    const foldCase = platform === 'win32' || platform === 'darwin';
+    const foldCase = foldsCase(platform);
     const deleted = diff.files.flatMap(({ oldPath, newPath }) =>
       newPath === undefined && oldPath !== undefined ? [oldPath] : [],
     );

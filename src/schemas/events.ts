@@ -339,10 +339,6 @@ export type RoundsOut = z.infer<typeof RoundsOut>;
 /** The most findings `step.finished` keeps of an attempt blocked by findings: one per disposition. */
 export const MOST_RECORDED_FINDINGS = MOST_DISPOSITIONS;
 
-/**
- * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
- * first of them, cut as a Stuck reason's open findings are, and how many more there were.
- */
 /** The most files or modules of each kind a check step's coverage listing keeps (ADR 0274). */
 export const MOST_LISTED = 10;
 
@@ -364,6 +360,10 @@ export const CoverageListing = z.strictObject({
 });
 export type CoverageListing = z.infer<typeof CoverageListing>;
 
+/**
+ * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
+ * first of them, cut as a Stuck reason's open findings are, and how many more there were.
+ */
 export const RecordedFindings = z.strictObject({
   kept: z.array(OpenFinding).max(MOST_RECORDED_FINDINGS),
   more: Count,
