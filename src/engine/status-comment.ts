@@ -6,6 +6,7 @@ import type { IsCommit } from '../formats/secrets.ts';
 import type { GravityReading, RoundsOut, StuckReason, WaitCondition } from '../schemas/events.ts';
 import { finingOf, gaugeOf, OutDocAssumptions, tastingOf } from '../schemas/out-doc.ts';
 import { planOf } from '../schemas/plan.ts';
+import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -36,7 +37,7 @@ import {
 } from './pull-request.ts';
 import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
-import type { Recipes } from './recipes.ts';
+import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { outDocLink } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
@@ -1085,6 +1086,16 @@ const minuteMs = 60_000;
  * driver: a revision whenever its text changed, at most one a minute per batch, except its first
  * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
  */
+/**
+ * The steps of `recipe` the status comment lists before the batch reaches them: all but a step
+ * only a person's choice schedules, which it lists once it has an attempt (ADR 0286).
+ */
+const listedSteps = (recipe: Recipe | undefined): readonly string[] | undefined => {
+  if (recipe === undefined) return undefined;
+  const chosen = new Set(ChosenBy.options.map((option) => recipe.chosen(option)));
+  return recipe.steps.filter((stepId) => !chosen.has(stepId));
+};
+
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
   const { brewery, comments, recipes, clock, stateBranchUrl, planComment } = options;
   // When this driver last applied or found a revision of each batch.
@@ -1099,7 +1110,7 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
       const due = statusDue(
         state,
         batchId,
-        name === undefined ? undefined : recipes.find(name)?.steps,
+        name === undefined ? undefined : listedSteps(recipes.find(name)),
         stateBranchUrl,
         planComment?.(state, batchId),
       );
