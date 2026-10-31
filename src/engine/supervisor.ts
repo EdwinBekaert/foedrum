@@ -11,6 +11,10 @@ import { causeOf, fixHeld, pullRequestProblem, pullRequestRoute } from './pull-r
 import type { Recipes, Stall } from './recipes.ts';
 import type { FlushResult } from './state-branch-git.ts';
 
+/** Why an attempt is lost, as the supervisor records it: whose lease ran out, and when (ADR 0027). */
+export const expiredLeaseReason = (owner: string, expiresAt: Date): string =>
+  `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
+
 /** What the runner (#11) knows about a running attempt: when it last wrote a file or committed. */
 export interface AttemptProgress {
   lastProgressAt: Date;
@@ -80,7 +84,7 @@ export const planTick = (input: TickInput): TickPlan => {
       kept.add(key);
       continue;
     }
-    const reason = `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
+    const reason = expiredLeaseReason(owner, expiresAt);
     issue({
       kind: 'lose',
       batchId: lost.batchId,
