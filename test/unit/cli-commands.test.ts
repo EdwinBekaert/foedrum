@@ -1134,6 +1134,28 @@ describe('foedrum stuck', () => {
     });
   });
 
+  it('lists a batch whose plan is ready for review, with what to do next by hand (#658)', async () => {
+    append(ordered(12), {
+      type: 'batch.stuck',
+      batchId: '12-1',
+      reason: { kind: 'plan_review', stepId: 'plan', attempt: 2 },
+      options: ['retry', 'recipe', 'cancel'],
+      remindAt: iso(2880),
+    });
+    assert.deepStrictEqual(await run(['stuck']), {
+      exitCode: 0,
+      stdout: [
+        '1 Stuck batch',
+        '',
+        `12-1  #12  the plan of plan #2 is ready for your review; reminder ${iso(2880)}`,
+        '  options: retry, recipe, cancel',
+        '  next: read the plan and its assumptions. To plan it again, run foedrum retry 12-1; to build it, end it with foedrum cancel 12-1 and order its sub-orders by hand: Foedrum builds nothing from a plan yet.',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+  });
+
   it('says one round, that it recorded no finding, and keeps a commit the batch knows (review of #508)', async () => {
     const commit = 'c0ffee'.repeat(6).concat('c0ff');
     const step = { batchId: '12-1', stepId: 'correctness', attempt: 1 };

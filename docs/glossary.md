@@ -30,11 +30,11 @@ Foedrum borrows its vocabulary from Belgian brewing. A *foeder* is the large oak
 | **Tasting** | An AI review. Judged, not measured |
 | **Lens** | One focus for a tasting: correctness, security, cross-platform, design conformance, test design, necessity, acceptance, or a Brewery's own |
 | **Mutant** | A plausible bug proposed by Brett; a mutant the engine confirms the tests do not catch is a finding (advisory by default) |
-| **Stuck** 🔔 | A batch that needs a human. Always visible, never silent |
+| **Stuck** 🔔 | A batch that needs a human. Always visible, never silent. Its reason says why: a question, a blocker, attempts or a deadline used, a stall, its session awaited, no route, a pull request's failing checks, a person's stop, or a finished plan ready for review ([ADR 0275](adr/0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md)) |
 | **House yeast** | Rules learned from reviews, carried from batch to batch — in three layers (defaults, Brewery, repository), scoped, budgeted per attempt, promoted to checks when possible, curated over time |
 | **Candidate** | A lesson recorded from a review; proposed as a house-yeast rule when it recurs or a human asks |
 | **Blending** | Combining branches; conflicts go to a bounded brewer step |
-| **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071) |
+| **On tap** | Pull request opened or merged, or the recipe done without one (a recipe without the openPullRequest action, whose brewers commit nothing, ADR 0059 and ADR 0084; one with it goes on tap only with its pull request, ADR 0071); not a recipe that ends with a plan, which waits Stuck for its review (ADR 0275) |
 | **Cellar** | The autonomous driver (`foedrum serve`): brews orders unattended, steered through GitHub comments and later the dashboard |
 | **Driver** | What moves a batch forward: an engineer's Claude Code session or terminal through `foedrum brew` (interactive, ADR 0123) or the Cellar (autonomous); one at a time per batch, held as a batch lease it renews |
 | **Interactive step** | A brewer step with `"interactive": true` and a `prompt`, whose attempt runs as a person's `claude` session in `foedrum brew`'s terminal, with the brewer's guards and out doc (ADR 0222) |

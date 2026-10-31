@@ -1,7 +1,7 @@
 // Mash, a plan of an order (ADR 0234): the Brewmaster reads the order and its repository and breaks
 // the order into sub-orders, one repository each, with the recipe each should run with. Nothing is
-// built: the plan is shown on the order's issue (ADR 0233), and the batch ends on tap. The plan
-// lenses come in #587, the gate that signs a plan off in #588.
+// built: the plan is shown on the order's issue (ADR 0233), and the batch waits Stuck for its
+// review (ADR 0275). The plan lenses come in #587, the gate that signs a plan off in #588.
 {
   "$schema": "../../schemas/recipe.json",
   "name": "mash",

@@ -103,16 +103,18 @@ export const outDocPath = ({
 };
 
 /**
- * The out doc of an attempt on `stateBranchUrl`, the branch's address on the code host, opened as
- * written (`?plain=1`): GitHub's rendered view does not show its JSON frontmatter readably. The
- * branch, not a commit: an attempt's path is its own, and a flush writes it with the same text.
- * The driver applies its effects after the tick's flush, so a link a comment shows for a
+ * The out doc of an attempt on `stateBranchUrl`, the branch's address on the code host: as GitHub
+ * renders it when its body reads (`readable`, a plan's since ADR 0275), else opened as written
+ * (`?plain=1`), since the rendered view does not show its JSON frontmatter readably. The branch,
+ * not a commit: an attempt's path is its own, and a flush writes it with the same text. The
+ * driver applies its effects after the tick's flush, so a link a comment shows for a
  * `step.finished` just recorded works from the next tick's push (ADR 0266).
  */
 export const outDocLink = (
   stateBranchUrl: string,
   ref: { batchId: string; stepId: string; attempt: number },
-): string => `${stateBranchUrl}/${outDocPath(ref)}?plain=1`;
+  readable = false,
+): string => `${stateBranchUrl}/${outDocPath(ref)}${readable ? '' : '?plain=1'}`;
 
 /**
  * The most bytes of an out doc's text the state branch keeps (ADR 0103); past it, a fixed line

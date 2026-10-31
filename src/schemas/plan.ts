@@ -160,3 +160,37 @@ export const planOf = (output: unknown): PlanReport | undefined => {
   const { subOrders, alternatives } = read.data;
   return alternatives === undefined ? { subOrders } : { subOrders, alternatives };
 };
+
+/** A Markdown list item's text, its marker taken off, or undefined for any other line. */
+const itemOf = (line: string): string | undefined => {
+  const text = line.trimStart();
+  const bullet = /^[-*+] /.exec(text) ?? /^\d{1,9}[.)] /.exec(text);
+  return bullet === null ? undefined : text.slice(bullet[0].length);
+};
+
+/** `text` on one line, its blanks collapsed, as the plan's readable body is compared. */
+const collapsed = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+/**
+ * Why the body of a done plan's out doc does not read as one (ADR 0275), or undefined: it must hold
+ * the plan's summary and each of its assumptions as a list item of its own line, each as the
+ * frontmatter has it, blanks collapsed, so the out doc a comment links reads on GitHub.
+ */
+export const unreadableBody = (
+  body: string,
+  { summary, assumptions }: { summary: string; assumptions: readonly string[] },
+): string | undefined => {
+  if (!collapsed(body).includes(collapsed(summary))) {
+    return 'its body does not hold its summary as written (ADR 0275)';
+  }
+  const items = new Set(
+    body.split('\n').flatMap((line) => {
+      const item = itemOf(line);
+      return item === undefined ? [] : [collapsed(item)];
+    }),
+  );
+  const missing = assumptions.findIndex((text) => !items.has(collapsed(text)));
+  return missing < 0
+    ? undefined
+    : `its body does not hold assumptions[${missing}] as a list item, as written (ADR 0275)`;
+};
