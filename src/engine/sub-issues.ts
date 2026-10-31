@@ -12,8 +12,9 @@ export interface BreweryIssue {
 }
 
 /**
- * The Brewery's issues and their links, as its own identity sees and makes them. An add is not
- * idempotent: GitHub refuses a repeat, so a caller reads the list to tell a repeat from a failure.
+ * The Brewery's issues and their links, as its own identity sees and makes them. An add need not
+ * be idempotent: a tracker may refuse a repeat, so a caller reads the list to tell a repeat from a
+ * failure.
  * Every call stops when `signal` aborts.
  */
 export interface SubIssues {
