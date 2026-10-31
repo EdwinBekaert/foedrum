@@ -372,7 +372,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     }
     // The check's sandbox starts the run in the worktree's real path, where its runner writes
     // absolute paths when a link leads to the worktree (macOS's /tmp, a junction).
-    const realRoot = realPath(worktree.path);
+    const realRoot = (options.testMap?.realPath ?? realPath)(worktree.path);
     const verdict = judgeMapped({
       reports: read,
       unreported,
