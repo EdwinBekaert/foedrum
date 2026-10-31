@@ -109,6 +109,8 @@ export interface CheckRunnerOptions {
     reports?: (pattern: string, root: string) => { paths: string[] } | { refused: string };
     /** A module's coverage report in a worktree (ADR 0274). Default the file system's. */
     coverage?: (format: CoverageFormat, path: string, root: string) => ReadCoverage;
+    /** A worktree's real path, where the check sandbox runs (ADR 0076). Default the file system's. */
+    realPath?: (path: string) => string;
   };
 }
 

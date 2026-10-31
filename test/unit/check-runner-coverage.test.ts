@@ -22,7 +22,7 @@ import {
 } from '../../src/formats/coverage-report.ts';
 import { parseLcov } from '../../src/formats/lcov.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import { Event } from '../../src/schemas/events.ts';
 import type { TestMap, TestMapModule } from '../../src/schemas/test-map.ts';
 import type { Git } from '../../src/workspace/git.ts';
 
@@ -114,11 +114,21 @@ const setup = ({
   platform = 'linux' as NodeJS.Platform,
   /** Why clearing a report path throws, when it does. */
   clearFails = undefined as string | undefined,
+  /** Why a pattern is refused once the test check ran, by pattern. */
+  refusedAfterRun = {} as Record<string, string>,
+  /** The checks of the step. */
+  stepRefs = ['test'] as readonly ('test' | 'lint')[],
+  /** The coverage a module's path reads in a root, when it depends on the root. */
+  coverageIn = undefined as
+    | ((format: CoverageFormat, path: string, root: string) => ReadCoverage)
+    | undefined,
+  /** The worktree's real path, as the check sandbox runs in it. */
+  realPath = undefined as ((path: string) => string) | undefined,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
     asked.push(`run ${file}`);
-    const exitCode = file === 'npm test' ? testExit : 0;
+    const exitCode = file === 'npm test' ? testExit : file === 'npm run lint' ? 1 : 0;
     return Promise.resolve({ exitCode, stdout: '', stderr: '', output: '' });
   };
   const git: Git = async (cwd, args) => {
@@ -138,7 +148,7 @@ const setup = ({
     return { code: 1, stdout: '', stderr: `unexpected git ${args.join(' ')}` };
   };
   const stepChecks: StepChecks = {
-    find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? ['test'] : undefined),
+    find: (recipe, stepId) => (recipe === 'pale' && stepId === 'green' ? stepRefs : undefined),
     any: () => true,
     proves: () => undefined,
     redProof: () => undefined,
@@ -149,7 +159,7 @@ const setup = ({
     repositoryChecks: () => ({
       build: null,
       typecheck: null,
-      lint: null,
+      lint: 'npm run lint',
       format: null,
       test: 'npm test',
     }),
@@ -170,14 +180,18 @@ const setup = ({
     testMap: {
       at: async (_repo, commit) => maps[commit] ?? { kind: 'none' },
       reports: (pattern) => {
-        const why = refused[pattern];
+        const why =
+          refused[pattern] ??
+          (asked.includes('run npm test') ? refusedAfterRun[pattern] : undefined);
         if (why !== undefined) return { refused: why };
         return { paths: found[pattern] ?? [join(worktree, ...pattern.split('/'))] };
       },
-      coverage: (format: CoverageFormat, path: string) => {
+      coverage: (format: CoverageFormat, path: string, root: string) => {
         asked.push(`coverage ${format} ${path}`);
+        if (coverageIn !== undefined) return coverageIn(format, path, root);
         return coverage[path] ?? { readable: false, reason: `no report at ${path}` };
       },
+      ...(realPath === undefined ? {} : { realPath }),
     },
   });
   const run = () =>
@@ -553,6 +567,85 @@ describe('createCheckRunner: the uncovered-line check (ADR 0274)', () => {
     assert.match(
       text,
       /- ✅ `green`\n {2}- not loaded by any test: src\/types\.ts and 2 more\n {2}- outside every code area: fixtures\/rates\.json(\n|$)/,
+    );
+  });
+
+  it('records a listing of a long and a blank file name that step.finished admits', async () => {
+    const long = `fixtures/${'a'.repeat(1200)}.json`;
+    const { run } = setup({
+      diff: `${adding(long, 1, 1)}${adding('   ', 1, 1)}`,
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    const listed = end.coverage?.outside?.files ?? [];
+    assert.equal(listed.length, 2);
+    assert.ok(
+      listed.every((file) => file.length <= 1000 && /\S/.test(file)),
+      listed.join('|'),
+    );
+    const finished = {
+      type: 'step.finished',
+      ...ref,
+      outcome: end.ending,
+      coverage: end.coverage,
+    };
+    assert.equal(Event.safeParse(finished).success, true);
+  });
+
+  it("blocks the check step on its environment when a module's coverage report path is refused after the run", async () => {
+    const why = 'lcov.info leads out of the worktree';
+    const { run } = setup({
+      diff: adding('src/calc.ts', 1, 1),
+      refusedAfterRun: { 'lcov.info': why },
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 1 })) },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the coverage report of module "calc" cannot be looked for: ${why}`,
+    });
+  });
+
+  it("blocks the check step on its environment when a module's coverage report is past what is read", async () => {
+    const reason = 'lcov.info: it is larger than 16777216 bytes';
+    const { run } = setup({
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': { readable: false, reason, environment: true } },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary: `the coverage report of module "calc" cannot be read: ${reason}`,
+    });
+  });
+
+  it("keeps a later check's failure as the step's ending", async () => {
+    const { run } = setup({
+      stepRefs: ['test', 'lint'],
+      diff: adding('src/calc.ts', 1, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 1: 0 })) },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(end.ending.kind === 'failed' ? end.ending.reason : '', /npm run lint/);
+  });
+
+  it('reads a coverage report that names the worktree by its real path, as the check sandbox runs it', async () => {
+    const real = (path: string): string => `/private${path.replaceAll('\\', '/')}`;
+    const { run } = setup({
+      realPath: real,
+      diff: adding('src/calc.ts', 1, 1),
+      // The report names its files by the real path of the worktree, as a run started there does.
+      coverageIn: (_format, _path, root) =>
+        parseLcov(`SF:${real(worktree)}/src/calc.ts\nDA:1,0\nend_of_record\n`, root),
+    });
+    const end = await run();
+    assert.equal(
+      end.ending.kind === 'failed' ? end.ending.reason : JSON.stringify(end.ending),
+      '1 changed line no test runs: src/calc.ts:1',
     );
   });
 

@@ -15,7 +15,8 @@ export type CoverageReport = ReadonlyMap<string, ReadonlyMap<number, CoveredLine
 
 export type ReadCoverage =
   | { readable: true; report: CoverageReport }
-  | { readable: false; reason: string };
+  /** `environment`: the report could not be read at all (too large, a link out), not parsed. */
+  | { readable: false; reason: string; environment?: true };
 
 /** The formats Foedrum reads: LCOV by file, Cobertura by folder. */
 export type CoverageFormat = 'lcov' | 'cobertura';

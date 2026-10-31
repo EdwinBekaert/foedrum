@@ -85,6 +85,15 @@ describe('readCoverage', () => {
     assert.match(missing.readable ? '' : missing.reason, /no LCOV report at gone\/lcov\.info/);
   });
 
+  it("marks a report it cannot read as the environment's, never one that does not parse", () => {
+    write('big/lcov.info', Buffer.alloc(MAX_REPORT_BYTES + 1, 'D'));
+    const big = readCoverage('lcov', 'big/lcov.info', dir.path);
+    assert.equal(big.readable ? undefined : big.environment, true);
+    write('bad/lcov.info', 'Error: Cannot find module\n');
+    const bad = readCoverage('lcov', 'bad/lcov.info', dir.path);
+    assert.equal(bad.readable ? true : bad.environment, undefined);
+  });
+
   it('tells two Cobertura sources apart by the file in the worktree', () => {
     // `a.ts` lands inside the root under both sources; only `two/lib/a.ts` is there.
     write('two/lib/a.ts', 'export {};\n');
