@@ -1008,7 +1008,7 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
   });
 
-  it('blocks the green check on its environment when the test report of a module whose tests the change touches none of cannot be read', async () => {
+  it('reads no test report of a module whose tests the change touches none of', async () => {
     const web: TestMapModule = {
       ...junit,
       name: 'web',
@@ -1017,17 +1017,27 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
       testReport: { format: 'junit', path: 'web.xml' },
       coverage: 'none',
     };
-    const { run } = setup({
+    const webFile = join(worktree, 'web.xml');
+    const { run, asked } = setup({
       maps: { [base]: mapOf(junit, web), [tip]: mapOf(junit, web) },
       diff: adding('test/calc.test.ts', 5, 2),
-      testReports: { [join(worktree, 'web.xml')]: { kind: 'unread', reason: 'it is past 16 MiB' } },
+      testReports: { [webFile]: { kind: 'unread', reason: 'it is past 16 MiB' } },
     });
     const { ending } = await run();
-    assert.deepEqual(ending, {
-      kind: 'blocked',
-      blockerKind: 'environment',
-      summary:
-        'the test report web.xml of module "web" cannot be read: it is past 16 MiB, though the change touches none of its tests',
+    assert.deepEqual(ending, { kind: 'succeeded', output: null });
+    assert.ok(asked.includes(`read ${junitFile}`), asked.join('|'));
+    assert.ok(!asked.includes(`read ${webFile}`), asked.join('|'));
+  });
+
+  it('reads no test report when the batch adds no line to a separate test file', async () => {
+    const { run, asked } = setup({
+      maps: junitMaps,
+      diff: adding('src/calc.ts', 12, 1),
+      coverage: { 'lcov.info': lcov(record('src/calc.ts', { 12: 1 })) },
+      testReports: { [junitFile]: { kind: 'text', text: 'not JUnit' } },
     });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.ok(!asked.includes(`read ${junitFile}`), asked.join('|'));
   });
 });
