@@ -3,6 +3,16 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { codeHost, fileJournal, type Journal } from '../../scripts/demo/code-host.ts';
 import { BREW_ORDER, BREWERY, LOGIN, ORDER, TARGET } from '../../scripts/demo/core.ts';
+import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
+import { recordChecks } from '../../src/engine/pr-checks.ts';
+import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
+import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { githubCheckReader } from '../../src/github/checks.ts';
+import { createGitHubClient } from '../../src/github/client.ts';
+import { createGitHubReads } from '../../src/github/reads.ts';
+import type { PushResult } from '../../src/schemas/store.ts';
+import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const api = 'https://api.github.com';
@@ -99,6 +109,54 @@ describe('the demo code host', () => {
     await send(host, 'GET', `/repos/${TARGET}/pulls?head=demo:x`);
     await send(host, 'GET', `/repos/${BREWERY}/issues/${ORDER.number}`);
     assert.deepStrictEqual(journal.kept, []);
+  });
+
+  it("serve's checks watch reads an on-tap pull request on the demo's code host without a failure", async () => {
+    const host = await codeHost(memoryJournal());
+    const pull = { head: 'foedrum/demo.brewery/1-1/demo.web', base: 'main', title: 'T', body: 'B' };
+    const opened = await send(host, 'POST', `/repos/${TARGET}/pulls`, pull);
+    const { html_url: url } = (await opened.json()) as { html_url: string };
+    // A batch on tap with that pull request, as the ledger of the demo's first order has it.
+    const store = openSqliteEventStore(':memory:');
+    const recipes = fakeRecipes({ half: fakeRecipe({ steps: ['plan'], pullRequests: [url] }) });
+    const log = createCommandLog({ store, recipes });
+    const now = new Date('2026-10-31T09:00:00.000Z');
+    const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
+      assert.equal(log.issue(command, now).kind, 'accepted');
+    const ref = { batchId: '1-1', stepId: 'plan', attempt: 1 };
+    accept({ kind: 'order', batchId: '1-1', order: { issue: ORDER.number, repo: TARGET } });
+    accept({ kind: 'route', batchId: '1-1', recipe: 'half', reason: 'label', source: 'label' });
+    accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+    accept({
+      kind: 'finish',
+      ...ref,
+      ending: { kind: 'succeeded', output: { status: 'done', summary: 'Done', assumptions: [] } },
+    });
+    const pushed: PushResult = { branch: pull.head, commit: 'c'.repeat(40), from: 'start' };
+    for (const [key, result] of [
+      [pushKey('1-1'), pushed],
+      [pullRequestKey('1-1'), url],
+    ] as const) {
+      accept({
+        kind: 'record',
+        event: { type: 'effect.applied', key: effectKey.encode(key), result },
+      });
+    }
+    // One pass of the watch, run now rather than waited for between on tap and serve's stop.
+    const client = createGitHubClient({ exec: host.exec });
+    const failures: string[] = [];
+    await recordChecks(
+      {
+        log,
+        reader: githubCheckReader(createGitHubReads(client), client),
+        clock: () => now,
+        failed: (what, error) => failures.push(`${what}: ${error}`),
+      },
+      new AbortController().signal,
+    );
+    assert.deepStrictEqual(failures, []);
+    assert.equal(log.state().batches.get('1-1')?.pullRequestChecks?.[url]?.kind, 'pending');
+    store.close();
   });
 });
 
