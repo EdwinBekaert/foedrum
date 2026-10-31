@@ -150,6 +150,7 @@ export function attemptLimits(
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),
+    ...(name === PLAN ? { readableBody: true as const } : {}),
     ...(maxTurns === undefined ? {} : { maxTurns }),
     ...(maxDenials === undefined ? {} : { maxDenials }),
     ...(brewer.produces === 'commits' && start !== undefined ? { commitsSince: start } : {}),

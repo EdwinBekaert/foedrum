@@ -2,6 +2,7 @@
 // due deadlines and the expired leases, the engine commands one tick issues. It never builds events:
 // decide does, so the supervisor cannot do what the state machine refuses.
 
+import { CELLAR_OWNER } from '../schemas/commands.ts';
 import { type AttemptRef, attemptKey } from './attempt-key.ts';
 import type { EngineCommand } from './decide.ts';
 import type { DueBatch, Lease } from './event-store.ts';
@@ -10,6 +11,37 @@ import { pauseOf } from './pauses.ts';
 import { causeOf, fixHeld, pullRequestProblem, pullRequestRoute } from './pull-request-fix.ts';
 import type { Recipes, Stall } from './recipes.ts';
 import type { FlushResult } from './state-branch-git.ts';
+
+/** Why an attempt is lost, as the supervisor records it: whose lease ran out, and when (ADR 0027). */
+export const expiredLeaseReason = (owner: string, expiresAt: Date): string =>
+  `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
+
+/** The reason a lost attempt finishes with, which decide records (ADR 0027). */
+export const lostReason = (reason: string): string => `the attempt was lost: ${reason}`;
+
+// The reason of an attempt lost because its lease ran out, as lostReason and expiredLeaseReason
+// make it.
+const LOST_REASON = new RegExp(
+  `^${lostReason(String.raw`the lease of (.+) expired at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z`)}$`,
+);
+
+/**
+ * Why an attempt was lost, in a person's words: the driver that ran it stopped, named by what it
+ * is rather than its owner, and no UTC time a reader would take as local (#277). Undefined for any
+ * other reason, which reads as it was recorded.
+ */
+export const lostBecause = (reason: string): string | undefined => {
+  const owner = LOST_REASON.exec(reason)?.[1];
+  if (owner === undefined) return undefined;
+  const driver = owner === CELLAR_OWNER ? 'the Cellar' : 'the driver';
+  return `${driver} running it stopped, so its lease ran out`;
+};
+
+/** A failed attempt's reason as a person reads it: a lost attempt's in plain words. */
+export const plainReason = (reason: string): string => {
+  const because = lostBecause(reason);
+  return because === undefined ? reason : lostReason(because);
+};
 
 /** What the runner (#11) knows about a running attempt: when it last wrote a file or committed. */
 export interface AttemptProgress {
@@ -80,7 +112,7 @@ export const planTick = (input: TickInput): TickPlan => {
       kept.add(key);
       continue;
     }
-    const reason = `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
+    const reason = expiredLeaseReason(owner, expiresAt);
     issue({
       kind: 'lose',
       batchId: lost.batchId,

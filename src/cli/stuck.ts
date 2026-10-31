@@ -5,7 +5,7 @@ import { orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
-import { longest, roundsText, STEP_BACK } from '../engine/status-comment.ts';
+import { longest, planNextStep, roundsText, STEP_BACK } from '../engine/status-comment.ts';
 import type { StuckReason } from '../schemas/events.ts';
 import { columns } from './columns.ts';
 import { describeLane } from './status.ts';
@@ -55,6 +55,10 @@ export const formatStuck = (state: State): string => {
         )
       : []),
     ...openLines(state, batch, lane.reason),
+    // Until the gate signs a plan off (#588), what to do with it by hand (ADR 0275).
+    ...(lane.reason.kind === 'plan_review'
+      ? [`  next: ${planNextStep(batch.id, (command) => command)}`]
+      : []),
   ]);
   const count = `${stuck.length} Stuck ${stuck.length === 1 ? 'batch' : 'batches'}`;
   return `${[count, '', ...lines].join('\n')}\n`;

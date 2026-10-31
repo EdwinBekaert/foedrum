@@ -4,6 +4,7 @@
 
 import { columns } from '../../src/cli/columns.ts';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
+import { lostBecause } from '../../src/engine/supervisor.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { BREW_ORDER, USER } from './core.ts';
 
@@ -160,6 +161,9 @@ export const commentMarkdown = (body: string): string =>
 /** The line the Cellar prints before each `foedrum status` it shows. */
 export const STATUS_LINE = '$ foedrum status';
 
+/** The line serve prints when it stops, which ends a Cellar's life. */
+export const SERVE_STOPPED = 'foedrum serve: stopped';
+
 /** The start of the line the Cellar prints when its restart finds the attempt it lost. */
 export const LOST_LINE = 'demo: the restart found';
 
@@ -182,7 +186,8 @@ export const lostAttemptLine = (events: readonly { event: Event }[]): string | u
     const before = lost.get(step);
     if (before !== undefined && event.attempt === before.attempt + 1) {
       const { stepId } = event;
-      return `${LOST_LINE} ${stepId} #${before.attempt} lost (${before.reason}); ${stepId} #${event.attempt} brews it again`;
+      const why = lostBecause(before.reason) ?? before.reason;
+      return `${LOST_LINE} ${stepId} #${before.attempt} lost (${why}); ${stepId} #${event.attempt} brews it again`;
     }
   }
   return undefined;

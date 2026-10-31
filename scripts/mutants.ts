@@ -1,24 +1,32 @@
-// `node scripts/mutants.ts <tree> <answer.json> [<n>] [--touched <files.txt>]`: checks the
+// `node scripts/mutants.ts <tree> <answer.json> [<n> | --same-answer] [--touched <files.txt>]`: checks the
 // mutants in Brett's answer against the brew-review scratch tree, or applies mutant <n> to it
 // (issue #43). A mutant edits one line of a file under src/ or scripts/ (ADR 0034, 0040); with
 // --touched, one of the files the change touches, as the review's files.txt lists them (#140).
+// With --same-answer, it appends to the answer the mutant that makes a changed boolean function
+// return, for every input, the one value all its assertions in the changed tests expect (#223).
 // mutants/core.ts decides. Exits 1 when the answer cannot be read or mutant <n> is invalid.
 
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
+import { isDeepStrictEqual, parseArgs } from 'node:util';
 import { pathInside, samePath } from '../src/platform/paths.ts';
 import {
+  type ChangedFile,
   editFile,
   type Mutant,
   type MutantEdit,
   parseMutant,
+  sameAnswerLine,
+  sameAnswerMutants,
   touchedFiles,
 } from './mutants/core.ts';
 
 type Result = { ok: boolean; lines: string[] };
 
-const readAnswer = async (answer: string): Promise<unknown[] | string> => {
+// Brett's answer as it was read, with its other fields, so --same-answer can write them back.
+type Answer = Record<string, unknown> & { mutants: unknown[] };
+
+const readAnswer = async (answer: string): Promise<Answer | string> => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readFile(answer, 'utf8'));
@@ -26,7 +34,7 @@ const readAnswer = async (answer: string): Promise<unknown[] | string> => {
     return `cannot read the answer: ${(error as Error).message}`;
   }
   const { mutants } = (parsed ?? {}) as { mutants?: unknown };
-  return Array.isArray(mutants) ? mutants : 'the answer has no "mutants" list';
+  return Array.isArray(mutants) ? (parsed as Answer) : 'the answer has no "mutants" list';
 };
 
 const realOrUndefined = (path: string): Promise<string | undefined> =>
@@ -85,8 +93,9 @@ export const checkMutants = async (
   answer: string,
   files?: string,
 ): Promise<Result> => {
-  const mutants = await readAnswer(answer);
-  if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
+  const parsed = await readAnswer(answer);
+  if (typeof parsed === 'string') return { ok: false, lines: [parsed] };
+  const { mutants } = parsed;
   const read = await readTouched(files);
   if (!read.ok) return read;
   const lines: string[] = [];
@@ -105,8 +114,9 @@ export const applyMutant = async (
   n: number,
   files?: string,
 ): Promise<Result> => {
-  const mutants = await readAnswer(answer);
-  if (typeof mutants === 'string') return { ok: false, lines: [mutants] };
+  const parsed = await readAnswer(answer);
+  if (typeof parsed === 'string') return { ok: false, lines: [parsed] };
+  const { mutants } = parsed;
   const entry = mutants[n - 1];
   if (!Number.isInteger(n) || entry === undefined) {
     return { ok: false, lines: [`mutant ${n}: no such mutant (the answer has ${mutants.length})`] };
@@ -119,6 +129,38 @@ export const applyMutant = async (
   return { ok: true, lines: [`mutant ${n}: applied ${result.path}`] };
 };
 
+// Appends the same-answer mutants of the change to the answer file, except one already in it from
+// an earlier run, and removes nothing (#223).
+// The sources are the touched files under src/ and scripts/, the tests the touched test files,
+// as the tree has them; a file it cannot read gives no mutant.
+export const sameAnswer = async (tree: string, answer: string, files: string): Promise<Result> => {
+  const parsed = await readAnswer(answer);
+  if (typeof parsed === 'string') return { ok: false, lines: [parsed] };
+  const read = await readTouched(files);
+  if (!read.ok) return read;
+  const changed = async (pattern: RegExp): Promise<ChangedFile[]> => {
+    const paths = (read.touched ?? []).filter((path) => pattern.test(path));
+    const contents = await Promise.all(
+      paths.map((path) => readFile(join(tree, path), 'utf8').catch(() => undefined)),
+    );
+    return paths.flatMap((path, index) => {
+      const content = contents[index];
+      return content === undefined ? [] : [{ path, content }];
+    });
+  };
+  const sources = await changed(/^(?:src|scripts)\/(?!.*\.test\.ts$).*\.ts$/);
+  const scripted = sameAnswerMutants(sources, await changed(/^test\/.*\.test\.ts$/));
+  const added = scripted.filter(
+    (mutant) => !parsed.mutants.some((entry) => isDeepStrictEqual(entry, mutant)),
+  );
+  await writeFile(
+    answer,
+    `${JSON.stringify({ ...parsed, mutants: [...parsed.mutants, ...added] }, null, 2)}\n`,
+  );
+  const lines = scripted.map((mutant) => `same answer: ${sameAnswerLine(mutant)}`);
+  return { ok: true, lines: lines.length > 0 ? lines : ['same answer: none'] };
+};
+
 export interface MainResult {
   exitCode: number;
   stdout: string[];
@@ -129,17 +171,23 @@ export interface MainResult {
 export const main = async (argv: readonly string[]): Promise<MainResult> => {
   const { values, positionals } = parseArgs({
     args: [...argv],
-    options: { touched: { type: 'string' } },
+    options: { touched: { type: 'string' }, 'same-answer': { type: 'boolean' } },
     allowPositionals: true,
   });
   const [tree, answer, n] = positionals;
-  if (tree === undefined || answer === undefined) {
+  const sameAnswerRun = values['same-answer'] === true;
+  if (
+    tree === undefined ||
+    answer === undefined ||
+    (sameAnswerRun && (n !== undefined || values.touched === undefined))
+  ) {
     const usage =
-      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number>] [--touched <files.txt>]';
+      'usage: node scripts/mutants.ts <scratch tree> <answer.json> [<mutant number> | --same-answer] [--touched <files.txt>] (--same-answer needs --touched)';
     return { exitCode: 2, stdout: [], stderr: [usage] };
   }
-  const { ok, lines } =
-    n === undefined
+  const { ok, lines } = sameAnswerRun
+    ? await sameAnswer(tree, answer, values.touched ?? '')
+    : n === undefined
       ? await checkMutants(tree, answer, values.touched)
       : await applyMutant(tree, answer, Number(n), values.touched);
   return { exitCode: ok ? 0 : 1, stdout: lines.map((line) => `mutants: ${line}`), stderr: [] };
