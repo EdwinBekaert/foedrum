@@ -845,6 +845,16 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     assert.deepEqual((await none.run()).ending, { kind: 'succeeded', output: null });
   });
 
+  it('leaves a module only the batch lists that wrote no report to the unreached rule: regression test', async () => {
+    const found = { 'web/out/*.tap': webTaps, 'web/lcov.info': [webLcov] };
+    const { run } = setup({
+      ...wrote,
+      found,
+      maps: { [gaugeStart]: mapOf(web), [tip]: mapOf(web, api) },
+    });
+    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
+  });
+
   it('reads the map the batch added when the base has none, and lists no deleted files', async () => {
     const { order, run } = setup({ ...wrote, maps: { [tip]: mapOf(web) } });
     assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });

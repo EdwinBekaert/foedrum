@@ -273,6 +273,23 @@ describe('judgeMapped (ADR 0274)', () => {
   });
 });
 
+describe('judgeMapped keeps what the name reading refused (ADR 0274)', () => {
+  it("ADR 0269's FileLoadException is still refused", () => {
+    // xunit's JUnit report of a run that loads nothing: every test fails, in the files the step changed.
+    const report = readable(
+      parseJunit(`<testsuites><testsuite name="Calc.Tests">
+  <testcase name="Calc.Tests.CalculatorTests.Multiplies" file="test/calc.test.ts" line="18">
+    <failure type="System.IO.FileLoadException" message="System.IO.FileLoadException : Could not load file or assembly 'C:\\spike\\cs\\bin\\Calc.dll'. This file is blocked by an application control policy. (0x800711C7)"/>
+  </testcase>
+</testsuite></testsuites>`),
+    );
+    assert.match(
+      why([report], [changed('test/calc.test.ts', [18])]),
+      /^the run has a load, compile, import or collection error: System\.IO\.FileLoadException : Could not load file or assembly/,
+    );
+  });
+});
+
 describe('skipsInAddedLines (ADR 0274)', () => {
   const skipAt = (file: string, line?: number) =>
     readable(

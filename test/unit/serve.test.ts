@@ -1824,7 +1824,12 @@ Plan the order in {order}.
       "diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1 @@\n+test('adds two numbers', () => assert.equal(add(1, 2), 3));\n";
 
     /** Serve brewing batch 14-1 with the nip recipe: what the brewers, the checks and git saw. */
-    const brewTestFirst = async (testFirst: ServeSetup, taps: string[] = []) => {
+    const brewTestFirst = async (
+      testFirst: ServeSetup,
+      taps: string[] = [],
+      /** The text of the clone's test map at every commit, when it has one (ADR 0274). */
+      testMap?: string,
+    ) => {
       const log = createCommandLog({ store, recipes: testFirst.recipes });
       log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
       const route = { kind: 'route', batchId: '14-1', recipe: 'nip', reason: 'label' } as const;
@@ -1856,8 +1861,15 @@ Plan the order in {order}.
           runner: () => succeeding,
           exec,
           git: async (cwd, args) => {
-            // The clone has no test map (ADR 0274).
-            if (args[0] === 'ls-tree') return { code: 0, stdout: '', stderr: '' };
+            // The clone has no test map unless the test gives one, and nothing deleted (ADR 0274).
+            if (args[0] === 'ls-tree') {
+              const entry = `100644 blob ${'e'.repeat(40)}\t.foedrum/test-map.jsonc\u0000`;
+              return { code: 0, stdout: testMap === undefined ? '' : entry, stderr: '' };
+            }
+            if (args[0] === 'cat-file' && testMap !== undefined) {
+              return { code: 0, stdout: testMap, stderr: '' };
+            }
+            if (args.includes('--diff-filter=D')) return { code: 0, stdout: '', stderr: '' };
             folders.push(cwd);
             // The two revisions before the `--` that ends the options.
             const end = args.indexOf('--');
@@ -1951,6 +1963,51 @@ Plan the order in {order}.
       // Two red proofs, then the guard of the cellarman: nothing for the Gauger's second attempt.
       assert.equal(diffs.length, 4, diffs.join('\n'));
       assert.match(diffs[1] ?? '', /refs\/heads\/foedrum\/14-1\/gauge\/2$/);
+    });
+
+    it('a failed red proof still takes its onFail route', async () => {
+      // regression test: in a repository with a test map, whose module wrote no report (ADR 0274).
+      const routed = JSON.stringify({
+        name: 'nip',
+        description: 'Proves the tests red, once more after a failure, then brews.',
+        steps: [
+          { id: 'gauge', brewer: 'gauger' },
+          {
+            id: 'red',
+            check: 'test',
+            expect: 'fail',
+            of: 'gauge',
+            onFail: { goto: 'gauge', maxRounds: 1 },
+          },
+          { id: 'implement', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
+        ],
+      });
+      const testMap = JSON.stringify({
+        derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['**/*.test.mjs'] },
+            testReport: { format: 'tap', path: 'test-results.tap' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }, routed),
+        [],
+        testMap,
+      );
+      assert.deepStrictEqual(brewed, ['gauge', 'gauge']);
+      // Sent back once, then out of rounds.
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.equal(reason?.kind, 'attempts_exhausted');
+      assert.match(
+        reason?.kind === 'attempts_exhausted' ? reason.lastReason : '',
+        /^the red proof of step gauge failed: .*module "web" wrote no test report at test-results\.tap$/,
+      );
     });
   });
 
