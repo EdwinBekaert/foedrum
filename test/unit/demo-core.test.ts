@@ -23,6 +23,7 @@ import {
 } from '../../scripts/demo/core.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { PLAN_HEADING } from '../../src/engine/plan-comment.ts';
 import type { BreweryFile, BreweryFiles } from '../../src/engine/recipe-files.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -218,7 +219,7 @@ describe('problemsOf', () => {
   const planned =
     'foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review; options: retry\n';
   const statusComment = { author: 'cellar-bot', body: '### Foedrum · batch `3-1`\n\nStuck' };
-  const planComment = { author: 'cellar-bot', body: '### Foedrum · plan of batch `3-1`' };
+  const planComment = { author: 'cellar-bot', body: `${PLAN_HEADING} \`3-1\`` };
   const run = (fields: Partial<DemoRun> = {}): DemoRun => ({
     crash: { exitCode: 1, output: `started\n${CRASH_LINE}\n` },
     restart: { exitCode: 0, output: `${ON_TAP_LINE}: https://example.test/pull/1\n` },

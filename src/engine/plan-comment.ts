@@ -26,6 +26,9 @@ import {
   type StatusComments,
 } from './status-comment.ts';
 
+/** The start of a plan comment's first line, before its batch; a status comment's never has it. */
+export const PLAN_HEADING = '### Foedrum · plan of batch';
+
 /** A text the brewer of `stepId` wrote, on one line, or a fixed line when it looks like a secret. */
 type Told = (text: string) => string;
 
@@ -119,7 +122,7 @@ export const renderPlan = (
   const { subOrders, alternatives } = plan;
   // First, and kept by a cut: the full plan, its assumptions among it, each whole (#658).
   const top = [
-    `### Foedrum · plan of batch ${code(batchId)}`,
+    `${PLAN_HEADING} ${code(batchId)}`,
     ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan)}`]),
   ];
   const table = [

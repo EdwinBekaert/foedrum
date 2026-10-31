@@ -6,6 +6,7 @@
 import nodePath, { dirname, join, type PlatformPath } from 'node:path';
 import type { ServeInputs } from '../../src/cli/serve-config.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
+import { PLAN_HEADING } from '../../src/engine/plan-comment.ts';
 import type { Event, StuckReason } from '../../src/schemas/events.ts';
 import { NIP_ORDER, nipBreweryFiles } from '../../test/helpers/nip-fixture.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
@@ -311,9 +312,6 @@ const tail = (output: string): string => {
 const ending = ({ exitCode, killed }: ProcessOutcome): string =>
   killed === undefined ? `exit code ${exitCode}` : `killed: ${killed}`;
 
-/** The heading of a plan comment (ADR 0233), which a status comment's never holds. */
-const PLAN_HEADING = '### Foedrum · plan of batch';
-
 /** What went wrong in a run, one line each; none when it ended as it should. */
 export const problemsOf = (run: DemoRun): string[] => {
   const { crash, restart, brew, mash, plan, pulls, comments } = run;
@@ -350,7 +348,7 @@ ${tail(plan.output)}`,
   if (pulls.length !== 2) problems.push(`the code host has ${pulls.length} pull requests, not 2`);
   for (const { number } of [ORDER, BREW_ORDER, MASH_ORDER]) {
     const all = comments.get(number) ?? [];
-    // The mashed order has a plan comment beside its status comment (ADR 0233).
+    // The mashed order has a plan comment beside its status comment (ADR 0233), told by its heading.
     const plans = all.filter(({ body }) => body.includes(PLAN_HEADING)).length;
     const count = all.length - plans;
     if (count !== 1) problems.push(`order #${number} has ${count} status comments, not 1`);
