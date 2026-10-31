@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { lostAttemptLine } from '../../scripts/demo/walkthrough.ts';
 import { formatReplay } from '../../src/cli/replay.ts';
+import { formatStuck } from '../../src/cli/stuck.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { expiredLeaseReason } from '../../src/engine/supervisor.ts';
 import { Event } from '../../src/schemas/events.ts';
@@ -59,6 +61,60 @@ const gaugeLine = (reason: string): string =>
   stateOf(replayOf(reason))
     .split('\n')
     .find((line) => line.trimStart().startsWith('gauge')) ?? '';
+
+/** Whether `text` has the recorded reason's own words: its owner's lease or the time it expired. */
+const hasEngineWords = (text: string): boolean =>
+  text.includes('lease of') || text.includes(expiredAt);
+
+describe('a lost attempt in plain words', () => {
+  it("replay's steps say the Cellar running a lost attempt stopped, without its owner or a UTC time", () => {
+    const state = stateOf(replayOf(recorded('cellar')));
+    assert.match(
+      state,
+      /gauge +#1 finished: failed: the attempt was lost: the Cellar running it stopped, so its lease ran out; #2 started/,
+    );
+    assert.ok(!hasEngineWords(state), state);
+  });
+
+  it("replay's steps say the driver running a lost attempt stopped, without its owner or a UTC time", () => {
+    const state = stateOf(replayOf(recorded('ann')));
+    assert.match(
+      state,
+      /gauge +#1 finished: failed: the attempt was lost: the driver running it stopped, so its lease ran out; #2 started/,
+    );
+    assert.doesNotMatch(state, /\bann\b/);
+    assert.ok(!hasEngineWords(state), state);
+  });
+
+  it('foedrum stuck says why a batch whose retries a lost attempt used up is Stuck, in plain words', () => {
+    const stuck: Event = Event.parse({
+      type: 'batch.stuck',
+      batchId: '1-1',
+      reason: {
+        kind: 'attempts_exhausted',
+        stepId: 'gauge',
+        attempts: 2,
+        lastReason: recorded('cellar'),
+      },
+      options: ['retry', 'skip', 'cancel'],
+      remindAt: '2026-11-01T10:00:00Z',
+    });
+    const text = formatStuck(fold([...lostEvents(recorded('cellar')), stuck]));
+    assert.match(
+      text,
+      /attempts exhausted at gauge after 2: the attempt was lost: the Cellar running it stopped, so its lease ran out/,
+    );
+    assert.ok(!hasEngineWords(text), text);
+  });
+
+  it("the demo's restart line says the Cellar running the lost attempt stopped, without its owner or a UTC time", () => {
+    const line = lostAttemptLine(lostEvents(recorded('cellar')).map((event) => ({ event })));
+    assert.equal(
+      line,
+      'demo: the restart found gauge #1 lost (the Cellar running it stopped, so its lease ran out); gauge #2 brews it again',
+    );
+  });
+});
 
 describe('a lost attempt as recorded', () => {
   it("replay's list of stored events keeps the reason as recorded (regression test)", () => {

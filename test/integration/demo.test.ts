@@ -74,10 +74,11 @@ describe('npm run demo', () => {
     };
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
     assert.match(part('brewing'), /brewing +gauge #1 started/);
-    // The restart shows that it found the lost attempt: lost, and brewed again.
+    // The restart shows that it found the lost attempt: lost because the killed Cellar stopped, in
+    // plain words without its owner or a UTC time (#277), and brewed again.
     assert.match(
       part('restart'),
-      /demo: the restart found gauge #1 lost \(the attempt was lost[^\n]*\); gauge #2 brews it again/,
+      /demo: the restart found gauge #1 lost \(the Cellar running it stopped, so its lease ran out\); gauge #2 brews it again/,
     );
     assert.equal(result.stdout.split(LOST_LINE).length, 2, 'the lost attempt is said once');
     // The red proof reads the Gauger's test red, the first fix fails green, and the Cellarman's
