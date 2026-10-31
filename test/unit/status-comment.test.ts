@@ -2650,6 +2650,34 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.ok(cut.length <= 121 && cut.length >= 100, `${cut.length}: ${cut}`);
   });
 
+  it('names no plan comment before it exists, on the lane and after the assumptions: regression test (#658)', () => {
+    const text = renderStatus(
+      batch({ lane: review, steps: new Map([step('plan', planned(2, ['Kept the flag.']))]) }),
+      ['plan'],
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      [],
+      stateBranchUrl,
+    );
+    assert.match(text, /^🔔 \*\*Stuck\*\*: the plan of `plan` #2 is ready for your review$/m);
+    assert.equal(
+      section(text).at(-1),
+      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md>`,
+    );
+  });
+
+  it('cuts a first sentence with no blank at 120 characters: regression test (#658)', () => {
+    const text = rendered(
+      batch({ lane: review, steps: new Map([step('plan', planned(2, ['x'.repeat(400)]))]) }),
+    );
+    assert.equal(section(text)[1], `- \`plan\`: ${'x'.repeat(120)}…`);
+  });
+
   it('ends a sentence only at a `.`, `!` or `?` before a blank or the end: regression test (#658)', () => {
     const text = rendered(
       batch({
