@@ -27,6 +27,12 @@ export { openedSubIssues } from './plan-applied.ts';
 /** The label of a sub-order the plan marked not ready: the intake leaves it to a person (ADR 0285). */
 export const NEEDS_REFINEMENT = 'needs-refinement';
 
+/**
+ * The label every sub-issue opens with, so the intake never reads it as an order of its own, also
+ * before `order.decomposed` names it (ADR 0285).
+ */
+export const SUB_ORDER = 'foedrum:sub-order';
+
 export interface PlanIssueEffectsOptions {
   /** The Brewery's issues and their links. */
   subIssues: SubIssues;
@@ -89,7 +95,8 @@ export const planIssueEffects = (options: PlanIssueEffectsOptions): DriverEffect
       return found === undefined ? undefined : { result: OpenedIssue.parse(found) };
     },
     apply: async (key, signal) => {
-      const labels = [`recipe:${subOrder.recipe}`, ...(subOrder.ready ? [] : [NEEDS_REFINEMENT])];
+      const recipe = `recipe:${subOrder.recipe}`;
+      const labels = [SUB_ORDER, recipe, ...(subOrder.ready ? [] : [NEEDS_REFINEMENT])];
       const title = withoutSecrets(subOrder.title, stepId, () => false);
       const body = `${bodyOf(batch, stepId, subOrder)}\n\n${effectMarker(key)}`;
       return OpenedIssue.parse(await subIssues.openIssue(title, body, labels, signal));

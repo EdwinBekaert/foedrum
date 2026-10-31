@@ -39,7 +39,7 @@ import {
   type TargetIssue,
 } from './issue-claims.ts';
 import { holdText, type Limits, routeHold, startTally } from './limits.ts';
-import { NEEDS_REFINEMENT } from './plan-issues.ts';
+import { NEEDS_REFINEMENT, SUB_ORDER } from './plan-issues.ts';
 import { type PullRequestCheckReader, recordChecks } from './pr-checks.ts';
 import { sentBackFrom } from './pull-request-fix.ts';
 import { checkPairs } from './pull-request-pairs.ts';
@@ -166,7 +166,8 @@ export const recipeLabels = (labels: readonly string[]): string[] =>
  * Whether the intake orders the Brewery's issue `issue` (ADR 0068): open, not a pull request, opened
  * by one of `authors`, with a `recipe:<name>` label, and with no batch here in any lane. A
  * sub-order is ordered by its decomposition, and the order of a claimed issue by its claim, never by
- * the intake (ADR 0144).
+ * the intake (ADR 0144); an approved plan's sub-issue carries `foedrum:sub-order` from its opening,
+ * before its decomposition is recorded (ADR 0285).
  */
 export const isBreweryOrder = (
   issue: TargetIssue,
@@ -176,6 +177,8 @@ export const isBreweryOrder = (
   issue.state === 'open' &&
   !issue.pullRequest &&
   recipeLabels(issue.labels).length > 0 &&
+  // An approved plan's sub-issue, also before its breakdown is recorded (ADR 0285).
+  !issue.labels.some((label) => same(label, SUB_ORDER)) &&
   authors.some((author) => same(author, issue.author)) &&
   (state.orders.get(issue.number)?.batchIds.length ?? 0) === 0 &&
   !state.subOrders.has(issue.number) &&
