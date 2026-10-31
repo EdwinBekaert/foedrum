@@ -204,10 +204,31 @@ describe('renderPlan (ADR 0233)', () => {
     } as const;
     const text = renderPlan('7-1', 'plan', three, undefined, outDoc, false, approval);
     assert.ok(
-      text.endsWith('**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.'),
+      text.endsWith(
+        '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`.',
+      ),
       text.slice(-120),
     );
     assert.doesNotMatch(text, /Next:|Waiting for/);
+  });
+
+  it('names the sub-orders that are not ready in the Gate section once the plan is approved (#588)', () => {
+    const approval = {
+      stepId: 'plan',
+      attempt: 2,
+      plan: '0123456789abcdef',
+      by: 'grace',
+      via: 'plugin',
+      at: '2026-10-28T10:30:00.000Z',
+    } as const;
+    const four = { subOrders: [...three.subOrders, subOrder('docs', { ready: false })] };
+    const text = renderPlan('7-1', 'plan', four, undefined, outDoc, false, approval);
+    assert.ok(
+      text.endsWith(
+        '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
+      ),
+      text.slice(-160),
+    );
   });
 
   it('ends with the next step (#658)', () => {
@@ -500,7 +521,9 @@ describe('planEffects (ADR 0233)', () => {
     assert.equal(log.state().batches.get('7-1')?.lane.kind, 'on_tap');
     await driver.applyEffects();
     assert.ok(
-      only().body.endsWith(`**Gate**\n\nApproved by grace (terminal) at ${at}.\n\n${marker(2)}`),
+      only().body.endsWith(
+        `**Gate**\n\nApproved by grace (terminal) at ${at}.\n\nNot ready: \`cli\`.\n\n${marker(2)}`,
+      ),
       only().body.slice(-200),
     );
   });

@@ -3254,6 +3254,19 @@ describe('decide: approve signs off a plan (ADR 0281, #588)', () => {
     });
   });
 
+  it('refuses an approve of a plan review whose attempt recorded no plan, naming it (#588)', () => {
+    const unrecorded = [...brewing('plan', 2, 'mash'), review(1)];
+    refuses(unrecorded, approve, /^the plan of plan #1 of batch b1 is not recorded$/);
+  });
+
+  it('refuses a recorded approval of a plan review whose attempt recorded no plan: regression test (#588)', () => {
+    const unrecorded = [...brewing('plan', 2, 'mash'), review(1)];
+    assert.deepStrictEqual(check(fold(unrecorded), approved(1, first)), {
+      kind: 'refused',
+      reason: `the plan of plan #1 of batch b1 is not recorded, not ${digestOf(first)}`,
+    });
+  });
+
   it('approves a batch recorded Stuck for a review of its plan before approve was offered (#588)', () => {
     const recorded = [
       ...brewing('plan', 2, 'mash'),
