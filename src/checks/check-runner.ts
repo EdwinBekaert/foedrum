@@ -396,7 +396,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       ...(module.coverage === 'none' ? [] : [module.coverage.path]),
     ]);
     // A report an earlier run left must never stand for this run's, nor merge its hits into it.
-    const unclear = await clearReportPaths(patterns, worktree.path, find, reports.clear);
+    const unclear =
+      patterns.map(unclearable).find((reason) => reason !== undefined) ??
+      (await clearReportPaths(patterns, worktree.path, find, reports.clear));
     if (unclear !== undefined) {
       return blocked('environment', `the reports of the test map cannot be cleared: ${unclear}`);
     }
