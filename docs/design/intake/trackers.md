@@ -20,6 +20,9 @@ The claim on a target-repository issue ([target-repository issues](../intake/tar
 These are the notes the GitHub `Tracker` adapter is designed from, for the sub-orders and their "blocked by" links ([work breakdown](work-breakdown.md)).
 They were taken on 2026-10-23 from GitHub's REST and GraphQL docs and then tried with `gh api` (keyring login) on the private Brewery `EdwinBekaert/foedrum-brewery`, issues #2–#6, labelled `spike:18` and closed afterwards.
 It is a spike: no code and no ADR follow from it here.
+The adapter built from them is `githubSubIssues` (`src/github/sub-issues.ts`, #723), the Brewery's side of the `SubIssues` interface (`src/engine/sub-issues.ts`); the target issues' `TargetTracker` stays read-only.
+It opens a Brewery issue with its labels, finds one its own login opened by a marker in its body, adds and lists sub-issues and "blocked by" links, and answers each issue as its number and its REST `id`.
+Every call, reads too, sends `X-GitHub-Api-Version: 2026-03-10`, the version these calls were tried under, and names the other issue by its `id`; a refused add, a repeat's `422` included, fails like any other, and the caller reads the list to tell a repeat from a failure.
 
 ### Identifiers and the version header
 
