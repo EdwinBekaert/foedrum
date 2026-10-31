@@ -11,6 +11,7 @@ import { type Driver, type DriverNotice, openDriver } from '../../src/engine/dri
 import { combineEffects } from '../../src/engine/effects.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { createIntake } from '../../src/engine/intake.ts';
+import { allSubIssues } from '../../src/engine/plan-applied.ts';
 import { PLAN_HEADING, planEffects } from '../../src/engine/plan-comment.ts';
 import { openedSubIssues, planIssueEffects } from '../../src/engine/plan-issues.ts';
 import { readySubOrders } from '../../src/engine/ready-set.ts';
@@ -297,6 +298,71 @@ describe('planIssueEffects (ADR 0285)', () => {
       clock: () => at,
     }).poll();
     assert.deepStrictEqual([...log.state().batches.keys()], ['7-1']);
+  });
+
+  it("records the breakdown once, and applies no claimed order's or sub-order's approved plan: regression test", async () => {
+    const planAndApprove = (batchId: string, order: { issue: number; repo?: string }) => {
+      issue({ kind: 'order', batchId, order });
+      issue({ kind: 'route', batchId, recipe: 'pale', reason: 'label', source: 'label' });
+      const ref = { batchId, stepId: 'plan', attempt: 1 };
+      issue({ kind: 'record', event: { type: 'step.started', ...ref } });
+      issue({ kind: 'finish', ...ref, ending: planned(three) });
+      issue({ kind: 'approve', batchId, by: 'grace', via: 'terminal' });
+    };
+    approved();
+    const driver = await open();
+    await driver.applyEffects();
+    await driver.applyEffects();
+    const breakdowns = () =>
+      store.eventsAfter(0).filter(({ event }) => event.type === 'order.decomposed').length;
+    assert.equal(breakdowns(), 1);
+    const opened = posts('issues');
+    // A claimed issue's batch, and a sub-order's own batch, each with an approved plan.
+    planAndApprove('web-3', { issue: 3, repo: 'acme/web' });
+    planAndApprove('8-1', { issue: 8 });
+    assert.equal(log.state().batches.get('8-1')?.lane.kind, 'on_tap');
+    await driver.applyEffects();
+    assert.equal(posts('issues'), opened);
+    assert.equal(breakdowns(), 1);
+    assert.deepStrictEqual(failed(), []);
+  });
+
+  it('writes what each sub-issue builds, and leaves out a text that looks like a secret, naming only the opened ones until all are: regression test', async () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const secret: PlanReport = {
+      subOrders: [subOrder('api', { title: token }), ...three.subOrders.slice(1)],
+    };
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    const ref = { batchId: '7-1', stepId: 'plan', attempt: 1 };
+    issue({ kind: 'record', event: { type: 'step.started', ...ref } });
+    issue({ kind: 'finish', ...ref, ending: planned(secret) });
+    issue({ kind: 'approve', batchId: '7-1', by: 'grace', via: 'terminal' });
+    const isOpen = (method: string, path: string) =>
+      method === 'POST' && path === '/repos/alice/brewery/issues';
+    await (await open(losing(api, isOpen, 3))).applyEffects();
+    assert.equal(allSubIssues(log.state(), '7-1'), undefined);
+    for (const driver of drivers.splice(0)) driver.close();
+    await (await open()).applyEffects();
+    assert.deepStrictEqual(allSubIssues(log.state(), '7-1'), [8, 9, 10]);
+    const left = '[left out: a text of step plan that looks like a secret]';
+    assert.equal(api.issue(brewery, 8)?.title, left);
+    assert.ok(!JSON.stringify(api.issues).includes(token));
+    const body = api.issue(brewery, 10)?.body ?? '';
+    assert.ok(
+      body.startsWith('Sub-order `cli` of #7, from the plan of batch `7-1` (ADR 0285).'),
+      body,
+    );
+    for (const line of [
+      '- Builds in acme/api: one endpoint, about 300 lines',
+      '- Done when: cli answers 200',
+      '- Recipe `tdd`: a test can pin it',
+      '- Not ready: the flags are open',
+    ]) {
+      assert.ok(body.split('\n').includes(line), body);
+    }
+    assert.ok(!(api.issue(brewery, 9)?.body ?? '').includes('Not ready'));
   });
 
   it('opens nothing for a plan that waits for its review, nor for a batch on tap without a plan', async () => {
