@@ -43,6 +43,13 @@ describe('resolverLeavesMachine', () => {
     );
   });
 
+  it('refuses a nameserver whose address only starts with 127.0.0.53', () => {
+    assert.equal(
+      resolverLeavesMachine('nameserver 127.0.0.530\n'),
+      "the host's resolver is not systemd-resolved's stub alone",
+    );
+  });
+
   it('refuses a nameserver whose address only ends in 127.0.0.53', () => {
     assert.equal(
       resolverLeavesMachine('nameserver 2001:db8::127.0.0.53\n'),
