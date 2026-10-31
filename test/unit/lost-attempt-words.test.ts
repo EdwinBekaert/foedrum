@@ -4,15 +4,14 @@ import { lostAttemptLine } from '../../scripts/demo/walkthrough.ts';
 import { formatReplay } from '../../src/cli/replay.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
 import { fold } from '../../src/engine/fold.ts';
-import { expiredLeaseReason } from '../../src/engine/supervisor.ts';
+import { expiredLeaseReason, lostReason } from '../../src/engine/supervisor.ts';
 import { Event } from '../../src/schemas/events.ts';
 
 // The reason the supervisor records for an attempt whose lease ran out (ADR 0027), as stores hold
 // it: a person reads the lines that show it in plain words, without the driver's name or a UTC time
 // they would read as local (#277).
 const expiredAt = '2026-10-31T14:05:04.640Z';
-const recorded = (owner: string) =>
-  `the attempt was lost: ${expiredLeaseReason(owner, new Date(expiredAt))}`;
+const recorded = (owner: string) => lostReason(expiredLeaseReason(owner, new Date(expiredAt)));
 
 /** A batch whose gauge #1 failed for `reason` and whose gauge #2 has started. */
 const lostEvents = (reason: string): Event[] =>

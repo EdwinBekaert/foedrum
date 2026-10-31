@@ -25,7 +25,7 @@ import {
   type StatusComments,
   statusEffects,
 } from '../../src/engine/status-comment.ts';
-import { expiredLeaseReason } from '../../src/engine/supervisor.ts';
+import { expiredLeaseReason, lostReason } from '../../src/engine/supervisor.ts';
 import type { StuckReason } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -412,7 +412,7 @@ describe('renderStatus', () => {
   });
 
   it('says a lost attempt with the reason the supervisor records was lost, and nothing of its lease (regression test)', () => {
-    const reason = `the attempt was lost: ${expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z'))}`;
+    const reason = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
     const text = renderStatus(
       batch({
         steps: new Map([step('gauge', failed(1, reason), done(2))]),

@@ -16,9 +16,14 @@ import type { FlushResult } from './state-branch-git.ts';
 export const expiredLeaseReason = (owner: string, expiresAt: Date): string =>
   `the lease of ${owner} expired at ${expiresAt.toISOString()}`;
 
-// The reason a lost attempt finishes with: decide's prefix before the supervisor's reason.
-const LOST_REASON =
-  /^the attempt was lost: the lease of (.+) expired at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+/** The reason a lost attempt finishes with, which decide records (ADR 0027). */
+export const lostReason = (reason: string): string => `the attempt was lost: ${reason}`;
+
+// The reason of an attempt lost because its lease ran out, as lostReason and expiredLeaseReason
+// make it.
+const LOST_REASON = new RegExp(
+  `^${lostReason(String.raw`the lease of (.+) expired at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z`)}$`,
+);
 
 /**
  * Why an attempt was lost, in a person's words: the driver that ran it stopped, named by what it
@@ -35,7 +40,7 @@ export const lostBecause = (reason: string): string | undefined => {
 /** A failed attempt's reason as a person reads it: a lost attempt's in plain words. */
 export const plainReason = (reason: string): string => {
   const because = lostBecause(reason);
-  return because === undefined ? reason : `the attempt was lost: ${because}`;
+  return because === undefined ? reason : lostReason(because);
 };
 
 /** What the runner (#11) knows about a running attempt: when it last wrote a file or committed. */
