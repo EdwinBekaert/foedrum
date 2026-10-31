@@ -89,6 +89,7 @@ This record writes them down.
 - **Commands stay in `foedrum.jsonc`**, confirmed by a person, as [ADR 0023](0023-language-independent-recipes.md) has them. A module's tests run under a confirmed check line, such as one `dotnet test` over the solution that writes a report per test project. The red proof and the uncovered check read the reports of that line's run where the map says they are.
   A module that the map lists and that no confirmed line reaches, such as a new test project the confirmed line does not run, makes the batch Stuck (`environment`). The reason names the module and suggests the line to add. Foedrum never runs a command that the map or a brewer proposed.
   A module the base's map already lists is taken as reached, as the base is taken as green, so when it writes no report that counts as a load error (above). A module the batch's change added to the map, which writes no report, is the unreached case.
+  So a new module that the confirmed line does reach but that fails to compile is read as unreached, and its batch is Stuck instead of retried. That is accepted: a person sees it at once, and the Stuck reason carries the tail of the run's output, so the compile error shows.
 - **It is a sensitive path.** The map is in `sensitivePaths` without being named there, so the status comment names a change to it ([ADR 0201](0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)).
   A map a batch proposed or refreshed is one such change.
 - **Its shape**, a sketch for the build issue rather than a schema:
