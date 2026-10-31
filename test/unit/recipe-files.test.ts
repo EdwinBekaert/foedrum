@@ -1872,6 +1872,52 @@ describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () =
     });
   });
 
+  /** Batch 12-1 whose step `stepId` ended each attempt as `outcomes` say, in order. */
+  const ended = (stepId: string, outcomes: readonly ('ok' | 'failed')[]): Batch => ({
+    ...batch({}),
+    steps: new Map([
+      [
+        stepId,
+        {
+          id: stepId,
+          inputs: [],
+          attempts: new Map(
+            outcomes.map((outcome, i): [number, Attempt] => [
+              i + 1,
+              {
+                phase: 'finished',
+                attempt: i + 1,
+                deadlineAt: D,
+                outcome:
+                  outcome === 'ok'
+                    ? { kind: 'succeeded', output: null }
+                    : { kind: 'failed', retryable: true, reason: 'the plan is invalid' },
+              },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  });
+  // The brewmaster has three attempts.
+  const pale = () => {
+    const steps = [{ id: 'plan', brewer: 'brewmaster' }, lauter('fix')];
+    const result = loadRecipes(brewery({ recipes: [recipe('pale', steps)] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    return result.recipes.find('pale') ?? assert.fail('no recipe pale');
+  };
+
+  it('counts the attempts of a chosen step since its latest success, not over the batch (#589)', () => {
+    const recipe = pale();
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'ok', 'failed']), 'fix'), true);
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed']), 'fix'), true);
+    assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed', 'failed']), 'fix'), false);
+  });
+
+  it("counts a step's attempts over the batch when no choice schedules it: regression test (#589)", () => {
+    assert.equal(pale().mayRetry(ended('plan', ['ok', 'ok', 'failed']), 'plan'), false);
+  });
+
   it('goes past a chosen step to the step after it: regression test (#589)', () => {
     const steps = [
       { id: 'plan', brewer: 'brewmaster' },
