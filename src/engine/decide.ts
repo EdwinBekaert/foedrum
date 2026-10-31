@@ -26,7 +26,15 @@ import {
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind, TastingFinding } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
-import { check, type Decision, laneRefusal, nonTerminal, notAllowed } from './admit.ts';
+import {
+  check,
+  type Decision,
+  laneRefusal,
+  nonTerminal,
+  noPlanToReview,
+  notAllowed,
+  planDigest,
+} from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
@@ -74,6 +82,8 @@ export type HumanCommand =
   /** `shas`: the commit of each repository at `toStepId`, by `owner/name`. */
   | ({ kind: 'rewind'; toStepId: string; shas: Readonly<Record<string, string>> } & Issuer)
   | ({ kind: 'cancel' } & Issuer)
+  /** A person's sign-off of the plan a batch Stuck as `plan_review` waits with (ADR 0281). */
+  | ({ kind: 'approve' } & Issuer)
   /**
    * A new batch of an issue a person orders by hand (`foedrum order`, ADR 0105): refused while the
    * issue has a live batch, while its last claim is held or being released, or when it is a
@@ -250,9 +260,10 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'stopped':
     case 'pull_request_failed':
       return [...withoutAnswer];
-    // A plan to review: plan it again, choose another recipe, or end it (ADR 0275). A skip or a
-    // rewind would end the recipe on the same plan again; #588's gate adds approve.
+    // A plan to review: sign it off (ADR 0281), plan it again, choose another recipe, or end it
+    // (ADR 0275). A skip or a rewind would end the recipe on the same plan again.
     case 'plan_review':
+      return ['approve', 'retry', 'recipe', 'cancel'];
     // No step yet to skip, answer or rewind to: route it again, choose a recipe, or cancel it.
     case 'routing':
       return ['retry', 'recipe', 'cancel'];
@@ -472,6 +483,9 @@ function run(draft: Draft, command: Command): Event[] {
       break;
     case 'rewind':
       rewind(draft, command);
+      break;
+    case 'approve':
+      approve(draft, command);
       break;
     case 'cancel': {
       const { batchId, by, via } = command;
@@ -1127,6 +1141,33 @@ function enter(draft: Draft, batchId: string, stepId: string): void {
   }
   draft.push({ type: 'step.skipped', batchId, stepId, when });
   continueAfter(draft, batchId, stepId);
+}
+
+/**
+ * A person's sign-off of the plan its batch waits Stuck with a review of, by its digest, and the
+ * batch on tap in the same decision (ADR 0281). Read by the lane's reason, not its options: a batch
+ * Stuck for a review before approve was offered is approved too.
+ */
+function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kind: 'approve' }>) {
+  const batch = requireLane(draft.batch(batchId), 'approve', ['stuck']);
+  const { reason } = batch.lane as Extract<Lane, { kind: 'stuck' }>;
+  if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason.kind));
+  const { stepId, attempt } = reason;
+  const plan = planDigest(batch, stepId, attempt);
+  if (plan === undefined) {
+    throw new Refusal(`the plan of ${stepId} #${attempt} of batch ${batchId} is not recorded`);
+  }
+  draft.push({
+    type: 'batch.approved',
+    batchId,
+    stepId,
+    attempt,
+    plan,
+    by,
+    via,
+    at: draft.after(0),
+  });
+  draft.push({ type: 'batch.on_tap', batchId, pullRequests: [] });
 }
 
 /** Enters the step that follows `stepId` in the batch's recipe, or puts the batch on tap. */

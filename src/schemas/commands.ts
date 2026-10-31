@@ -69,6 +69,10 @@ export type RetryCommand = z.infer<typeof RetryCommand>;
 export const SkipCommand = z.strictObject({ command: z.literal('skip'), batch: PathSafeId });
 export type SkipCommand = z.infer<typeof SkipCommand>;
 
+/** `foedrum approve <batch>`: sign off the plan a batch Stuck for its review waits with (ADR 0281). */
+export const ApproveCommand = z.strictObject({ command: z.literal('approve'), batch: PathSafeId });
+export type ApproveCommand = z.infer<typeof ApproveCommand>;
+
 export const CancelCommand = z.strictObject({ command: z.literal('cancel'), batch: PathSafeId });
 export type CancelCommand = z.infer<typeof CancelCommand>;
 
