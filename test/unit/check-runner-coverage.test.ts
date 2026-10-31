@@ -919,7 +919,7 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
       folders: [junitFile],
     });
     const { ending } = await run();
-    assert.equal(ending.kind, 'blocked');
+    assert.equal(ending.kind === 'blocked' && ending.blockerKind, 'environment');
     assert.match(
       ending.kind === 'blocked' ? ending.summary : '',
       /^the test report pattern junit\.xml of module "calc" names a folder, junit\.xml:/,
