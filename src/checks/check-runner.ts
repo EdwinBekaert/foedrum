@@ -400,8 +400,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
     const of = checks.proves(recipe, stepId);
     // The test map matters to a step that runs the tests: a red proof, or a step with a test check.
-    const fresh =
-      of !== undefined || refs.includes('test') ? await manifests(batch, worktree, signal) : {};
+    // Without maps nothing is awaited, so the first check starts at once, before the engine could
+    // stop the attempt.
+    const reads = options.testMap !== undefined && (of !== undefined || refs.includes('test'));
+    const fresh = reads ? await manifests(batch, worktree, signal) : {};
     if ('end' in fresh) return fresh.end;
     const end =
       of !== undefined
