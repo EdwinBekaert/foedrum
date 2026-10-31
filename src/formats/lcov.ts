@@ -37,7 +37,7 @@ export function parseLcov(text: string, root: string): ReadCoverage {
     }
     record = undefined;
   };
-  for (const raw of text.replace(/^﻿/, '').split('\n')) {
+  for (const [index, raw] of text.replace(/^﻿/, '').split('\n').entries()) {
     const line = raw.trim();
     if (line.startsWith('SF:')) {
       end();
@@ -47,12 +47,13 @@ export function parseLcov(text: string, root: string): ReadCoverage {
       end();
     } else if (record !== undefined && line.startsWith('DA:')) {
       const [, number = '', hits = ''] = DA.exec(line) ?? [];
-      if (number === '') return { readable: false, reason: `its line "${line}" is not LCOV` };
+      // By its number: the report is the tested code's output, and its text stays out of a reason.
+      if (number === '') return { readable: false, reason: `its line ${index + 1} is not LCOV` };
       const at = Number(number);
       record.hits.set(at, Math.max(record.hits.get(at) ?? 0, Number(hits)));
     } else if (record !== undefined && line.startsWith('BRDA:')) {
       const [, number = '', taken = ''] = BRDA.exec(line) ?? [];
-      if (number === '') return { readable: false, reason: `its line "${line}" is not LCOV` };
+      if (number === '') return { readable: false, reason: `its line ${index + 1} is not LCOV` };
       const at = Number(number);
       const had = record.branches.get(at) ?? { taken: 0, total: 0 };
       const ran = taken !== '-' && Number(taken) > 0;

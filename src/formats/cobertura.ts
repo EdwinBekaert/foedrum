@@ -69,9 +69,10 @@ export function parseCobertura(
       const number = line.attributes.get('number') ?? '';
       const hits = line.attributes.get('hits') ?? '';
       if (!COUNT.test(number) || !COUNT.test(hits)) {
+        // The attributes are the tested code's output: they stay out of the reason.
         return {
           readable: false,
-          reason: `its <line number="${number}" hits="${hits}"> is not Cobertura`,
+          reason: 'it has a <line> whose number or hits is not a whole number',
         };
       }
       const [, taken, total] =
