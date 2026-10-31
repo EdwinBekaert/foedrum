@@ -38,6 +38,7 @@ Verdicts: correctness approve · security approve · …
 | # | Mutant | Result | Disposition |
 |---|---|---|---|
 | 1 | `src/…:42` removed timeout | survived / killed in round <1 or 2> by `<first test>` / killed (timed out) in round <1 or 2> / not judged (…) / invalid: <reason> | … |
+| 2 *(script)* | `src/…:7` isValid always false | … | … |
 
 ### House yeast
 

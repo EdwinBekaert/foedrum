@@ -238,4 +238,137 @@ describe('mutants on a scratch tree', () => {
       assert.match(result.stderr.join('\n'), /^usage: /);
     }
   });
+
+  it('checks and applies a mutant the script wrote like one of Brett’s', async () => {
+    write({ mutants: [valid, { ...valid, replacement: 'return a * b;', source: 'script' }] });
+    assert.deepEqual(await checkMutants(tree, answer), {
+      ok: true,
+      lines: ['mutant 1: valid src/add.ts:2', 'mutant 2: valid src/add.ts:2'],
+    });
+    await applyMutant(tree, answer, 2);
+    assert.equal(read(), source.replace('a + b', 'a * b'));
+  });
+});
+
+describe('same-answer mutants on a scratch tree', () => {
+  let dir: TempDir;
+  let tree: string;
+  let answer: string;
+  let files: string;
+  const brett = {
+    file: 'src/is-even.ts',
+    line: 1,
+    original: 'export const isEven = (n: number): boolean => n % 2 === 0;',
+    replacement: 'export const isEven = (n: number): boolean => n % 2 !== 0;',
+    description: 'inverted',
+  };
+  const answerMutants = (): unknown[] =>
+    (JSON.parse(readFileSync(answer, 'utf8')) as { mutants: unknown[] }).mutants;
+
+  beforeEach(() => {
+    dir = makeTempDir('same-answer');
+    tree = join(dir.path, 'tree');
+    answer = join(dir.path, 'brett.json');
+    files = join(dir.path, 'files.txt');
+    mkdirSync(join(tree, 'src'), { recursive: true });
+    mkdirSync(join(tree, 'test', 'unit'), { recursive: true });
+    writeFileSync(join(tree, 'src', 'is-even.ts'), `${brett.original}\n`);
+    writeFileSync(
+      join(tree, 'test', 'unit', 'is-even.test.ts'),
+      "import { isEven } from '../../src/is-even.ts';\nassert.equal(isEven(1), false);\nassert.equal(isEven(3), false);\n",
+    );
+    writeFileSync(files, 'A\tsrc/is-even.ts\nA\ttest/unit/is-even.test.ts\n');
+    writeFileSync(answer, JSON.stringify({ mutants: [brett] }));
+  });
+  afterEach(() => dir.remove());
+
+  it('appends the same-answer mutant to Brett’s answer once, however often it runs', async () => {
+    const scripted = {
+      file: 'src/is-even.ts',
+      line: 1,
+      original: brett.original,
+      replacement: 'export const isEven = (n: number): boolean => false && (n % 2 === 0);',
+      description:
+        'isEven returns false for every input: every assertion on it in the changed tests expects false',
+      source: 'script',
+    };
+    for (let run = 1; run <= 2; run += 1) {
+      assert.deepEqual(await main([tree, answer, '--same-answer', '--touched', files]), {
+        exitCode: 0,
+        stdout: ['mutants: same answer: src/is-even.ts:1 isEven always false'],
+        stderr: [],
+      });
+      assert.deepEqual(answerMutants(), [brett, scripted], `run ${run}`);
+    }
+  });
+
+  it('keeps a mutant of Brett’s that is marked as the script’s', async () => {
+    const marked = { ...brett, source: 'script' };
+    writeFileSync(answer, JSON.stringify({ mutants: [marked] }));
+    await main([tree, answer, '--same-answer', '--touched', files]);
+    const mutants = answerMutants();
+    assert.equal(mutants.length, 2);
+    assert.deepEqual(mutants[0], marked);
+  });
+
+  it('says when the change gives no same-answer mutant, and keeps Brett’s answer', async () => {
+    writeFileSync(files, 'A\tsrc/is-even.ts\n');
+    assert.deepEqual(await main([tree, answer, '--same-answer', '--touched', files]), {
+      exitCode: 0,
+      stdout: ['mutants: same answer: none'],
+      stderr: [],
+    });
+    assert.deepEqual(answerMutants(), [brett]);
+  });
+
+  it('needs the changed files, and leaves an answer that is not Brett’s JSON as it is', async () => {
+    const usage = await main([tree, answer, '--same-answer']);
+    assert.equal(usage.exitCode, 2);
+    assert.match(usage.stderr.join('\n'), /^usage: .*--same-answer/);
+    writeFileSync(answer, '{ "patches": [] }');
+    assert.deepEqual(await main([tree, answer, '--same-answer', '--touched', files]), {
+      exitCode: 1,
+      stdout: ['mutants: the answer has no "mutants" list'],
+      stderr: [],
+    });
+    assert.equal(readFileSync(answer, 'utf8'), '{ "patches": [] }');
+  });
+
+  it('refuses --same-answer with a mutant number and leaves the answer as it is', async () => {
+    const before = readFileSync(answer, 'utf8');
+    const result = await main([tree, answer, '1', '--same-answer', '--touched', files]);
+    assert.equal(result.exitCode, 2);
+    assert.equal(readFileSync(answer, 'utf8'), before);
+  });
+
+  it('keeps the answer’s other fields and takes sources only from src/ and scripts/', async () => {
+    writeFileSync(answer, JSON.stringify({ notes: 'n', mutants: [] }));
+    mkdirSync(join(tree, 'test', 'helpers'), { recursive: true });
+    writeFileSync(
+      join(tree, 'test', 'helpers', 'is-odd.ts'),
+      'export const isOdd = (n: number): boolean => n % 2 === 1;\n',
+    );
+    writeFileSync(
+      join(tree, 'test', 'unit', 'is-odd.test.ts'),
+      "import { isOdd } from '../helpers/is-odd.ts';\nassert.equal(isOdd(2), false);\n",
+    );
+    writeFileSync(
+      files,
+      'A\tsrc/is-even.ts\nA\ttest/unit/is-even.test.ts\nA\ttest/helpers/is-odd.ts\nA\ttest/unit/is-odd.test.ts\n',
+    );
+    const result = await main([tree, answer, '--same-answer', '--touched', files]);
+    assert.deepEqual(result.stdout, ['mutants: same answer: src/is-even.ts:1 isEven always false']);
+    assert.equal((JSON.parse(readFileSync(answer, 'utf8')) as { notes: string }).notes, 'n');
+  });
+
+  it('gives no mutant for a touched file it cannot read and still writes the others', async () => {
+    writeFileSync(
+      files,
+      'A\tsrc/gone.ts\nA\ttest/unit/gone.test.ts\nA\tsrc/is-even.ts\nA\ttest/unit/is-even.test.ts\n',
+    );
+    const result = await main([tree, answer, '--same-answer', '--touched', files]);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.stdout, ['mutants: same answer: src/is-even.ts:1 isEven always false']);
+    assert.equal(answerMutants().length, 2);
+  });
 });
