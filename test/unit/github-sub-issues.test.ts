@@ -124,6 +124,23 @@ describe('githubSubIssues', () => {
     });
   });
 
+  it('takes issue 1, the lowest number there is', async () => {
+    const { subIssues } = onFake([{ number: 1, labels: [], author: 'alice' }]);
+    assert.deepStrictEqual(await subIssues.subIssues(1), []);
+    assert.deepStrictEqual(await subIssues.blockedBy(1), []);
+  });
+
+  it('names the status GitHub refused an issue with', async () => {
+    const fake = fakeFetch([
+      { status: 410, body: { message: 'Issues are disabled for this repo' } },
+    ]);
+    const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
+    await assert.rejects(
+      githubSubIssues({ client, brewery, login }).openIssue('Title', 'Body', []),
+      /GitHub answered 410 to opening an issue in acme\/brewery: Issues are disabled/,
+    );
+  });
+
   it('asks nothing once its signal has aborted, for a read and for a write', async () => {
     const fake = fakeFetch([]);
     const client = createGitHubClient({ exec: ghOver(fake.fetch).exec });
