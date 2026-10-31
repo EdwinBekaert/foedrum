@@ -21,6 +21,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
       "setup": { "command": "dotnet restore", "timeout": "15m" },  // before a brewer attempt and a check step's checks (ADR 0163)
       "tools": ["Bash(dotnet test*)", "Bash(dotnet build*)"],    // added to every brewer's allowlist
       "houseYeast": "repo",                                      // or "brewery" (ADR 0018)
+      "testMap": "repo",                                         // or "brewery" (ADR 0274)
       "alias": "billing",                                        // batches billing-<issue>
       "intake": { "labels": ["foedrum"] },                      // claim and brew its labelled issues
       "sensitivePaths": [".github/workflows/**", "src/Auth/**"]  // named when a batch touches them (ADR 0201)
@@ -73,6 +74,8 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   When a batch's pull request is pushed, the files its change adds, alters or deletes (a rename at both paths), from where its change starts to the commit pushed, are matched once, and the push's ledger result keeps how many matched and the first 50 ([openPullRequest](open-pull-request.md)).
   The status comment then names the first 10 in one line after its steps, `Touches sensitive paths: …`, with a count of the rest, in every lane from then on.
   It is a fact for the person who merges, never an approval or a block: tasting does not change.
+  The repository's test map, `.foedrum/test-map.jsonc`, is matched as though it were listed, unless the Brewery keeps the map; the line after names each module its map adds with `coverage: none` ([the test map](../checks/test-map.md)).
+- `testMap` (`"repo"`, the default, or `"brewery"`) says where the repository's [test map](../checks/test-map.md) is kept: its own `.foedrum/test-map.jsonc`, or the Brewery's `test-maps/<owner>/<name>.jsonc` ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 - At the top level, `concurrency` (1 to 20, default 1) is how many batches may be Ordered or Brewing at once ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)), and `openOrders` (1 to 20, default 3) how many orders may be in progress at once ([limits](../intake/limits.md)).
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 
