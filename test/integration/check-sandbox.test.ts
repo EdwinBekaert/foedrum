@@ -16,7 +16,7 @@ import { bwrapArgs, SANDBOX_EXEC, sandboxedChecks } from '../../src/platform/che
 import { resolveExecutable } from '../../src/platform/executables.ts';
 import { type ExecOptions, execProcess } from '../../src/platform/processes.ts';
 import { waitUntil } from '../helpers/load.ts';
-import { linuxResolverUnavailable, resolverLeavesMachine } from '../helpers/resolver.ts';
+import { linuxResolverUnavailable } from '../helpers/resolver.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 /** Why the sandbox cannot run on this machine, or undefined when it can. */
@@ -388,12 +388,11 @@ describe('a setup in the real sandbox, the network kept', {
 
   // The query goes to the stack's 10.0.2.3, which slirp4netns answers under its seccomp filter
   // (ADR 0277) through the host's systemd-resolved, which answers localhost itself, so nothing
-  // leaves the machine: a host with another resolver skips it, and on CI's ubuntu leg it fails
-  // before it sends the query (review of #702).
+  // leaves the machine: a host with another resolver skips it before it sends the query, on CI's
+  // ubuntu leg too, whose runners differ in their resolver (review of #702, #720).
   it("resolves a name through the stack's resolver on Linux", {
     skip: resolverSkip() ?? false,
   }, async () => {
-    assert.equal(resolverLeavesMachine(resolvConf()), undefined);
     const query = `require('dns').resolve4('localhost',(e,a)=>process.exit(!e&&a.includes('127.0.0.1')?0:3))`;
     const result = await setup(`"${process.execPath}" -e "${query}"`);
     assert.equal(result.exitCode, 0, result.output);

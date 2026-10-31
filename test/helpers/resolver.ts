@@ -23,13 +23,13 @@ export type ResolverHost = {
 };
 
 /**
- * Off CI a host whose query could leave it, or whose stack is pasta, which has no resolver to
- * forward to behind systemd-resolved's stub (ADR 0218), skips; CI's Linux leg runs and fails.
+ * A host whose query could leave it skips, on CI too, since ubuntu runners differ in their
+ * resolver (#720). Off CI so does a host whose stack is pasta, which has no resolver to forward
+ * to behind systemd-resolved's stub (ADR 0218); CI's Linux leg must have slirp4netns.
  */
 export const linuxResolverUnavailable = (host: ResolverHost): string | undefined => {
   if (host.platform !== 'linux') return 'the stack is a Linux one';
-  if (host.inCi) return undefined;
-  if (!host.slirp4netns) {
+  if (!host.inCi && !host.slirp4netns) {
     return "the stack here is pasta, whose resolver misses systemd-resolved's stub (ADR 0218)";
   }
   return resolverLeavesMachine(host.resolvConf);
