@@ -294,7 +294,8 @@ export interface PlanEffectsOptions {
 /**
  * The plan comment of every order whose batch has a succeeded plan, for the driver: a revision
  * whenever its text changed, edited in place, a later batch of the order editing the same comment.
- * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233).
+ * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233), and its Gate when
+ * a pass opens the approved plan's sub-issues, which the driver applies before it (ADR 0285).
  */
 export const planEffects = (options: PlanEffectsOptions): DriverEffects => {
   const { brewery, comments, stateBranchUrl } = options;

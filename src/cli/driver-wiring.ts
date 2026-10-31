@@ -243,23 +243,24 @@ export const wireDriver = async (
     recipes: setup.recipes,
     redProof: (recipe) => setup.checks.redProof(recipe)?.id,
   });
-  // An approved plan's sub-orders, as Brewery sub-issues through the ledger (ADR 0285).
+  // An approved plan's sub-orders, as Brewery sub-issues through the ledger (ADR 0285), first, so
+  // a pass opens them all before the comments that name them are written.
   const planIssues = planIssueEffects({
     subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
   });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
+          planIssues,
           status,
           planComments,
-          planIssues,
           labels,
           recipeLabels,
           conflicts,
           briefs,
           claimEffects({ claimant, marks, claims }),
         )
-      : combineEffects(status, planComments, planIssues, labels, recipeLabels, conflicts, briefs);
+      : combineEffects(planIssues, status, planComments, labels, recipeLabels, conflicts, briefs);
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({
     brewery: setup.brewery,
