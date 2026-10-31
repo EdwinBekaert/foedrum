@@ -845,6 +845,22 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     );
   });
 
+  it('a green check whose report holds no skip reads its coverage as before: regression test', async () => {
+    const passing =
+      '<testsuites><testcase name="clamps" file="test/calc.test.ts" line="5"/></testsuites>';
+    const { run } = setup({
+      maps: junitMaps,
+      diff: spike('ts', '2-green', 'step.diff'),
+      coverage: { 'lcov.info': lcov(spike('ts', '2-green', 'lcov.info')) },
+      testReports: { [junitFile]: { kind: 'text', text: passing } },
+    });
+    const end = await run();
+    assert.equal(
+      reasonOf(end),
+      '3 changed lines no test runs: src/calc.ts:12 (branch not taken), src/calc.ts:13, src/calc.ts:14',
+    );
+  });
+
   it('a test report left from an earlier run is removed before the green test runs', async () => {
     const { run, asked } = setup({ maps: junitMaps, diff: adding('test/calc.test.ts', 5, 2) });
     await run();

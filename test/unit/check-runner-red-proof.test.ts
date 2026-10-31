@@ -822,6 +822,27 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     );
   });
 
+  it('still refuses a red proof whose report places a skip in a line its step added: regression test', async () => {
+    const skip = `<testsuites>
+  <testcase name="serves"/>
+  <testcase name="later" file="test/add.test.mjs" line="2"><skipped/></testcase>
+</testsuites>`;
+    const { run } = setup({
+      ...wrote,
+      files: { ...wrote.files, [apiXml]: text(skip) },
+      maps: { [gaugeStart]: mapOf(web, api), [tip]: mapOf(web, api) },
+      report: null,
+      test: { exitCode: 1, stdout: '' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason:
+        'the red proof of step gauge failed: test "later" is skipped at test/add.test.mjs:2, a line the step added, so it proves nothing',
+    });
+  });
+
   it("judges no uncovered lines in a red proof that passes on a run that exited 0: the uncovered-line check is a check step's: regression test", async () => {
     // The exit code decides nothing: a red proof can pass on a run that exited 0.
     const { order, run } = setup({
