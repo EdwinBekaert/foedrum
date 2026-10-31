@@ -35,6 +35,7 @@ import {
   type StepReport,
   stepReports,
 } from './pull-request.ts';
+import { siblingSection } from './sibling-pull-requests.ts';
 import { taskTreeStart } from './task-tree.ts';
 
 /** What Foedrum asks the code host to open. */
@@ -124,6 +125,8 @@ interface BodyFrom {
   attempts: readonly AttemptRow[];
   /** The effect that writes it, which its marker names (ADR 0227). */
   key: BatchEffectKey;
+  /** The section that names the order's other pull requests, for a sub-order's (ADR 0292). */
+  siblings?: string;
 }
 
 /** What one of the action's effects does, as `due` worked it out. */
@@ -274,7 +277,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   };
 
   const render = async (from: BodyFrom, signal?: AbortSignal) => {
-    const { order, reports, isCommit, recipe, attempts, key } = from;
+    const { order, reports, isCommit, recipe, attempts, key, siblings } = from;
     return pullRequestText({
       title: await orderTitle(order, signal),
       closes: { repo: order.repo ?? brewery, issue: order.issue },
@@ -283,6 +286,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       ...(recipe === undefined ? {} : { recipe }),
       attempts,
       key,
+      ...(siblings === undefined ? {} : { siblings }),
     });
   };
 
@@ -438,6 +442,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
             }),
         ...(previous === undefined ? {} : { previous }),
       });
+      const siblings = siblingSection(state, batchId);
       const from = (key: BatchEffectKey): BodyFrom => ({
         order,
         reports: stepReports(batch),
@@ -445,6 +450,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         ...(batch.recipe === undefined ? {} : { recipe: batch.recipe.name }),
         attempts: brewLog(batch),
         key,
+        ...(siblings === undefined ? {} : { siblings }),
       });
       const opened = pullRequestKey(batchId);
       effects.set(effectKey.encode(opened), {

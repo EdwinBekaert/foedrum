@@ -127,6 +127,16 @@ export const bodyOwner = (batchId: string, body: string): BodyOwner => {
   return { kind: 'left', left: marked ? 'edited' : 'unmarked' };
 };
 
+/** The text above a body's last line, its marker's when it is Foedrum's own (`bodyOwner`). */
+export const textAboveMarker = (body: string): string => {
+  const text = normalized(body);
+  return text.slice(0, Math.max(0, text.lastIndexOf('\n'))).trimEnd();
+};
+
+/** `text`, ending with the marker of `key` (ADR 0227). */
+export const markedBody = (key: BatchEffectKey, text: string): string =>
+  `${text}\n\n${bodyMarker(key, text)}`;
+
 /** What the latest round's body effect recorded (ADR 0227), for a round after the first. */
 export const latestBody = (state: State, batchId: string): BodyResult | undefined => {
   const round = recordedPushes(state, batchId).length;
@@ -478,6 +488,8 @@ const MAX_REPORTS = 25_000;
 /** Room for the lines around the reports: the details, the fences and the cut. */
 const FRAME = 200;
 const CUT = '(cut short)';
+/** The longest sibling section (ADR 0292), which every body keeps room for. */
+export const MAX_SIBLINGS = 8_000;
 /** How far past the cut a text is read for secrets: room for a match that starts before it. */
 const SCAN_PAST = 1_000;
 /** The most attempts the brew table lists, and the longest a reason or a cell it shows. */
@@ -913,11 +925,14 @@ export const pullRequestText = ({
   recipe,
   attempts = [],
   key,
+  siblings,
 }: PullRequestTextInput): PullRequestText => {
   const order = `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
   const written = reports.findLast(({ sections }) => sections !== undefined);
   const head = [
+    // First, so a revision of it later finds and replaces it whole (ADR 0292).
+    ...(siblings === undefined ? [] : [siblings]),
     ...(written?.sections === undefined
       ? []
       : [howItWorks(written.stepId, written.sections, isCommit)]),
@@ -931,10 +946,20 @@ export const pullRequestText = ({
   const closing = `Closes ${order}`;
   // The marker, when there is one, is as long whatever the text above it (ADR 0227).
   const marking = key === undefined ? 0 : bodyMarker(key, '').length + 2;
-  // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS.
+  // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS, less room for
+  // the longest sibling section, which a later revision may write in place of this one (ADR 0292).
   const room = Math.max(
     0,
-    Math.min(MAX_REPORTS, MAX_BODY - head.length - closing.length - marking - FRAME),
+    Math.min(
+      MAX_REPORTS,
+      MAX_BODY -
+        head.length +
+        (siblings?.length ?? 0) -
+        MAX_SIBLINGS -
+        closing.length -
+        marking -
+        FRAME,
+    ),
   );
   // Only what can be shown is read (ADR 0088): reports of 1 MiB would cost a second at every apply.
   let unread = room + SCAN_PAST;
