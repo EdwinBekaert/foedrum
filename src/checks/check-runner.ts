@@ -51,11 +51,12 @@ import {
   settleReadings,
 } from './gravity.ts';
 import {
+  cut,
   judgeMapped,
   judgeRed,
   type MappedReport,
   needsTestReport,
-  skipsInAddedLines,
+  skipInAddedLines,
 } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readFilesAt, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
@@ -845,8 +846,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     );
     // The check sandbox runs in the worktree's real path, so a report may name its files by either.
     const real = (options.testMap?.realPath ?? realPath)(worktree.path);
-    // A skip the batch added hides what its test would show, as at a red proof: named first, as the
-    // red proof names the first of its checks that fails (ADR 0274).
+    // A skip the batch added weakens a test the change was proven by: named first, as the red
+    // proof names the first of its checks that fails (ADR 0274).
     const tests: MappedReport[] = [];
     for (const { module } of modules) {
       // A TRX report's skips are left unread at green, where a .NET target brewed before (#727).
@@ -856,7 +857,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if ('failed' in wrote) return failed(wrote.failed);
       tests.push(...wrote.reports);
     }
-    const skipped = skipsInAddedLines(
+    const skip = skipInAddedLines(
       tests,
       new Map(changed.map(({ path, addedAt }) => [path, new Set(addedAt)])),
       worktree.path,
@@ -864,7 +865,11 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       real === worktree.path ? undefined : real,
       (path) => areaOf(modules, path, foldCase)?.module,
     );
-    if (skipped !== undefined) return failed(skipped);
+    if (skip !== undefined) {
+      return failed(
+        `test "${cut(skip.name)}" is skipped at ${cut(skip.path)}:${skip.line}, a line the batch added: a change may not skip a test it was proven by`,
+      );
+    }
     // The reports are read only for a change to code some report measures.
     const measured = changed.some(({ path }) => {
       const area = areaOf(modules, path, foldCase);
