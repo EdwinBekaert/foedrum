@@ -213,7 +213,7 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       owner: 'ann',
       ...issued,
       take: true,
-      lauter: true,
+      lauter: '12-1',
     });
     assert.equal('lauter' in brewRequestOf(command, 'ann', issued, undefined), false);
   });

@@ -1872,6 +1872,18 @@ describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () =
     });
   });
 
+  it('goes past a chosen step to the step after it: regression test (#589)', () => {
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      lauter('fix'),
+      { id: 'tail', brewer: 'brewmaster' },
+    ];
+    const result = loadRecipes(brewery({ recipes: [recipe('pale', steps)] }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    const pale = result.recipes.find('pale') ?? assert.fail('no recipe pale');
+    assert.deepEqual(pale.after(batch({ plan: 1 }), 'plan'), { kind: 'step', stepId: 'tail' });
+  });
+
   it('chooses no step in a recipe without one (#589)', () => {
     const result = loadRecipes(
       brewery({ recipes: [recipe('pale', [{ id: 'plan', brewer: 'brewmaster' }])] }),

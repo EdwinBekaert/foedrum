@@ -73,7 +73,7 @@ export const brewRequestOf = (
     owner,
     ...issued,
     take: true,
-    lauter: true,
+    lauter: input.batch,
     ...(noSessions === undefined ? {} : { noSessions }),
   };
 };

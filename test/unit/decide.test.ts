@@ -3441,4 +3441,55 @@ describe('decide: lauter corrects a plan in a session at gate 1 (ADR 0286, #589)
       review('fix', 1),
     );
   });
+
+  it('plans again in the plan step on a retry after a lauter, not in another session (#589)', () => {
+    const corrected = [
+      ...waiting(),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const,
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+    ] satisfies Event[];
+    assert.deepStrictEqual(decide(fold(corrected), { kind: 'retry', batchId: 'b1', ...by }, mash), {
+      kind: 'accepted',
+      events: [{ type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' }, next('plan', 2)],
+    });
+  });
+
+  it('accepts a lauter of a batch recorded Stuck for its review before lauter was offered (#589)', () => {
+    const recorded = [
+      ...waiting().slice(0, -1),
+      stuckOn({ kind: 'plan_review', stepId: 'plan', attempt: 1 }, [
+        'approve',
+        'retry',
+        'recipe',
+        'cancel',
+      ]),
+    ];
+    assert.deepStrictEqual(decide(fold(recorded), lauter, mash), {
+      kind: 'accepted',
+      events: [{ type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' }, next('fix', 1)],
+    });
+  });
+
+  it("gives the lauter's chooser to the attempt it schedules alone: regression test (#589)", () => {
+    const after = [
+      ...waiting(),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'lauter' } as const,
+      next('fix', 1),
+      started('fix', 1),
+      { type: 'step.finished', batchId: 'b1', stepId: 'fix', attempt: 1, outcome: done(plan) },
+      review('fix', 1),
+      { type: 'batch.resumed', batchId: 'b1', ...by, action: 'retry' } as const,
+      next('plan', 2),
+    ] satisfies Event[];
+    const batch = fold(after).batches.get('b1');
+    assert.deepStrictEqual(batch?.steps.get('fix')?.attempts.get(1)?.chosen, {
+      option: 'lauter',
+      ...by,
+    });
+    assert.equal(batch?.steps.get('plan')?.attempts.get(2)?.chosen, undefined);
+    assert.equal(batch?.choosing, undefined);
+  });
 });

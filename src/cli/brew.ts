@@ -44,8 +44,8 @@ export interface BrewRequest {
   take?: true;
   /** `foedrum mash`: route the batch to mash-in and drive it to its question (ADR 0232). */
   mash?: true;
-  /** `foedrum lauter`: correct the plan the batch waits with in a session, taking it over (ADR 0286). */
-  lauter?: true;
+  /** `foedrum lauter <batch>`: the batch whose plan a session corrects, taking it over (ADR 0286). */
+  lauter?: string;
   /**
    * Why it opens no interactive step's session, when it does not (ADR 0222): it runs inside Claude
    * Code, or its stdin is no terminal. Its driver then parks such a step's attempt.
@@ -56,7 +56,7 @@ export interface BrewRequest {
 /** The command a request runs as, which its lines name. */
 const commandOf = (request: BrewRequest): string => {
   if (request.mash === true) return 'mash';
-  return request.lauter === true ? 'lauter' : 'brew';
+  return request.lauter !== undefined ? 'lauter' : 'brew';
 };
 
 /** How `foedrum brew` ends (ADR 0123); 2, a wrong command line, is the terminal's. */
@@ -303,11 +303,11 @@ export const runBrew = async (
     if (claimed?.repo !== undefined) order = { issue: claimed.issue, repo: claimed.repo };
     const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
-    if (request.lauter === true && latest === undefined) {
+    if (request.lauter !== undefined && latest === undefined) {
       return refuse(`${named} has no batch to correct a plan of`);
     }
     if (
-      request.lauter !== true &&
+      request.lauter === undefined &&
       latest !== undefined &&
       (latest.lane.kind === 'on_tap' || latest.lane.kind === 'cancelled')
     ) {
@@ -338,7 +338,7 @@ export const runBrew = async (
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
-    if (request.lauter === true && latest !== undefined) {
+    if (request.lauter !== undefined && latest !== undefined) {
       const decision = log.issue({ kind: 'lauter', batchId: latest.id, by, via }, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`batch ${latest.id} goes to a session on its plan`);
