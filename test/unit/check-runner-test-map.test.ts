@@ -601,6 +601,37 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.ok(text.includes('The test map of acme/api is stale: '), text);
   });
 
+  it("records a Brewery-kept map stale by a run alone as the Brewery's: regression test", async () => {
+    const { run } = setup({ maps: fresh, keptIn: 'brewery', found: {} });
+    const end = await run();
+    assert.deepEqual(end.staleMap, {
+      repo: 'acme/api',
+      kept: 'brewery',
+      paths: ['web/test-results.xml (no report of module "web")'],
+      more: 0,
+    });
+  });
+
+  it('names no module whose report path cannot be looked for after a passing run: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      refused: { 'web/test-results.xml': 'web/test-results.xml leads out of the worktree' },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('cuts a stale path to the 1,000 characters the event keeps: regression test', async () => {
+    const long = `${'a'.repeat(1_100)}/App.csproj`;
+    const { run } = setup({
+      maps: fresh,
+      manifests: { kind: 'stale', added: [long], removed: [] },
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, [long.slice(0, 1_000)]);
+  });
+
   it('keeps the stale line past a later run whose tests failed, which judged no map', () => {
     const finished: Event = {
       type: 'step.finished',
