@@ -213,10 +213,12 @@ export function planDigest(batch: Batch, stepId: string, attempt: number): strin
   return digestOf(JSON.stringify(ended.outcome.output));
 }
 
-/** Why a batch Stuck for `reason` has no plan to approve, or undefined when it has one. */
-export function noPlanToReview(batchId: string, reason: StuckReason): string | undefined {
-  if (reason.kind === 'plan_review') return undefined;
-  return `batch ${batchId} is stuck on ${reason.kind.replaceAll('_', ' ')}, not on a plan to review`;
+/** Why a batch Stuck for a reason of `kind`, other than a plan's review, has no plan to approve. */
+export function noPlanToReview(
+  batchId: string,
+  kind: Exclude<StuckReason['kind'], 'plan_review'>,
+): string {
+  return `batch ${batchId} is stuck on ${kind.replaceAll('_', ' ')}, not on a plan to review`;
 }
 
 /** An approval names the plan its batch waits with a review of, by its attempt and its digest. */
@@ -228,7 +230,7 @@ function approvable(
   const batch = state.batches.get(batchId);
   if (batch?.lane.kind !== 'stuck') return undefined;
   const { reason } = batch.lane;
-  if (reason.kind !== 'plan_review') return noPlanToReview(batchId, reason);
+  if (reason.kind !== 'plan_review') return noPlanToReview(batchId, reason.kind);
   if (reason.stepId !== stepId || reason.attempt !== attempt) {
     return `batch ${batchId} waits for a review of the plan of ${reason.stepId} #${reason.attempt}, not of ${stepId} #${attempt}`;
   }

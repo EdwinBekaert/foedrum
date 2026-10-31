@@ -1150,7 +1150,7 @@ function enter(draft: Draft, batchId: string, stepId: string): void {
 function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kind: 'approve' }>) {
   const batch = requireLane(draft.batch(batchId), 'approve', ['stuck']);
   const { reason } = batch.lane as Extract<Lane, { kind: 'stuck' }>;
-  if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason) ?? '');
+  if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason.kind));
   const { stepId, attempt } = reason;
   const plan = planDigest(batch, stepId, attempt) ?? '';
   draft.push({
