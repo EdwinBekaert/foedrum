@@ -410,7 +410,10 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     // Without the stale map, no such line.
     const { staleMap: _, ...without } = finished;
     const plain = fold([...events, without]).batches.get('12-1') ?? assert.fail();
-    assert.ok(!renderStatus(plain).includes('test map is stale'), renderStatus(plain));
+    assert.ok(
+      !renderStatus(plain).includes("The Brewery's test map of acme/api is stale"),
+      renderStatus(plain),
+    );
   });
 
   it('a fresh map passes every step as before: regression test', async () => {
@@ -536,7 +539,10 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
       },
     ];
     const fresh = fold([...events, finished, ...again]).batches.get('12-1') ?? assert.fail();
-    assert.ok(!renderStatus(fresh).includes('test map is stale'), renderStatus(fresh));
+    assert.ok(
+      !renderStatus(fresh).includes('The test map of acme/api is stale'),
+      renderStatus(fresh),
+    );
   });
 
   it("names no report under a module's test report or coverage path, nor one the run did not write: regression test", async () => {

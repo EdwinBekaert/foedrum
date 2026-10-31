@@ -1744,7 +1744,7 @@ Plan the order in {order}.
       // The change is read in the repository's clone, never in the check step's worktree.
       assert.ok(diffs.length > 0);
       assert.ok(
-        diffs.every((cwd) => !cwd.includes('attempts')),
+        diffs.every((cwd) => cwd === clone),
         diffs.join('\n'),
       );
     });
