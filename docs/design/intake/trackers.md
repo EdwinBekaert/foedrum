@@ -4,7 +4,7 @@ Foedrum separates three roles that GitHub happens to play all at once in 1.0:
 
 | Role | Interface | 1.0 | Later candidates |
 |---|---|---|---|
-| Where orders come from and where status is shown | `Tracker`: list orders, read comments/commands, post and edit the status comment, set state markers (labels, statuses) | GitHub Issues | Jira, Linear, GitLab Issues |
+| Where orders come from and where status is shown | `Tracker`: list orders, read comments/commands, post and edit the status comment, set state markers (labels, statuses); on the Brewery, open sub-orders as issues with their labels and link them under their order and to each other (`SubIssues`) | GitHub Issues | Jira, Linear, GitLab Issues |
 | Where code lives and pull requests are opened | `CodeHost`: clone, push, open pull request, read review comments; for now its push is `BranchPush` (git in the clone) and its pull requests `PullRequestHost` ([ADR 0071](../../adr/0071-the-openpullrequest-action-two-effects-of-the-batch.md)) | GitHub | GitLab, Bitbucket, Azure DevOps |
 | Where configuration lives | the Brewery: any git repository | GitHub | any git host |
 
