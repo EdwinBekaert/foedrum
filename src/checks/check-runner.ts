@@ -106,17 +106,8 @@ export interface CheckRunnerOptions {
     keptIn?: (repo: string) => 'repo' | 'brewery';
     /** A map's manifests against a worktree's files (ADR 0282); default git's. */
     manifests?: ReadManifestFreshness;
-    /**
-     * The paths among `paths` (globs) that the commits from `from` to `to` changed, read in the
-     * clone; default git's.
-     */
-    touched?: (
-      repo: string,
-      from: string,
-      to: string,
-      paths: readonly string[],
-      signal?: AbortSignal,
-    ) => Promise<{ paths: string[] } | { unread: string }>;
+    /** The paths among some globs that a range of commits changed, read in the clone; default git's. */
+    touched?: ReturnType<typeof touchedPaths>;
   };
 }
 
@@ -487,15 +478,15 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         reading.result === 'exited' && reading.check === 'test',
     );
     const named = [...(stale?.named ?? [])];
+    const kept = stale?.kept ?? testMap?.keptIn?.(worktree.repo) ?? 'repo';
     // Only a passing run says a module no report came from was not reached, or that the map is
     // stale by it: a failing one may have stopped before it, so its own verdict stands and goes
     // along onFail (ADR 0280).
     if (testMap !== undefined && tip !== undefined && test?.exitCode === 0) {
       const judged = await unreached(batch, worktree, end, tip, test, signal);
-      if ('end' in judged) return withStale(judged.end, stale?.kept ?? 'repo', named);
+      if ('end' in judged) return withStale(judged.end, kept, named);
       named.push(...staleByRun(worktree, judged.modules));
     }
-    const kept = stale?.kept ?? testMap?.keptIn?.(worktree.repo) ?? 'repo';
     return withStale(end, kept, named);
   };
 
