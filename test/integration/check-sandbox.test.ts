@@ -391,7 +391,7 @@ describe('a setup in the real sandbox, the network kept', {
     assert.equal(result.stdout, 'nameserver 10.0.2.3\n');
   });
 
-  // The query goes to the stack's 10.0.2.3, which slirp4netns answers from its own sandbox
+  // The query goes to the stack's 10.0.2.3, which slirp4netns answers under its seccomp filter
   // (ADR 0277) through the host's systemd-resolved, which answers localhost itself, so nothing
   // leaves the machine: a host with another resolver skips it, and on CI's ubuntu leg it fails
   // before it sends the query (review of #702).
