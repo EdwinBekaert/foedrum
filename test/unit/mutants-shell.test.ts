@@ -302,6 +302,15 @@ describe('same-answer mutants on a scratch tree', () => {
     }
   });
 
+  it('keeps a mutant of Brett’s that is marked as the script’s', async () => {
+    const marked = { ...brett, source: 'script' };
+    writeFileSync(answer, JSON.stringify({ mutants: [marked] }));
+    await main([tree, answer, '--same-answer', '--touched', files]);
+    const mutants = answerMutants();
+    assert.equal(mutants.length, 2);
+    assert.deepEqual(mutants[0], marked);
+  });
+
   it('says when the change gives no same-answer mutant, and keeps Brett’s answer', async () => {
     writeFileSync(files, 'A\tsrc/is-even.ts\n');
     assert.deepEqual(await main([tree, answer, '--same-answer', '--touched', files]), {

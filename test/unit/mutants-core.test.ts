@@ -454,6 +454,11 @@ describe('sameAnswerMutants', () => {
     }
   });
 
+  it('gives no mutant to a name two changed source files declare', () => {
+    const copy = { ...breweryName, path: 'scripts/brewery-name.ts' };
+    assert.deepEqual(sameAnswerMutants([breweryName, copy], [breweryNameTests(...rejections)]), []);
+  });
+
   it('gives no mutant when the change has no boolean function', () => {
     const add: ChangedFile = {
       path: 'src/add.ts',
