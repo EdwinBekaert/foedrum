@@ -149,15 +149,18 @@ export const renderPlan = (
           ],
         ];
   // The Review is filled by the plan lenses (#587); the Gate by approve (ADR 0281).
+  // An approved plan's sub-orders that are not ready stay so until #589 corrects them.
+  const notReady = subOrders.filter(({ ready }) => !ready).map(({ id }) => code(told(id)));
   const gate =
     approval !== undefined
-      ? `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`
-      : waitsForReview
-        ? `Waiting for ${code(`foedrum approve ${batchId}`)}.`
-        : 'None yet.';
+      ? [
+          `Approved by ${plain(approval.by)} (${approval.via}) at ${approval.at}.`,
+          ...(notReady.length === 0 ? [] : ['', `Not ready: ${notReady.join(', ')}.`]),
+        ]
+      : [waitsForReview ? `Waiting for ${code(`foedrum approve ${batchId}`)}.` : 'None yet.'];
   const after = [
     ['**Review**', '', 'None yet.'],
-    ['**Gate**', '', gate],
+    ['**Gate**', '', ...gate],
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;

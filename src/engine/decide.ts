@@ -1152,7 +1152,10 @@ function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kin
   const { reason } = batch.lane as Extract<Lane, { kind: 'stuck' }>;
   if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason.kind));
   const { stepId, attempt } = reason;
-  const plan = planDigest(batch, stepId, attempt) ?? '';
+  const plan = planDigest(batch, stepId, attempt);
+  if (plan === undefined) {
+    throw new Refusal(`the plan of ${stepId} #${attempt} of batch ${batchId} is not recorded`);
+  }
   draft.push({
     type: 'batch.approved',
     batchId,
