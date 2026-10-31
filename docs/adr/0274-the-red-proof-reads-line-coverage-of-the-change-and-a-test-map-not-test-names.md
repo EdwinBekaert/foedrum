@@ -1,6 +1,6 @@
 # 0274. The red proof reads line coverage of the change and a test map, not test names
 
-Date: 2026-10-31 · Status: Accepted · Supersedes [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)'s test names and lists (which reported tests are the proven step's, the declarations and assertions `testsUnchanged` keeps, and `testReport` as the red proof's source), [0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md), [0178](0178-a-name-before-a-parenthesis-declares-a-test-only-where-no-call-can-stand.md), [0182](0182-a-call-after-a-less-than-or-a-closing-brace-declares-no-test.md) and [0262](0262-a-string-literal-declares-a-test-only-in-a-file-that-declares-a-test-at-the-step-s-tip.md) · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (what the red proof and `testsUnchanged` check, and an uncovered changed line fails a check), [0018](0018-house-yeast-layers.md) (a target repository's `.foedrum/` also holds the test map), [0023](0023-language-independent-recipes.md) (the red proof reads the test map, not `testReport`, and a batch with no map proposes one instead of stopping), [0201](0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md) (the test map is a sensitive path without being named), [0269](0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) (a module with no report counts as a load error), [0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) (the red proof no longer judges `regressionTests`) and [0258](0258-a-gauger-its-red-proof-sent-back-may-name-its-tests-without-a-commit.md) (a `done` that only names tests is a divergence again)
+Date: 2026-10-31 · Status: Accepted · Supersedes [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)'s test names and lists (which reported tests are the proven step's, the declarations and assertions `testsUnchanged` keeps, and `testReport` as the red proof's source), [0176](0176-a-test-s-name-is-declared-only-where-a-declaration-writes-it.md), [0178](0178-a-name-before-a-parenthesis-declares-a-test-only-where-no-call-can-stand.md), [0182](0182-a-call-after-a-less-than-or-a-closing-brace-declares-no-test.md) and [0262](0262-a-string-literal-declares-a-test-only-in-a-file-that-declares-a-test-at-the-step-s-tip.md) · Amends [0017](0017-test-first-recipes-and-tasting-lenses.md) (what the red proof and `testsUnchanged` check, and an uncovered changed line fails a check), [0018](0018-house-yeast-layers.md) (a target repository's `.foedrum/` also holds the test map), [0023](0023-language-independent-recipes.md) (`testReport` moves into the test map, and a batch with no map proposes one instead of stopping; the commands stay in `foedrum.jsonc`), [0201](0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md) (the test map is a sensitive path without being named), [0269](0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) (a module with no report counts as a load error), [0170](0170-the-red-proof-accepts-the-regression-tests-a-gauger-names.md) (the red proof no longer judges `regressionTests`) and [0258](0258-a-gauger-its-red-proof-sent-back-may-name-its-tests-without-a-commit.md) (a `done` that only names tests is a divergence again)
 
 ## Context
 The red proof finds the tests a step added by matching each reported test's name against the lines the step added ([ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).
@@ -37,7 +37,7 @@ This record writes them down.
 - **The base is green.** A pull request merges only on green CI, so any test that fails after the red step failed because of the red step. There is no baseline run, and no full suite runs before the tests are written. A base that is red anyway shows at the green step.
 - **The red proof passes when**, checked in this order, the first that fails naming the reason (`the red proof of step <of> failed: <why>`):
   1. the run did not bail out;
-  2. no load, compile, import or collection error appears. `LOAD_ERRORS` stays as ADR 0078 and [ADR 0269](0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) have it. **A module that the test map lists and that wrote no test report, or no coverage report where it has a coverage tool, counts as one** (the spike's .NET compile error);
+  2. no load, compile, import or collection error appears. `LOAD_ERRORS` stays as ADR 0078 and [ADR 0269](0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md) have it. **A module that the base's test map lists and that wrote no test report, or no coverage report where it has a coverage tool, counts as one** (the spike's .NET compile error). A module that only the batch's map lists is the unreached case below;
   3. the step changed a file in a test area of the map, or in a module whose tests are inline. This replaces the spike's rule, which asked for a changed code file. That rule refuses a step that adds only tests, such as the Microbiologist's reproducing test or a test of existing behaviour that is wrong, and it lets through a step that changes only code and breaks older tests;
   4. at least one test fails;
   5. no test is skipped in a test area the step changed (attributed by the map, for separate test files).
@@ -70,12 +70,12 @@ This record writes them down.
 - Where the guard runs, its outcome (`failed`, retryable) and its git reads in the clone stay as ADR 0078 has them.
 
 ### The test map
-- **What it is.** One file per target repository says, for each module, where its code is, where its tests live (separate paths, test projects, or inline), how they run, and which test and coverage reports they write.
+- **What it is.** One file per target repository says, for each module, where its code is, where its tests live (separate paths, test projects, or inline), and the formats and paths of the test and coverage reports its tests write, or `coverage: none`. It says where things are, and holds no commands.
   The red proof's changed test area, its load error for a module with no report, skip attribution, `testsUnchanged` and the not-measured rule read it. Which tests fail and which lines ran come from the reports alone.
   Prior art: SonarQube's `sonar.tests`, Stryker's `mutate`, Codecov's `ignore`, and cargo-mutants skipping `#[cfg(test)]`.
 - **Where it lives**: `.foedrum/test-map.jsonc` in the target repository, beside `.foedrum/house-yeast/`. Every Brewery on the repository shares it (#120), and it is versioned with the code.
   A repository whose owners refuse it uses the Brewery fallback of [ADR 0018](0018-house-yeast-layers.md): a `houseYeast`-style setting in its `foedrum.jsonc` entry keeps the map under the Brewery's files.
-  Its content is repository content, untrusted input like the house-yeast rules (ADR 0018, ADR 0041). Its commands run as check lines do, in the check sandbox (ADR 0069, ADR 0076).
+  Its content is repository content, untrusted input like the house-yeast rules (ADR 0018, ADR 0041).
 - **Who writes it.** An agent derives it from the repository's manifests, and a person confirms it in a reviewed change: the pull request that carries it. Which brewer and which command derive it is the build's choice.
 - **Freshness is judged by change, not by age.** The map is stale when:
   - the manifest files it was derived from (its globs, read with `git ls-files` at the step's tip) differ from the matched paths it records; or
@@ -84,9 +84,11 @@ This record writes them down.
   The brewer whose change made it stale updates it in that change, so the map ships with the fix, as a repository-layer rule does (ADR 0018).
   A map that is stale on the base is refreshed by the batch's first step, the batch brews with the refreshed map, and the pull request says why.
 - **No map is the extreme case of a stale one.** The batch's first step proposes a map, the batch brews with it, and the pull request carries it for review.
-  A batch is Stuck (`environment`) only when the discovery step cannot produce a map that a run agrees with.
+  A batch is Stuck (`environment`) when the discovery step cannot produce a map that a run agrees with, or when no confirmed line reaches a module (below).
   So the map replaces `testReport` for the red proof and the uncovered check, and ADR 0078's Stuck start for a repository without a `testReport` goes with it.
-  The repository's `test` check in `foedrum.jsonc` stays for check steps that do not read coverage.
+- **Commands stay in `foedrum.jsonc`**, confirmed by a person, as [ADR 0023](0023-language-independent-recipes.md) has them. A module's tests run under a confirmed check line, such as one `dotnet test` over the solution that writes a report per test project. The red proof and the uncovered check read the reports of that line's run where the map says they are.
+  A module that the map lists and that no confirmed line reaches, such as a new test project the confirmed line does not run, makes the batch Stuck (`environment`). The reason names the module and suggests the line to add. Foedrum never runs a command that the map or a brewer proposed.
+  A module the base's map already lists is taken as reached, as the base is taken as green, so when it writes no report that counts as a load error (above). A module the batch's change added to the map, which writes no report, is the unreached case.
 - **It is a sensitive path.** The map is in `sensitivePaths` without being named there, so the status comment names a change to it ([ADR 0201](0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)).
   A map a batch proposed or refreshed is one such change.
 - **Its shape**, a sketch for the build issue rather than a schema:
@@ -104,7 +106,6 @@ This record writes them down.
       "name": "web",
       "code": ["web/src/**"],
       "tests": { "paths": ["web/test/**"] },
-      "run": "npm --prefix web test",
       "testReport": { "format": "junit", "path": "web/test-results.xml" },
       "coverage": { "format": "lcov", "path": "web/coverage/lcov.info" }
     },
@@ -113,8 +114,8 @@ This record writes them down.
       "code": ["svc/src/**"],
       "tests": {
         "projects": [
-          { "path": "svc/test/Billing.Tests", "run": "dotnet test svc/test/Billing.Tests --collect \"XPlat Code Coverage\" --logger trx" },
-          { "path": "svc/test/Billing.Api.Tests", "run": "dotnet test svc/test/Billing.Api.Tests --collect \"XPlat Code Coverage\" --logger trx" }
+          { "path": "svc/test/Billing.Tests" },
+          { "path": "svc/test/Billing.Api.Tests" }
         ]
       },
       "testReport": { "format": "trx", "path": "svc/test/*/TestResults" },
@@ -124,7 +125,6 @@ This record writes them down.
       "name": "engine",
       "code": ["engine/src/**"],
       "tests": { "inline": true },
-      "run": "cargo llvm-cov --manifest-path engine/Cargo.toml --lcov --output-path engine/lcov.info",
       "testReport": { "format": "junit", "path": "engine/target/nextest/junit.xml" },
       "coverage": { "format": "lcov", "path": "engine/lcov.info" }
     }
@@ -132,7 +132,7 @@ This record writes them down.
 }
 ```
 
-  Each test project is run on its own, because coverlet writes one report per project into a new folder.
+  The confirmed line for `billing` might be `dotnet test svc/Billing.sln --collect "XPlat Code Coverage" --logger trx`, which writes one report per test project, each into a new folder: so a Cobertura or TRX `path` is a folder pattern.
   A report format Foedrum does not read yet (TRX here) is the build's to add or to refuse.
   A module without a coverage tool writes `"coverage": "none"`.
 
@@ -145,7 +145,7 @@ This record writes them down.
 - `testsUnchanged` refuses an edited import or helper line in a separate test file that the red step added, which ADR 0078 let change. The retry restores it.
 - Target repositories get one more committed file, `.foedrum/test-map.jsonc`, or the Brewery keeps it for them.
 - A wrong map misleads both the guard and the not-measured rule. A person's confirmation, the sensitive-path line and the freshness rules are what keep it right.
-- A map a batch proposed runs its commands before any person has confirmed them, unlike ADR 0023's checks, which a person confirms in `foedrum.jsonc` first. They run as check lines do, in the check sandbox where one exists (ADR 0076), and no further than a brewer's own edit to a `package.json` script already reaches. The person reviews them in the pull request before anything merges.
+- A map a batch proposed runs nothing: it only says where the confirmed line's reports and tests are. A person still confirms every command Foedrum runs (ADR 0023), and a module that no confirmed line reaches stops the batch with the line to add, rather than running one.
 - Until the build lands, the red proof works as [the red proof](../design/checks/red-proof.md) describes it today.
 - The build splits into issues for the test map (schema, storage and fallback, freshness, sensitive path, discovery), the coverage readers, the red proof's name-free rule, the uncovered-line check, and `testsUnchanged`.
 
@@ -159,4 +159,5 @@ This record writes them down.
 - **Coverage thresholds.** A percentage cannot see one uncovered changed line.
 - **Select tests by coverage from an earlier run.** A line the step adds is in no earlier run's map. Selection is a separate decision (goal 3).
 - **A package to read LCOV or Cobertura.** Each format is about 50–60 lines of Foedrum's own code, and ADR 0004 allows only `zod`.
+- **The map holds each module's commands, and a proposed map's commands run in the check sandbox until the pull request's review.** A new module would brew without a person adding a line first. Not taken: a person confirms every command Foedrum runs (ADR 0023), and native Windows has no check sandbox ([ADR 0076](0076-check-steps-run-in-an-os-sandbox-with-no-network.md)), so a proposed command would run there with only a Job Object around it.
 - **The map in the Brewery only.** It would drift from the code it describes, and a second Brewery on the same repository would not see it (ADR 0018's reason for the repository layer).
