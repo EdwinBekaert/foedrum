@@ -152,6 +152,17 @@ describe('readTestMap: report paths a reader matches at once (ADR 0274)', () => 
   });
 });
 
+describe('readTestMap: module names (review of #715)', () => {
+  it('refuses a module name that starts with a dot or a dash, or holds a space or a line break: regression test', () => {
+    const named = (name: string) =>
+      readTestMap(example.replace('"name": "web"', `"name": ${JSON.stringify(name)}`)).kind;
+    assert.equal(named('web.app_2-x'), 'map');
+    for (const name of ['.web', '-web', 'web app', 'web\napp', '']) {
+      assert.equal(named(name), 'unreadable', JSON.stringify(name));
+    }
+  });
+});
+
 describe('testMaps: where a map is kept (ADR 0018, ADR 0274)', () => {
   const blob = 'c'.repeat(40);
   const commit = 'd'.repeat(40);

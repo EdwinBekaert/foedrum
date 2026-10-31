@@ -404,6 +404,117 @@ describe('runServe', () => {
   });
 
   /**
+   * Brews 12-1 with the porter recipe until its pull request is open, for a repository with
+   * `repository`'s fields in foedrum.jsonc and the Brewery's `testMaps`, a push whose change touches
+   * the test map, and `git`: the push's recorded sensitive files, and what git was asked.
+   */
+  const pushTouchingTheMap = async (
+    repository: Record<string, unknown>,
+    testMaps: { path: string; text: string }[],
+    git: Git,
+  ) => {
+    const porter = JSON.stringify({
+      name: 'porter',
+      description: 'Brews an order in one step and opens its pull request.',
+      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          config: config({}, repository),
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            recipes: [
+              { path: 'recipes/stout.jsonc', text: recipe },
+              { path: 'recipes/porter.jsonc', text: porter },
+            ],
+            brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
+          },
+          testMaps,
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      t0,
+    );
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [
+          { number: 12, labels: [], author: 'ann', title: 'Add a --json flag', body: 'Please.' },
+        ],
+      },
+    });
+    const push = () => ({
+      commit: async () => FAKE_COMMIT,
+      baseTip: async () => 'b'.repeat(40),
+      isAncestor: async (commit: string, of: string) => commit === of,
+      remoteTip: async () => undefined,
+      push: async () => {},
+      secretScan: async () => [],
+      touchedFiles: async () => ['README.md', '.foedrum/test-map.jsonc'],
+    });
+    assert.equal(await runServe(setup, shell({ fetch: github.fetch, push, git })), 0);
+    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
+    return (pushed.result as { sensitive?: unknown }).sensitive;
+  };
+
+  const engine = JSON.stringify({
+    derivedFrom: { globs: ['**/Cargo.toml'], paths: ['Cargo.toml'] },
+    modules: [
+      {
+        name: 'engine',
+        code: ['src/**'],
+        tests: { inline: true },
+        testReport: { format: 'junit', path: 'junit.xml' },
+        coverage: 'none',
+      },
+    ],
+  });
+
+  it('records the test map as a sensitive file of the push, with the modules its change adds unmeasured: regression test', async () => {
+    const blob = 'e'.repeat(40);
+    // The change starts and ends at one commit here: the first read is the base's, with no map.
+    let lists = 0;
+    const git: Git = async (_cwd, args) => {
+      if (args[0] === 'ls-tree') {
+        lists += 1;
+        const stdout = lists === 1 ? '' : `100644 blob ${blob}\t.foedrum/test-map.jsonc\0`;
+        return { code: 0, stdout, stderr: '' };
+      }
+      if (args[0] === 'cat-file' && args[2] === blob) {
+        return { code: 0, stdout: engine, stderr: '' };
+      }
+      throw new Error(`unexpected: ${args.join(' ')}`);
+    };
+    assert.deepStrictEqual(await pushTouchingTheMap({}, [], git), {
+      count: 1,
+      files: ['.foedrum/test-map.jsonc'],
+      unmeasured: ['engine'],
+    });
+    assert.equal(lists, 2);
+  });
+
+  it('names no test map file of a repository whose map the Brewery keeps, nor reads one with git: regression test', async () => {
+    const asked: string[] = [];
+    const git: Git = async (_cwd, args) => {
+      asked.push(args.join(' '));
+      throw new Error('no git read of the map');
+    };
+    const brewery = [{ path: 'test-maps/acme/web.jsonc', text: engine }];
+    assert.equal(await pushTouchingTheMap({ testMap: 'brewery' }, brewery, git), undefined);
+    assert.deepStrictEqual(asked, []);
+  });
+
+  /**
    * Brews 12-1 with the porter recipe until its pull request is open, with a base that moved and a
    * merge-tree that conflicts (ADR 0198), on a git that records what it is asked and answers nothing.
    * With `passed`, the merge-tree is clean and every check on the head passed, until the merge brief
@@ -1510,6 +1621,37 @@ Plan the order in {order}.
         reason?.kind === 'blocked' ? reason.summary : '',
         /^module "web" of the test map is new in this batch/,
       );
+    });
+
+    it("reads the Brewery's test map of a repository it keeps the map of, never the clone's: regression test", async () => {
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['test/**'] },
+            testReport: { format: 'junit', path: 'web-results.xml' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const serving = {
+        ...setup,
+        repositories: setup.repositories.map((repository) => ({
+          ...repository,
+          testMap: { text: map },
+        })),
+      };
+      const asked: string[] = [];
+      const git: Git = async (_cwd, args) => {
+        asked.push(args.join(' '));
+        throw new Error('no git read of the map');
+      };
+      // The Brewery's map is the base's too: its module is taken as reached.
+      const { batch } = await brewWithChecks(0, { serving, git });
+      assert.equal(batch?.lane.kind, 'on_tap');
+      assert.deepStrictEqual(asked, []);
     });
 
     it("runs the repository's test command in the check's worktree, and the batch goes on tap", async () => {

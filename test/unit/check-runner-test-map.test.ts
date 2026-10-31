@@ -82,6 +82,8 @@ const compileError = 'svc/test/Billing.Tests/InvoiceTests.cs(3,1): error CS1002:
 
 const setup = ({
   checks = ['typecheck', 'test'] as readonly CheckRef[],
+  /** The batch's events up to the check step's start. */
+  started = events,
   /** Events after the check step started, such as a merge of the base. */
   more = [] as Event[],
   maps = { [base]: mapOf(web), [tip]: mapOf(web, billing) } as Record<string, MapRead>,
@@ -112,7 +114,7 @@ const setup = ({
     redProof: () => undefined,
   };
   const runner = createCheckRunner({
-    state: () => fold([...events, ...more]),
+    state: () => fold([...started, ...more]),
     checks: stepChecks,
     repositoryChecks: () => repository,
     testReport: () => undefined,
@@ -194,6 +196,20 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     const end = await run();
     assert.equal(end.ending.kind, 'failed');
     assert.deepEqual(asked, []);
+  });
+
+  it('finds the start of a repository whose worktree names it in another case: regression test', async () => {
+    const renamed = events.map(
+      (event): Event =>
+        event.type === 'step.started' && event.worktree !== undefined
+          ? { ...event, worktree: { ...event.worktree, repo: 'Acme/API' } }
+          : event,
+    );
+    const maps = { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) };
+    const { run, asked } = setup({ started: renamed, maps });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    assert.deepEqual(asked, [`map of Acme/API at ${base}`, `map of Acme/API at ${tip}`]);
   });
 
   it('takes the base the batch merged as the base of its map (ADR 0164)', async () => {

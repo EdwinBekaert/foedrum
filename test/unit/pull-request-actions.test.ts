@@ -1205,3 +1205,21 @@ describe('pullRequestActions: the test map is a sensitive path (ADR 0274)', () =
     assert.equal(asked.length, 1);
   });
 });
+
+describe('pullRequestActions: a map change that adds nothing unmeasured (review of #715)', () => {
+  it('records no unmeasured modules when the map adds none: regression test', async () => {
+    const unmeasured = async () => [];
+    const { actions } = actionsWith({
+      sensitivePaths: sensitivePathsOf({}),
+      touched: [TEST_MAP_PATH],
+      unmeasured,
+    });
+    keysOf(brewing(), actions);
+    assert.deepEqual(await actions.target.apply(push), {
+      branch,
+      commit: tip,
+      from,
+      sensitive: { count: 1, files: [TEST_MAP_PATH] },
+    });
+  });
+});
