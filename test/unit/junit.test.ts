@@ -113,4 +113,72 @@ describe('parseJunit', () => {
     refuses('<testsuites></testsuites>', /no testcase/);
     refuses('<testsuites><testcase name="a &bogus;"/></testsuites>', /not XML/);
   });
+
+  it('junit.ts reads every existing fixture the same after its XML reader moves', () => {
+    // Every report this file reads, with the whole reading pinned as it was before the move.
+    const fixtures = [
+      pytest,
+      `<!-- surefire -->
+<testsuite name="AddTest">
+  <testsuite name="Nested">
+    <testcase classname="AddTest" name="addsTwoNumbers()"><failure type="org.opentest4j.AssertionFailedError"/></testcase>
+  </testsuite>
+  <testcase classname="AddTest"></testcase>
+  <system-out><![CDATA[started]]></system-out>
+</testsuite>`,
+      '﻿<testsuites>\r\n<testsuite><testcase name="a"/></testsuite>\r\n</testsuites>',
+      `<!DOCTYPE testsuites>
+<testsuites><testcase name="adds"><failure message="boom"/><system-err>ImportError: no add</system-err></testcase></testsuites>`,
+      '<!DOCTYPE x [<!ENTITY a "b">]><testsuites><testcase name="&a;"/></testsuites>',
+      `<testsuites>${'<testsuite>'.repeat(300)}<testcase name="a"/>${'</testsuite>'.repeat(300)}</testsuites>`,
+      'Error: Cannot find module',
+      '<results><test name="a"/></results>',
+      '<testsuites><testsuite><testcase name="a"></testsuite></testsuites>',
+      '<testsuites></testsuites>',
+      '<testsuites><testcase name="a &bogus;"/></testsuites>',
+    ];
+    const passed = (name: string) => ({ name, result: 'passed', leaf: true, detail: '' });
+    const failed = (name: string, detail: string) => ({
+      name,
+      result: 'failed',
+      leaf: true,
+      detail,
+    });
+    const tests = (list: object[], other: string) => ({
+      readable: true,
+      report: { tests: list, other },
+    });
+    const refused = (reason: string) => ({ readable: false, reason });
+    assert.deepEqual(fixtures.map(parseJunit), [
+      tests(
+        [
+          failed(
+            'test_adds',
+            'assert 0 == 3\ndef test_adds():\n>       assert add(1, 2) == 3\nE       assert 0 == 3',
+          ),
+          failed(
+            'test_subtracts',
+            'NotImplementedError\nNotImplementedError: not implemented\nraise NotImplementedError("not implemented") <in a stub>',
+          ),
+          { name: 'test_later', result: 'skipped', leaf: true, detail: 'later' },
+          passed('test_old'),
+          failed('tests.test_broken', "collection failure\nImportError: cannot import name 'nope'"),
+        ],
+        "warning: 'slow' & 'old'",
+      ),
+      tests(
+        [failed('addsTwoNumbers()', 'org.opentest4j.AssertionFailedError'), passed('')],
+        'started',
+      ),
+      tests([passed('a')], ''),
+      tests([failed('adds', 'boom\nImportError: no add')], ''),
+      refused('it is not XML: a DOCTYPE'),
+      refused('it is not XML: nested deeper than 256 elements'),
+      refused('it is not XML: text outside the root element'),
+      refused('its root element <results> is no JUnit report'),
+      refused('it is not XML: a stray </testsuite>'),
+      refused('it has no testcase'),
+      refused('it is not XML: the entity &bogus;'),
+    ]);
+  });
 });
