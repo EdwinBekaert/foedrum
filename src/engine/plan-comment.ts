@@ -4,7 +4,7 @@
 // applied (ADR 0033).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import type { Surface } from '../schemas/events.ts';
+import type { PlanOrigin, Surface } from '../schemas/events.ts';
 import { type PlannedSubOrder, type PlanReport, planOf } from '../schemas/plan.ts';
 import type { StatusRevision } from '../schemas/status-comment.ts';
 import { breweryIssueOf } from './claim-orders.ts';
@@ -104,6 +104,14 @@ const graph = (subOrders: readonly PlannedSubOrder[], told: Told): string[] => {
     ...edges,
     '```',
   ];
+};
+
+/**
+ * The text of the plan entry `origin` names, for a sub-order's brewers (ADR 0290): its section as
+ * the plan comment shows it, what it depends on, then the plan's alternatives.
+ */
+export const planEntryText = (_state: State, _origin: PlanOrigin): string => {
+  throw new Error('not implemented');
 };
 
 /** Who chose the session that wrote a plan, from where, and when it opened (ADR 0286). */

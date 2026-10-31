@@ -269,6 +269,8 @@ export function inputsOf(
   brewery?: BreweryRepositories,
   choices: readonly RecipeChoice[] = [],
   chosen = false,
+  /** A sub-order's plan entry, as text, which its caller read from the state (ADR 0290). */
+  planEntry?: string,
 ): PlannedInput[] {
   // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere.
   const skipped = (from: string): boolean =>
@@ -291,6 +293,7 @@ export function inputsOf(
         const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
         return { name, source: { kind: 'recipes' }, read: { kind: 'text', text } };
       }
+      if (from === 'plan-entry') throw new Error('not implemented');
       if (from === 'plan') {
         const latest = latestPlan(batch);
         const root =

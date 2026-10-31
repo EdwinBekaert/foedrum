@@ -381,6 +381,123 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  describe("a sub-order's plan entry (ADR 0290)", () => {
+    const entering = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            inputs: [
+              { name: 'order', from: 'order' },
+              { name: 'planEntry', from: 'plan-entry' },
+            ],
+          }),
+        },
+      ],
+    });
+    const plan = (doneWhen: string) => ({
+      status: 'done',
+      summary: 'Planned',
+      assumptions: [],
+      subOrders: [
+        {
+          id: 'api',
+          title: 'Build the API',
+          repo: 'acme/api',
+          size: { lines: 200, mechanism: 'one handler' },
+          doneWhen,
+          touches: [{ path: 'src/api.ts' }],
+          recipe: 'pale',
+          why: 'a test can pin it',
+          ready: true,
+        },
+      ],
+    });
+    // Batch 7-1 planned twice and its second plan was approved; its worktrees are gone since.
+    const parent: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: '7-1',
+        order: { issue: 7 },
+        routeBy: '2026-10-17T13:00:00.000Z',
+      },
+      ...[1, 2].flatMap((attempt): Event[] => [
+        {
+          type: 'step.scheduled',
+          batchId: '7-1',
+          stepId: 'plan',
+          attempt,
+          deadlineAt: '2026-10-17T13:00:00.000Z',
+        },
+        {
+          type: 'step.started',
+          batchId: '7-1',
+          stepId: 'plan',
+          attempt,
+          worktree: {
+            repo: 'acme/brewery',
+            path: join('/work', `plan-${attempt}`),
+            branch: `foedrum/7-1/plan/${attempt}`,
+            commit: 'd'.repeat(40),
+          },
+        },
+        {
+          type: 'step.finished',
+          batchId: '7-1',
+          stepId: 'plan',
+          attempt,
+          outcome: {
+            kind: 'succeeded',
+            output: plan(attempt === 2 ? 'GET /api answers 200' : 'an older plan'),
+          },
+        },
+      ]),
+    ];
+    const subOrder = (entry: string): Event[] => [
+      ...parent,
+      ...ordered.map((event) =>
+        event.type === 'batch.ordered'
+          ? {
+              ...event,
+              parentBatchId: '7-1',
+              plan: { batchId: '7-1', stepId: 'plan', attempt: 2, entry },
+            }
+          : event,
+      ),
+      started,
+    ];
+
+    it("reads the entry from the parent batch's recorded plan, not from a worktree, after the parent's worktrees are gone", async () => {
+      assert.ok(entering.valid);
+      const { plans, reads } = setup(subOrder('api'), {}, undefined, entering.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /source="entry api of the plan of batch 7-1, step plan#2" name="planEntry">\n#### `api`: Build the API\n/,
+      );
+      assert.match(prompt, /\n- Done when: GET \/api answers 200\n/);
+      assert.doesNotMatch(prompt, /an older plan/);
+      assert.deepEqual(reads, []);
+    });
+
+    it("fails the attempt's plan, naming the entry, when the parent's plan holds no such entry", async () => {
+      assert.ok(entering.valid);
+      const { plans } = setup(subOrder('web'), {}, undefined, entering.brewers);
+      await assert.rejects(
+        plans.plan(start),
+        /^Error: the plan of batch 7-1, step plan#2, holds no entry web$/,
+      );
+    });
+  });
+
   it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
     const planning = loadRecipes({
       recipes: [

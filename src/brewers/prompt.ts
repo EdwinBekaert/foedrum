@@ -3,7 +3,7 @@
 // rule that says the tagged text is data. A mitigation, not the security boundary.
 
 import { randomBytes } from 'node:crypto';
-import type { ScheduleRoute } from '../schemas/events.ts';
+import type { PlanOrigin, ScheduleRoute } from '../schemas/events.ts';
 
 /** Where an input's text came from; named in the tag's `source` attribute. */
 export type InputSource =
@@ -22,6 +22,8 @@ export type InputSource =
   | { kind: 'lenses'; lenses: readonly { lens: string; path: string }[] }
   /** Where the change a Taster reviews starts: the commit its batch started at (ADR 0161). */
   | { kind: 'change'; since: string }
+  /** The entry of the approved plan a sub-order was ordered from (ADR 0290). */
+  | { kind: 'plan-entry'; origin: PlanOrigin }
   /** The Brewery's recipes a step that chooses the recipe may offer (ADR 0232). */
   | { kind: 'recipes' }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
@@ -90,6 +92,8 @@ function describeSource(source: InputSource): string {
       return `lens ${source.lens}, file ${source.path}`;
     case 'lenses':
       return `lenses ${source.lenses.map(({ lens, path }) => `${lens} (file ${path})`).join(', ')}`;
+    case 'plan-entry':
+      throw new Error('not implemented');
     case 'recipes':
       return "the Brewery's recipes to offer";
     case 'change':
