@@ -426,7 +426,7 @@ const fakeSetup = ({
   answer = {},
 }: {
   info?: readonly string[];
-  stack?: 'up' | 'fails' | 'exits-before-up' | 'hangs';
+  stack?: 'up' | 'fails' | 'refuses-seccomp' | 'exits-before-up' | 'hangs';
   bwrap?:
     | 'line-ends'
     | 'line-runs-until-stopped'
@@ -509,6 +509,11 @@ const fakeSetup = ({
       const said = `${tool}: Couldn't open user namespace /proc/4242/ns/user: Permission denied\n`;
       return ran({ exitCode: 1, stderr: said, output: said });
     }
+    // A slirp4netns older than 0.4.0 refuses the flag, as getopt says it, before it is up.
+    if (stack === 'refuses-seccomp' && args.includes('--enable-seccomp')) {
+      const said = `${file}: unrecognized option '--enable-seccomp'\n`;
+      return ran({ exitCode: 1, stderr: said, output: said });
+    }
     // A slirp4netns that ends cleanly before it said it was up: never a namespace with a network.
     if (stack === 'exits-before-up') return ran();
     if (stack === 'hangs') return stopped(options.signal, `${tool} stopped`);
@@ -553,6 +558,8 @@ const SLIRP4NETNS_ARGS = [
   '--configure',
   '--mtu=65520',
   '--disable-host-loopback',
+  '--enable-sandbox',
+  '--enable-seccomp',
   '--ready-fd=3',
   '--exit-fd=4',
   '4242',
@@ -642,6 +649,39 @@ describe('sandboxedChecks with the network kept, for a setup', () => {
     assert.equal(calls[1]?.options.pipes?.count, 2);
     assert.deepEqual(events, ['slirp4netns starts', 'the line runs', 'slirp4netns stopped']);
     assert.equal(resolver.text, 'nameserver 10.0.2.3\n');
+  });
+
+  // slirp4netns parses the setup's packets outside bwrap's sandbox, so it runs in its own, with a
+  // seccomp filter, as rootless Podman starts it (ADR 0277).
+  it('starts slirp4netns in its own sandbox with its seccomp filter', async () => {
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/slirp4netns');
+    assert.ok(calls[1]?.args.includes('--enable-sandbox'));
+    assert.ok(calls[1]?.args.includes('--enable-seccomp'));
+  });
+
+  it("reads as not started with slirp4netns's message, and never runs the line, when it refuses a flag", async () => {
+    const { calls, events, exec } = fakeSetup({ stack: 'refuses-seccomp' });
+    const result = await linuxSetup(exec, { findStackTool: stackTools('slirp4netns') })(
+      line,
+      [],
+      call,
+    );
+    assert.ok(calls[1]?.args.includes('--enable-seccomp'));
+    assert.equal(result.exitCode, null);
+    assert.match(
+      result.output,
+      /^slirp4netns: \/usr\/bin\/slirp4netns: unrecognized option '--enable-seccomp' \(ADR 0218\)/,
+    );
+    assert.deepEqual(events, ['slirp4netns starts', 'bwrap stopped']);
+  });
+
+  it("keeps pasta's arguments as they are: it sandboxes itself", async () => {
+    const { calls, exec } = fakeSetup();
+    await linuxSetup(exec, { findStackTool: stackTools('pasta') })(line, [], call);
+    assert.equal(calls[1]?.file, '/usr/bin/pasta');
+    assert.deepEqual(calls[1]?.args, PASTA_ARGS);
   });
 
   // Ubuntu confines pasta under passt's AppArmor profile, and lets slirp4netns into user
