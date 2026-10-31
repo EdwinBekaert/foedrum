@@ -64,12 +64,10 @@ const setupUnavailable = (): string | undefined => {
 };
 
 /**
- * Why a name query from a setup could leave this machine: only systemd-resolved's stub answers
- * localhost itself. On CI's Linux leg, which has it, the test runs and fails if it does not.
+ * Why a name query from a setup could leave this machine, or undefined when it cannot: only
+ * systemd-resolved's stub answers localhost itself.
  */
-const linuxResolverUnavailable = (): string | undefined => {
-  if (process.platform !== 'linux') return 'the stack is a Linux one';
-  if (inCi) return undefined;
+const resolverLeavesMachine = (): string | undefined => {
   let names = '';
   try {
     names = readFileSync('/etc/resolv.conf', 'utf8');
@@ -80,6 +78,12 @@ const linuxResolverUnavailable = (): string | undefined => {
   return servers.length > 0 && servers.every((server) => server.endsWith('127.0.0.53'))
     ? undefined
     : "the host's resolver is not systemd-resolved's stub alone";
+};
+
+/** Off CI a host whose query could leave it skips; CI's Linux leg runs and fails instead. */
+const linuxResolverUnavailable = (): string | undefined => {
+  if (process.platform !== 'linux') return 'the stack is a Linux one';
+  return inCi ? undefined : resolverLeavesMachine();
 };
 
 /** A server that counts its connections, listening where it is told. */
@@ -389,10 +393,12 @@ describe('a setup in the real sandbox, the network kept', {
 
   // The query goes to the stack's 10.0.2.3, which slirp4netns answers from its own sandbox
   // (ADR 0277) through the host's systemd-resolved, which answers localhost itself, so nothing
-  // leaves the machine: a host with another resolver skips it, and CI's ubuntu leg runs it.
+  // leaves the machine: a host with another resolver skips it, and on CI's ubuntu leg it fails
+  // before it sends the query (review of #702).
   it("resolves a name through the stack's resolver on Linux", {
     skip: linuxResolverUnavailable() ?? false,
   }, async () => {
+    assert.equal(resolverLeavesMachine(), undefined);
     const query = `require('dns').resolve4('localhost',(e,a)=>process.exit(!e&&a.includes('127.0.0.1')?0:3))`;
     const result = await setup(`"${process.execPath}" -e "${query}"`);
     assert.equal(result.exitCode, 0, result.output);
