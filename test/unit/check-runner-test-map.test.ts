@@ -601,6 +601,34 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.ok(text.includes('The test map of acme/api is stale: '), text);
   });
 
+  it('keeps the stale line past a later run whose tests failed, which judged no map', () => {
+    const finished: Event = {
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      staleMap: { repo: 'acme/api', kept: 'repo', paths: named, more: 0 },
+    };
+    const failing: Event[] = [
+      { type: 'step.scheduled', ...ref, attempt: 2, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: { repo: 'acme/api', path: worktree, branch: 'foedrum/12-1/green/2', commit: tip },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'failed', retryable: false, reason: 'tests failed' },
+        readings: [{ result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' }],
+      },
+    ];
+    const batch = fold([...events, finished, ...failing]).batches.get('12-1') ?? assert.fail();
+    const text = renderStatus(batch);
+    assert.ok(text.includes('The test map of acme/api is stale: '), text);
+  });
+
   it("keeps one repository's stale line when a run in another repository finds its own map fresh", () => {
     const finished: Event = {
       type: 'step.finished',
