@@ -51,6 +51,18 @@ describe('the fake GitHub API', () => {
     assert.deepStrictEqual(await reader.checks(url, head), []);
   });
 
+  it('heads each pull request it opens on a commit no other pull request heads', () => {
+    // A padding that is itself a hex digit would give 0x1 and 0xe1 one sha.
+    const pairs = [
+      [0x1, 0xe1],
+      [0xe, 0xee],
+      [0x2, 0x2e],
+    ] as const;
+    for (const [one, other] of pairs) {
+      assert.notEqual(headOf(one), headOf(other), `${one} and ${other}`);
+    }
+  });
+
   it('answers 404 to a pull request it never opened (regression test)', async () => {
     const { github, number } = await opened();
     const answer = await github.fetch(`${api}/repos/acme/web/pulls/${number + 1}`);
