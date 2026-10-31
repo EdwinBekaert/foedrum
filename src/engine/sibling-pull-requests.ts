@@ -110,6 +110,10 @@ export const siblingSection = (state: State, batchId: string): string | undefine
   if (own === undefined || own.cancelled) return undefined;
   const entries = subOrderPullRequests(state, own.order);
   if (entries.length < 2) return undefined;
+  // An older batch's pull request is not the sub-order's once a newer batch opened one.
+  const mine = openedPullRequest(state, batchId);
+  const picked = entries.find(({ subOrder }) => subOrder === own.issue)?.pullRequest;
+  if (mine !== undefined && mine !== picked) return undefined;
   const dependencies: readonly Dependency[] = state.orders.get(own.order)?.dependencies ?? [];
   // The batch names itself the same before and after its pull request opens, so the open's section
   // is the one the next pass computes.
@@ -252,7 +256,8 @@ export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects =>
       ).length;
       // A merged body is written again only to name a sibling that opened since: a blocker merges
       // before what waits for it opens (ADR 0211), and is its merge commit's description already.
-      if (end === 'merged' && (latest?.opened ?? 0) >= opened) return [];
+      // One never revised, as one merged before ADR 0292, is left as it merged.
+      if (end === 'merged' && (latest === undefined || latest.opened >= opened)) return [];
       const key = siblingKey(batchId, recorded.length + 1);
       due.set(effectKey.encode(key), { url, section, digest, opened });
       return [key];
