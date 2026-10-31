@@ -155,6 +155,39 @@ describe('foedrum status and replay on store files', () => {
     reader.close();
   });
 
+  it('records a command that changes state as the user the caller gives, not the account', async () => {
+    mkdirSync(join(brewery.path, '.foedrum'));
+    const writer = openSqliteEventStore(store);
+    writer.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      }),
+    );
+    writer.close();
+    // A name no machine's account has, as npm run demo gives its own user (#663).
+    const user = 'demo-user-663';
+    const { exitCode, stdout, stderr } = await cliFromCheckout(['cancel', '12-1'], brewery.path, {
+      exec: cannedGhLogin(),
+      resolve: resolveWithMadeUpGh,
+      denylist: noDenylist,
+      user: () => user,
+    });
+    assert.equal(stderr, '');
+    assert.equal(exitCode, 0);
+    assert.equal(stdout, `12-1 cancelled: by ${user} via terminal\n`);
+    const reader = openSqliteEventStore(store, { readOnly: true });
+    assert.deepEqual(reader.eventsAfter(1)[0]?.event, {
+      type: 'batch.cancelled',
+      batchId: '12-1',
+      by: user,
+      via: 'terminal',
+    });
+    reader.close();
+  });
+
   it('creates no store for a command that changes state, in a folder without one', async () => {
     const { exitCode, stderr } = await foedrum('cancel', '12-1');
     assert.equal(exitCode, 1);
