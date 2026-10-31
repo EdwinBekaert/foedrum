@@ -1,13 +1,13 @@
 // npm run demo (ADR 0097, ADR 0139), as the program: a scratch Brewery whose order is brewed with
 // Nip through serve's Cellar, killed mid-attempt and started again, until the batch is on tap with
 // one pull request and one status comment on the in-process code host; then a second order brewed
-// by foedrum brew, and foedrum resume's line for the Cellarman's attempt. Real git and node, no
-// gh, no claude.
+// by foedrum brew, foedrum resume's line for the Cellarman's attempt, and a third order mashed to a
+// plan that waits Stuck for its review. Real git and node, no gh, no claude.
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import { DEMO_SCRIPT } from '../../scripts/demo/brewer.ts';
 import { codeHost, fileJournal } from '../../scripts/demo/code-host.ts';
 import {
@@ -26,7 +26,7 @@ import {
   stepLines,
 } from '../../scripts/demo/walkthrough.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { execProcess } from '../../src/platform/processes.ts';
+import { type ExecResult, execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { runGit } from '../../src/workspace/git.ts';
@@ -38,13 +38,19 @@ const demo = join(root, 'scripts', 'demo.ts');
 
 describe('npm run demo', () => {
   let dir: TempDir;
-  beforeEach(() => {
+  let scratch: string;
+  /** The one run of the demo every test reads: it takes minutes. */
+  let result: ExecResult;
+  /** Where each step's heading starts in the output. */
+  let at: number[];
+  /** The output of `step`, from its heading to the next one's. */
+  const part = (step: Step['id']): string => {
+    const n = STEPS.findIndex(({ id }) => id === step);
+    return result.stdout.slice(at[n], at[n + 1]);
+  };
+  before(async () => {
     dir = makeTempDir('demo');
-  });
-  afterEach(() => removeTree(dir.path));
-
-  it('brews one order with Nip through a crash and a restart, another with foedrum brew, on a machine with no git identity', async () => {
-    const scratch = join(dir.path, 'demo');
+    scratch = join(dir.path, 'demo');
     const scriptedAttempts = Object.values(DEMO_SCRIPT).reduce((n, turns) => n + turns.length, 0);
     // A machine with no git identity of its own, as a CI runner or a fresh clone has: no system
     // configuration, and a global one of the test's own that only stops git from guessing an
@@ -57,27 +63,28 @@ describe('npm run demo', () => {
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !hostGit.test(name)),
     );
-    const result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
+    result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
-      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe, counted by the
-      // attempts its script plays in a batch, the tasting loop's second round too (ADR 0193).
+      // Only a guard against a hang (ADR 0075): two runs of the demo's recipe and the mash's
+      // Innkeeper and Brewmaster, counted by the attempts its script plays in a batch, the
+      // tasting loop's second round too (ADR 0193).
       timeoutMs: scriptedAttempts * hangGuardMs,
     });
+    at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));
+  });
+  after(() => removeTree(dir.path));
+
+  it('brews one order with Nip through a crash and a restart, another with foedrum brew, on a machine with no git identity', async () => {
     assert.equal(result.exitCode, 0, result.output);
     assert.ok(result.stdout.includes(CRASH_LINE), result.output);
     assert.ok(result.stdout.includes(ON_TAP_LINE), result.output);
 
     // The walkthrough's steps, in order, with no pause between them.
-    const at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));
     assert.ok(
       at.every((where, n) => where >= 0 && where > (at[n - 1] ?? -1)),
       `headings at ${at.join(', ')}:\n${result.stdout}`,
     );
-    const part = (step: Step['id']): string => {
-      const n = STEPS.findIndex(({ id }) => id === step);
-      return result.stdout.slice(at[n], at[n + 1]);
-    };
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
     assert.match(part('brewing'), /brewing +gauge #1 started/);
     // The restart shows that it found the lost attempt: lost because the killed Cellar stopped, in
@@ -319,5 +326,67 @@ describe('npm run demo', () => {
       ),
       part('checks'),
     );
+  });
+
+  // Step 12: an issue mashed (ADR 0232): the Innkeeper's question, an answer, and the Brewmaster's
+  // plan waiting Stuck for its review (ADR 0275).
+  it("step 12 prints the Innkeeper's question with its two choices", () => {
+    const mash = part('mash');
+    assert.ok(mash.includes('$ foedrum mash 3 --as ann\n'), mash);
+    assert.match(mash, /foedrum mash: routed batch 3-1 to the recipe mash-in$/m);
+    assert.match(mash, /foedrum mash: batch 3-1 needs input at innkeep:$/m);
+    assert.match(
+      mash,
+      /foedrum mash: {3}1\. Which recipe brews #3\? [^\n]*\(mash, nip-parallel; recommended: mash\)$/m,
+    );
+  });
+
+  it("after the answer, step 12's foedrum stuck names the plan waiting for review and its next step", () => {
+    const mash = part('mash');
+    assert.ok(mash.includes('$ foedrum answer 3-1 mash\n'), mash);
+    assert.match(
+      mash,
+      /foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
+    );
+    const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
+    assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
+    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #1 is ready for your review(?:;|$)/m);
+    assert.match(stuck, /^ {4}next: \S/m);
+  });
+
+  it('step 12 prints the plan comment with the link to the full plan, the table, the flowchart and the Next line', () => {
+    const mash = part('mash');
+    // The plan comment comes after the status comment, which has a Next line of its own.
+    const heading = mash.search(/^ +### Foedrum · plan of batch `3-1`$/m);
+    assert.ok(heading >= 0, mash);
+    const plan = mash.slice(heading);
+    assert.match(plan, /^ +Full plan: <https:\/\/github\.com\/demo\/brewery\/[^>]+>$/m);
+    assert.match(plan, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
+    assert.match(plan, /^ +```mermaid\n +flowchart LR\n/m);
+    assert.match(plan, /^ +s1 -->\|"code"\| s2$/m);
+    assert.match(plan, /^ +Next: \S/m);
+    // The status comment links the plan comment, the one foedrum brew names, not itself.
+    const planUrl = /the plan: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
+    const statusUrl = /status comment: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
+    assert.notEqual(planUrl, statusUrl);
+    assert.ok(
+      mash.includes(`🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: <${planUrl}>`),
+      mash,
+    );
+  });
+
+  it("step 12's answer is the demo user's, who mashed the order, not the machine's account", () => {
+    const mash = part('mash');
+    assert.match(mash, /^ +Recipe \*\*mash\*\*, chosen by ann \(terminal\)$/m);
+    assert.match(
+      mash,
+      /`innkeep`: attempt 1 asked for input, answered by ann \(terminal\): mash$/m,
+    );
+  });
+
+  it("the walkthrough has twelve steps, step 12's heading among them", () => {
+    assert.equal(STEPS.length, 12);
+    assert.equal(headingOf(11), 'Step 12 of 12: foedrum mash 3 --as ann');
+    assert.ok(result.stdout.includes(`\n${headingOf(11)}\n`), result.stdout);
   });
 });

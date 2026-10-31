@@ -1,6 +1,6 @@
 // npm run demo's brewers (ADR 0097, ADR 0139): the Nip fixture's scripted Gauger, Cellarman and
-// Finer (test/helpers/nip-fixture.ts), and a Taster for each lens step of the demo's parallel group,
-// in serve's runner seam, as the E2E test runs them, so the Gauger's and the Cellarman's attempts
+// Finer (test/helpers/nip-fixture.ts), a Taster for each lens step of the demo's parallel group, and
+// the third order's Innkeeper and Brewmaster (ADR 0232, ADR 0234), in serve's runner seam, as the E2E test runs them, so the Gauger's and the Cellarman's attempts
 // commit in their worktrees and no model is asked. In the life that crashes, the Cellar's process is
 // killed once the first attempt has committed, before that attempt ends.
 
@@ -10,7 +10,7 @@ import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { NIP_SCRIPT, type Scripted, scriptedNip } from '../../test/helpers/nip-fixture.ts';
-import { IDENTITY, type Life } from './core.ts';
+import { IDENTITY, type Life, MASH_ORDER, RECIPE, TARGET } from './core.ts';
 
 export interface DemoBrewersOptions {
   /** The attempt's plan, serve's own: its worktree and its prompt. */
@@ -89,6 +89,75 @@ const testDesign = tasting(
 );
 
 /**
+ * The Innkeeper's out doc for the third order (ADR 0232): one question, which recipe brews it, with
+ * mash suggested, since the order touches the code and the README.
+ */
+const INNKEEP: Scripted = {
+  files: {},
+  message: '',
+  summary: 'Asks which recipe brews #3.',
+  doc: {
+    status: 'needs_input',
+    questions: [
+      {
+        q: `Which recipe brews #${MASH_ORDER.number}? Suggested: mash: it changes greet and the README, two parts to plan first`,
+        options: ['mash', RECIPE],
+        recommended: 'mash',
+        whyBlocking: 'The recipe decides what runs next',
+      },
+    ],
+  },
+};
+
+/**
+ * The Brewmaster's plan of the third order (ADR 0233, ADR 0234): two sub-orders in the target
+ * repository, the README's after greet's, so the plan comment draws their order; with its
+ * assumptions and the cut it did not choose.
+ */
+const PLAN: Scripted = {
+  files: {},
+  message: '',
+  summary: 'Greet in a language first, then show it in the README.',
+  doc: {
+    subOrders: [
+      {
+        id: 'languages',
+        title: 'greet takes a language',
+        repo: TARGET,
+        size: { lines: 40, mechanism: 'a second parameter and a table of greetings' },
+        doneWhen: "greet('Ann', 'fr') returns 'Bonjour, Ann!'",
+        touches: [{ path: 'greet.mjs' }, { path: 'greet.test.mjs' }],
+        recipe: 'nip',
+        why: 'one small change, test-first',
+        ready: true,
+      },
+      {
+        id: 'readme',
+        title: 'The README shows the languages',
+        repo: TARGET,
+        size: { lines: 15, mechanism: 'one section' },
+        doneWhen: 'the README names fr and nl with an example of each',
+        touches: [{ path: 'README.md', new: true }],
+        dependencies: [{ on: 'languages', kind: 'code' }],
+        recipe: 'nip',
+        why: 'a page after the code it shows',
+        testFirst: false,
+        testFirstOff: 'a page has no test',
+        ready: true,
+      },
+    ],
+    alternatives: {
+      considered: [{ cut: 'one sub-order', whyNot: 'the README would show a greet not yet built' }],
+      whyThis: 'each part merges alone, the code first',
+    },
+    assumptions: [
+      'English stays the greeting when no language is given.',
+      'Only fr and nl for now; another language is a new order.',
+    ],
+  },
+};
+
+/**
  * The Nip fixture's Gauger and Cellarman, with a Taster for each lens step of the demo's parallel
  * group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the blocking correctness lens
  * asks for changes with one finding, and the advisory ones approve with a finding of their own,
@@ -117,6 +186,9 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   ],
   security: [security, security],
   'test-design': [testDesign, testDesign],
+  // The third order's mash: the Innkeeper's question, then the Brewmaster's plan (ADR 0232).
+  innkeep: [INNKEEP],
+  plan: [PLAN],
 };
 
 export const demoBrewers = (options: DemoBrewersOptions): BrewerRunner => {
