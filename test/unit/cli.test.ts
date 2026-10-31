@@ -722,6 +722,83 @@ describe('foedrum status', () => {
   });
 });
 
+describe('foedrum status <order> (ADR 0295)', () => {
+  const chosen = (batchId: string, recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId,
+    recipe,
+    reason: `label recipe:${recipe}`,
+    source: 'label',
+  });
+  // One attempt of `stepId`, finished with `usage` (none when it reported none).
+  const attempt = (
+    batchId: string,
+    stepId: string,
+    n: number,
+    usage?: [number, number, number, number],
+  ): Event[] => [
+    { type: 'step.scheduled', batchId, stepId, attempt: n, deadlineAt: D1 },
+    { type: 'step.started', batchId, stepId, attempt: n },
+    {
+      type: 'step.finished',
+      batchId,
+      stepId,
+      attempt: n,
+      outcome: { kind: 'succeeded', output: {} },
+      ...(usage === undefined
+        ? {}
+        : {
+            usage: {
+              inputTokens: usage[0],
+              outputTokens: usage[1],
+              cacheReadTokens: usage[2],
+              cacheWriteTokens: usage[3],
+            },
+          }),
+    },
+  ];
+  const subOrder = (issue: number, plan?: Extract<Event, { type: 'batch.ordered' }>['plan']) =>
+    ({ ...ordered(issue, '11-1'), ...(plan === undefined ? {} : { plan }) }) as Event;
+
+  // Order #11 mashed: the Innkeeper's mash-in, then mash's plan and a lens step, its plan applied
+  // as sub-orders #21 and #22; #30, another order, brews beside it.
+  const mashed: Event[] = [
+    ordered(11),
+    ordered(30),
+    chosen('11-1', 'mash-in'),
+    ...attempt('11-1', 'ask', 1, [100, 20, 1000, 0]),
+    chosen('30-1', 'nip'),
+    ...attempt('30-1', 'build', 1, [9000, 9000, 9000, 9000]),
+    chosen('11-1', 'mash'),
+    ...attempt('11-1', 'plan', 1, [200, 40, 2000, 300]),
+    ...attempt('11-1', 'sizing', 1, [10, 5, 0, 0]),
+    {
+      type: 'order.decomposed',
+      batchId: '11-1',
+      subOrders: [
+        { issue: 21, repo: 'acme/app', entry: 'api' },
+        { issue: 22, repo: 'acme/app', entry: 'ui' },
+      ],
+      dependencies: [],
+    },
+    subOrder(22),
+    subOrder(21, { batchId: '11-1', stepId: 'plan', attempt: 1, entry: 'api' }),
+    chosen('21-1', 'nip'),
+    chosen('22-1', 'nip'),
+    ...attempt('22-1', 'build', 1, [3000, 600, 10000, 500]),
+    ...attempt('21-1', 'build', 1, [1000, 200, 5000, 100]),
+    // A retry that reported no usage counts as none.
+    ...attempt('21-1', 'build', 2),
+  ];
+
+  it('status without an order prints the board as before', async () => {
+    const result = await run(['status'], { openStore: () => storeWith(mashed), config: roomy });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /^4 batches\n/);
+    assert.doesNotMatch(result.stdout, /planning|brewing:/);
+  });
+});
+
 describe('foedrum mash (ADR 0232)', () => {
   it("hands a Brewery issue and the --as name to the terminal's brew, as a mash", async () => {
     const asked: unknown[] = [];
