@@ -111,12 +111,19 @@ export interface AttemptTip {
 
 /** The files of `proven` whose every line the map keeps: in a test area of a module, never inline. */
 export const guardedFiles = (
-  _proven: readonly DiffFile[],
-  _modules: readonly EffectiveModule[],
-  _foldCase: boolean,
-): string[] => {
-  throw new Error('not implemented');
-};
+  proven: readonly DiffFile[],
+  modules: readonly EffectiveModule[],
+  foldCase: boolean,
+): string[] => [
+  ...new Set(
+    proven.flatMap(({ newPath }) =>
+      // An inline module's tests have no area of their own, so its files read as code.
+      newPath !== undefined && areaOf(modules, newPath, foldCase)?.area === 'tests'
+        ? [newPath]
+        : [],
+    ),
+  ),
+];
 
 /**
  * The lines `proven` added to a separate test file of `modules` that the attempt's tip holds fewer
@@ -125,10 +132,29 @@ export const guardedFiles = (
  * keeps (ADR 0274, ADR 0078).
  */
 export function changedTestLines(
-  _proven: readonly DiffFile[],
-  _tip: AttemptTip,
-  _modules: readonly EffectiveModule[],
-  _options: { foldCase: boolean; newMap: boolean },
+  proven: readonly DiffFile[],
+  tip: AttemptTip,
+  modules: readonly EffectiveModule[],
+  { foldCase, newMap }: { foldCase: boolean; newMap: boolean },
 ): ChangedTestLine[] {
-  throw new Error('not implemented');
+  const guarded = guardedFiles(proven, modules, foldCase);
+  const found: ChangedTestLine[] = [];
+  for (const path of guarded) {
+    // By what the tip holds, so a later step's own copy of a red line may go.
+    const left = counts(tip.files.get(path)?.split(/\r?\n/) ?? []);
+    for (const { newPath, added } of proven) {
+      if (newPath !== path) continue;
+      for (const line of added.map((text) => text.trim()).filter((text) => text !== '')) {
+        const copies = left.get(line) ?? 0;
+        if (copies > 0) left.set(line, copies - 1);
+        else found.push({ path, line });
+      }
+    }
+  }
+  if (!newMap) return found;
+  // A map the brewers under check wrote never keeps less than no map does.
+  const unguarded = proven.filter(
+    ({ newPath }) => newPath === undefined || !guarded.includes(newPath),
+  );
+  return [...found, ...changedTests(unguarded, tip.changes)];
 }
