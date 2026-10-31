@@ -253,6 +253,30 @@ export const reportPaths = (
   return { paths: found };
 };
 
+/**
+ * Clears every file or folder the report patterns name in the worktree `root`, before a run, so a
+ * report an earlier run left never stands for this one's (ADR 0274); why not, or undefined.
+ */
+export const clearReportPaths = async (
+  patterns: readonly string[],
+  root: string,
+  find: typeof reportPaths,
+  clear: (path: string, root: string) => void | Promise<void>,
+): Promise<string | undefined> => {
+  for (const pattern of patterns) {
+    const found = find(pattern, root);
+    if ('refused' in found) return found.refused;
+    for (const path of found.paths) {
+      try {
+        await clear(path, root);
+      } catch (error) {
+        return `${pattern} cannot be cleared: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+  }
+  return undefined;
+};
+
 /** A repository's sensitive paths with its test map's, when the repository keeps it (ADR 0201). */
 export const sensitivePathsOf = (repository: {
   sensitivePaths?: readonly string[];

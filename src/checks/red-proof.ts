@@ -1,9 +1,13 @@
-// The red proof's verdict, the core (ADR 0017, ADR 0078): whether a test report shows the tests a
-// step committed failing because the behaviour is missing. Pure; check-runner.ts runs the tests
-// and reads the report and the step's diff.
+// The red proof's verdict, the core (ADR 0017): whether the run shows the behaviour a step's tests
+// describe missing. With a test map, by checks that read no test name (judgeMapped, ADR 0274);
+// without one, by the tests a step committed, found by name (judgeRed, ADR 0078). Pure;
+// check-runner.ts runs the tests and reads the reports and the step's diff.
 
+import { posix } from 'node:path';
+import { isAbsolutePath, reportPath } from '../formats/coverage-report.ts';
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
+import { areaOf, type EffectiveModule } from './test-map.ts';
 import { assertsOnly, isTestFile } from './tests-unchanged.ts';
 
 export type RedVerdict =
@@ -212,6 +216,173 @@ export function judgeRed(
   const skipped = proven.filter(({ result }) => result === 'skipped');
   if (skipped.length > 0) return refused(`${named(skipped)} is skipped, so it proves nothing`);
   return { proven: true, tests: proven.map(({ name }) => name) };
+}
+
+/** A module's test report, with the name of the module that wrote it. */
+export type MappedReport = TestReport & { module?: string };
+
+/** What a red proof in a repository with a test map judges (ADR 0274). */
+export interface MappedRun {
+  /** The test report of each module that wrote one. */
+  reports: readonly MappedReport[];
+  /** Why each module the base's map lists counts as a load error: it wrote no report. */
+  unreported: readonly string[];
+  /** The proven step's commits. */
+  diff: readonly DiffFile[];
+  /** The effective map's modules. */
+  modules: readonly EffectiveModule[];
+  /** The worktree's root, which a report's absolute paths start at. */
+  root: string;
+  /**
+   * The root's real path, where a run started in the worktree writes its absolute paths when a
+   * link leads to it (macOS's /tmp, a junction), when it differs.
+   */
+  realRoot?: string;
+  /** Whether the worktree's file system takes paths that differ only in case for one. */
+  foldCase: boolean;
+}
+
+/** A path as the step's files are compared: in either case where the file system folds case. */
+const keyOf = (path: string, foldCase: boolean): string => (foldCase ? path.toLowerCase() : path);
+
+/**
+ * A test's file relative to the worktree's root with `/` between folders, from either of `roots`
+ * (the worktree's path and its real path), or undefined outside both.
+ */
+const fileOf = ({ location }: ReportedTest, roots: readonly string[]): string | undefined => {
+  if (location === undefined) return undefined;
+  return roots.map((root) => reportPath(location.file, root)).find((path) => path !== undefined);
+};
+
+/** A test's file as a reason shows it: relative to the root, else with `/` between folders. */
+const shownFile = (test: ReportedTest, roots: readonly string[]): string =>
+  fileOf(test, roots) ?? posix.normalize((test.location?.file ?? '').replaceAll('\\', '/'));
+
+/**
+ * The key in `files` (paths by their key) of the file a test's location names: by its path from the
+ * root, or, for a relative path a runner may write from a module's folder (pytest from its
+ * rootdir), a file of `ofModule` (the report's module, when known) whose path ends with it;
+ * undefined when it names none of them.
+ */
+const placedIn = (
+  test: ReportedTest,
+  files: ReadonlySet<string>,
+  roots: readonly string[],
+  foldCase: boolean,
+  ofModule: (key: string) => boolean = () => true,
+): string | undefined => {
+  const file = fileOf(test, roots);
+  if (file === undefined) return undefined;
+  const key = keyOf(file, foldCase);
+  if (files.has(key)) return key;
+  if (isAbsolutePath(test.location?.file ?? '')) return undefined;
+  return [...files].find((each) => each.endsWith(`/${key}`) && ofModule(each));
+};
+
+/** Whether a changed file's key is in `module`'s areas: any file when the report names none. */
+const inModuleOf =
+  (moduleOf: ((path: string) => string | undefined) | undefined, module: string | undefined) =>
+  (key: string): boolean =>
+    module === undefined || moduleOf === undefined || moduleOf(key) === module;
+
+/**
+ * Whether `run` proves the step red, reading no test's name (ADR 0274): checked in this order, the
+ * first that fails names why. The run did not bail out; it shows no load error, and every module
+ * the base's map lists wrote its reports; the step changed a file in a test area, or in a module
+ * whose tests are inline; a test fails, and where the report places every failing test, one lies
+ * in such a file; and no skip lies in a line the step added. The base is green, so a failing test
+ * is the step's doing, and a passing one is just a passing test.
+ */
+export function judgeMapped(run: MappedRun): { proven: true } | { proven: false; why: string } {
+  const { reports, unreported, diff, modules, root, realRoot, foldCase } = run;
+  const roots = realRoot === undefined ? [root] : [root, realRoot];
+  const refused = (why: string) => ({ proven: false as const, why });
+  const bailedOut = reports.find((report) => report.bailedOut !== undefined)?.bailedOut;
+  if (bailedOut !== undefined) return refused(`the run bailed out: ${bailedOut}`);
+  const failures = reports.flatMap(({ tests, module }) =>
+    tests.filter(({ result }) => result === 'failed').map((test) => ({ ...test, module })),
+  );
+  const text = [...reports.map(({ other }) => other), ...failures.map(({ detail }) => detail)];
+  const error = loadError(text.join('\n')) ?? unreported[0];
+  if (error !== undefined) {
+    return refused(`the run has a load, compile, import or collection error: ${error}`);
+  }
+  // A file the step changed in a test area: a module's tests, or a module whose tests are inline.
+  const inTests = (path: string): boolean => {
+    const area = areaOf(modules, path, foldCase);
+    if (area?.area === 'tests') return true;
+    const module = modules.find(({ module }) => module.name === area?.module)?.module;
+    return module !== undefined && 'inline' in module.tests;
+  };
+  const testFiles = new Set(
+    diff.flatMap(({ newPath }) =>
+      newPath !== undefined && inTests(newPath) ? [keyOf(newPath, foldCase)] : [],
+    ),
+  );
+  if (testFiles.size === 0) {
+    return refused(
+      'the step changed no file in a test area of the test map, nor in a module whose tests are inline',
+    );
+  }
+  // A suite's own result follows its tests'.
+  const failing = failures.filter(({ leaf }) => leaf);
+  if (failing.length === 0) return refused('no test fails, so none shows the behaviour missing');
+  // By file: the report places a test at its declaration, which a row added to a table leaves as
+  // it was. A failing test the report does not place may be the step's.
+  // A relative place names a file of the module whose report it is in, never another's.
+  const moduleOf = (path: string): string | undefined => areaOf(modules, path, foldCase)?.module;
+  const inChanged = (test: ReportedTest & { module: string | undefined }): boolean =>
+    placedIn(test, testFiles, roots, foldCase, inModuleOf(moduleOf, test.module)) !== undefined;
+  const [placed] = failing;
+  if (
+    placed !== undefined &&
+    failing.every(({ location }) => location !== undefined) &&
+    !failing.some(inChanged)
+  ) {
+    return refused(
+      `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, roots))}`,
+    );
+  }
+  const added = new Map(
+    diff.flatMap(({ newPath, addedAt }) =>
+      newPath === undefined ? [] : [[newPath, new Set(addedAt ?? [])] as const],
+    ),
+  );
+  const skipped = skipsInAddedLines(reports, added, root, foldCase, realRoot, moduleOf);
+  return skipped === undefined ? { proven: true } : refused(skipped);
+}
+
+/**
+ * Why a skip in `reports` is the step's: the report places it in a line `added` holds, by the
+ * path relative to `root` (or `realRoot`, the root's real path) with `/` between folders, or by a
+ * relative path an added file's path ends with, in the report's module by `moduleOf` when both are
+ * known; undefined when none is (ADR 0274). By line: a
+ * step's skip sits on a declaration it adds or edits, and a skip the base had is not the step's.
+ * A skip the report places on no line is the test-design lens's to find.
+ */
+export function skipsInAddedLines(
+  reports: readonly MappedReport[],
+  added: ReadonlyMap<string, ReadonlySet<number>>,
+  root: string,
+  foldCase: boolean,
+  realRoot?: string,
+  moduleOf?: (path: string) => string | undefined,
+): string | undefined {
+  const roots = realRoot === undefined ? [root] : [root, realRoot];
+  const files = new Map([...added].map(([path, at]) => [keyOf(path, foldCase), { path, at }]));
+  const keys = new Set(files.keys());
+  for (const { tests, module } of reports) {
+    for (const test of tests) {
+      const line = test.location?.line;
+      if (test.result !== 'skipped' || !test.leaf || line === undefined) continue;
+      const ofModule = inModuleOf(moduleOf, module);
+      const file = files.get(placedIn(test, keys, roots, foldCase, ofModule) ?? '');
+      if (file?.at.has(line) === true) {
+        return `test "${cut(test.name)}" is skipped at ${cut(file.path)}:${line}, a line the step added, so it proves nothing`;
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Why a recipe that proves its tests red cannot brew in `repo`: it has no test report. */
