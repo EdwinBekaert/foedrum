@@ -86,7 +86,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | `requiresOutDoc` | the out doc is missing or invalid |
 | `requiresCommits` | the out doc says `done`, but the brewer made no commit after its worktree's start: the batch goes Stuck on a `divergence`. Every brewer that produces commits has it, listed or not ([ADR 0074](../../adr/0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md)), except for a `fining` out doc's `done` with `unchanged`, which needs none ([ADR 0166](../../adr/0166-the-finer-simplifies-a-batch-s-change-before-green.md)), and a `gauge` out doc's `done` that names its tests after a failed red proof of its step sent it back ([ADR 0258](../../adr/0258-a-gauger-its-red-proof-sent-back-may-name-its-tests-without-a-commit.md)) |
 | `testsNotRemoved` | test declarations disappeared compared with the attempt's start commit |
-| `testsUnchanged` | test declarations or assertions committed by the step named in the red proof's `of` were changed or removed (helpers, fixtures, imports and new tests may change) |
+| `testsUnchanged` | a line the step named in the red proof's `of` added to a separate test file of the test map was changed or removed; in a repository with no map, a test declaration or assertion it committed (new tests may change, and fixtures and stubs outside the map's test areas; [the red proof](../checks/red-proof.md)) |
 | `scope` | files outside the worktree were touched |
 | `diffLimits` | more files or lines changed than allowed |
 

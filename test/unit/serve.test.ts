@@ -1824,7 +1824,7 @@ Plan the order in {order}.
       "diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1 @@\n+test('adds two numbers', () => assert.equal(add(1, 2), 3));\n";
 
     /** Serve brewing batch 14-1 with the nip recipe: what the brewers, the checks and git saw. */
-    const brewTestFirst = async (testFirst: ServeSetup, taps: string[] = []) => {
+    const brewTestFirst = async (testFirst: ServeSetup, taps: string[] = [], clonedGit?: Git) => {
       const log = createCommandLog({ store, recipes: testFirst.recipes });
       log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
       const route = { kind: 'route', batchId: '14-1', recipe: 'nip', reason: 'label' } as const;
@@ -1856,6 +1856,7 @@ Plan the order in {order}.
           runner: () => succeeding,
           exec,
           git: async (cwd, args) => {
+            if (clonedGit !== undefined) return clonedGit(cwd, args);
             // The clone has no test map (ADR 0274).
             if (args[0] === 'ls-tree') return { code: 0, stdout: '', stderr: '' };
             folders.push(cwd);
@@ -1904,6 +1905,53 @@ Plan the order in {order}.
       assert.match(diffs[1] ?? '', gaugeRange);
       // The cellarman's own commits end at its attempt branch, which the task tree carries on.
       assert.match(diffs[2] ?? '', /^[0-9a-f]{40} refs\/heads\/foedrum\/14-1\/implement\/1$/);
+    });
+
+    it('keeps every line the Gauger added to a test file of the test map, through serve (ADR 0274)', async () => {
+      const map = JSON.stringify({
+        derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['add.mjs'],
+            tests: { paths: ['add.test.mjs'] },
+            testReport: { format: 'tap', path: 'report.tap' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const importLine = "import { add } from './add.mjs';";
+      const test = "test('adds two numbers', () => assert.equal(add(1, 2), 3));";
+      const gauged = `diff --git a/add.test.mjs b/add.test.mjs\n--- /dev/null\n+++ b/add.test.mjs\n@@ -0,0 +1,2 @@\n+${importLine}\n+${test}\n`;
+      // The cellarman edits only the import line, which ADR 0078's rule lets change.
+      const edited = importLine.replace('./add.mjs', './sum.mjs');
+      const own = `diff --git a/add.test.mjs b/add.test.mjs\n--- a/add.test.mjs\n+++ b/add.test.mjs\n@@ -1 +1 @@\n-${importLine}\n+${edited}\n`;
+      const [mapBlob, testBlob] = ['a'.repeat(40), 'b'.repeat(40)];
+      const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' });
+      const git: Git = async (_cwd, args) => {
+        const path = args.at(-1) ?? '';
+        if (args.includes('ls-tree')) {
+          // The Gauger's test file is on its branch and the cellarman's, not where it started.
+          const ref = args[args.indexOf('--') - 1] ?? '';
+          if (path !== '.foedrum/test-map.jsonc' && !ref.startsWith('refs/heads/')) return ok('');
+          const blob = path === '.foedrum/test-map.jsonc' ? mapBlob : testBlob;
+          return ok(`100644 blob ${blob}\t${path}\0`);
+        }
+        if (args[0] === 'cat-file') return ok(path === mapBlob ? map : `${edited}\n${test}\n`);
+        const end = args.indexOf('--');
+        return ok(args[end - 1]?.endsWith('/implement/1') ? own : gauged);
+      };
+      const { batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }),
+        [],
+        git,
+      );
+      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'implement',
+        attempts: 1,
+        lastReason: `the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, add.test.mjs: ${importLine}`,
+      });
     });
 
     it('lets a batch whose red proof it skips brew in a repository without a test report', async () => {
