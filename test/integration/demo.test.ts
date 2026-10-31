@@ -18,7 +18,13 @@ import {
   ORDER,
   USER,
 } from '../../scripts/demo/core.ts';
-import { headingOf, LOST_LINE, STEPS, type Step } from '../../scripts/demo/walkthrough.ts';
+import {
+  headingOf,
+  LOST_LINE,
+  STEPS,
+  type Step,
+  stepLines,
+} from '../../scripts/demo/walkthrough.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type ExecResult, execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
@@ -80,12 +86,18 @@ describe('npm run demo', () => {
     );
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
     assert.match(part('brewing'), /brewing +gauge #1 started/);
-    // The restart shows that it found the lost attempt: lost, and brewed again.
+    // The restart shows that it found the lost attempt: lost because the killed Cellar stopped, in
+    // plain words without its owner or a UTC time (#277), and brewed again.
     assert.match(
       part('restart'),
-      /demo: the restart found gauge #1 lost \(the attempt was lost[^\n]*\); gauge #2 brews it again/,
+      /demo: the restart found gauge #1 lost \(the Cellar running it stopped, so its lease ran out\); gauge #2 brews it again/,
     );
     assert.equal(result.stdout.split(LOST_LINE).length, 2, 'the lost attempt is said once');
+    // The cause before the effect: the lost attempt, then the status that shows its retry (#277).
+    const restart = part('restart');
+    const retried = restart.search(/brewing +gauge #2 started/);
+    assert.ok(retried >= 0, restart);
+    assert.ok(restart.indexOf(LOST_LINE) < retried, restart);
     // The red proof reads the Gauger's test red, the first fix fails green, and the Cellarman's
     // second attempt is told why, with the failed test's own line.
     const checks = part('checks');
@@ -98,6 +110,20 @@ describe('npm run demo', () => {
     // The status comment is shown as its Markdown, without the hidden revision marker: its path a
     // line per round, and its pull request named once (#662).
     const statusComment = part('pull-request');
+    // The restarted Cellar's life ends in the step before: on tap, its cleanup and its stop; the
+    // pull request's step starts with the pull request (#277).
+    const lifeEnd = [ON_TAP_LINE, 'foedrum serve: stopped', 'cleaned batch 1-1'];
+    for (const line of lifeEnd) {
+      assert.ok(checks.includes(line), `${line} in the checks step:\n${checks}`);
+      assert.ok(!statusComment.includes(line), `${line} in the pull request's:\n${statusComment}`);
+    }
+    // part() starts at the heading, which stepLines opens with a blank line.
+    const opening = stepLines(STEPS.findIndex(({ id }) => id === 'pull-request')).length - 1;
+    assert.match(
+      statusComment.split(/\r?\n/)[opening] ?? '',
+      /^demo: pull request #\d+ on demo\/web: /,
+      statusComment,
+    );
     assert.match(statusComment, /On tap/);
     assert.match(statusComment, /^ +Path: `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m);
     assert.equal(

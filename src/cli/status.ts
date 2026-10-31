@@ -6,6 +6,7 @@ import { type Batch, type Pause, runningAttempt, type State } from '../engine/fo
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
+import { plainReason } from '../engine/supervisor.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
 import type { StuckReason, WaitCondition } from '../schemas/events.ts';
 import { columns } from './columns.ts';
@@ -32,7 +33,7 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
     case 'blocked':
       return `blocked at ${reason.stepId} (${reason.blockerKind}): ${reason.summary}`;
     case 'attempts_exhausted':
-      return `attempts exhausted at ${reason.stepId} after ${reason.attempts}: ${reason.lastReason}`;
+      return `attempts exhausted at ${reason.stepId} after ${reason.attempts}: ${plainReason(reason.lastReason)}`;
     case 'deadline_passed':
       return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
     case 'waiting_for_session':

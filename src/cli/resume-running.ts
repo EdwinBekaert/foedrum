@@ -14,6 +14,7 @@ import {
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { type Batch, latestAttempt } from '../engine/fold.ts';
+import { plainReason } from '../engine/supervisor.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { drivenBy, oneLine } from './brew.ts';
@@ -39,7 +40,7 @@ const endedAs = (outcome: StepOutcome): string => {
     case 'succeeded':
       return 'succeeded';
     case 'failed':
-      return `failed: ${outcome.reason}`;
+      return `failed: ${plainReason(outcome.reason)}`;
     case 'needs_input':
       return 'needs input';
     case 'cancelled':

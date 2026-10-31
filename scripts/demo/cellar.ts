@@ -146,15 +146,15 @@ const shell: ServeShell = {
       write: (path, text) => writeFileSync(path, text),
       life,
       crash,
-      // The attempt as status shows it; in the restart, once, the one it lost before it. foedrum
-      // brew says itself how its batch moves.
+      // The attempt as status shows it; in the restart, once, the one it lost first. foedrum brew
+      // says itself how its batch moves.
       started: async () => {
         if (life === 'brew') return;
         try {
-          await showStatus();
           const lost = lostAttemptLine(store?.eventsAfter(0) ?? []);
           if (lost !== undefined && lost !== lostShown) out(lost);
           lostShown = lost;
+          await showStatus();
         } catch (error) {
           out(`demo: could not show the attempt: ${(error as Error).message}`);
         }

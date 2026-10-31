@@ -50,6 +50,7 @@ import {
   pausesBetweenSteps,
   RESUMED,
   replayLines,
+  SERVE_STOPPED,
   STATUS_LINE,
   splitOutput,
   stepLines,
@@ -188,16 +189,23 @@ indented(killed);
 say('demo: the Cellar starts again on the same Brewery');
 const restart = await live('finish');
 const [found, after] = splitOutput(restart.output, (line) => line.startsWith(LOST_LINE), 'with');
-indented(found);
+// With the status after the lost attempt, which shows its retry: its lines but the first are
+// indented or blank.
+const statusEnd =
+  after[0] === STATUS_LINE ? after.findIndex((line, i) => i > 0 && /^\S/.test(line)) : 0;
+const retry = statusEnd < 0 ? after.length : statusEnd;
+indented([...found, ...after.slice(0, retry)]);
+const rest = after.slice(retry);
 
 await next();
-// Up to the status that first shows the batch on tap, which goes with the pull request.
-const onTap = after.findIndex((line) => / on tap /.test(line));
-const cut = onTap < 0 ? after.length : Math.max(0, after.lastIndexOf(STATUS_LINE, onTap));
-indented(after.slice(0, cut));
+// The restarted Cellar's life to its stop: on tap, its cleanup and its stop go before the pull
+// request.
+const stopped = rest.indexOf(SERVE_STOPPED);
+const cut = stopped < 0 ? rest.length : stopped + 1;
+indented(rest.slice(0, cut));
 
 await next();
-indented(after.slice(cut));
+indented(rest.slice(cut));
 const journal = fileJournal(join(scratch, 'code-host.jsonl'));
 let host = await codeHost(journal);
 const comments = host.comments(BREWERY, ORDER.number);
