@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import { DEMO_SCRIPT } from '../../scripts/demo/brewer.ts';
 import { codeHost, fileJournal } from '../../scripts/demo/code-host.ts';
 import {
@@ -20,7 +20,7 @@ import {
 } from '../../scripts/demo/core.ts';
 import { headingOf, LOST_LINE, STEPS, type Step } from '../../scripts/demo/walkthrough.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import { execProcess } from '../../src/platform/processes.ts';
+import { type ExecResult, execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { runGit } from '../../src/workspace/git.ts';
@@ -32,13 +32,19 @@ const demo = join(root, 'scripts', 'demo.ts');
 
 describe('npm run demo', () => {
   let dir: TempDir;
-  beforeEach(() => {
+  let scratch: string;
+  /** The one run of the demo every test reads: it takes minutes. */
+  let result: ExecResult;
+  /** Where each step's heading starts in the output. */
+  let at: number[];
+  /** The output of `step`, from its heading to the next one's. */
+  const part = (step: Step['id']): string => {
+    const n = STEPS.findIndex(({ id }) => id === step);
+    return result.stdout.slice(at[n], at[n + 1]);
+  };
+  before(async () => {
     dir = makeTempDir('demo');
-  });
-  afterEach(() => removeTree(dir.path));
-
-  it('brews one order with Nip through a crash and a restart, another with foedrum brew, on a machine with no git identity', async () => {
-    const scratch = join(dir.path, 'demo');
+    scratch = join(dir.path, 'demo');
     const scriptedAttempts = Object.values(DEMO_SCRIPT).reduce((n, turns) => n + turns.length, 0);
     // A machine with no git identity of its own, as a CI runner or a fresh clone has: no system
     // configuration, and a global one of the test's own that only stops git from guessing an
@@ -51,27 +57,27 @@ describe('npm run demo', () => {
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !hostGit.test(name)),
     );
-    const result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
+    result = await execProcess(process.execPath, [demo, '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
       // Only a guard against a hang (ADR 0075): two runs of the demo's recipe, counted by the
       // attempts its script plays in a batch, the tasting loop's second round too (ADR 0193).
       timeoutMs: scriptedAttempts * hangGuardMs,
     });
+    at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));
+  });
+  after(() => removeTree(dir.path));
+
+  it('brews one order with Nip through a crash and a restart, another with foedrum brew, on a machine with no git identity', async () => {
     assert.equal(result.exitCode, 0, result.output);
     assert.ok(result.stdout.includes(CRASH_LINE), result.output);
     assert.ok(result.stdout.includes(ON_TAP_LINE), result.output);
 
     // The walkthrough's steps, in order, with no pause between them.
-    const at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));
     assert.ok(
       at.every((where, n) => where >= 0 && where > (at[n - 1] ?? -1)),
       `headings at ${at.join(', ')}:\n${result.stdout}`,
     );
-    const part = (step: Step['id']): string => {
-      const n = STEPS.findIndex(({ id }) => id === step);
-      return result.stdout.slice(at[n], at[n + 1]);
-    };
     // The first Cellar shows status as the batch moves, up to the Gauger's attempt the kill takes.
     assert.match(part('brewing'), /brewing +gauge #1 started/);
     // The restart shows that it found the lost attempt: lost, and brewed again.
