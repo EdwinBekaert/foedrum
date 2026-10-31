@@ -338,10 +338,11 @@ export const runBrew = async (
     if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
+    // It names its batch, never the issue's later one, whose lane the refusal names.
     if (request.lauter !== undefined && latest !== undefined) {
-      const decision = log.issue({ kind: 'lauter', batchId: latest.id, by, via }, clock());
+      const decision = log.issue({ kind: 'lauter', batchId: request.lauter, by, via }, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
-      say(`batch ${latest.id} goes to a session on its plan`);
+      say(`batch ${request.lauter} goes to a session on its plan`);
     }
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068); a
     // claimed batch by its Brewery issue's, and it waits for that issue until the ledger records

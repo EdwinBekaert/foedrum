@@ -592,7 +592,11 @@ function apply(state: State, event: Event): State {
         const step = batch.steps.get(stepId) ?? { id: stepId, attempts: new Map(), inputs: [] };
         if (step.attempts.has(attempt)) throw attemptError(event, 'was already scheduled');
         const recipe = batch.recipe?.name;
-        const { choosing: chosen, ...rest } = skipping(batch, stepId, false);
+        const { choosing, ...rest } = skipping(batch, stepId, false);
+        // A retry of an attempt a person's choice scheduled, a session reopened, is theirs too
+        // (ADR 0286).
+        const before = step.attempts.get(Math.max(0, ...step.attempts.keys()));
+        const chosen = choosing ?? (retry === true ? before?.chosen : undefined);
         return {
           ...rest,
           lane: { kind: 'brewing' },

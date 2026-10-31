@@ -219,11 +219,16 @@ const wholeBlocks = (parts: readonly string[][], room: number): string => {
 
 const revisions = commentRevisions('plan', 'plan comment');
 
-/** The plan of the latest attempt of `batch` that succeeded with one, its step and attempt. */
+/**
+ * The plan of the latest attempt of `batch` that succeeded with one, its step and attempt; of a
+ * step `include` takes, when given.
+ */
 export const latestPlan = (
   batch: Batch,
+  include: (stepId: string) => boolean = () => true,
 ): { stepId: string; attempt: number; plan: PlanReport } | undefined => {
   for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
+    if (!include(stepId)) continue;
     const ended = batch.steps.get(stepId)?.attempts.get(attempt);
     if (ended?.phase !== 'finished' || ended.outcome.kind !== 'succeeded') continue;
     const plan = planOf(ended.outcome.output);

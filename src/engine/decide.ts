@@ -25,6 +25,7 @@ import {
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { BlockerKind, TastingFinding } from '../schemas/out-doc.ts';
+import { ChosenBy } from '../schemas/recipe.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import {
   check,
@@ -462,9 +463,10 @@ function run(draft: Draft, command: Command): Event[] {
         });
         break;
       }
-      // A plan again, in a session of its own: the attempt before it succeeded (ADR 0275).
+      // A plan again, in a session of its own: the attempt before it succeeded (ADR 0275); after a
+      // lauter, in the step that planned, never another session (ADR 0286).
       if (reason.kind === 'plan_review') {
-        schedule(draft, batchId, reason.stepId);
+        schedule(draft, batchId, planStep(draft, batchId, reason.stepId));
         break;
       }
       schedule(draft, batchId, reason.stepId, { retry: true });
@@ -1193,6 +1195,21 @@ function lauter(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kind
   }
   draft.push({ type: 'batch.resumed', batchId, by, via, action: 'lauter' });
   schedule(draft, batchId, stepId);
+}
+
+/**
+ * The step a retry of a plan's review plans again in: the plan's own step, or, when a person's
+ * choice scheduled that step, the step of the batch's latest plan that no choice schedules (ADR
+ * 0286).
+ */
+function planStep(draft: Draft, batchId: string, stepId: string): string {
+  const batch = draft.batch(batchId);
+  const recipe = recipeOf(draft, batch);
+  const chosen = new Set(ChosenBy.options.map((option) => recipe.chosen(option)));
+  if (!chosen.has(stepId)) return stepId;
+  const planned = latestPlan(batch, (id) => !chosen.has(id));
+  if (planned === undefined) throw new Refusal(`batch ${batchId} has no plan to plan again`);
+  return planned.stepId;
 }
 
 /** Enters the step that follows `stepId` in the batch's recipe, or puts the batch on tap. */
