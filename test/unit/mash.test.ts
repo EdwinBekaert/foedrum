@@ -403,5 +403,17 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
       assert.deepStrictEqual(resumedBy(), []);
     });
+
+    it('lists the lauter step in the status comment only once a lauter ran it (#589)', async () => {
+      const status = () =>
+        comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
+      assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+      assert.match(status(), /^- [^\n]*`plan`/m);
+      assert.doesNotMatch(status(), /^- [^\n]*`lauter`/m);
+      // Two minutes on, past the status comment's limit of one revision a minute (ADR 0072).
+      now = new Date(t0.getTime() + 2 * 60_000);
+      assert.equal(await runBrew(setup, shell([corrected]), lauter), 3, lines.join('\n'));
+      assert.match(status(), /^- [^\n]*`lauter`/m);
+    });
   });
 });
