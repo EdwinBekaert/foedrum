@@ -44,10 +44,10 @@ The base is taken as green, so a test that fails after the proven step failed be
 `regressionTests` in the Gauger's out doc no longer changes the verdict; the test-design lens and the status comment still show them.
 
 **The run.** The engine reads the map at the batch's base (the base it merged, else where its change starts) and at the red proof's tip, and builds the [effective map](test-map.md): a base map that cannot be read makes the batch Stuck (`environment`), and a tip map that cannot be read fails the step for its `onFail` route.
-A module whose test report is TRX makes the batch Stuck (`environment`) before the run: Foedrum reads no TRX yet, so its tests write JUnit XML instead.
+A module whose test report is TRX makes the batch Stuck (`environment`) before the run: Foedrum reads no TRX yet, so its tests write JUnit XML to a file the map names instead.
 Every test report and coverage report path and folder pattern of the effective map is looked for and removed before the run, so a report an earlier run left never stands for this one; a pattern that is refused or a path that cannot be removed makes the batch Stuck (`environment`).
 The repository's confirmed `test` line runs once, and each module's test report is read where the map says, each file its pattern matches; stdout is not read, and the check runner does not read `testReport` from `foedrum.jsonc`, though `foedrum serve` still asks for it at a batch's start until #708 ([In the engine](#in-the-engine)).
-A report that cannot be read, or is not in its format, fails the red proof.
+A report that cannot be read, or is not in its format, fails the red proof; a test report pattern that matches a folder makes the batch Stuck (`environment`), naming the file to give, since a brewer's commit cannot fix the map's confirmed layout.
 
 **The checks**, in this order, the first that fails naming why (`the red proof of step <of> failed: <why>`):
 1. no report bailed out;
@@ -60,7 +60,7 @@ A report that cannot be read, or is not in its format, fails the red proof.
 node 24 writes a TAP location on a failing test only, not on a skipped one, and its JUnit report a `file` on every test and no `line`; so check 4 reads both, and check 5 reads only writers that give a skip its line, such as pytest's JUnit.
 ADR 0274 says node's TAP gives a location for a failing or a skipped test; node 24.20 does not, as captured when this was built (#709), so in a node repository a skip the step adds is the test-design lens's to find.
 A skip the report places on no line, a failure only in older tests where no location is given, and a stub that lets one new test pass are the [test-design lens](../../../defaults/lenses/diff/test-design.md)'s to find.
-A report's absolute path is made relative to the worktree's root, or to its real path, where a run the check sandbox starts writes it when a link leads to the worktree (macOS's `/tmp`, a junction); a relative path, which a runner may write from a module's folder (pytest from its rootdir), names a changed file whose path ends with it.
+A report's absolute path is made relative to the worktree's root, or to its real path, where a run the check sandbox starts writes it when a link leads to the worktree (macOS's `/tmp`, a junction); a relative path, which a runner may write from a module's folder (pytest from its rootdir), names a changed file whose path ends with it, of the module whose report holds it.
 Paths are compared with git's in git's case, folding case on Windows and macOS (`foldsCase`).
 
 ## In the engine

@@ -11,6 +11,7 @@ Its JSON Schema is `schemas/test-map.json`.
 `derivedFrom` holds the manifest globs the map was derived from and the paths they matched then.
 Each of `modules` has a `name`, its `code` globs, its `tests` (separate `paths` globs, test `projects` by folder, or `inline: true`), its `testReport` (`tap`, `junit` or `trx`, and a file or folder pattern) and its `coverage` (`lcov` or `cobertura` with a path, or `"none"`).
 A glob is a path relative to the repository with `/` between folders, read as a sensitive path is; a report path is a file or a folder pattern of at most 256 characters with `*` inside a folder's name as its only wildcard, never `**`, matched without a regular expression, so a batch's map cannot make the match run long.
+A TAP or JUnit test report's pattern names report files: when the red proof finds a folder there, the batch is Stuck (`environment`), naming the file to give instead ([the red proof](red-proof.md)); a Cobertura coverage pattern names folders.
 Every object is closed, so a map that holds a key the schema does not name, such as a `command`, is refused.
 
 **Reading it.** The map is read at a commit of the repository's clone, as committed: `git ls-tree` finds its entry and `git cat-file` reads its blob, at most 1 MiB and 10 s per read.
