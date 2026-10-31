@@ -119,6 +119,16 @@ export const applyMutant = async (
   return { ok: true, lines: [`mutant ${n}: applied ${result.path}`] };
 };
 
+// Appends the same-answer mutants of the change to the answer file, in place of the ones an
+// earlier run appended (#223).
+export const sameAnswer = async (
+  _tree: string,
+  _answer: string,
+  _files: string,
+): Promise<Result> => {
+  throw new Error('not implemented');
+};
+
 export interface MainResult {
   exitCode: number;
   stdout: string[];
@@ -129,7 +139,7 @@ export interface MainResult {
 export const main = async (argv: readonly string[]): Promise<MainResult> => {
   const { values, positionals } = parseArgs({
     args: [...argv],
-    options: { touched: { type: 'string' } },
+    options: { touched: { type: 'string' }, 'same-answer': { type: 'boolean' } },
     allowPositionals: true,
   });
   const [tree, answer, n] = positionals;

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { editFile, type Mutant, parseMutant, touchedFiles } from '../../scripts/mutants/core.ts';
+import {
+  type ChangedFile,
+  editFile,
+  type Mutant,
+  parseMutant,
+  sameAnswerMutants,
+  touchedFiles,
+} from '../../scripts/mutants/core.ts';
 
 const mutant = (fields: Partial<Mutant> = {}): Mutant => ({
   file: 'src/engine/wait.ts',
@@ -334,5 +341,128 @@ describe('editFile', () => {
       ok: false,
       reason: 'src/engine/wait.ts does not exist',
     });
+  });
+});
+
+// The planted-defect sample's isBreweryName at its head (patch 0008) and its tests (patch 0007).
+const breweryName: ChangedFile = {
+  path: 'src/workspace/brewery-name.ts',
+  content: [
+    '/** Whether a Brewery name is safe to use as a directory name: lower-case letters, digits and dashes. */',
+    'export const isBreweryName = (name: string): boolean => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);',
+    '',
+  ].join('\n'),
+};
+const breweryNameTests = (...assertions: string[]): ChangedFile => ({
+  path: 'test/unit/brewery-name.test.ts',
+  content: [
+    "import assert from 'node:assert/strict';",
+    "import { describe, it } from 'node:test';",
+    "import { isBreweryName } from '../../src/workspace/brewery-name.ts';",
+    '',
+    "describe('isBreweryName', () => {",
+    ...assertions.map((assertion) => `  it('decides', () => {\n    ${assertion}\n  });\n`),
+    '});',
+    '',
+  ].join('\n'),
+});
+const rejections = [
+  "assert.equal(isBreweryName('../other'), false);",
+  "assert.equal(isBreweryName(''), false);",
+  "assert.equal(isBreweryName('My Brewery'), false);",
+];
+
+describe('sameAnswerMutants', () => {
+  it('gives isBreweryName with its three rejection tests the always-false mutant', () => {
+    assert.deepEqual(sameAnswerMutants([breweryName], [breweryNameTests(...rejections)]), [
+      {
+        file: 'src/workspace/brewery-name.ts',
+        line: 2,
+        original:
+          'export const isBreweryName = (name: string): boolean => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);',
+        replacement:
+          'export const isBreweryName = (name: string): boolean => false && (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name));',
+        description:
+          'isBreweryName returns false for every input: every assertion on it in the changed tests expects false',
+        source: 'script',
+      },
+    ]);
+  });
+
+  it('gives no mutant to a function whose assertions expect both true and false', () => {
+    const tests = breweryNameTests(...rejections, "assert.ok(isBreweryName('my-brewery'));");
+    assert.deepEqual(sameAnswerMutants([breweryName], [tests]), []);
+  });
+
+  it('gives a function whose assertions all expect true the always-true mutant', () => {
+    const lease: ChangedFile = {
+      path: 'scripts/lease.ts',
+      content: [
+        'export function isLeaseHeld(until: number, now: number): boolean {',
+        '  const left = until - now;',
+        '  return left > 0;',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    const tests: ChangedFile = {
+      path: 'test/unit/lease.test.ts',
+      content: [
+        "import { isLeaseHeld } from '../../scripts/lease.ts';",
+        "it('holds a lease until it ends', () => {",
+        '  assert.ok(isLeaseHeld(10, 5));',
+        '  assert.equal(isLeaseHeld(10, 9), true);',
+        '});',
+        '',
+      ].join('\n'),
+    };
+    assert.deepEqual(
+      sameAnswerMutants([lease], [tests]).map(({ line, original, replacement }) => ({
+        line,
+        original,
+        replacement,
+      })),
+      [{ line: 3, original: '  return left > 0;', replacement: '  return true || (left > 0);' }],
+    );
+  });
+
+  it('gives a mutant that passes the checks of a mutant and edits one existing line', () => {
+    const [scripted] = sameAnswerMutants([breweryName], [breweryNameTests(...rejections)]);
+    assert.ok(scripted);
+    assert.equal(
+      parseMutant(scripted, [breweryName.path, 'test/unit/brewery-name.test.ts']).ok,
+      true,
+    );
+    assert.deepEqual(editFile(scripted, breweryName.content), {
+      ok: true,
+      line: 2,
+      content: breweryName.content.replace('=> /', '=> false && (/').replace('(name);', '(name));'),
+    });
+  });
+
+  it('gives no mutant to a function whose tests use a form it does not read', () => {
+    const table = breweryNameTests(
+      "for (const [name, expected] of [['', false]]) assert.equal(isBreweryName(name), expected);",
+    );
+    const filter = breweryNameTests("assert.deepEqual(['a b'].filter(isBreweryName), []);");
+    const notEqual = breweryNameTests("assert.notEqual(isBreweryName(''), true);");
+    for (const tests of [table, filter, notEqual]) {
+      assert.deepEqual(
+        sameAnswerMutants([breweryName], [breweryNameTests(...rejections), tests]),
+        [],
+      );
+    }
+  });
+
+  it('gives no mutant when the change has no boolean function', () => {
+    const add: ChangedFile = {
+      path: 'src/add.ts',
+      content: 'export const add = (a: number, b: number): number => a + b;\n',
+    };
+    const tests: ChangedFile = {
+      path: 'test/unit/add.test.ts',
+      content: "import { add } from '../../src/add.ts';\nassert.equal(add(1, 2), 3);\n",
+    };
+    assert.deepEqual(sameAnswerMutants([add], [tests]), []);
   });
 });

@@ -145,3 +145,19 @@ export const editFile = (mutant: Mutant, content: string | undefined): MutantEdi
   lines[line - 1] = replacement === '' ? bom : `${indent}${replacement}${ending}`;
   return { ok: true, content: lines.join(''), line };
 };
+
+// A file of the change at its head: its path from the repository root and its text.
+export interface ChangedFile {
+  path: string;
+  content: string;
+}
+
+// A mutant the checker writes itself, beside Brett's (#223).
+export type ScriptedMutant = Mutant & { description: string; source: 'script' };
+
+export const sameAnswerMutants = (
+  _sources: readonly ChangedFile[],
+  _tests: readonly ChangedFile[],
+): ScriptedMutant[] => {
+  throw new Error('not implemented');
+};
