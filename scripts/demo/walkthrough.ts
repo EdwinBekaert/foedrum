@@ -25,7 +25,8 @@ export interface Step {
     | 'lenses'
     | 'brew'
     | 'resume'
-    | 'replay';
+    | 'replay'
+    | 'mash';
   title: string;
   lookFor: string;
 }

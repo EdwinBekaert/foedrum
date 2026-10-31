@@ -271,6 +271,10 @@ export interface DemoRun {
   restart: ProcessOutcome;
   /** foedrum brew's run of the second order. */
   brew: ProcessOutcome;
+  /** foedrum mash's run of the third order, to the Innkeeper's question. */
+  mash: ProcessOutcome;
+  /** foedrum brew's run of the third order after the answer, to its plan. */
+  plan: ProcessOutcome;
   /** The pull requests on the fake code host. */
   pulls: readonly { title: string; head: string; base: string }[];
   /** The comments on each order's issue there, by issue number. */

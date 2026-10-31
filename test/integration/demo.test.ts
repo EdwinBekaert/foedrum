@@ -300,4 +300,51 @@ describe('npm run demo', () => {
       part('checks'),
     );
   });
+
+  // Step 12: an issue mashed (ADR 0232): the Innkeeper's question, an answer, and the Brewmaster's
+  // plan waiting Stuck for its review (ADR 0275).
+  it("step 12 prints the Innkeeper's question with its two choices", () => {
+    const mash = part('mash');
+    assert.ok(mash.includes('$ foedrum mash 3 --as ann\n'), mash);
+    assert.match(mash, /foedrum mash: routed batch 3-1 to the recipe mash-in$/m);
+    assert.match(mash, /foedrum mash: batch 3-1 needs input at innkeep:$/m);
+    assert.match(
+      mash,
+      /foedrum mash: {3}1\. Which recipe brews #3\? [^\n]*\(mash, nip-parallel; recommended: mash\)$/m,
+    );
+  });
+
+  it("after the answer, step 12's foedrum stuck names the plan waiting for review and its next step", () => {
+    const mash = part('mash');
+    assert.ok(mash.includes('$ foedrum answer 3-1 mash\n'), mash);
+    assert.match(
+      mash,
+      /foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
+    );
+    const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
+    assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);
+    assert.match(stuck, /^ +3-1 +[^\n]*the plan of plan #1 is ready for your review$/m);
+    assert.match(stuck, /^ {4}next: \S/m);
+  });
+
+  it('step 12 prints the plan comment with the link to the full plan, the table, the flowchart and the Next line', () => {
+    const mash = part('mash');
+    assert.match(mash, /^ +### Foedrum · plan of batch `3-1`$/m);
+    assert.match(mash, /^ +Full plan: <https:\/\/github\.com\/demo\/brewery\/[^>]+>$/m);
+    assert.match(mash, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
+    assert.match(mash, /^ +```mermaid\n +flowchart LR\n/m);
+    assert.match(mash, /^ +s1 -->\|"code"\| s2$/m);
+    assert.match(mash, /^ +Next: \S/m);
+    // The status comment links the plan comment.
+    assert.match(
+      mash,
+      /🔔 \*\*Stuck\*\*: the plan of `plan` #1 is ready for your review: <https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+>/,
+    );
+  });
+
+  it("the walkthrough has twelve steps, step 12's heading among them", () => {
+    assert.equal(STEPS.length, 12);
+    assert.equal(headingOf(11), 'Step 12 of 12: foedrum mash 3 --as ann');
+    assert.ok(result.stdout.includes(`\n${headingOf(11)}\n`), result.stdout);
+  });
 });
