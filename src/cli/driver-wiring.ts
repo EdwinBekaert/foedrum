@@ -9,6 +9,7 @@ import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
+import { addedUnmeasured, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { baseConflictEffects } from '../engine/base-check.ts';
@@ -164,12 +165,20 @@ export const wireDriver = async (
     // The last check before the pull request merges that branch as the push fetches it (ADR 0164).
     const merge = { base: into, push, worktree: shell.merge(repository) };
     worktrees.push({ repo, base, manager, merge });
-    const { sensitivePaths } = repository;
+    // The test map is a sensitive path where the repository keeps it (ADR 0274).
+    const sensitivePaths = sensitivePathsOf({
+      ...(repository.sensitivePaths === undefined
+        ? {}
+        : { sensitivePaths: repository.sensitivePaths }),
+      ...(repository.testMap === undefined ? {} : { testMap: 'brewery' }),
+    });
     pushes.push({
       repo,
       base: into,
       push,
-      ...(sensitivePaths === undefined ? {} : { sensitivePaths }),
+      ...(sensitivePaths.length === 0 ? {} : { sensitivePaths }),
+      unmeasured: async (since, commit, signal) =>
+        addedUnmeasured(await mapAt(repo, since, signal), await mapAt(repo, commit, signal)),
     });
   }
   const client = createGitHubClient({
@@ -259,6 +268,13 @@ export const wireDriver = async (
     return repository;
   };
   const clone = (repo: string) => worktreeClonePath(setup.workRoot, repositoryCalled(repo));
+  // A repository's test map at a commit of its clone, or the Brewery's for it (ADR 0274).
+  const mapAt = testMaps({
+    git: shell.git,
+    clone,
+    keptIn: (repo) => (repositoryNamed(repo)?.testMap === undefined ? 'repo' : 'brewery'),
+    brewery: (repo) => repositoryNamed(repo)?.testMap?.text,
+  });
   const plans = createAttemptPlans({
     state,
     brewers: setup.brewers,
@@ -298,6 +314,7 @@ export const wireDriver = async (
     checks: setup.checks,
     repositoryChecks: (repo) => repositoryNamed(repo)?.checks,
     testReport: (repo) => repositoryNamed(repo)?.testReport,
+    testMap: { at: mapAt },
     exec: shell.exec,
     // A repository's setup installs before the checks, with the network (ADR 0140).
     setup: { of: (repo) => repositoryNamed(repo)?.setup, exec: shell.setup },

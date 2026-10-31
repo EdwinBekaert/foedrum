@@ -6,7 +6,7 @@
 // its own onto the round before, and opens nothing (ADR 0219); once that push went, it renders the
 // body again, unless someone edited it (ADR 0227).
 
-import { posix } from 'node:path';
+import { TEST_MAP_PATH } from '../checks/test-map.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { OrderIssue } from '../github/order-text.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
@@ -19,6 +19,7 @@ import { type DriverActions, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
+import { matchesWithDots } from './path-globs.ts';
 import {
   type AttemptRow,
   bodyKey,
@@ -134,7 +135,11 @@ type ActionEffect =
       base: string;
       branch: string;
       /** Where the batch's change starts, and the globs its files are matched against (ADR 0201). */
-      sensitive?: { since: string; paths: readonly string[] };
+      sensitive?: {
+        since: string;
+        paths: readonly string[];
+        unmeasured?: PullRequestRepository['unmeasured'];
+      };
       /** A later round's: the commit the round before pushed, where it expects the branch (ADR 0219). */
       previous?: string;
     }
@@ -146,23 +151,6 @@ type ActionEffect =
     }
   /** A later round's body, rendered again on the pull request at `url` (ADR 0227). */
   | { kind: 'body'; url: string; from: BodyFrom };
-
-// A character no path git names holds, in place of a name's leading dot.
-const NO_DOT = String.fromCharCode(0);
-const undotted = (path: string): string =>
-  path
-    .split('/')
-    .map((name) => (name.startsWith('.') ? `${NO_DOT}${name.slice(1)}` : name))
-    .join('/');
-
-/**
- * Whether `glob` matches `file` (ADR 0201), a wildcard also matching a name that starts with a dot,
- * which `posix.matchesGlob` alone never does: `src/auth/**` covers `src/auth/.env`. A dot the glob
- * writes still matches only a dot, also inside braces or a class (`{.env,.npmrc}`), which the plain
- * match reads.
- */
-const matchesWithDots = (file: string, glob: string): boolean =>
-  posix.matchesGlob(file, glob) || posix.matchesGlob(undotted(file), undotted(glob));
 
 /** Where the action pushes from and opens into, or why it cannot run. */
 type Plan =
@@ -305,12 +293,23 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         // The files of the change that match a sensitive path, read once for commits that go.
         const touched = async (commit: string, signal?: AbortSignal) => {
           if (sensitive === undefined) return {};
-          const { since, paths } = sensitive;
+          const { since, paths, unmeasured } = sensitive;
           const files = (await push.touchedFiles(since, commit, signal)).filter((file) =>
             paths.some((glob) => matchesWithDots(file, glob)),
           );
           if (files.length === 0) return {};
-          return { sensitive: { count: files.length, files: files.slice(0, MAX_SENSITIVE) } };
+          // A change to the test map names the modules it adds that no coverage tool measures.
+          const added =
+            unmeasured !== undefined && files.includes(TEST_MAP_PATH)
+              ? (await unmeasured(since, commit, signal)).slice(0, MAX_SENSITIVE)
+              : [];
+          return {
+            sensitive: {
+              count: files.length,
+              files: files.slice(0, MAX_SENSITIVE),
+              ...(added.length === 0 ? {} : { unmeasured: added }),
+            },
+          };
         };
         // The commit to push, and whether the base holds all of it: a pull request with no commits,
         // which the code host refuses, is recorded as nothing to push instead. The base as the
@@ -426,7 +425,17 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         revision,
         base: repository.base,
         branch,
-        ...(since === undefined || paths.length === 0 ? {} : { sensitive: { since, paths } }),
+        ...(since === undefined || paths.length === 0
+          ? {}
+          : {
+              sensitive: {
+                since,
+                paths,
+                ...(repository.unmeasured === undefined
+                  ? {}
+                  : { unmeasured: repository.unmeasured }),
+              },
+            }),
         ...(previous === undefined ? {} : { previous }),
       });
       const from = (key: BatchEffectKey): BodyFrom => ({

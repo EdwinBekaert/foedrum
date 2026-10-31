@@ -612,6 +612,15 @@
               "brewery"
             ]
           },
+          "testMap": {
+            "default": "repo",
+            "description": "Where the test map is kept: the repository's .foedrum/test-map.jsonc, or the Brewery's test-maps/<owner>/<name>.jsonc (ADR 0018, ADR 0274)",
+            "type": "string",
+            "enum": [
+              "repo",
+              "brewery"
+            ]
+          },
           "alias": {
             "description": "The short name that starts the batch ids of its claimed issues; required with an intake",
             "type": "string",

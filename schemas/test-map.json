@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema of this file, for editors",
+      "type": "string"
+    },
+    "derivedFrom": {
+      "type": "object",
+      "properties": {
+        "globs": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The manifest globs the map was derived from"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The paths the globs matched when it was"
+        }
+      },
+      "required": [
+        "globs",
+        "paths"
+      ],
+      "additionalProperties": false,
+      "description": "What the map was derived from, so a change to the manifests makes it stale"
+    },
+    "modules": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "code": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Globs of the module's code"
+          },
+          "tests": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paths": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Globs of the separate test files"
+                  }
+                },
+                "required": [
+                  "paths"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "projects": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "The test project folder"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "projects"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "inline": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "The tests live in the code files"
+                  }
+                },
+                "required": [
+                  "inline"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "testReport": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "type": "string",
+                "enum": [
+                  "tap",
+                  "junit",
+                  "trx"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "format",
+              "path"
+            ],
+            "additionalProperties": false,
+            "description": "Where the confirmed check line writes the test report: a file or a folder pattern"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "lcov",
+                      "cobertura"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "format",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "string",
+                "const": "none"
+              }
+            ],
+            "description": "Where the coverage report is written, or \"none\" for a module with no coverage tool"
+          }
+        },
+        "required": [
+          "name",
+          "code",
+          "tests",
+          "testReport",
+          "coverage"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "derivedFrom",
+    "modules"
+  ],
+  "additionalProperties": false
+}

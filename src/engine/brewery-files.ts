@@ -134,6 +134,16 @@ export function readHouseYeast(root: string): BreweryFile[] {
  * The Brewery's test maps, `test-maps/<owner>/<name>.jsonc`, for the repositories whose map it
  * keeps (ADR 0274), by their path from the Brewery's root.
  */
-export function readTestMaps(_root: string): BreweryFile[] {
-  throw new Error('not implemented');
+export function readTestMaps(root: string): BreweryFile[] {
+  let owners: string[];
+  try {
+    owners = readdirSync(join(root, 'test-maps'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => `test-maps/${entry.name}`)
+      .sort();
+  } catch {
+    // A missing folder has no maps.
+    return [];
+  }
+  return owners.flatMap((folder) => readFolder(root, folder, '.jsonc'));
 }

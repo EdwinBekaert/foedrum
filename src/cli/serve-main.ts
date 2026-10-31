@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join } from 'node:path';
-import { readBreweryFiles, readHouseYeast } from '../engine/brewery-files.ts';
+import { readBreweryFiles, readHouseYeast, readTestMaps } from '../engine/brewery-files.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { awakeMechanism } from '../platform/keep-awake.ts';
 import { execProcess } from '../platform/processes.ts';
@@ -59,6 +59,7 @@ export const serveSetupIn = async (
       models: readIfThere(join(cwd, 'models.jsonc')),
       brewery: readBreweryFiles(cwd),
       houseYeast: readHouseYeast(cwd),
+      testMaps: readTestMaps(cwd),
     },
     diagnosis: diagnose(facts),
   });

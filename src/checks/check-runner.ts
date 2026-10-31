@@ -34,7 +34,7 @@ import {
 import { judgeRed, needsTestReport } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
-import type { ReadTestMapAt } from './test-map.ts';
+import { type MapRead, type ReadTestMapAt, reportPaths } from './test-map.ts';
 
 /** A test report's file in a worktree: cleared before the test check runs, read after it. */
 export interface ReportFiles {
@@ -341,8 +341,66 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (refs === undefined)
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
     const of = checks.proves(recipe, stepId);
-    if (of !== undefined) return proveRed(batch, ref, worktree, current.deadlineAt, of, signal);
-    return checkTree(refs, worktree, current.deadlineAt, signal);
+    const end =
+      of !== undefined
+        ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
+        : await checkTree(refs, worktree, current.deadlineAt, signal);
+    return unreached(batch, worktree, end, signal);
+  };
+
+  /**
+   * `end`, or once the test check ran, Stuck on the environment for a module only the batch's test
+   * map lists whose report path holds no report: no confirmed line reaches it (ADR 0274). A module
+   * the base's map lists is taken as reached, as the base is taken as green.
+   */
+  const unreached = async (
+    batch: Batch,
+    worktree: WorktreeRef,
+    end: AttemptEnd,
+    signal: AbortSignal,
+  ): Promise<AttemptEnd> => {
+    const { testMap } = options;
+    const test = end.readings?.find(
+      (reading): reading is Extract<GravityReading, { result: 'exited' }> =>
+        reading.result === 'exited' && reading.check === 'test',
+    );
+    if (testMap === undefined || test === undefined) return end;
+    const { repo } = worktree;
+    const ended = (ending: AttemptEnd['ending']): AttemptEnd => ({ ...end, ending });
+    const base = batch.starts?.[repo.toLowerCase()]?.commit;
+    const before: MapRead =
+      base === undefined ? { kind: 'none' } : await testMap.at(repo, base, signal);
+    if (before.kind === 'unreadable') {
+      const why = `the test map of ${repo} at ${base} cannot be read: ${before.reason}`;
+      return ended(blocked('environment', why).ending);
+    }
+    const after = await testMap.at(repo, worktree.commit, signal);
+    // The batch's own map: the brewer that broke it fixes it.
+    if (after.kind === 'unreadable') {
+      const reason = `the test map of ${repo} at ${worktree.commit} cannot be read: ${after.reason}`;
+      return ended({ kind: 'failed', retryable: true, reason });
+    }
+    if (after.kind === 'none') return end;
+    const listed = new Set(before.kind === 'map' ? before.map.modules.map(({ name }) => name) : []);
+    const find = testMap.reports ?? reportPaths;
+    for (const { name, testReport } of after.map.modules) {
+      if (listed.has(name)) continue;
+      const found = find(testReport.path, worktree.path);
+      if ('refused' in found) {
+        const why = `the test report of module "${name}" cannot be looked for: ${found.refused}`;
+        return ended(blocked('environment', why).ending);
+      }
+      if (found.paths.length > 0) continue;
+      const why = [
+        `module "${name}" of the test map is new in this batch, and no confirmed line reaches it:`,
+        `the test check wrote no test report at ${testReport.path};`,
+        `make "checks"."test" of ${repo} in foedrum.jsonc also run its tests,`,
+        `such as "${test.command} && <${name}'s test command>" (ADR 0023, ADR 0274).`,
+        `The test check's output ended: ${test.tail}`,
+      ].join(' ');
+      return ended(blocked('environment', why).ending);
+    }
+    return end;
   };
 
   return {
