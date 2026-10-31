@@ -576,16 +576,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       foldCase,
     });
     const listing = listingOf(verdict);
-    const withListing: AttemptEnd = {
-      ...end,
-      ...(listing === undefined ? {} : { coverage: listing }),
-    };
-    return verdict.uncovered.length === 0
-      ? withListing
-      : {
-          ...withListing,
-          ending: { kind: 'failed', retryable: false, reason: uncoveredReason(verdict.uncovered) },
-        };
+    const judged =
+      verdict.uncovered.length === 0 ? end : failed(uncoveredReason(verdict.uncovered));
+    return { ...judged, ...(listing === undefined ? {} : { coverage: listing }) };
   };
 
   return {

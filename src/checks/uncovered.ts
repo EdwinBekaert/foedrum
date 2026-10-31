@@ -56,7 +56,6 @@ export const judgeCoverage = ({
 }): CoverageVerdict => {
   const verdict: CoverageVerdict = { uncovered: [], notLoaded: [], outside: [], unmeasured: [] };
   for (const { path, addedAt } of changed) {
-    if (addedAt.length === 0) continue;
     const area = areaOf(modules, path, foldCase);
     if (area === undefined) {
       verdict.outside.push(path);
