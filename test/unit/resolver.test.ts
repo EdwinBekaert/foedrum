@@ -23,6 +23,26 @@ describe('resolverLeavesMachine', () => {
     );
   });
 
+  it('accepts the stub file systemd-resolved writes, with its comments', () => {
+    const written = [
+      '# This is /run/systemd/resolve/stub-resolv.conf managed by man:systemd-resolved(8).',
+      '# Do not edit.',
+      '# nameserver 8.8.8.8',
+      'nameserver 127.0.0.53',
+      'options edns0 trust-ad',
+      'search .',
+      '',
+    ].join('\n');
+    assert.equal(resolverLeavesMachine(written), undefined);
+  });
+
+  it('refuses a resolv.conf that names no nameserver', () => {
+    assert.equal(
+      resolverLeavesMachine('options edns0\n'),
+      "the host's resolver is not systemd-resolved's stub alone",
+    );
+  });
+
   it('refuses a nameserver whose address only ends in 127.0.0.53', () => {
     assert.equal(
       resolverLeavesMachine('nameserver 2001:db8::127.0.0.53\n'),
