@@ -355,16 +355,22 @@ describe('npm run demo', () => {
 
   it('step 12 prints the plan comment with the link to the full plan, the table, the flowchart and the Next line', () => {
     const mash = part('mash');
-    assert.match(mash, /^ +### Foedrum · plan of batch `3-1`$/m);
-    assert.match(mash, /^ +Full plan: <https:\/\/github\.com\/demo\/brewery\/[^>]+>$/m);
-    assert.match(mash, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
-    assert.match(mash, /^ +```mermaid\n +flowchart LR\n/m);
-    assert.match(mash, /^ +s1 -->\|"code"\| s2$/m);
-    assert.match(mash, /^ +Next: \S/m);
-    // The status comment links the plan comment.
-    assert.match(
+    // The plan comment comes after the status comment, which has a Next line of its own.
+    const heading = mash.search(/^ +### Foedrum · plan of batch `3-1`$/m);
+    assert.ok(heading >= 0, mash);
+    const plan = mash.slice(heading);
+    assert.match(plan, /^ +Full plan: <https:\/\/github\.com\/demo\/brewery\/[^>]+>$/m);
+    assert.match(plan, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
+    assert.match(plan, /^ +```mermaid\n +flowchart LR\n/m);
+    assert.match(plan, /^ +s1 -->\|"code"\| s2$/m);
+    assert.match(plan, /^ +Next: \S/m);
+    // The status comment links the plan comment, the one foedrum brew names, not itself.
+    const planUrl = /the plan: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
+    const statusUrl = /status comment: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
+    assert.notEqual(planUrl, statusUrl);
+    assert.ok(
+      mash.includes(`🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: <${planUrl}>`),
       mash,
-      /🔔 \*\*Stuck\*\*: the plan of `plan` #1 is ready for your review: <https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+>/,
     );
   });
 
