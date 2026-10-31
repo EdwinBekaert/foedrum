@@ -6,6 +6,8 @@ export interface DiffFile {
   oldPath?: string;
   newPath?: string;
   added: readonly string[];
+  /** The line at the tip of each of `added`, in its order: parseDiff always gives them (ADR 0274). */
+  addedAt?: readonly number[];
   removed: readonly string[];
 }
 

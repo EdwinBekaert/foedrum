@@ -170,6 +170,77 @@ describe('parseTap', () => {
     assert.equal(report.bailedOut, 'gone');
   });
 
+  it("reads a test's location from its diagnostic block, as node writes it on a failing test (ADR 0274)", () => {
+    // node 24 writes `location` on a failing test only, a Windows path with its backslashes doubled.
+    const report = read(
+      [
+        'TAP version 13',
+        'not ok 1 - multiplies',
+        '  ---',
+        "  location: 'C:\\\\spike\\\\ts\\\\test\\\\calc.test.ts:18:1'",
+        "  error: 'not implemented'",
+        '  ...',
+        'not ok 2 - in a suite',
+        '  ---',
+        "  location: '/work/app/it''s.test.mjs:7'",
+        '  ...',
+        'ok 3 - passes',
+        '  ---',
+        "  type: 'test'",
+        '  ...',
+        'ok 4 - skipped # SKIP',
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      report.tests.map(({ location }) => location),
+      [
+        { file: 'C:\\\\spike\\\\ts\\\\test\\\\calc.test.ts', line: 18 },
+        { file: "/work/app/it's.test.mjs", line: 7 },
+        undefined,
+        undefined,
+      ],
+    );
+  });
+
+  it("takes no location from an error's text, a key nested deeper, or a value without a line", () => {
+    const report = read(
+      [
+        'not ok 1 - quotes one',
+        '  ---',
+        '  error: |-',
+        "    location: '/work/app/old.test.mjs:3:1'",
+        '  ...',
+        'not ok 2 - nested',
+        '  ---',
+        '  cause:',
+        "    location: '/work/app/nested.test.mjs:4:1'",
+        '  ...',
+        'not ok 3 - no line',
+        '  ---',
+        "  location: '/work/app/a.test.mjs'",
+        '  ...',
+        'not ok 4 - plain',
+        '  ---',
+        '  location: /work/app/b.test.mjs:9:1',
+        '  ...',
+        'not ok 5 - empty',
+        '  ---',
+        "  location: ''",
+        '  ...',
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      report.tests.map(({ location }) => location),
+      [
+        undefined,
+        undefined,
+        { file: '/work/app/a.test.mjs' },
+        { file: '/work/app/b.test.mjs', line: 9 },
+        undefined,
+      ],
+    );
+  });
+
   it('refuses text with no test point', () => {
     assert.deepEqual(parseTap('Error: Cannot find module\n'), {
       readable: false,

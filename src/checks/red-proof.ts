@@ -4,6 +4,7 @@
 
 import type { ReportedTest, TestReport } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
+import type { EffectiveModule } from './test-map.ts';
 import { assertsOnly, isTestFile } from './tests-unchanged.ts';
 
 export type RedVerdict =
@@ -212,6 +213,40 @@ export function judgeRed(
   const skipped = proven.filter(({ result }) => result === 'skipped');
   if (skipped.length > 0) return refused(`${named(skipped)} is skipped, so it proves nothing`);
   return { proven: true, tests: proven.map(({ name }) => name) };
+}
+
+/** What a red proof in a repository with a test map judges (ADR 0274). */
+export interface MappedRun {
+  /** The test report of each module that wrote one. */
+  reports: readonly TestReport[];
+  /** Why each module the base's map lists counts as a load error: it wrote no report. */
+  unreported: readonly string[];
+  /** The proven step's commits. */
+  diff: readonly DiffFile[];
+  /** The effective map's modules. */
+  modules: readonly EffectiveModule[];
+  /** The worktree's root, which a report's absolute paths start at. */
+  root: string;
+  /** Whether the worktree's file system takes paths that differ only in case for one. */
+  foldCase: boolean;
+}
+
+/** Whether `run` proves the step red, reading no test's name (ADR 0274). */
+export function judgeMapped(_run: MappedRun): { proven: true } | { proven: false; why: string } {
+  throw new Error('not implemented');
+}
+
+/**
+ * Why a skip in `reports` is the step's: the report places it in a line `added` holds, by the
+ * path relative to `root` with `/` between folders; undefined when none is (ADR 0274).
+ */
+export function skipsInAddedLines(
+  _reports: readonly TestReport[],
+  _added: ReadonlyMap<string, ReadonlySet<number>>,
+  _root: string,
+  _foldCase: boolean,
+): string | undefined {
+  throw new Error('not implemented');
 }
 
 /** Why a recipe that proves its tests red cannot brew in `repo`: it has no test report. */
