@@ -360,4 +360,15 @@ describe('same-answer mutants on a scratch tree', () => {
     assert.deepEqual(result.stdout, ['mutants: same answer: src/is-even.ts:1 isEven always false']);
     assert.equal((JSON.parse(readFileSync(answer, 'utf8')) as { notes: string }).notes, 'n');
   });
+
+  it('gives no mutant for a touched file it cannot read and still writes the others', async () => {
+    writeFileSync(
+      files,
+      'A\tsrc/gone.ts\nA\ttest/unit/gone.test.ts\nA\tsrc/is-even.ts\nA\ttest/unit/is-even.test.ts\n',
+    );
+    const result = await main([tree, answer, '--same-answer', '--touched', files]);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.stdout, ['mutants: same answer: src/is-even.ts:1 isEven always false']);
+    assert.equal(answerMutants().length, 2);
+  });
 });

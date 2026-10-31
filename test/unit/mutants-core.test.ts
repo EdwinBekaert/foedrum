@@ -5,6 +5,7 @@ import {
   editFile,
   type Mutant,
   parseMutant,
+  sameAnswerLine,
   sameAnswerMutants,
   touchedFiles,
 } from '../../scripts/mutants/core.ts';
@@ -543,5 +544,15 @@ describe('sameAnswerMutants', () => {
     }
     const unclosed = { ...tests, content: `${tests.content}assert.equal(isBreweryName(''\n` };
     assert.deepEqual(sameAnswerMutants([breweryName], [unclosed]), []);
+  });
+
+  it('prints a mutant as its function always giving its value', () => {
+    const lines = ["assert(isBreweryName('a'));", "assert(!isBreweryName(''));"].map((form) =>
+      sameAnswerMutants([breweryName], [breweryNameTests(form)]).map(sameAnswerLine),
+    );
+    assert.deepEqual(lines, [
+      ['src/workspace/brewery-name.ts:2 isBreweryName always true'],
+      ['src/workspace/brewery-name.ts:2 isBreweryName always false'],
+    ]);
   });
 });
