@@ -43,9 +43,10 @@ export interface SubOrderPullRequest {
 export const subOrderPullRequests = (state: State, order: number): SubOrderPullRequest[] => {
   const split = state.orders.get(order);
   if (split === undefined) return [];
+  // The latest breakdown lists no sub-order it cancelled (`order.decomposed`).
   const listed = split.subOrders.flatMap((issue) => {
     const subOrder = state.subOrders.get(issue);
-    return subOrder === undefined || subOrder.cancelled ? [] : [subOrder];
+    return subOrder === undefined ? [] : [subOrder];
   });
   const kept = new Set(listed.map(({ issue }) => issue));
   const placed = new Set<number>();
