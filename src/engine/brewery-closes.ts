@@ -51,7 +51,6 @@ const mergedWork = (batch: Batch): readonly string[] => {
  */
 const dueClose = (state: State, batch: Batch): DueClose | undefined => {
   if (batch.repo !== undefined) return undefined;
-  const merged = mergedWork(batch);
   const issue = breweryIssueOf(state, batch);
   if (issue === undefined || !latestOf(state, batch, issue)) return undefined;
   // A split order's batch opened no pull request: its sub-orders' are its work (ADR 0293).
@@ -61,6 +60,7 @@ const dueClose = (state: State, batch: Batch): DueClose | undefined => {
     const names = namesOf(end.pullRequests).join(', ');
     return { issue, body: `Every sub-order merged: ${names}. Foedrum closes this order.` };
   }
+  const merged = mergedWork(batch);
   if (merged.length === 0) return undefined;
   return { issue, body: `Merged as ${namesOf(merged).join(', ')}; Foedrum closes this issue.` };
 };
