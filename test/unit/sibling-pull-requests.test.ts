@@ -722,4 +722,44 @@ describe('a sibling in a private repository (ADR 0300)', () => {
     ]);
     assert.doesNotMatch(lines.join('\n'), /ledger|billing/);
   });
+  it('names its siblings as before in a private pull request (regression test)', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(
+      placed(state, '2-1', visibilityOf({ [web]: 'public', [billing]: 'private' })),
+      [
+        '1. This pull request, in acme/internal-billing: merge first (acme/web#12 waits for its release).',
+        '2. acme/web#12: open, merge after this pull request merges and acme/internal-billing has a release after it.',
+      ],
+    );
+  });
+
+  it('names every sibling as before when every repository is public (regression test)', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(placed(state, '3-1', visibilityOf({ [web]: 'public', [billing]: 'public' })), [
+      '1. acme/internal-billing#4: open, merge first (this pull request waits for its release).',
+      '2. This pull request, in acme/web: merge after acme/internal-billing#4 merges and acme/internal-billing has a release after it.',
+    ]);
+  });
+
+  it("writes no second revision after the open's section with a private sibling (regression test)", async () => {
+    const visibility = visibilityOf({ [web]: 'public', [billing]: 'private' });
+    const before = billed();
+    const atOpen = siblingSection(before, '3-1', visibility) ?? assert.fail('no section');
+    const { host, updates } = fakeHost({
+      [billingPull]: openedBody('2-1', 2),
+      [webPull]: pullRequestText({
+        title: 'Order',
+        closes: { repo: brewery, issue: 3 },
+        reports: [],
+        key: pullRequestKey('3-1'),
+        siblings: atOpen,
+      }).body,
+    });
+    const after = await pass(siblingEffects({ host, visibility }), billed(opened('3-1', webPull)), [
+      '3-1',
+    ]);
+    // Found as the open wrote it: recorded, and nothing updated.
+    assert.equal(after.effects.size, billed(opened('3-1', webPull)).effects.size + 1);
+    assert.deepEqual(updates, []);
+  });
 });
