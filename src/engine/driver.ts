@@ -249,11 +249,10 @@ const summaryLength = 120;
  * read, since the event store refuses an empty summary.
  */
 const rejectionSummary = (error: unknown): string => {
-  let message: unknown;
+  let text = '';
   try {
-    message = messageOf(error);
+    text = messageOf(error);
   } catch {}
-  const text = typeof message === 'string' ? message : '';
   const line = (text.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
   return line === '' ? 'the brewer runner failed without a message' : line;
 };
