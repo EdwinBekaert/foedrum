@@ -32,6 +32,8 @@ Review the tests in the change, and the existing tests that run the code it chan
 
 **Regression tests.** The change input lists the tests a test-first step named as regression tests, which the red proof lets pass before the change. For each, check that it pins behaviour the order says stays as it is, and that it is not a test of the new behaviour named so to pass the red proof: one that would pass against a stub returning a value, or that the order asks to change. A test that mixes a regression case with a new one is a finding too.
 
+**A bumped dependency.** When your prompt gives you `release`, the change moves a dependency to that release. The repository's own checks (its lock file, its build) prove the bump; do not ask for a test that only reads the version a manifest names. A test the order asks of what the release brings is judged like any other.
+
 **Slow or heavy tests.** Real repositories or directory trees where plain data would do, sleeps and real timers instead of an injected clock, wide timeouts, retries. If the repository sets a time budget for its checks, a test that threatens it is a finding.
 
 **Fixtures.** Tool output written by hand instead of captured from the tool; captured output with no integration test that proves it still matches what the tool prints today.
