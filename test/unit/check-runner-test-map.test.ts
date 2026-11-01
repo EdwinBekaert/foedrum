@@ -662,6 +662,61 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.deepEqual(end.staleMap?.paths, ['test greets at Greets.test.mjs outside the map']);
   });
 
+  it('names both files where the file system tells case apart: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      texts: {
+        [webReport]: junitOf(
+          { name: 'greets', file: 'Greets.test.mjs' },
+          { name: 'greets twice', file: 'greets.test.mjs' },
+        ),
+      },
+      files: ['Greets.test.mjs', 'greets.test.mjs'],
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, [
+      'test greets at Greets.test.mjs outside the map',
+      'test greets twice at greets.test.mjs outside the map',
+    ]);
+  });
+
+  it("reads a relative location from no folder past a glob's first wildcard: regression test", async () => {
+    const wild: TestMapModule = {
+      ...py,
+      name: 'wild',
+      tests: { paths: ['wild/*/tests/**'] },
+      code: [],
+    };
+    const wildReport = join(worktree, 'py', 'report.xml');
+    const { run } = setup({
+      maps: { [base]: mapOf(web, wild), [tip]: mapOf(web, wild) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [wildReport] },
+      texts: { [wildReport]: junitOf({ name: 'test_notes', file: 'notes.py' }) },
+      files: ['wild/*/notes.py'],
+    });
+    const end = await run();
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it("reads a relative location from the deepest literal folder of its module's glob: regression test", async () => {
+    const deep: TestMapModule = {
+      ...py,
+      name: 'deep',
+      tests: { paths: ['deep/tests/*_test.py'] },
+      code: [],
+    };
+    const { run } = setup({
+      maps: { [base]: mapOf(web, deep), [tip]: mapOf(web, deep) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [pyReport] },
+      texts: { [pyReport]: junitOf({ name: 'test_helps', file: 'helper.py' }) },
+      files: ['deep/tests/helper.py'],
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, [
+      'test test_helps at deep/tests/helper.py outside the map',
+    ]);
+  });
+
   it('names a located test beside the two other run reasons: regression test', async () => {
     const { run } = setup({
       maps: { [base]: mapOf(web, py), [tip]: mapOf(web, py) },
