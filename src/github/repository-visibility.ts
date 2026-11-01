@@ -44,8 +44,9 @@ export const repositoryVisibilities = (
     of: (repo) => known.get(repo.toLowerCase()) ?? 'unknown',
     read: async (signal) => {
       for (const repo of repos) {
-        if (known.get(repo.toLowerCase()) !== 'unknown') continue;
-        known.set(repo.toLowerCase(), await readVisibility(client, repo, signal));
+        const key = repo.toLowerCase();
+        if (known.get(key) !== 'unknown') continue;
+        known.set(key, await readVisibility(client, repo, signal));
       }
     },
   };

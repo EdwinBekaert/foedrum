@@ -258,9 +258,8 @@ export const wireDriver = async (
     setup.repositories.map(({ repo }) => repo),
   );
   await visibilities.read(signal);
-  const visibility = visibilities.of;
   // Each sub-order pull request's section naming its order's others, as they open and end (ADR 0292).
-  const siblings = siblingEffects({ host: pullRequests, visibility });
+  const siblings = siblingEffects({ host: pullRequests, visibility: visibilities.of });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
@@ -290,7 +289,7 @@ export const wireDriver = async (
     repositories: pushes,
     host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
-    visibility,
+    visibility: visibilities.of,
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
   let driver: Driver | undefined;
