@@ -53,14 +53,12 @@ import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
 import { repositoryVisibilities } from '../github/repository-visibility.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
 import { githubSubIssues } from '../github/sub-issues.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
 import { SURVEY } from '../schemas/out-doc.ts';
 import { worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
-
-export const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /**
  * One tick of the driver, as every command that runs one ticks it: a tick that fails is reported

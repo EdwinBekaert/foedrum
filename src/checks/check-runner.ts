@@ -29,6 +29,7 @@ import { MAX_REPORT_BYTES } from '../formats/test-report.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
+import { messageOf } from '../platform/errors.ts';
 import { foldsCase, pathInside } from '../platform/paths.ts';
 import type { ExecProcess, ExecResult } from '../platform/processes.ts';
 import { realPath } from '../platform/real-path.ts';
@@ -632,7 +633,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         await reports.clear(file, worktree.path);
       } catch (error) {
         // A folder at the path, or on Windows a file another process holds open.
-        const why = error instanceof Error ? error.message : String(error);
+        const why = messageOf(error);
         return blocked('environment', `the test report ${report.path} cannot be cleared: ${why}`);
       }
     }
@@ -682,7 +683,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     try {
       testFiles = await readTestFiles(git, clone(worktree.repo), commits.to, diff.files, signal);
     } catch (error) {
-      const why = error instanceof Error ? error.message : String(error);
+      const why = messageOf(error);
       return blocked('environment', `the files of step ${of} at its tip cannot be read: ${why}`);
     }
     const verdict = judgeRed(parsed.report, diff.files, regressionTests, testFiles);

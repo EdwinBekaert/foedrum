@@ -24,6 +24,7 @@ import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
 import type { WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
@@ -158,9 +159,6 @@ const realFiles = {
     mkdirSync(path, { recursive: true });
   },
 };
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** The attempt `ref` as the driver recorded its start; undefined before. */
 const startedOf = (batch: Batch | undefined, ref: AttemptRef) => {
@@ -488,7 +486,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     try {
       return blobTexts(blobs, batch);
     } catch (error) {
-      throw new Error(`${why}: ${(error as Error).message}`);
+      throw new Error(`${why}: ${messageOf(error)}`);
     }
   };
 

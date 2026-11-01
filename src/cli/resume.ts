@@ -29,6 +29,7 @@ import { resumeOf } from '../engine/session-resume.ts';
 import { sessionCommand } from '../engine/status-comment.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { ResumeCommand } from '../schemas/commands.ts';
 import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
@@ -423,7 +424,7 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
           shell.say(`foedrum resume: lost the claim on ${named} to ${taken.owner}: ${ends}`);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = messageOf(error);
         shell.say(`foedrum resume: could not renew the claim on ${named}: ${message}`);
       }
     };

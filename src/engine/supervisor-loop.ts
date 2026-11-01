@@ -3,6 +3,7 @@
 // commands, has the command log decide and append them, releases expired leases and retries the
 // state branch's flush. The clock and store are injected.
 
+import { messageOf } from '../platform/errors.ts';
 import { attemptKey } from './attempt-key.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
 import type { EngineCommand } from './decide.ts';
@@ -92,7 +93,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
       result = await stateBranch.flush();
     } catch (error) {
       if (error instanceof StateBranchStopError) throw error;
-      result = { kind: 'failed', reason: error instanceof Error ? error.message : String(error) };
+      result = { kind: 'failed', reason: messageOf(error) };
     }
     if (result.kind === 'failed') report({ kind: 'flush_failed', reason: result.reason });
     const watched = watchFlush(watch, result.kind, now, flushDeadlineMs);

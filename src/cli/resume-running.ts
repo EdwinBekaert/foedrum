@@ -13,12 +13,13 @@ import {
 } from '../engine/batch-leases.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
-import { type Batch, latestAttempt } from '../engine/fold.ts';
+import { type Batch, foldedBatch, latestAttempt } from '../engine/fold.ts';
 import { plainReason } from '../engine/supervisor.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { drivenBy, oneLine } from './brew.ts';
-import { closeOpened, messageOf, type Opened, tick, wireDriver } from './driver-wiring.ts';
+import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -145,7 +146,7 @@ export const runResumeRunning = async (
         // Held from the takeover on, also before the driver claims it for an attempt or an effect.
         store.withTransaction((tx) => holdBatch(tx, { batchId, owner, now: clock(), leaseMs }));
         await tick(driver, report);
-        const batch = driver.state().batches.get(batchId) as Batch;
+        const batch = foldedBatch(driver.state(), batchId);
         const resumed = batch.steps.get(stepId)?.attempts.get(attempt);
         const { lane, detail } = describeLane(batch);
         const where = `batch ${batchId} is ${lane}${detail === '' ? '' : `: ${detail}`}`;

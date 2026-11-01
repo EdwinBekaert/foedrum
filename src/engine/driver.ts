@@ -5,6 +5,7 @@
 // ones, and applies a batch's effects only while it holds the batch's lease (ADR 0033).
 
 import { randomUUID } from 'node:crypto';
+import { messageOf } from '../platform/errors.ts';
 import { ClaudeReport, Receipt, type SessionRef } from '../schemas/events.ts';
 import type {
   AttemptWorktree,
@@ -248,11 +249,10 @@ const summaryLength = 120;
  * read, since the event store refuses an empty summary.
  */
 const rejectionSummary = (error: unknown): string => {
-  let message: unknown;
+  let text = '';
   try {
-    message = error instanceof Error ? error.message : String(error);
+    text = messageOf(error);
   } catch {}
-  const text = typeof message === 'string' ? message : '';
   const line = (text.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
   return line === '' ? 'the brewer runner failed without a message' : line;
 };
@@ -599,7 +599,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       // At the commits of the steps before it (ADR 0066).
       made = await repository.manager.create(ref, taskTreeStart(batch, repository));
     } catch (error) {
-      const reason = `the attempt could not get its worktree: ${(error as Error).message}`;
+      const reason = `the attempt could not get its worktree: ${messageOf(error)}`;
       const ending = { kind: 'failed', retryable: true, reason } as const;
       if (recordStart(started)) issue({ kind: 'finish', ...ref, ending });
       releaseAttempt(key);
@@ -656,7 +656,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       );
       ending = mergeEnding(result, merge.base);
     } catch (error) {
-      const reason = `the base could not be merged: ${(error as Error).message}`;
+      const reason = `the base could not be merged: ${messageOf(error)}`;
       ending = { kind: 'failed', retryable: true, reason };
     }
     if (ending === undefined) return true;
@@ -691,7 +691,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         ? end
         : { ...end, ending: { kind: 'failed', retryable: true, reason } };
     } catch (error) {
-      const reason = `the merge of the base could not be read: ${(error as Error).message}`;
+      const reason = `the merge of the base could not be read: ${messageOf(error)}`;
       return { ...end, ending: { kind: 'failed', retryable: true, reason } };
     }
   };
@@ -725,7 +725,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       const resumedIn = { id: session, resumes: session, worktree: back.path };
       return { kind: 'resumed', session: resumedIn, start: found.worktree.commit };
     } catch (error) {
-      const why = `the worktree of ${name} could not be recreated: ${(error as Error).message}`;
+      const why = `the worktree of ${name} could not be recreated: ${messageOf(error)}`;
       return { kind: 'fresh', fallback: why };
     }
   };

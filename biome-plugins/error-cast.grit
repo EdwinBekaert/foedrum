@@ -1,0 +1,4 @@
+// A thrown value may be anything, so a cast to Error reads undefined from a thrown string (ADR 0299).
+`$value as Error` where {
+  register_diagnostic(span=$value, message="Read an error's message with messageOf(error) from src/platform/errors.ts, never a cast to Error.")
+}

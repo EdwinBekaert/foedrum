@@ -1,0 +1,7 @@
+// A catch clause's value cast to an object shape (`error as { code?: unknown }`) reads a field
+// nothing checks (ADR 0299).
+`$value as $type` where {
+  $type <: contains TsObjectType(),
+  $value <: within `try { $_ } catch ($caught) { $_ }` where { $value <: $caught },
+  register_diagnostic(span=$value, message="Read a caught error's code with errorCode(error), or node:sqlite's errcode with sqliteErrorCode(error), from src/platform/errors.ts, never a cast to an object shape.")
+}

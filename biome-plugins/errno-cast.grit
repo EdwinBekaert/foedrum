@@ -1,0 +1,4 @@
+// A thrown value may be anything, so a cast to NodeJS.ErrnoException assumes a code it may lack (ADR 0299).
+`$value as NodeJS.ErrnoException` where {
+  register_diagnostic(span=$value, message="Read an error's code with errorCode(error) from src/platform/errors.ts, never a cast to NodeJS.ErrnoException.")
+}

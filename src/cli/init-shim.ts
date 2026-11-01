@@ -3,6 +3,7 @@
 // it. The ports are the platform, its environment and home, the files, and the PATH lookup.
 
 import { posix, win32 } from 'node:path';
+import { messageOf } from '../platform/errors.ts';
 import { pathExtensions, pathFolders } from '../platform/executables.ts';
 import type { Parsed } from './init.ts';
 
@@ -351,6 +352,3 @@ const byHand = (files: readonly ShimFile[], windows: boolean): string[] =>
     ...indented(text),
     ...(executable ? [windows ? LF_NOTE : `and run: chmod 755 ${file}`] : []),
   ]);
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);

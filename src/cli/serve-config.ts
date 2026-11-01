@@ -23,6 +23,7 @@ import {
 import type { Recipes } from '../engine/recipes.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { checksRunUnsandboxed } from '../platform/check-sandbox.ts';
+import { messageOf } from '../platform/errors.ts';
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import {
   BreweryConfig,
@@ -351,7 +352,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       try {
         modelOf(models, brewer.frontmatter);
       } catch (error) {
-        problems.push(`${file.path}: ${(error as Error).message}`);
+        problems.push(`${file.path}: ${messageOf(error)}`);
       }
     }
   }

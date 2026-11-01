@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { errorCode, messageOf } from '../platform/errors.ts';
 import {
   type BreweryFile,
   type BreweryFiles,
@@ -14,9 +15,6 @@ import {
   loadRecipes,
 } from './recipe-files.ts';
 import type { Recipes } from './recipes.ts';
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /**
  * Foedrum's own defaults: `defaults/` of the install this module is in, never of the working
@@ -35,7 +33,7 @@ function readFolder(root: string, folder: string, extension: string, prefix = ''
       .filter((name) => name.endsWith(extension))
       .sort();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if (errorCode(error) === 'ENOENT') return [];
     return [{ path: `${prefix}${folder}`, unreadable: messageOf(error) }];
   }
   return names.map((name) => {
@@ -75,7 +73,7 @@ function readDefaultModels(defaults: string): { models?: BreweryFile } {
   try {
     return { models: { path, text: readFileSync(join(defaults, 'models.jsonc'), 'utf8') } };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    if (errorCode(error) === 'ENOENT') return {};
     return { models: { path, unreadable: messageOf(error) } };
   }
 }
@@ -143,7 +141,7 @@ export function readTestMaps(root: string): BreweryFile[] {
       .sort();
   } catch (error) {
     // A missing folder has no maps; one that cannot be listed is named by its own path.
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if (errorCode(error) === 'ENOENT') return [];
     return [{ path: 'test-maps', unreadable: messageOf(error) }];
   }
   return owners.flatMap((folder) => readFolder(root, folder, '.jsonc'));

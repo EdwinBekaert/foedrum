@@ -7,6 +7,7 @@ import {
   type Batch,
   emptyState,
   fold,
+  foldedBatch,
   latestAttempt,
   runningAttempt,
   type State,
@@ -1541,4 +1542,14 @@ describe('the latest attempt of a step (I2)', () => {
       assert.equal(attemptBefore(step, 3)?.attempt, before3, 'attemptBefore 3');
     });
   }
+});
+
+describe('the batch a caller knows is in the fold', () => {
+  it('is the batch the fold holds under its id', () => {
+    assert.equal(foldedBatch(fold([ordered]), 'b1').issue, 100);
+  });
+
+  it('throws naming a batch the fold does not hold', () => {
+    assert.throws(() => foldedBatch(fold([ordered]), '3-1'), /batch 3-1 is not in the fold/);
+  });
 });

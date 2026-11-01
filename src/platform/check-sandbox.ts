@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
+import { messageOf } from './errors.ts';
 import { resolveExecutable } from './executables.ts';
 import { pathInside, samePath } from './paths.ts';
 import type { ExecOptions, ExecProcess, ExecResult } from './processes.ts';
@@ -377,8 +378,11 @@ const childPid = (info: Duplex): Promise<number | undefined> =>
         // Not all of it yet.
         return;
       }
-      const pid = (parsed as { 'child-pid'?: unknown } | null)?.['child-pid'];
-      answer(Number.isSafeInteger(pid) && (pid as number) > 0 ? (pid as number) : undefined);
+      const pid =
+        typeof parsed === 'object' && parsed !== null && 'child-pid' in parsed
+          ? parsed['child-pid']
+          : undefined;
+      answer(typeof pid === 'number' && Number.isSafeInteger(pid) && pid > 0 ? pid : undefined);
     });
     info.once('end', () => answer(undefined));
     info.once('close', () => answer(undefined));
@@ -616,6 +620,3 @@ export function sandboxedChecks(options: SandboxedChecksOptions): ExecProcess {
     return removed(sandboxRun('sandbox-exec', result));
   };
 }
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);

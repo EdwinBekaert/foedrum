@@ -13,6 +13,7 @@ import { githubLogin } from '../github/login.ts';
 import { createGitHubReads } from '../github/reads.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
 import { userName } from '../platform/env.ts';
+import { messageOf } from '../platform/errors.ts';
 import { stopOnSignals } from '../platform/processes.ts';
 import { runGit } from '../workspace/git.ts';
 import { brewerSource } from './brewer-report.ts';
@@ -134,7 +135,7 @@ export const cliFromCheckout = async (
       env: process.env,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
     return { exitCode: 1, stdout: '', stderr: `foedrum: ${message}\n` };
   }
 };

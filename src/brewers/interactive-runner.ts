@@ -18,6 +18,7 @@ import {
 } from '../engine/brewer-runner.ts';
 import { type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { ExecProcess } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { GravityReading } from '../schemas/events.ts';
@@ -100,9 +101,6 @@ export interface InteractiveRunnerDeps {
 
 /** As the headless runner reads it: the out doc's text reaches the event log (ADR 0028). */
 const MAX_OUT_DOC_BYTES = 1024 * 1024;
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** What the runner saw of a session the engineer ran: its exit, its out doc and its commits. */
 const factsOf = (exit: ProcessExit, out: OutDocRead | undefined): AttemptFacts => ({

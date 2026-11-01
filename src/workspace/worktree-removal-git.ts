@@ -5,7 +5,8 @@ import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
-import { clearReadOnly, errorCode, removeTree } from '../platform/remove.ts';
+import { errorCode } from '../platform/errors.ts';
+import { clearReadOnly, removeTree } from '../platform/remove.ts';
 import type { GitOptions, Git as WorkspaceGit } from './git.ts';
 import type { FolderState, Removal } from './worktree-removal.ts';
 

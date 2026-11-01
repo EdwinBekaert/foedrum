@@ -3,6 +3,7 @@
 // attempt worktrees are added to, never in a worktree a brewer wrote. kept-branches.ts decides.
 
 import type { State } from '../engine/fold.ts';
+import { messageOf } from '../platform/errors.ts';
 import { parseAttemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git, GitResult } from '../workspace/git.ts';
 import type { BranchReading } from './kept-branches.ts';
@@ -33,7 +34,7 @@ const output = async (
   try {
     result = await git(clone, args);
   } catch (error) {
-    throw failed(error instanceof Error ? error.message : String(error));
+    throw failed(messageOf(error));
   }
   // `rev-parse --verify --quiet` says nothing when the ref is not there.
   if (result.code === 0 || (quietMiss && result.code === 1 && result.stderr === '')) return result;

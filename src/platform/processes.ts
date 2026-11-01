@@ -6,6 +6,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { join, win32 } from 'node:path';
 import type { Duplex, Readable, Writable } from 'node:stream';
+import { errorCode, messageOf } from './errors.ts';
 import { environmentVariable, resolveExecutable } from './executables.ts';
 import { JOB_OBJECT_FAILED, jobObjectCommand, jobObjectRefusal } from './job-object.ts';
 import { windowsCommandLine } from './shell.ts';
@@ -144,7 +145,7 @@ export const isPidAlive = (pid: number, kill: Kill = process.kill): boolean => {
     kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    return errorCode(error) === 'EPERM';
   }
 };
 
@@ -272,7 +273,7 @@ export interface Spawner {
 
 // What a process wrote, then the reason it failed.
 const withReason = (text: string, error: unknown): string => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = messageOf(error);
   return text === '' || text.endsWith('\n') ? `${text}${message}` : `${text}\n${message}`;
 };
 
