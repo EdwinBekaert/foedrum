@@ -201,6 +201,64 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
     assert.deepEqual(end, proposed);
   });
 
+  it('runs the Maltster again on a retry in the round its check sent back', async () => {
+    const tip = 'c'.repeat(40);
+    const retried: Event[] = [
+      ...events,
+      { type: 'step.finished', ...ref, outcome: proposed.ending as never },
+      { type: 'step.scheduled', batchId: '12-1', stepId: 'survey-check', attempt: 1, deadlineAt },
+      { type: 'step.started', batchId: '12-1', stepId: 'survey-check', attempt: 1 },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'survey-check',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: false, reason: 'the map disagrees' },
+      },
+      {
+        type: 'step.scheduled',
+        ...ref,
+        attempt: 2,
+        deadlineAt,
+        route: { from: 'survey-check', why: 'failed' },
+      },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: {
+          repo: 'acme/api',
+          path: worktree,
+          branch: 'foedrum/12-1/survey/2',
+          commit: tip,
+        },
+      },
+      {
+        type: 'step.finished',
+        ...ref,
+        attempt: 2,
+        outcome: { kind: 'failed', retryable: true, reason: 'the guard testMapOnly: …' },
+      },
+      { type: 'step.scheduled', ...ref, attempt: 3, deadlineAt, retry: true },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 3,
+        worktree: {
+          repo: 'acme/api',
+          path: worktree,
+          branch: 'foedrum/12-1/survey/3',
+          commit: tip,
+        },
+      },
+    ];
+    // Its worktree holds the map survey #1 proposed, which its manifests match.
+    const { run, started } = setup({ read: { kind: 'map', map }, started: retried });
+    const end = await run();
+    assert.equal(started.length, 1);
+    assert.deepEqual(end, proposed);
+  });
+
   it('blocks the survey on its environment when the manifests cannot be listed', async () => {
     const unread = { kind: 'unread', reason: 'fatal: not a git repository' } as const;
     const { run, started } = setup({ read: { kind: 'map', map }, manifests: unread });
