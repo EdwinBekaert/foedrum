@@ -486,6 +486,11 @@ export const emptyState: State = {
 export const orderKey = ({ issue, repo }: OrderRef): string =>
   `${repo?.toLowerCase() ?? ''}#${issue}`;
 
+/** The batch `batchId` names, which the caller knows is in the fold; throws naming it when not. */
+export const foldedBatch = (_state: State, _batchId: string): Batch => {
+  throw new Error('not implemented');
+};
+
 /**
  * The position of the next merge or release: each one recorded adds one entry to `merges` or
  * `releases`, so their sizes count them in the order of the log (ADR 0216).
