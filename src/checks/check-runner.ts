@@ -139,6 +139,8 @@ export interface CheckRunnerOptions {
     realPath?: (path: string) => string;
     /** Whether a report path is a folder. Default the file system's. */
     isFolder?: (path: string) => boolean;
+    /** Whether a file a test's location may name is there. Default the file system's. */
+    exists?: (path: string) => boolean;
   };
 }
 

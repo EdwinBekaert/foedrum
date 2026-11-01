@@ -74,6 +74,24 @@ const billing: TestMapModule = {
   testReport: { format: 'trx', path: 'svc/test/*/TestResults' },
   coverage: { format: 'cobertura', path: 'svc/coverage/*' },
 };
+const py: TestMapModule = {
+  name: 'py',
+  code: ['py/src/**'],
+  tests: { paths: ['py/tests/**'] },
+  testReport: { format: 'junit', path: 'py/report.xml' },
+  coverage: 'none',
+};
+/** A JUnit report of `tests`, each placed at its file and line where given. */
+const junitOf = (...tests: { name: string; file?: string }[]): string =>
+  `<testsuites><testsuite name="all">${tests
+    .map(
+      ({ name, file }) =>
+        `<testcase name="${name}"${file === undefined ? '' : ` file="${file}" line="3"`}/>`,
+    )
+    .join('')}</testsuite></testsuites>`;
+const webReport = join(worktree, 'web', 'test-results.xml');
+const pyReport = join(worktree, 'py', 'report.xml');
+
 const mapOf = (...modules: TestMapModule[]): MapRead => ({
   kind: 'map',
   map: { derivedFrom: { globs: ['**/*.csproj'], paths: [] }, modules } satisfies TestMap,
@@ -115,6 +133,12 @@ const setup = ({
   touched = [] as string[] | { unread: string },
   /** The test report foedrum.jsonc names. */
   testReport = undefined as { format: 'junit'; path: string } | undefined,
+  /** The text of each test report file the run wrote, by its path. */
+  texts = {} as Record<string, string>,
+  /** The files of the worktree, relative to its root, that a test's location may name. */
+  files = [] as string[],
+  /** The worktree's real path, when a link leads to it. */
+  real = worktree,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -147,7 +171,10 @@ const setup = ({
       clear: (file) => {
         asked.push(`clear ${file}`);
       },
-      read: () => ({ kind: 'missing' }),
+      read: (file) => {
+        const text = texts[file];
+        return text === undefined ? { kind: 'missing' } : { kind: 'text', text };
+      },
     },
     clone: () => join('/work', 'acme.api', 'clone.git'),
     env: { base: {}, forced: {} },
@@ -172,6 +199,8 @@ const setup = ({
         asked.push(`touched ${paths.join(' ')} in ${repo} from ${from} to ${to}`);
         return Array.isArray(touched) ? { paths: touched } : touched;
       },
+      realPath: () => real,
+      exists: (path) => files.some((file) => join(worktree, file) === path),
     },
   });
   const run = () =>
@@ -409,6 +438,58 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
       paths: ['web/test-results.xml (no report of module "web")'],
       more: 0,
     });
+  });
+
+  it('finds the map stale when a run reports a test located outside every module', async () => {
+    const { run } = setup({
+      maps: fresh,
+      found: { 'web/test-results.xml': [webReport] },
+      texts: {
+        [webReport]: junitOf(
+          { name: 'greets', file: 'greets.test.mjs' },
+          { name: 'renders', file: 'web/test/render.test.mjs' },
+          { name: 'greets twice', file: 'greets.test.mjs' },
+        ),
+      },
+      files: ['greets.test.mjs', 'web/test/render.test.mjs'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    // One reason per file, naming its first test.
+    assert.deepEqual(end.staleMap, {
+      repo: 'acme/api',
+      kept: 'repo',
+      paths: ['test greets at greets.test.mjs outside the map'],
+      more: 0,
+    });
+  });
+
+  it("finds the map stale when a run reports a test at an absolute location under the worktree's real path", async () => {
+    const real = join('/private', 'work', 'acme.api', 'green');
+    const { run } = setup({
+      maps: fresh,
+      real,
+      found: { 'web/test-results.xml': [webReport] },
+      texts: {
+        [webReport]: junitOf(
+          { name: 'renders', file: join(real, 'web', 'test', 'render.test.mjs') },
+          { name: 'greets', file: join(real, 'tools', 'greets.test.mjs') },
+        ),
+      },
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, ['test greets at tools/greets.test.mjs outside the map']);
+  });
+
+  it("finds the map stale when a module's relative test location names a file at the root outside the map", async () => {
+    const { run } = setup({
+      maps: { [base]: mapOf(web, py), [tip]: mapOf(web, py) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [pyReport] },
+      texts: { [pyReport]: junitOf({ name: 'test_adds', file: 'tests/test_x.py' }) },
+      files: ['tests/test_x.py'],
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, ['test test_adds at tests/test_x.py outside the map']);
   });
 
   it('names a stale Brewery-kept map in the status comment without failing the step', async () => {
