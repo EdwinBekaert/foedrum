@@ -5,9 +5,10 @@
 import { type Dirent, existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { errorCode, messageOf } from '../platform/errors.ts';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
 import { pathInside, samePath } from '../platform/paths.ts';
-import { errorCode, removeTree } from '../platform/remove.ts';
+import { removeTree } from '../platform/remove.ts';
 import { type Rename, replaceFile } from '../platform/replace-file.ts';
 import type { RepositorySource } from '../schemas/brewery-config.ts';
 import {
@@ -188,9 +189,7 @@ export const cleanOwnGitDirs = async (
   try {
     listed = await entriesOf(root);
   } catch (error) {
-    report.failed.push(
-      `could not clean the git directories in ${root}: ${(error as Error).message}`,
-    );
+    report.failed.push(`could not clean the git directories in ${root}: ${messageOf(error)}`);
     return;
   }
   const entries = [];
@@ -204,9 +203,7 @@ export const cleanOwnGitDirs = async (
       // whose delete-pending entry fails with EPERM: nothing left to judge.
       const code = errorCode(error);
       if (code !== 'ENOENT' && code !== 'EPERM') {
-        report.failed.push(
-          `could not clean git directory ${entry.name}: ${(error as Error).message}`,
-        );
+        report.failed.push(`could not clean git directory ${entry.name}: ${messageOf(error)}`);
       }
     }
   }
@@ -216,7 +213,7 @@ export const cleanOwnGitDirs = async (
       await io.remove(join(root, name));
       report.done.push(`removed git directory ${name}: a stopped call left it`);
     } catch (error) {
-      report.failed.push(`could not clean git directory ${name}: ${(error as Error).message}`);
+      report.failed.push(`could not clean git directory ${name}: ${messageOf(error)}`);
     }
   }
 };
@@ -419,7 +416,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
             if (line !== undefined) report.done.push(line);
           } catch (error) {
             const item = step.kind === 'delete-branch' ? `branch ${step.branch}` : step.label;
-            report.failed.push(`could not clean ${item}: ${(error as Error).message}`);
+            report.failed.push(`could not clean ${item}: ${messageOf(error)}`);
             break;
           }
         }

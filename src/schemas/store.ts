@@ -1,6 +1,7 @@
 // The event store's own records: effect keys (invariant I4), leases (ADR 0002), the state branch's
 // pushed-through marker (ADR 0024), and the commit sha they and the events share.
 
+import { parseJson } from '../formats/json.ts';
 import { PathSafeId } from './ids.ts';
 import { z } from './zod.ts';
 
@@ -32,14 +33,6 @@ export const EffectKeyParts = z.union([
 
 /** The parts of an attempt key, the `attemptKey` of a lease, in the order of its text (ADR 0027). */
 export const AttemptKeyParts = z.tuple([PathSafeId, PathSafeId, Attempt]);
-
-const parseJson = (text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-};
 
 // The shape of a canonical text, so the generated JSON Schema rejects most other texts too; the
 // refinement is the exact check. Every canonical text matches its shape.
@@ -221,6 +214,12 @@ export const MergeResult = z
     { message: 'A merge made a commit, conflicts, or keeps its conflicts, never two of them' },
   );
 export type MergeResult = z.infer<typeof MergeResult>;
+
+/**
+ * One line of a state-branch log file: `{"id":<positive integer>,"event":{…}}`, its event still
+ * unread. Read from the branch, never written by this schema, so it has no JSON Schema file.
+ */
+export const BranchLogLine = z.strictObject({ id: z.int().positive(), event: z.unknown() });
 
 /**
  * How far the state branch has the log (ADR 0024): every event up to `eventId` is on the remote

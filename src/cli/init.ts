@@ -9,6 +9,7 @@
 import { parseJsonc } from '../formats/jsonc.ts';
 import { LABEL_COLOR } from '../github/brewery-repository.ts';
 import type { RepositoryFacts } from '../github/repository-facts.ts';
+import { messageOf } from '../platform/errors.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { BreweryClaudeSettings } from '../schemas/brewery-settings.ts';
 import type { InitCommand } from '../schemas/commands.ts';
@@ -406,7 +407,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
           try {
             facts.set(name, await ports.repository(name));
           } catch (error) {
-            return { refused: error instanceof Error ? error.message : String(error) };
+            return { refused: messageOf(error) };
           }
         }
         return { value: names };
@@ -429,8 +430,9 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
         repositories[repo] = kept[repo];
         continue;
       }
-      // Read while the targets were asked.
-      const read = facts.get(repo) as RepositoryFacts;
+      const read = facts.get(repo);
+      if (read === undefined)
+        throw new Error(`repository ${repo} was not read while the targets were asked`);
       const readScripts = scriptsOf(read.packageJson);
       const found =
         read.packageJson === undefined
@@ -552,7 +554,7 @@ export const runInit = async (ports: InitPorts, given: InitAnswers = {}): Promis
       try {
         await ports.github.create(brewery, login, isPrivate);
       } catch (error) {
-        return refuse(error instanceof Error ? error.message : String(error));
+        return refuse(messageOf(error));
       }
       say(`Created ${isPrivate ? 'the private' : 'the public'} repository ${brewery}`);
       const url = `https://github.com/${brewery}.git`;
@@ -658,7 +660,7 @@ const intakeLabel = async (
     say('To create it later:');
   } catch (error) {
     if (error instanceof NoAnswer || error instanceof Refused) throw error;
-    say(error instanceof Error ? error.message : String(error));
+    say(messageOf(error));
   }
   say(labelCommand(repo));
 };

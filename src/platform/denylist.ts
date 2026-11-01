@@ -3,6 +3,7 @@
 // whether one is set; the gate reads its words. Nothing here prints them.
 
 import { join } from 'node:path';
+import { errorCode, messageOf } from './errors.ts';
 
 /** The list's state: none, set with its text, or named and not readable. */
 export type DenylistState =
@@ -27,12 +28,12 @@ export const readDenylist = (
   try {
     return { kind: 'set', path, text: readFile(path) };
   } catch (error) {
-    const missing = (error as { code?: unknown } | null)?.code === 'ENOENT';
+    const missing = errorCode(error) === 'ENOENT';
     if (missing && !env.FOEDRUM_DENYLIST) return { kind: 'none', path };
     return {
       kind: 'unreadable',
       path,
-      why: error instanceof Error ? error.message : String(error),
+      why: messageOf(error),
     };
   }
 };

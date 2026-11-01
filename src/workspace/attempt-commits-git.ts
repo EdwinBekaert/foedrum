@@ -4,6 +4,7 @@
 // runs only through the injected `Git`, so unit tests pass a fake one (ADR 0021).
 
 import type { CommitsScanned, CommitsSeen } from '../engine/brewer-runner.ts';
+import { messageOf } from '../platform/errors.ts';
 import { isCommitSha, noCommitSha } from '../schemas/store.ts';
 import { openBranchPush } from './branch-push-git.ts';
 import { firstLine, inClone } from './clone-git.ts';
@@ -79,6 +80,6 @@ export const scanAttemptCommits =
       const tip = await push.commit(`refs/heads/${branch}`, signal);
       return { kind: 'scanned', findings: await push.secretScan(since, tip, signal) };
     } catch (error) {
-      return { kind: 'unscanned', reason: error instanceof Error ? error.message : String(error) };
+      return { kind: 'unscanned', reason: messageOf(error) };
     }
   };

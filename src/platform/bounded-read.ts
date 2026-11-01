@@ -12,6 +12,7 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
+import { messageOf } from './errors.ts';
 import { pathInside } from './paths.ts';
 
 /** A file as the reader found it. */
@@ -19,9 +20,6 @@ export type BoundedRead =
   | { kind: 'text'; text: string }
   | { kind: 'missing' }
   | { kind: 'unread'; reason: string };
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** Reads an out doc of at most `maxBytes`, only a regular file, and only inside `root`. */
 export function readOutDocFile(

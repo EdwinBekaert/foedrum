@@ -9,6 +9,7 @@
 // would free the lock while it is held.
 
 import { DatabaseSync } from 'node:sqlite';
+import { sqliteErrorCode } from './errors.ts';
 
 /**
  * A held lock. Keep this object for as long as the lock is held: the lock lives in the SQLite
@@ -37,7 +38,7 @@ export const takeFileLock = (path: string, waitMs: number): FileLock | undefined
     db.exec('COMMIT');
   } catch (error) {
     db.close();
-    if ((error as { errcode?: unknown }).errcode === SQLITE_BUSY) return undefined;
+    if (sqliteErrorCode(error) === SQLITE_BUSY) return undefined;
     throw error;
   }
   return { release: () => db.close() };

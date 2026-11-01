@@ -3,6 +3,7 @@
 
 import type { State } from '../engine/fold.ts';
 import { laneStatus } from '../engine/worktree-claims.ts';
+import { messageOf } from '../platform/errors.ts';
 import { elapsed, fit, runningAttempts } from './brew.ts';
 import { columns } from './columns.ts';
 import type { BoardTerminal } from './live-terminal.ts';
@@ -90,7 +91,7 @@ export const watchStatus = async (shell: WatchShell): Promise<CliResult> => {
       // A read that fails, such as a store busy while a driver writes, ends no watch: the last
       // board stays, cut where it must be so that it and the line that says so fit in the height
       // less one, and the next board reads again (ADR 0189). From a resize it would be uncaught.
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
       const height = terminal.rows();
       const kept = height === undefined ? last : last.slice(0, Math.max(0, height - 2));
       lines = [...kept, `could not read the store: ${message}; trying again each second`];

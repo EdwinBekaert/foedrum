@@ -3,7 +3,8 @@
 
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { errorCode, type RemovePath, removeTree } from '../platform/remove.ts';
+import { errorCode, messageOf } from '../platform/errors.ts';
+import { type RemovePath, removeTree } from '../platform/remove.ts';
 import type { AttemptWorktrees, CleanReport } from '../workspace/attempt-worktrees-git.ts';
 
 /** The batch folders under `root`; none when no attempt wrote settings yet. */
@@ -37,9 +38,7 @@ export const attemptSettingsCleaner = (
           await remove(join(root, batchId));
           report.done.push(`removed attempt settings ${batchId}`);
         } catch (error) {
-          report.failed.push(
-            `could not clean attempt settings ${batchId}: ${(error as Error).message}`,
-          );
+          report.failed.push(`could not clean attempt settings ${batchId}: ${messageOf(error)}`);
         }
       }
       return report;

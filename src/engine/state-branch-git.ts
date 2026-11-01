@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { errorCode } from '../platform/errors.ts';
 import { type FileLock, takeFileLock } from '../platform/file-lock.ts';
 import { removeStaleLock } from '../platform/index-lock.ts';
 import { removeTree } from '../platform/remove.ts';
@@ -187,15 +188,15 @@ export const openStateBranch = (options: StateBranchOptions): StateBranch => {
     await replaceFile(`${file}${TMP_SUFFIX}`, file);
   };
   const read = (path: string): Promise<string | undefined> =>
-    readFile(onDisk(path), 'utf8').catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return undefined;
+    readFile(onDisk(path), 'utf8').catch((error: unknown) => {
+      if (errorCode(error) === 'ENOENT') return undefined;
       throw error;
     });
   /** The log files in the worktree. */
   const logFiles = async (): Promise<string[]> => {
     // No batches folder yet is no batches; any other failure must not look like none.
-    const names = await readdir(onDisk('batches')).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return [];
+    const names = await readdir(onDisk('batches')).catch((error: unknown) => {
+      if (errorCode(error) === 'ENOENT') return [];
       throw error;
     });
     return ['events.jsonl', ...names.map((name) => `batches/${name}/events.jsonl`)].filter(

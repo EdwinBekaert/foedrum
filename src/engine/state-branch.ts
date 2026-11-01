@@ -3,9 +3,16 @@
 // No I/O: the shell (state-branch-git.ts) gathers the facts and carries out the decisions.
 
 import { isDeepStrictEqual } from 'node:util';
+import { parseJson } from '../formats/json.ts';
 import { Event } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
-import { CommitSha, type KeptOutDoc, noCommitSha, type PushedThrough } from '../schemas/store.ts';
+import {
+  BranchLogLine,
+  CommitSha,
+  type KeptOutDoc,
+  noCommitSha,
+  type PushedThrough,
+} from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
 import type { LoggedEvent, StoredEvent } from './event-store.ts';
 import type { State } from './fold.ts';
@@ -140,27 +147,6 @@ interface Line extends LoggedEvent {
 
 const stop = (reason: string): StateBranchStopError => new StateBranchStopError(reason);
 
-const parseJson = (text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-};
-
-const isLine = (value: unknown): value is LoggedEvent => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const keys = Object.keys(value).sort();
-  const { id } = value as { id?: unknown };
-  return (
-    keys.length === 2 &&
-    keys[0] === 'event' &&
-    keys[1] === 'id' &&
-    Number.isSafeInteger(id) &&
-    (id as number) > 0
-  );
-};
-
 const parseLines = ({ path, text }: BranchFile): Line[] => {
   const lines: Line[] = [];
   let previous = 0;
@@ -170,15 +156,16 @@ const parseLines = ({ path, text }: BranchFile): Line[] => {
     .forEach((content, i) => {
       if (content.trim() === '') return;
       const where = `${path}:${i + 1}`;
-      const value = parseJson(content);
-      if (!isLine(value)) {
+      const read = BranchLogLine.safeParse(parseJson(content));
+      if (!read.success) {
         throw stop(`${where}: not a stored event {"id":<positive integer>,"event":{…}}`);
       }
-      if (value.id <= previous) {
-        throw stop(`${where}: ids must grow, but ${value.id} follows ${previous}`);
+      const { id, event } = read.data;
+      if (id <= previous) {
+        throw stop(`${where}: ids must grow, but ${id} follows ${previous}`);
       }
-      previous = value.id;
-      lines.push({ id: value.id, event: value.event, line: i + 1 });
+      previous = id;
+      lines.push({ id, event, line: i + 1 });
     });
   return lines;
 };

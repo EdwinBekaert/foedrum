@@ -24,6 +24,7 @@ import type { Ending } from '../engine/decide.ts';
 import { type PlanRepository, type ReadPaths, touchesChecked } from '../engine/plan-touches.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { type BoundedRead, readOutDocFile } from '../platform/bounded-read.ts';
+import { errorCode, messageOf } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
 import {
   DEFAULT_MAX_OUTPUT_BYTES,
@@ -154,9 +155,6 @@ const MAX_LINE_BYTES = 8 * 1024 * 1024;
 /** The out doc's text reaches the event log (ADR 0028). */
 const MAX_OUT_DOC_BYTES = 1024 * 1024;
 
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 /**
  * The ending settleAttempt gives the facts, for a `done` with commits once the push's scan read
  * them on the attempt's branch in the clone (ADR 0187); any other ending with no git run.
@@ -224,7 +222,7 @@ export function restoreOutDocFile(file: string, root: string, copy: string): voi
   try {
     text = readFileSync(copy, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if (errorCode(error) === 'ENOENT') return;
     throw error;
   }
   // As clearOutDocFile: a linked folder on its path, or `..`, could lead out of the worktree.

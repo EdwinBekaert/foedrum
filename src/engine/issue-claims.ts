@@ -3,6 +3,7 @@
 // release when the batch ends. This module decides; the GitHub layer implements `ClaimHost` and
 // turns each due effect into an `EffectTarget` (ADR 0033).
 
+import { parseJson } from '../formats/json.ts';
 import type { IntakeFilter } from '../schemas/brewery-config.ts';
 import { ClaimRecord } from '../schemas/claim.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
@@ -111,14 +112,6 @@ export type ClaimOutcome =
   | { kind: 'ours' }
   /** `by` is the Brewery the record names, or undefined when the record cannot be read. */
   | { kind: 'taken'; by: string | undefined };
-
-const parseJson = (text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-};
 
 // The Brewery a claim ref's message names for `issue`, or undefined when it names none. The ref
 // was made by someone with push access, but its message is still read as untrusted text.

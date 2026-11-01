@@ -2,6 +2,7 @@
 // that it does not mark new must exist in its repository at the commit the plan was written
 // against. Git runs only through the injected `ReadPaths`, so no model and no fold is involved.
 
+import { messageOf } from '../platform/errors.ts';
 import { planOf } from '../schemas/plan.ts';
 import type { Ending } from './decide.ts';
 import { sameRepo } from './task-tree.ts';
@@ -82,7 +83,7 @@ export async function touchesChecked(
     const found = await read(clone, commit, paths, signal).catch(
       (error: unknown): PathsRead => ({
         kind: 'unread',
-        reason: error instanceof Error ? error.message : String(error),
+        reason: messageOf(error),
       }),
     );
     if (found.kind === 'unread') {

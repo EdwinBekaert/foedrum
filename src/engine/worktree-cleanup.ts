@@ -1,6 +1,7 @@
 // The attempt worktree cleanup, wired into the engine (ADR 0029, ADR 0037): over every batch at a
 // driver's start (crash repair), and over one batch once it has ended.
 
+import { messageOf } from '../platform/errors.ts';
 import type { Event } from '../schemas/events.ts';
 import type { AttemptWorktrees, CleanReport } from '../workspace/attempt-worktrees-git.ts';
 import type { Lease } from './event-store.ts';
@@ -56,7 +57,7 @@ export const createWorktreeCleanup = (options: WorktreeCleanupOptions): Worktree
         report.kept.push(...done.kept);
         report.failed.push(...done.failed);
       } catch (error) {
-        report.failed.push(`could not clean ${manager.root}: ${(error as Error).message}`);
+        report.failed.push(`could not clean ${manager.root}: ${messageOf(error)}`);
       }
     }
     return report;

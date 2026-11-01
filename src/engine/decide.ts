@@ -1176,8 +1176,8 @@ function enter(draft: Draft, batchId: string, stepId: string): void {
  * Stuck for a review before approve was offered is approved too.
  */
 function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kind: 'approve' }>) {
-  const batch = requireLane(draft.batch(batchId), 'approve', ['stuck']);
-  const { reason } = batch.lane as Extract<Lane, { kind: 'stuck' }>;
+  const batch = draft.batch(batchId);
+  const { reason } = requireStuck(batch, 'approve');
   if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason.kind));
   const { stepId, attempt } = reason;
   const plan = planDigest(batch, stepId, attempt);
@@ -1203,8 +1203,8 @@ function approve(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kin
  * by the lane's reason, as approve is.
  */
 function lauter(draft: Draft, { batchId, by, via }: Extract<HumanCommand, { kind: 'lauter' }>) {
-  const batch = requireLane(draft.batch(batchId), 'lauter', ['stuck']);
-  const { reason } = batch.lane as Extract<Lane, { kind: 'stuck' }>;
+  const batch = draft.batch(batchId);
+  const { reason } = requireStuck(batch, 'lauter');
   if (reason.kind !== 'plan_review') throw new Refusal(noPlanToReview(batchId, reason.kind));
   const stepId = recipeOf(draft, batch).chosen('lauter');
   if (stepId === undefined) {
@@ -1398,6 +1398,12 @@ function requireLane(batch: Batch, what: string, allowed: readonly Lane['kind'][
   const refusal = laneRefusal(batch, what, allowed);
   if (refusal !== undefined) throw new Refusal(refusal);
   return batch;
+}
+
+/** The Stuck lane of a batch `what` needs Stuck; refused, naming the lane it is in, when not. */
+function requireStuck(batch: Batch, what: string): Extract<Lane, { kind: 'stuck' }> {
+  if (batch.lane.kind !== 'stuck') throw new Refusal(notAllowed(batch, what, ['stuck']));
+  return batch.lane;
 }
 
 function requireOffer(batch: Batch, option: StuckOption): void {

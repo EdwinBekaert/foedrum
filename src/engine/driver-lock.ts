@@ -9,8 +9,8 @@
 
 import { linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { errorCode } from '../platform/errors.ts';
 import { takeFileLock } from '../platform/file-lock.ts';
-import { errorCode } from '../platform/remove.ts';
 import { Repo } from '../schemas/events.ts';
 import { PathSafeId } from '../schemas/ids.ts';
 import { readJsonc } from '../schemas/read.ts';

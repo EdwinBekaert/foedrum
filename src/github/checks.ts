@@ -6,6 +6,7 @@
 import { jobLogExcerpt } from '../checks/job-log.ts';
 import type { PullRequestCheckReader, ReadCheck } from '../engine/pr-checks.ts';
 import { findSecrets } from '../formats/secrets.ts';
+import { messageOf } from '../platform/errors.ts';
 import {
   CheckConclusion,
   HeadCheck,
@@ -58,7 +59,7 @@ const MAX_LOG_BYTES = 32 * 1024 * 1024;
 
 /** Why a job's log could not be read, from the error its read failed with: one line, never a secret. */
 const failedBecause = (error: unknown): string => {
-  const said = (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]?.trim();
+  const said = messageOf(error).split(/\r?\n/)[0]?.trim();
   if (said === undefined || said === '') return 'its read failed';
   if (findSecrets(said, () => false).length > 0) {
     return 'its read failed with an error that looks like a secret';

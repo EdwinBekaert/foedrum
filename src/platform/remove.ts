@@ -7,6 +7,7 @@
 import { chmod, lstat, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { errorCode } from './errors.ts';
 
 export type RemovePath = (path: string) => Promise<void>;
 
@@ -18,11 +19,6 @@ interface RemoveTreeOptions {
 }
 
 const RETRYABLE_CODES = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY']);
-
-export const errorCode = (error: unknown): string | undefined =>
-  error instanceof Error && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : undefined;
 
 // Adds the owner's write bit (and, for folders, read and search) to the path and everything
 // below it. On Windows, Node maps the write bit to the ReadOnly attribute. Symbolic links are

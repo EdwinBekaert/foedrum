@@ -8,6 +8,7 @@ import type { State } from '../engine/fold.ts';
 import type { TargetTracker } from '../engine/intake.ts';
 import type { ClaimHost } from '../engine/issue-claims.ts';
 import type { Recipes } from '../engine/recipes.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import type {
   BrewCommand,
@@ -307,7 +308,7 @@ const runCommand = async (argv: readonly string[], context: CliContext): Promise
     return 'invalid' in result ? invalid(prefix, input, result.invalid) : result;
   } catch (error) {
     // A store that cannot be read, for example: one line, escaped like every other output.
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
     return { exitCode: 1, stdout: '', stderr: `${prefix}: ${message}\n` };
   }
 };

@@ -3,6 +3,7 @@
 // at a time in the Cellar, beside the ticks and the pass. Nothing is recorded until a run ends, so
 // a kill loses no run: the next pass finds the tip moved and hands it on again.
 
+import { messageOf } from '../platform/errors.ts';
 import { type GravityReading, MAX_UNCHECKED_LENGTH } from '../schemas/events.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 import type { CommandLog } from './command-log.ts';
@@ -129,7 +130,7 @@ export const createMergedChecks = (options: MergedChecksOptions): MergedChecks =
     } catch (error) {
       if (signal.aborted) return;
       failed(`checking the merged tree of ${due.pullRequest} at ${due.tip}`, error);
-      end = { kind: 'unchecked', why: error instanceof Error ? error.message : String(error) };
+      end = { kind: 'unchecked', why: messageOf(error) };
     }
     switch (end.kind) {
       case 'stopped':

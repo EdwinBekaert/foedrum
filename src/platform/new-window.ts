@@ -4,6 +4,7 @@
 // cmd.exe's start, Terminal through osascript, or the desktop's terminal with -e.
 
 import { win32 } from 'node:path';
+import { messageOf } from './errors.ts';
 import { environmentVariable } from './executables.ts';
 import type { LaunchProcess } from './processes.ts';
 import { windowsCommandLine } from './shell.ts';
@@ -54,7 +55,7 @@ export function newWindowCommand(facts: WindowFacts, line: WindowLine): WindowLa
       try {
         windowsCommandLine(line.program, [line.cwd, ...line.args].map(plain));
       } catch (error) {
-        return none((error as Error).message);
+        return none(messageOf(error));
       }
       const terminal = find('wt.exe');
       if (terminal !== undefined) {

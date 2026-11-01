@@ -15,7 +15,7 @@ import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
-import type { Batch, State } from '../engine/fold.ts';
+import { type Batch, foldedBatch, type State } from '../engine/fold.ts';
 import { recipeLabels } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
@@ -23,10 +23,11 @@ import { MASH_IN } from '../engine/recipe-label.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { latestBatch, type OrderClaim, orderIssue } from './commands.ts';
-import { closeOpened, messageOf, type Opened, tick, wireDriver } from './driver-wiring.ts';
+import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -525,7 +526,7 @@ export const runBrew = async (
         await endStoppedRuns(batchId, other);
         return refuse(drivenBy(other));
       }
-      const now = driver.state().batches.get(batchId) as Batch;
+      const now = foldedBatch(driver.state(), batchId);
       const { lane, detail } = describeLane(now);
       // The status comment, on the batch's Brewery issue, once its first revision is recorded
       // (ADR 0072, ADR 0155).

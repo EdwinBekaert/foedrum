@@ -4,7 +4,7 @@
 
 import { rename as renameFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
-import { errorCode } from './remove.ts';
+import { errorCode } from './errors.ts';
 
 export type Rename = (from: string, to: string) => Promise<void>;
 

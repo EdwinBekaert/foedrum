@@ -6,6 +6,8 @@ import {
   type SQLInputValue,
   type StatementSync,
 } from 'node:sqlite';
+import { parseJson } from '../formats/json.ts';
+import { sqliteErrorCode } from '../platform/errors.ts';
 import { Event } from '../schemas/events.ts';
 import { BatchLease, KeptOutDoc, Lease, PushedThrough } from '../schemas/store.ts';
 import { effectKey } from './effect-key.ts';
@@ -122,14 +124,6 @@ const isThenable = (value: unknown): value is PromiseLike<unknown> =>
   typeof (value as { then?: unknown } | null)?.then === 'function';
 
 // A body that is not JSON fails the schema like any other invalid event.
-const parseJson = (text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-};
-
 const parseStored = (id: number, body: string): Event => {
   const parsed = Event.safeParse(parseJson(body));
   if (!parsed.success) throw new Error(`Stored event ${id} is invalid: ${parsed.error}`);
@@ -354,7 +348,7 @@ export const openSqliteEventStore = (
           : insertEventWithId.run(withId, valid.type, body);
       id = Number(result.lastInsertRowid);
     } catch (error) {
-      if (applied && (error as { errcode?: unknown }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
+      if (applied && sqliteErrorCode(error) === SQLITE_CONSTRAINT_UNIQUE) {
         throw new DuplicateEffectError(applied);
       }
       throw error;

@@ -9,7 +9,8 @@
 
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { errorCode, removeTree } from './remove.ts';
+import { errorCode } from './errors.ts';
+import { removeTree } from './remove.ts';
 
 export type IndexLockCleanup = 'none' | 'fresh' | 'removed';
 

@@ -15,6 +15,7 @@ import {
   type Batch,
   emptyState,
   fold,
+  foldedBatch,
   InvalidLogError,
   orderKey,
   type Rank,
@@ -40,6 +41,7 @@ import { batchOf } from '../engine/state-branch.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
@@ -158,7 +160,7 @@ const limitsHeld = (state: State, { config, recipes }: CliContext): string[] => 
   try {
     limits = limitsOf(config().openOrders ?? DEFAULT_OPEN_ORDERS, recipes());
   } catch (error) {
-    const [first] = (error instanceof Error ? error.message : String(error)).split('\n');
+    const [first] = messageOf(error).split('\n');
     return [`the limits could not be read: ${first}`];
   }
   return limitLines(state, limits);
@@ -226,7 +228,7 @@ const changeBrewery = async (
 /** Where the batch `batchId` is now, as a command that changed it says. */
 const laneLine = (state: State, batchId: string): string => {
   // Accepted, so the batch exists.
-  const { lane, detail } = describeLane(state.batches.get(batchId) as Batch);
+  const { lane, detail } = describeLane(foldedBatch(state, batchId));
   return `${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
 };
 
@@ -400,7 +402,7 @@ const readQueue = async (
     try {
       return await reading();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
       throw new Error(`cannot read the intake's queue: ${what}: ${message}`);
     }
   };
@@ -416,7 +418,7 @@ const readQueue = async (
     const authors = config.users ?? [];
     return intakeQueue(state, { brewery: own, repositories }, { authors, claimant }, placed);
   } catch (error) {
-    return { refused: error instanceof Error ? error.message : String(error) };
+    return { refused: messageOf(error) };
   }
 };
 

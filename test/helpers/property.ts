@@ -5,6 +5,7 @@
 import { randomInt } from 'node:crypto';
 import type { Command } from '../../src/engine/decide.ts';
 import type { State } from '../../src/engine/fold.ts';
+import { messageOf } from '../../src/platform/errors.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import {
   generateScenario,
@@ -55,9 +56,6 @@ export const noted = (error: unknown, text: string): unknown => {
   if (error.stack?.includes(message)) error.stack = error.stack.replace(message, error.message);
   return error;
 };
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** Runs `property` for `runs` seeds; a failure's message gains the seed. */
 export const forEachSeed = (runs: number, property: (seed: number) => void): void => {

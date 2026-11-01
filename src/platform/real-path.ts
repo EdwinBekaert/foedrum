@@ -8,6 +8,7 @@
 
 import { realpathSync } from 'node:fs';
 import { join, parse, sep } from 'node:path';
+import { errorCode } from './errors.ts';
 
 /**
  * How a Windows path would go further than a local drive if it were opened: through the network
@@ -45,7 +46,7 @@ export function realPath(
     try {
       return join(realpath(root + parts.slice(0, kept).join(sep)), ...parts.slice(kept));
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
+      const code = errorCode(error);
       if (kept === 0 || code === undefined || !MISSING.has(code)) throw error;
     }
   }

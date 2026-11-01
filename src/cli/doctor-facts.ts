@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { BreweryFiles } from '../engine/recipe-files.ts';
 import type { DenylistState } from '../platform/denylist.ts';
 import { withoutGitHubTokens } from '../platform/env.ts';
+import { messageOf } from '../platform/errors.ts';
 import { awakeMechanism } from '../platform/keep-awake.ts';
 import { type ExecProcess, whyKilled } from '../platform/processes.ts';
 import {
@@ -100,7 +101,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
   try {
     config = shell.readFile?.(join(cwd, 'foedrum.jsonc'));
   } catch (error) {
-    configUnreadable = error instanceof Error ? error.message : String(error);
+    configUnreadable = messageOf(error);
   }
   const host = shell.githubHost ?? githubHostOfConfig(config);
   // A command doctor runs besides a version command: its exit code and what it printed, why the

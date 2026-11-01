@@ -5,8 +5,8 @@
 
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { errorCode } from '../../src/platform/errors.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
-import { errorCode } from '../../src/platform/remove.ts';
 import { ghOver } from '../../test/helpers/fake-gh.ts';
 import { type FakeApiPull, fakeGitHubApi } from '../../test/helpers/fake-github-api.ts';
 import { BREW_ORDER, BREWERY, LOGIN, MASH_ORDER, ORDER } from './core.ts';

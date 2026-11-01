@@ -6,6 +6,7 @@
 import { type Dir, existsSync, opendirSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchesWithDots } from '../engine/path-globs.ts';
+import { messageOf } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
 import { realPath } from '../platform/real-path.ts';
 import { readJsonc } from '../schemas/read.ts';
@@ -250,7 +251,7 @@ export const reportPaths = (
       return { refused: `${pattern} leads out of the worktree` };
     }
   } catch (error) {
-    return { refused: `${pattern} cannot be resolved: ${(error as Error).message}` };
+    return { refused: `${pattern} cannot be resolved: ${messageOf(error)}` };
   }
   return { paths: found };
 };
@@ -287,7 +288,7 @@ export const clearReportPaths = async (
       try {
         await clear(path, root);
       } catch (error) {
-        return `${pattern} cannot be cleared: ${error instanceof Error ? error.message : String(error)}`;
+        return `${pattern} cannot be cleared: ${messageOf(error)}`;
       }
     }
   }

@@ -9,6 +9,7 @@
 import { TEST_MAP_PATH } from '../checks/test-map.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type { OrderIssue } from '../github/order-text.ts';
+import { messageOf } from '../platform/errors.ts';
 import { PullRequestUrl } from '../schemas/events.ts';
 import type { BatchEffectKey, BodyResult, ScanFinding } from '../schemas/store.ts';
 import { MAX_REFUSED, MAX_SENSITIVE, PushResult } from '../schemas/store.ts';
@@ -264,7 +265,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         ...(ended ? { ended } : {}),
       };
     } catch (error) {
-      return { kind: 'fail', reason: (error as Error).message };
+      return { kind: 'fail', reason: messageOf(error) };
     }
   };
 
