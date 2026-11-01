@@ -17,7 +17,8 @@ export interface ReleaseInput {
  * out, and a last line that says how many were (the gravity tail's way).
  */
 const notesOf = (notes: string): string[] => {
-  const all = notes.split('\n');
+  // The code host's notes may end their lines with CRLF; the input's are LF.
+  const all = notes.split(/\r?\n/);
   const kept = all.filter((line) => findSecrets(line, () => false).length === 0);
   const left = all.length - kept.length;
   if (left === 0) return kept;
@@ -29,9 +30,8 @@ const notesOf = (notes: string): string[] => {
 const sectionOf = (issue: number, blockedBy: number, release: Release, pulls: string[]) => [
   `#### The release of ${release.repo} that #${issue} waited for`,
   `- Tag, as written: ${release.version}`,
-  release.url === undefined
-    ? '- A tag with no release on the code host: no release page, no notes'
-    : `- Release: ${release.url}`,
+  // A record says nothing of a page it did not keep: a bare tag, an older record or a refused URL.
+  release.url === undefined ? '- No release page recorded' : `- Release: ${release.url}`,
   ...pulls.map((pull) => `- Merged pull request of #${blockedBy}: ${pull}`),
   ...(release.notes === undefined ? [] : ['- Notes:', '', ...notesOf(release.notes)]),
 ];

@@ -8,11 +8,20 @@ import { releaseRecorded } from './admit.ts';
 import type { CommandLog } from './command-log.ts';
 import { releaseWaits } from './ready-set.ts';
 
-/** Release notes as a record keeps them: cut to the longest it keeps, ending in an ellipsis. */
-const cut = (notes: string): string =>
-  notes.length <= MAX_RELEASE_NOTES_LENGTH
-    ? notes
-    : `${notes.slice(0, MAX_RELEASE_NOTES_LENGTH - 1)}…`;
+/**
+ * Release notes as a record keeps them: cut to the longest it keeps, ending in an ellipsis, after
+ * their last whole line, so no line (and no secret in it) is cut in the middle; a first line too
+ * long for the record is cut on a code point.
+ */
+const cut = (notes: string): string => {
+  if (notes.length <= MAX_RELEASE_NOTES_LENGTH) return notes;
+  const head = notes.slice(0, MAX_RELEASE_NOTES_LENGTH - 1);
+  const end = head.lastIndexOf('\n');
+  if (end >= 0) return `${head.slice(0, end + 1)}…`;
+  const last = head.charCodeAt(head.length - 1);
+  const pairStarts = last >= 0xd800 && last <= 0xdbff;
+  return `${pairStarts ? head.slice(0, -1) : head}…`;
+};
 
 /** A repository's latest release as the code host has it: GitHub's latest release, else tag. */
 export interface LatestRelease {
