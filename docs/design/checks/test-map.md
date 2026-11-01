@@ -46,6 +46,7 @@ A map the batch did not make stale, such as one stale on the base, never fails a
 A git read that fails blocks the step on its environment.
 
 **Freshness by runs.** In a repository with a map at the step's tip, after a test check that exited 0, and after the unreached rule above, the map is stale by the run when a module the base's map lists has no report at its `testReport` path, or when the test report `foedrum.jsonc` names was written under no module's report path.
+It is stale too when a module's JUnit or TAP report places a test in a file outside every module's code and test areas, named once per file by its first test, `test <name> at <file> outside the map`: an absolute location read under the worktree or its real path, a relative one from the root where that file is, else from a folder its own module's globs start with (where pytest writes from its rootdir), and a test with no location, or one whose file is in none of these, says nothing.
 A map stale by a run never fails a step, since a run can disagree for reasons the brewer does not control; it is recorded and named.
 A failing run is not read, as for the unreached rule.
 
