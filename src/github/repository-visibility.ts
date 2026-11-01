@@ -14,18 +14,21 @@ export interface RepositoryVisibilities {
   read(signal?: AbortSignal): Promise<void>;
 }
 
+/** A visibility as read: `unseen` is a repository the login cannot see, unknown but not read again. */
+type Read = Visibility | 'unseen';
+
 /**
  * What GitHub answers of `repo`: public only when it says so. A 404 is a repository the login
- * cannot see, so private for the run; any other failure is unknown, read again.
+ * cannot see, which another read would not change; any other failure is unknown, read again.
  */
 const readVisibility = async (
   client: GitHubClient,
   repo: string,
   signal?: AbortSignal,
-): Promise<Visibility> => {
+): Promise<Read> => {
   try {
     const answer = await client.rest('GET', `/repos/${repoPath(repo)}`, undefined, signal);
-    if (answer.status === 404) return 'private';
+    if (answer.status === 404) return 'unseen';
     const parsed = GitHubRepositoryVisibility.safeParse(answer.body);
     if (answer.status !== 200 || !parsed.success) return 'unknown';
     const { private: isPrivate, visibility } = parsed.data;
@@ -44,9 +47,12 @@ export const repositoryVisibilities = (
   client: GitHubClient,
   repos: readonly string[],
 ): RepositoryVisibilities => {
-  const known = new Map<string, Visibility>(repos.map((repo) => [repo.toLowerCase(), 'unknown']));
+  const known = new Map<string, Read>(repos.map((repo) => [repo.toLowerCase(), 'unknown']));
   return {
-    of: (repo) => known.get(repo.toLowerCase()) ?? 'unknown',
+    of: (repo) => {
+      const read = known.get(repo.toLowerCase()) ?? 'unknown';
+      return read === 'unseen' ? 'unknown' : read;
+    },
     read: async (signal) => {
       // At once, so a slow answer holds up no other.
       const unread = repos.filter((repo) => known.get(repo.toLowerCase()) === 'unknown');
