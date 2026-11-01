@@ -6,7 +6,13 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
-import { lensFirst, placeOf, type TastingFinding, tastingOf } from '../schemas/out-doc.ts';
+import {
+  lensFirst,
+  placeOf,
+  surveyOf,
+  type TastingFinding,
+  tastingOf,
+} from '../schemas/out-doc.ts';
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
 import { commentId, effectMarker } from './claim-effects.ts';
@@ -428,6 +434,7 @@ const briefRest = (
       ...notRunLines(steps, proof),
       tastedLine(steps, ready),
       ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
+      ...surveyLines(batch),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
@@ -437,6 +444,37 @@ const briefRest = (
   // can be told by the rest.
   return cutForComment(sections.map((lines) => lines.join('\n')).join('\n\n'));
 };
+
+/**
+ * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each survey whose
+ * latest attempt proposed a map, new or refreshed, with the stale paths the Maltster named, which
+ * are model text.
+ */
+const surveyLines = (batch: Batch): string[] =>
+  [...batch.steps.values()].flatMap((step) => {
+    const latest = [...step.attempts.values()].findLast(
+      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+    );
+    if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
+    const survey = surveyOf(latest.outcome.output);
+    const repo = latest.worktree?.repo;
+    if (survey === undefined || repo === undefined) return [];
+    switch (survey.map) {
+      case 'new':
+        return [`- The test map of ${repo} is new: the Maltster proposed it.`];
+      case 'stale': {
+        const paths = survey.stale.length === 0 ? '' : ` (${survey.stale.map(plain).join(', ')})`;
+        return [`- The test map of ${repo} was stale${paths}: the Maltster refreshed it.`];
+      }
+      case 'fresh':
+      case 'brewery':
+        return [];
+      default: {
+        const unhandled: never = survey.map;
+        throw new Error(`Unhandled survey map ${JSON.stringify(unhandled)}`);
+      }
+    }
+  });
 
 /** The brief's title line: the pull request's title, which anyone who can edit it wrote. */
 const titleLine = (title: string, head: string): string =>

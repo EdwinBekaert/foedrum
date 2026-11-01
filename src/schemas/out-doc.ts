@@ -389,6 +389,8 @@ export interface SurveyReport {
 }
 
 /** The map of an attempt's `output` when a survey wrote it and was done; else undefined. */
-export const surveyOf = (_output: unknown): SurveyReport | undefined => {
-  throw new Error('not implemented');
+export const surveyOf = (output: unknown): SurveyReport | undefined => {
+  const read = SurveyOutDoc.safeParse(output);
+  if (!read.success || read.data.status !== 'done' || read.data.map === undefined) return undefined;
+  return { map: read.data.map, stale: read.data.stale ?? [] };
 };

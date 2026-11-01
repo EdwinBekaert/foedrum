@@ -9,6 +9,7 @@ import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
+import { surveyed } from '../checks/survey.ts';
 import { addedUnmeasured, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
@@ -51,6 +52,7 @@ import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
 import { githubSubIssues } from '../github/sub-issues.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
+import { SURVEY } from '../schemas/out-doc.ts';
 import { worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -360,9 +362,22 @@ export const wireDriver = async (
   const brewerOf = (batchId: string, stepId: string) =>
     setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer;
   const guardsOf = (batchId: string, stepId: string) => brewerOf(batchId, stepId)?.guards ?? [];
+  // A survey needs no session for a fresh map, or one the Brewery keeps; the Maltster's commits
+  // change the test map only (ADR 0298).
+  const surveying = surveyed({
+    runner: shell.runner(setup.claude, plans.plan),
+    state,
+    surveys: ({ batchId, stepId }) => brewerOf(batchId, stepId)?.output.schema === SURVEY,
+    mapOnly: ({ batchId, stepId }) => guardsOf(batchId, stepId).includes('testMapOnly'),
+    testMap: mapAt,
+    keptIn: mapKeptIn,
+    git: shell.git,
+    clone,
+    clock,
+  });
   // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078, ADR 0274).
   const brewer = guardTests({
-    runner: shell.runner(setup.claude, plans.plan),
+    runner: surveying,
     state,
     protects: ({ batchId, stepId }) =>
       guardsOf(batchId, stepId).includes('testsUnchanged')
@@ -398,7 +413,13 @@ export const wireDriver = async (
         // The driver fails the attempt with the reason when it makes its worktree.
         return undefined;
       }
-      return repositoryNamed(repo)?.testReport === undefined
+      // A repository that keeps its test map has its survey propose one (ADR 0298).
+      const survey = setup.checks.surveyCheck?.(name);
+      const surveys =
+        survey !== undefined &&
+        mapKeptIn(repo) === 'repo' &&
+        setup.recipes.find(name)?.skip(batch, survey.id) === undefined;
+      return repositoryNamed(repo)?.testReport === undefined && !surveys
         ? needsTestReport(name, repo)
         : undefined;
     },

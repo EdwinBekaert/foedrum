@@ -1,4 +1,6 @@
-// Nip, the quick fix in one repository, test-first (ADR 0017): the Gauger commits failing tests,
+// Nip, the quick fix in one repository, test-first (ADR 0017): the Maltster first proposes the
+// repository's test map when it has none or a stale one, checked against one run of its tests
+// (ADR 0282, ADR 0298); then the Gauger commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
 // simplifies the change (ADR 0166), the checks read the result, two Tasters review the change side
 // by side, through the correctness and acceptance lenses (ADR 0168, ADR 0197), correctness's changes
@@ -8,6 +10,17 @@
   "name": "nip",
   "description": "Quick fix in one repository, test-first",
   "steps": [
+    // Without a session when the base's map is fresh, or the Brewery keeps it (ADR 0298).
+    { "id": "survey", "brewer": "maltster", "when": "recipe.testFirst" },
+    {
+      // A run that disagrees with the proposed map goes back to the Maltster once, then the batch
+      // is Stuck on its environment (ADR 0298).
+      "id": "survey-check",
+      "check": "test",
+      "of": "survey",
+      "when": "recipe.testFirst",
+      "onFail": { "goto": "survey", "maxRounds": 1 }
+    },
     { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
     {
       "id": "red",
