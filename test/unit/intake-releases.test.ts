@@ -225,6 +225,21 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     );
   });
 
+  it('cuts long notes after their last whole line, so no line is cut in the middle (review of #753)', async () => {
+    recorded(...waiting);
+    const notes = `- A faster parser\n${'t'.repeat(MAX_RELEASE_NOTES_LENGTH)}`;
+    await poll(fakeReader({ [lib]: { ...v1, notes } }, { [v1.version]: [pr(5)] }).reader);
+    assert.equal(log.state().releases[0]?.notes, '- A faster parser\n…');
+  });
+
+  it('cuts a long first line on a code point, never inside a surrogate pair (review of #753)', async () => {
+    recorded(...waiting);
+    const face = String.fromCodePoint(0x1f600);
+    const notes = `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 2)}${face}${'n'.repeat(10)}`;
+    await poll(fakeReader({ [lib]: { ...v1, notes } }, { [v1.version]: [pr(5)] }).reader);
+    assert.equal(log.state().releases[0]?.notes, `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 2)}…`);
+  });
+
   it('records the repository as the breakdown spells it', async () => {
     recorded(
       ...decomposed(

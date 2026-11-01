@@ -74,7 +74,7 @@ describe('releaseInput', () => {
     });
   });
 
-  it('carries the tag exactly as recorded, with no version parsed out of it, and says a bare tag has no notes', () => {
+  it('carries the tag exactly as recorded, with no version parsed out of it, and no page or notes it has none of', () => {
     const input = inputOf([...merged(), released('lib@1.4.0'), ordered('3-1', 3, '1-1')]);
     assert.deepStrictEqual(input?.releases, [{ repo: lib, version: 'lib@1.4.0' }]);
     assert.equal(
@@ -82,7 +82,7 @@ describe('releaseInput', () => {
       [
         `#### The release of ${lib} that #3 waited for`,
         '- Tag, as written: lib@1.4.0',
-        '- A tag with no release on the code host: no release page, no notes',
+        '- No release page recorded',
         `- Merged pull request of #2: ${pr(5)}`,
       ].join('\n'),
     );
@@ -102,6 +102,38 @@ describe('releaseInput', () => {
       ordered('3-1', 3, '1-1'),
     ];
     assert.deepStrictEqual(inputOf(events)?.releases, [{ repo: lib, version: 'v1.4.0' }]);
+  });
+
+  it('shows the notes of a release recorded without a page, and claims no page it cannot tell (review of #753)', () => {
+    const input = inputOf([
+      ...merged(),
+      released('v1.4.0', { notes: '- A faster parser' }),
+      ordered('3-1', 3, '1-1'),
+    ]);
+    assert.equal(
+      input?.text,
+      [
+        `#### The release of ${lib} that #3 waited for`,
+        '- Tag, as written: v1.4.0',
+        '- No release page recorded',
+        `- Merged pull request of #2: ${pr(5)}`,
+        '- Notes:',
+        '',
+        '- A faster parser',
+      ].join('\n'),
+    );
+  });
+
+  it('reads notes with CRLF line ends as lines, and writes them with LF (review of #753)', () => {
+    const notes = '## Fixes\r\n- A faster parser';
+    const input = inputOf([
+      ...merged(),
+      released('v1.4.0', { url: releasePage('v1.4.0'), notes }),
+      ordered('3-1', 3, '1-1'),
+    ]);
+    assert.ok(input);
+    assert.ok(!input.text.includes('\r'));
+    assert.match(input.text, /\n## Fixes\n- A faster parser$/);
   });
 
   it('has no release input for a batch whose sub-order waits on no release, nor for an order', () => {
