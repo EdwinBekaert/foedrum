@@ -179,6 +179,13 @@ const setup = ({
 const reported = { 'reports/test.tap': [join(pathOf('survey-check', 1), 'reports', 'test.tap')] };
 
 describe("createCheckRunner: a survey's check against one run (ADR 0298)", () => {
+  it('passes a survey-check whose run writes its reports where the proposed map says: regression test', async () => {
+    const { run, ran } = setup({ found: reported });
+    const end = await run();
+    assert.deepEqual(ran, ['npm test']);
+    assert.equal(end.ending.kind, 'succeeded');
+  });
+
   it('fails a survey-check whose run disagrees with the proposed map back to the survey', async () => {
     const { run } = setup();
     const end = await run();

@@ -672,6 +672,13 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it('says nothing of the test map when the survey found it fresh', async () => {
+      surveyed({ status: 'done', summary: 'The test map is fresh', map: 'fresh' });
+      const body = await brief();
+      assert.match(body, /- Touches sensitive paths: /);
+      assert.doesNotMatch(body, /The test map of/);
+    });
+
     it('lists the findings fixed and dismissed with their reason, and the open ones of an advisory step', async () => {
       order('lined');
       run('implement');

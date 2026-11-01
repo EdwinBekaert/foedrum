@@ -85,6 +85,47 @@ describe('the default Nip', () => {
     assert.equal(started.at(-1), 'open-pull-request');
   });
 
+  it('a recipe that is not test-first runs no survey: regression test', async () => {
+    // Nip with testFirst off, as a Brewery's own copy of it may be (ADR 0064).
+    const nipText = readFileSync(join(FOEDRUM_DEFAULTS, 'recipes', 'nip.jsonc'), 'utf8').replace(
+      '"name": "nip",',
+      '"name": "nip", "testFirst": false,',
+    );
+    const files = { ...noFiles, recipes: [{ path: 'recipes/nip.jsonc', text: nipText }] };
+    const store = openSqliteEventStore(':memory:');
+    try {
+      const done = behave.succeed();
+      const brewing = createBrewing({
+        store,
+        runner: fakeBrewerRunner({
+          implement: [done],
+          fine: [done],
+          green: [done],
+          correctness: [done],
+          acceptance: [done],
+          'open-pull-request': [done],
+        }),
+        recipes: valid(loadRecipes(files)).recipes,
+        clock: () => new Date('2026-10-21T12:00:00.000Z'),
+      });
+      assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+      const route = { kind: 'route', batchId: 'b1', recipe: 'nip', reason: 'label' } as const;
+      assert.ok(brewing.command({ ...route, source: 'label' }));
+      await brewing.drive();
+      const events = [...brewing.events()];
+      assert.deepEqual(
+        events.flatMap((event) => (event.type === 'step.skipped' ? [event.stepId] : [])),
+        ['survey', 'survey-check', 'gauge', 'red'],
+      );
+      assert.deepEqual(
+        events.flatMap((event) => (event.type === 'step.started' ? [event.stepId] : [])),
+        ['implement', 'fine', 'green', 'correctness', 'acceptance', 'open-pull-request'],
+      );
+    } finally {
+      store.close();
+    }
+  });
+
   it('sends a Cellarman that finds a test wrong back to the Gauger, once (ADR 0017, ADR 0064)', async () => {
     const done = behave.succeed();
     const started = await brewNip({
