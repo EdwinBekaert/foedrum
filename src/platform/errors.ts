@@ -1,11 +1,11 @@
 // Reading a thrown value, which may be anything: an Error, a string, a node:sqlite error.
 
 /**
- * What a thrown value says: an Error's message, or any other value's `String()`. An Error whose
- * message is not a string says nothing (''), so the result is a string for every input.
+ * What a thrown value says: an Error's message as text, or any other value's `String()`. The
+ * result is a string for every input, also for an Error whose message is not one.
  */
 export const messageOf = (error: unknown): string =>
-  error instanceof Error ? (typeof error.message === 'string' ? error.message : '') : String(error);
+  error instanceof Error ? String(error.message) : String(error);
 
 /** The `code` a thrown value carries as a string (`ENOENT`, `EPERM`), or undefined. */
 export const errorCode = (error: unknown): string | undefined =>
