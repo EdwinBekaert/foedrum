@@ -200,6 +200,7 @@ const brew = async (kills: readonly KillPoint[]) => {
             repositories: [{ repo: 'acme/app', base: 'main', push: code.push }],
             host: code.host,
             orderTitle: async () => 'Add a --json flag',
+            visibility: () => 'public',
           }),
         });
       }
@@ -328,6 +329,7 @@ const fixRun = async (kills: readonly KillPoint[]) => {
             repositories: [{ repo: 'acme/app', base: 'main', push }],
             host: code.host,
             orderTitle: async () => 'Add a --json flag',
+            visibility: () => 'public',
           }),
         });
       }
@@ -506,6 +508,7 @@ const briefRun = async (kills: readonly BriefPoint[], late = false, later = fals
             repositories: [{ repo: 'acme/app', base: 'main', push: code.push }],
             host: code.host,
             orderTitle: async () => 'Add a --json flag',
+            visibility: () => 'public',
           }),
         });
       }
@@ -736,6 +739,7 @@ const mergedRun = async (kills: readonly AnyPoint[]) => {
             repositories: [{ repo: 'acme/app', base: 'main', push }],
             host: code.host,
             orderTitle: async () => 'Add a --json flag',
+            visibility: () => 'public',
           }),
         });
       }

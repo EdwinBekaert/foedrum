@@ -357,3 +357,40 @@ export const gaugeOf = (output: unknown): GaugeReport | undefined => {
     ? undefined
     : { tests, regressionTests };
 };
+
+/** The name of the Maltster's out doc schema (`output.schema`, ADR 0298): the default Maltster's. */
+export const SURVEY = 'survey';
+
+/** The most stale paths a survey names, as a stale map's record keeps (ADR 0282). */
+export const MOST_SURVEY_PATHS = 10;
+export const MAX_SURVEY_PATH = 1_000;
+
+/**
+ * Why a survey's map is as it is (ADR 0298): `new` where the base had none, or one that could not
+ * be read, and `stale` where its manifests changed, which the Maltster writes; `fresh` and
+ * `brewery`, which the engine writes when the survey needs no session.
+ */
+export const SurveyMap = z.enum(['new', 'stale', 'fresh', 'brewery']);
+export type SurveyMap = z.infer<typeof SurveyMap>;
+
+/** The out doc of a brewer whose schema is `survey`: the contract's, with why its map changed. */
+export const SurveyOutDoc = outDocFrontmatter({
+  map: SurveyMap.exactOptional(),
+  stale: z.array(lineOf(MAX_SURVEY_PATH)).max(MOST_SURVEY_PATHS).exactOptional(),
+}).superRefine((doc, ctx) => {
+  if (doc.status !== 'done' || doc.map !== undefined) return;
+  ctx.addIssue({ code: 'custom', message: 'A done survey says which map it left', path: ['map'] });
+});
+
+/** What a survey reported: its map, and the stale paths it refreshed. */
+export interface SurveyReport {
+  map: SurveyMap;
+  stale: readonly string[];
+}
+
+/** The map of an attempt's `output` when a survey wrote it and was done; else undefined. */
+export const surveyOf = (output: unknown): SurveyReport | undefined => {
+  const read = SurveyOutDoc.safeParse(output);
+  if (!read.success || read.data.status !== 'done' || read.data.map === undefined) return undefined;
+  return { map: read.data.map, stale: read.data.stale ?? [] };
+};

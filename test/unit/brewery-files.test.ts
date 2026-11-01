@@ -261,9 +261,9 @@ describe('breweryRecipes', () => {
   };
 
   it("loads the Brewery's recipes", () => {
-    write('brewers', 'maltster.md', brewerText('maltster'));
-    write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'maltster' }]));
-    assert.equal(breweryRecipes(brewery.path).find('pale')?.firstStep, 'maltster');
+    write('brewers', 'roaster.md', brewerText('roaster'));
+    write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'roaster' }]));
+    assert.equal(breweryRecipes(brewery.path).find('pale')?.firstStep, 'roaster');
   });
 
   it("loads Foedrum's own defaults in a Brewery without files of its own (ADR 0098)", () => {
@@ -281,9 +281,9 @@ describe('breweryRecipes', () => {
   });
 
   it("throws doctor's line when a file is not valid", () => {
-    write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'maltster' }]));
+    write('recipes', 'pale.jsonc', recipeText('pale', [{ brewer: 'roaster' }]));
     assert.throws(() => breweryRecipes(brewery.path), {
-      message: `${INVALID_RECIPES}: recipes/pale.jsonc: it names no brewer "maltster" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
+      message: `${INVALID_RECIPES}: recipes/pale.jsonc: it names no brewer "roaster" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
     });
   });
 });

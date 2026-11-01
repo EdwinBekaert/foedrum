@@ -44,6 +44,7 @@ import {
   type StaleMap,
   type WorktreeRef,
 } from '../schemas/events.ts';
+import { surveyOf } from '../schemas/out-doc.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 import type { TestMap, TestMapModule } from '../schemas/test-map.ts';
 import type { Git } from '../workspace/git.ts';
@@ -585,7 +586,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   ): Promise<AttemptEnd> => {
     const recipe = batch.recipe?.name ?? '';
     // A repository with a test map proves red from its modules' reports, reading no test names;
-    // one without proves it from foedrum.jsonc's test report, by name, until #708 (ADR 0274).
+    // one without proves it from foedrum.jsonc's test report, by name, until #747 (ADR 0274, ADR 0298).
     const maps = await mapsOf(batch, worktree, signal);
     if ('ending' in maps) return maps;
     const report = options.testReport(worktree.repo);
@@ -744,12 +745,20 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     if (refs === undefined)
       return blocked('divergence', `recipe ${recipe} has no check step ${stepId}`);
     const of = checks.proves(recipe, stepId);
+    // A survey's check reads the map the survey proposed against one run (ADR 0298): none when the
+    // survey found the map fresh, or kept by the Brewery.
+    const survey = checks.surveys?.(recipe, stepId);
+    if (survey !== undefined && surveyNeedsNoRun(batch, survey.of)) {
+      return { ending: { kind: 'succeeded', output: null } };
+    }
     // The test map matters to a step that runs the tests: a red proof, or a step with a test check.
     // Without maps nothing is awaited, so the first check starts at once, before the engine could
     // stop the attempt.
     const reads = options.testMap !== undefined && (of !== undefined || refs.includes('test'));
     const fresh = reads ? await manifests(batch, worktree, signal) : {};
-    if ('end' in fresh) return fresh.end;
+    if ('end' in fresh) {
+      return survey === undefined ? fresh.end : agreed(batch, ref, worktree, survey, fresh.end);
+    }
     // A check step's test reading also reads the coverage of the change and the skips its tests
     // report (ADR 0274): the reports an earlier run left are cleared first, so none stands for
     // this run's or adds its hits to it.
@@ -780,7 +789,53 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       of !== undefined
         ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
         : await checkTree(refs, worktree, current.deadlineAt, signal);
-    return afterRun(batch, worktree, end, fresh, maps, signal);
+    const judged = await afterRun(batch, worktree, end, fresh, maps, signal, survey !== undefined);
+    return survey === undefined ? judged : agreed(batch, ref, worktree, survey, judged);
+  };
+
+  /** Whether the latest survey of step `of` found the map fresh, or kept by the Brewery. */
+  const surveyNeedsNoRun = (batch: Batch, of: string): boolean => {
+    const outputs = [...(batch.steps.get(of)?.attempts.values() ?? [])].flatMap((attempt) =>
+      attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded'
+        ? [attempt.outcome.output]
+        : [],
+    );
+    const map = surveyOf(outputs.at(-1))?.map;
+    return map === 'fresh' || map === 'brewery';
+  };
+
+  /**
+   * A survey's check's `end` (ADR 0298): a run that disagrees with the map the survey proposed (a
+   * failure that is not retried, or a map the run left stale) fails back to the survey while its
+   * route has rounds, and then sticks the batch on its environment, naming what disagreed: route
+   * exhaustion alone would say the attempts ran out.
+   */
+  const agreed = (
+    batch: Batch,
+    ref: AttemptRef,
+    worktree: WorktreeRef,
+    survey: { of: string; maxRounds: number },
+    end: AttemptEnd,
+  ): AttemptEnd => {
+    const { ending } = end;
+    const why =
+      ending.kind === 'failed' && !ending.retryable
+        ? ending.reason
+        : ending.kind === 'succeeded' && end.staleMap !== undefined
+          ? `${end.staleMap.paths.join(', ')}${end.staleMap.more > 0 ? ` and ${end.staleMap.more} more` : ''}`
+          : undefined;
+    if (why === undefined) return end;
+    const { staleMap: _named, ...rest } = end;
+    const back = [...(batch.steps.get(survey.of)?.attempts.values() ?? [])].filter(
+      (attempt) => attempt.route?.from === ref.stepId && attempt.route.why === 'failed',
+    ).length;
+    const { repo } = worktree;
+    if (back < survey.maxRounds) {
+      const reason = `the test map the survey proposed disagrees with a run of ${repo}: ${why} (ADR 0298)`;
+      return { ...rest, ending: { kind: 'failed', retryable: false, reason } };
+    }
+    const summary = `no test map the survey proposed agrees with a run of ${repo}: ${why} (ADR 0298)`;
+    return { ...rest, ending: blocked('environment', summary).ending };
   };
 
   /** Where the batch's change in `repo` starts: the base it merged, else its start (ADR 0164). */
@@ -847,6 +902,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     { tip, stale }: Fresh,
     read: StepMaps | undefined,
     signal: AbortSignal,
+    surveying: boolean,
   ): Promise<AttemptEnd> => {
     const named = [...(stale?.named ?? [])];
     const kept = stale?.kept ?? options.testMap?.keptIn?.(worktree.repo) ?? 'repo';
@@ -855,7 +911,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       tip?.kind === 'map'
         ? (modules: readonly EffectiveModule[]) => named.push(...staleByRun(worktree, modules))
         : undefined;
-    const judged = await afterTest(batch, worktree, end, read, signal, byRun);
+    const judged = await afterTest(batch, worktree, end, read, signal, byRun, surveying);
     return withStale(judged, worktree.repo, kept, named);
   };
 
@@ -893,6 +949,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     read: StepMaps | undefined,
     signal: AbortSignal,
     reached?: (modules: readonly EffectiveModule[]) => void,
+    /** A survey's check, which sends a module no line reaches back to the survey (ADR 0298). */
+    surveying = false,
   ): Promise<AttemptEnd> => {
     const { testMap } = options;
     const test = end.readings?.find(
@@ -934,6 +992,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         return stuck(`the test report of module "${name}" cannot be looked for: ${found.refused}`);
       }
       if (found.paths.length > 0) continue;
+      if (surveying) {
+        const reason = `module "${name}" wrote no test report at ${testReport.path}`;
+        return ended({ kind: 'failed', retryable: false, reason });
+      }
       const why = [
         `module "${name}" of the test map is new in this batch, and no confirmed line reaches it:`,
         `the test check wrote no test report at ${testReport.path};`,

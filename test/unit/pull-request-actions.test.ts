@@ -17,6 +17,7 @@ import {
   type PullRequestRequest,
   pullRequestActions,
 } from '../../src/engine/pull-request-actions.ts';
+import type { VisibilityOf } from '../../src/engine/sibling-pull-requests.ts';
 import { sensitiveLine } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { ScanFinding } from '../../src/schemas/store.ts';
@@ -166,6 +167,7 @@ const actionsWith = (
     unmeasured?: PullRequestRepository['unmeasured'];
     commits?: Record<string, string>;
     bodies?: Record<string, string>;
+    visibility?: VisibilityOf;
   } = {},
 ) => {
   const pushed = fakePush(
@@ -195,6 +197,7 @@ const actionsWith = (
       titles.push(order);
       return 'Add a --json flag';
     },
+    visibility: options.visibility ?? (() => 'public'),
   });
   return { actions, ...pushed, ...code, titles };
 };
@@ -264,6 +267,34 @@ describe('pullRequestActions: the pull request', () => {
     const body = requests[0]?.request.body ?? '';
     assert.match(body, /^## Pull requests of this order\n/);
     assert.match(body, /acme\/web: not opened yet/);
+  });
+
+  it("opens a public sub-order's pull request naming no sibling in a private repository (ADR 0300)", async () => {
+    const { actions, requests } = actionsWith({
+      visibility: (repo) => (repo === 'acme/api' ? 'public' : 'private'),
+    });
+    const split: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: '1-1',
+        order: { issue: 1 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 12, repo: 'acme/api' },
+          { issue: 13, repo: 'acme/web' },
+        ],
+        dependencies: [{ subOrder: 13, blockedBy: 12, kind: 'code' }],
+      },
+    ];
+    keysOf(fold([...split, ordered({ issue: 12 }), ...brewed, ...opening]), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    assert.match(body, /A pull request in a private repository: not opened yet/);
+    assert.doesNotMatch(body, /acme\/web/);
   });
 
   it("names no Brewery issue in a sub-order's pull request body (ADR 0296)", async () => {
@@ -905,6 +936,7 @@ describe('pullRequestActions: where the sensitive-path diff starts, and when it 
       repositories: [{ repo: 'Acme/API', base: 'main', push: pushed.target, sensitivePaths }],
       host: fakeHost().host,
       orderTitle: async () => 'Add a --json flag',
+      visibility: () => 'public',
     });
     keysOf(brewing(), actions);
     const result = await actions.target.apply(push);
@@ -934,6 +966,7 @@ describe('pullRequestActions: where the sensitive-path diff starts, and when it 
       ],
       host: fakeHost().host,
       orderTitle: async () => 'Add a --json flag',
+      visibility: () => 'public',
     });
     keysOf(brewing(), actions);
     await assert.rejects(actions.target.apply(push), {

@@ -171,5 +171,11 @@ export const GitHubUser = z.object({ login: z.string().min(1) });
 /** A repository, as far as `foedrum init` reads it (ADR 0199). */
 export const GitHubRepository = z.object({ default_branch: z.string().min(1) });
 
+/** Whether a repository is public: `GET /repos/{owner}/{repo}`, `visibility` on newer answers. */
+export const GitHubRepositoryVisibility = z.object({
+  private: z.boolean(),
+  visibility: z.string().optional(),
+});
+
 /** A file's contents, base64 up to GitHub's 1 MB; a larger file comes with `encoding: none`. */
 export const GitHubFileContents = z.object({ encoding: z.string(), content: z.string() });

@@ -224,7 +224,8 @@
               "testsNotRemoved",
               "testsUnchanged",
               "scope",
-              "diffLimits"
+              "diffLimits",
+              "testMapOnly"
             ]
           }
         }
@@ -482,7 +483,8 @@
               "testsNotRemoved",
               "testsUnchanged",
               "scope",
-              "diffLimits"
+              "diffLimits",
+              "testMapOnly"
             ]
           }
         }

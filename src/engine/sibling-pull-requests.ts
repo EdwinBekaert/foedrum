@@ -24,6 +24,15 @@ export const siblingKey = (batchId: string, revision: number): BatchEffectKey =>
   effect: `siblings.${revision}`,
 });
 
+/**
+ * Who can read a target repository, as the code host last said (ADR 0300): `internal` is every
+ * member of its enterprise; `unknown` when its answer could not be read.
+ */
+export type Visibility = 'public' | 'internal' | 'private' | 'unknown';
+
+/** The visibility of a target repository, `owner/name`. */
+export type VisibilityOf = (repo: string) => Visibility;
+
 /** Where a sub-order's pull request is: not opened yet, open, or how it ended. */
 export type SubOrderPullRequestState = 'none' | 'open' | 'merged' | 'closed';
 
@@ -77,6 +86,10 @@ export const subOrderPullRequests = (state: State, order: number): SubOrderPullR
   });
 };
 
+/** How wide a repository's readers are, `unknown` counted as `as` (ADR 0300). */
+const audience = (visibility: Visibility, as: 'public' | 'private'): number =>
+  ({ private: 0, internal: 1, public: 2 })[visibility === 'unknown' ? as : visibility];
+
 const HEADING = '## Pull requests of this order';
 /** The line that ends the section, so a revision finds where it stops. */
 const END = '<!-- foedrum:siblings -->';
@@ -102,8 +115,14 @@ export const stateText: Record<SubOrderPullRequestState, string> = {
  * The sibling section of `batchId`'s pull request body, or undefined when the batch brews no
  * sub-order of an order with two or more (ADR 0292). It names the target repositories' pull
  * requests only, never the Brewery's issues: a target repository may be public, the Brewery not.
+ * It names a sibling by its repository only where everyone who reads this pull request can read
+ * that repository too, and any other by its place in the merge order (ADR 0300).
  */
-export const siblingSection = (state: State, batchId: string): string | undefined => {
+export const siblingSection = (
+  state: State,
+  batchId: string,
+  visibility: VisibilityOf,
+): string | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined || batch.repo !== undefined) return undefined;
   const own = state.subOrders.get(batch.issue);
@@ -117,9 +136,22 @@ export const siblingSection = (state: State, batchId: string): string | undefine
   const dependencies: readonly Dependency[] = state.orders.get(own.order)?.dependencies ?? [];
   // The batch names itself the same before and after its pull request opens, so the open's section
   // is the one the next pass computes.
+  // A sibling is named where everyone who reads this pull request can read it too: a repository
+  // that could not be read counts as private, this one's as public (ADR 0300).
+  const readers = audience(visibility(own.repo), 'public');
+  const hidden = new Set(
+    entries
+      .filter(
+        ({ subOrder, repo }) =>
+          subOrder !== own.issue && audience(visibility(repo), 'private') < readers,
+      )
+      .map(({ subOrder }) => subOrder),
+  );
   const refs = new Map(
-    entries.map(({ subOrder, repo, pullRequest }) => {
+    entries.map(({ subOrder, repo, pullRequest }, place) => {
       if (subOrder === own.issue) return [subOrder, 'this pull request'];
+      if (hidden.has(subOrder))
+        return [subOrder, `pull request ${place + 1} (in a private repository)`];
       if (pullRequest === undefined) return [subOrder, repo];
       const { repo: at, number } = pullRequestOf(pullRequest);
       return [subOrder, `${at}#${number}`];
@@ -129,7 +161,9 @@ export const siblingSection = (state: State, batchId: string): string | undefine
     const blockers = dependencies.flatMap(({ subOrder: blocked, blockedBy, kind }) => {
       const ref = blocked === subOrder ? refs.get(blockedBy) : undefined;
       if (ref === undefined) return [];
-      const by = state.subOrders.get(blockedBy)?.repo ?? '';
+      const by = hidden.has(blockedBy)
+        ? 'its repository'
+        : (state.subOrders.get(blockedBy)?.repo ?? '');
       return [kind === 'code' ? `${ref} merges` : `${ref} merges and ${by} has a release after it`];
     });
     const waiters = dependencies.flatMap(({ subOrder: waiting, blockedBy, kind }) => {
@@ -145,7 +179,10 @@ export const siblingSection = (state: State, batchId: string): string | undefine
           ? `merge first (${named(waiters, ', ')})`
           : 'merge in any order';
     if (subOrder === own.issue) return `${at + 1}. This pull request, in ${repo}: ${when}.`;
-    return `${at + 1}. ${refs.get(subOrder) ?? repo}: ${stateText[where]}, ${when}.`;
+    const name = hidden.has(subOrder)
+      ? 'A pull request in a private repository'
+      : (refs.get(subOrder) ?? repo);
+    return `${at + 1}. ${name}: ${stateText[where]}, ${when}.`;
   });
   const intro = `This pull request is one of ${entries.length} of one order. Merge them in this order:`;
   // Whole lines, within the room every body keeps for the section.
@@ -182,6 +219,8 @@ const withSection = (text: string, section: string): string => {
 
 export interface SiblingEffectsOptions {
   host: Pick<PullRequestHost, 'body' | 'update'>;
+  /** Which target repositories the section may name in a public pull request (ADR 0300). */
+  visibility: VisibilityOf;
 }
 
 /** A revision that is due: the pull request it goes on, and the section it writes. */
@@ -200,7 +239,7 @@ interface DueSection {
  * A body someone edited is left as it is, as a later round leaves it (ADR 0227).
  */
 export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects => {
-  const { host } = options;
+  const { host, visibility } = options;
   const due = new Map<string, DueSection>();
   const dueFor = (key: string): DueSection => {
     const found = due.get(key);
@@ -239,7 +278,7 @@ export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects =>
       const end = url === undefined ? undefined : batch?.pullRequestEnds?.[url];
       // A pull request closed without merging is no part of the order's merge any more.
       if (batch === undefined || url === undefined || end === 'closed') return [];
-      const section = siblingSection(state, batchId);
+      const section = siblingSection(state, batchId, visibility);
       const order = state.subOrders.get(batch.issue)?.order;
       if (section === undefined || order === undefined) return [];
       const recorded = numberedEffects(

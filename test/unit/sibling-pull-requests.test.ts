@@ -18,6 +18,7 @@ import {
   siblingEffects,
   siblingSection,
   subOrderPullRequests,
+  type VisibilityOf,
 } from '../../src/engine/sibling-pull-requests.ts';
 import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -29,6 +30,8 @@ const web = 'acme/web';
 const libPull = 'https://github.com/acme/lib-core/pull/7';
 const webPull = 'https://github.com/acme/web/pull/12';
 const routeBy = '2026-10-31T13:00:00.000Z';
+/** Every target repository public, as an order of public repositories only reads. */
+const allPublic: VisibilityOf = () => 'public';
 
 const ordered = (batchId: string, issue: number, parentBatchId?: string): Event => ({
   type: 'batch.ordered',
@@ -121,7 +124,7 @@ describe('sibling pull requests (ADR 0292)', () => {
     // As the intake brews them: #3 has no batch until #2's pull request merged (ADR 0211).
     const libOnly = fold([...decomposed, ...opened('2-1', libPull)]);
     const { host, bodies } = fakeHost({ [libPull]: openedBody('2-1', 2) });
-    const effects = siblingEffects({ host });
+    const effects = siblingEffects({ host, visibility: allPublic });
     const before = await pass(effects, libOnly, ['2-1', '3-1']);
     assert.doesNotMatch(bodies[libPull] ?? '', /acme\/web#12/);
     bodies[webPull] = openedBody('3-1', 3);
@@ -147,11 +150,11 @@ describe('sibling pull requests (ADR 0292)', () => {
       ],
     );
     // Each body names itself as this pull request, and its sibling by its reference.
-    assert.deepEqual((siblingSection(state, '2-1') ?? '').split('\n').slice(2, 4), [
+    assert.deepEqual((siblingSection(state, '2-1', allPublic) ?? '').split('\n').slice(2, 4), [
       '1. This pull request, in acme/lib-core: merge first (acme/web#12 waits for its release).',
       '2. acme/web#12: open, merge after this pull request merges and acme/lib-core has a release after it.',
     ]);
-    assert.deepEqual((siblingSection(state, '3-1') ?? '').split('\n').slice(2, 4), [
+    assert.deepEqual((siblingSection(state, '3-1', allPublic) ?? '').split('\n').slice(2, 4), [
       '1. acme/lib-core#7: open, merge first (this pull request waits for its release).',
       '2. This pull request, in acme/web: merge after acme/lib-core#7 merges and acme/lib-core has a release after it.',
     ]);
@@ -159,7 +162,7 @@ describe('sibling pull requests (ADR 0292)', () => {
 
   it("renders the open's section as the next pass finds it, so the open needs no second write", async () => {
     const before = fold([...decomposed, ...opened('2-1', libPull)]);
-    const atOpen = siblingSection(before, '3-1') ?? assert.fail('no section');
+    const atOpen = siblingSection(before, '3-1', allPublic) ?? assert.fail('no section');
     const { host, updates } = fakeHost({
       [libPull]: openedBody('2-1', 2),
       [webPull]: pullRequestText({
@@ -170,11 +173,13 @@ describe('sibling pull requests (ADR 0292)', () => {
         siblings: atOpen,
       }).body,
     });
-    const settled = await pass(siblingEffects({ host }), before, ['2-1']);
+    const settled = await pass(siblingEffects({ host, visibility: allPublic }), before, ['2-1']);
     updates.length = 0;
-    const after = await pass(siblingEffects({ host }), fold(opened('3-1', webPull), settled), [
-      '3-1',
-    ]);
+    const after = await pass(
+      siblingEffects({ host, visibility: allPublic }),
+      fold(opened('3-1', webPull), settled),
+      ['3-1'],
+    );
     assert.equal(after.effects.size, settled.effects.size + 2);
     assert.deepEqual(updates, []);
   });
@@ -186,16 +191,23 @@ describe('sibling pull requests (ADR 0292)', () => {
     });
     // Revised while open, as every pass after the open does.
     const libOpen = await pass(
-      siblingEffects({ host }),
+      siblingEffects({ host, visibility: allPublic }),
       fold([...decomposed, ...opened('2-1', libPull)]),
       ['2-1'],
     );
     updates.length = 0;
     const both = fold([merged('2-1', libPull), ...opened('3-1', webPull)], libOpen);
-    const settled = await pass(siblingEffects({ host }), both, ['2-1', '3-1']);
+    const settled = await pass(siblingEffects({ host, visibility: allPublic }), both, [
+      '2-1',
+      '3-1',
+    ]);
     assert.deepEqual(updates.map(({ url }) => url).sort(), [libPull, webPull]);
     updates.length = 0;
-    await pass(siblingEffects({ host }), fold([merged('3-1', webPull)], settled), ['2-1', '3-1']);
+    await pass(
+      siblingEffects({ host, visibility: allPublic }),
+      fold([merged('3-1', webPull)], settled),
+      ['2-1', '3-1'],
+    );
     // The merged lib-core body names every sibling already, so a later end leaves it as it is.
     assert.deepEqual(updates, []);
   });
@@ -204,8 +216,8 @@ describe('sibling pull requests (ADR 0292)', () => {
     const libMerged = fold([...decomposed, ...opened('2-1', libPull), merged('2-1', libPull)]);
     const opening = openedBody('2-1', 2);
     const { host, updates } = fakeHost({ [libPull]: opening });
-    const effects = siblingEffects({ host });
-    assert.notEqual(siblingSection(libMerged, '2-1'), undefined);
+    const effects = siblingEffects({ host, visibility: allPublic });
+    assert.notEqual(siblingSection(libMerged, '2-1', allPublic), undefined);
     assert.deepEqual(effects.due(libMerged, '2-1'), []);
     await pass(effects, libMerged, ['2-1']);
     assert.deepEqual(updates, []);
@@ -219,14 +231,17 @@ describe('sibling pull requests (ADR 0292)', () => {
       ordered('2-2', 2, '1-1'),
       ...opened('2-2', newer),
     ]);
-    assert.equal(siblingSection(state, '2-1'), undefined);
-    assert.match(siblingSection(state, '3-1') ?? '', /acme\/lib-core#8/);
-    assert.match(siblingSection(state, '2-2') ?? '', /This pull request, in acme\/lib-core/);
+    assert.equal(siblingSection(state, '2-1', allPublic), undefined);
+    assert.match(siblingSection(state, '3-1', allPublic) ?? '', /acme\/lib-core#8/);
+    assert.match(
+      siblingSection(state, '2-2', allPublic) ?? '',
+      /This pull request, in acme\/lib-core/,
+    );
   });
 
   it('renders the opened body with the sibling section first', () => {
     const state = fold([...decomposed, ...opened('2-1', libPull)]);
-    const section = siblingSection(state, '3-1') ?? assert.fail('no section');
+    const section = siblingSection(state, '3-1', allPublic) ?? assert.fail('no section');
     const { body } = pullRequestText({
       title: 'Order',
       closes: { repo: brewery, issue: 3 },
@@ -244,7 +259,7 @@ describe('sibling pull requests (ADR 0292)', () => {
       [libPull]: openedBody('2-1', 2),
       [webPull]: openedBody('3-1', 3),
     });
-    const effects = siblingEffects({ host });
+    const effects = siblingEffects({ host, visibility: allPublic });
     const settled = await pass(effects, both, ['2-1', '3-1']);
     assert.match(bodies[webPull] ?? '', /acme\/lib-core#7[^\n]*open/);
     updates.length = 0;
@@ -260,7 +275,7 @@ describe('sibling pull requests (ADR 0292)', () => {
   it('names neither the Brewery issue nor the Brewery repository in the sibling section', () => {
     const state = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
     for (const batchId of ['2-1', '3-1']) {
-      const section = siblingSection(state, batchId) ?? assert.fail('no section');
+      const section = siblingSection(state, batchId, allPublic) ?? assert.fail('no section');
       assert.doesNotMatch(section, /alice\/brewery|brewery/i);
       // No bare issue number: GitHub would link it to the target repository's own issue.
       assert.doesNotMatch(section, /(^|[^\w/-])#\d/m);
@@ -274,7 +289,10 @@ describe('sibling pull requests (ADR 0292)', () => {
       [libPull]: edited,
       [webPull]: openedBody('3-1', 3),
     });
-    const settled = await pass(siblingEffects({ host }), both, ['2-1', '3-1']);
+    const settled = await pass(siblingEffects({ host, visibility: allPublic }), both, [
+      '2-1',
+      '3-1',
+    ]);
     assert.equal(bodies[libPull], edited);
     assert.deepEqual(
       updates.map(({ url }) => url),
@@ -282,7 +300,7 @@ describe('sibling pull requests (ADR 0292)', () => {
     );
     // Recorded as left, so the next pass asks nothing again.
     updates.length = 0;
-    await pass(siblingEffects({ host }), settled, ['2-1', '3-1']);
+    await pass(siblingEffects({ host, visibility: allPublic }), settled, ['2-1', '3-1']);
     assert.deepEqual(updates, []);
   });
 
@@ -293,10 +311,18 @@ describe('sibling pull requests (ADR 0292)', () => {
       [webPull]: openedBody('3-1', 3),
     });
     // The first body is updated and the driver killed before it records it.
-    const killed = await pass(siblingEffects({ host }), both, ['2-1', '3-1'], 0);
+    const killed = await pass(
+      siblingEffects({ host, visibility: allPublic }),
+      both,
+      ['2-1', '3-1'],
+      0,
+    );
     assert.equal(updates.length, 1);
     assert.equal(killed.effects.size, both.effects.size);
-    const after = await pass(siblingEffects({ host }), killed, ['2-1', '3-1']);
+    const after = await pass(siblingEffects({ host, visibility: allPublic }), killed, [
+      '2-1',
+      '3-1',
+    ]);
     assert.deepEqual(
       updates.map(({ url }) => url),
       [libPull, webPull],
@@ -331,7 +357,7 @@ describe('sibling pull requests (ADR 0292)', () => {
       lines.includes('- #2 in acme/lib-core: <https://github.com/acme/lib-core/pull/7>, merged'),
       created[0],
     );
-    assert.ok(lines.includes('- #3 in acme/web: no pull request yet'), created[0]);
+    assert.ok(lines.includes('- #3 in acme/web: ordered, no pull request yet'), created[0]);
   });
 
   it('gives an order with one sub-order no sibling section (regression test)', () => {
@@ -346,19 +372,19 @@ describe('sibling pull requests (ADR 0292)', () => {
       ordered('2-1', 2, '1-1'),
       ...opened('2-1', libPull),
     ]);
-    assert.equal(siblingSection(state, '2-1'), undefined);
+    assert.equal(siblingSection(state, '2-1', allPublic), undefined);
   });
 
   it('gives a plain order with no plan no sibling section (regression test)', () => {
     const state = fold([ordered('5-1', 5), ...opened('5-1', libPull)]);
-    assert.equal(siblingSection(state, '5-1'), undefined);
+    assert.equal(siblingSection(state, '5-1', allPublic), undefined);
   });
 
   it('replaces the old section whole and keeps the rest of the body byte for byte (regression test)', async () => {
     const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
     const opening = openedBody('3-1', 3);
     const { host, bodies } = fakeHost({ [libPull]: openedBody('2-1', 2), [webPull]: opening });
-    const effects = siblingEffects({ host });
+    const effects = siblingEffects({ host, visibility: allPublic });
     const settled = await pass(effects, both, ['2-1', '3-1']);
     await pass(effects, fold([merged('2-1', libPull)], settled), ['3-1']);
     const body = bodies[webPull] ?? '';
@@ -374,7 +400,7 @@ describe('sibling pull requests (ADR 0292)', () => {
   it('asks for no revision once the section it recorded is the one it would write (regression test)', async () => {
     const both = fold([...decomposed, ...opened('2-1', libPull), ...opened('3-1', webPull)]);
     const { host } = fakeHost({ [libPull]: openedBody('2-1', 2), [webPull]: openedBody('3-1', 3) });
-    const effects = siblingEffects({ host });
+    const effects = siblingEffects({ host, visibility: allPublic });
     const settled = await pass(effects, both, ['2-1', '3-1']);
     assert.equal(settled.effects.size, both.effects.size + 2);
     assert.deepEqual(effects.due(settled, '2-1'), []);
@@ -383,7 +409,7 @@ describe('sibling pull requests (ADR 0292)', () => {
 
   it('keeps room in every body for the longest sibling section (regression test)', () => {
     const state = fold([...decomposed, ...opened('2-1', libPull)]);
-    const section = siblingSection(state, '3-1') ?? assert.fail('no section');
+    const section = siblingSection(state, '3-1', allPublic) ?? assert.fail('no section');
     const cell = 'x'.repeat(190);
     const { body } = pullRequestText({
       title: 'Order',
@@ -419,7 +445,7 @@ describe('sibling pull requests (ADR 0292)', () => {
       { type: 'order.decomposed', batchId: '1-1', subOrders: many, dependencies: [] },
       ordered('10-1', 10, '1-1'),
     ]);
-    const section = siblingSection(state, '10-1') ?? assert.fail('no section');
+    const section = siblingSection(state, '10-1', allPublic) ?? assert.fail('no section');
     assert.ok(section.length <= MAX_SIBLINGS, String(section.length));
     assert.match(
       section,
@@ -452,8 +478,11 @@ describe('sibling pull requests (ADR 0292)', () => {
       two,
       ordered('2-1', 2, '1-1'),
     ]);
-    assert.doesNotMatch(siblingSection(state, '2-1') ?? assert.fail('no section'), /acme\/cli/);
-    assert.equal(siblingSection(state, '4-1'), undefined);
+    assert.doesNotMatch(
+      siblingSection(state, '2-1', allPublic) ?? assert.fail('no section'),
+      /acme\/cli/,
+    );
+    assert.equal(siblingSection(state, '4-1', allPublic), undefined);
   });
 
   it("gives a claimed issue's batch no section, though its number is a sub-order's (regression test)", () => {
@@ -461,8 +490,8 @@ describe('sibling pull requests (ADR 0292)', () => {
       ...decomposed,
       { type: 'batch.ordered', batchId: '9-1', order: { issue: 2, repo: lib }, routeBy },
     ]);
-    assert.notEqual(siblingSection(state, '2-1'), undefined);
-    assert.equal(siblingSection(state, '9-1'), undefined);
+    assert.notEqual(siblingSection(state, '2-1', allPublic), undefined);
+    assert.equal(siblingSection(state, '9-1', allPublic), undefined);
   });
 
   it("keeps the plan's order where no dependency orders sub-orders (regression test)", () => {
@@ -521,7 +550,7 @@ describe('sibling pull requests (ADR 0292)', () => {
       [{ type: 'pull_request.ended', batchId: '2-1', pullRequest: libPull, state: 'closed' }],
       both,
     );
-    const effects = siblingEffects({ host });
+    const effects = siblingEffects({ host, visibility: allPublic });
     assert.deepEqual(effects.due(closed, '2-1'), []);
     await pass(effects, closed, ['2-1', '3-1']);
     assert.deepEqual(
@@ -549,7 +578,7 @@ describe('sibling pull requests (ADR 0292)', () => {
       },
       ordered('8-1', 8, '1-1'),
     ]);
-    const own = (siblingSection(state, '8-1') ?? '')
+    const own = (siblingSection(state, '8-1', allPublic) ?? '')
       .split('\n')
       .find((line) => line.startsWith('7. '));
     assert.equal(
@@ -576,7 +605,8 @@ describe('sibling pull requests (ADR 0292)', () => {
         ...opened('2-1', libPull),
         { type: 'pull_request.ended', batchId: '2-1', pullRequest: libPull, state: 'closed' },
       ]);
-    const lines = (state: State) => (siblingSection(state, '3-1') ?? '').split('\n').slice(2, 4);
+    const lines = (state: State) =>
+      (siblingSection(state, '3-1', allPublic) ?? '').split('\n').slice(2, 4);
     assert.deepEqual(lines(split([{ subOrder: 3, blockedBy: 2, kind: 'code' }])), [
       '1. acme/lib-core#7: closed without merging, merge first (this pull request waits for its merge).',
       '2. This pull request, in acme/web: merge after acme/lib-core#7 merges.',
@@ -585,5 +615,174 @@ describe('sibling pull requests (ADR 0292)', () => {
       '1. acme/lib-core#7: closed without merging, merge in any order.',
       '2. This pull request, in acme/web: merge in any order.',
     ]);
+  });
+});
+
+const billing = 'acme/internal-billing';
+const billingPull = 'https://github.com/acme/internal-billing/pull/4';
+
+/**
+ * Order #1 split into #3 in acme/web, which waits for a release of #2 in acme/internal-billing,
+ * both pull requests open.
+ */
+const billed = (more: Event[] = []): State =>
+  fold([
+    ordered('1-1', 1),
+    {
+      type: 'order.decomposed',
+      batchId: '1-1',
+      subOrders: [
+        { issue: 3, repo: web },
+        { issue: 2, repo: billing },
+      ],
+      dependencies: [{ subOrder: 3, blockedBy: 2, kind: 'release' }],
+    },
+    { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+    ordered('2-1', 2, '1-1'),
+    ordered('3-1', 3, '1-1'),
+    ...opened('2-1', billingPull),
+    ...more,
+  ]);
+
+/** The visibility of each repository by name, any other unknown. */
+const visibilityOf =
+  (known: Record<string, 'public' | 'internal' | 'private'>): VisibilityOf =>
+  (repo) =>
+    known[repo] ?? 'unknown';
+
+/** The section's lines that place the pull requests, without its heading and intro. */
+const placed = (state: State, batchId: string, visibility: VisibilityOf): string[] =>
+  (siblingSection(state, batchId, visibility) ?? assert.fail('no section'))
+    .split('\n')
+    .slice(2, -1);
+
+const hiddenBilling = [
+  '1. A pull request in a private repository: open, merge first (this pull request waits for its release).',
+  '2. This pull request, in acme/web: merge after pull request 1 (in a private repository) merges and its repository has a release after it.',
+];
+
+describe('a sibling in a private repository (ADR 0300)', () => {
+  it("names no private sibling's repository or number in a public pull request", async () => {
+    const state = billed(opened('3-1', webPull));
+    const visibility = visibilityOf({ [web]: 'public', [billing]: 'private' });
+    assert.deepEqual(placed(state, '3-1', visibility), hiddenBilling);
+    // Written so on the public pull request's body by the revision too.
+    const { host, bodies } = fakeHost({
+      [billingPull]: openedBody('2-1', 2),
+      [webPull]: openedBody('3-1', 3),
+    });
+    await pass(siblingEffects({ host, visibility }), state, ['3-1']);
+    assert.match(bodies[webPull] ?? '', /A pull request in a private repository: open/);
+    assert.doesNotMatch(bodies[webPull] ?? '', /internal-billing|#4\b|pull\/4/);
+  });
+
+  it('names a sibling whose visibility could not be read as a private one', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(placed(state, '3-1', visibilityOf({ [web]: 'public' })), hiddenBilling);
+  });
+
+  it('names no private sibling in a pull request whose own visibility could not be read', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(placed(state, '3-1', visibilityOf({ [billing]: 'private' })), hiddenBilling);
+    // A public sibling is named all the same.
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [billing]: 'public' }))[0],
+      [
+        '1. acme/internal-billing#4: open, merge first (this pull request waits for its release).',
+      ][0],
+    );
+  });
+
+  it('names no private sibling in a pull request in an internal repository (regression test)', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [web]: 'internal', [billing]: 'private' })),
+      hiddenBilling,
+    );
+  });
+
+  it('names an internal sibling in an internal pull request, and hides it in a public one', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [web]: 'internal', [billing]: 'internal' })),
+      [
+        '1. acme/internal-billing#4: open, merge first (this pull request waits for its release).',
+        '2. This pull request, in acme/web: merge after acme/internal-billing#4 merges and acme/internal-billing has a release after it.',
+      ],
+    );
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [web]: 'public', [billing]: 'internal' })),
+      hiddenBilling,
+    );
+  });
+
+  it('numbers two private siblings apart, and hides one not opened yet', () => {
+    const state = fold([
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 3, repo: web },
+          { issue: 2, repo: billing },
+          { issue: 4, repo: 'acme/ledger' },
+        ],
+        dependencies: [
+          { subOrder: 3, blockedBy: 2, kind: 'code' },
+          { subOrder: 3, blockedBy: 4, kind: 'code' },
+        ],
+      },
+      ordered('2-1', 2, '1-1'),
+      ordered('3-1', 3, '1-1'),
+      ...opened('2-1', billingPull),
+      ...opened('3-1', webPull),
+    ]);
+    const lines = placed(state, '3-1', visibilityOf({ [web]: 'public', [billing]: 'private' }));
+    assert.deepEqual(lines, [
+      '1. A pull request in a private repository: open, merge first (this pull request waits for its merge).',
+      '2. A pull request in a private repository: not opened yet, merge first (this pull request waits for its merge).',
+      '3. This pull request, in acme/web: merge after pull request 1 (in a private repository) merges and pull request 2 (in a private repository) merges.',
+    ]);
+    assert.doesNotMatch(lines.join('\n'), /ledger|billing/);
+  });
+  it('names its siblings as before in a private pull request (regression test)', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(
+      placed(state, '2-1', visibilityOf({ [web]: 'public', [billing]: 'private' })),
+      [
+        '1. This pull request, in acme/internal-billing: merge first (acme/web#12 waits for its release).',
+        '2. acme/web#12: open, merge after this pull request merges and acme/internal-billing has a release after it.',
+      ],
+    );
+  });
+
+  it('names every sibling as before when every repository is public (regression test)', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(placed(state, '3-1', visibilityOf({ [web]: 'public', [billing]: 'public' })), [
+      '1. acme/internal-billing#4: open, merge first (this pull request waits for its release).',
+      '2. This pull request, in acme/web: merge after acme/internal-billing#4 merges and acme/internal-billing has a release after it.',
+    ]);
+  });
+
+  it("writes no second revision after the open's section with a private sibling (regression test)", async () => {
+    const visibility = visibilityOf({ [web]: 'public', [billing]: 'private' });
+    const before = billed();
+    const atOpen = siblingSection(before, '3-1', visibility) ?? assert.fail('no section');
+    const { host, updates } = fakeHost({
+      [billingPull]: openedBody('2-1', 2),
+      [webPull]: pullRequestText({
+        title: 'Order',
+        closes: { repo: brewery, issue: 3 },
+        reports: [],
+        key: pullRequestKey('3-1'),
+        siblings: atOpen,
+      }).body,
+    });
+    const after = await pass(siblingEffects({ host, visibility }), billed(opened('3-1', webPull)), [
+      '3-1',
+    ]);
+    // Found as the open wrote it: recorded, and nothing updated.
+    assert.equal(after.effects.size, billed(opened('3-1', webPull)).effects.size + 1);
+    assert.deepEqual(updates, []);
   });
 });

@@ -50,6 +50,14 @@ export const recipeText = (): string =>
       name: RECIPE,
       description: 'Quick fix in one repository, test-first, tasted through three lenses at once',
       steps: [
+        { id: 'survey', brewer: 'maltster', when: 'recipe.testFirst' },
+        {
+          id: 'survey-check',
+          check: 'test',
+          of: 'survey',
+          when: 'recipe.testFirst',
+          onFail: { goto: 'survey', maxRounds: 1 },
+        },
         { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
         {
           id: 'red',

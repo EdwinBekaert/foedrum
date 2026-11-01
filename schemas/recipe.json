@@ -298,6 +298,11 @@
               "type": "string",
               "const": "pass"
             },
+            "of": {
+              "description": "The survey whose test map this check reads against one run: a step whose brewer answers with the out doc schema \"survey\" (ADR 0298)",
+              "type": "string",
+              "pattern": "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|$))[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+            },
             "when": {
               "description": "Run the step only when this expression is true",
               "type": "string",

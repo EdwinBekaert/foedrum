@@ -9,6 +9,7 @@ import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestReport } from '../checks/red-proof.ts';
+import { surveyed } from '../checks/survey.ts';
 import { addedUnmeasured, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
@@ -49,10 +50,12 @@ import { githubIssueMarks } from '../github/marks.ts';
 import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
+import { repositoryVisibilities } from '../github/repository-visibility.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
 import { githubSubIssues } from '../github/sub-issues.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
+import { SURVEY } from '../schemas/out-doc.ts';
 import { worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
@@ -249,8 +252,15 @@ export const wireDriver = async (
     subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
   });
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
+  // Who can read each repository, read now and, while it could not be, after each tick: a pull
+  // request names no sibling in a repository fewer people can read (ADR 0300).
+  const visibilities = repositoryVisibilities(
+    client,
+    setup.repositories.map(({ repo }) => repo),
+  );
+  await visibilities.read(signal);
   // Each sub-order pull request's section naming its order's others, as they open and end (ADR 0292).
-  const siblings = siblingEffects({ host: pullRequests });
+  const siblings = siblingEffects({ host: pullRequests, visibility: visibilities.of });
   // A Brewery issue whose batch's pull requests merged, closed with a comment (ADR 0296).
   const closes = breweryCloseEffects({ marks, brewery: setup.brewery });
   const effects =
@@ -284,6 +294,7 @@ export const wireDriver = async (
     repositories: pushes,
     host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
+    visibility: visibilities.of,
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
   let driver: Driver | undefined;
@@ -363,9 +374,22 @@ export const wireDriver = async (
   const brewerOf = (batchId: string, stepId: string) =>
     setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer;
   const guardsOf = (batchId: string, stepId: string) => brewerOf(batchId, stepId)?.guards ?? [];
+  // A survey needs no session for a fresh map, or one the Brewery keeps; the Maltster's commits
+  // change the test map only (ADR 0298).
+  const surveying = surveyed({
+    runner: shell.runner(setup.claude, plans.plan),
+    state,
+    surveys: ({ batchId, stepId }) => brewerOf(batchId, stepId)?.output.schema === SURVEY,
+    mapOnly: ({ batchId, stepId }) => guardsOf(batchId, stepId).includes('testMapOnly'),
+    testMap: mapAt,
+    keptIn: mapKeptIn,
+    git: shell.git,
+    clone,
+    clock,
+  });
   // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078, ADR 0274).
   const brewer = guardTests({
-    runner: shell.runner(setup.claude, plans.plan),
+    runner: surveying,
     state,
     protects: ({ batchId, stepId }) =>
       guardsOf(batchId, stepId).includes('testsUnchanged')
@@ -401,12 +425,18 @@ export const wireDriver = async (
         // The driver fails the attempt with the reason when it makes its worktree.
         return undefined;
       }
-      return repositoryNamed(repo)?.testReport === undefined
+      // A repository that keeps its test map has its survey propose one (ADR 0298).
+      const survey = setup.checks.surveyCheck?.(name);
+      const surveys =
+        survey !== undefined &&
+        mapKeptIn(repo) === 'repo' &&
+        setup.recipes.find(name)?.skip(batch, survey.id) === undefined;
+      return repositoryNamed(repo)?.testReport === undefined && !surveys
         ? needsTestReport(name, repo)
         : undefined;
     },
   });
-  driver = await openDriver({
+  const inner = await openDriver({
     store,
     // Each out doc read is kept for the state branch before its step.finished (ADR 0103).
     runner: keepOutDocs({
@@ -449,6 +479,14 @@ export const wireDriver = async (
     actions,
     report,
   });
+  driver = {
+    ...inner,
+    // After the tick, which renews the leases, so a slow GitHub delays none of them.
+    tick: async () => {
+      await inner.tick();
+      await visibilities.read(signal);
+    },
+  };
   opened.driver = driver;
   return { store, driver, reads, client, claims, claimant, pushes, checkTree: checks.checkTree };
 };

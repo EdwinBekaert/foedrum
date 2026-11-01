@@ -36,7 +36,7 @@ import {
   type StepReport,
   stepReports,
 } from './pull-request.ts';
-import { siblingSection } from './sibling-pull-requests.ts';
+import { siblingSection, type VisibilityOf } from './sibling-pull-requests.ts';
 import { taskTreeStart } from './task-tree.ts';
 
 /** What Foedrum asks the code host to open. */
@@ -115,6 +115,8 @@ export interface PullRequestActionsOptions {
   host: PullRequestHost;
   /** The title of the order's issue, read as the effect applies. */
   orderTitle: (order: OrderIssue, signal?: AbortSignal) => Promise<string>;
+  /** Which target repositories a sibling section may name in a public pull request (ADR 0300). */
+  visibility: VisibilityOf;
 }
 
 /** What the pull request's body is rendered from, read when the effect applies (ADR 0167). */
@@ -200,7 +202,7 @@ const pullRequestUrl = (url: string): string => {
 };
 
 export const pullRequestActions = (options: PullRequestActionsOptions): DriverActions => {
-  const { brewery, repositories, host, orderTitle } = options;
+  const { brewery, repositories, host, orderTitle, visibility } = options;
 
   const plan = (state: State, batchId: string): Plan => {
     const batch = state.batches.get(batchId);
@@ -444,7 +446,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
             }),
         ...(previous === undefined ? {} : { previous }),
       });
-      const siblings = siblingSection(state, batchId);
+      const siblings = siblingSection(state, batchId, visibility);
       const from = (key: BatchEffectKey): BodyFrom => ({
         order,
         reports: stepReports(batch),

@@ -5,7 +5,7 @@
 // files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
-import { TASTING } from '../schemas/out-doc.ts';
+import { SURVEY, TASTING } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
@@ -116,12 +116,23 @@ export interface StepChecks {
   proves(recipe: string, stepId: string): string | undefined;
   /** The first red proof of recipe `recipe` and the step it proves, when it has one (ADR 0078). */
   redProof(recipe: string): { id: string; of: string } | undefined;
+  /**
+   * The survey whose map step `stepId` of recipe `recipe` reads against one run, with the rounds
+   * its onFail route sends back to it, when it is a survey's check (ADR 0298).
+   */
+  surveys?(recipe: string, stepId: string): { of: string; maxRounds: number } | undefined;
+  /** The check of recipe `recipe` that reads a survey's map, when it has one (ADR 0298). */
+  surveyCheck?(recipe: string): { id: string; of: string } | undefined;
 }
 
-/** A check step's checks, and for a red proof the step whose tests it proves. */
+/**
+ * A check step's checks, and for a red proof the step whose tests it proves; for a survey's check,
+ * the survey and the rounds its route sends back to it (ADR 0298).
+ */
 interface StepCheck {
   checks: readonly CheckRef[];
   of?: string;
+  surveys?: { of: string; maxRounds: number };
 }
 
 export type LoadedRecipes =
@@ -446,6 +457,8 @@ const ENFORCED_GUARDS: ReadonlySet<string> = new Set([
   'requiresOutDoc',
   'requiresCommits',
   'testsUnchanged',
+  // The survey's wrapper checks the attempt's commits (ADR 0298).
+  'testMapOnly',
 ]);
 
 /** What `brewer` asks for that the attempt plan does not carry yet (ADR 0059). */
@@ -472,7 +485,10 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
   const order = [...walk(recipe.steps, ['steps'])].map(({ step }) => step);
   const first = order.find(commits);
   const proven = first === undefined ? undefined : stepId(first);
-  const at = order.findIndex((step) => 'of' in step && step.of === proven);
+  // A red proof's `of`, never a survey's check's (ADR 0298).
+  const at = order.findIndex(
+    (step) => 'of' in step && step.of === proven && 'expect' in step && step.expect === 'fail',
+  );
   const proof = order[at];
   if (proven === undefined || proof === undefined) {
     return [
@@ -670,7 +686,11 @@ function checkLine(step: CheckStep): StepLoad {
     ...(step.expect === 'fail' ? {} : { passes: true as const }),
   };
   const checks = Array.isArray(step.check) ? step.check : [step.check];
-  return { line, check: { checks, ...('of' in step ? { of: step.of } : {}) } };
+  if (step.of === undefined) return { line, check: { checks } };
+  if (step.expect === 'fail') return { line, check: { checks, of: step.of } };
+  // Only the rounds back to the survey it reads are its rounds (ADR 0298).
+  const maxRounds = onFail?.goto === step.of ? onFail.maxRounds : 0;
+  return { line, check: { checks, surveys: { of: step.of, maxRounds } } };
 }
 
 /**
@@ -904,7 +924,39 @@ function misfolded(order: readonly Step[], commits: (step: Step) => boolean): st
 
 /** The red proofs of `order` (ADR 0078), and the step whose tests each proves. */
 const proofsOf = (order: readonly Step[]): { id: string; of: string }[] =>
-  order.flatMap((step) => ('of' in step ? [{ id: stepId(step), of: step.of }] : []));
+  order.flatMap((step) =>
+    'of' in step && step.of !== undefined && step.expect === 'fail'
+      ? [{ id: stepId(step), of: step.of }]
+      : [],
+  );
+
+/**
+ * Why a check of `order` that reads a survey's map cannot (ADR 0298): its `of` names no earlier
+ * step whose brewer answers with the out doc schema "survey", or it runs no test check.
+ */
+function unsurveyed(order: readonly Step[], surveys: (step: Step) => boolean): string[] {
+  return order.flatMap((step, at) => {
+    if (!('check' in step && 'of' in step) || step.of === undefined || step.expect !== 'pass') {
+      return [];
+    }
+    const { of } = step;
+    const id = stepId(step);
+    const surveyed = order.slice(0, at).find((each) => stepId(each) === of);
+    const checks = [step.check].flat();
+    return [
+      ...(surveyed !== undefined && surveys(surveyed)
+        ? []
+        : [
+            `step "${id}" reads the test map of step "${of}", which is no earlier step whose brewer answers with the out doc schema "${SURVEY}" (ADR 0298)`,
+          ]),
+      ...(checks.includes('test')
+        ? []
+        : [
+            `step "${id}" reads the test map of survey "${of}" against one run, so its checks must include "test" (ADR 0298)`,
+          ]),
+    ];
+  });
+}
 
 /**
  * Why a red proof of `order` cannot find its tests (ADR 0078): it finds them in what its step
@@ -1081,10 +1133,25 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       const name = stepBrewerName(step);
       return name !== undefined && brewerOf(name)?.produces === 'commits';
     };
+    const surveys = (step: Step): boolean => {
+      const name = stepBrewerName(step);
+      return name !== undefined && brewerOf(name)?.output.schema === SURVEY;
+    };
+    // A survey whose guard keeps it to the test map commits no code a red proof would prove
+    // (ADR 0298).
+    const mapOnly = (step: Step): boolean => {
+      const name = stepBrewerName(step);
+      return (
+        surveys(step) &&
+        name !== undefined &&
+        brewerOf(name)?.guards.includes('testMapOnly') === true
+      );
+    };
     const refused = [
       ...misfolded(order, commits),
       ...ofNothing(order, commits),
-      ...(testFirst ? unproven(value, commits) : []),
+      ...(testFirst ? unproven(value, (step) => commits(step) && !mapOnly(step)) : []),
+      ...unsurveyed(order, surveys),
       ...unopened(value, order, commits),
       ...chosenTwice(order),
     ];
@@ -1156,6 +1223,13 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       any: () => [...stepChecks.values()].some((steps) => steps.size > 0),
       proves: (recipe, id) => stepChecks.get(recipe)?.get(id)?.of,
       redProof: (recipe) => redProofs.get(recipe),
+      surveys: (recipe, id) => stepChecks.get(recipe)?.get(id)?.surveys,
+      surveyCheck: (recipe) => {
+        const found = [...(stepChecks.get(recipe) ?? [])].find(([, check]) => check.surveys);
+        return found?.[1].surveys === undefined
+          ? undefined
+          : { id: found[0], of: found[1].surveys.of };
+      },
     },
   };
 }

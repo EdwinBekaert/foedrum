@@ -200,6 +200,7 @@ describe('the merge of the base before green, with real git (ADR 0164)', () => {
         repositories: [{ repo: 'acme/app', base: 'main', push }],
         host,
         orderTitle: async () => 'Add a plan',
+        visibility: () => 'public',
       }),
     });
     try {
