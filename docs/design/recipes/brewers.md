@@ -89,6 +89,7 @@ Headless brewers always run in a permission mode where the allowlist decides and
 | `testsUnchanged` | a line the step named in the red proof's `of` added to a separate test file of the test map was changed or removed; in a repository with no map, a test declaration or assertion it committed (new tests may change, and fixtures and stubs outside the map's test areas; [the red proof](../checks/red-proof.md)) |
 | `scope` | files outside the worktree were touched |
 | `diffLimits` | more files or lines changed than allowed |
+| `testMapOnly` | the attempt's commits changed any file but `.foedrum/test-map.jsonc`: the attempt fails retryably, naming up to 10 of them; a git read that fails blocks it on its environment ([ADR 0298](../../adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)) |
 
 There is no `noPush` guard: a brewer that names it fails the load, and a brewer's git holds no push credential instead ([ADR 0133](../../adr/0133-the-nopush-guard-goes-a-brewer-s-git-holds-no-push-credential.md)).
 

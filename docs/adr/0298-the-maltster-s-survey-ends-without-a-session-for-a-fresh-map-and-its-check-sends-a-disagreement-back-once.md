@@ -1,6 +1,6 @@
 # 0298. The Maltster's survey ends without a session for a fresh map, and its check sends a disagreement back once
 
-Date: 2026-11-01 · Status: Accepted · Amends [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) (how the survey runs only when needed, what keeps it to the test map, and how its map is checked against one run), [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (a check step's `of` names a survey too), [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (a test-first batch in a repository that keeps its test map no longer needs `testReport` before its first step), [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) and [0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md) (on a survey's check, a module no line reaches and a map stale by the run fail the step back to the survey)
+Date: 2026-11-01 · Status: Accepted · Amends [0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) (how the survey runs only when needed, what keeps it to the test map, and how its map is checked against one run), [0064](0064-test-first-recipes-when-onblocked-and-a-red-proof-required.md) (a check step's `of` names a survey too), [0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) (a test-first batch in a repository that keeps its test map no longer needs `testReport` before its first step), [0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md) and [0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md) (on a survey's check, a module no line reaches and a map stale by the run fail the step back to the survey), [0059](0059-attempt-plans-from-the-brewer-of-the-step.md) (one more guard the loader accepts, `testMapOnly`) and [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (the merge brief says why the test map changed)
 
 ## Context
 [ADR 0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md) decides that the Maltster, a new default brewer, proposes a repository's test map in a `survey` step at the head of the test-first recipes.
@@ -21,6 +21,7 @@ The skip at green of #727 ([#742](https://github.com/EdwinBekaert/foedrum/pull/7
 - **A fresh map**: the attempt ends `succeeded`, with no session and no tokens, with the out doc `{ "status": "done", "map": "fresh" }` and a one-line summary, which the store keeps as any out doc ([ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md)).
 - **A map the Brewery keeps** (`"testMap": "brewery"`), whether it has one or not: the same, with `"map": "brewery"`, since a survey cannot write the Brewery ([ADR 0282](0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)); the map is not even read.
 - **No map, one that cannot be read, or one stale by manifests**: the Maltster's session runs.
+- **An attempt a route scheduled**, such as the survey check's route back: the Maltster's session runs, whatever its worktree holds, since that is the map that disagreed, fresh by its own manifests, and the route gives it the reason ([ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)).
 - **Manifests git cannot list**: the attempt is blocked on its environment, naming git's last line.
 - No event is new and `decide` stays pure: the step is scheduled, started and finished as every brewer step is, and the status comment's path shows `survey #1 ✅`.
 - A survey's out doc says why its map is as it is: `new` (no map, or one that could not be read) or `stale`, with up to 10 stale paths, each one line of at most 1,000 characters, which the Maltster writes; `fresh` and `brewery`, which only the engine writes. A survey whose session ends with `fresh` or `brewery` fails retryably, since those skip its check.
@@ -29,7 +30,7 @@ The skip at green of #727 ([#742](https://github.com/EdwinBekaert/foedrum/pull/7
 - A new guard, `testMapOnly`: after a succeeded attempt of a brewer that names it, the same wrapper lists the files the attempt's commits changed, from where its worktree started to its attempt branch, with `git diff --name-only -z --no-renames` in the clone; any file but `.foedrum/test-map.jsonc` fails the attempt retryably, naming up to 10 of them.
 - A git read that fails blocks the attempt on its environment.
 - The default Maltster names `requiresOutDoc`, `requiresCommits` and `testMapOnly`.
-- A step whose brewer is a survey is not a step that commits code for the red proof's order: a test-first recipe may run it before its Gauger.
+- A step whose brewer is a survey and names `testMapOnly` is not a step that commits code for the red proof's order: a test-first recipe may run it before its Gauger. A survey brewer without the guard counts as one that commits code.
 
 ### A check step's `of` names the survey whose map it checks
 - A check step that expects a pass may have an `of`; the recipe loader accepts it only when it names an earlier step whose brewer answers with the schema `survey`, and when the step's checks include `test`.
@@ -50,7 +51,7 @@ The skip at green of #727 ([#742](https://github.com/EdwinBekaert/foedrum/pull/7
 - Under the Brewery fallback, or in a recipe without a survey, the Stuck start of [ADR 0078](0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md) stays, until #747 removes the reading without a map.
 
 ### The pull request says why the map changed
-- The merge brief, under the sensitive-path line that already names `.foedrum/test-map.jsonc`, adds `The test map of <repository> is new: the Maltster proposed it.` or `The test map of <repository> was stale (<paths>): the Maltster refreshed it.`, from the survey's latest out doc; the paths are model text and are escaped.
+- The merge brief, under the sensitive-path line that already names `.foedrum/test-map.jsonc`, adds `The test map of <repository> is new: the Maltster proposed it.` or `The test map of <repository> was stale (<paths>): the Maltster refreshed it.`, from the survey's first out doc that says `new` or `stale`, since a survey its check sent back reads its own proposal as stale; the paths are model text and are escaped.
 - Nothing is added for a fresh map, or one the Brewery keeps.
 
 ## Consequences

@@ -24,7 +24,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Brewer | Role | Model | Effort |
 |---|---|---|---|
 | Innkeeper | Reads an order and asks which recipe brews it, with a suggestion and the reason (read-only; [ADR 0232](../../adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)) | builder (sonnet) | low |
-| Maltster | Gathers context: relevant code, history, constraints; in `mash` the Brewmaster gathers its own (ADR 0234) | sonnet | high |
+| Maltster | Proposes a repository's test map from its manifests when it is missing or stale, in the test-first recipes' `survey` step, committing nothing else ([ADR 0298](../../adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)); in `mash` the Brewmaster gathers its own context (ADR 0234) | builder (sonnet) | medium |
 | Brewmaster | Gathers the context and writes the plan: sub-orders with what each is done when, read-only | planner (opus) | high |
 | Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | builder (sonnet) | high |
 | Cellarman | Makes the Gauger's tests pass without changing them | builder (sonnet) | high |
