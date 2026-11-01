@@ -496,6 +496,80 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.deepEqual(end.staleMap?.paths, ['test test_adds at tests/test_x.py outside the map']);
   });
 
+  it('names no test the report places nowhere: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      texts: { [webReport]: junitOf({ name: 'greets' }) },
+      files: ['greets.test.mjs'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it("takes a module's relative test location written from its folder as inside the map: regression test", async () => {
+    const { run } = setup({
+      maps: { [base]: mapOf(web, py), [tip]: mapOf(web, py) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [pyReport] },
+      texts: { [pyReport]: junitOf({ name: 'test_adds', file: 'tests/test_x.py' }) },
+      files: ['py/tests/test_x.py'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it("reads a relative location from no other module's folder: regression test", async () => {
+    // The file is under web's folder, outside its areas, not py's: py's report cannot place it there.
+    const { run } = setup({
+      maps: { [base]: mapOf(web, py), [tip]: mapOf(web, py) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [pyReport] },
+      texts: { [pyReport]: junitOf({ name: 'test_adds', file: 'scripts/x.py' }) },
+      files: ['web/scripts/x.py'],
+    });
+    const end = await run();
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('names no relative location that resolves to no file of the worktree: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      texts: { [webReport]: junitOf({ name: 'greets', file: 'gone/greets.test.mjs' }) },
+    });
+    const end = await run();
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('names nothing of a test report that cannot be read, and passes the step: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      texts: { [webReport]: 'not a report' },
+      files: ['greets.test.mjs'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('names a located test beside the two other run reasons: regression test', async () => {
+    const { run } = setup({
+      maps: { [base]: mapOf(web, py), [tip]: mapOf(web, py) },
+      testReport: { format: 'junit', path: 'out/results.xml' },
+      found: {
+        'web/test-results.xml': [webReport],
+        'out/results.xml': [join(worktree, 'out', 'results.xml')],
+      },
+      texts: { [webReport]: junitOf({ name: 'greets', file: 'greets.test.mjs' }) },
+      files: ['greets.test.mjs'],
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, [
+      'py/report.xml (no report of module "py")',
+      'test greets at greets.test.mjs outside the map',
+      'out/results.xml (a report outside the map)',
+    ]);
+  });
+
   it('names a stale Brewery-kept map in the status comment without failing the step', async () => {
     const { run, asked } = setup({
       maps: fresh,
