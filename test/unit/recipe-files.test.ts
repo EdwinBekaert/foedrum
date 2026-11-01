@@ -2299,6 +2299,35 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
       brewers: [mapOnly, cellarman],
     });
 
+  it('gives a survey check whose onFail goes to another step no round back to its survey: regression test', () => {
+    const result = loadRecipes(
+      brewery({
+        recipes: [
+          opened(
+            'stout',
+            [
+              { id: 'warm', brewer: 'cellarman' },
+              { id: 'survey', brewer: 'surveyor' },
+              {
+                id: 'survey-check',
+                of: 'survey',
+                check: 'test',
+                onFail: { goto: 'warm', maxRounds: 2 },
+              },
+            ],
+            { testFirst: false },
+          ),
+        ],
+        brewers: [mapOnly, cellarman],
+      }),
+    );
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.deepEqual(result.checks.surveys?.('stout', 'survey-check'), {
+      of: 'survey',
+      maxRounds: 0,
+    });
+  });
+
   it("loads a survey's check, the rounds of its route back to the survey its own, and no red proof", () => {
     const result = loadRecipes(files({ check: 'test', onFail: { goto: 'survey', maxRounds: 1 } }));
     assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));

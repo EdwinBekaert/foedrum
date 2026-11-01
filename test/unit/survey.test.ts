@@ -60,6 +60,8 @@ const setup = ({
   changed = ['.foedrum/test-map.jsonc'],
   /** The batch's events, up to the survey attempt's start. */
   started: before = events,
+  /** Whether the step is a survey, and whether its brewer names testMapOnly. */
+  kinds = { survey: true, mapOnly: true },
   /** What git's list of changed files answers, when not the files above. */
   listed = undefined as { code: number; stdout: string; stderr: string } | undefined,
 } = {}) => {
@@ -75,8 +77,8 @@ const setup = ({
   const survey = surveyed({
     runner,
     state: () => fold(before),
-    surveys: ({ stepId }) => stepId === 'survey',
-    mapOnly: ({ stepId }) => stepId === 'survey',
+    surveys: ({ stepId }) => kinds.survey && stepId === 'survey',
+    mapOnly: ({ stepId }) => kinds.mapOnly && stepId === 'survey',
     testMap: async (repo, commit) => {
       asked.push(`map of ${repo} at ${commit}`);
       return read;
@@ -303,6 +305,41 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
       kind: 'failed',
       retryable: true,
       reason: `the guard testMapOnly: the attempt changed ${files.slice(0, 10).join(', ')} and 2 more; it may change .foedrum/test-map.jsonc only (ADR 0298)`,
+    });
+  });
+
+  it('lets a survey without testMapOnly commit beside the map, reading no commits: regression test', async () => {
+    const { run, asked } = setup({
+      changed: ['.foedrum/test-map.jsonc', 'src/app.ts'],
+      kinds: { survey: true, mapOnly: false },
+    });
+    const end = await run();
+    assert.deepEqual(end, proposed);
+    assert.deepEqual(asked, [`map of acme/api at ${base}`]);
+  });
+
+  it('keeps a brewer with testMapOnly that is no survey to the map: regression test', async () => {
+    const { run, asked } = setup({
+      changed: ['.foedrum/test-map.jsonc', 'src/app.ts'],
+      kinds: { survey: false, mapOnly: true },
+    });
+    const end = await run();
+    assert.equal(end.ending.kind === 'failed' && end.ending.retryable, true);
+    // No survey: its map is not read before the session.
+    assert.ok(!asked.some((line) => line.startsWith('map of')), asked.join('\n'));
+  });
+
+  it('fails a survey whose out doc says the Brewery keeps the map, which only the engine says: regression test', async () => {
+    const inner: AttemptEnd = {
+      ending: { kind: 'succeeded', output: { status: 'done', summary: 'Fine', map: 'brewery' } },
+    };
+    const { run } = setup({ inner });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: true,
+      reason:
+        'the survey says its map is brewery, which only Foedrum says before a survey runs: say new or stale (ADR 0298)',
     });
   });
 
