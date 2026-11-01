@@ -299,6 +299,18 @@ describe('the end of a split order (ADR 0293)', () => {
     assert.equal(github.calls.get('setIssueState'), undefined);
   });
 
+  it("says a split order's own batch has no pull request of its own, not that nothing is built", async () => {
+    const lines = await statusLines(fold([...split(), ...bothMerged]));
+    assert.ok(
+      lines.includes("No pull request of its own: its sub-orders' are listed above."),
+      lines.join('\n'),
+    );
+    assert.ok(
+      !lines.some((line) => line.includes('nothing is built from it yet')),
+      lines.join('\n'),
+    );
+  });
+
   it('closes an order that was never split as before (regression test)', async () => {
     const github = fakeGitHub();
     const state = fold([
