@@ -3,24 +3,39 @@
 // and records it once it holds a merge of every blocker that waits on it, so the sub-orders they
 // block start.
 
+import { findSecrets } from '../formats/secrets.ts';
 import { MAX_RELEASE_NOTES_LENGTH } from '../schemas/events.ts';
 import { releaseRecorded } from './admit.ts';
 import type { CommandLog } from './command-log.ts';
 import { releaseWaits } from './ready-set.ts';
 
 /**
- * Release notes as a record keeps them: cut to the longest it keeps, ending in an ellipsis, after
- * their last whole line, so no line (and no secret in it) is cut in the middle; a first line too
- * long for the record is cut on a code point.
+ * `notes` cut to at most `most` characters, ending in an ellipsis, after their last whole line, so
+ * no line is cut in the middle; a first line too long is cut on a code point.
  */
-const cut = (notes: string): string => {
-  if (notes.length <= MAX_RELEASE_NOTES_LENGTH) return notes;
-  const head = notes.slice(0, MAX_RELEASE_NOTES_LENGTH - 1);
+const cut = (notes: string, most: number): string => {
+  if (notes.length <= most) return notes;
+  const head = notes.slice(0, most - 1);
   const end = head.lastIndexOf('\n');
   if (end >= 0) return `${head.slice(0, end + 1)}…`;
   const last = head.charCodeAt(head.length - 1);
   const pairStarts = last >= 0xd800 && last <= 0xdbff;
   return `${pairStarts ? head.slice(0, -1) : head}…`;
+};
+
+/**
+ * Release notes as a record keeps them (ADR 0291): with LF line ends, every line that looks like a
+ * secret left out and a last line that says how many were, the rest cut to what the record keeps.
+ * The record goes to the state branch, and the input reads it as it is.
+ */
+const recordedNotes = (notes: string): string => {
+  const all = notes.split(/\r?\n/);
+  const kept = all.filter((line) => findSecrets(line, () => false).length === 0);
+  const left = all.length - kept.length;
+  if (left === 0) return cut(kept.join('\n'), MAX_RELEASE_NOTES_LENGTH);
+  const lines = left === 1 ? '1 line' : `${left} lines`;
+  const count = `(${lines} of the notes left out: they looked like secrets)`;
+  return `${cut(kept.join('\n'), MAX_RELEASE_NOTES_LENGTH - count.length - 2)}\n\n${count}`;
 };
 
 /** A repository's latest release as the code host has it: GitHub's latest release, else tag. */
@@ -102,7 +117,7 @@ export const recordReleases = async (
       package: repo.split('/').at(-1) ?? repo,
       version,
       ...(url === undefined ? {} : { url }),
-      ...(notes === undefined ? {} : { notes: cut(notes) }),
+      ...(notes === undefined ? {} : { notes: recordedNotes(notes) }),
     } as const;
     const decision = log.issue({ kind: 'record', event }, clock());
     if (decision.kind === 'accepted') released(repo, version);

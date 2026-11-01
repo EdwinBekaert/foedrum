@@ -2,7 +2,6 @@
 // sub-order, the release that made it ready, as the code host wrote it, with the blocker's merged
 // pull requests. Foedrum parses no version: the brewer reads it from the released repository.
 
-import { findSecrets } from '../formats/secrets.ts';
 import type { Batch, Release, State } from './fold.ts';
 import { mergedBefore, releaseAfterMerge } from './ready-set.ts';
 
@@ -13,18 +12,10 @@ export interface ReleaseInput {
 }
 
 /**
- * Release notes, the released repository's text, with every line that looks like a secret left
- * out, and a last line that says how many were (the gravity tail's way).
+ * Release notes as the record keeps them, filtered for secrets when recorded (`recordReleases`),
+ * in lines: the code host's may end them with CRLF, the input's are LF.
  */
-const notesOf = (notes: string): string[] => {
-  // The code host's notes may end their lines with CRLF; the input's are LF.
-  const all = notes.split(/\r?\n/);
-  const kept = all.filter((line) => findSecrets(line, () => false).length === 0);
-  const left = all.length - kept.length;
-  if (left === 0) return kept;
-  const lines = left === 1 ? '1 line' : `${left} lines`;
-  return [...kept, '', `(${lines} of the notes left out: they looked like secrets)`];
-};
+const notesOf = (notes: string): string[] => notes.split(/\r?\n/);
 
 /** The section of one release `issue` waited for, with the pull requests of `blockedBy` it holds. */
 const sectionOf = (issue: number, blockedBy: number, release: Release, pulls: string[]) => [
