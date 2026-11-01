@@ -17,8 +17,9 @@ export interface ReleaseInput {
  * out, and a last line that says how many were (the gravity tail's way).
  */
 const notesOf = (notes: string): string[] => {
-  const kept = notes.split('\n').filter((line) => findSecrets(line, () => false).length === 0);
-  const left = notes.split('\n').length - kept.length;
+  const all = notes.split('\n');
+  const kept = all.filter((line) => findSecrets(line, () => false).length === 0);
+  const left = all.length - kept.length;
   if (left === 0) return kept;
   const lines = left === 1 ? '1 line' : `${left} lines`;
   return [...kept, '', `(${lines} of the notes left out: they looked like secrets)`];
