@@ -240,6 +240,40 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     assert.equal(log.state().releases[0]?.notes, `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 2)}…`);
   });
 
+  describe('the secret filter on release notes, before they are recorded (review of #753)', () => {
+    // Built at run time, so the repository holds no secret-shaped text.
+    const token = `ghp_${'A1b2'.repeat(9)}`;
+    const recordedNotes = async (notes: string): Promise<string | undefined> => {
+      recorded(...waiting);
+      await poll(fakeReader({ [lib]: { ...v1, notes } }, { [v1.version]: [pr(5)] }).reader);
+      return log.state().releases[0]?.notes;
+    };
+
+    it('leaves out the lines of the notes that look like secrets, and says how many', async () => {
+      const notes = ['## Fixes', `- Rotated ${token}`, '- A faster parser', `token: ${token}`];
+      assert.equal(
+        await recordedNotes(notes.join('\r\n')),
+        '## Fixes\n- A faster parser\n\n(2 lines of the notes left out: they looked like secrets)',
+      );
+    });
+
+    it('says one line of the notes was left out when one was', async () => {
+      assert.equal(
+        await recordedNotes(`- A faster parser\n${token}`),
+        '- A faster parser\n\n(1 line of the notes left out: they looked like secrets)',
+      );
+    });
+
+    it('keeps the count line when the notes left are cut to what the record keeps', async () => {
+      const notes = `${token}\n- A faster parser\n${'t'.repeat(MAX_RELEASE_NOTES_LENGTH)}`;
+      const kept = await recordedNotes(notes);
+      assert.equal(
+        kept,
+        '- A faster parser\n…\n\n(1 line of the notes left out: they looked like secrets)',
+      );
+    });
+  });
+
   it('records the repository as the breakdown spells it', async () => {
     recorded(
       ...decomposed(

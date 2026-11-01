@@ -142,25 +142,6 @@ describe('releaseInput', () => {
     assert.equal(inputOf([...merged(), released('v1.4.0')], '1-1'), undefined);
   });
 
-  it('leaves out the lines of the notes that look like secrets, and says how many', () => {
-    // Built at run time, so the repository holds no secret-shaped text.
-    const token = `ghp_${'A1b2'.repeat(9)}`;
-    const notes = ['## Fixes', `- Rotated ${token}`, '- A faster parser', `token: ${token}`].join(
-      '\n',
-    );
-    const input = inputOf([
-      ...merged(),
-      released('v1.4.0', { url: releasePage('v1.4.0'), notes }),
-      ordered('3-1', 3, '1-1'),
-    ]);
-    assert.ok(input);
-    assert.ok(!input.text.includes(token));
-    assert.match(
-      input.text,
-      /\n- Notes:\n\n## Fixes\n- A faster parser\n\n\(2 lines of the notes left out: they looked like secrets\)$/,
-    );
-  });
-
   it('gives no release input to a sibling sub-order that waits on no release, while #3 waits on one: regression test', () => {
     const events: Event[] = [
       ordered('1-1', 1),
@@ -233,19 +214,6 @@ describe('releaseInput', () => {
     const text = inputOf(events)?.text ?? '';
     assert.match(text, /- Merged pull request of #2: https:\/\/github\.com\/acme\/lib\/pull\/5$/);
     assert.ok(!text.includes(pr(7)));
-  });
-
-  it('says one line of the notes was left out when one was: regression test', () => {
-    const token = `ghp_${'A1b2'.repeat(9)}`;
-    const input = inputOf([
-      ...merged(),
-      released('v1.4.0', { url: releasePage('v1.4.0'), notes: `- A faster parser\n${token}` }),
-      ordered('3-1', 3, '1-1'),
-    ]);
-    assert.match(
-      input?.text ?? '',
-      /\n- A faster parser\n\n\(1 line of the notes left out: they looked like secrets\)$/,
-    );
   });
 
   it("gives no release input to a batch with no parent, though its issue is a release-blocked sub-order's: regression test", () => {
