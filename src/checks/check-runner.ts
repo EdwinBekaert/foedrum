@@ -585,7 +585,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   ): Promise<AttemptEnd> => {
     const recipe = batch.recipe?.name ?? '';
     // A repository with a test map proves red from its modules' reports, reading no test names;
-    // one without proves it from foedrum.jsonc's test report, by name, until #708 (ADR 0274).
+    // one without proves it from foedrum.jsonc's test report, by name, until #747 (ADR 0274, ADR 0298).
     const maps = await mapsOf(batch, worktree, signal);
     if ('ending' in maps) return maps;
     const report = options.testReport(worktree.repo);
