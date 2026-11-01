@@ -52,6 +52,7 @@ const dueClose = (state: State, batch: Batch): DueClose | undefined => {
 /**
  * The close of each Brewery issue whose batch's pull requests all merged, for the driver: a comment
  * naming them, then the close. A person who deleted the issue ends both as `gone`, never a failure.
+ * One closed already gets no comment.
  */
 export const breweryCloseEffects = (options: BreweryClosesOptions): DriverEffects => {
   const { marks, brewery } = options;
@@ -62,14 +63,15 @@ export const breweryCloseEffects = (options: BreweryClosesOptions): DriverEffect
     if (found === undefined) throw new Error(`No Brewery issue close ${key} is due`);
     return found;
   };
-  const gone = async (issue: number, signal?: AbortSignal) =>
-    (await marks.issueState(brewery, issue, signal)) === 'gone';
   const comment: EffectTarget = {
     find: async (key, signal) => {
       const { issue } = dueFor(key);
-      if (await gone(issue, signal)) return { result: 'gone' };
+      const state = await marks.issueState(brewery, issue, signal);
+      if (state === 'gone') return { result: 'gone' };
       const id = await marks.findComment(brewery, issue, effectMarker(key), signal);
-      return id === undefined ? undefined : { result: commentId(id) };
+      if (id !== undefined) return { result: commentId(id) };
+      // Closed already, as a Closes line closed it before ADR 0296: nothing is said again.
+      return state === 'closed' ? { result: 'closed' } : undefined;
     },
     apply: async (key, signal) => {
       const { issue, body } = dueFor(key);
