@@ -25,7 +25,7 @@ A probe on 2026-11-01 found that a pattern reports as an error that fails `biome
 ## Consequences
 - A cast #749 forbids fails `npm run check` in `src/`, with the helper to use in the message; the push gate and CI fail on it too.
 - A pull request that adds a structural rule's check adds a `.grit` file and an override line, and retires the rule, instead of a script.
-- A plugin's pattern is code in GritQL, which Biome versions may read differently; a Biome update that changes what a pattern matches shows up as new or missing diagnostics in `npm run lint`.
+- A plugin's pattern is code in GritQL, which Biome versions may read differently. A Biome update that makes a pattern match more shows up as new diagnostics in `npm run lint`; one that makes it match nothing does not, since `src/` holds no forbidden cast for it to report. That is accepted: no check runs the planted file again, and a Biome update that touches plugins is proven on a planted file again by hand.
 - Scripts and tests keep their casts (`scripts/` holds about 30 of the forms the rule forbids in `src/`); an override can widen a plugin's reach later.
 
 ## Alternatives considered
