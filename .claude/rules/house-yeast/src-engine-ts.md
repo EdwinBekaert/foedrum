@@ -9,6 +9,10 @@ paths:
 
 Rules learned from reviews of Foedrum's own pull requests (ADR 0122), for the files this session reads or changes (ADR 0271). Follow them where your change meets them: /brew-review looks for what they describe.
 
+## new-effect-leaves-older-records-alone (semantic)
+
+A new driver effect, which the driver asks of every batch in the store, is due only for batches that reached it under its own rule, so an ended batch from before it (a merged pull request, an older batch of the same issue) is never written again on upgrade.
+
 ## step-recipe-per-attempt (semantic)
 
 A batch's folded steps keep the attempts of every recipe it brewed, since a person can choose another recipe; code that reads a step's definition for an attempt takes the recipe the attempt was scheduled under from the events, never batch.recipe alone.

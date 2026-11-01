@@ -1025,8 +1025,12 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     });
     const { ending } = await run();
     assert.deepEqual(ending, { kind: 'succeeded', output: null });
-    assert.ok(asked.includes(`read ${junitFile}`), asked.join('|'));
-    assert.ok(!asked.includes(`read ${webFile}`), asked.join('|'));
+    // The green check reads after the change; the reads before it are for staleness (ADR 0282).
+    const diffAt = asked.findIndex((line) => line.startsWith('diff '));
+    assert.ok(diffAt >= 0, asked.join('|'));
+    const green = asked.slice(diffAt);
+    assert.ok(green.includes(`read ${junitFile}`), asked.join('|'));
+    assert.ok(!green.includes(`read ${webFile}`), asked.join('|'));
   });
 
   it('reads no test report when the batch adds no line to a separate test file', async () => {
@@ -1038,6 +1042,10 @@ describe('createCheckRunner: a skip the batch added fails the green check (ADR 0
     });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.ok(!asked.includes(`read ${junitFile}`), asked.join('|'));
+    // The green check reads after the change; the reads before it are for staleness (ADR 0282).
+    const diffAt = asked.findIndex((line) => line.startsWith('diff '));
+    assert.ok(diffAt >= 0, asked.join('|'));
+    const green = asked.slice(diffAt);
+    assert.ok(!green.includes(`read ${junitFile}`), asked.join('|'));
   });
 });

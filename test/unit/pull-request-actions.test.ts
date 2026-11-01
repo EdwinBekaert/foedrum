@@ -297,6 +297,43 @@ describe('pullRequestActions: the pull request', () => {
     assert.doesNotMatch(body, /acme\/web/);
   });
 
+  it("names no Brewery issue in a sub-order's pull request body (ADR 0296)", async () => {
+    const { actions, requests } = actionsWith();
+    const split: Event[] = [
+      {
+        type: 'batch.ordered',
+        batchId: '1-1',
+        order: { issue: 1 },
+        routeBy: '2026-12-31T00:00:00.000Z',
+      },
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 12, repo: 'acme/api' },
+          { issue: 13, repo: 'acme/web' },
+        ],
+        dependencies: [{ subOrder: 13, blockedBy: 12, kind: 'code' }],
+      },
+    ];
+    keysOf(fold([...split, ordered({ issue: 12 }), ...brewed, ...opening]), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    assert.match(body, /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.doesNotMatch(body, /brewery/i);
+    assert.doesNotMatch(body, /^Closes /m);
+  });
+
+  it("names no Brewery issue in an unsplit Brewery order's pull request body (ADR 0296)", async () => {
+    const { actions, requests } = actionsWith();
+    keysOf(brewing(), actions);
+    await actions.target.apply(open);
+    const body = requests[0]?.request.body ?? '';
+    assert.match(body, /\nBrewed by Foedrum with the recipe ale\.\n/);
+    assert.doesNotMatch(body, /brewery/i);
+    assert.doesNotMatch(body, /^Closes /m);
+  });
+
   it("opens it from the bottle branch into the base, with the order's title and the reports", async () => {
     const { actions, requests, titles } = actionsWith();
     keysOf(brewing(), actions);
@@ -309,10 +346,10 @@ describe('pullRequestActions: the pull request', () => {
     assert.equal(request?.base, 'main');
     assert.equal(request?.title, 'Add a --json flag');
     assert.match(request?.body ?? '', /implement: Added --json/);
-    // Its last line is the marker of the open's key, after Closes (ADR 0227).
+    // Its last line is the marker of the open's key, after the reports (ADR 0227, ADR 0296).
     assert.match(
       request?.body ?? '',
-      /\nCloses acme\/brewery#12\n\n<!-- foedrum:\["12-1","pull_request"\] sha256:[0-9a-f]{16} -->$/,
+      /\n<\/details>\n\n<!-- foedrum:\["12-1","pull_request"\] sha256:[0-9a-f]{16} -->$/,
     );
   });
 
@@ -322,10 +359,7 @@ describe('pullRequestActions: the pull request', () => {
     await actions.target.apply(open);
     const request = requests[0]?.request;
     assert.equal(request?.draft, true);
-    assert.match(
-      request?.body ?? '',
-      /\nBrewed by Foedrum from acme\/brewery#12 with the recipe ale\.\n/,
-    );
+    assert.match(request?.body ?? '', /\nBrewed by Foedrum with the recipe ale\.\n/);
     assert.match(request?.body ?? '', /\n\| `implement #1` \| succeeded \|\n/);
   });
 
@@ -1139,7 +1173,7 @@ describe('pullRequestActions: a later round pushes to the same pull request (ADR
       assert.match(body, /implement: Fixed the test/);
       assert.doesNotMatch(body, /implement: Added --json/);
       assert.match(body, /\| `implement #2` \| succeeded \|/);
-      assert.match(body, /\nCloses acme\/brewery#12\n/);
+      assert.doesNotMatch(body, /^Closes /m);
       const [, digest] = marker2.exec(body) ?? assert.fail(body);
       assert.deepEqual(result, { digest });
       // Only the body: the title and the draft state stay as a person may have set them.
