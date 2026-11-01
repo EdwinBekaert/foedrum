@@ -539,6 +539,29 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  /** How many times the driver read whether acme/web is public. */
+  const visibilityReads = () =>
+    api.requests.filter((request) => request === 'GET /repos/acme/web').length;
+
+  it("reads a repository's visibility again on each tick while it could not be read (ADR 0300)", async () => {
+    // The fake answers no repository: unknown, so every tick reads it again.
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.ok(visibilityReads() > 2, api.requests.join('|'));
+  });
+
+  it("reads a repository's visibility once when GitHub answers it (ADR 0300)", async () => {
+    api = fakeGitHubApi({
+      login: 'ann',
+      issues: api.issues,
+      instead: (method, url) =>
+        method === 'GET' && url.pathname === '/repos/acme/web'
+          ? { status: 200, body: { private: false, visibility: 'public' } }
+          : undefined,
+    });
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.equal(visibilityReads(), 1);
+  });
+
   it('says the batch is on tap once, in its last line (#662)', async () => {
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;
