@@ -17,7 +17,7 @@ import {
 import type { TargetIssue } from '../../src/engine/issue-claims.ts';
 import type { LatestRelease, ReleaseReader } from '../../src/engine/releases.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import { type Event, MAX_RELEASE_NOTES_LENGTH } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
@@ -187,6 +187,35 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     await poll(reader);
     assert.deepStrictEqual(given, [tag]);
     assert.deepStrictEqual(releases(), [`${lib} lib-core v1.0.0`]);
+  });
+
+  it("records a release's page and notes as the reader gave them, and a bare tag's neither (ADR 0291)", async () => {
+    const page = 'https://github.com/acme/lib-core/releases/tag/v1.0.0';
+    const recordedOf = () =>
+      log.state().releases.map(({ version, url, notes }) => ({ version, url, notes }));
+    recorded(...waiting);
+    const notes = '## Features\n\n- A faster parser';
+    await poll(
+      fakeReader({ [lib]: { ...v1, url: page, notes } }, { [v1.version]: [pr(5)] }).reader,
+    );
+    assert.deepStrictEqual(recordedOf(), [{ version: 'v1.0.0', url: page, notes }]);
+    store.close();
+    store = openSqliteEventStore(':memory:');
+    recorded(...waiting);
+    await poll(fakeReader({ [lib]: { ...v1, tag: true } }, { [v1.version]: [pr(5)] }).reader);
+    assert.deepStrictEqual(recordedOf(), [{ version: 'v1.0.0', url: undefined, notes: undefined }]);
+  });
+
+  it('cuts notes longer than the record keeps to that length, ending in an ellipsis (ADR 0291)', async () => {
+    recorded(...waiting);
+    const long = 'n'.repeat(MAX_RELEASE_NOTES_LENGTH + 10);
+    await poll(fakeReader({ [lib]: { ...v1, notes: long } }, { [v1.version]: [pr(5)] }).reader);
+    const [release] = log.state().releases;
+    assert.equal(release?.notes, `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 1)}…`);
+    assert.deepStrictEqual(
+      notices.filter(({ kind }) => kind === 'failed'),
+      [],
+    );
   });
 
   it('records the repository as the breakdown spells it', async () => {

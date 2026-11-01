@@ -15,6 +15,9 @@ export interface LatestRelease {
   published: string;
   /** A tag with no release: its date is its commit's, set where it was made (ADR 0223). */
   tag?: boolean;
+  /** A release's web page and its notes, as the code host has them; a tag has neither (ADR 0291). */
+  url?: string;
+  notes?: string;
 }
 
 /** What the pass reads of a repository's releases; GitHub's is `githubReleaseReader`. */

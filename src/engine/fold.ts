@@ -402,7 +402,11 @@ export interface Bottle {
 export interface Release {
   repo: string;
   package: string;
+  /** Its tag as the code host has it (ADR 0291). */
   version: string;
+  /** Its web page and its notes, when it is a release and not a bare tag (ADR 0291). */
+  url?: string;
+  notes?: string;
   /** Its position among the merges and releases the fold recorded (`State.merges`, ADR 0216). */
   seq: number;
 }
