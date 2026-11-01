@@ -95,6 +95,29 @@ describe('the visibility of the target repositories (ADR 0300)', () => {
     assert.equal(visibility.of('acme/fast'), 'private');
   });
 
+  it('reads public only when GitHub answers 200, not private, and public or no visibility (regression test)', async () => {
+    const { client } = clientByRepo({
+      'acme/bare': [{ status: 200, body: { private: false } }],
+      'acme/odd': [{ status: 200, body: { private: false, visibility: 'private' } }],
+      'acme/flaky': [{ status: 500, body: { private: false, visibility: 'public' } }],
+    });
+    const repos = ['acme/bare', 'acme/odd', 'acme/flaky'];
+    const visibility = repositoryVisibilities(client, repos);
+    await visibility.read();
+    assert.deepEqual(
+      repos.map((repo) => visibility.of(repo)),
+      ['public', 'private', 'unknown'],
+    );
+  });
+
+  it('gives up a read when its signal aborts, rather than counting it unknown (regression test)', async () => {
+    const { client } = clientByRepo({ 'acme/web': [publicRepo] }, ['acme/web']);
+    const visibility = repositoryVisibilities(client, ['acme/web']);
+    const stop = new AbortController();
+    stop.abort(new Error('stopped'));
+    await assert.rejects(visibility.read(stop.signal));
+  });
+
   it('names a sibling once a read finds its repository public after one that failed', async () => {
     const opened = (batchId: string, url: string): Event[] => [
       { type: 'effect.applied', key: effectKey.encode(pullRequestKey(batchId)), result: url },

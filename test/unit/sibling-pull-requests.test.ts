@@ -693,6 +693,14 @@ describe('a sibling in a private repository (ADR 0300)', () => {
     );
   });
 
+  it('names no private sibling in a pull request in an internal repository (regression test)', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [web]: 'internal', [billing]: 'private' })),
+      hiddenBilling,
+    );
+  });
+
   it('names an internal sibling in an internal pull request, and hides it in a public one', () => {
     const state = billed(opened('3-1', webPull));
     assert.deepEqual(
