@@ -496,6 +496,18 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.deepEqual(end.staleMap?.paths, ['test test_adds at tests/test_x.py outside the map']);
   });
 
+  it('finds the map stale when the report of a module the batch adds places a test outside every module', async () => {
+    const { run } = setup({
+      maps: { [base]: mapOf(web), [tip]: mapOf(web, py) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [pyReport] },
+      texts: { [pyReport]: junitOf({ name: 'test_adds', file: 'tools/x_test.py' }) },
+      files: ['tools/x_test.py'],
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.staleMap?.paths, ['test test_adds at tools/x_test.py outside the map']);
+  });
+
   it('names no test the report places nowhere: regression test', async () => {
     const { run } = setup({
       maps: fresh,
