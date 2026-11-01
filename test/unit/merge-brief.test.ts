@@ -692,6 +692,18 @@ describe('the merge brief (ADR 0225)', () => {
       assert.doesNotMatch(body, /was stale/);
     });
 
+    it('escapes the stale paths the Maltster wrote, model text, in the brief: regression test', async () => {
+      surveyed({
+        status: 'done',
+        summary: 'Refreshed the test map',
+        map: 'stale',
+        stale: ['<b>web</b>/package.json (added)'],
+      });
+      const body = await brief();
+      assert.match(body, /was stale \(&lt;b&gt;web&lt;\/b&gt;\/package\.json \(added\)\)/);
+      assert.doesNotMatch(body, /<b>web/);
+    });
+
     it('says the Maltster proposed the test map where the base had none', async () => {
       surveyed({ status: 'done', summary: 'Proposed the test map', map: 'new' });
       assert.match(

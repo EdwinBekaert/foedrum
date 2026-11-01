@@ -67,6 +67,10 @@ const brewNip = async (scripts: Record<string, readonly Behaviour[]>): Promise<s
 
 describe('the default Nip', () => {
   it('a batch with no map has its first step propose one and brews with it', async () => {
+    // The recipe's line: survey and its check before the Gauger. That a survey ends without a
+    // session, that its check reads the proposed map and that the red proof proves from it are
+    // survey.test.ts's, check-runner-survey.test.ts's and serve.test.ts's; a fixture brewed
+    // through a real map is #750's.
     const done = behave.succeed();
     const started = await brewNip({
       survey: [done],

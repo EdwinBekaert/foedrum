@@ -2164,6 +2164,29 @@ Plan the order in {order}.
       );
     });
 
+    it("fails the Maltster's attempt through serve when its commits change more than the test map: regression test", async () => {
+      // The clone has no map, so the Maltster runs; its commits hold a file beside the map.
+      const git: Git = async (_cwd, args) => {
+        if (args[0] === 'diff' && args.includes('--name-only')) {
+          return { code: 0, stdout: '.foedrum/test-map.jsonc\0src/app.ts\0', stderr: '' };
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      };
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }, surveying),
+        [],
+        git,
+      );
+      assert.deepStrictEqual(brewed, ['survey']);
+      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
+        kind: 'attempts_exhausted',
+        stepId: 'survey',
+        attempts: 1,
+        lastReason:
+          'the guard testMapOnly: the attempt changed src/app.ts; it may change .foedrum/test-map.jsonc only (ADR 0298)',
+      });
+    });
+
     it("ends a survey whose base's map is fresh without a session, through serve, and brews on with the Gauger", async () => {
       const testMap = JSON.stringify({
         derivedFrom: { globs: ['package.json'], paths: ['package.json'] },

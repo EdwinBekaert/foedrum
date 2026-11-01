@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
 import type { RepositoryChecks } from '../../src/checks/gravity.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { ManifestFreshness, MapRead } from '../../src/checks/test-map.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { StepChecks } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -127,6 +127,8 @@ const setup = ({
   testExit = 0,
   /** The test report foedrum.jsonc names. */
   testReport = undefined as { format: 'junit'; path: string } | undefined,
+  /** The proposed map's manifests against the worktree's files. */
+  manifests = { kind: 'fresh' } as ManifestFreshness,
 } = {}) => {
   const ran: string[] = [];
   const stepChecks: StepChecks = {
@@ -161,7 +163,7 @@ const setup = ({
       at: async (_repo, commit) => maps[commit] ?? { kind: 'none' },
       reports: (pattern) => ({ paths: found[pattern] ?? [] }),
       keptIn: () => 'repo',
-      manifests: async () => ({ kind: 'fresh' }),
+      manifests: async () => manifests,
       // The survey's change touched the map, as a survey's does.
       touched: async () => ({ paths: ['.foedrum/test-map.jsonc'] }),
     },
@@ -237,6 +239,76 @@ describe("createCheckRunner: a survey's check against one run (ADR 0298)", () =>
       summary:
         'no test map the survey proposed agrees with a run of acme/api: the check "test" (npm test) failed with exit code 1 (ADR 0298)',
     });
+  });
+
+  it('sends a survey-check whose proposed map is stale by its manifests back to the survey: regression test', async () => {
+    const stale: ManifestFreshness = { kind: 'stale', added: ['svc/package.json'], removed: [] };
+    const { run, ran } = setup({ found: reported, manifests: stale });
+    const end = await run();
+    // Read before the run, so no test line runs.
+    assert.deepEqual(ran, []);
+    assert.equal(end.ending.kind, 'failed');
+    assert.match(
+      end.ending.kind === 'failed' ? end.ending.reason : '',
+      /^the test map the survey proposed disagrees with a run of acme\/api: the test map of acme\/api is stale: its derivedFrom\.globs match svc\/package\.json \(added\);/,
+    );
+  });
+
+  it('sticks the batch on its environment when the map the survey proposed again is stale by its manifests: regression test', async () => {
+    const stale: ManifestFreshness = { kind: 'stale', added: ['svc/package.json'], removed: [] };
+    const { run } = setup({ events: lastRound, found: reported, manifests: stale });
+    const end = await run();
+    assert.equal(end.ending.kind === 'blocked' && end.ending.blockerKind, 'environment');
+    assert.match(
+      end.ending.kind === 'blocked' ? end.ending.summary : '',
+      /^no test map the survey proposed agrees with a run of acme\/api: the test map of acme\/api is stale:/,
+    );
+  });
+
+  it('counts only the rounds its route sent back, not a survey retried after a failure: regression test', async () => {
+    const retried: Event[] = [
+      ...ordered,
+      ...attempt('survey', 1, base, { kind: 'failed', retryable: true, reason: 'testMapOnly' }),
+      ...attempt('survey', 2, base, { kind: 'succeeded', output: proposed }),
+      ...checking(1),
+    ];
+    const { run } = setup({ events: retried });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+  });
+
+  it('counts only the rounds its own route sent back, not one another step sent: regression test', async () => {
+    const other: Event[] = [
+      ...ordered,
+      ...attempt('survey', 1, base, { kind: 'succeeded', output: proposed }),
+      ...attempt(
+        'survey',
+        2,
+        base,
+        { kind: 'succeeded', output: proposed },
+        {
+          from: 'red',
+          why: 'failed',
+        },
+      ),
+      ...checking(1),
+    ];
+    const { run } = setup({ events: other });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+  });
+
+  it("skips the survey-check's run when the Brewery keeps the map: regression test", async () => {
+    const kept = { status: 'done', summary: 'The Brewery keeps it', map: 'brewery' };
+    const events = [
+      ...ordered,
+      ...attempt('survey', 1, base, { kind: 'succeeded', output: kept }),
+      ...checking(1),
+    ];
+    const { run, ran } = setup({ events });
+    const end = await run();
+    assert.deepEqual(ran, []);
+    assert.deepEqual(end, { ending: { kind: 'succeeded', output: null } });
   });
 
   it("skips the survey-check's run when the survey found the map fresh", async () => {
