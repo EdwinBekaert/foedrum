@@ -3,9 +3,16 @@
 // and records it once it holds a merge of every blocker that waits on it, so the sub-orders they
 // block start.
 
+import { MAX_RELEASE_NOTES_LENGTH } from '../schemas/events.ts';
 import { releaseRecorded } from './admit.ts';
 import type { CommandLog } from './command-log.ts';
 import { releaseWaits } from './ready-set.ts';
+
+/** Release notes as a record keeps them: cut to the longest it keeps, ending in an ellipsis. */
+const cut = (notes: string): string =>
+  notes.length <= MAX_RELEASE_NOTES_LENGTH
+    ? notes
+    : `${notes.slice(0, MAX_RELEASE_NOTES_LENGTH - 1)}…`;
 
 /** A repository's latest release as the code host has it: GitHub's latest release, else tag. */
 export interface LatestRelease {
@@ -79,12 +86,14 @@ export const recordReleases = async (
     // A pass given up at its deadline records nothing more.
     if (signal.aborted) return;
     if (!holdsAll) continue;
-    const { version } = latest;
+    const { version, url, notes } = latest;
     const event = {
       type: 'release.observed',
       repo,
       package: repo.split('/').at(-1) ?? repo,
       version,
+      ...(url === undefined ? {} : { url }),
+      ...(notes === undefined ? {} : { notes: cut(notes) }),
     } as const;
     const decision = log.issue({ kind: 'record', event }, clock());
     if (decision.kind === 'accepted') released(repo, version);

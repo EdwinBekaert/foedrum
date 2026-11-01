@@ -818,8 +818,15 @@ function apply(state: State, event: Event): State {
       return { ...state, bottles: put(state.bottles, id, { id, repo, subOrders, pullRequest }) };
     }
     case 'release.observed': {
-      const { repo, package: name, version } = event;
-      const release = { repo, package: name, version, seq: nextPosition(state) };
+      const { repo, package: name, version, url, notes } = event;
+      const release: Release = {
+        repo,
+        package: name,
+        version,
+        ...(url === undefined ? {} : { url }),
+        ...(notes === undefined ? {} : { notes }),
+        seq: nextPosition(state),
+      };
       return { ...state, releases: [...state.releases, release] };
     }
     case 'batch.rewound': {

@@ -98,8 +98,10 @@ function describeSource(source: InputSource): string {
       const { batchId, stepId, attempt, entry } = source.origin;
       return `entry ${entry} of the plan of batch ${batchId}, step ${stepId}#${attempt}`;
     }
-    case 'release':
-      throw new Error('not implemented');
+    case 'release': {
+      const released = source.releases.map(({ repo, version }) => `${repo} ${version}`);
+      return `the releases sub-order #${source.issue} waited for: ${released.join(', ')}`;
+    }
     case 'recipes':
       return "the Brewery's recipes to offer";
     case 'change':

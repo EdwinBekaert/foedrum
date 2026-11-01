@@ -33,6 +33,13 @@ const mergedOf = (state: State, issue: number): string[] =>
       .map((bottle) => bottle.pullRequest),
   ].filter((url) => state.merges.has(url));
 
+/** The merged pull requests of `issue` whose merge the fold recorded before position `seq`. */
+export const mergedBefore = (state: State, issue: number, seq: number): string[] =>
+  mergedOf(state, issue).filter((url) => {
+    const merged = state.merges.get(url);
+    return merged !== undefined && merged < seq;
+  });
+
 /** Where the fold recorded the merges of `issue`'s pull requests (ADR 0216). */
 const mergesOf = (state: State, issue: number): number[] =>
   mergedOf(state, issue).flatMap((url) => state.merges.get(url) ?? []);
@@ -41,7 +48,7 @@ const mergesOf = (state: State, issue: number): number[] =>
  * The first release recorded of the repository of `blockedBy`, in any case, after a merge of its
  * pull requests: the one that makes a `release` dependency on it done (ADR 0216).
  */
-const releaseAfterMerge = (state: State, blockedBy: number): Release | undefined => {
+export const releaseAfterMerge = (state: State, blockedBy: number): Release | undefined => {
   const merges = mergesOf(state, blockedBy);
   const repo = state.subOrders.get(blockedBy)?.repo.toLowerCase();
   return state.releases.find(

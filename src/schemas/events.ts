@@ -25,7 +25,7 @@ export const Repo = z
 export const MAX_RELEASE_NOTES_LENGTH = 4000;
 
 /** An https URL without credentials. */
-const HttpsUrl = z
+export const HttpsUrl = z
   .url({ protocol: /^https$/ })
   // Checked on the parsed URL: the parser also finds credentials in `HTTPS://`, `https:\\` or `https:/`.
   .refine((url) => {
