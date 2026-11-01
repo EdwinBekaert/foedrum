@@ -24,6 +24,7 @@ const now = new Date('2026-11-01T09:00:00.000Z');
 const recipes = fakeRecipes({
   one: fakeRecipe({ steps: ['plan'], pullRequests: [web] }),
   two: fakeRecipe({ steps: ['plan'], pullRequests: [web, lib] }),
+  none: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
 });
 const succeeded: Ending = {
   kind: 'succeeded',
@@ -69,17 +70,21 @@ describe('breweryCloseEffects', () => {
     assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
   };
   /** Orders the Brewery issue #12 as batch 12-1 and brews it on tap with `recipe`. */
-  const onTap = (recipe: 'one' | 'two'): void => {
-    issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
-    issue({ kind: 'route', batchId: '12-1', recipe, reason: 'label', source: 'label' });
-    const ref = { batchId: '12-1', stepId: 'plan', attempt: 1 };
+  const onTap = (
+    recipe: 'one' | 'two' | 'none',
+    batchId = '12-1',
+    ordered: { issue: number; repo?: string } = { issue: 12 },
+  ): void => {
+    issue({ kind: 'order', batchId, order: ordered });
+    issue({ kind: 'route', batchId, recipe, reason: 'label', source: 'label' });
+    const ref = { batchId, stepId: 'plan', attempt: 1 };
     issue({ kind: 'record', event: { type: 'step.started', ...ref } });
     issue({ kind: 'finish', ...ref, ending: succeeded });
   };
-  const ended = (pullRequest: string, state: 'merged' | 'closed'): void =>
+  const ended = (pullRequest: string, state: 'merged' | 'closed', batchId = '12-1'): void =>
     issue({
       kind: 'record',
-      event: { type: 'pull_request.ended', batchId: '12-1', pullRequest, state },
+      event: { type: 'pull_request.ended', batchId, pullRequest, state },
     });
   const order = () => github.issue(brewery, 12);
   const ledger = (effect: string) => store.findEffect({ batchId: '12-1', effect });
@@ -186,7 +191,50 @@ describe('breweryCloseEffects', () => {
       },
     });
     await driver.tick();
+    assert.deepStrictEqual(ledger('close.comment'), { result: 'gone' });
     assert.deepStrictEqual(ledger('close.issue'), { result: 'gone' });
     assert.equal(github.calls.get('setIssueState'), undefined);
+    assert.deepStrictEqual(notices, []);
+  });
+
+  it('names each pull request in the comment when every one of them merged', async () => {
+    onTap('two');
+    ended(web, 'merged');
+    ended(lib, 'merged');
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, 'closed');
+    assert.match(
+      order().comments[0]?.body ?? '',
+      /^Merged as acme\/web#31, acme\/lib#8; Foedrum closes this issue\./,
+    );
+  });
+
+  it('leaves the issue of a batch on tap with no pull request open, as a split order’s own batch', async () => {
+    onTap('none');
+    const driver = await open();
+    await driver.tick();
+    assert.equal(ledger('close.comment'), undefined);
+    assert.equal(order().state, undefined);
+    assert.equal(order().comments.length, 0);
+  });
+
+  it('leaves a claimed batch’s Brewery issue to its claim’s release', async () => {
+    onTap('one', 'web-7', { issue: 7, repo: 'acme/web' });
+    // The driver opened #13 as the claimed issue's Brewery issue (ADR 0144).
+    store.withTransaction((tx) => {
+      tx.append({
+        type: 'effect.applied',
+        key: effectKey.encode({ batchId: 'web-7', effect: 'order.issue' }),
+        result: 13,
+      });
+    });
+    ended(web, 'merged', 'web-7');
+    const driver = await open();
+    await driver.tick();
+    assert.equal(store.findEffect({ batchId: 'web-7', effect: 'close.comment' }), undefined);
+    assert.equal(store.findEffect({ batchId: 'web-7', effect: 'close.issue' }), undefined);
+    assert.equal(github.issue(brewery, 13).comments.length, 0);
+    assert.equal(github.issue(brewery, 13).state, undefined);
   });
 });
