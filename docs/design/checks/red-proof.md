@@ -12,7 +12,7 @@ Recipes with `testFirst` run the Gauger (failing tests), a red proof (a gravity 
 A red proof's `of` must name a step whose brewer commits; it runs the `test` check and judges the repository's test report, never the exit code, and a brewer with the `testsUnchanged` guard keeps the proven step's tests ([ADR 0078](../../adr/0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md), below).
 
 **Red proof needs a test report.** A red proof reads a structured test report, not an exit code: each repository in `foedrum.jsonc` declares `testReport` (TAP or JUnit XML, and where to find it).
-A recipe that needs red proof on a repository without one stops at the start of the batch as Stuck (`environment`), naming the fix, before any brewer runs.
+A recipe that needs red proof on a repository without one stops at the start of the batch as Stuck (`environment`), naming the fix, before any brewer runs, unless the recipe runs a survey check and the repository keeps its test map: the survey proposes a map, and the red proof reads it ([the test map](test-map.md), [ADR 0298](../../adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)).
 
 **What the red proof reads** ([ADR 0078](../../adr/0078-the-red-proof-reads-the-test-report-and-testsunchanged-compares-lines.md)).
 The engine runs the repository's `test` check, removing a report file of a previous run first, then reads the report and what the `of` step committed, from where its first attempt started to its latest success.
