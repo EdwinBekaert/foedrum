@@ -4,7 +4,7 @@ Date: 2026-11-01 · Status: Accepted · Amends [0071](0071-the-openpullrequest-a
 
 ## Context
 A Brewery batch's pull request named its Brewery issue twice: `Brewed by Foedrum from <brewery>#<n>` under How this was brewed, and a last line `Closes <brewery>#<n>` ([ADR 0071](0071-the-openpullrequest-action-two-effects-of-the-batch.md), [ADR 0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md)).
-The pull request is in a target repository, which may be public; the Brewery is private, so outsiders saw its name and a dead link.
+The pull request is in a target repository, which may be public; the Brewery is private, one person's working space ([ADR 0263](0263-the-state-branch-is-separate-so-the-engine-is-its-only-writer.md)), so outsiders saw its name and a dead link.
 The maintainer decided on 2026-10-31 (#737) that a target repository's pull request body never links a Brewery issue; [ADR 0292](0292-the-pull-requests-of-one-order-name-each-other-and-the-merge-order.md) left these two lines to #741.
 The `Closes` line also did work: when the pull request merged, GitHub closed the Brewery issue, a sub-issue of a split order ([ADR 0285](0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md)) or an order never split.
 A claimed target issue's batch ([ADR 0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md)) closes the target issue, which is public, and its Brewery issue closes with the claim's release (`release.order`).
