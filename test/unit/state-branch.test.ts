@@ -375,6 +375,11 @@ describe('parseLog', () => {
       stops(() => parseLog({ path, text }), new RegExp(`${path}${message.source}`));
     });
   }
+
+  it('refuses a line with an id and no event as not a stored event', () => {
+    const text = `${JSON.stringify({ id: 1 })}\n`;
+    stops(() => parseLog({ path, text }), /:1: not a stored event/);
+  });
 });
 
 describe('mergeLogs', () => {

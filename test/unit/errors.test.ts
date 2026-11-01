@@ -14,11 +14,20 @@ describe('messageOf', () => {
   it('reads a thrown string as the string itself', () => {
     assert.equal(messageOf(thrown('the disk is full')), 'the disk is full');
   });
+
+  it('reads a thrown Error as its message alone', () => {
+    assert.equal(messageOf(thrown(new Error('the disk is full'))), 'the disk is full');
+  });
 });
 
 describe('errorCode', () => {
   it('reads no code from a thrown value that carries none', () => {
     assert.equal(errorCode(thrown(new Error('no code here'))), undefined);
+  });
+
+  it('reads the code a thrown Error carries', () => {
+    const error = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    assert.equal(errorCode(thrown(error)), 'ENOENT');
   });
 });
 
@@ -29,5 +38,10 @@ describe('sqliteErrorCode', () => {
       errcode: 2067,
     });
     assert.equal(sqliteErrorCode(thrown(error)), 2067);
+  });
+
+  it('reads no SQLite result code from an error without errcode', () => {
+    const error = Object.assign(new Error('not SQLite'), { code: 'ERR_SQLITE_ERROR' });
+    assert.equal(sqliteErrorCode(thrown(error)), undefined);
   });
 });
