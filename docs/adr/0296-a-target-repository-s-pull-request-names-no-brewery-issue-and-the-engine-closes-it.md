@@ -18,14 +18,16 @@ A claimed target issue's batch ([ADR 0144](0144-a-claimed-target-issue-gets-a-br
   - `["<batch>","close.issue"]` closes it, found when it is closed already.
 - **A Brewery issue a person deleted** ends both effects as `gone`, never a failure, as the claim's release does; one that is closed already gets no comment (`close.comment` recorded as `closed`), and its close is found.
 - **A pull request closed without merging leaves the issue open**, also when the batch's other pull request merged: the work is not done, and a person decides.
+- **Only the issue's latest batch closes it** (`latestOf`): an older batch whose pull request merged never closes an issue a person ordered again since.
 - **Neither a claimed batch nor a split order's own batch is closed here**: the claimed one closes with its release, and the split order's batch opens no pull request; its close once every sub-order merged is #738's, on this same source.
 - The comment on the Brewery issue may link the target pull request: a private issue naming a public pull request, never the other way.
 
 ## Consequences
 - A target repository's pull request shows nothing of the Brewery, except a claimed issue's own `Closes`, and the sibling section's pull requests ([ADR 0292](0292-the-pull-requests-of-one-order-name-each-other-and-the-merge-order.md)).
-- The Brewery issue closes in the pass after the intake records the merge, not at the merge itself, and only while a driver runs: `foedrum serve`, whose driver has the effect.
+- The Brewery issue closes in the pass after the intake records the merge, not at the merge itself, in a driver that has the effect (every driver `wireDriver` makes); in practice `foedrum serve`, whose intake records the end.
 - A pull request into the Brewery repository itself, which a `Closes` line could have closed, closes its issue the same way, so there is one close path for every batch of a Brewery issue.
 - A Brewery issue already closed when its close comes due gets no comment, and its close is found: a pull request that merged before this record with its `Closes` line closed its issue then, so a driver's first pass after the upgrade writes nothing on those issues.
+- **A person who reopened such an issue without ordering it again sees it closed again**, with the comment, on that first pass: its latest batch's work merged, and nothing in the state says the reopen means more work; ordering it again keeps it open.
 - GitHub's link from the Brewery issue to the pull request that closed it is gone; the closing comment names it instead.
 
 ## Alternatives considered
