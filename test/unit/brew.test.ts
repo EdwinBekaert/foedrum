@@ -549,6 +549,22 @@ describe('runBrew', () => {
     assert.ok(visibilityReads() > 2, api.requests.join('|'));
   });
 
+  it("reads a repository's visibility again only after the tick, which renews the leases first (ADR 0300)", async () => {
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    const reads = api.requests.flatMap((request, at) =>
+      request === 'GET /repos/acme/web' ? [at] : [],
+    );
+    const [opening, second] = reads;
+    assert.ok(opening !== undefined && second !== undefined, api.requests.join('|'));
+    // The first tick posts the status comment before the visibility is read again.
+    assert.ok(
+      api.requests
+        .slice(opening + 1, second)
+        .includes('POST /repos/Acme/Brewery/issues/12/comments'),
+      api.requests.join('|'),
+    );
+  });
+
   it("reads a repository's visibility once when GitHub answers it (ADR 0300)", async () => {
     api = fakeGitHubApi({
       login: 'ann',

@@ -646,7 +646,7 @@ const billed = (more: Event[] = []): State =>
 
 /** The visibility of each repository by name, any other unknown. */
 const visibilityOf =
-  (known: Record<string, 'public' | 'private'>): VisibilityOf =>
+  (known: Record<string, 'public' | 'internal' | 'private'>): VisibilityOf =>
   (repo) =>
     known[repo] ?? 'unknown';
 
@@ -690,6 +690,21 @@ describe('a sibling in a private repository (ADR 0300)', () => {
       [
         '1. acme/internal-billing#4: open, merge first (this pull request waits for its release).',
       ][0],
+    );
+  });
+
+  it('names an internal sibling in an internal pull request, and hides it in a public one', () => {
+    const state = billed(opened('3-1', webPull));
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [web]: 'internal', [billing]: 'internal' })),
+      [
+        '1. acme/internal-billing#4: open, merge first (this pull request waits for its release).',
+        '2. This pull request, in acme/web: merge after acme/internal-billing#4 merges and acme/internal-billing has a release after it.',
+      ],
+    );
+    assert.deepEqual(
+      placed(state, '3-1', visibilityOf({ [web]: 'public', [billing]: 'internal' })),
+      hiddenBilling,
     );
   });
 

@@ -18,43 +18,81 @@ const clientWith = (answers: Answer[]) => {
   return { client: createGitHubClient({ exec: ghOver(fake.fetch).exec }), fake };
 };
 
+/**
+ * A client whose answers come by repository, each list in order, so reads that run at once get the
+ * answers meant for them; `held` repositories answer only once `release` is called.
+ */
+const clientByRepo = (answers: Record<string, Answer[]>, held: readonly string[] = []) => {
+  const asked: string[] = [];
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fetch = async (input: string | URL | Request) => {
+    const repo = new URL(String(input)).pathname.replace(/^\/repos\//, '');
+    asked.push(repo);
+    if (held.includes(repo)) await released;
+    const answer = answers[repo]?.shift() ?? assert.fail(`no answer for ${repo}`);
+    if (answer === 'hang') return assert.fail('no hang here');
+    return new Response(JSON.stringify(answer.body), {
+      status: answer.status,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  const client = createGitHubClient({
+    exec: ghOver(fetch as typeof globalThis.fetch).exec,
+  });
+  return { client, asked, release: () => release() };
+};
+
 const publicRepo = { status: 200, body: { private: false, visibility: 'public' } };
 const privateRepo = { status: 200, body: { private: true, visibility: 'private' } };
 const outage = { status: 503, body: { message: 'Service Unavailable' } };
+const missing = { status: 404, body: { message: 'Not Found' } };
 
 describe('the visibility of the target repositories (ADR 0300)', () => {
   it('reads each repository once, and again only one whose visibility could not be read', async () => {
-    const { client, fake } = clientWith([
-      publicRepo,
-      privateRepo,
-      { status: 200, body: { private: true, visibility: 'internal' } },
-      outage,
-      { status: 404, body: { message: 'Not Found' } },
-      { status: 200, body: { visibility: 'public' } },
-      publicRepo,
-      privateRepo,
-    ]);
+    const { client, asked } = clientByRepo({
+      'acme/web': [publicRepo],
+      'acme/billing': [privateRepo],
+      'acme/staff': [{ status: 200, body: { private: true, visibility: 'internal' } }],
+      'acme/down': [outage, publicRepo],
+      'acme/gone': [missing],
+      'acme/odd': [{ status: 200, body: { visibility: 'public' } }, privateRepo],
+    });
     const repos = ['acme/web', 'acme/billing', 'acme/staff', 'acme/down', 'acme/gone', 'acme/odd'];
     const visibility = repositoryVisibilities(client, repos);
     assert.equal(visibility.of('acme/web'), 'unknown');
     await visibility.read();
     assert.deepEqual(
       repos.map((repo) => visibility.of(repo)),
-      ['public', 'private', 'private', 'unknown', 'unknown', 'unknown'],
+      ['public', 'private', 'internal', 'unknown', 'private', 'unknown'],
     );
     assert.equal(visibility.of('Acme/Web'), 'public');
     assert.equal(visibility.of('acme/other'), 'unknown');
     await visibility.read();
-    assert.deepEqual(
-      fake.requests.slice(6).map(({ url }) => url),
-      [
-        'https://api.github.com/repos/acme/down',
-        'https://api.github.com/repos/acme/gone',
-        'https://api.github.com/repos/acme/odd',
-      ],
-    );
+    // A repository GitHub does not find is one the login cannot see: read once, as private.
+    assert.deepEqual(asked.slice(6).sort(), ['acme/down', 'acme/odd']);
     assert.equal(visibility.of('acme/down'), 'public');
-    assert.equal(visibility.of('acme/gone'), 'private');
+    assert.equal(visibility.of('acme/odd'), 'private');
+  });
+
+  it('reads every repository it does not know at once, so one slow answer holds up no other', async () => {
+    const { client, asked, release } = clientByRepo(
+      { 'acme/slow': [publicRepo], 'acme/fast': [privateRepo] },
+      ['acme/slow'],
+    );
+    const visibility = repositoryVisibilities(client, ['acme/slow', 'acme/fast']);
+    const reading = visibility.read();
+    for (let turn = 0; turn < 50 && asked.length < 2; turn++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const askedBeforeRelease = [...asked];
+    release();
+    await reading;
+    assert.deepEqual(askedBeforeRelease.sort(), ['acme/fast', 'acme/slow']);
+    assert.equal(visibility.of('acme/slow'), 'public');
+    assert.equal(visibility.of('acme/fast'), 'private');
   });
 
   it('names a sibling once a read finds its repository public after one that failed', async () => {

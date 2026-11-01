@@ -25,10 +25,10 @@ export const siblingKey = (batchId: string, revision: number): BatchEffectKey =>
 });
 
 /**
- * Whether a target repository is public, as the code host last said (ADR 0300): `unknown` when its
- * answer could not be read, which the sibling section counts as private.
+ * Who can read a target repository, as the code host last said (ADR 0300): `internal` is every
+ * member of its enterprise; `unknown` when its answer could not be read.
  */
-export type Visibility = 'public' | 'private' | 'unknown';
+export type Visibility = 'public' | 'internal' | 'private' | 'unknown';
 
 /** The visibility of a target repository, `owner/name`. */
 export type VisibilityOf = (repo: string) => Visibility;
