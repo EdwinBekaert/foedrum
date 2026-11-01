@@ -257,7 +257,7 @@ describe('runServe', () => {
     );
     assert.match(
       github.pulls[0]?.body ?? '',
-      /brew: Brewed[\s\S]*\nCloses Acme\/Brewery#12\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/,
+      /brew: Brewed[\s\S]*\n<\/details>\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/,
     );
     const [pull] = github.pulls;
     assert.deepStrictEqual(
