@@ -111,11 +111,13 @@ export const stateText: Record<SubOrderPullRequestState, string> = {
  * The sibling section of `batchId`'s pull request body, or undefined when the batch brews no
  * sub-order of an order with two or more (ADR 0292). It names the target repositories' pull
  * requests only, never the Brewery's issues: a target repository may be public, the Brewery not.
+ * Unless its own repository is private, it names a sibling only in a public one, and any other by
+ * its place in the merge order (ADR 0300).
  */
 export const siblingSection = (
   state: State,
   batchId: string,
-  _visibility: VisibilityOf,
+  visibility: VisibilityOf,
 ): string | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined || batch.repo !== undefined) return undefined;
@@ -130,9 +132,20 @@ export const siblingSection = (
   const dependencies: readonly Dependency[] = state.orders.get(own.order)?.dependencies ?? [];
   // The batch names itself the same before and after its pull request opens, so the open's section
   // is the one the next pass computes.
+  // A repository that could not be read counts as private, this one's as public (ADR 0300).
+  const shown = visibility(own.repo) === 'private';
+  const hidden = new Set(
+    entries
+      .filter(
+        ({ subOrder, repo }) => subOrder !== own.issue && !shown && visibility(repo) !== 'public',
+      )
+      .map(({ subOrder }) => subOrder),
+  );
   const refs = new Map(
-    entries.map(({ subOrder, repo, pullRequest }) => {
+    entries.map(({ subOrder, repo, pullRequest }, place) => {
       if (subOrder === own.issue) return [subOrder, 'this pull request'];
+      if (hidden.has(subOrder))
+        return [subOrder, `pull request ${place + 1} (in a private repository)`];
       if (pullRequest === undefined) return [subOrder, repo];
       const { repo: at, number } = pullRequestOf(pullRequest);
       return [subOrder, `${at}#${number}`];
@@ -142,7 +155,9 @@ export const siblingSection = (
     const blockers = dependencies.flatMap(({ subOrder: blocked, blockedBy, kind }) => {
       const ref = blocked === subOrder ? refs.get(blockedBy) : undefined;
       if (ref === undefined) return [];
-      const by = state.subOrders.get(blockedBy)?.repo ?? '';
+      const by = hidden.has(blockedBy)
+        ? 'its repository'
+        : (state.subOrders.get(blockedBy)?.repo ?? '');
       return [kind === 'code' ? `${ref} merges` : `${ref} merges and ${by} has a release after it`];
     });
     const waiters = dependencies.flatMap(({ subOrder: waiting, blockedBy, kind }) => {
@@ -158,7 +173,10 @@ export const siblingSection = (
           ? `merge first (${named(waiters, ', ')})`
           : 'merge in any order';
     if (subOrder === own.issue) return `${at + 1}. This pull request, in ${repo}: ${when}.`;
-    return `${at + 1}. ${refs.get(subOrder) ?? repo}: ${stateText[where]}, ${when}.`;
+    const name = hidden.has(subOrder)
+      ? 'A pull request in a private repository'
+      : (refs.get(subOrder) ?? repo);
+    return `${at + 1}. ${name}: ${stateText[where]}, ${when}.`;
   });
   const intro = `This pull request is one of ${entries.length} of one order. Merge them in this order:`;
   // Whole lines, within the room every body keeps for the section.
