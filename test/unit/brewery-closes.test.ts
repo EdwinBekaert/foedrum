@@ -219,6 +219,35 @@ describe('breweryCloseEffects', () => {
     assert.equal(order().comments.length, 0);
   });
 
+  it('closes a split order’s sub-issue once its batch’s pull request merged (ADR 0285)', async () => {
+    const routeBy = '2026-11-01T10:00:00.000Z';
+    store.withTransaction((tx) => {
+      tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+      tx.append({
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [{ issue: 12, repo: 'acme/web' }],
+        dependencies: [],
+      });
+      tx.append({ type: 'batch.on_tap', batchId: '1-1', pullRequests: [] });
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        parentBatchId: '1-1',
+        routeBy,
+      });
+      tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [web] });
+    });
+    ended(web, 'merged');
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, 'closed');
+    assert.match(order().comments[0]?.body ?? '', /^Merged as acme\/web#31; /);
+    // The order's own issue, whose batch opened no pull request, is #738's to close.
+    assert.equal(github.issue(brewery, 1).state, undefined);
+  });
+
   it('leaves a claimed batch’s Brewery issue to its claim’s release', async () => {
     onTap('one', 'web-7', { issue: 7, repo: 'acme/web' });
     // The driver opened #13 as the claimed issue's Brewery issue (ADR 0144).
