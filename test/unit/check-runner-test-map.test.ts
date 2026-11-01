@@ -307,6 +307,8 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       ...clearing,
       `reports web/test-results.xml in ${worktree}`,
       `reports svc/test/*/TestResults in ${worktree}`,
+      // Its tests' locations, read for staleness (ADR 0282).
+      `reports web/test-results.xml in ${worktree}`,
     ]);
   });
 
@@ -330,6 +332,8 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       ...clearing,
       `reports web/test-results.xml in ${worktree}`,
       `reports svc/test/*/TestResults in ${worktree}`,
+      // Its tests' locations, read for staleness (ADR 0282).
+      `reports web/test-results.xml in ${worktree}`,
     ]);
   });
 
