@@ -19,8 +19,8 @@ describe('messageOf', () => {
     assert.equal(messageOf(thrown(new Error('the disk is full'))), 'the disk is full');
   });
 
-  it('reads an Error whose message is not a string as one that says nothing', () => {
-    assert.equal(messageOf(thrown(Object.assign(new Error(), { message: 42 }))), '');
+  it('reads an Error whose message is not a string as the text of that message', () => {
+    assert.equal(messageOf(thrown(Object.assign(new Error(), { message: 42 }))), '42');
   });
 });
 

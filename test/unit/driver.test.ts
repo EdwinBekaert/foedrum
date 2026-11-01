@@ -3029,7 +3029,13 @@ describe('openDriver', () => {
     };
 
     it('records the end when the error of the broken run cannot be read', async () => {
-      const unreadable = Object.assign(new Error(), { message: 42 });
+      // A message whose text cannot be made: String() of it throws.
+      const message = {
+        toString: () => {
+          throw new Error('no text');
+        },
+      };
+      const unreadable = Object.assign(new Error(), { message });
       const driver = await brokenRun(unreadable, () => {});
       assert.deepStrictEqual(outcomeOf(driver, plan('b1')), {
         kind: 'failed',
