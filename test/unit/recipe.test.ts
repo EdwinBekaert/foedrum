@@ -227,7 +227,6 @@ describe('check steps', () => {
     ['a check without an id', { check: 'test' }],
     ['an unknown expectation', { id: 'c', check: 'test', expect: 'maybe' }],
     ['a red proof without of', { id: 'red', check: 'test', expect: 'fail' }],
-    ['of on a check that expects a pass', { id: 'c', check: 'test', of: 'gauge' }],
     ['a red proof of lint', { id: 'red', check: 'lint', expect: 'fail', of: 'gauge' }],
     [
       'a red proof of several checks',

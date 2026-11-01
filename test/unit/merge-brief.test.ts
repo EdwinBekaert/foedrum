@@ -36,6 +36,14 @@ const recipes = fakeRecipes({
     routes: { [OPEN]: { pull_request: 'implement' } },
     pullRequests: [],
   }),
+  // Nip with the Maltster's survey ahead of the Gauger (ADR 0298).
+  surveyed: fakeRecipe({
+    steps: ['survey', 'survey-check', 'gauge', 'red', 'implement', 'green', 'taste', OPEN],
+    groups: taste,
+    actions: { [OPEN]: 'openPullRequest' },
+    routes: { [OPEN]: { pull_request: 'implement' } },
+    pullRequests: [],
+  }),
   // Nip without a test-first label: no Gauger and no red proof.
   skippy: fakeRecipe({
     steps: ['gauge', 'red', 'implement', 'green', 'taste', OPEN],
@@ -629,6 +637,38 @@ describe('the merge brief (ADR 0225)', () => {
       assert.match(
         await brief(),
         /- Touches sensitive paths: \.github\/workflows\/ci\.yml, package\.json\./,
+      );
+    });
+
+    /** A batch of Nip whose survey ended with `output`, brewed to On tap with the map's push. */
+    const surveyed = (output: { [key: string]: string | string[] }): void => {
+      order('surveyed');
+      run('survey', { kind: 'succeeded', output }, { commit: tasted });
+      run('survey-check');
+      run('gauge');
+      run('red', done, { readings: [redReading] });
+      nipFromImplement(1, head, {}, { count: 1, files: ['.foedrum/test-map.jsonc'] });
+      finished([passed('ci/build')]);
+    };
+
+    it('the pull request says why the test map changed', async () => {
+      surveyed({
+        status: 'done',
+        summary: 'Refreshed the test map',
+        map: 'stale',
+        stale: ['svc/package.json (added)', 'old/package.json (removed)'],
+      });
+      assert.match(
+        await brief(),
+        /- Touches sensitive paths: \.foedrum\/test-map\.jsonc\.\n- The test map of acme\/web was stale \(svc\/package\.json \(added\), old\/package\.json \(removed\)\): the Maltster refreshed it\.\n/,
+      );
+    });
+
+    it('says the Maltster proposed the test map where the base had none', async () => {
+      surveyed({ status: 'done', summary: 'Proposed the test map', map: 'new' });
+      assert.match(
+        await brief(),
+        /\n- The test map of acme\/web is new: the Maltster proposed it\.\n/,
       );
     });
 

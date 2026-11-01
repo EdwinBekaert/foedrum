@@ -116,6 +116,13 @@ export interface StepChecks {
   proves(recipe: string, stepId: string): string | undefined;
   /** The first red proof of recipe `recipe` and the step it proves, when it has one (ADR 0078). */
   redProof(recipe: string): { id: string; of: string } | undefined;
+  /**
+   * The survey whose map step `stepId` of recipe `recipe` reads against one run, with the rounds
+   * its onFail route sends back to it, when it is a survey's check (ADR 0298).
+   */
+  surveys?(recipe: string, stepId: string): { of: string; maxRounds: number } | undefined;
+  /** The check of recipe `recipe` that reads a survey's map, when it has one (ADR 0298). */
+  surveyCheck?(recipe: string): { id: string; of: string } | undefined;
 }
 
 /** A check step's checks, and for a red proof the step whose tests it proves. */
@@ -670,7 +677,7 @@ function checkLine(step: CheckStep): StepLoad {
     ...(step.expect === 'fail' ? {} : { passes: true as const }),
   };
   const checks = Array.isArray(step.check) ? step.check : [step.check];
-  return { line, check: { checks, ...('of' in step ? { of: step.of } : {}) } };
+  return { line, check: { checks, ...(step.of === undefined ? {} : { of: step.of }) } };
 }
 
 /**
@@ -904,7 +911,9 @@ function misfolded(order: readonly Step[], commits: (step: Step) => boolean): st
 
 /** The red proofs of `order` (ADR 0078), and the step whose tests each proves. */
 const proofsOf = (order: readonly Step[]): { id: string; of: string }[] =>
-  order.flatMap((step) => ('of' in step ? [{ id: stepId(step), of: step.of }] : []));
+  order.flatMap((step) =>
+    'of' in step && step.of !== undefined ? [{ id: stepId(step), of: step.of }] : [],
+  );
 
 /**
  * Why a red proof of `order` cannot find its tests (ADR 0078): it finds them in what its step

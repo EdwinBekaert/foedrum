@@ -124,6 +124,9 @@ const CheckStep = z.strictObject({
       'Each check may be listed once',
     ),
   expect: z.literal('pass').default('pass'),
+  of: StepId.optional().describe(
+    'The survey whose test map this check reads against one run: a step whose brewer answers with the out doc schema "survey" (ADR 0298)',
+  ),
   when,
   onFail: Route.optional(),
   deadline: Duration.optional(),
@@ -262,7 +265,9 @@ function references(step: Step): Reference[] {
   };
   read(step.when, ['when']);
   if ('loop' in step) read(step.loop.until, ['loop', 'until']);
-  if ('of' in step) found.push({ id: step.of, path: ['of'], kind: 'proof' });
+  if ('of' in step && step.of !== undefined) {
+    found.push({ id: step.of, path: ['of'], kind: 'proof' });
+  }
   if ('onFail' in step && step.onFail) {
     found.push({ id: step.onFail.goto, path: ['onFail', 'goto'], kind: 'route' });
   }
@@ -289,7 +294,9 @@ function misplaced(kind: Reference['kind'], from: Place, to: Place): string | un
     case 'read':
       return undefined;
     case 'proof':
-      return to.order < from.order ? undefined : 'A red proof reads the tests of an earlier step';
+      return to.order < from.order
+        ? undefined
+        : 'A red proof reads the tests, and a survey check the test map, of an earlier step';
     case 'route':
       return to.order < from.order && encloses(to.list, from.list)
         ? undefined

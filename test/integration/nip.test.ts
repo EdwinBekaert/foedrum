@@ -215,6 +215,8 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
   assert.deepEqual(
     [...outcomes.slice(0, first), ...tasted, ...outcomes.slice(first + tasters.length)],
     [
+      'survey#1 succeeded',
+      'survey-check#1 succeeded',
       'gauge#1 succeeded',
       'red#1 succeeded',
       'implement#1 succeeded',

@@ -941,7 +941,7 @@ describe('loadRecipes: fails closed on what an attempt plan cannot carry yet (#1
       brewers: [maltster, brewmaster, cellarman],
     });
     assert.deepEqual(problemsOf(files), [
-      'brewers/cellarman.md: ✖ Invalid option: expected one of "requiresOutDoc"|"requiresCommits"|"testsNotRemoved"|"testsUnchanged"|"scope"|"diffLimits" → at guards[1]',
+      'brewers/cellarman.md: ✖ Invalid option: expected one of "requiresOutDoc"|"requiresCommits"|"testsNotRemoved"|"testsUnchanged"|"scope"|"diffLimits"|"testMapOnly" → at guards[1]',
     ]);
   });
 
@@ -2265,6 +2265,63 @@ describe('loadRecipes: a step whose answer chooses the recipe (ADR 0232)', () =>
     });
     assert.deepEqual(problemsOf(files), [
       'recipes/pale.jsonc: step "maltster" has "chooses", but its brewer "maltster" does not answer with the out doc schema "recipeChoice" (ADR 0232)',
+    ]);
+  });
+});
+
+describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () => {
+  const committing = { access: 'write', tree: 'task', git: { commit: true }, produces: 'commits' };
+  const surveyor = brewer('surveyor', {
+    ...committing,
+    output: { doc: 'survey.md', schema: 'survey' },
+  });
+  const cellarman = brewer('cellarman', committing);
+  const files = (check: Record<string, unknown>) =>
+    brewery({
+      recipes: [
+        opened(
+          'stout',
+          [
+            { id: 'survey', brewer: 'surveyor' },
+            { id: 'survey-check', of: 'survey', ...check },
+            { id: 'gauge', brewer: 'cellarman' },
+            { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
+          ],
+          { testFirst: true },
+        ),
+      ],
+      brewers: [surveyor, cellarman],
+    });
+
+  it("loads a survey's check, the rounds of its route back to the survey its own, and no red proof", () => {
+    const result = loadRecipes(files({ check: 'test', onFail: { goto: 'survey', maxRounds: 1 } }));
+    assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+    assert.deepEqual(result.checks.surveys?.('stout', 'survey-check'), {
+      of: 'survey',
+      maxRounds: 1,
+    });
+    assert.deepEqual(result.checks.surveyCheck?.('stout'), { id: 'survey-check', of: 'survey' });
+    assert.equal(result.checks.proves('stout', 'survey-check'), undefined);
+    // The survey commits the test map only: the red proof still proves the Gauger's tests.
+    assert.deepEqual(result.checks.redProof('stout'), { id: 'red', of: 'gauge' });
+  });
+
+  it('refuses a passing check whose of names a step whose brewer answers with no survey', () => {
+    const refused = brewery({
+      ...files({ check: 'test' }),
+      brewers: [brewer('surveyor', committing), cellarman],
+    });
+    assert.ok(
+      problemsOf(refused).includes(
+        'recipes/stout.jsonc: step "survey-check" reads the test map of step "survey", which is no earlier step whose brewer answers with the out doc schema "survey" (ADR 0298)',
+      ),
+      problemsOf(refused).join('\n'),
+    );
+  });
+
+  it("refuses a survey's check that runs no test check", () => {
+    assert.deepEqual(problemsOf(files({ check: 'lint' })), [
+      'recipes/stout.jsonc: step "survey-check" reads the test map of survey "survey" against one run, so its checks must include "test" (ADR 0298)',
     ]);
   });
 });

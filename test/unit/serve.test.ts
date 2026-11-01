@@ -1977,6 +1977,27 @@ Plan the order in {order}.
       '"maxAttempts": 1,\n  "guards": ["testsUnchanged"]',
     );
     const gauger = brewer.replace('"name": "cellarman"', '"name": "gauger"');
+    // A survey ahead of the Gauger, whose check reads its map against one run (ADR 0298).
+    const surveying = JSON.stringify({
+      name: 'nip',
+      description: 'Surveys the test map, proves the tests red, then brews.',
+      steps: [
+        { id: 'survey', brewer: 'maltster' },
+        {
+          id: 'survey-check',
+          check: 'test',
+          of: 'survey',
+          onFail: { goto: 'survey', maxRounds: 1 },
+        },
+        { id: 'gauge', brewer: 'gauger' },
+        { id: 'red', check: 'test', expect: 'fail', of: 'gauge' },
+        { id: 'implement', brewer: 'cellarman' },
+        { action: 'openPullRequest' },
+      ],
+    });
+    const maltster = brewer
+      .replace('"name": "cellarman"', '"name": "maltster"')
+      .replace('"schema": "outDoc"', '"schema": "survey"');
     const testFirstSetup = (web: Record<string, unknown>, recipeText = nip) => {
       const files = serveInputs().files;
       const result = serveSetup(
@@ -1990,6 +2011,7 @@ Plan the order in {order}.
               brewers: [
                 { path: 'brewers/cellarman.md', text: guarded },
                 { path: 'brewers/gauger.md', text: gauger },
+                { path: 'brewers/maltster.md', text: maltster },
               ],
             },
           },
@@ -2093,6 +2115,50 @@ Plan the order in {order}.
         summary:
           'recipe nip proves its tests red, which needs the test report of acme/web: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)',
       });
+    });
+
+    it('a test-first recipe with no testReport no longer sticks before its first step', async () => {
+      // The repository keeps its test map, and has none: the survey proposes one (ADR 0298).
+      const { brewed, batch } = await brewTestFirst(testFirstSetup({}, surveying));
+      assert.equal(brewed[0], 'survey');
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.ok(
+        !JSON.stringify(reason ?? {}).includes('which needs the test report'),
+        JSON.stringify(reason),
+      );
+    });
+
+    it("ends a survey whose base's map is fresh without a session, through serve, and brews on with the Gauger", async () => {
+      const testMap = JSON.stringify({
+        derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'web',
+            code: ['src/**'],
+            tests: { paths: ['**/*.test.mjs'] },
+            testReport: { format: 'tap', path: 'test-results.tap' },
+            coverage: 'none',
+          },
+        ],
+      });
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({ testReport: { format: 'tap' } }, surveying),
+        [],
+        undefined,
+        testMap,
+        'test-results.tap',
+      );
+      // No Maltster ran: the survey ended before its session (ADR 0298).
+      assert.equal(brewed[0], 'gauge');
+      const survey = batch?.steps.get('survey')?.attempts.get(1);
+      assert.equal(
+        survey?.phase === 'finished' &&
+          survey.outcome.kind === 'succeeded' &&
+          (survey.outcome.output as { map?: string }).map,
+        'fresh',
+      );
+      const check = batch?.steps.get('survey-check')?.attempts.get(1);
+      assert.equal(check?.phase === 'finished' && check.outcome.kind, 'succeeded');
     });
 
     it("proves the Gauger's tests red from the test report and guards them, through serve's git", async () => {

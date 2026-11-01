@@ -66,9 +66,30 @@ const brewNip = async (scripts: Record<string, readonly Behaviour[]>): Promise<s
   );
 
 describe('the default Nip', () => {
+  it('a batch with no map has its first step propose one and brews with it', async () => {
+    const done = behave.succeed();
+    const started = await brewNip({
+      survey: [done],
+      'survey-check': [done],
+      gauge: [done],
+      red: [done],
+      implement: [done],
+      fine: [done],
+      green: [done],
+      correctness: [done],
+      acceptance: [done],
+      'open-pull-request': [done],
+    });
+    assert.deepEqual(started.slice(0, 3), ['survey', 'survey-check', 'gauge']);
+    // The survey's check read the map before the Gauger, and the batch brewed to its pull request.
+    assert.equal(started.at(-1), 'open-pull-request');
+  });
+
   it('sends a Cellarman that finds a test wrong back to the Gauger, once (ADR 0017, ADR 0064)', async () => {
     const done = behave.succeed();
     const started = await brewNip({
+      survey: [done],
+      'survey-check': [done],
       gauge: [done, done],
       red: [done, done],
       implement: [behave.blocked('findings', 'The test expects the wrong slug'), done],
@@ -79,6 +100,8 @@ describe('the default Nip', () => {
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
+      'survey',
+      'survey-check',
       'gauge',
       'red',
       'implement',
@@ -96,6 +119,8 @@ describe('the default Nip', () => {
   it('sends a Cellarman whose change fails the green checks back to try again, once', async () => {
     const done = behave.succeed();
     const started = await brewNip({
+      survey: [done],
+      'survey-check': [done],
       gauge: [done],
       red: [done],
       implement: [done, done],
@@ -106,6 +131,8 @@ describe('the default Nip', () => {
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
+      'survey',
+      'survey-check',
       'gauge',
       'red',
       'implement',
@@ -132,6 +159,8 @@ describe('the default Nip', () => {
         tail: 'not ok 3 - status --json prints the batches',
       };
       const scripts: Record<string, Behaviour[]> = {
+        survey: [done],
+        'survey-check': [done],
         gauge: [done],
         red: [done],
         implement: [done, done],
@@ -189,17 +218,21 @@ describe('the default Nip', () => {
   it('goes no further when the red proof refuses the tests a second time', async () => {
     const done = behave.succeed();
     const started = await brewNip({
+      survey: [done],
+      'survey-check': [done],
       gauge: [done, done, done],
       red: [behave.fail(false), behave.fail(false), done],
       implement: [done],
       fine: [done, done],
     });
-    assert.deepEqual(started, ['gauge', 'red', 'gauge', 'red']);
+    assert.deepEqual(started, ['survey', 'survey-check', 'gauge', 'red', 'gauge', 'red']);
   });
 
   it('sends a Gauger whose tests the red proof refuses back to write them again, once', async () => {
     const done = behave.succeed();
     const started = await brewNip({
+      survey: [done],
+      'survey-check': [done],
       gauge: [done, done],
       red: [behave.fail(false), done],
       implement: [done],
@@ -210,6 +243,8 @@ describe('the default Nip', () => {
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
+      'survey',
+      'survey-check',
       'gauge',
       'red',
       'gauge',
@@ -263,6 +298,8 @@ describe('the default Nip', () => {
   it("plans Nip's steps from the defaults in a Brewery without its own nip.jsonc and gauger.md", () => {
     const loaded = valid(loadRecipes(noFiles));
     assert.deepEqual(loaded.recipes.find('nip')?.steps, [
+      'survey',
+      'survey-check',
       'gauge',
       'red',
       'implement',
@@ -307,6 +344,8 @@ describe('the default Nip', () => {
   it('sends a batch whose correctness Taster asks for changes back to Cellarman, then through fine and green again (ADR 0264)', async () => {
     const done = behave.succeed();
     const started = await brewNip({
+      survey: [done],
+      'survey-check': [done],
       gauge: [done],
       red: [done],
       implement: [done, done],
@@ -317,6 +356,8 @@ describe('the default Nip', () => {
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
+      'survey',
+      'survey-check',
       'gauge',
       'red',
       'implement',
@@ -337,6 +378,8 @@ describe('the default Nip', () => {
     const done = behave.succeed();
     const changes = behave.blocked('findings', 'An Ordered sub-order holds nothing');
     const events = await brewNipEvents({
+      survey: [done],
+      'survey-check': [done],
       gauge: [done],
       red: [done],
       implement: [done, done, done],
@@ -378,6 +421,8 @@ describe('the default Nip', () => {
         runner: fakeBrewerRunner(
           Object.fromEntries(
             [
+              'survey',
+              'survey-check',
               'gauge',
               'red',
               'implement',
@@ -407,6 +452,8 @@ describe('the default Nip', () => {
         .events()
         .flatMap((event) => (event.type === 'step.started' ? [event.stepId] : []));
       assert.deepEqual(started, [
+        'survey',
+        'survey-check',
         'gauge',
         'red',
         'implement',
@@ -471,6 +518,8 @@ describe('the default Cellarman', () => {
         '',
       ].join('\n');
       const scripts: Record<string, Behaviour[]> = {
+        survey: [done],
+        'survey-check': [done],
         gauge: [done, done],
         red: [done, done],
         implement: [behave.writes(blocked), done],
@@ -539,7 +588,7 @@ describe('the default Cellarman', () => {
         event.type === 'step.started' ? [event.stepId] : [],
       );
       // An out doc the Cellarman's schema refused would retry implement instead of going to gauge.
-      assert.deepEqual(started.slice(0, 4), ['gauge', 'red', 'implement', 'gauge']);
+      assert.deepEqual(started.slice(2, 6), ['gauge', 'red', 'implement', 'gauge']);
       assert.equal(told.length, 2);
       assert.deepEqual(told[1]?.source, {
         kind: 'route',
