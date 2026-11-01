@@ -39,6 +39,17 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/**/*.ts"],
+      "plugins": [
+        "./biome-plugins/error-cast.grit",
+        "./biome-plugins/errno-cast.grit",
+        "./biome-plugins/caught-shape-cast.grit",
+        "./biome-plugins/lookup-cast.grit"
+      ]
+    }
+  ],
   "assist": {
     "actions": {
       "source": {

@@ -1,0 +1,8 @@
+// A lookup cast to its value's type assumes a hit, so a miss fails later, far from its cause
+// (ADR 0299). A cast that keeps `| undefined`, and a lookup without a key (SQLite's
+// `statement.get()`), do not match.
+`$map.get($key) as $type` where {
+  not $key <: .,
+  not $type <: contains `undefined`,
+  register_diagnostic(span=$map, message="A lookup cast to its value's type assumes a hit: read a batch with foldedBatch(state, batchId) from src/engine/fold.ts, or keep the miss and handle it.")
+}

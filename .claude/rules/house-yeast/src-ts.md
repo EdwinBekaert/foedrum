@@ -20,3 +20,7 @@ When a map key gains a part (an attempt number, a repository), a test holds two 
 ## linear-regex-on-brewery-text (semantic)
 
 A regular expression run over text from a Brewery, an order, a repository or a model is linear in its input: no two adjacent quantifiers can match the same characters, and a global search whose run can fail after it starts only at the run's first character (a lookbehind), so a failed search does not rescan the run from each of its characters.
+
+## outside-values-parsed-never-cast (semantic)
+
+A value from outside (JSON, a process's output, a model's text, a thrown value) is parsed with a schema or read through a shared helper, never cast; a helper is shared before a second copy is written.
