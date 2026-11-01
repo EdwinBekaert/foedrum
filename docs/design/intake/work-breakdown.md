@@ -31,6 +31,7 @@ Cross-repository work is a core capability, not an add-on ([ADR 0013](../../adr/
   Policy per recipe: `"bottling": "perSubOrder" | "perRepo" | "manual"`; manually with `/foedrum bottle #101 #102`.
   Bottles of the same order reference each other and carry a suggested merge order.
   Built today for a sub-order's own pull request: its body starts with `## Pull requests of this order`, which names each other sub-order's pull request as `owner/name#n` (or its repository, not opened yet), its state, and when to merge it after the plan's `code` and `release` dependencies, never a Brewery issue; revisions of it go through the ledger as siblings open and end ([open pull request](../recipes/open-pull-request.md), [ADR 0292](../../adr/0292-the-pull-requests-of-one-order-name-each-other-and-the-merge-order.md)).
+  Unless its own repository is private, it names a sibling in a repository GitHub does not answer as public only by its place in the merge order, `A pull request in a private repository` ([ADR 0300](../../adr/0300-a-public-pull-request-names-a-sibling-in-a-private-repository-by-its-place-only.md)).
 - **Dependency kinds:**
 
 | Kind | Meaning | The dependent batch waits for |
