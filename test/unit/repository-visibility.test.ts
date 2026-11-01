@@ -66,12 +66,13 @@ describe('the visibility of the target repositories (ADR 0300)', () => {
     await visibility.read();
     assert.deepEqual(
       repos.map((repo) => visibility.of(repo)),
-      ['public', 'private', 'internal', 'unknown', 'private', 'unknown'],
+      ['public', 'private', 'internal', 'unknown', 'unknown', 'unknown'],
     );
     assert.equal(visibility.of('Acme/Web'), 'public');
     assert.equal(visibility.of('acme/other'), 'unknown');
     await visibility.read();
-    // A repository GitHub does not find is one the login cannot see: read once, as private.
+    // A repository GitHub does not find is one the login cannot see: read once, and unknown, so it
+    // is hidden as a sibling and hides its siblings as a pull request's own.
     assert.deepEqual(asked.slice(6).sort(), ['acme/down', 'acme/odd']);
     assert.equal(visibility.of('acme/down'), 'public');
     assert.equal(visibility.of('acme/odd'), 'private');
