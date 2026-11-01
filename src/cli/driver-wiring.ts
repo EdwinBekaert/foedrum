@@ -251,7 +251,7 @@ export const wireDriver = async (
   });
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
   // Each sub-order pull request's section naming its order's others, as they open and end (ADR 0292).
-  const siblings = siblingEffects({ host: pullRequests });
+  const siblings = siblingEffects({ host: pullRequests, visibility: () => 'unknown' });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
@@ -281,6 +281,7 @@ export const wireDriver = async (
     repositories: pushes,
     host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
+    visibility: () => 'unknown',
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
   let driver: Driver | undefined;

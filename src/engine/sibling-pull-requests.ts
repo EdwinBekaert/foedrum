@@ -24,6 +24,15 @@ export const siblingKey = (batchId: string, revision: number): BatchEffectKey =>
   effect: `siblings.${revision}`,
 });
 
+/**
+ * Whether a target repository is public, as the code host last said (ADR 0300): `unknown` when its
+ * answer could not be read, which the sibling section counts as private.
+ */
+export type Visibility = 'public' | 'private' | 'unknown';
+
+/** The visibility of a target repository, `owner/name`. */
+export type VisibilityOf = (repo: string) => Visibility;
+
 /** Where a sub-order's pull request is: not opened yet, open, or how it ended. */
 export type SubOrderPullRequestState = 'none' | 'open' | 'merged' | 'closed';
 
@@ -103,7 +112,11 @@ export const stateText: Record<SubOrderPullRequestState, string> = {
  * sub-order of an order with two or more (ADR 0292). It names the target repositories' pull
  * requests only, never the Brewery's issues: a target repository may be public, the Brewery not.
  */
-export const siblingSection = (state: State, batchId: string): string | undefined => {
+export const siblingSection = (
+  state: State,
+  batchId: string,
+  _visibility: VisibilityOf,
+): string | undefined => {
   const batch = state.batches.get(batchId);
   if (batch === undefined || batch.repo !== undefined) return undefined;
   const own = state.subOrders.get(batch.issue);
@@ -182,6 +195,8 @@ const withSection = (text: string, section: string): string => {
 
 export interface SiblingEffectsOptions {
   host: Pick<PullRequestHost, 'body' | 'update'>;
+  /** Which target repositories the section may name in a public pull request (ADR 0300). */
+  visibility: VisibilityOf;
 }
 
 /** A revision that is due: the pull request it goes on, and the section it writes. */
@@ -200,7 +215,7 @@ interface DueSection {
  * A body someone edited is left as it is, as a later round leaves it (ADR 0227).
  */
 export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects => {
-  const { host } = options;
+  const { host, visibility } = options;
   const due = new Map<string, DueSection>();
   const dueFor = (key: string): DueSection => {
     const found = due.get(key);
@@ -239,7 +254,7 @@ export const siblingEffects = (options: SiblingEffectsOptions): DriverEffects =>
       const end = url === undefined ? undefined : batch?.pullRequestEnds?.[url];
       // A pull request closed without merging is no part of the order's merge any more.
       if (batch === undefined || url === undefined || end === 'closed') return [];
-      const section = siblingSection(state, batchId);
+      const section = siblingSection(state, batchId, visibility);
       const order = state.subOrders.get(batch.issue)?.order;
       if (section === undefined || order === undefined) return [];
       const recorded = numberedEffects(
