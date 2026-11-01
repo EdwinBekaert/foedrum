@@ -165,6 +165,7 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
       ...events,
       { type: 'step.finished', ...ref, outcome: proposed.ending as never },
       { type: 'step.scheduled', batchId: '12-1', stepId: 'survey-check', attempt: 1, deadlineAt },
+      { type: 'step.started', batchId: '12-1', stepId: 'survey-check', attempt: 1 },
       {
         type: 'step.finished',
         batchId: '12-1',

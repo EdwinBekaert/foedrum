@@ -2332,7 +2332,7 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
     });
     assert.ok(
       problemsOf(unguarded).includes(
-        'recipes/stout.jsonc: step "survey" commits before the red proof "red" of step "gauge" (ADR 0064)',
+        'recipes/stout.jsonc: it is a test-first recipe without a red proof: add a check step with "expect": "fail" whose "of" names the step that commits the failing tests, or set testFirst: false (ADR 0064)',
       ),
       problemsOf(unguarded).join('\n'),
     );
