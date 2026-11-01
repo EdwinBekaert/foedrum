@@ -524,6 +524,9 @@ const laneText = (
 const PLANNED =
   'No pull request: the plan is in its own comment on this issue, and nothing is built from it yet.';
 
+/** What a split order's batch on tap says: its sub-orders' pull requests are its work (ADR 0293). */
+const SPLIT = "No pull request of its own: its sub-orders' are listed above.";
+
 /** Whether an attempt of `batch` succeeded with a plan (ADR 0233). */
 const planned = (batch: Batch): boolean =>
   [...batch.steps.values()].some((step) =>
@@ -1107,7 +1110,10 @@ export const renderStatus = (
     const { pullRequests } = batch.lane;
     sections.push(
       pullRequests.length === 0
-        ? [planned(batch) ? PLANNED : 'No pull request.']
+        ? [
+            // A split order's work is its sub-orders' pull requests, which the rows list (ADR 0293).
+            subOrderPulls.length > 0 ? SPLIT : planned(batch) ? PLANNED : 'No pull request.',
+          ]
         : [
             '**Pull requests**',
             ...onePerPullRequest(pullRequests, [
