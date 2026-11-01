@@ -789,15 +789,12 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
 
   /** Whether the latest survey of step `of` found the map fresh, or kept by the Brewery. */
   const surveyNeedsNoRun = (batch: Batch, of: string): boolean => {
-    const attempts = [...(batch.steps.get(of)?.attempts.values() ?? [])];
-    const latest = attempts.findLast(
-      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
+    const outputs = [...(batch.steps.get(of)?.attempts.values() ?? [])].flatMap((attempt) =>
+      attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded'
+        ? [attempt.outcome.output]
+        : [],
     );
-    const output =
-      latest?.phase === 'finished' && latest.outcome.kind === 'succeeded'
-        ? latest.outcome.output
-        : undefined;
-    const map = surveyOf(output)?.map;
+    const map = surveyOf(outputs.at(-1))?.map;
     return map === 'fresh' || map === 'brewery';
   };
 

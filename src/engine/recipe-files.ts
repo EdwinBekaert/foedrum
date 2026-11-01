@@ -927,23 +927,19 @@ const proofsOf = (order: readonly Step[]): { id: string; of: string }[] =>
       : [],
   );
 
-/** The checks of `order` that read a survey's map against one run (ADR 0298), and the survey of each. */
-const surveyChecksOf = (order: readonly Step[]): { id: string; of: string; step: Step }[] =>
-  order.flatMap((step) =>
-    'check' in step && 'of' in step && step.of !== undefined && step.expect === 'pass'
-      ? [{ id: stepId(step), of: step.of, step }]
-      : [],
-  );
-
 /**
  * Why a check of `order` that reads a survey's map cannot (ADR 0298): its `of` names no earlier
  * step whose brewer answers with the out doc schema "survey", or it runs no test check.
  */
 function unsurveyed(order: readonly Step[], surveys: (step: Step) => boolean): string[] {
-  return surveyChecksOf(order).flatMap(({ id, of, step }) => {
-    const at = order.indexOf(step);
+  return order.flatMap((step, at) => {
+    if (!('check' in step && 'of' in step) || step.of === undefined || step.expect !== 'pass') {
+      return [];
+    }
+    const { of } = step;
+    const id = stepId(step);
     const surveyed = order.slice(0, at).find((each) => stepId(each) === of);
-    const checks = 'check' in step ? [step.check].flat() : [];
+    const checks = [step.check].flat();
     return [
       ...(surveyed !== undefined && surveys(surveyed)
         ? []
