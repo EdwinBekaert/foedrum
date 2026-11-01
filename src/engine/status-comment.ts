@@ -23,11 +23,13 @@ import {
   type Batch,
   baseChecksOn,
   type Input,
+  type Lane,
   type Pause,
   type State,
   type UsageWindows,
 } from './fold.ts';
 import { briefLine } from './merge-brief.ts';
+import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
 import { allSubIssues } from './plan-applied.ts';
@@ -46,11 +48,7 @@ import { type PairConflict, pairsOf } from './pull-request-pairs.ts';
 import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
-import {
-  type SubOrderPullRequest,
-  stateText,
-  subOrderPullRequests,
-} from './sibling-pull-requests.ts';
+import { stateText } from './sibling-pull-requests.ts';
 import { outDocLink } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { usageWindowsText } from './usage-window.ts';
@@ -425,11 +423,40 @@ const checkLine = (batch: Batch, url: string): string | undefined => {
   return `- ${link(url)} failed its checks on ${head}: ${plain(named.name)} (${named.conclusion})${at}${more}`;
 };
 
-/** A sub-order of the batch's order and its pull request, by its state (ADR 0292). */
-const subOrderPullLine = ({ subOrder, repo, pullRequest, state }: SubOrderPullRequest): string => {
+/** A sub-order's latest batch's lane, in a few words (ADR 0293). */
+const laneWords: Record<Lane['kind'], string> = {
+  ordered: 'ordered',
+  brewing: 'brewing',
+  conditioning: 'conditioning',
+  stuck: 'Stuck',
+  on_tap: 'on tap',
+  cancelled: 'cancelled',
+};
+
+/**
+ * A sub-order of the batch's order: its pull request by its state, and the release after its
+ * merge (ADR 0292); before it has one, its lane, or that its plan entry needs refinement (ADR 0293).
+ */
+const subOrderPullLine = (row: SubOrderRow): string => {
+  const { subOrder, repo, pullRequest, state, lane, release, left } = row;
   const where = `- #${subOrder} in ${plain(repo)}`;
-  if (pullRequest === undefined) return `${where}: no pull request yet`;
-  return `${where}: ${link(pullRequest)}, ${stateText[state]}`;
+  if (pullRequest === undefined) {
+    if (lane !== undefined) return `${where}: ${laneWords[lane]}, no pull request yet`;
+    return `${where}: ${left === 'needs refinement' ? left : 'not ordered yet'}`;
+  }
+  const at = release?.url === undefined ? '' : ` ${link(release.url)}`;
+  const releasedAs = release === undefined ? '' : `, released as ${plain(release.version)}${at}`;
+  return `${where}: ${link(pullRequest)}, ${stateText[state]}${releasedAs}`;
+};
+
+/** Whether the order is done, or which of its sub-orders keep it open and why (ADR 0293). */
+const orderEndLines = (rows: readonly SubOrderRow[]): string[] => {
+  const end = orderEnd(rows);
+  if (end === undefined) return [];
+  if (end.kind === 'done') return ['🍻 **Done**: every sub-order merged'];
+  if (end.left.length === 0) return [];
+  const named = end.left.map(({ subOrder, why }) => `#${subOrder} (${why})`);
+  return [`Keeps the order open: ${named.join(', ')}`];
 };
 
 /** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
@@ -496,6 +523,9 @@ const laneText = (
  */
 const PLANNED =
   'No pull request: the plan is in its own comment on this issue, and nothing is built from it yet.';
+
+/** What a split order's batch on tap says: its sub-orders' pull requests are its work (ADR 0293). */
+const SPLIT = "No pull request of its own: its sub-orders' are listed above.";
 
 /** Whether an attempt of `batch` succeeded with a plan (ADR 0233). */
 const planned = (batch: Batch): boolean =>
@@ -1029,8 +1059,8 @@ export const renderStatus = (
   planComment?: string,
   /** The sub-issues its approved plan opened, once all are, which the On tap line names (ADR 0285). */
   subIssues?: readonly number[],
-  /** The pull requests of its order's sub-orders, in merge order, once it is split (ADR 0292). */
-  subOrderPulls: readonly SubOrderPullRequest[] = [],
+  /** Its order's sub-orders, in merge order, once it is split (ADR 0292, ADR 0293). */
+  subOrderPulls: readonly SubOrderRow[] = [],
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1044,6 +1074,7 @@ export const renderStatus = (
     [`### Foedrum · batch ${code(batch.id)}`],
     [
       ...laneText(batch, told, planComment, subIssues),
+      ...orderEndLines(subOrderPulls),
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
@@ -1079,7 +1110,10 @@ export const renderStatus = (
     const { pullRequests } = batch.lane;
     sections.push(
       pullRequests.length === 0
-        ? [planned(batch) ? PLANNED : 'No pull request.']
+        ? [
+            // A split order's work is its sub-orders' pull requests, which the rows list (ADR 0293).
+            subOrderPulls.length > 0 ? SPLIT : planned(batch) ? PLANNED : 'No pull request.',
+          ]
         : [
             '**Pull requests**',
             ...onePerPullRequest(pullRequests, [
@@ -1159,7 +1193,7 @@ const statusDue = (
     stateBranchUrl,
     planComment,
     allSubIssues(state, batchId),
-    batch.decomposed === true ? subOrderPullRequests(state, batch.issue) : [],
+    batch.decomposed === true ? subOrderRows(state, batch.issue) : [],
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

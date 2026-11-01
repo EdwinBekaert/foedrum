@@ -2,7 +2,8 @@
 // names no Brewery issue, so no `Closes` line closes it on the merge; the engine does, through the
 // ledger, once every pull request of the issue's batch merged. What is due comes from the recorded
 // events alone (`pull_request.ended`); each effect is found by its key before it is applied
-// (ADR 0033). A claimed batch's Brewery issue closes with its claim's release (ADR 0144).
+// (ADR 0033). A claimed batch's Brewery issue closes with its claim's release (ADR 0144). A split
+// order's issue closes once every sub-order its latest breakdown keeps merged (ADR 0293).
 
 import { pullRequestOf } from '../schemas/events.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
@@ -12,6 +13,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { Batch, State } from './fold.ts';
+import { orderEnd, subOrderRows } from './order-end.ts';
 
 export interface BreweryClosesOptions {
   marks: Pick<IssueMarks, 'findComment' | 'comment' | 'issueState' | 'setIssueState'>;
@@ -28,6 +30,13 @@ interface DueClose {
   body: string;
 }
 
+/** `pullRequests` as `owner/name#<n>`. */
+const namesOf = (pullRequests: readonly string[]): string[] =>
+  pullRequests.map((url) => {
+    const { repo, number } = pullRequestOf(url);
+    return `${repo}#${number}`;
+  });
+
 /** The pull requests of `batch` when every one of them merged; none while one is open or closed. */
 const mergedWork = (batch: Batch): readonly string[] => {
   const { lane } = batch;
@@ -42,16 +51,18 @@ const mergedWork = (batch: Batch): readonly string[] => {
  */
 const dueClose = (state: State, batch: Batch): DueClose | undefined => {
   if (batch.repo !== undefined) return undefined;
-  const merged = mergedWork(batch);
   const issue = breweryIssueOf(state, batch);
-  if (merged.length === 0 || issue === undefined || !latestOf(state, batch, issue)) {
-    return undefined;
+  if (issue === undefined || !latestOf(state, batch, issue)) return undefined;
+  // A split order's batch opened no pull request: its sub-orders' are its work (ADR 0293).
+  if (batch.decomposed === true) {
+    const end = orderEnd(subOrderRows(state, batch.issue));
+    if (batch.lane.kind !== 'on_tap' || end?.kind !== 'done') return undefined;
+    const names = namesOf(end.pullRequests).join(', ');
+    return { issue, body: `Every sub-order merged: ${names}. Foedrum closes this order.` };
   }
-  const names = merged.map((url) => {
-    const { repo, number } = pullRequestOf(url);
-    return `${repo}#${number}`;
-  });
-  return { issue, body: `Merged as ${names.join(', ')}; Foedrum closes this issue.` };
+  const merged = mergedWork(batch);
+  if (merged.length === 0) return undefined;
+  return { issue, body: `Merged as ${namesOf(merged).join(', ')}; Foedrum closes this issue.` };
 };
 
 /**

@@ -357,7 +357,7 @@ describe('sibling pull requests (ADR 0292)', () => {
       lines.includes('- #2 in acme/lib-core: <https://github.com/acme/lib-core/pull/7>, merged'),
       created[0],
     );
-    assert.ok(lines.includes('- #3 in acme/web: no pull request yet'), created[0]);
+    assert.ok(lines.includes('- #3 in acme/web: ordered, no pull request yet'), created[0]);
   });
 
   it('gives an order with one sub-order no sibling section (regression test)', () => {
