@@ -5,7 +5,7 @@
 // repositories' releases the intake reads for that (ADR 0223).
 
 import type { Dependency, PlanOrigin } from '../schemas/events.ts';
-import { orderKey, type State } from './fold.ts';
+import { orderKey, type Release, type State } from './fold.ts';
 import { orderOfBatch } from './pauses.ts';
 
 /** A ready sub-order, with the batch it is ordered under: its order's latest. */
@@ -38,21 +38,28 @@ const mergesOf = (state: State, issue: number): number[] =>
   mergedOf(state, issue).flatMap((url) => state.merges.get(url) ?? []);
 
 /**
+ * The first release recorded of the repository of `blockedBy`, in any case, after a merge of its
+ * pull requests: the one that makes a `release` dependency on it done (ADR 0216).
+ */
+const releaseAfterMerge = (state: State, blockedBy: number): Release | undefined => {
+  const merges = mergesOf(state, blockedBy);
+  const repo = state.subOrders.get(blockedBy)?.repo.toLowerCase();
+  return state.releases.find(
+    (release) =>
+      release.repo.toLowerCase() === repo && merges.some((merged) => merged < release.seq),
+  );
+};
+
+/**
  * Whether the sub-order a dependency is blocked by is done: its pull request merged, and for
  * `release`, its repository released after that merge, in any case (ADR 0211, ADR 0216).
  */
 const isDone = (state: State, { blockedBy, kind }: Dependency): boolean => {
-  const merges = mergesOf(state, blockedBy);
   switch (kind) {
     case 'code':
-      return merges.length > 0;
-    case 'release': {
-      const repo = state.subOrders.get(blockedBy)?.repo.toLowerCase();
-      return state.releases.some(
-        (release) =>
-          release.repo.toLowerCase() === repo && merges.some((merged) => merged < release.seq),
-      );
-    }
+      return mergesOf(state, blockedBy).length > 0;
+    case 'release':
+      return releaseAfterMerge(state, blockedBy) !== undefined;
     default:
       return kind satisfies never;
   }
