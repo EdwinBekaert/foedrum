@@ -24,6 +24,8 @@ export type InputSource =
   | { kind: 'change'; since: string }
   /** The entry of the approved plan a sub-order was ordered from (ADR 0290). */
   | { kind: 'plan-entry'; origin: PlanOrigin }
+  /** The releases a sub-order waited for, each tag as written (ADR 0291). */
+  | { kind: 'release'; issue: number; releases: readonly { repo: string; version: string }[] }
   /** The Brewery's recipes a step that chooses the recipe may offer (ADR 0232). */
   | { kind: 'recipes' }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
@@ -95,6 +97,10 @@ function describeSource(source: InputSource): string {
     case 'plan-entry': {
       const { batchId, stepId, attempt, entry } = source.origin;
       return `entry ${entry} of the plan of batch ${batchId}, step ${stepId}#${attempt}`;
+    }
+    case 'release': {
+      const released = source.releases.map(({ repo, version }) => `${repo} ${version}`);
+      return `the releases sub-order #${source.issue} waited for: ${released.join(', ')}`;
     }
     case 'recipes':
       return "the Brewery's recipes to offer";

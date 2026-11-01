@@ -67,6 +67,26 @@ describe('assembleBrewerPrompt (#106, ADR 0041)', () => {
     assert.equal(count(prompt, `</untrusted-input-${nonce}>`), inputs.length);
   });
 
+  it('names every release a sub-order waited for, each tag as written (ADR 0291): regression test', () => {
+    const releases = [
+      { repo: 'acme/lib', version: 'lib@1.4.0' },
+      { repo: 'acme/core', version: 'v2.0.0' },
+    ];
+    const release: PromptInput = {
+      name: 'release',
+      source: { kind: 'release', issue: 3, releases },
+      text: 'Two releases.',
+    };
+    const { prompt } = assembled(assembleBrewerPrompt(instructions, [release], fixed));
+    assert.deepStrictEqual(blocks(prompt, nonce), [
+      {
+        attributes:
+          'source="the releases sub-order #3 waited for: acme/lib lib@1.4.0, acme/core v2.0.0" name="release"',
+        text: 'Two releases.',
+      },
+    ]);
+  });
+
   it('names the file a house-yeast rule was read from (ADR 0169)', () => {
     const rule: PromptInput = {
       name: 'houseYeast',

@@ -17,7 +17,7 @@ import {
 import type { TargetIssue } from '../../src/engine/issue-claims.ts';
 import type { LatestRelease, ReleaseReader } from '../../src/engine/releases.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import { type Event, MAX_RELEASE_NOTES_LENGTH } from '../../src/schemas/events.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
@@ -187,6 +187,96 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     await poll(reader);
     assert.deepStrictEqual(given, [tag]);
     assert.deepStrictEqual(releases(), [`${lib} lib-core v1.0.0`]);
+  });
+
+  it("records a release's page and notes as the reader gave them, and a bare tag's neither (ADR 0291)", async () => {
+    const page = 'https://github.com/acme/lib-core/releases/tag/v1.0.0';
+    const recordedOf = () =>
+      log.state().releases.map(({ version, url, notes }) => ({ version, url, notes }));
+    recorded(...waiting);
+    const notes = '## Features\n\n- A faster parser';
+    await poll(
+      fakeReader({ [lib]: { ...v1, url: page, notes } }, { [v1.version]: [pr(5)] }).reader,
+    );
+    assert.deepStrictEqual(recordedOf(), [{ version: 'v1.0.0', url: page, notes }]);
+    store.close();
+    store = openSqliteEventStore(':memory:');
+    recorded(...waiting);
+    await poll(fakeReader({ [lib]: { ...v1, tag: true } }, { [v1.version]: [pr(5)] }).reader);
+    assert.deepStrictEqual(recordedOf(), [{ version: 'v1.0.0', url: undefined, notes: undefined }]);
+  });
+
+  it('records notes exactly as long as the record keeps as they are: regression test', async () => {
+    recorded(...waiting);
+    const full = 'n'.repeat(MAX_RELEASE_NOTES_LENGTH);
+    await poll(fakeReader({ [lib]: { ...v1, notes: full } }, { [v1.version]: [pr(5)] }).reader);
+    assert.equal(log.state().releases[0]?.notes, full);
+  });
+
+  it('cuts notes longer than the record keeps to that length, ending in an ellipsis (ADR 0291)', async () => {
+    recorded(...waiting);
+    const long = 'n'.repeat(MAX_RELEASE_NOTES_LENGTH + 10);
+    await poll(fakeReader({ [lib]: { ...v1, notes: long } }, { [v1.version]: [pr(5)] }).reader);
+    const [release] = log.state().releases;
+    assert.equal(release?.notes, `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 1)}…`);
+    assert.deepStrictEqual(
+      notices.filter(({ kind }) => kind === 'failed'),
+      [],
+    );
+  });
+
+  it('cuts long notes after their last whole line, so no line is cut in the middle (review of #753)', async () => {
+    recorded(...waiting);
+    const notes = `- A faster parser\n${'t'.repeat(MAX_RELEASE_NOTES_LENGTH)}`;
+    await poll(fakeReader({ [lib]: { ...v1, notes } }, { [v1.version]: [pr(5)] }).reader);
+    assert.equal(log.state().releases[0]?.notes, '- A faster parser\n…');
+  });
+
+  it('cuts a long first line on a code point, never inside a surrogate pair (review of #753)', async () => {
+    recorded(...waiting);
+    const face = String.fromCodePoint(0x1f600);
+    const notes = `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 2)}${face}${'n'.repeat(10)}`;
+    await poll(fakeReader({ [lib]: { ...v1, notes } }, { [v1.version]: [pr(5)] }).reader);
+    assert.equal(log.state().releases[0]?.notes, `${'n'.repeat(MAX_RELEASE_NOTES_LENGTH - 2)}…`);
+  });
+
+  describe('the secret filter on release notes, before they are recorded (review of #753)', () => {
+    // Built at run time, so the repository holds no secret-shaped text.
+    const token = `ghp_${'A1b2'.repeat(9)}`;
+    const recordedNotes = async (notes: string): Promise<string | undefined> => {
+      recorded(...waiting);
+      await poll(fakeReader({ [lib]: { ...v1, notes } }, { [v1.version]: [pr(5)] }).reader);
+      return log.state().releases[0]?.notes;
+    };
+
+    it('leaves out the lines of the notes that look like secrets, and says how many', async () => {
+      const notes = ['## Fixes', `- Rotated ${token}`, '- A faster parser', `token: ${token}`];
+      assert.equal(
+        await recordedNotes(notes.join('\r\n')),
+        '## Fixes\n- A faster parser\n\n(2 lines of the notes left out: they looked like secrets)',
+      );
+    });
+
+    it('says one line of the notes was left out when one was', async () => {
+      assert.equal(
+        await recordedNotes(`- A faster parser\n${token}`),
+        '- A faster parser\n\n(1 line of the notes left out: they looked like secrets)',
+      );
+    });
+
+    it('keeps a changelog line that links a commit by its full hash, which the notes publish', async () => {
+      const line = `* **api:** add retry ([a1b2c3d](https://github.com/acme/lib-core/commit/${'a1b2c3d4'.repeat(5)}))`;
+      assert.equal(await recordedNotes(line), line);
+    });
+
+    it('keeps the count line when the notes left are cut to what the record keeps', async () => {
+      const notes = `${token}\n- A faster parser\n${'t'.repeat(MAX_RELEASE_NOTES_LENGTH)}`;
+      const kept = await recordedNotes(notes);
+      assert.equal(
+        kept,
+        '- A faster parser\n…\n\n(1 line of the notes left out: they looked like secrets)',
+      );
+    });
   });
 
   it('records the repository as the breakdown spells it', async () => {
