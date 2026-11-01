@@ -264,6 +264,11 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
       );
     });
 
+    it('keeps a changelog line that links a commit by its full hash, which the notes publish', async () => {
+      const line = `* **api:** add retry ([a1b2c3d](https://github.com/acme/lib-core/commit/${'a1b2c3d4'.repeat(5)}))`;
+      assert.equal(await recordedNotes(line), line);
+    });
+
     it('keeps the count line when the notes left are cut to what the record keeps', async () => {
       const notes = `${token}\n- A faster parser\n${'t'.repeat(MAX_RELEASE_NOTES_LENGTH)}`;
       const kept = await recordedNotes(notes);
