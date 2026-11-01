@@ -457,9 +457,10 @@ export const wireDriver = async (
   });
   driver = {
     ...inner,
+    // After the tick, which renews the leases, so a slow GitHub delays none of them.
     tick: async () => {
-      await visibilities.read(signal);
       await inner.tick();
+      await visibilities.read(signal);
     },
   };
   opened.driver = driver;

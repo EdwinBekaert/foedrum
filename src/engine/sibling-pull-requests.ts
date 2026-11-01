@@ -86,6 +86,10 @@ export const subOrderPullRequests = (state: State, order: number): SubOrderPullR
   });
 };
 
+/** How wide a repository's readers are, `unknown` counted as `as` (ADR 0300). */
+const audience = (visibility: Visibility, as: 'public' | 'private'): number =>
+  ({ private: 0, internal: 1, public: 2 })[visibility === 'unknown' ? as : visibility];
+
 const HEADING = '## Pull requests of this order';
 /** The line that ends the section, so a revision finds where it stops. */
 const END = '<!-- foedrum:siblings -->';
@@ -132,12 +136,14 @@ export const siblingSection = (
   const dependencies: readonly Dependency[] = state.orders.get(own.order)?.dependencies ?? [];
   // The batch names itself the same before and after its pull request opens, so the open's section
   // is the one the next pass computes.
-  // A repository that could not be read counts as private, this one's as public (ADR 0300).
-  const shown = visibility(own.repo) === 'private';
+  // A sibling is named where everyone who reads this pull request can read it too: a repository
+  // that could not be read counts as private, this one's as public (ADR 0300).
+  const readers = audience(visibility(own.repo), 'public');
   const hidden = new Set(
     entries
       .filter(
-        ({ subOrder, repo }) => subOrder !== own.issue && !shown && visibility(repo) !== 'public',
+        ({ subOrder, repo }) =>
+          subOrder !== own.issue && audience(visibility(repo), 'private') < readers,
       )
       .map(({ subOrder }) => subOrder),
   );

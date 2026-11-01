@@ -14,7 +14,10 @@ export interface RepositoryVisibilities {
   read(signal?: AbortSignal): Promise<void>;
 }
 
-/** What GitHub answers of `repo`: public only when it says so; `internal` is private. */
+/**
+ * What GitHub answers of `repo`: public only when it says so. A 404 is a repository the login
+ * cannot see, so private for the run; any other failure is unknown, read again.
+ */
 const readVisibility = async (
   client: GitHubClient,
   repo: string,
@@ -22,9 +25,11 @@ const readVisibility = async (
 ): Promise<Visibility> => {
   try {
     const answer = await client.rest('GET', `/repos/${repoPath(repo)}`, undefined, signal);
+    if (answer.status === 404) return 'private';
     const parsed = GitHubRepositoryVisibility.safeParse(answer.body);
     if (answer.status !== 200 || !parsed.success) return 'unknown';
     const { private: isPrivate, visibility } = parsed.data;
+    if (visibility === 'internal') return 'internal';
     return !isPrivate && (visibility === undefined || visibility === 'public')
       ? 'public'
       : 'private';
@@ -43,11 +48,13 @@ export const repositoryVisibilities = (
   return {
     of: (repo) => known.get(repo.toLowerCase()) ?? 'unknown',
     read: async (signal) => {
-      for (const repo of repos) {
-        const key = repo.toLowerCase();
-        if (known.get(key) !== 'unknown') continue;
-        known.set(key, await readVisibility(client, repo, signal));
-      }
+      // At once, so a slow answer holds up no other.
+      const unread = repos.filter((repo) => known.get(repo.toLowerCase()) === 'unknown');
+      await Promise.all(
+        unread.map(async (repo) => {
+          known.set(repo.toLowerCase(), await readVisibility(client, repo, signal));
+        }),
+      );
     },
   };
 };
