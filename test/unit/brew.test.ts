@@ -542,14 +542,24 @@ describe('runBrew', () => {
   /** How many times the driver read whether acme/web is public. */
   const visibilityReads = () =>
     api.requests.filter((request) => request === 'GET /repos/acme/web').length;
+  /** The fake GitHub, answering whether acme/web is public with `answer`. */
+  const answeringVisibility = (answer: { status: number; body?: unknown }) =>
+    fakeGitHubApi({
+      login: 'ann',
+      issues: api.issues,
+      instead: (method, url) =>
+        method === 'GET' && url.pathname === '/repos/acme/web' ? answer : undefined,
+    });
 
   it("reads a repository's visibility again on each tick while it could not be read (ADR 0300)", async () => {
-    // The fake answers no repository: unknown, so every tick reads it again.
+    // GitHub fails to answer: unknown, so every tick reads it again.
+    api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     assert.ok(visibilityReads() > 2, api.requests.join('|'));
   });
 
   it("reads a repository's visibility again only after the tick, which renews the leases first (ADR 0300)", async () => {
+    api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     const reads = api.requests.flatMap((request, at) =>
       request === 'GET /repos/acme/web' ? [at] : [],
@@ -566,14 +576,7 @@ describe('runBrew', () => {
   });
 
   it("reads a repository's visibility once when GitHub answers it (ADR 0300)", async () => {
-    api = fakeGitHubApi({
-      login: 'ann',
-      issues: api.issues,
-      instead: (method, url) =>
-        method === 'GET' && url.pathname === '/repos/acme/web'
-          ? { status: 200, body: { private: false, visibility: 'public' } }
-          : undefined,
-    });
+    api = answeringVisibility({ status: 200, body: { private: false, visibility: 'public' } });
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     assert.equal(visibilityReads(), 1);
   });
