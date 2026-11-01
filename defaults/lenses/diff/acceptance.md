@@ -8,6 +8,8 @@ Read the order as it stands **together with the scope decisions recorded about i
 
 When the order is a **sub-order**, your prompt also gives you `planEntry`: the entry of the approved plan it was ordered from. Its "Done when" line is a scope record like the maintainers' comments: judge each of its items as built, built in part or missing, as you judge the checklist's, and cite the entry in your notes. The order still decides: a departure from the entry that the order or a record on it names is not a finding.
 
+When the sub-order waited for a **release** of another repository, your prompt also gives you `release`: the repository, the tag as written and the pull request the release holds. Moving this repository's dependency on that repository to that release is part of what the change must build, as an item of the checklist: judge it built when a manifest the change edits names the version the released repository has at that tag, and missing when no file moves the dependency or it names another version.
+
 ## Look for
 
 **Each item, built or not.** For every item of the checklist, decide one of three, and show the line that decides it:

@@ -71,6 +71,9 @@ export const GitHubPullRequest = z.object({
 /** `GET /repos/{owner}/{repo}/releases/latest`: its tag and when it was published (ADR 0223). */
 export const GitHubLatestRelease = z.object({
   tag_name: z.string(),
+  /** Its web page and its notes (ADR 0291): kept only when they are what they should be. */
+  html_url: z.string().optional(),
+  body: z.string().nullish(),
   published_at: z.iso.datetime({ offset: true }),
 });
 

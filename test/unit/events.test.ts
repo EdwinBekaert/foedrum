@@ -265,6 +265,21 @@ describe('Event', () => {
     it(`accepts ${type}`, () => accepts(Event, event));
   }
 
+  it("holds a release's page to https without credentials and its notes to 4000 characters (ADR 0291): regression test", () => {
+    const release = {
+      type: 'release.observed',
+      repo: 'acme/lib',
+      package: 'lib',
+      version: 'v1.4.0',
+      url: 'https://github.com/acme/lib/releases/tag/v1.4.0',
+      notes: 'n'.repeat(4000),
+    };
+    accepts(Event, release);
+    rejects(Event, { ...release, notes: 'n'.repeat(4001) });
+    rejects(Event, { ...release, url: 'http://github.com/acme/lib/releases/tag/v1.4.0' });
+    rejects(Event, { ...release, url: 'https://u:p@github.com/acme/lib/releases/tag/v1.4.0' });
+  });
+
   it('accepts optional fields left out', () => {
     accepts(Event, {
       type: 'batch.ordered',

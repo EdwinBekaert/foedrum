@@ -402,7 +402,11 @@ export interface Bottle {
 export interface Release {
   repo: string;
   package: string;
+  /** Its tag as the code host has it (ADR 0291). */
   version: string;
+  /** Its web page and its notes, when it is a release and not a bare tag (ADR 0291). */
+  url?: string;
+  notes?: string;
   /** Its position among the merges and releases the fold recorded (`State.merges`, ADR 0216). */
   seq: number;
 }
@@ -814,8 +818,15 @@ function apply(state: State, event: Event): State {
       return { ...state, bottles: put(state.bottles, id, { id, repo, subOrders, pullRequest }) };
     }
     case 'release.observed': {
-      const { repo, package: name, version } = event;
-      const release = { repo, package: name, version, seq: nextPosition(state) };
+      const { repo, package: name, version, url, notes } = event;
+      const release: Release = {
+        repo,
+        package: name,
+        version,
+        ...(url === undefined ? {} : { url }),
+        ...(notes === undefined ? {} : { notes }),
+        seq: nextPosition(state),
+      };
       return { ...state, releases: [...state.releases, release] };
     }
     case 'batch.rewound': {
