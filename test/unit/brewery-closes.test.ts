@@ -153,6 +153,25 @@ describe('breweryCloseEffects', () => {
     assert.deepStrictEqual(ledger('close.issue'), { result: null });
   });
 
+  it('leaves the Brewery issue to its newer batch when the issue was ordered again after a merge', async () => {
+    onTap('one');
+    ended(web, 'merged');
+    // A person reopened #12 and ordered it again; its new batch is brewing.
+    issue({
+      kind: 'order_again',
+      batchId: '12-2',
+      order: { issue: 12 },
+      by: 'ann',
+      via: 'terminal',
+    });
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().state, undefined);
+    assert.equal(order().comments.length, 0);
+    assert.equal(ledger('close.comment'), undefined);
+    assert.equal(ledger('close.issue'), undefined);
+  });
+
   it('ends the close as gone when a person deleted the Brewery issue', async () => {
     onTap('one');
     ended(web, 'merged');
