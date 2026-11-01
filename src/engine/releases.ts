@@ -24,13 +24,19 @@ const cut = (notes: string, most: number): string => {
 };
 
 /**
+ * A full commit hash in release notes, such as a changelog's link to a commit: the notes publish
+ * it, so it is no secret (`findSecrets` asks this only of a 40-character hexadecimal string).
+ */
+const publishedCommit = (): boolean => true;
+
+/**
  * Release notes as a record keeps them (ADR 0291): with LF line ends, every line that looks like a
  * secret left out and a last line that says how many were, the rest cut to what the record keeps.
  * The record goes to the state branch, and the input reads it as it is.
  */
 const recordedNotes = (notes: string): string => {
   const all = notes.split(/\r?\n/);
-  const kept = all.filter((line) => findSecrets(line, () => false).length === 0);
+  const kept = all.filter((line) => findSecrets(line, publishedCommit).length === 0);
   const left = all.length - kept.length;
   if (left === 0) return cut(kept.join('\n'), MAX_RELEASE_NOTES_LENGTH);
   const lines = left === 1 ? '1 line' : `${left} lines`;
