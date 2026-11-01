@@ -206,6 +206,13 @@ describe('the intake records the releases a release blocker waits on (ADR 0223)'
     assert.deepStrictEqual(recordedOf(), [{ version: 'v1.0.0', url: undefined, notes: undefined }]);
   });
 
+  it('records notes exactly as long as the record keeps as they are: regression test', async () => {
+    recorded(...waiting);
+    const full = 'n'.repeat(MAX_RELEASE_NOTES_LENGTH);
+    await poll(fakeReader({ [lib]: { ...v1, notes: full } }, { [v1.version]: [pr(5)] }).reader);
+    assert.equal(log.state().releases[0]?.notes, full);
+  });
+
   it('cuts notes longer than the record keeps to that length, ending in an ellipsis (ADR 0291)', async () => {
     recorded(...waiting);
     const long = 'n'.repeat(MAX_RELEASE_NOTES_LENGTH + 10);

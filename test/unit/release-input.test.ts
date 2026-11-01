@@ -129,6 +129,93 @@ describe('releaseInput', () => {
     );
   });
 
+  it('gives no release input to a sibling sub-order that waits on no release, while #3 waits on one: regression test', () => {
+    const events: Event[] = [
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 2, repo: lib },
+          { issue: 3, repo: web },
+          { issue: 4, repo: web },
+        ],
+        dependencies: [{ subOrder: 3, blockedBy: 2, kind: 'release' }],
+      },
+      ...merged().slice(2),
+      released('v1.4.0'),
+      ordered('3-1', 3, '1-1'),
+      ordered('4-1', 4, '1-1'),
+    ];
+    assert.deepStrictEqual(inputOf(events)?.releases, [{ repo: lib, version: 'v1.4.0' }]);
+    assert.equal(inputOf(events, '4-1'), undefined);
+  });
+
+  it('gives one section per release blocker, in the order the breakdown names them: regression test', () => {
+    const core = 'acme/core';
+    const corePr = 'https://github.com/acme/core/pull/6';
+    const events: Event[] = [
+      ordered('1-1', 1),
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 2, repo: lib },
+          { issue: 3, repo: web },
+          { issue: 4, repo: core },
+        ],
+        dependencies: [
+          { subOrder: 3, blockedBy: 2, kind: 'release' },
+          { subOrder: 3, blockedBy: 4, kind: 'release' },
+        ],
+      },
+      ...merged().slice(2),
+      ordered('4-1', 4, '1-1'),
+      { type: 'batch.on_tap', batchId: '4-1', pullRequests: [corePr] },
+      { type: 'pull_request.ended', batchId: '4-1', pullRequest: corePr, state: 'merged' },
+      // Recorded in the other order than the breakdown names the blockers.
+      { type: 'release.observed', repo: core, package: 'core', version: 'v2.0.0' },
+      released('v1.4.0'),
+      ordered('3-1', 3, '1-1'),
+    ];
+    const input = inputOf(events);
+    assert.deepStrictEqual(input?.releases, [
+      { repo: lib, version: 'v1.4.0' },
+      { repo: core, version: 'v2.0.0' },
+    ]);
+    assert.match(
+      input?.text ?? '',
+      /pull\/5\n\n#### The release of acme\/core that #3 waited for\n- Tag, as written: v2\.0\.0\n/,
+    );
+  });
+
+  it("names only the blocker's pull requests merged before the release: regression test", () => {
+    const events: Event[] = [
+      ...merged(),
+      released('v1.4.0'),
+      ordered('2-2', 2, '1-1'),
+      { type: 'batch.on_tap', batchId: '2-2', pullRequests: [pr(7)] },
+      { type: 'pull_request.ended', batchId: '2-2', pullRequest: pr(7), state: 'merged' },
+      ordered('3-1', 3, '1-1'),
+    ];
+    const text = inputOf(events)?.text ?? '';
+    assert.match(text, /- Merged pull request of #2: https:\/\/github\.com\/acme\/lib\/pull\/5$/);
+    assert.ok(!text.includes(pr(7)));
+  });
+
+  it('says one line of the notes was left out when one was: regression test', () => {
+    const token = `ghp_${'A1b2'.repeat(9)}`;
+    const input = inputOf([
+      ...merged(),
+      released('v1.4.0', { url: releasePage('v1.4.0'), notes: `- A faster parser\n${token}` }),
+      ordered('3-1', 3, '1-1'),
+    ]);
+    assert.match(
+      input?.text ?? '',
+      /\n- A faster parser\n\n\(1 line of the notes left out: they looked like secrets\)$/,
+    );
+  });
+
   it('folds a release recorded before releases had a page or notes as before: regression test', () => {
     const old: Event = { type: 'release.observed', repo: lib, package: 'lib', version: 'v1.4.0' };
     const state = fold([...merged(), old]);
