@@ -249,14 +249,17 @@ const keyOf = (path: string, foldCase: boolean): string => (foldCase ? path.toLo
  * A test's file relative to the worktree's root with `/` between folders, from either of `roots`
  * (the worktree's path and its real path), or undefined outside both.
  */
-const fileOf = ({ location }: ReportedTest, roots: readonly string[]): string | undefined => {
+export const testFileOf = (
+  { location }: ReportedTest,
+  roots: readonly string[],
+): string | undefined => {
   if (location === undefined) return undefined;
   return roots.map((root) => reportPath(location.file, root)).find((path) => path !== undefined);
 };
 
 /** A test's file as a reason shows it: relative to the root, else with `/` between folders. */
 const shownFile = (test: ReportedTest, roots: readonly string[]): string =>
-  fileOf(test, roots) ?? posix.normalize((test.location?.file ?? '').replaceAll('\\', '/'));
+  testFileOf(test, roots) ?? posix.normalize((test.location?.file ?? '').replaceAll('\\', '/'));
 
 /**
  * The key in `files` (paths by their key) of the file a test's location names: by its path from the
@@ -271,7 +274,7 @@ const placedIn = (
   foldCase: boolean,
   ofModule: (key: string) => boolean = () => true,
 ): string | undefined => {
-  const file = fileOf(test, roots);
+  const file = testFileOf(test, roots);
   if (file === undefined) return undefined;
   const key = keyOf(file, foldCase);
   if (files.has(key)) return key;
