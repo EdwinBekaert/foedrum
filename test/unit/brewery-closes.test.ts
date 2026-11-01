@@ -141,6 +141,18 @@ describe('breweryCloseEffects', () => {
     assert.deepStrictEqual(ledger('close.issue'), { result: null });
   });
 
+  it('posts no comment on a Brewery issue that is closed already, as one a Closes line closed before ADR 0296', async () => {
+    onTap('one');
+    ended(web, 'merged');
+    order().state = 'closed';
+    const driver = await open();
+    await driver.tick();
+    assert.equal(order().comments.length, 0);
+    assert.equal(github.calls.get('comment'), undefined);
+    assert.deepStrictEqual(ledger('close.comment'), { result: 'closed' });
+    assert.deepStrictEqual(ledger('close.issue'), { result: null });
+  });
+
   it('ends the close as gone when a person deleted the Brewery issue', async () => {
     onTap('one');
     ended(web, 'merged');
