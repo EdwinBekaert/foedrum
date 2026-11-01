@@ -2128,6 +2128,41 @@ Plan the order in {order}.
       );
     });
 
+    it('still sticks a surveying batch before its first step when the Brewery keeps the test map: regression test', async () => {
+      // A survey cannot write the Brewery, so no map would come of it (ADR 0298).
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({ testMap: 'brewery' }, surveying),
+      );
+      assert.deepStrictEqual(brewed, []);
+      assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
+        kind: 'blocked',
+        stepId: 'survey',
+        blockerKind: 'environment',
+        summary:
+          'recipe nip proves its tests red, which needs the test report of acme/web: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)',
+      });
+    });
+
+    it('still sticks a batch before its first step when its recipe skips the survey but proves red: regression test', async () => {
+      const skipping = JSON.stringify({
+        ...JSON.parse(surveying),
+        testFirst: false,
+        steps: (JSON.parse(surveying) as { steps: Record<string, unknown>[] }).steps.map((step) =>
+          step.id === 'survey' || step.id === 'survey-check'
+            ? { ...step, when: 'recipe.testFirst' }
+            : step,
+        ),
+      });
+      const { brewed, batch } = await brewTestFirst(testFirstSetup({}, skipping));
+      assert.deepStrictEqual(brewed, []);
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.equal(reason?.kind === 'blocked' && reason.stepId, 'gauge');
+      assert.match(
+        reason?.kind === 'blocked' ? reason.summary : '',
+        /which needs the test report of acme\/web/,
+      );
+    });
+
     it("ends a survey whose base's map is fresh without a session, through serve, and brews on with the Gauger", async () => {
       const testMap = JSON.stringify({
         derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
