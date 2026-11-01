@@ -6,7 +6,7 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
-import type { State } from '../engine/fold.ts';
+import { roundRouteOf, type State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { type SurveyMap, surveyOf } from '../schemas/out-doc.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
@@ -95,11 +95,9 @@ export function surveyed(options: SurveyOptions): BrewerRunner {
     }
     // Sent back by a route, such as its check's: the map in its worktree is the one that
     // disagreed, fresh by its own manifests, and the Maltster gets the reason (ADR 0128).
-    const scheduled = state()
-      .batches.get(ref.batchId)
-      ?.steps.get(ref.stepId)
-      ?.attempts.get(ref.attempt);
-    if (scheduled?.route !== undefined) return undefined;
+    // A retry or an answer starts as the attempt of its round did (ADR 0117, ADR 0118).
+    const step = state().batches.get(ref.batchId)?.steps.get(ref.stepId);
+    if (step !== undefined && roundRouteOf(step, ref.attempt) !== undefined) return undefined;
     const read = await testMap(repo, worktree.commit, signal);
     // No map, or one that cannot be read: the Maltster proposes one.
     if (read.kind !== 'map') return undefined;
