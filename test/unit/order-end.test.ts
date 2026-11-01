@@ -311,6 +311,53 @@ describe('the end of a split order (ADR 0293)', () => {
     );
   });
 
+  it('names no sub-order brewing again after its pull request closed without merging (regression test)', async () => {
+    const state = fold([
+      ...split(),
+      ...libReleased,
+      ...opened('3-1', webPull),
+      ended('3-1', webPull, 'closed'),
+      ordered('3-2', 3, '1-1'),
+      brewing('3-2'),
+    ]);
+    const lines = await statusLines(state);
+    assert.ok(
+      lines.includes(`- #3 in acme/web: <${webPull}>, closed without merging`),
+      lines.join('\n'),
+    );
+    assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
+    const github = fakeGitHub();
+    await settle(breweryCloseEffects({ marks: github.marks('alice'), brewery }), state, '1-1');
+    assert.equal(github.issue(brewery, 1).state, undefined);
+  });
+
+  it('names no sub-order that waits with no batch for its blocker, whose plan entry is ready (regression test)', async () => {
+    const state = fold([
+      ...split(),
+      ordered('2-1', 2, '1-1'),
+      ...opened('2-1', libPull),
+      ended('2-1', libPull, 'merged'),
+    ]);
+    const lines = await statusLines(state);
+    assert.ok(lines.includes('- #3 in acme/web: not ordered yet'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
+  });
+
+  it("leaves the order's issue open when a person cancelled the order's own batch (regression test)", async () => {
+    const state = fold([
+      ...split(),
+      ...bothMerged,
+      { type: 'batch.cancelled', batchId: '1-1', by: 'ann', via: 'terminal' },
+    ]);
+    const github = fakeGitHub();
+    assert.deepEqual(
+      await settle(breweryCloseEffects({ marks: github.marks('alice'), brewery }), state, '1-1'),
+      [],
+    );
+    assert.equal(github.issue(brewery, 1).state, undefined);
+    assert.equal(github.issue(brewery, 1).comments.length, 0);
+  });
+
   it('closes an order that was never split as before (regression test)', async () => {
     const github = fakeGitHub();
     const state = fold([
