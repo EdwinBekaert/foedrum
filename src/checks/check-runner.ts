@@ -951,8 +951,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
 
   /**
    * Where a passing run disagrees with the effective map (ADR 0274, ADR 0282): a module the base
-   * lists whose report path holds no report, and the test report `foedrum.jsonc` names written
-   * under no module's report path. A module only the batch adds was looked for already.
+   * lists whose report path holds no report (one only the batch adds was looked for already), a
+   * test a module's report places outside every module's areas, and the test report
+   * `foedrum.jsonc` names written under no module's report path.
    */
   const staleByRun = (worktree: WorktreeRef, modules: readonly EffectiveModule[]): string[] => {
     const find = options.testMap?.reports ?? reportPaths;
