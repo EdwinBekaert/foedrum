@@ -126,7 +126,10 @@ describe('npm run demo', () => {
       statusComment,
     );
     assert.match(statusComment, /On tap/);
-    assert.match(statusComment, /^ +Path: `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m);
+    assert.match(
+      statusComment,
+      /^ +Path: `survey #1` ✅ → `survey-check #1` ✅ → `gauge #1`.*\n +→ `implement #2`.*\n +→ `implement #3`/m,
+    );
     assert.equal(
       statusComment.match(/^ +- <https:\/\/github\.com\/demo\/web\/pull\/\d+>/gm)?.length,
       1,
@@ -220,6 +223,9 @@ describe('npm run demo', () => {
       if (outcome !== '') inOrder.push(outcome);
     }
     assert.deepStrictEqual(inOrder, [
+      // The demo repository's map is the Brewery's, so the survey and its check need no run (ADR 0298).
+      'survey#1 succeeded',
+      'survey-check#1 succeeded',
       'gauge#1 failed',
       'gauge#2 succeeded',
       'red#1 succeeded',

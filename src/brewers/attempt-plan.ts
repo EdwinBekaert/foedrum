@@ -32,6 +32,8 @@ import {
   PULL_REQUEST,
   PullRequestOutDoc,
   placeOf,
+  SURVEY,
+  SurveyOutDoc,
   TASTING,
   type TastingFinding,
   TastingOutDoc,
@@ -130,8 +132,8 @@ export function attemptLimits(
   const { maxTurns, maxDenials } = brewer;
   // A pullRequest brewer's out doc is read with its sections (ADR 0167), a Finer's with its
   // changes (ADR 0166), a Gauger's with its tests (ADR 0170), a plan with its sub-orders (ADR 0233),
-  // a recipe choice with its one question (ADR 0232); every other out doc against the contract's
-  // schema.
+  // a recipe choice with its one question (ADR 0232), a survey with why its map changed (ADR 0298);
+  // every other out doc against the contract's schema.
   const { schema: name } = brewer.output;
   const schema =
     name === TASTING
@@ -148,7 +150,9 @@ export function attemptLimits(
               ? PlanOutDoc
               : name === RECIPE_CHOICE
                 ? recipeChoiceOutDocOf(choices)
-                : OutDocFrontmatter;
+                : name === SURVEY
+                  ? SurveyOutDoc
+                  : OutDocFrontmatter;
   return {
     outDoc: { file: brewer.output.doc, schema },
     ...(blocking ? { blocking } : {}),

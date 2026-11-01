@@ -150,7 +150,9 @@ export const scriptedOutDoc = ({ summary, tasting, fining, dispositions, doc }: 
 
 /**
  * The repository's checks and test report: only `test`, which writes TAP to stdout, as the red
- * proof reads it (ADR 0017).
+ * proof reads it (ADR 0017). Its test map is the Brewery's, which has none, so Nip's survey ends
+ * without a session and the red proof reads the tests' names (ADR 0298); #750 brews it through a
+ * real map.
  */
 export const nipTargetConfig = () => ({
   checks: {
@@ -161,6 +163,7 @@ export const nipTargetConfig = () => ({
     test: 'node --test --test-reporter=tap',
   },
   testReport: { format: 'tap' },
+  testMap: 'brewery',
 });
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;

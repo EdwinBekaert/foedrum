@@ -65,6 +65,8 @@ const Guard = z.enum([
   'testsUnchanged',
   'scope',
   'diffLimits',
+  // The attempt's commits change the test map only: the Maltster's (ADR 0298).
+  'testMapOnly',
 ]);
 
 // `setup` is not a brewer field: it depends on the repository, so it is in foedrum.jsonc (ADR 0023).
