@@ -11,6 +11,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { pullRequestKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { type FakeGitHub, fakeGitHub } from '../helpers/fake-github.ts';
@@ -236,6 +237,12 @@ describe('breweryCloseEffects', () => {
         order: { issue: 12 },
         parentBatchId: '1-1',
         routeBy,
+      });
+      // The ledger's open of its pull request, which the order's sub-orders are read by.
+      tx.append({
+        type: 'effect.applied',
+        key: effectKey.encode(pullRequestKey('12-1')),
+        result: web,
       });
       tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [web] });
     });
