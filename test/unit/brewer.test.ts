@@ -107,7 +107,10 @@ describe('BrewerFrontmatter', () => {
       inputs: [{ name: 'x', from: 'web:x' }],
     });
     assert.equal(read.success, false);
-    assert.match(read.error?.issues[0]?.message ?? '', /"plan", "plan-entry", "release", "step:<step id>"/);
+    assert.match(
+      read.error?.issues[0]?.message ?? '',
+      /"plan", "plan-entry", "release", "step:<step id>"/,
+    );
   });
 
   it('defaults an input to untrusted', () => {
