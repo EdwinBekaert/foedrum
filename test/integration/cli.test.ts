@@ -382,8 +382,8 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     mkdirSync(join(brewery.path, '.foedrum'));
     mkdirSync(join(brewery.path, 'brewers'));
     mkdirSync(join(brewery.path, 'recipes'));
-    writeFileSync(join(brewery.path, 'brewers', 'maltster.md'), brewerText('maltster'));
-    // 12-1 brews pale and got Stuck at its maltster step.
+    writeFileSync(join(brewery.path, 'brewers', 'roaster.md'), brewerText('roaster'));
+    // 12-1 brews pale and got Stuck at its roaster step.
     const writer = openSqliteEventStore(store);
     writer.withTransaction((tx) => {
       tx.append({
@@ -404,7 +404,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
         batchId: '12-1',
         reason: {
           kind: 'attempts_exhausted',
-          stepId: 'maltster',
+          stepId: 'roaster',
           attempts: 2,
           lastReason: 'tests fail',
         },
@@ -421,12 +421,12 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     writeFileSync(join(brewery.path, 'recipes', 'pale.jsonc'), recipeText('pale', steps));
 
   it("schedules a step with the deadline of the Brewery's brewer", async () => {
-    writeRecipe([{ brewer: 'maltster' }]);
+    writeRecipe([{ brewer: 'roaster' }]);
     const before = Date.now();
     const { exitCode, stdout, stderr } = await foedrum('retry', '12-1');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(stdout, /^12-1 brewing: maltster #1 scheduled/);
+    assert.match(stdout, /^12-1 brewing: roaster #1 scheduled/);
     const reader = openSqliteEventStore(store, { readOnly: true });
     const scheduled = reader
       .eventsAfter(0)
@@ -434,17 +434,17 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     reader.close();
     assert.equal(scheduled.length, 1);
     const deadlineAt = Date.parse(scheduled[0]?.deadlineAt ?? '');
-    // The maltster's deadline is 30 minutes.
+    // The roaster's deadline is 30 minutes.
     assert.ok(deadlineAt >= before + 30 * 60_000 && deadlineAt <= Date.now() + 30 * 60_000);
   });
 
   it("reports the Brewery's brewer with the batch Stuck at its step, and appends nothing (ADR 0159)", async () => {
-    writeRecipe([{ brewer: 'maltster' }]);
+    writeRecipe([{ brewer: 'roaster' }]);
     const { exitCode, stdout, stderr } = await foedrum('brewers');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
     assert.ok(
-      stdout.includes('maltster  brewers/maltster.md\n  no attempts\n  Stuck: 12-1\n'),
+      stdout.includes('roaster  brewers/roaster.md\n  no attempts\n  Stuck: 12-1\n'),
       stdout,
     );
     // Foedrum's default brewers are in use too (ADR 0098).
@@ -455,7 +455,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
   });
 
   it("is refused with doctor's line when a recipe file is not valid, and changes nothing", async () => {
-    writeRecipe([{ brewer: 'maltster' }, { id: 'approve', gate: 'human', deadline: '1d' }]);
+    writeRecipe([{ brewer: 'roaster' }, { id: 'approve', gate: 'human', deadline: '1d' }]);
     const line = `${INVALID_RECIPES}: recipes/pale.jsonc: step "approve" is a gate step, which the engine does not brew yet (ADR 0053)`;
     const retry = await foedrum('retry', '12-1');
     assert.deepEqual(
