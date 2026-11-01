@@ -1997,7 +1997,8 @@ Plan the order in {order}.
     });
     const maltster = brewer
       .replace('"name": "cellarman"', '"name": "maltster"')
-      .replace('"schema": "outDoc"', '"schema": "survey"');
+      .replace('"schema": "outDoc"', '"schema": "survey"')
+      .replace('"maxAttempts": 1', '"maxAttempts": 1,\n  "guards": ["testMapOnly"]');
     const testFirstSetup = (web: Record<string, unknown>, recipeText = nip) => {
       const files = serveInputs().files;
       const result = serveSetup(

@@ -485,7 +485,10 @@ function unproven(recipe: RecipeFile, commits: (step: Step) => boolean): string[
   const order = [...walk(recipe.steps, ['steps'])].map(({ step }) => step);
   const first = order.find(commits);
   const proven = first === undefined ? undefined : stepId(first);
-  const at = order.findIndex((step) => 'of' in step && step.of === proven);
+  // A red proof's `of`, never a survey's check's (ADR 0298).
+  const at = order.findIndex(
+    (step) => 'of' in step && step.of === proven && 'expect' in step && step.expect === 'fail',
+  );
   const proof = order[at];
   if (proven === undefined || proof === undefined) {
     return [
@@ -1130,15 +1133,24 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       const name = stepBrewerName(step);
       return name !== undefined && brewerOf(name)?.produces === 'commits';
     };
-    // A survey commits the test map only, never code a red proof would prove (ADR 0298).
     const surveys = (step: Step): boolean => {
       const name = stepBrewerName(step);
       return name !== undefined && brewerOf(name)?.output.schema === SURVEY;
     };
+    // A survey whose guard keeps it to the test map commits no code a red proof would prove
+    // (ADR 0298).
+    const mapOnly = (step: Step): boolean => {
+      const name = stepBrewerName(step);
+      return (
+        surveys(step) &&
+        name !== undefined &&
+        brewerOf(name)?.guards.includes('testMapOnly') === true
+      );
+    };
     const refused = [
       ...misfolded(order, commits),
       ...ofNothing(order, commits),
-      ...(testFirst ? unproven(value, (step) => commits(step) && !surveys(step)) : []),
+      ...(testFirst ? unproven(value, (step) => commits(step) && !mapOnly(step)) : []),
       ...unsurveyed(order, surveys),
       ...unopened(value, order, commits),
       ...chosenTwice(order),

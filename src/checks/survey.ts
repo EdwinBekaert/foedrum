@@ -93,6 +93,13 @@ export function surveyed(options: SurveyOptions): BrewerRunner {
         `The Brewery keeps the test map of ${repo}: a survey cannot write it`,
       );
     }
+    // Sent back by a route, such as its check's: the map in its worktree is the one that
+    // disagreed, fresh by its own manifests, and the Maltster gets the reason (ADR 0128).
+    const scheduled = state()
+      .batches.get(ref.batchId)
+      ?.steps.get(ref.stepId)
+      ?.attempts.get(ref.attempt);
+    if (scheduled?.route !== undefined) return undefined;
     const read = await testMap(repo, worktree.commit, signal);
     // No map, or one that cannot be read: the Maltster proposes one.
     if (read.kind !== 'map') return undefined;

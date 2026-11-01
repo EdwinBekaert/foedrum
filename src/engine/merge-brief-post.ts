@@ -446,19 +446,23 @@ const briefRest = (
 };
 
 /**
- * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each survey whose
- * latest attempt proposed a map, new or refreshed, with the stale paths the Maltster named, which
- * are model text.
+ * Why the pull request changes the test map (ADR 0282, ADR 0298): one line for each survey that
+ * proposed a map, new or refreshed, from its first proposal, since a survey its check sent back
+ * reads its own proposal as stale, with the stale paths the Maltster named, which are model text.
  */
 const surveyLines = (batch: Batch): string[] =>
   [...batch.steps.values()].flatMap((step) => {
-    const latest = [...step.attempts.values()].findLast(
-      (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-    );
-    if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
-    const survey = surveyOf(latest.outcome.output);
-    const repo = latest.worktree?.repo;
-    if (survey === undefined || repo === undefined) return [];
+    const proposals = [...step.attempts.values()].flatMap((attempt) => {
+      if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
+      const survey = surveyOf(attempt.outcome.output);
+      const repo = attempt.worktree?.repo;
+      return survey === undefined || repo === undefined ? [] : [{ survey, repo }];
+    });
+    const first =
+      proposals.find(({ survey }) => survey.map === 'new' || survey.map === 'stale') ??
+      proposals[0];
+    if (first === undefined) return [];
+    const { survey, repo } = first;
     switch (survey.map) {
       case 'new':
         return [`- The test map of ${repo} is new: the Maltster proposed it.`];
