@@ -115,8 +115,8 @@ export const stateText: Record<SubOrderPullRequestState, string> = {
  * The sibling section of `batchId`'s pull request body, or undefined when the batch brews no
  * sub-order of an order with two or more (ADR 0292). It names the target repositories' pull
  * requests only, never the Brewery's issues: a target repository may be public, the Brewery not.
- * Unless its own repository is private, it names a sibling only in a public one, and any other by
- * its place in the merge order (ADR 0300).
+ * It names a sibling by its repository only where everyone who reads this pull request can read
+ * that repository too, and any other by its place in the merge order (ADR 0300).
  */
 export const siblingSection = (
   state: State,

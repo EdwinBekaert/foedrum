@@ -251,8 +251,8 @@ export const wireDriver = async (
     subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
   });
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
-  // Whether each repository is public, read now and, while it could not be, on each tick: a public
-  // pull request names no sibling in a repository it cannot tell is public (ADR 0300).
+  // Who can read each repository, read now and, while it could not be, after each tick: a pull
+  // request names no sibling in a repository fewer people can read (ADR 0300).
   const visibilities = repositoryVisibilities(
     client,
     setup.repositories.map(({ repo }) => repo),

@@ -1,6 +1,6 @@
-// Whether each target repository is public, as GitHub says (ADR 0300): a public pull request's
-// sibling section names no repository it cannot tell is public. Read once for each repository,
-// and again on each pass for one whose answer was not read, so a failed read heals.
+// Who can read each target repository, as GitHub says (ADR 0300): a sibling section names a
+// repository only where the pull request's readers can read it too. Read once for each repository,
+// and again after each tick for one whose answer was not read, so a failed read heals.
 
 import type { Visibility } from '../engine/sibling-pull-requests.ts';
 import { GitHubRepositoryVisibility } from '../schemas/github.ts';
