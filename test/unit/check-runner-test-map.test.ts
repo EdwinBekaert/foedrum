@@ -89,7 +89,15 @@ const junitOf = (...tests: { name: string; file?: string }[]): string =>
         `<testcase name="${name}"${file === undefined ? '' : ` file="${file}" line="3"`}/>`,
     )
     .join('')}</testsuite></testsuites>`;
+const tapped: TestMapModule = {
+  name: 'tapped',
+  code: ['t/src/**'],
+  tests: { paths: ['t/test/**'] },
+  testReport: { format: 'tap', path: 't/report.tap' },
+  coverage: 'none',
+};
 const webReport = join(worktree, 'web', 'test-results.xml');
+const tapReport = join(worktree, 't', 'report.tap');
 const pyReport = join(worktree, 'py', 'report.xml');
 
 const mapOf = (...modules: TestMapModule[]): MapRead => ({
@@ -139,6 +147,8 @@ const setup = ({
   files = [] as string[],
   /** The worktree's real path, when a link leads to it. */
   real = worktree,
+  /** The platform the runner reads paths for. */
+  platform = 'linux' as NodeJS.Platform,
 } = {}) => {
   const asked: string[] = [];
   const exec: ExecProcess = (file) => {
@@ -179,7 +189,7 @@ const setup = ({
     clone: () => join('/work', 'acme.api', 'clone.git'),
     env: { base: {}, forced: {} },
     clock: () => now,
-    platform: 'linux',
+    platform,
     testMap: {
       at: async (repo, commit) => {
         asked.push(`map of ${repo} at ${commit}`);
@@ -561,6 +571,95 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
     assert.equal(end.staleMap, undefined);
+  });
+
+  it("reads no TRX report's tests for their locations: regression test", async () => {
+    const trx = join(worktree, 'svc', 'test', 'Billing.Tests', 'TestResults');
+    const { run } = setup({
+      maps: { [base]: mapOf(web, billing), [tip]: mapOf(web, billing) },
+      found: { 'web/test-results.xml': [webReport], 'svc/test/*/TestResults': [trx] },
+      texts: { [trx]: junitOf({ name: 'greets', file: 'greets.test.mjs' }) },
+      files: ['greets.test.mjs'],
+    });
+    const end = await run();
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('names no suite the report places outside the map, only its tests: regression test', async () => {
+    const tap = [
+      'TAP version 13',
+      '    ok 1 - adds',
+      '      ---',
+      "      location: 't/test/add.test.mjs:2:1'",
+      '      ...',
+      '    1..1',
+      'ok 1 - suite',
+      '  ---',
+      "  location: 'greets.test.mjs:1:1'",
+      '  ...',
+      '1..1',
+    ].join('\n');
+    const { run } = setup({
+      maps: { [base]: mapOf(web, tapped), [tip]: mapOf(web, tapped) },
+      found: { 'web/test-results.xml': [webReport], 't/report.tap': [tapReport] },
+      texts: { [tapReport]: tap },
+      files: ['greets.test.mjs', 't/test/add.test.mjs'],
+    });
+    const end = await run();
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it('names no test at an absolute location outside the worktree and its real path: regression test', async () => {
+    const real = join('/private', 'work', 'acme.api', 'green');
+    const { run } = setup({
+      maps: fresh,
+      real,
+      texts: {
+        [webReport]: junitOf({ name: 'greets', file: join('/elsewhere', 'greets.test.mjs') }),
+      },
+    });
+    const end = await run();
+    assert.equal(end.staleMap, undefined);
+  });
+
+  it("names a test at an absolute location under the worktree's own path when its real path differs: regression test", async () => {
+    const real = join('/private', 'work', 'acme.api', 'green');
+    const { run } = setup({
+      maps: fresh,
+      real,
+      texts: {
+        [webReport]: junitOf({ name: 'greets', file: join(worktree, 'tools', 'greets.test.mjs') }),
+      },
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, ['test greets at tools/greets.test.mjs outside the map']);
+  });
+
+  it("reads a relative location from the root before its module's folder: regression test", async () => {
+    const { run } = setup({
+      maps: { [base]: mapOf(web, py), [tip]: mapOf(web, py) },
+      found: { 'web/test-results.xml': [webReport], 'py/report.xml': [pyReport] },
+      texts: { [pyReport]: junitOf({ name: 'test_adds', file: 'tests/test_x.py' }) },
+      files: ['py/tests/test_x.py', 'tests/test_x.py'],
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, ['test test_adds at tests/test_x.py outside the map']);
+  });
+
+  it('names a file once where the file system folds case: regression test', async () => {
+    const { run } = setup({
+      maps: fresh,
+      platform: 'win32',
+      texts: {
+        [webReport]: junitOf(
+          { name: 'greets', file: 'Greets.test.mjs' },
+          { name: 'greets twice', file: 'greets.test.mjs' },
+        ),
+      },
+      files: ['Greets.test.mjs', 'greets.test.mjs'],
+    });
+    const end = await run();
+    assert.deepEqual(end.staleMap?.paths, ['test greets at Greets.test.mjs outside the map']);
   });
 
   it('names a located test beside the two other run reasons: regression test', async () => {
