@@ -10,13 +10,8 @@ import { siblingSection } from '../../src/engine/sibling-pull-requests.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { repositoryVisibilities } from '../../src/github/repository-visibility.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
+import type { Answer } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-
-const clientWith = (answers: Answer[]) => {
-  const fake = fakeFetch(answers);
-  return { client: createGitHubClient({ exec: ghOver(fake.fetch).exec }), fake };
-};
 
 /**
  * A client whose answers come by repository, each list in order, so reads that run at once get the
@@ -101,13 +96,15 @@ describe('the visibility of the target repositories (ADR 0300)', () => {
       'acme/bare': [{ status: 200, body: { private: false } }],
       'acme/odd': [{ status: 200, body: { private: false, visibility: 'private' } }],
       'acme/flaky': [{ status: 500, body: { private: false, visibility: 'public' } }],
+      'acme/old': [{ status: 200, body: { private: true } }],
+      'acme/mixed': [{ status: 200, body: { private: true, visibility: 'public' } }],
     });
-    const repos = ['acme/bare', 'acme/odd', 'acme/flaky'];
+    const repos = ['acme/bare', 'acme/odd', 'acme/flaky', 'acme/old', 'acme/mixed'];
     const visibility = repositoryVisibilities(client, repos);
     await visibility.read();
     assert.deepEqual(
       repos.map((repo) => visibility.of(repo)),
-      ['public', 'private', 'unknown'],
+      ['public', 'private', 'unknown', 'private', 'private'],
     );
   });
 
@@ -116,7 +113,17 @@ describe('the visibility of the target repositories (ADR 0300)', () => {
     const visibility = repositoryVisibilities(client, ['acme/web']);
     const stop = new AbortController();
     stop.abort(new Error('stopped'));
-    await assert.rejects(visibility.read(stop.signal));
+    await assert.rejects(visibility.read(stop.signal), /stopped/);
+    assert.equal(visibility.of('acme/web'), 'unknown');
+  });
+
+  it('keeps a repository foedrum.jsonc names in another case under one name (regression test)', async () => {
+    const { client, asked } = clientByRepo({ 'Acme/Web': [publicRepo] });
+    const visibility = repositoryVisibilities(client, ['Acme/Web']);
+    await visibility.read();
+    assert.equal(visibility.of('acme/web'), 'public');
+    await visibility.read();
+    assert.deepEqual(asked, ['Acme/Web']);
   });
 
   it('names a sibling once a read finds its repository public after one that failed', async () => {
@@ -152,7 +159,7 @@ describe('the visibility of the target repositories (ADR 0300)', () => {
       ...opened('2-1', 'https://github.com/acme/lib/pull/7'),
       ...opened('3-1', 'https://github.com/acme/web/pull/12'),
     ]);
-    const { client } = clientWith([publicRepo, outage, publicRepo]);
+    const { client } = clientByRepo({ 'acme/web': [publicRepo], 'acme/lib': [outage, publicRepo] });
     const visibility = repositoryVisibilities(client, ['acme/web', 'acme/lib']);
     await visibility.read();
     const first = siblingSection(state, '3-1', visibility.of) ?? assert.fail('no section');
