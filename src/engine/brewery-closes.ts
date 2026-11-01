@@ -7,7 +7,7 @@
 import { pullRequestOf } from '../schemas/events.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
-import { breweryIssueOf } from './claim-orders.ts';
+import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
@@ -36,12 +36,17 @@ const mergedWork = (batch: Batch): readonly string[] => {
   return lane.pullRequests.every((url) => ends[url] === 'merged') ? lane.pullRequests : [];
 };
 
-/** The close due for `batch`: a Brewery issue's own batch whose pull requests all merged. */
+/**
+ * The close due for `batch`: a Brewery issue's own batch whose pull requests all merged, while it
+ * is the issue's latest batch, so an older one never closes an issue ordered again since.
+ */
 const dueClose = (state: State, batch: Batch): DueClose | undefined => {
   if (batch.repo !== undefined) return undefined;
   const merged = mergedWork(batch);
   const issue = breweryIssueOf(state, batch);
-  if (merged.length === 0 || issue === undefined) return undefined;
+  if (merged.length === 0 || issue === undefined || !latestOf(state, batch, issue)) {
+    return undefined;
+  }
   const names = merged.map((url) => {
     const { repo, number } = pullRequestOf(url);
     return `${repo}#${number}`;
