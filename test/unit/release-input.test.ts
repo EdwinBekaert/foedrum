@@ -129,7 +129,7 @@ describe('releaseInput', () => {
     );
   });
 
-  it('folds and reads a release recorded before releases had a page or notes the same: regression test', () => {
+  it('folds a release recorded before releases had a page or notes as before: regression test', () => {
     const old: Event = { type: 'release.observed', repo: lib, package: 'lib', version: 'v1.4.0' };
     const state = fold([...merged(), old]);
     assert.deepStrictEqual(state.releases, [
