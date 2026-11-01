@@ -244,8 +244,8 @@ describe('breweryCloseEffects', () => {
     await driver.tick();
     assert.equal(order().state, 'closed');
     assert.match(order().comments[0]?.body ?? '', /^Merged as acme\/web#31; /);
-    // The order's own issue, whose batch opened no pull request, is #738's to close.
-    assert.equal(github.issue(brewery, 1).state, undefined);
+    // The order's own issue closes too: its one sub-order merged (ADR 0293).
+    assert.equal(github.issue(brewery, 1).state, 'closed');
   });
 
   it('leaves a claimed batch’s Brewery issue to its claim’s release', async () => {
