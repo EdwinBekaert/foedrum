@@ -980,8 +980,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   };
 
   /**
-   * The files where the reports of the modules the base lists place a test outside every module's
-   * areas, each named by its first test (ADR 0282). An absolute location is read under the worktree
+   * The files where the modules' reports place a test outside every module's areas, each named by
+   * its first test (ADR 0282): an added module's report is there, as the unreached rule found. An absolute location is read under the worktree
    * or its real path; a relative one from the root, else from a folder of its own module's globs,
    * where a runner such as pytest writes from, wherever the file is. A location that names no file
    * of the worktree, and a report that cannot be read, say nothing of the map.
@@ -992,9 +992,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const roots = real === worktree.path ? [worktree.path] : [worktree.path, real];
     const foldCase = foldsCase(platform);
     const outside = new Map<string, string>();
-    for (const { module, added } of modules) {
+    for (const { module } of modules) {
       // A TRX report's tests are left unread, as at the green check (#727).
-      if (added || module.testReport.format === 'trx') continue;
+      if (module.testReport.format === 'trx') continue;
       const wrote = testReportsOf(module, worktree);
       if (!('reports' in wrote)) continue;
       const folders = ['', ...moduleFolders(module).map((folder) => `${folder}/`)];
