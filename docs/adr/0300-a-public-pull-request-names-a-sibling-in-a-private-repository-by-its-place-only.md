@@ -12,9 +12,9 @@ GitHub's `GET /repos/{owner}/{repo}` answers `private` and, on newer answers, `v
 
 ## Decision
 - **The driver reads each target repository's visibility** that `foedrum.jsonc` lists, through `GET /repos/{owner}/{repo}`, once when it opens (`repositoryVisibilities`, `src/github/repository-visibility.ts`, read by `wireDriver`, so `serve`, `brew` (and with it `lauter`) and `resume` of a running batch read it alike).
-  A repository is `public` only when the answer is 200, `private` is false and `visibility` is `public` or absent; `internal` when `visibility` is `internal` (every member of its enterprise reads it); `private` for any other 200 answer, and for a 404, which GitHub gives for a repository the login cannot see; any other status (a 403 of a rate limit, a 5xx), an answer of another shape, or a read that fails is `unknown`.
-- **A repository whose visibility is `unknown` is read again after each tick**, at most once a tick, until GitHub answers it; one read `public`, `internal` or `private` is not read again in that run.
-  So an offline start or one failed read does not hide every sibling for a whole `serve`, which can run for days, and a repository that answers 404 is not read every tick.
+  A repository is `public` only when the answer is 200, `private` is false and `visibility` is `public` or absent; `internal` when `visibility` is `internal` (every member of its enterprise reads it); `private` for any other 200 answer; any other status (a 404, which GitHub gives for a repository the login cannot see, a 403 of a rate limit, a 5xx), an answer of another shape, or a read that fails is `unknown`.
+- **A repository whose visibility is `unknown` is read again after each tick**, at most once a tick, until GitHub answers it; one read `public`, `internal` or `private`, or answered 404, is not read again in that run.
+  So an offline start or one failed read does not hide every sibling for a whole `serve`, which can run for days, and a repository that answers 404 is not read every tick: it stays `unknown`, hidden as a sibling and hiding its siblings as a pull request's own, since another read would not change what the login can see.
   The reads of one tick run at once, and after the tick, which renews the leases first: a GitHub that hangs holds the next tick up by one request's timeout, never a lease by one per repository.
 - **No event records it.** Visibility is the code host's fact, not Foedrum's state; `siblingSection` takes it as an argument (`VisibilityOf`) and stays a pure function, its digest stable within a run.
 - **A sibling is named only where everyone who reads this pull request can read it too.**
@@ -46,6 +46,7 @@ GitHub's `GET /repos/{owner}/{repo}` answers `private` and, on newer answers, `v
 ## Alternatives considered
 - **Read visibility once per run only**: one failed read at the start would hide every sibling for as long as the run lasts.
 - **Record visibility as an event**: it is GitHub's fact, and an event would make the store keep a copy that goes stale.
+- **Count a 404 as `private`**: a pull request whose own repository answered 404 would name every private sibling.
 - **Count `internal` as `private`**: an internal pull request would name its private siblings to every member of the enterprise.
 - **Read before the tick, one repository after another**: with GitHub hanging, ten repositories at the client's 30 s timeout would hold the tick's lease renewal for the whole 5-minute lease.
 - **Count an `unknown` repository of one's own as private**: a public pull request whose read failed would name its private siblings.
