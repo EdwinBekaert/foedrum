@@ -20,7 +20,7 @@ export interface BreweryClosesOptions {
 }
 
 /** The effects of a close, by the name its key carries: the comment first, then the close. */
-export const closeEffects = { comment: 'close.comment', issue: 'close.issue' } as const;
+const closeEffects = { comment: 'close.comment', issue: 'close.issue' } as const;
 
 /** A close that is due: the Brewery issue, and the comment that names what merged. */
 interface DueClose {
