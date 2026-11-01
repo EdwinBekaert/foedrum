@@ -343,6 +343,36 @@ describe('the end of a split order (ADR 0293)', () => {
     assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
   });
 
+  it('names only the waiting sub-order whose own plan entry is not ready (regression test)', async () => {
+    const more = [
+      { issue: 4, entry: entry('docs', 'acme/docs', { ready: false, refinement: 'which pages' }) },
+    ];
+    const state = fold([
+      ...split(more),
+      ordered('2-1', 2, '1-1'),
+      ...opened('2-1', libPull),
+      ended('2-1', libPull, 'merged'),
+    ]);
+    const lines = await statusLines(state);
+    assert.ok(lines.includes('- #3 in acme/web: not ordered yet'), lines.join('\n'));
+    assert.ok(lines.includes('Keeps the order open: #4 (needs refinement)'), lines.join('\n'));
+  });
+
+  it("rolls up a sub-order ordered again by its latest batch's lane (regression test)", async () => {
+    const more = [{ issue: 4, entry: entry('cli', 'acme/cli') }];
+    const state = fold([
+      ...split(more),
+      ...bothMerged,
+      ordered('4-1', 4, '1-1'),
+      { type: 'batch.cancelled', batchId: '4-1', by: 'ann', via: 'terminal' },
+      ordered('4-2', 4, '1-1'),
+      brewing('4-2'),
+    ]);
+    const lines = await statusLines(state);
+    assert.ok(lines.includes('- #4 in acme/cli: brewing, no pull request yet'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.startsWith('Keeps the order open')), lines.join('\n'));
+  });
+
   it("leaves the order's issue open when a person cancelled the order's own batch (regression test)", async () => {
     const state = fold([
       ...split(),
