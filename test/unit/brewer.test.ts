@@ -101,13 +101,13 @@ describe('BrewerFrontmatter', () => {
     assert.equal(accepted({ ...taster, inputs }), true);
   });
 
-  it('names the plan entry among the sources when it refuses an unknown one (ADR 0290)', () => {
+  it('names the plan entry and the release among the sources when it refuses an unknown one (ADR 0290, ADR 0291)', () => {
     const read = BrewerFrontmatter.safeParse({
       ...taster,
       inputs: [{ name: 'x', from: 'web:x' }],
     });
     assert.equal(read.success, false);
-    assert.match(read.error?.issues[0]?.message ?? '', /"plan", "plan-entry", "step:<step id>"/);
+    assert.match(read.error?.issues[0]?.message ?? '', /"plan", "plan-entry", "release", "step:<step id>"/);
   });
 
   it('defaults an input to untrusted', () => {
