@@ -248,6 +248,11 @@ describe('releaseInput', () => {
     );
   });
 
+  it("gives no release input to a batch with no parent, though its issue is a release-blocked sub-order's: regression test", () => {
+    const events = [...merged(), released('v1.4.0'), ordered('3-1', 3)];
+    assert.equal(inputOf(events), undefined);
+  });
+
   it('folds a release recorded before releases had a page or notes as before: regression test', () => {
     const old: Event = { type: 'release.observed', repo: lib, package: 'lib', version: 'v1.4.0' };
     const state = fold([...merged(), old]);
