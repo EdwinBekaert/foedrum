@@ -281,7 +281,8 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
     const { order, reports, isCommit, recipe, attempts, key, siblings } = from;
     return pullRequestText({
       title: await orderTitle(order, signal),
-      closes: { repo: order.repo ?? brewery, issue: order.issue },
+      // Only a claimed target issue: a Brewery issue is private (ADR 0296).
+      ...(order.repo === undefined ? {} : { closes: { repo: order.repo, issue: order.issue } }),
       reports,
       isCommit,
       ...(recipe === undefined ? {} : { recipe }),

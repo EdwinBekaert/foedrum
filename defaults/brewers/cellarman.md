@@ -2,12 +2,13 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 6,
+  "version": 7,
   "model": "builder",
   "effort": "high",
   "inputs": [
     { "name": "order", "from": "order" },
-    { "name": "tests", "from": "step:gauge" }
+    { "name": "tests", "from": "step:gauge" },
+    { "name": "release", "from": "release" }
   ],
   "output": { "doc": "brew.md", "schema": "pullRequest" },
   "produces": "commits",
@@ -33,6 +34,7 @@ Implement the order in {order}. The Gauger's failing tests, listed in its out do
 - **Keep the Gauger's tests.** Do not change or remove a line the Gauger added to a test file, its imports and helpers included: the attempt then fails. New tests of your own may change, and so may fixtures and stubs outside the repository's test map's test areas.
 - **Replace the stubs.** Every stub that throws `not implemented` becomes the real behaviour.
 - **A wrong test is a finding.** If you believe one of the Gauger's tests is wrong, do not edit it: end blocked with `"blockerKind": "findings"` in the frontmatter, and in the out doc's text name each wrong test, by the name the test runner reports, and say why. The frontmatter has no key for them: the Gauger reads your out doc's text and writes the tests again.
+- **Start with the release.** When the sub-order waited for a release of another repository, {release} holds it: its tag as the code host wrote it, its notes when it has some, and the pull request it holds. Unless the Gauger's commits already did, move this repository's dependency on that repository to that release first: find it in the worktree's own manifests, and read the version from the released repository at that tag (its manifest or the notes), never guess it. The repository's own checks prove the bump.
 - **Without tests.** When there is no {tests} input, the recipe ran without the Gauger: implement the order and add tests for it yourself.
 - **Ask instead of guessing.** When the order is unclear and a wrong guess would waste the run, end with your questions (`needs_input`). Decide anything smaller yourself and list it as an assumption.
 - **Every changed line runs under a test.** Each line you add or change in the code, and each branch on it, must run under some test, or the check step sends the change back to you naming the lines: add a test that runs it, or remove it.

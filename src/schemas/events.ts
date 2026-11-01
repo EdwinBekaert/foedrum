@@ -21,8 +21,11 @@ export const Repo = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*\/(?!\.\.?$)[\w.][\w.-]*$/, 'Must be owner/name');
 
+/** The longest release notes a release record keeps (ADR 0291). */
+export const MAX_RELEASE_NOTES_LENGTH = 4000;
+
 /** An https URL without credentials. */
-const HttpsUrl = z
+export const HttpsUrl = z
   .url({ protocol: /^https$/ })
   // Checked on the parsed URL: the parser also finds credentials in `HTTPS://`, `https:\\` or `https:/`.
   .refine((url) => {
@@ -762,7 +765,11 @@ export const Event = z.discriminatedUnion('type', [
     type: z.literal('release.observed'),
     repo: Repo,
     package: NonEmpty,
+    /** The release's tag as the code host has it, never parsed (ADR 0291). */
     version: NonEmpty,
+    /** The release's web page, and its notes cut to `MAX_RELEASE_NOTES_LENGTH`; a bare tag has neither. */
+    url: HttpsUrl.optional(),
+    notes: z.string().max(MAX_RELEASE_NOTES_LENGTH).optional(),
   }),
   z.strictObject({
     type: z.literal('batch.rewound'),

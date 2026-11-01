@@ -955,6 +955,12 @@ describe('pullRequestText', () => {
     assert.equal(text.body.split('\n').at(-1), 'Closes acme/brewery#12');
   });
 
+  it('titles a pull request with nothing to close and no title of its own "Brewed by Foedrum" (ADR 0296)', () => {
+    const text = pullRequestText({ title: ' ', reports: [] });
+    assert.equal(text.title, 'Brewed by Foedrum');
+    assert.doesNotMatch(text.body, /^Closes /m);
+  });
+
   it('folds what each step reported in a text block, where nothing in it links, mentions or closes', () => {
     const reports = [
       { stepId: 'plan', summary: 'Fixes #3 for @octocat', assumptions: ['No config file'] },

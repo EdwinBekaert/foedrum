@@ -20,6 +20,7 @@ import {
   type StepBrewers,
   type StepChecks,
 } from '../engine/recipe-files.ts';
+import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
@@ -515,6 +516,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // A sub-order's plan entry, read from its parent's recorded plan when its brewer asks (ADR 0290).
     const asks = found.brewer.inputs.some(({ from }) => from === 'plan-entry');
     const entry = asks && batch.plan !== undefined ? planEntryText(state(), batch.plan) : undefined;
+    // The releases a sub-order waited for, from the recorded releases when its brewer asks (ADR 0291).
+    const asksRelease = found.brewer.inputs.some(({ from }) => from === 'release');
+    const release = asksRelease ? releaseInput(state(), batch) : undefined;
     const planned = inputsOf(
       found.brewer.inputs,
       batch,
@@ -525,6 +529,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       found.choices,
       found.chosenBy !== undefined,
       entry,
+      release,
     );
     const inputs: PromptInput[] = [];
     for (const input of planned) {

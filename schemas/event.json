@@ -2236,6 +2236,14 @@
         "version": {
           "type": "string",
           "pattern": "\\S"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 4000
         }
       },
       "required": [
