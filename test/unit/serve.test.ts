@@ -257,7 +257,7 @@ describe('runServe', () => {
     );
     assert.match(
       github.pulls[0]?.body ?? '',
-      /brew: Brewed[\s\S]*\nCloses Acme\/Brewery#12\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/,
+      /brew: Brewed[\s\S]*\n<\/details>\n\n<!-- foedrum:\[[^\]]*\] sha256:[0-9a-f]{16} -->$/,
     );
     const [pull] = github.pulls;
     assert.deepStrictEqual(
@@ -3001,6 +3001,41 @@ Plan the order in {order}.
       assert.match(sent.get('/repos/acme/lib-core/pulls/7') ?? '', /acme\/web#12/);
       assert.match(sent.get('/repos/acme/web/pulls/12') ?? '', /acme\/lib-core#7/);
     });
+
+    // Both of the driver's lists of effects carry the close: without a target intake, and with one.
+    for (const [named, web] of [
+      ['', undefined],
+      [', with a target intake', target],
+    ] as const) {
+      it(`closes a Brewery issue whose batch's pull request merged, with a comment, through GitHub's API (ADR 0296)${named}`, async () => {
+        store = empty();
+        const routeBy = '2026-10-17T13:00:00.000Z';
+        const url = 'https://github.com/acme/web/pull/31';
+        store.withTransaction((tx) => {
+          for (const event of [
+            { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy },
+            { type: 'effect.applied', key: JSON.stringify(['12-1', 'pull_request']), result: url },
+            { type: 'batch.on_tap', batchId: '12-1', pullRequests: [url] },
+            { type: 'pull_request.ended', batchId: '12-1', pullRequest: url, state: 'merged' },
+          ] satisfies Event[]) {
+            tx.append(event);
+          }
+        });
+        setup = web === undefined ? intakeSetup() : intakeSetup({}, web);
+        const github = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann' }] },
+        });
+        const closed = () => github.issue('acme/brewery', 12)?.state === 'closed';
+        assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(closed) })), 0);
+        assert.ok(closed(), github.requests.join('\n'));
+        const comments = github.comments.get('acme/brewery#12') ?? [];
+        assert.ok(
+          comments.some(({ body }) => body.startsWith('Merged as acme/web#31; Foedrum closes')),
+          JSON.stringify(comments),
+        );
+      });
+    }
 
     it("stops when it cannot read the token's login for a target intake", async () => {
       setup = intakeSetup({}, target);

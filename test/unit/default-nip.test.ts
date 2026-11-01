@@ -880,3 +880,106 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
     }
   });
 });
+
+describe("the release a sub-order waited for in the default brewers' prompts (ADR 0291)", () => {
+  const sessionId = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const lib = 'https://github.com/acme/lib/pull/5';
+  const routeBy = '2026-10-21T13:00:00.000Z';
+  /** Order #1: #12 in acme/api waits for a release of #11's acme/lib, which pull request 5 merged. */
+  const eventsOf = (stepId: string): Event[] => {
+    const ref = { batchId: '12-1', stepId, attempt: 1 };
+    const path = join('/work', `${stepId}-1`);
+    return [
+      { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
+      {
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 11, repo: 'acme/lib' },
+          { issue: 12, repo: 'acme/api' },
+        ],
+        dependencies: [{ subOrder: 12, blockedBy: 11, kind: 'release' }],
+      },
+      { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+      {
+        type: 'batch.ordered',
+        batchId: '11-1',
+        order: { issue: 11 },
+        parentBatchId: '1-1',
+        routeBy,
+      },
+      { type: 'batch.on_tap', batchId: '11-1', pullRequests: [lib] },
+      { type: 'pull_request.ended', batchId: '11-1', pullRequest: lib, state: 'merged' },
+      { type: 'release.observed', repo: 'acme/lib', package: 'lib', version: 'lib@1.4.0' },
+      {
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        parentBatchId: '1-1',
+        routeBy,
+      },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '12-1',
+        recipe: 'nip',
+        reason: 'label',
+        source: 'label',
+      },
+      { type: 'step.scheduled', ...ref, deadlineAt: routeBy },
+      {
+        type: 'step.started',
+        ...ref,
+        session: { id: sessionId, worktree: path },
+        worktree: {
+          repo: 'acme/api',
+          path,
+          branch: `foedrum/12-1/${stepId}/1`,
+          commit: 'c'.repeat(40),
+        },
+      },
+    ];
+  };
+  const brewers = () => valid(loadRecipes(noFiles)).brewers;
+  const promptOf = async (stepId: string): Promise<string> => {
+    const plans = createAttemptPlans({
+      state: () => fold(eventsOf(stepId)),
+      brewers: brewers(),
+      models: { models: { builder: 'claude-sonnet-5-5' }, brewers: {} },
+      repoTools: () => [],
+      clone: (repo) => join('/clones', repo),
+      sandbox: false,
+      workRoot: join('/root'),
+      env: { base: { PATH: '/usr/bin' }, forced: {} },
+      platform: 'linux',
+      orderText: async () => 'Use the new parser of acme/lib.',
+      git: async () => ({ code: 0, stdout: '', stderr: '' }),
+      files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
+      random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),
+    });
+    const ref = { batchId: '12-1', stepId, attempt: 1 };
+    const { prompt } = await plans.plan({
+      ref,
+      limits: { outDoc: { file: 'out.md', schema: OutDocFrontmatter } },
+    });
+    return prompt;
+  };
+  const release =
+    /source="the releases sub-order #12 waited for: acme\/lib lib@1\.4\.0" name="release">\n#### The release of acme\/lib that #12 waited for\n- Tag, as written: lib@1\.4\.0\n/;
+
+  it("puts the release in a release-blocked sub-order's Gauger prompt, which says to bump to it", async () => {
+    const prompt = await promptOf('gauge');
+    assert.match(prompt, release);
+    assert.match(prompt.split('## Untrusted input')[0] ?? '', /\{release\}[^\n]*dependency/);
+  });
+
+  it("puts the release in a release-blocked sub-order's acceptance Taster prompt", async () => {
+    assert.match(await promptOf('acceptance'), release);
+  });
+
+  it('gives the Cellarman the release input, and says to bump to it', () => {
+    const found = brewers().find('nip', 'implement');
+    assert.ok(found);
+    assert.ok(found.brewer.inputs.some(({ from }) => from === 'release'));
+    assert.match(found.instructions, /\{release\}[^\n]*dependency/);
+  });
+});

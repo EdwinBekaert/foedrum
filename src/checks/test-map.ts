@@ -116,6 +116,21 @@ const testGlobs = ({ tests }: TestMapModule): string[] =>
       ? tests.projects.map(({ path }) => `${path}/**`)
       : [];
 
+/**
+ * The folders a module's test and code globs start with before their first wildcard, outermost
+ * first: `py/tests/**` gives `py` and `py/tests`, where a runner may write its relative paths from.
+ */
+export const moduleFolders = (module: TestMapModule): string[] => {
+  const folders = new Set<string>();
+  for (const glob of [...testGlobs(module), ...module.code]) {
+    const segments = glob.split('/');
+    for (let at = 1; at < segments.length && !/[*?[{]/.test(segments[at - 1] ?? ''); at++) {
+      folders.add(segments.slice(0, at).join('/'));
+    }
+  }
+  return [...folders];
+};
+
 /** Whether `glob` matches `path`, in either case where the file system does not tell case apart. */
 const matches = (path: string, glob: string, foldCase: boolean): boolean =>
   foldCase ? matchesWithDots(path.toLowerCase(), glob.toLowerCase()) : matchesWithDots(path, glob);

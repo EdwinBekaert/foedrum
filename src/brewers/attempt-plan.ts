@@ -13,6 +13,7 @@ import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
+import type { ReleaseInput } from '../engine/release-input.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
@@ -263,7 +264,8 @@ const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
  * throws when a step it names has no out doc yet. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
  * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
- * a sub-order's plan entry input's in `planEntry` (ADR 0290).
+ * a sub-order's plan entry input's in `planEntry` (ADR 0290), and the release input's in `release`,
+ * left out when the batch waited on no release (ADR 0291).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -275,12 +277,14 @@ export function inputsOf(
   choices: readonly RecipeChoice[] = [],
   chosen = false,
   planEntry?: string,
+  release?: ReleaseInput,
 ): PlannedInput[] {
   // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere. A
   // plan entry input is a sub-order's (ADR 0290): left out of a batch that is none.
   const skipped = (from: string): boolean =>
     (from === 'plan' && !chosen) ||
     (from === 'plan-entry' && batch.plan === undefined) ||
+    (from === 'release' && release === undefined) ||
     (from.startsWith('step:') && (batch.skipped?.has(from.slice('step:'.length)) ?? false));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -311,6 +315,10 @@ export function inputsOf(
           source: { kind: 'plan-entry', origin },
           read: { kind: 'text', text: planEntry },
         };
+      }
+      if (from === 'release' && release !== undefined) {
+        const source = { kind: 'release', issue: batch.issue, releases: release.releases } as const;
+        return { name, source, read: { kind: 'text', text: release.text } };
       }
       if (from === 'plan') {
         const latest = latestPlan(batch);

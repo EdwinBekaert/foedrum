@@ -6,7 +6,7 @@
 // repository with a test map, each module's report by checks that read no test name (ADR 0274);
 // in one without, the test report against the tests the proven step committed (ADR 0078).
 
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBase } from '../engine/base-merge.ts';
@@ -19,6 +19,7 @@ import { readCoverage } from '../formats/coverage-files.ts';
 import {
   type CoverageFormat,
   type CoverageReport,
+  isAbsolutePath,
   mergeReports,
   type ReadCoverage,
 } from '../formats/coverage-report.ts';
@@ -60,6 +61,7 @@ import {
   type MappedReport,
   needsTestReport,
   skipInAddedLines,
+  testFileOf,
 } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
 import { readDiff, readFilesAt, readTestFiles, stepCommits, stepTests } from './step-commits.ts';
@@ -70,6 +72,7 @@ import {
   effectiveMap,
   type MapRead,
   manifestFreshness,
+  moduleFolders,
   type ReadManifestFreshness,
   type ReadTestMapAt,
   reportPaths,
@@ -140,6 +143,8 @@ export interface CheckRunnerOptions {
     realPath?: (path: string) => string;
     /** Whether a report path is a folder. Default the file system's. */
     isFolder?: (path: string) => boolean;
+    /** Whether a file a test's location may name is there. Default the file system's. */
+    exists?: (path: string) => boolean;
   };
 }
 
@@ -1008,8 +1013,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
 
   /**
    * Where a passing run disagrees with the effective map (ADR 0274, ADR 0282): a module the base
-   * lists whose report path holds no report, and the test report `foedrum.jsonc` names written
-   * under no module's report path. A module only the batch adds was looked for already.
+   * lists whose report path holds no report (one only the batch adds was looked for already), a
+   * test a module's report places outside every module's areas, and the test report
+   * `foedrum.jsonc` names written under no module's report path.
    */
   const staleByRun = (worktree: WorktreeRef, modules: readonly EffectiveModule[]): string[] => {
     const find = options.testMap?.reports ?? reportPaths;
@@ -1021,6 +1027,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const named = modules
       .filter(({ module, added }) => !added && !holds(module.testReport.path))
       .map(({ module }) => `${module.testReport.path} (no report of module "${module.name}")`);
+    named.push(...testsOutside(worktree, modules));
     const written = options.testReport(worktree.repo)?.path;
     if (written === undefined) return named;
     const patterns = modules.flatMap(({ module: { testReport, coverage } }) => [
@@ -1033,6 +1040,42 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       named.push(`${written} (a report outside the map)`);
     }
     return named;
+  };
+
+  /**
+   * The files where the modules' reports place a test outside every module's areas, each named by
+   * its first test (ADR 0282): an added module's report is there, as the unreached rule found. An absolute location is read under the worktree
+   * or its real path; a relative one from the root, else from a folder of its own module's globs,
+   * where a runner such as pytest writes from, wherever the file is. A location that names no file
+   * of the worktree, and a report that cannot be read, say nothing of the map.
+   */
+  const testsOutside = (worktree: WorktreeRef, modules: readonly EffectiveModule[]): string[] => {
+    const exists = options.testMap?.exists ?? existsSync;
+    const real = (options.testMap?.realPath ?? realPath)(worktree.path);
+    const roots = real === worktree.path ? [worktree.path] : [worktree.path, real];
+    const foldCase = foldsCase(platform);
+    const outside = new Map<string, string>();
+    for (const { module } of modules) {
+      // A TRX report's tests are left unread, as at the green check (#727).
+      if (module.testReport.format === 'trx') continue;
+      const wrote = testReportsOf(module, worktree);
+      if (!('reports' in wrote)) continue;
+      const folders = ['', ...moduleFolders(module).map((folder) => `${folder}/`)];
+      for (const test of wrote.reports.flatMap(({ tests }) => tests)) {
+        const file = testFileOf(test, roots);
+        if (!test.leaf || file === undefined) continue;
+        const path = isAbsolutePath(test.location?.file ?? '')
+          ? file
+          : folders
+              .map((folder) => `${folder}${file}`)
+              .find((each) => exists(join(worktree.path, each)));
+        if (path === undefined) continue;
+        const key = foldCase ? path.toLowerCase() : path;
+        if (outside.has(key) || areaOf(modules, path, foldCase) !== undefined) continue;
+        outside.set(key, `test ${cut(test.name)} at ${path} outside the map`);
+      }
+    }
+    return [...outside.values()];
   };
 
   /**

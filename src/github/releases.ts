@@ -3,7 +3,7 @@
 // conditional (ADR 0052); everything it reads is untrusted input, checked field by field.
 
 import type { LatestRelease, ReleaseReader } from '../engine/releases.ts';
-import { pullRequestOf } from '../schemas/events.ts';
+import { HttpsUrl, pullRequestOf } from '../schemas/events.ts';
 import {
   GitHubCompare,
   GitHubGitCommit,
@@ -97,9 +97,12 @@ export const githubReleaseReader = (reads: GitHubReads, client: GitHubClient): R
       if (answer.status === 404) return latestTag(repo, signal);
       if (answer.status !== 200) throw refused(answer.status, answer.body, what);
       const release = checked(GitHubLatestRelease, answer.body, what);
+      const url = HttpsUrl.safeParse(release.html_url);
       return {
         version: versionOf(release.tag_name, repo),
         published: new Date(release.published_at).toISOString(),
+        ...(url.success ? { url: url.data } : {}),
+        ...(release.body ? { notes: release.body } : {}),
       };
     },
     holds: async (repo, release, url, signal) => {

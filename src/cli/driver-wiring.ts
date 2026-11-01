@@ -15,6 +15,7 @@ import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { baseConflictEffects } from '../engine/base-check.ts';
 import type { BrewerRunner, RunningAttempt } from '../engine/brewer-runner.ts';
+import { breweryCloseEffects } from '../engine/brewery-closes.ts';
 import { claimEffects } from '../engine/claim-effects.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
@@ -254,6 +255,8 @@ export const wireDriver = async (
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
   // Each sub-order pull request's section naming its order's others, as they open and end (ADR 0292).
   const siblings = siblingEffects({ host: pullRequests });
+  // A Brewery issue whose batch's pull requests merged, closed with a comment (ADR 0296).
+  const closes = breweryCloseEffects({ marks, brewery: setup.brewery });
   const effects =
     setup.intake.repositories.length > 0 || claimed
       ? combineEffects(
@@ -265,6 +268,7 @@ export const wireDriver = async (
           conflicts,
           briefs,
           siblings,
+          closes,
           claimEffects({ claimant, marks, claims }),
         )
       : combineEffects(
@@ -276,6 +280,7 @@ export const wireDriver = async (
           conflicts,
           briefs,
           siblings,
+          closes,
         );
   // The login was read at the start, for the status comments (ADR 0072).
   const actions = pullRequestActions({

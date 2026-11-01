@@ -456,8 +456,11 @@ export const changeText = ({ file, line }: FiningChange): string =>
 export interface PullRequestTextInput {
   /** The title of the order's issue: untrusted. */
   title: string;
-  /** The order's issue, which the pull request closes. */
-  closes: { repo: string; issue: number };
+  /**
+   * The claimed target issue, which the pull request closes (ADR 0144); absent for a Brewery issue,
+   * which a target repository's pull request never names (ADR 0296).
+   */
+  closes?: { repo: string; issue: number };
   /** Model output: untrusted. */
   reports: readonly StepReport[];
   /** Whether a 40-character hexadecimal word is a commit, not a key; none is when absent. */
@@ -911,7 +914,7 @@ const draftLine = (reports: readonly StepReport[], written: boolean): string => 
 /**
  * The pull request's title and body, in one layout for every repository (ADR 0167): how it works,
  * before and after and See it from the sections a `pullRequest` brewer wrote, how it was brewed,
- * the reports folded, and `Closes`. The sections are model text outside a fence, so mentions,
+ * the reports folded, and `Closes` for a claimed target issue (ADR 0296). The sections are model text outside a fence, so mentions,
  * closing keywords and numeric character references are taken out of them, outside a code span
  * (`unlinked`, ADR 0184). The
  * reports are quoted in a fenced block, where GitHub links no issue, mentions nobody and reads no
@@ -927,7 +930,7 @@ export const pullRequestText = ({
   key,
   siblings,
 }: PullRequestTextInput): PullRequestText => {
-  const order = `${closes.repo}#${closes.issue}`;
+  const order = closes === undefined ? undefined : `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
   const written = reports.findLast(({ sections }) => sections !== undefined);
   const head = [
@@ -937,13 +940,14 @@ export const pullRequestText = ({
       ? []
       : [howItWorks(written.stepId, written.sections, isCommit)]),
     '## How this was brewed',
-    `Brewed by Foedrum from ${order}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
+    `Brewed by Foedrum${order === undefined ? '' : ` from ${order}`}${recipe === undefined ? '' : ` with the recipe ${recipe}`}.`,
     // Without how it works, a person reads the change first, whatever the Tasters say.
     ...(written?.sections?.howItWorks === undefined ? [NO_HOW] : []),
     draftLine(reports, written?.sections?.howItWorks !== undefined),
     ...(attempts.length === 0 ? [] : [brewTable(attempts, isCommit)]),
   ].join('\n\n');
-  const closing = `Closes ${order}`;
+  // A Brewery issue is closed by the engine once its pull requests merged (ADR 0296).
+  const closing = order === undefined ? [] : [`Closes ${order}`];
   // The marker, when there is one, is as long whatever the text above it (ADR 0227).
   const marking = key === undefined ? 0 : bodyMarker(key, '').length + 2;
   // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS, less room for
@@ -956,7 +960,7 @@ export const pullRequestText = ({
         head.length +
         (siblings?.length ?? 0) -
         MAX_SIBLINGS -
-        closing.length -
+        (closing[0]?.length ?? 0) -
         marking -
         FRAME,
     ),
@@ -1017,9 +1021,9 @@ export const pullRequestText = ({
           `${fence}text\n${quoted}\n${fence}`,
           '</details>',
         ];
-  const body = [head, ...reported, closing].join('\n\n');
+  const body = [head, ...reported, ...closing].join('\n\n');
   return {
-    title: oneLine === '' ? order : oneLine.slice(0, MAX_TITLE),
+    title: oneLine === '' ? (order ?? 'Brewed by Foedrum') : oneLine.slice(0, MAX_TITLE),
     body: key === undefined ? body : markedBody(key, body),
     draft: opensAsDraft(reports) || written?.sections?.howItWorks === undefined,
   };

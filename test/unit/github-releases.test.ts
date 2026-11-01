@@ -29,16 +29,23 @@ const readerWith = (answers: Answer[]) => {
   };
 };
 
-const release = (tag: string, published = '2026-10-26T11:00:00Z'): Answer => ({
+const page = (tag: string): string => `https://github.com/acme/lib-core/releases/tag/${tag}`;
+const release = (
+  tag: string,
+  published = '2026-10-26T11:00:00Z',
+  fields: Record<string, unknown> = {},
+): Answer => ({
   status: 200,
   body: {
     id: 7,
+    html_url: page(tag),
     tag_name: tag,
     name: 'Anything',
     draft: false,
     prerelease: false,
     published_at: published,
     body: 'x'.repeat(1000),
+    ...fields,
   },
   headers: { etag: `"${tag}"` },
 });
@@ -69,7 +76,12 @@ describe('githubReleaseReader', () => {
         release('v2.4.0'),
         { status: 304, headers: { etag: '"v2.4.0"' } },
       ]);
-      const expected = { version: 'v2.4.0', published: '2026-10-26T11:00:00.000Z' };
+      const expected = {
+        version: 'v2.4.0',
+        published: '2026-10-26T11:00:00.000Z',
+        url: page('v2.4.0'),
+        notes: 'x'.repeat(1000),
+      };
       assert.deepStrictEqual(await reader.latest(repo), expected);
       assert.deepStrictEqual(await reader.latest(repo), expected);
       assert.deepStrictEqual(
@@ -77,6 +89,24 @@ describe('githubReleaseReader', () => {
         [latestUrl, latestUrl],
       );
       assert.equal(requests[1]?.headers['if-none-match'], '"v2.4.0"');
+    });
+
+    it("reads a release's page only when it is https without credentials, and no notes from an empty body (ADR 0291)", async () => {
+      const read = async (fields: Record<string, unknown>) =>
+        readerWith([release('v2.4.0', undefined, fields)]).reader.latest(repo);
+      const plain = { version: 'v2.4.0', published: '2026-10-26T11:00:00.000Z' };
+      assert.deepStrictEqual(await read({ body: null }), { ...plain, url: page('v2.4.0') });
+      assert.deepStrictEqual(await read({ body: '' }), { ...plain, url: page('v2.4.0') });
+      const notes = { notes: 'x'.repeat(1000) };
+      assert.deepStrictEqual(await read({ html_url: 'http://github.com/a' }), {
+        ...plain,
+        ...notes,
+      });
+      assert.deepStrictEqual(await read({ html_url: 'https://u:p@github.com/a' }), {
+        ...plain,
+        ...notes,
+      });
+      assert.deepStrictEqual(await read({ html_url: undefined }), { ...plain, ...notes });
     });
 
     it('reads the newest tag by its commit date when the repository has no release', async () => {
