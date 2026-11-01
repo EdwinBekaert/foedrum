@@ -41,7 +41,7 @@ const recipes = fakeRecipes({
     steps: ['survey', 'survey-check', 'gauge', 'red', 'implement', 'green', 'taste', OPEN],
     groups: taste,
     actions: { [OPEN]: 'openPullRequest' },
-    routes: { [OPEN]: { pull_request: 'implement' } },
+    routes: { 'survey-check': { failed: 'survey' }, [OPEN]: { pull_request: 'implement' } },
     pullRequests: [],
   }),
   // Nip without a test-first label: no Gauger and no red proof.
@@ -662,6 +662,34 @@ describe('the merge brief (ADR 0225)', () => {
         await brief(),
         /- Touches sensitive paths: \.foedrum\/test-map\.jsonc\.\n- The test map of acme\/web was stale \(svc\/package\.json \(added\), old\/package\.json \(removed\)\): the Maltster refreshed it\.\n/,
       );
+    });
+
+    it("says why the map changed from the survey's first proposal when its check sent it back", async () => {
+      order('surveyed');
+      run(
+        'survey',
+        { kind: 'succeeded', output: { status: 'done', summary: 'P', map: 'new' } },
+        {
+          commit: tasted,
+        },
+      );
+      run('survey-check', { kind: 'failed', retryable: false, reason: 'the map disagrees' });
+      // The second survey refreshes its own proposal, which it reads as stale.
+      const again = {
+        status: 'done',
+        summary: 'R',
+        map: 'stale',
+        stale: ['web/package.json (added)'],
+      };
+      run('survey', { kind: 'succeeded', output: again }, { commit: tasted });
+      run('survey-check');
+      run('gauge');
+      run('red', done, { readings: [redReading] });
+      nipFromImplement(1, head, {}, { count: 1, files: ['.foedrum/test-map.jsonc'] });
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(body, /\n- The test map of acme\/web is new: the Maltster proposed it\.\n/);
+      assert.doesNotMatch(body, /was stale/);
     });
 
     it('says the Maltster proposed the test map where the base had none', async () => {

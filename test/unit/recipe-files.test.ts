@@ -2275,6 +2275,12 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
     ...committing,
     output: { doc: 'survey.md', schema: 'survey' },
   });
+  // A survey that commits the test map only, as the default Maltster does (ADR 0298).
+  const mapOnly = brewer('surveyor', {
+    ...committing,
+    output: { doc: 'survey.md', schema: 'survey' },
+    guards: ['testMapOnly'],
+  });
   const cellarman = brewer('cellarman', committing);
   const files = (check: Record<string, unknown>) =>
     brewery({
@@ -2290,7 +2296,7 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
           { testFirst: true },
         ),
       ],
-      brewers: [surveyor, cellarman],
+      brewers: [mapOnly, cellarman],
     });
 
   it("loads a survey's check, the rounds of its route back to the survey its own, and no red proof", () => {
@@ -2316,6 +2322,19 @@ describe("loadRecipes: a check that reads a survey's test map (ADR 0298)", () =>
         'recipes/stout.jsonc: step "survey-check" reads the test map of step "survey", which is no earlier step whose brewer answers with the out doc schema "survey" (ADR 0298)',
       ),
       problemsOf(refused).join('\n'),
+    );
+  });
+
+  it('counts a survey whose brewer lacks testMapOnly as a step that commits before the red proof', () => {
+    const unguarded = brewery({
+      ...files({ check: 'test' }),
+      brewers: [surveyor, cellarman],
+    });
+    assert.ok(
+      problemsOf(unguarded).includes(
+        'recipes/stout.jsonc: step "survey" commits before the red proof "red" of step "gauge" (ADR 0064)',
+      ),
+      problemsOf(unguarded).join('\n'),
     );
   });
 

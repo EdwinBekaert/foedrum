@@ -58,6 +58,8 @@ const setup = ({
   inner = proposed,
   /** The files git says the attempt's commits changed. */
   changed = ['.foedrum/test-map.jsonc'],
+  /** The batch's events, up to the survey attempt's start. */
+  started: before = events,
 } = {}) => {
   const asked: string[] = [];
   const started: AttemptStart[] = [];
@@ -70,7 +72,7 @@ const setup = ({
   };
   const survey = surveyed({
     runner,
-    state: () => fold(events),
+    state: () => fold(before),
     surveys: ({ stepId }) => stepId === 'survey',
     mapOnly: ({ stepId }) => stepId === 'survey',
     testMap: async (repo, commit) => {
@@ -88,8 +90,12 @@ const setup = ({
     },
     clone: () => clone,
   });
+  const last = before.findLast((event) => event.type === 'step.started');
+  assert.ok(last?.type === 'step.started');
+  const attempt = { batchId: last.batchId, stepId: last.stepId, attempt: last.attempt };
   const run = () =>
-    survey.start({ ref, limits: { outDoc: { file: 'survey.md', schema: SurveyOutDoc } } }).ended;
+    survey.start({ ref: attempt, limits: { outDoc: { file: 'survey.md', schema: SurveyOutDoc } } })
+      .ended;
   return { run, asked, started };
 };
 
@@ -151,6 +157,45 @@ describe('surveyed: the Maltster runs only for a missing or stale map (ADR 0298)
     const { run, started } = setup({ read: { kind: 'unreadable', reason: 'not JSON' } });
     await run();
     assert.equal(started.length, 1);
+  });
+
+  it('runs the Maltster again when its check sent the survey back, though the map it proposed is fresh', async () => {
+    const tip = 'c'.repeat(40);
+    const back: Event[] = [
+      ...events,
+      { type: 'step.finished', ...ref, outcome: proposed.ending as never },
+      { type: 'step.scheduled', batchId: '12-1', stepId: 'survey-check', attempt: 1, deadlineAt },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'survey-check',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: false, reason: 'the map disagrees' },
+      },
+      {
+        type: 'step.scheduled',
+        ...ref,
+        attempt: 2,
+        deadlineAt,
+        route: { from: 'survey-check', why: 'failed' },
+      },
+      {
+        type: 'step.started',
+        ...ref,
+        attempt: 2,
+        worktree: {
+          repo: 'acme/api',
+          path: worktree,
+          branch: 'foedrum/12-1/survey/2',
+          commit: tip,
+        },
+      },
+    ];
+    // Its worktree holds the map survey #1 proposed, which its manifests match.
+    const { run, started } = setup({ read: { kind: 'map', map }, started: back });
+    const end = await run();
+    assert.equal(started.length, 1);
+    assert.deepEqual(end, proposed);
   });
 
   it('blocks the survey on its environment when the manifests cannot be listed', async () => {
