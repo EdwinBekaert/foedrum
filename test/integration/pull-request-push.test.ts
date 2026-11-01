@@ -148,6 +148,7 @@ describe('the openPullRequest push with real git', () => {
         ],
         host,
         orderTitle: async () => 'Add a plan',
+        visibility: () => 'public',
       }),
       report: (notice) => reported.push(notice),
     });

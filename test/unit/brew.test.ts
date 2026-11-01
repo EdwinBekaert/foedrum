@@ -539,6 +539,101 @@ describe('runBrew', () => {
     assert.equal(lock.held, false);
   });
 
+  /** How many times the driver read whether acme/web is public. */
+  const visibilityReads = () =>
+    api.requests.filter((request) => request === 'GET /repos/acme/web').length;
+  /** The fake GitHub, answering whether acme/web is public with `answer`. */
+  const answeringVisibility = (answer: { status: number; body?: unknown }) =>
+    fakeGitHubApi({
+      login: 'ann',
+      issues: api.issues,
+      instead: (method, url) =>
+        method === 'GET' && url.pathname === '/repos/acme/web' ? answer : undefined,
+    });
+
+  it("reads a repository's visibility again on each tick while it could not be read (ADR 0300)", async () => {
+    // GitHub fails to answer: unknown, so every tick reads it again.
+    api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.ok(visibilityReads() > 2, api.requests.join('|'));
+  });
+
+  it("reads a repository's visibility again only after the tick, which renews the leases first (ADR 0300)", async () => {
+    api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    const reads = api.requests.flatMap((request, at) =>
+      request === 'GET /repos/acme/web' ? [at] : [],
+    );
+    const [opening, second] = reads;
+    assert.ok(opening !== undefined && second !== undefined, api.requests.join('|'));
+    // The first tick posts the status comment before the visibility is read again.
+    assert.ok(
+      api.requests
+        .slice(opening + 1, second)
+        .includes('POST /repos/Acme/Brewery/issues/12/comments'),
+      api.requests.join('|'),
+    );
+  });
+
+  /**
+   * The body brew opens #12's pull request with, as a sub-order of order #1 beside #13 in a
+   * repository this Brewery does not list, acme/web answered with `answer`.
+   */
+  const subOrderBody = async (answer: { status: number; body?: unknown }): Promise<string> => {
+    api = answeringVisibility(answer);
+    const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+    store.withTransaction((tx) => {
+      tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+      tx.append({
+        type: 'order.decomposed',
+        batchId: '1-1',
+        subOrders: [
+          { issue: 12, repo: 'acme/web' },
+          { issue: 13, repo: 'acme/ledger' },
+        ],
+        dependencies: [],
+      });
+      tx.append({ type: 'batch.on_tap', batchId: '1-1', pullRequests: [] });
+      // As the intake orders a sub-order: brew refuses to order one itself.
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '12-1',
+        order: { issue: 12 },
+        parentBatchId: '1-1',
+        routeBy,
+      });
+    });
+    assert.equal(
+      await runBrew(setup, shell(behave.succeed('Brewed')), request),
+      0,
+      lines.join('|'),
+    );
+    return api.pulls[0]?.body ?? assert.fail('no pull request opened');
+  };
+
+  it("names a sibling in a private sub-order's pull request, as the visibility read says (ADR 0300): regression test", async () => {
+    const body = await subOrderBody({
+      status: 200,
+      body: { private: true, visibility: 'private' },
+    });
+    assert.match(body, /^2\. acme\/ledger: not opened yet/m);
+  });
+
+  it("hides a sibling it cannot read in a public sub-order's pull request, as the visibility read says (ADR 0300): regression test", async () => {
+    const body = await subOrderBody({
+      status: 200,
+      body: { private: false, visibility: 'public' },
+    });
+    assert.match(body, /^2\. A pull request in a private repository: not opened yet/m);
+    assert.doesNotMatch(body, /acme\/ledger/);
+  });
+
+  it("reads a repository's visibility once when GitHub answers it (ADR 0300)", async () => {
+    api = answeringVisibility({ status: 200, body: { private: false, visibility: 'public' } });
+    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.equal(visibilityReads(), 1);
+  });
+
   it('says the batch is on tap once, in its last line (#662)', async () => {
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;

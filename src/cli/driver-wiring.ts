@@ -49,6 +49,7 @@ import { githubIssueMarks } from '../github/marks.ts';
 import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
+import { repositoryVisibilities } from '../github/repository-visibility.ts';
 import { githubStatusComments } from '../github/status-comments.ts';
 import { githubSubIssues } from '../github/sub-issues.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
@@ -251,8 +252,15 @@ export const wireDriver = async (
     subIssues: githubSubIssues({ client, brewery: setup.brewery, login }),
   });
   const pullRequests = githubPullRequests({ client, reads, login: async () => login });
+  // Who can read each repository, read now and, while it could not be, after each tick: a pull
+  // request names no sibling in a repository fewer people can read (ADR 0300).
+  const visibilities = repositoryVisibilities(
+    client,
+    setup.repositories.map(({ repo }) => repo),
+  );
+  await visibilities.read(signal);
   // Each sub-order pull request's section naming its order's others, as they open and end (ADR 0292).
-  const siblings = siblingEffects({ host: pullRequests });
+  const siblings = siblingEffects({ host: pullRequests, visibility: visibilities.of });
   // A Brewery issue whose batch's pull requests merged, closed with a comment (ADR 0296).
   const closes = breweryCloseEffects({ marks, brewery: setup.brewery });
   const effects =
@@ -286,6 +294,7 @@ export const wireDriver = async (
     repositories: pushes,
     host: pullRequests,
     orderTitle: githubOrderTitle(reads, setup.brewery),
+    visibility: visibilities.of,
   });
   const tools = new Map(setup.repositories.map(({ repo, tools }) => [repo.toLowerCase(), tools]));
   let driver: Driver | undefined;
@@ -408,7 +417,7 @@ export const wireDriver = async (
         : undefined;
     },
   });
-  driver = await openDriver({
+  const inner = await openDriver({
     store,
     // Each out doc read is kept for the state branch before its step.finished (ADR 0103).
     runner: keepOutDocs({
@@ -451,6 +460,14 @@ export const wireDriver = async (
     actions,
     report,
   });
+  driver = {
+    ...inner,
+    // After the tick, which renews the leases, so a slow GitHub delays none of them.
+    tick: async () => {
+      await inner.tick();
+      await visibilities.read(signal);
+    },
+  };
   opened.driver = driver;
   return { store, driver, reads, client, claims, claimant, pushes, checkTree: checks.checkTree };
 };

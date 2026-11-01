@@ -2832,7 +2832,24 @@ Plan the order in {order}.
           tx.append(event);
         }
       });
-      setup = intakeSetup({ concurrency: 2 });
+      // Both repositories listed, so the driver reads whether each is public (ADR 0300).
+      const checks = { build: null, typecheck: null, lint: null, format: null, test: 'npm test' };
+      const listed = serveSetup(
+        serveInputs({
+          files: {
+            ...serveInputs().files,
+            config: config({
+              concurrency: 2,
+              repositories: { 'acme/web': { checks }, 'acme/lib-core': { checks } },
+            }),
+            local: local({
+              workRoot: dir.path,
+              clones: { 'acme/web': clone, 'acme/lib-core': clone },
+            }),
+          },
+        }),
+      );
+      setup = listed.kind === 'ready' ? listed.setup : assert.fail(listed.problems.join('\n'));
       const marked = (batchId: string) =>
         pullRequestText({
           title: 'Order',
@@ -2847,6 +2864,12 @@ Plan the order in {order}.
           'acme/brewery': [1, 2, 3].map((number) => ({ number, labels: [], author: 'ann' })),
         },
         instead: (method, url) => {
+          if (
+            method === 'GET' &&
+            ['/repos/acme/web', '/repos/acme/lib-core'].includes(url.pathname)
+          ) {
+            return { status: 200, body: { private: false, visibility: 'public' } };
+          }
           const [batchId] =
             Object.entries(pulls).find(
               ([, pull]) =>
