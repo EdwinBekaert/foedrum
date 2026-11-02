@@ -68,6 +68,142 @@ describe('openAttemptWorktrees with a fake git', () => {
   describe('clean', () => {
     const ended = { batches: new Map([['12-1', 'ended' as const]]), leased: [] };
 
+    it("the cleanup removes a Brewery order's checkouts when its batch ends", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      const checkout = join(orders, '12-1', 'plan', '1', 'app');
+      worktreeOnDisk(checkout, 'app');
+      const { calls, git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          // A detached checkout, on no branch (ADR 0301).
+          return ok(porcelain([{ path: clone, branch: 'main' }, { path: checkout }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        if (args[0] === 'worktree' && args[1] === 'remove') {
+          rmSync(args[2] ?? '', { recursive: true });
+          rmSync(join(clone, '.git', 'worktrees', 'app'), { recursive: true });
+        }
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended, { batchId: '12-1' });
+
+      assert.deepEqual(report, {
+        done: ['removed checkout 12-1/plan/1/app', 'removed Brewery order folder 12-1'],
+        kept: [],
+        failed: [],
+      });
+      assert.ok(calls.some((call) => call[1] === 'worktree' && call[3] === checkout));
+      assert.ok(!existsSync(join(orders, '12-1')));
+    });
+
+    it("removes the out doc a Brewery order's attempt wrote beside its checkouts, then its folder", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      const attemptPath = join(orders, '12-1', 'plan', '1');
+      mkdirSync(attemptPath, { recursive: true });
+      writeFileSync(join(attemptPath, 'plan.md'), '---\n---\n');
+      writeFileSync(join(attemptPath, 'notes.md'), 'kept\n');
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        return undefined;
+      });
+      const outDocs = new Map([['12-1/plan/1', 'plan.md']]);
+
+      const kept = await open(git).clean({ ...ended, outDocs }, { batchId: '12-1' });
+      rmSync(join(attemptPath, 'notes.md'));
+      const removed = await open(git).clean({ ...ended, outDocs }, { batchId: '12-1' });
+
+      // A file it does not know keeps the folder.
+      assert.deepEqual(kept.done, []);
+      assert.ok(!existsSync(join(attemptPath, 'plan.md')));
+      assert.deepEqual(removed.done, ['removed Brewery order folder 12-1']);
+      assert.ok(!existsSync(join(orders, '12-1')));
+    });
+
+    it("leaves a Brewery order's folder alone while another repository's checkout is kept there", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      // Another clone's checkout, kept by its own cleanup, with an empty folder of the brewer's
+      // that a listing gives before its .git file.
+      const kept = join(orders, '12-1', 'plan', '1', 'web');
+      mkdirSync(join(kept, '-empty'), { recursive: true });
+      writeFileSync(join(kept, '.git'), 'gitdir: /elsewhere/.git/worktrees/web\n');
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended, { batchId: '12-1' });
+
+      assert.deepEqual(report.done, []);
+      assert.ok(existsSync(join(kept, '-empty')));
+    });
+
+    it("leaves another ended batch's Brewery order folder to that batch's cleanup (regression test)", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      for (const batch of ['12-1', '13-1']) {
+        mkdirSync(join(orders, batch, 'plan', '1'), { recursive: true });
+        writeFileSync(join(orders, batch, 'plan', '1', 'plan.md'), '---\n---\n');
+      }
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        return undefined;
+      });
+      const outDocs = new Map([
+        ['12-1/plan/1', 'plan.md'],
+        ['13-1/plan/1', 'plan.md'],
+      ]);
+
+      const report = await open(git).clean({ ...ended, outDocs }, { batchId: '12-1' });
+
+      assert.deepEqual(report.done, ['removed Brewery order folder 12-1']);
+      assert.ok(existsSync(join(orders, '13-1', 'plan', '1', 'plan.md')));
+    });
+
+    it("keeps the out doc of a leased attempt and a live batch's folder (regression test)", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      for (const batch of ['12-1', '13-1']) {
+        mkdirSync(join(orders, batch, 'plan', '1'), { recursive: true });
+        writeFileSync(join(orders, batch, 'plan', '1', 'plan.md'), '---\n---\n');
+      }
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        return undefined;
+      });
+      const claims = {
+        batches: new Map([
+          ['12-1', 'ended' as const],
+          ['13-1', 'live' as const],
+        ]),
+        leased: [{ batchId: '12-1', stepId: 'plan', attempt: 1 }],
+        outDocs: new Map([
+          ['12-1/plan/1', 'plan.md'],
+          ['13-1/plan/1', 'plan.md'],
+        ]),
+      };
+
+      const report = await open(git).clean(claims);
+
+      assert.deepEqual(report.done, []);
+      assert.ok(existsSync(join(orders, '12-1', 'plan', '1', 'plan.md')));
+      assert.ok(existsSync(join(orders, '13-1', 'plan', '1', 'plan.md')));
+    });
+
     it('removes the worktree, branch and batch folder of an ended batch', async () => {
       worktreeOnDisk(path, 'implement1');
       const { calls, git } = fakeGit((_cwd, args) => {

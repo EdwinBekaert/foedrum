@@ -201,6 +201,7 @@ describe('foedrum resume (ADR 0126)', () => {
             commit: at,
           };
         },
+        checkout: () => assert.fail('no Brewery order is resumed here'),
       };
     },
     sessionFound: () => true,
@@ -248,6 +249,66 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.deepEqual([calls, started, settings, store.currentLeases(now)], [[], [], [], []]);
 
   // ADR 0160: the settings written again hide the logins where serve's environment moved them.
+  it("opens a Brewery order's attempt in its folder, with each checkout made again at its commit (ADR 0301)", async () => {
+    const log = createCommandLog({ store, recipes });
+    const folder = join(workRoot, 'brewery-orders', '30-1', 'plan', '1');
+    const checkouts = [
+      { repo: 'acme/api', path: join(folder, 'acme.api'), commit: commit('8') },
+      { repo: 'acme/web', path: join(folder, 'web'), commit: commit('9') },
+    ];
+    for (const command of [
+      { kind: 'order', batchId: '30-1', order: { issue: 30 } },
+      { kind: 'route', batchId: '30-1', recipe: 'pint', reason: 'label', source: 'label' },
+      {
+        kind: 'record',
+        event: {
+          type: 'step.started',
+          batchId: '30-1',
+          stepId: 'plan',
+          attempt: 1,
+          session: { id: S1, worktree: folder },
+          checkouts,
+        },
+      },
+      {
+        kind: 'finish',
+        batchId: '30-1',
+        stepId: 'plan',
+        attempt: 1,
+        ending: { kind: 'failed', retryable: false, reason: 'tests fail' },
+      },
+    ] as const) {
+      assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+    }
+    const web = { ...repository, repo: 'acme/web', alias: 'web' } as ServeRepository;
+    const two = { ...setup, repositories: [repository, web] };
+    const result = await resumeOf('30-1', undefined, {
+      setup: async () => ({ kind: 'ready', setup: two }),
+      worktrees: async (of) => ({
+        recreate: () => assert.fail('a Brewery order has no worktree'),
+        checkout: async (ref, name, target) => {
+          calls.push(
+            `checkout ${of.repo} ${attemptKey.encode(ref)} ${name} ${JSON.stringify(target)}`,
+          );
+          return { path: join(folder, name), commit: commit('0') };
+        },
+      }),
+    });
+    assert.deepEqual(result, { exitCode: 0, stdout: '', stderr: '' });
+    const key30 = attemptKey.encode({ batchId: '30-1', stepId: 'plan', attempt: 1 });
+    assert.deepEqual(calls, [
+      `checkout acme/api ${key30} acme.api ${JSON.stringify({ kind: 'resume', commit: commit('8') })}`,
+      `checkout acme/web ${key30} web ${JSON.stringify({ kind: 'resume', commit: commit('9') })}`,
+      'heartbeat stopped',
+    ]);
+    assert.deepEqual(
+      started.map(({ cwd: ran }) => ran),
+      [folder],
+    );
+    // A Brewery order's folder is no repository's: acme/api's toolchain rule stays out.
+    assert.doesNotMatch(JSON.stringify(settings[0]?.settings), /npm test/);
+  });
+
   it("writes the settings again with the logins serve's environment moved", async () => {
     const configDirs = { CLAUDE_CONFIG_DIR: '/data/claude-work' };
     const moved = { ...setup, configDirs };

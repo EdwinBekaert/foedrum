@@ -3,7 +3,7 @@
 // injected `Git`, so unit tests pass a fake one (ADR 0021).
 
 import { type Dirent, existsSync } from 'node:fs';
-import { lstat, mkdir, readdir, readFile, realpath, rmdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, rm, rmdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { errorCode, messageOf } from '../platform/errors.ts';
 import { removeStaleIndexLock } from '../platform/index-lock.ts';
@@ -18,10 +18,15 @@ import {
   attemptFolder,
   type BatchFolderFact,
   type Claims,
+  isLeased,
   isOwnGitDir,
   type ListedFact,
   managedClonePath,
+  ORDERS_FOLDER,
   parseAttemptFolder,
+  parseCheckoutFolder,
+  planCheckout,
+  planCheckoutClean,
   planClean,
   planOwnGitDirs,
   planWorktree,
@@ -31,7 +36,7 @@ import {
 } from './attempt-worktrees.ts';
 import { inClone, type OwnRemote } from './clone-git.ts';
 import type { Git, GitOptions, GitResult } from './git.ts';
-import { parseWorktreeList } from './worktree-list.ts';
+import { type ListedWorktree, parseWorktreeList } from './worktree-list.ts';
 import { readRecords } from './worktree-records.ts';
 import type { FolderState } from './worktree-removal.ts';
 import { gitThrough, removeWorktree, statusOf } from './worktree-removal-git.ts';
@@ -65,6 +70,12 @@ export interface AttemptWorktree {
   commit: string;
 }
 
+/** A Brewery order's checkout of a repository: where it is, and the commit it is at (ADR 0301). */
+export interface Checkout {
+  path: string;
+  commit: string;
+}
+
 /** One line per item: what a cleanup removed, kept (with the reason) and could not remove. */
 export interface CleanReport {
   done: string[];
@@ -91,6 +102,12 @@ export interface AttemptWorktrees {
    * the clone has no ref of yet (ADR 0233). Throws when the fetch fails.
    */
   fetch(): Promise<void>;
+  /**
+   * Gives a read-only attempt of a Brewery order the checkout `name` of this repository in its
+   * folder under `<workRoot>/brewery-orders/` (ADR 0301): a detached worktree at `target`'s base
+   * after a fetch, or at its recorded commit when it resumes. Throws when that cannot be done.
+   */
+  checkout(ref: AttemptRef, name: string, target: Target): Promise<Checkout>;
   /**
    * Removes the worktrees, folders and local branches that nothing claims, stale index.lock
    * files of kept worktrees no attempt runs in, and the git directories of its own that a
@@ -230,6 +247,11 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     await mkdir(workRoot, { recursive: true });
     return join(await realpath(workRoot), repoFolder(repo), 'attempts');
   };
+  // The folder of the Brewery orders' checkouts, shared by every repository (ADR 0301).
+  const realOrders = async (): Promise<string> => {
+    await mkdir(workRoot, { recursive: true });
+    return join(await realpath(workRoot), ORDERS_FOLDER);
+  };
   const listWorktrees = async () =>
     parseWorktreeList(await must(git, clone, ['worktree', 'list', '--porcelain', '-z']));
   const readRecordsOfClone = async () => {
@@ -357,6 +379,68 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
     }
   };
 
+  // Removes this clone's checkouts of the Brewery orders that ended, then each such order's folder
+  // once nothing is left in it: the last repository's cleanup empties it (ADR 0301).
+  const cleanCheckouts = async (
+    listed: ListedWorktree[],
+    records: { dir: string; folder: string | undefined }[],
+    claims: Claims,
+    scope: { batchId?: string },
+    report: CleanReport,
+  ): Promise<void> => {
+    const orders = await realOrders();
+    const checkouts: (ListedFact & { inside: string })[] = [];
+    for (const worktree of listed) {
+      const inside = pathInside(orders, worktree.path);
+      if (inside === undefined) continue;
+      const record = recordOf(records, worktree.path);
+      checkouts.push({ ...worktree, inside, ...(await stateOf(worktree.path, record)), record });
+    }
+    const plan = planCheckoutClean(checkouts, claims, scope);
+    report.kept.push(...plan.kept);
+    for (const action of plan.actions) {
+      try {
+        await removeWorktree(okGit, clone, action);
+        report.done.push(`removed checkout ${action.label}`);
+      } catch (error) {
+        report.failed.push(`could not clean checkout ${action.label}: ${messageOf(error)}`);
+      }
+    }
+    for (const batch of await entriesOf(orders)) {
+      const batchId = batch.name;
+      if (!batch.isDirectory() || claims.batches.get(batchId) === 'live') continue;
+      if (scope.batchId !== undefined && scope.batchId !== batchId) continue;
+      try {
+        // The out doc a read-only attempt wrote in its folder goes first, unless it still runs.
+        const folder = join(orders, batchId);
+        // A checkout still there, this clone's kept one or another clone's, keeps the folder whole.
+        let holdsCheckout = false;
+        for (const step of await entriesOf(folder)) {
+          if (!step.isDirectory()) continue;
+          for (const attempt of await entriesOf(join(folder, step.name))) {
+            const inside = `${batchId}/${step.name}/${attempt.name}`;
+            const path = join(folder, step.name, attempt.name);
+            if (attempt.isDirectory()) {
+              for (const checkout of await entriesOf(path)) {
+                if (existsSync(join(path, checkout.name, '.git'))) holdsCheckout = true;
+              }
+            }
+            const ref = parseAttemptFolder(inside);
+            const outDoc = claims.outDocs?.get(inside);
+            if (ref === undefined || outDoc === undefined || isLeased(claims, ref)) continue;
+            const file = join(path, outDoc);
+            if ((await lstat(file).catch(() => undefined))?.isFile() === true) await rm(file);
+          }
+        }
+        if (!holdsCheckout && (await removeEmptyFolders(folder))) {
+          report.done.push(`removed Brewery order folder ${batchId}`);
+        }
+      } catch (error) {
+        report.failed.push(`could not clean Brewery order folder ${batchId}: ${messageOf(error)}`);
+      }
+    }
+  };
+
   return {
     root,
     async fetch() {
@@ -376,11 +460,55 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
       if (resolved === undefined) throw new Error(`The commit ${commit} is no commit in ${clone}`);
       return attach(ref, { kind: 'resume', commit: resolved });
     },
+    async checkout(ref, name, target) {
+      const inside = `${attemptFolder(ref)}/${name}`;
+      if (parseCheckoutFolder(inside) === undefined) {
+        throw new Error(`The checkout ${JSON.stringify(name)} has no folder name`);
+      }
+      const revision = target.kind === 'new' ? target.base : target.commit;
+      if (target.kind === 'new') await fetchOnce();
+      // A recorded commit comes from the state branch: never let it pass as an option.
+      const resolved = await commitOf(revision);
+      if (resolved === undefined)
+        throw new Error(`The commit ${revision} is no commit in ${clone}`);
+      const path = join(await realOrders(), ...inside.split('/'));
+      const here = (await listWorktrees()).find((worktree) => samePath(worktree.path, path));
+      let listed: Pick<ListedFact, 'state' | 'branch' | 'record'> | undefined;
+      if (here !== undefined) {
+        const record = recordOf(await readRecordsOfClone(), here.path);
+        listed = { branch: here.branch, record, state: (await stateOf(here.path, record)).state };
+      }
+      const at =
+        target.kind === 'new'
+          ? { kind: 'new' as const, base: resolved }
+          : { kind: 'resume' as const, commit: resolved };
+      const plan = planCheckout(inside, { listed, exists: existsSync(path) }, at);
+      switch (plan.kind) {
+        case 'reuse':
+          return { path, commit: resolved };
+        case 'refuse':
+          throw new Error(`Attempt ${attemptFolder(ref)} cannot get its checkout: ${plan.reason}`);
+        case 'add': {
+          if (plan.prune !== undefined) {
+            await removeWorktree(okGit, clone, { kind: 'prune', record: plan.prune });
+          }
+          await mkdir(dirname(path), { recursive: true });
+          const args = ['worktree', 'add', '--detach', '--', path, plan.at];
+          await must(git, clone, args, { timeoutMs: FETCH_TIMEOUT_MS });
+          return { path, commit: plan.at };
+        }
+        default: {
+          const unknown: never = plan;
+          throw new Error(`Unknown plan ${JSON.stringify(unknown)}`);
+        }
+      }
+    },
     async clean(claims, scope = {}) {
       const root = await realRoot();
       const records = await readRecordsOfClone();
       const worktrees: ListedFact[] = [];
-      for (const worktree of await listWorktrees()) {
+      const listed = await listWorktrees();
+      for (const worktree of listed) {
         const inside = pathInside(root, worktree.path);
         const record = recordOf(records, worktree.path);
         // The out doc of the attempt that made it, which every attempt that ran here wrote, as
@@ -421,6 +549,7 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
           }
         }
       }
+      await cleanCheckouts(listed, records, claims, scope, report);
       await cleanOwnGitDirs(own.root, now(), report);
       return report;
     },

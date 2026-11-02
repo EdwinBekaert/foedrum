@@ -239,6 +239,29 @@ describe('attempt worktrees with real git', () => {
     assert.equal(git(back.path, ['rev-parse', 'HEAD']).trim(), recorded);
   });
 
+  it("checks a Brewery order's attempt out detached at its base, gives it back, and cleans it (ADR 0301)", async () => {
+    const worktrees = open();
+    const ref = attempt('12-1', 'plan');
+
+    const made = await worktrees.checkout(ref, 'app', { kind: 'new', base: 'origin/main' });
+
+    assert.equal(made.commit, git(user, ['rev-parse', 'origin/main']).trim());
+    assert.equal(git(made.path, ['rev-parse', 'HEAD']).trim(), made.commit);
+    assert.equal(git(made.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'HEAD');
+    assert.ok(
+      existsSync(join(workRoot, 'brewery-orders', '12-1', 'plan', '1', 'app', 'readme.txt')),
+    );
+    assert.deepEqual(foedrumBranches(), []);
+    const back = await worktrees.checkout(ref, 'app', { kind: 'resume', commit: made.commit });
+    assert.deepEqual(back, made);
+
+    const report = await worktrees.clean(claims({ '12-1': 'ended' }), { batchId: '12-1' });
+
+    assert.deepEqual(report.failed, []);
+    assert.deepEqual(records(), []);
+    assert.ok(!existsSync(join(workRoot, 'brewery-orders', '12-1')));
+  });
+
   it('leaves a stale record outside the work root alone', async () => {
     const elsewhere = join(dir.path, 'elsewhere');
     git(user, ['worktree', 'add', '-q', '-b', 'elsewhere', elsewhere, 'main']);

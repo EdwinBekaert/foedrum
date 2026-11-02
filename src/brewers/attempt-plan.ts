@@ -242,10 +242,13 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
   return worktreeOf(done);
 };
 
-/** The Brewery's repositories and their bases, and the one an attempt's worktree holds. */
+/**
+ * The Brewery's repositories and their bases, and the one an attempt's worktree holds: none for a
+ * Brewery order's folder of checkouts (ADR 0301).
+ */
 interface BreweryRepositories {
   repositories: readonly { repo: string; base: string }[];
-  own: string;
+  own: string | undefined;
 }
 
 /** The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked. */
@@ -253,7 +256,7 @@ const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
   [
     "The Brewery's repositories, each with the base its work starts from:",
     ...repositories.map(({ repo, base }) =>
-      sameRepo(repo, own)
+      own !== undefined && sameRepo(repo, own)
         ? `- ${repo}, base ${base}: this attempt's repository, the one in your worktree`
         : `- ${repo}, base ${base}`,
     ),

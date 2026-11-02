@@ -1072,6 +1072,7 @@ describe('createAttemptPlans: plan', () => {
       answer: (call: number) => { code: number; stdout: string; stderr: string },
       fetch: () => Promise<void> = async () => {},
       more: Record<string, unknown> = {},
+      events: Event[] = [...ordered, started],
     ) => {
       const loaded = loadRecipes({
         recipes: [
@@ -1101,7 +1102,7 @@ describe('createAttemptPlans: plan', () => {
       });
       assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
       const calls: string[] = [];
-      const { plans } = setup([...ordered, started], {}, '', loaded.brewers, {
+      const { plans } = setup(events, {}, '', loaded.brewers, {
         repositories,
         git: async (cwd, args) => {
           calls.push(`${cwd} ${args.join(' ')}`);
@@ -1181,6 +1182,50 @@ describe('createAttemptPlans: plan', () => {
         'fetch acme/web',
         `${web} ${resolve.join(' ')}`,
       ]);
+    });
+
+    it("a plan in the folder of checkouts is checked at each checkout's recorded commit", async () => {
+      const folder = join('/work', 'brewery-orders', '12-1', 'brew', '1');
+      const inFolder: Event = {
+        type: 'step.started',
+        ...ref,
+        session: { id: sessionId, worktree: folder },
+        checkouts: [
+          { repo: 'acme/api', path: join(folder, 'acme.api'), commit: 'e'.repeat(40) },
+          { repo: 'acme/web', path: join(folder, 'acme.web'), commit: 'f'.repeat(40) },
+        ],
+      };
+      const { plans, calls } = planning(() => at, undefined, {}, [...ordered, inFolder]);
+      const planned = await plans.plan(start);
+      assert.equal(planned.cwd, folder);
+      assert.deepEqual(planned.touches, [
+        { repo: 'acme/api', clone: join('/clones', 'acme/api'), commit: 'e'.repeat(40) },
+        { repo: 'acme/web', clone: web, commit: 'f'.repeat(40) },
+      ]);
+      // Neither base is read: the brewer read each repository at its checkout's commit.
+      assert.deepEqual(calls, []);
+    });
+
+    it("gives a plan in the folder of checkouts no repository's tools (regression test)", async () => {
+      const folder = join('/work', 'brewery-orders', '12-1', 'brew', '1');
+      const inFolder: Event = {
+        type: 'step.started',
+        ...ref,
+        session: { id: sessionId, worktree: folder },
+        checkouts: [
+          { repo: 'acme/api', path: join(folder, 'acme.api'), commit: 'e'.repeat(40) },
+          { repo: 'acme/web', path: join(folder, 'acme.web'), commit: 'f'.repeat(40) },
+        ],
+      };
+      const { plans } = planning(() => at, undefined, {}, [...ordered, inFolder]);
+      const planned = await plans.plan(start);
+      // acme/api's own rule, which its worktree's attempt gets.
+      assert.ok(
+        !planned.permissions.allow.includes('Bash(npm test)'),
+        JSON.stringify(planned.permissions),
+      );
+      const own = await planning(() => at).plans.plan(start);
+      assert.ok(own.permissions.allow.includes('Bash(npm test)'), JSON.stringify(own.permissions));
     });
 
     it('keeps where the commits of a plan brewer that commits are counted', async () => {

@@ -171,6 +171,19 @@ export const WorktreeRef = z.strictObject({
 export type WorktreeRef = z.infer<typeof WorktreeRef>;
 
 /**
+ * A checkout a read-only attempt of a Brewery order was given, one per repository of the Brewery
+ * (ADR 0301): which repository, where, and the commit it was at, so a resumed session gets the same
+ * folder back. The path says where it was; the checkout is made again from the attempt and the
+ * commit.
+ */
+export const CheckoutRef = z.strictObject({
+  repo: Repo,
+  path: NonEmpty,
+  commit: CommitSha,
+});
+export type CheckoutRef = z.infer<typeof CheckoutRef>;
+
+/**
  * The issue of an order or sub-order: an issue in the Brewery, or a claimed issue of the target
  * repository `repo`, whose order is a Brewery issue (ADR 0043, ADR 0144).
  */
@@ -672,11 +685,14 @@ export const Event = z.discriminatedUnion('type', [
   // `session` is required for brewer steps; the schema cannot tell the step kind.
   // `worktree` is the one this attempt was given; a resumed session's attempt runs in the
   // worktree of the attempt it continues, named by `session.worktree`, and has none (ADR 0029).
+  // `checkouts`, in place of a worktree, are a Brewery order's read-only attempt's, one per
+  // repository, in the folder `session.worktree` names (ADR 0301).
   z.strictObject({
     type: z.literal('step.started'),
     ...step,
     session: SessionRef.optional(),
     worktree: WorktreeRef.optional(),
+    checkouts: z.array(CheckoutRef).min(2).optional(),
     // An interactive step's: when its session opened, a person's wait (ADR 0222).
     interactiveSince: Timestamp.optional(),
   }),
