@@ -1,6 +1,7 @@
 // A fake GitHub API behind a `fetch`, for `foedrum serve`'s tests (ADR 0068): the issues of each
-// repository, its claim refs with their commits, and the marks of its issues, answered by method
-// and path the way the GitHub layer asks (src/github/). No network (ADR 0021).
+// repository, its claim refs with their commits, the marks of its issues, its pull requests, which
+// a test merges, and its releases, which a test makes as a repository's CI would, answered by
+// method and path the way the GitHub layer asks (src/github/). No network (ADR 0021).
 
 export interface FakeApiIssue {
   number: number;
@@ -43,7 +44,30 @@ export interface FakeApiPull {
   title: string;
   body: string;
   draft?: boolean;
+  /** Its merge, once `merge` made it: the merge commit and when it merged. */
+  merged?: FakeApiMerge;
 }
+
+/** A merge of a pull request: its merge commit, made where the test merged it, and when. */
+export interface FakeApiMerge {
+  sha: string;
+  at: string;
+}
+
+/**
+ * A release of a repository, as its CI would make it: a tag on `commit` at `at`, published as a
+ * release with `notes`, or with `tagOnly` a tag with no release.
+ */
+export interface FakeApiRelease {
+  tag: string;
+  commit: string;
+  at: string;
+  notes?: string;
+  tagOnly?: boolean;
+}
+
+/** Who can read a repository, as `GET /repos/{owner}/{repo}` says. */
+export type FakeApiVisibility = 'public' | 'private' | 'internal';
 
 /** An answer to send instead of the fake's own; `hang` never answers until its signal aborts. */
 export type Instead = { status: number; body?: unknown; headers?: Record<string, string> } | 'hang';
@@ -53,6 +77,8 @@ export interface FakeGitHubApiOptions {
   login: string;
   /** The open issues of each repository, by `owner/name` in lower case. */
   issues: Record<string, FakeApiIssue[]>;
+  /** Who can read each repository, by `owner/name` in lower case; any other is not found. */
+  visibilities?: Record<string, FakeApiVisibility>;
   /** The answer to send instead for a request, or undefined for the fake's own. */
   instead?: (method: string, url: URL) => Instead | undefined;
 }
@@ -74,6 +100,10 @@ export interface FakeGitHubApi {
   issue(repo: string, number: number): FakeApiIssue | undefined;
   /** The issues of each repository, those opened through the API included (ADR 0144). */
   readonly issues: Record<string, FakeApiIssue[]>;
+  /** Merges the pull request `repo#number` it opened, as a person would on GitHub. */
+  merge(repo: string, number: number, merged: FakeApiMerge): void;
+  /** Releases `repo`, holding every merge of it made before. */
+  release(repo: string, release: FakeApiRelease): void;
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
@@ -93,6 +123,16 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   const messages = new Map<string, string>();
   const comments = new Map<string, { id: number; author: string; body: string }[]>();
   const labels = new Map<string, Set<string>>();
+  // The releases of each repository, in the order made, each with the merges made before it.
+  const releases = new Map<string, (FakeApiRelease & { held: string[] })[]>();
+  const releasesOf = (repo: string) => releases.get(repo.toLowerCase()) ?? [];
+  /** The one of `made` with the latest date, or undefined when there is none. */
+  const newest = <T extends { at: string }>(made: readonly T[]): T | undefined =>
+    made.reduce<T | undefined>(
+      (latest, each) =>
+        latest === undefined || Date.parse(each.at) > Date.parse(latest.at) ? each : latest,
+      undefined,
+    );
   let ids = 0;
   let commits = 0;
   const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
@@ -134,9 +174,15 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
 
-  // The two GraphQL requests of the claim host: a repository's id, and a conditional delete.
+  // The GraphQL requests of the claim host, a repository's id and a conditional delete, and the
+  // release reader's newest tag by its commit's date.
   const graphql = (body: unknown): Response => {
     const { query, variables } = body as { query: string; variables: Record<string, unknown> };
+    if (query.includes('refs(refPrefix: "refs/tags/"')) {
+      const tag = newest(releasesOf(`${variables.owner}/${variables.name}`));
+      const nodes = tag === undefined ? [] : [{ name: tag.tag, target: { committedDate: tag.at } }];
+      return json(200, { data: { repository: { refs: { nodes } } } });
+    }
     if (query.includes('repository(')) {
       return json(200, { data: { repository: { id: `R_${variables.owner}/${variables.name}` } } });
     }
@@ -218,7 +264,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (found === undefined && asIssueOfPull !== undefined && method === 'GET' && what === '') {
       return json(200, {
         number: asIssueOfPull.number,
-        state: 'open',
+        state: asIssueOfPull.merged === undefined ? 'open' : 'closed',
         user: { login: asIssueOfPull.author },
         labels: [],
         title: asIssueOfPull.title,
@@ -297,25 +343,34 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const [, number] = /\/pulls\/(\d+)$/.exec(url.pathname) ?? [];
     if (number !== undefined) {
       const found = ofRepo.find((pull) => pull.number === Number(number));
-      if (method !== 'GET' || found === undefined) return notFound();
+      if (found === undefined) return notFound();
+      // Its body revised, as the sibling sections of an order's pull requests are (ADR 0292).
+      const revised = (body ?? {}) as { body?: string };
+      if (method === 'PATCH' && revised.body !== undefined) found.body = revised.body;
+      else if (method !== 'GET') return notFound();
+      const { merged } = found;
       return json(200, {
         ...asPull(found),
-        state: 'open',
-        merged: false,
-        merged_at: null,
+        state: merged === undefined ? 'open' : 'closed',
+        merged: merged !== undefined,
+        merged_at: merged?.at ?? null,
+        merge_commit_sha: merged?.sha ?? null,
         body: found.body,
         head: { ref: found.head, sha: headOf(found.number), repo: { full_name: found.repo } },
       });
     }
+    // Only the open ones, as GitHub lists them unless asked for every state; a merged one is closed.
+    const open = ofRepo.filter((pull) => pull.merged === undefined);
     if (method === 'GET') {
       const head = url.searchParams.get('head')?.split(':').slice(1).join(':');
+      const listed = url.searchParams.get('state') === 'all' ? ofRepo : open;
       return json(
         200,
-        ofRepo.filter((pull) => head === undefined || pull.head === head).map(asPull),
+        listed.filter((pull) => head === undefined || pull.head === head).map(asPull),
       );
     }
     const fields = body as Omit<FakeApiPull, 'repo' | 'number' | 'author'>;
-    if (ofRepo.some((pull) => pull.head === fields.head)) {
+    if (open.some((pull) => pull.head === fields.head)) {
       return json(422, { message: 'A pull request already exists' });
     }
     const pull = { repo: repo.toLowerCase(), number: ++ids, author: login, ...fields };
@@ -355,16 +410,53 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     }
     if (method === 'GET' && rest.startsWith('git/commits/')) {
       const sha = rest.slice('git/commits/'.length);
+      // A merge commit, as git's data API gives it, with its date (ADR 0223).
+      const merge = pulls.find(
+        (pull) => pull.repo === repo.toLowerCase() && pull.merged?.sha === sha,
+      );
+      if (merge?.merged !== undefined) {
+        const message = `Merge pull request #${merge.number}`;
+        return json(200, { sha, message, committer: { date: merge.merged.at } });
+      }
       const message = messages.get(sha);
       return message === undefined ? notFound() : json(200, { sha, message });
     }
     return notFound();
   };
 
+  // A repository's latest published release, and how one of its commits stands to a release's tag:
+  // its own commit, a merge made before it, or any other, which the tag does not hold.
+  const onRelease = (method: string, repo: string, rest: string): Response => {
+    if (method !== 'GET') return notFound();
+    if (rest === 'releases/latest') {
+      const latest = newest(releasesOf(repo).filter((each) => each.tagOnly !== true));
+      if (latest === undefined) return notFound();
+      return json(200, {
+        tag_name: latest.tag,
+        html_url: `https://github.com/${repo}/releases/tag/${encodeURIComponent(latest.tag)}`,
+        body: latest.notes ?? null,
+        published_at: latest.at,
+      });
+    }
+    const [, base = '', head] = /^compare\/(.+)\.\.\.([0-9a-f]{40})$/.exec(rest) ?? [];
+    const tagged = releasesOf(repo).find((each) => each.tag === decodeURIComponent(base));
+    if (tagged === undefined || head === undefined) return notFound();
+    const status =
+      head === tagged.commit ? 'identical' : tagged.held.includes(head) ? 'behind' : 'ahead';
+    return json(200, { status });
+  };
+
   const answer = (method: string, url: URL, body: unknown): Response => {
     const path = url.pathname;
     if (method === 'GET' && path === '/user') return json(200, { login });
     if (method === 'POST' && path === '/graphql') return graphql(body);
+    // A repository itself: who can read it (ADR 0300).
+    const [, whole] = /^\/repos\/([^/]+\/[^/]+)$/.exec(path) ?? [];
+    if (whole !== undefined) {
+      const visibility = options.visibilities?.[whole.toLowerCase()];
+      if (method !== 'GET' || visibility === undefined) return notFound();
+      return json(200, { full_name: whole, private: visibility === 'private', visibility });
+    }
     const [, repo = '', rest = ''] = /^\/repos\/([^/]+\/[^/]+)\/(.*)$/.exec(path) ?? [];
     if (method === 'GET' && rest === 'issues') {
       const wanted = url.searchParams.get('labels')?.split(',') ?? [];
@@ -388,6 +480,9 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
     if (/^pulls(?:\/\d+)?$/.test(rest)) return onPulls(method, repo, url, body);
     if (rest.startsWith('commits/')) return onCommit(method, repo, rest);
+    if (rest === 'releases/latest' || rest.startsWith('compare/')) {
+      return onRelease(method, repo, rest);
+    }
     if (method === 'POST' && rest === 'labels') {
       const { name } = body as { name: string };
       const made = labels.get(repo.toLowerCase()) ?? new Set();
@@ -426,5 +521,17 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     labels,
     issue,
     issues: options.issues,
+    merge: (repo, number, merged) => {
+      const pull = pulls.find((each) => each.repo === repo.toLowerCase() && each.number === number);
+      if (pull === undefined) throw new Error(`The fake opened no pull request ${repo}#${number}`);
+      pull.merged = { ...merged };
+    },
+    release: (repo, release) => {
+      const key = repo.toLowerCase();
+      const held = pulls.flatMap((pull) =>
+        pull.repo === key && pull.merged !== undefined ? [pull.merged.sha] : [],
+      );
+      releases.set(key, [...releasesOf(key), { ...release, held }]);
+    },
   };
 };

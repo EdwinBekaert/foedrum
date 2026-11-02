@@ -8,7 +8,14 @@ import { dirname } from 'node:path';
 import { errorCode } from '../../src/platform/errors.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { ghOver } from '../../test/helpers/fake-gh.ts';
-import { type FakeApiPull, fakeGitHubApi } from '../../test/helpers/fake-github-api.ts';
+import {
+  type FakeApiIssue,
+  type FakeApiMerge,
+  type FakeApiPull,
+  type FakeApiRelease,
+  type FakeApiVisibility,
+  fakeGitHubApi,
+} from '../../test/helpers/fake-github-api.ts';
 import { BREW_ORDER, BREWERY, LOGIN, MASH_ORDER, ORDER } from './core.ts';
 
 /** Where the code host keeps its writes: one JSON line each. */
@@ -24,26 +31,52 @@ export interface CodeHost {
   pulls(): readonly FakeApiPull[];
   /** The comments on `repo#issue`. */
   comments(repo: string, issue: number): readonly { author: string; body: string }[];
+  /** Merges the pull request `repo#number`, as a person would; kept in the journal. */
+  merge(repo: string, number: number, merged: FakeApiMerge): void;
+  /** Releases `repo`, as its CI would on a merge; kept in the journal. */
+  release(repo: string, release: FakeApiRelease): void;
 }
 
-/** A write the code host was asked for, as its journal keeps it. */
-interface Write {
-  method: string;
-  url: string;
-  body?: string;
+/** What the code host starts with: the issues of each repository, and who can read which. */
+export interface CodeHostSetup {
+  issues: Record<string, FakeApiIssue[]>;
+  visibilities?: Record<string, FakeApiVisibility>;
 }
+
+/**
+ * A write the code host was asked for, as its journal keeps it: a request, or a merge or a release
+ * the demo made as a person and a repository's CI would.
+ */
+type Write =
+  | { method: string; url: string; body?: string }
+  | { merge: { repo: string; number: number; merged: FakeApiMerge } }
+  | { release: { repo: string; release: FakeApiRelease } };
 
 /** The code host, with every write in `journal` made again first. */
-export const codeHost = async (journal: Journal): Promise<CodeHost> => {
+export const codeHost = async (
+  journal: Journal,
+  setup: CodeHostSetup = { issues: { [BREWERY]: [ORDER, BREW_ORDER, MASH_ORDER] } },
+): Promise<CodeHost> => {
   // Copies: the fake changes an issue's labels and assignees in place.
-  const issues = [ORDER, BREW_ORDER, MASH_ORDER].map((order) => ({
-    ...order,
-    labels: [...order.labels],
-  }));
-  const api = fakeGitHubApi({ login: LOGIN, issues: { [BREWERY]: issues } });
+  const issues = Object.fromEntries(
+    Object.entries(setup.issues).map(([repo, listed]) => [
+      repo,
+      listed.map((each) => ({ ...each, labels: [...each.labels] })),
+    ]),
+  );
+  const api = fakeGitHubApi({
+    login: LOGIN,
+    issues,
+    ...(setup.visibilities === undefined ? {} : { visibilities: setup.visibilities }),
+  });
   for (const line of journal.lines()) {
-    const { method, url, body } = JSON.parse(line) as Write;
-    await api.fetch(url, { method, ...(body === undefined ? {} : { body }) });
+    const write = JSON.parse(line) as Write;
+    if ('merge' in write) api.merge(write.merge.repo, write.merge.number, write.merge.merged);
+    else if ('release' in write) api.release(write.release.repo, write.release.release);
+    else {
+      const { method, url, body } = write;
+      await api.fetch(url, { method, ...(body === undefined ? {} : { body }) });
+    }
   }
   const fetch: typeof globalThis.fetch = async (input, init = {}) => {
     const response = await api.fetch(input, init);
@@ -68,6 +101,15 @@ export const codeHost = async (journal: Journal): Promise<CodeHost> => {
         author,
         body,
       })),
+    // Kept once made: a merge the fake refuses is never played again.
+    merge: (repo, number, merged) => {
+      api.merge(repo, number, merged);
+      journal.append(JSON.stringify({ merge: { repo, number, merged } } satisfies Write));
+    },
+    release: (repo, release) => {
+      api.release(repo, release);
+      journal.append(JSON.stringify({ release: { repo, release } } satisfies Write));
+    },
   };
 };
 
