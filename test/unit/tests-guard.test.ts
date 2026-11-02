@@ -257,7 +257,7 @@ describe('guardTests (ADR 0078)', () => {
     );
   });
 
-  it('lets through a brewer that only adds a fixture (done when, #176)', async () => {
+  it('lets through a brewer that leaves the red tests as they were (done when, #176)', async () => {
     const { runner } = setup({ tip: tips.kept });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
