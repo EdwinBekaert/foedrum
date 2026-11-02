@@ -77,7 +77,7 @@ export interface ServeRepository {
   tools: readonly string[];
   /** The command behind each of its checks, or null where it has none (ADR 0023, ADR 0069). */
   checks: RepositoryChecks;
-  /** Where its test check writes the structured report red proofs read (ADR 0078). */
+  /** Where its test check writes its structured report, read for a test map's freshness (ADR 0282). */
   testReport?: TestReportConfig;
   /** What runs before a brewer attempt and a check step's checks, with the network (ADR 0163). */
   setup?: RepositorySetup;

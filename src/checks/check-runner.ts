@@ -99,7 +99,10 @@ export interface CheckRunnerOptions {
   checks: StepChecks;
   /** The commands of a repository's checks (`foedrum.jsonc`), or undefined when it lists none. */
   repositoryChecks: (repo: string) => RepositoryChecks | undefined;
-  /** The test report a repository's test check writes (`foedrum.jsonc`), for red proofs. */
+  /**
+   * The test report a repository's test check writes (`foedrum.jsonc`): where a run's tests
+   * outside the test map are found (ADR 0282); the red proof reads the map's reports (ADR 0297).
+   */
   testReport: (repo: string) => TestReportConfig | undefined;
   exec: ExecProcess;
   /**
