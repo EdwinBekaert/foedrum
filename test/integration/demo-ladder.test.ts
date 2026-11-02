@@ -8,6 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { codeHost, fileJournal } from '../../scripts/demo/code-host.ts';
+import { LADDER_STEPS } from '../../scripts/demo/ladder.ts';
 import { headingOf, STEPS } from '../../scripts/demo/walkthrough.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -136,5 +137,58 @@ describe('npm run demo -- ladder', () => {
       assert.ok(heading.startsWith(`Step ${index + 1} of 14: `), heading);
     });
     assert.ok(!result.stdout.includes(headingOf(0)), result.stdout);
+  });
+
+  it('each step of the ladder prints a line of its own (regression test)', () => {
+    assert.equal(result.exitCode, 0, result.output);
+    const at = LADDER_STEPS.map((_, index) =>
+      result.stdout.indexOf(headingOf(index, LADDER_STEPS)),
+    );
+    /** The output of the step `id`, from its heading to the next one's. */
+    const part = (id: string): string => {
+      const n = LADDER_STEPS.findIndex((step) => step.id === id);
+      return result.stdout.slice(at[n], at[n + 1]);
+    };
+    const lines: Record<string, RegExp[]> = {
+      plan: [
+        /demo: batch 1-1 waits Stuck for the review of its plan/,
+        /Recipe \*\*mash\*\*, chosen by its label/,
+        /\| `bump`: .* \| `ladder` \| `greet` \(release\) \| yes \|/,
+      ],
+      approve: [/\$ foedrum approve 1-1\n +1-1 on tap: plan approved by ann via terminal/],
+      'sub-issues': [
+        /sub-issue #3 of #1: .*\n +labels: foedrum:sub-order, recipe:ladder\n +blocked by: #2\n/,
+      ],
+      lib: [
+        /foedrum serve: ordered demo\/brewery#2 as batch 2-1/,
+        /demo: pull request #\d+ on demo\/lib: /,
+      ],
+      release: [
+        /demo: ann merges demo\/lib#\d+ into main as [0-9a-f]{7}/,
+        /tags it v1\.4\.0 on [0-9a-f]{7}/,
+      ],
+      released: [
+        /foedrum serve: recorded the release v1\.4\.0 of demo\/lib/,
+        /foedrum serve: ordered demo\/brewery#3 as batch 3-1/,
+      ],
+      'release-input': [/- Tag, as written: v1\.4\.0\n/, /- Merged pull request of #2: /],
+      bump: [/^ +- +"@demo\/greet": "1\.3\.0"\n +\+ +"@demo\/greet": "1\.4\.0"$/m],
+      web: [/demo: pull request #\d+ on demo\/web: /],
+      siblings: [/demo: the body of demo\/lib#\d+ starts:\n +## Pull requests of this order/],
+      merge: [/demo: ann merges demo\/web#\d+ into main as [0-9a-f]{7}/],
+      done: [/\*\*Done\*\*: every sub-order merged/, /merged, released as v1\.4\.0/],
+      closed: [
+        /demo\/brewery#1 is closed/,
+        /Every sub-order merged: demo\/lib#\d+, demo\/web#\d+\./,
+      ],
+      status: [/\$ foedrum status 1\n/, /planning: /],
+    };
+    assert.deepStrictEqual(
+      Object.keys(lines),
+      LADDER_STEPS.map(({ id }) => id),
+    );
+    for (const [id, patterns] of Object.entries(lines)) {
+      for (const pattern of patterns) assert.match(part(id), pattern, `step ${id}`);
+    }
   });
 });
