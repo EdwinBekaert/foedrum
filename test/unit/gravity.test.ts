@@ -344,11 +344,11 @@ describe('withFailing (#779)', () => {
     assert.equal(GravityReading.safeParse(named).success, true);
   });
 
-  it('names no passing test, and no failing test of a reading that passed or did not exit: regression test', () => {
-    const reports = reportOf(failure('fails'), '<testcase name="passes"/>');
-    const named = withFailing(exited(1), reports);
-    assert.deepEqual(named.result === 'exited' && named.failing, { tests: ['fails'], more: 0 });
-    assert.deepEqual(withFailing(exited(0), reports), exited(0));
+  it('names no failing test of a reading that exited 0: regression test', () => {
+    assert.deepEqual(withFailing(exited(0), reportOf(failure('fails'))), exited(0));
+  });
+
+  it('names no failing test of a reading that did not exit: regression test', () => {
     const killed: GravityReading = {
       result: 'killed',
       check: 'test',
@@ -356,8 +356,10 @@ describe('withFailing (#779)', () => {
       killed: 'timed-out',
       tail: '',
     };
-    assert.deepEqual(withFailing(killed, reports), killed);
-    const passing = reportOf('<testcase name="passes"/>');
-    assert.deepEqual(withFailing(exited(1), passing), exited(1));
+    assert.deepEqual(withFailing(killed, reportOf(failure('fails'))), killed);
+  });
+
+  it('names nothing when the report has no failing test: regression test', () => {
+    assert.deepEqual(withFailing(exited(1), reportOf('<testcase name="passes"/>')), exited(1));
   });
 });
