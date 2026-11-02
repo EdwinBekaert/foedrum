@@ -146,6 +146,31 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.ok(existsSync(join(kept, '-empty')));
     });
 
+    it("leaves another ended batch's Brewery order folder to that batch's cleanup (regression test)", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      for (const batch of ['12-1', '13-1']) {
+        mkdirSync(join(orders, batch, 'plan', '1'), { recursive: true });
+        writeFileSync(join(orders, batch, 'plan', '1', 'plan.md'), '---\n---\n');
+      }
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        return undefined;
+      });
+      const outDocs = new Map([
+        ['12-1/plan/1', 'plan.md'],
+        ['13-1/plan/1', 'plan.md'],
+      ]);
+
+      const report = await open(git).clean({ ...ended, outDocs }, { batchId: '12-1' });
+
+      assert.deepEqual(report.done, ['removed Brewery order folder 12-1']);
+      assert.ok(existsSync(join(orders, '13-1', 'plan', '1', 'plan.md')));
+    });
+
     it("keeps the out doc of a leased attempt and a live batch's folder (regression test)", async () => {
       const orders = join(workRoot, 'brewery-orders');
       for (const batch of ['12-1', '13-1']) {

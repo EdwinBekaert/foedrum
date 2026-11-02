@@ -338,6 +338,31 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         }),
     });
 
+    it('fails a writing step of a Brewery order there for good, by its brewer (regression test)', async () => {
+      // The Brewery's stout brews in one step, whose cellarman writes.
+      const issue = {
+        number: 12,
+        labels: ['recipe:stout'],
+        author: 'ann',
+        title: 'Export the batches',
+        body: 'Add an export.',
+      };
+      api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue] } });
+      await runBrew(setup, inCheckouts([]), request);
+      assert.deepStrictEqual(started, []);
+      const outcomes = store
+        .eventsAfter(0)
+        .flatMap(({ event }) => (event.type === 'step.finished' ? [event.outcome] : []));
+      assert.deepStrictEqual(outcomes, [
+        {
+          kind: 'failed',
+          retryable: false,
+          reason:
+            'step brew writes, and a Brewery order in a Brewery of 2 repositories only plans: label it recipe:mash, or file it in its repository with the intake label',
+        },
+      ]);
+    });
+
     it("a Brewery order's plan attempt in a Brewery of two repositories gets a checkout of each at its base", async () => {
       assert.equal(await runBrew(setup, inCheckouts([behave.needInput()]), request), 4);
       assert.deepStrictEqual(started, ['plan#1']);

@@ -305,6 +305,8 @@ describe('foedrum resume (ADR 0126)', () => {
       started.map(({ cwd: ran }) => ran),
       [folder],
     );
+    // A Brewery order's folder is no repository's: acme/api's toolchain rule stays out.
+    assert.doesNotMatch(JSON.stringify(settings[0]?.settings), /npm test/);
   });
 
   it("writes the settings again with the logins serve's environment moved", async () => {
