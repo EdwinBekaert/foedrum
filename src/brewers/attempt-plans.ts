@@ -263,13 +263,16 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    */
   const planRepositories = async (
     worktree: { repo: string; commit: string } | undefined,
+    checkouts: readonly { repo: string; commit: string }[] = [],
   ): Promise<PlanRepository[]> =>
     Promise.all(
       (options.repositories ?? []).map(async ({ repo, base }): Promise<PlanRepository> => {
         const clone = options.clone(repo);
-        if (worktree !== undefined && sameRepo(repo, worktree.repo)) {
-          return { repo, clone, commit: worktree.commit };
-        }
+        // The commit the attempt read it at: its worktree's, or its checkout's (ADR 0301).
+        const ran = [...(worktree === undefined ? [] : [worktree]), ...checkouts].find((each) =>
+          sameRepo(each.repo, repo),
+        );
+        if (ran !== undefined) return { repo, clone, commit: ran.commit };
         const read = gitIn(repo, `the base ${base} of ${repo} was not read`);
         const resolve = async () =>
           (await read(['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
@@ -610,8 +613,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       // A Brewery order's read-only attempt runs in its folder of checkouts, of every repository
       // and of none its own (ADR 0301).
       const step = batch?.steps.get(stepId);
-      const inFolder =
-        step !== undefined && session !== undefined && checkoutsOf(step, session.id) !== undefined;
+      const checkouts =
+        step === undefined || session === undefined
+          ? undefined
+          : checkoutsOf(step, session.id)?.checkouts;
+      const inFolder = checkouts !== undefined;
       if (batch === undefined || (ranIn === undefined && !inFolder)) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
@@ -699,7 +705,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
             };
       const checked =
         found.brewer.output.schema === PLAN
-          ? { ...prepared, touches: await planRepositories(own) }
+          ? {
+              ...prepared,
+              touches: await planRepositories(own, own === undefined ? checkouts : []),
+            }
           : prepared;
       if (found.brewer.produces !== 'commits') return checked;
       // Its commits are counted on its branch in the clone, built from the attempt that made the
