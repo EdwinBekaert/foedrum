@@ -711,6 +711,18 @@ describe('checkBases', () => {
       );
     });
 
+    it('shows a literal command of exactly 80 characters whole: regression test', () => {
+      const command = `make ${'e'.repeat(75)}`;
+      onTap();
+      checked(tip1, { failed: { result: 'exited', command, exitCode: 2, tail: '' } });
+      assert.ok(
+        baseCheckLines(log.state(), batch())[0]?.endsWith(
+          `: the check "${command}" failed with exit code 2`,
+        ),
+        baseCheckLines(log.state(), batch())[0],
+      );
+    });
+
     it('cuts a long literal command to 80 characters, so how it ended still shows: regression test', () => {
       const command = `make ${'e2e-'.repeat(30)}`;
       onTap();
