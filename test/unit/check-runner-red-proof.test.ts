@@ -272,9 +272,14 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('runs no setup for a red proof that is blocked before its run: no test map (ADR 0140)', async () => {
-    const { order, run } = setup({ prepare: 'npm ci', report: null });
+    const { order, run } = setup({ prepare: 'npm ci', maps: {} });
     const end = await run();
-    assert.equal(end.ending.kind, 'blocked');
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'recipe nip proves its tests red, which needs a test map of acme/api: commit .foedrum/test-map.jsonc to acme/api, or add a survey step to the recipe (ADR 0297)',
+    });
     assert.deepEqual(order, []);
   });
 

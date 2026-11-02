@@ -2065,13 +2065,13 @@ Plan the order in {order}.
       });
     });
 
-    it('a test-first recipe with no testReport no longer sticks before its first step', async () => {
+    it('a test-first recipe with a survey and no test map does not stick before its first step', async () => {
       // The repository keeps its test map, and has none: the survey proposes one (ADR 0298).
       const { brewed, batch } = await brewTestFirst(testFirstSetup({}, surveying));
       assert.equal(brewed[0], 'survey');
       const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
       assert.ok(
-        !JSON.stringify(reason ?? {}).includes('which needs the test report'),
+        !JSON.stringify(reason ?? {}).includes('which needs a test map'),
         JSON.stringify(reason),
       );
     });
