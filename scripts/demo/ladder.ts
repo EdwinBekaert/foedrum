@@ -208,7 +208,8 @@ const subOrderBatches = (batches: Iterable<Batch>): Batch[] =>
   [...batches].filter((batch) => batch.parentBatchId === PLANNED);
 
 /**
- * Where a life stands, from the store's events: `plan` ends once the planned batch is Stuck,
+ * Where a life stands, from the store's events: `plan` ends once the planned batch is Stuck with
+ * its plan ready for review,
  * `lib` once one sub-order's batch is on tap, `web` once both are, and `close` once the order's
  * issue is closed; any other Stuck or cancelled batch fails it at once. The Cellar ends it on the
  * next quiet tick, so the effects of the last change are applied first.
@@ -218,9 +219,13 @@ export const ladderLifeEnd = (
   events: readonly { event: Event }[],
 ): LadderLifeEnd => {
   const state = fold(events.map(({ event }) => event));
+  /** Whether `batch` is the planned one, Stuck with its plan ready for review (ADR 0275). */
+  const reviewing = (batch: Batch | undefined): boolean =>
+    batch?.id === PLANNED &&
+    batch.lane.kind === 'stuck' &&
+    batch.lane.reason.kind === 'plan_review';
   for (const batch of state.batches.values()) {
-    const planned = life === 'plan' && batch.id === PLANNED;
-    if (batch.lane.kind === 'stuck' && !planned) {
+    if (batch.lane.kind === 'stuck' && !(life === 'plan' && reviewing(batch))) {
       return {
         kind: 'failed',
         line: `demo: batch ${batch.id} is Stuck: ${batch.lane.reason.kind}`,
@@ -235,7 +240,7 @@ export const ladderLifeEnd = (
   );
   switch (life) {
     case 'plan':
-      return state.batches.get(PLANNED)?.lane.kind === 'stuck'
+      return reviewing(state.batches.get(PLANNED))
         ? { kind: 'ended', line: `demo: batch ${PLANNED} waits Stuck for the review of its plan` }
         : { kind: 'brewing' };
     case 'lib':
