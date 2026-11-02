@@ -1927,6 +1927,8 @@ Plan the order in {order}.
       web: Record<string, unknown>,
       recipeText = nip,
       gaugerText = gauger,
+      /** The Brewery's test maps, for a repository whose map it keeps (ADR 0018). */
+      testMaps: { path: string; text: string }[] = [],
     ) => {
       const files = serveInputs().files;
       const result = serveSetup(
@@ -1943,6 +1945,7 @@ Plan the order in {order}.
                 { path: 'brewers/maltster.md', text: maltster },
               ],
             },
+            ...(testMaps.length === 0 ? {} : { testMaps }),
           },
         }),
       );
@@ -2207,6 +2210,35 @@ Plan the order in {order}.
         read.push({ cwd, range: args.slice(end - 2, end).join(' ') });
         return ok(gaugeDiff);
       };
+
+    it('a test-first batch whose Brewery keeps a map for the repository brews: regression test', async () => {
+      const maps = [{ path: 'test-maps/acme/web.jsonc', text: webMap }];
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({ testMap: 'brewery' }, nip, gauger, maps),
+        [],
+        mappedGit([]),
+        undefined,
+        'report.tap',
+      );
+      assert.deepStrictEqual([brewed, batch?.lane.kind], [['gauge', 'implement'], 'on_tap']);
+    });
+
+    it("reads the repository's map for the start refusal at the commit the attempt started at: regression test", async () => {
+      // The clone has the map only there: read anywhere else, the batch would be Stuck.
+      const asked: string[] = [];
+      const clone = mappedGit([]);
+      const git: Git = async (cwd, args) => {
+        if (args[0] === 'ls-tree' && args.at(-1) === '.foedrum/test-map.jsonc') {
+          const at = args[args.indexOf('--') - 1] ?? '';
+          asked.push(at);
+          if (at !== FAKE_COMMIT) return { code: 0, stdout: '', stderr: '' };
+        }
+        return clone(cwd, args);
+      };
+      const { brewed } = await brewTestFirst(testFirstSetup({}), [], git, undefined, 'report.tap');
+      assert.equal(brewed[0], 'gauge');
+      assert.equal(asked[0], FAKE_COMMIT);
+    });
 
     it("a sent-back Gauger's done without a commit is a divergence again", async () => {
       const routed = JSON.stringify({
