@@ -9,21 +9,14 @@ import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-ru
 import type { State } from '../engine/fold.ts';
 import { ranIn } from '../engine/session-resume.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
-import type { DiffFile } from '../formats/unified-diff.ts';
 import { foldsCase } from '../platform/paths.ts';
 import type { TestMap } from '../schemas/test-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import type { Git, GitResult } from '../workspace/git.ts';
 import { cut } from './red-proof.ts';
 import { readDiff, stepCommits } from './step-commits.ts';
-import { effectiveMap, type ReadTestMapAt } from './test-map.ts';
-import { type ChangedTestLine, changedTestLines, guardedFiles } from './tests-unchanged.ts';
-
-/**
- * Which lines the proven step committed, `proven`, the attempt changed or removed; or why git
- * could not read what it needed to tell.
- */
-type Keep = (proven: readonly DiffFile[]) => Promise<ChangedTestLine[] | { error: string }>;
+import { type EffectiveModule, effectiveMap, type ReadTestMapAt } from './test-map.ts';
+import { changedTestLines, guardedFiles } from './tests-unchanged.ts';
 
 /** As much as a diff of the step may hold: a test file at the tip is read with the same bound. */
 const MAX_TIP_BYTES = 16 * 1024 * 1024;
@@ -138,7 +131,8 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
     const tip = `refs/heads/${attemptBranch({ ...ref, attempt: ran.attempt })}`;
     // What it keeps: every line the proven step added to a separate test file of the base's or the
     // step's map (ADR 0274); or why a map cannot be read, or that there is none (ADR 0297).
-    const keeping = async (): Promise<{ keep: Keep } | { summary: string }> => {
+    const foldCase = foldsCase(platform);
+    const keeping = async (): Promise<{ modules: EffectiveModule[] } | { summary: string }> => {
       const { repo } = worktree;
       // The base the batch's change starts from (ADR 0164), and the map the proven step committed,
       // which a later attempt cannot narrow.
@@ -161,22 +155,7 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
         };
       }
       // Every module the base lists stays: the guard keeps more, never less, than the map says.
-      const foldCase = foldsCase(platform);
-      const modules = effectiveMap(atBase, atStep, { atBase: [], deleted: [] }, foldCase);
-      return {
-        keep: async (tests) => {
-          // Each test file as the attempt left it, and as it was where the proven step started, so
-          // a later step's own copy of a line may go and an older copy hides no red one.
-          const paths = guardedFiles(tests, modules, foldCase);
-          const files = await readTip(git, cwd, tip, paths, signal);
-          if ('error' in files) return files;
-          const before = await readTip(git, cwd, proven.from, paths, signal);
-          if ('error' in before) return before;
-          return changedTestLines(tests, { files: files.files, before: before.files }, modules, {
-            foldCase,
-          });
-        },
-      };
+      return { modules: effectiveMap(atBase, atStep, { atBase: [], deleted: [] }, foldCase) };
     };
     try {
       const kept = await keeping();
@@ -195,9 +174,16 @@ export function guardTests(options: TestsGuardOptions): BrewerRunner {
       const tests = await readDiff(git, cwd, proven, { signal });
       if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
       if ('error' in tests) return unreadable(tests.error);
-      const changed = await kept.keep(tests.files);
+      // Each test file as the attempt left it, and as it was where the proven step started, so a
+      // later step's own copy of a line may go and an older copy hides no red one.
+      const paths = guardedFiles(tests.files, kept.modules, foldCase);
+      const files = await readTip(git, cwd, tip, paths, signal);
+      const before = 'error' in files ? files : await readTip(git, cwd, proven.from, paths, signal);
       if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
-      if ('error' in changed) return unreadable(changed.error);
+      if ('error' in files) return unreadable(files.error);
+      if ('error' in before) return unreadable(before.error);
+      const left = { files: files.files, before: before.files };
+      const changed = changedTestLines(tests.files, left, kept.modules, { foldCase });
       const [first] = changed;
       if (first === undefined) return end;
       const lines = changed.length === 1 ? 'a line' : `${changed.length} lines`;
