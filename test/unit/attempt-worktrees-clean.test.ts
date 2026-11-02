@@ -124,6 +124,28 @@ describe('openAttemptWorktrees with a fake git', () => {
       assert.ok(!existsSync(join(orders, '12-1')));
     });
 
+    it("leaves a Brewery order's folder alone while another repository's checkout is kept there", async () => {
+      const orders = join(workRoot, 'brewery-orders');
+      // Another clone's checkout, kept by its own cleanup, with an empty folder of the brewer's
+      // that a listing gives before its .git file.
+      const kept = join(orders, '12-1', 'plan', '1', 'web');
+      mkdirSync(join(kept, '-empty'), { recursive: true });
+      writeFileSync(join(kept, '.git'), 'gitdir: /elsewhere/.git/worktrees/web\n');
+      const { git } = fakeGit((_cwd, args) => {
+        if (args[0] === 'rev-parse') return ok(`${join(clone, '.git')}\n`);
+        if (args[0] === 'worktree' && args[1] === 'list') {
+          return ok(porcelain([{ path: clone, branch: 'main' }]));
+        }
+        if (args[0] === 'for-each-ref') return ok('');
+        return undefined;
+      });
+
+      const report = await open(git).clean(ended, { batchId: '12-1' });
+
+      assert.deepEqual(report.done, []);
+      assert.ok(existsSync(join(kept, '-empty')));
+    });
+
     it("keeps the out doc of a leased attempt and a live batch's folder (regression test)", async () => {
       const orders = join(workRoot, 'brewery-orders');
       for (const batch of ['12-1', '13-1']) {
