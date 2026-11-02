@@ -62,16 +62,31 @@ export const mutantVerdict = async (
   }
 };
 
-if (import.meta.main) {
-  const [baseline, run, ...files] = process.argv.slice(2);
+export interface MainResult {
+  exitCode: number;
+  stdout: string[];
+  stderr: string[];
+}
+
+// The command line: its arguments, and what it prints and exits with.
+export const main = async (argv: readonly string[]): Promise<MainResult> => {
+  const [baseline, run, ...files] = argv;
   if (baseline === undefined || run === undefined) {
-    console.error(
-      'usage: node scripts/mutant-verdict.ts <baseline.jsonl> <run.jsonl> [<test file>...]',
-    );
-    process.exitCode = 2;
-  } else {
-    const { ok, lines } = await mutantVerdict(baseline, run, files.length > 0 ? files : undefined);
-    for (const line of lines) console.log(`mutant-verdict: ${line}`);
-    if (!ok) process.exitCode = 1;
+    const usage =
+      'usage: node scripts/mutant-verdict.ts <baseline.jsonl> <run.jsonl> [<test file>...]';
+    return { exitCode: 2, stdout: [], stderr: [usage] };
   }
+  const { ok, lines } = await mutantVerdict(baseline, run, files.length > 0 ? files : undefined);
+  return {
+    exitCode: ok ? 0 : 1,
+    stdout: lines.map((line) => `mutant-verdict: ${line}`),
+    stderr: [],
+  };
+};
+
+if (import.meta.main) {
+  const { exitCode, stdout, stderr } = await main(process.argv.slice(2));
+  for (const line of stdout) console.log(line);
+  for (const line of stderr) console.error(line);
+  process.exitCode = exitCode;
 }
