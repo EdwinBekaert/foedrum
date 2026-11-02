@@ -43,7 +43,30 @@ export interface FakeApiPull {
   title: string;
   body: string;
   draft?: boolean;
+  /** Its merge, once `merge` made it: the merge commit and when it merged. */
+  merged?: FakeApiMerge;
 }
+
+/** A merge of a pull request: its merge commit, made where the test merged it, and when. */
+export interface FakeApiMerge {
+  sha: string;
+  at: string;
+}
+
+/**
+ * A release of a repository, as its CI would make it: a tag on `commit` at `at`, published as a
+ * release with `notes`, or with `tagOnly` a tag with no release.
+ */
+export interface FakeApiRelease {
+  tag: string;
+  commit: string;
+  at: string;
+  notes?: string;
+  tagOnly?: boolean;
+}
+
+/** Who can read a repository, as `GET /repos/{owner}/{repo}` says. */
+export type FakeApiVisibility = 'public' | 'private' | 'internal';
 
 /** An answer to send instead of the fake's own; `hang` never answers until its signal aborts. */
 export type Instead = { status: number; body?: unknown; headers?: Record<string, string> } | 'hang';
@@ -53,6 +76,8 @@ export interface FakeGitHubApiOptions {
   login: string;
   /** The open issues of each repository, by `owner/name` in lower case. */
   issues: Record<string, FakeApiIssue[]>;
+  /** Who can read each repository, by `owner/name` in lower case; any other is not found. */
+  visibilities?: Record<string, FakeApiVisibility>;
   /** The answer to send instead for a request, or undefined for the fake's own. */
   instead?: (method: string, url: URL) => Instead | undefined;
 }
@@ -74,6 +99,10 @@ export interface FakeGitHubApi {
   issue(repo: string, number: number): FakeApiIssue | undefined;
   /** The issues of each repository, those opened through the API included (ADR 0144). */
   readonly issues: Record<string, FakeApiIssue[]>;
+  /** Merges the pull request `repo#number` it opened, as a person would on GitHub. */
+  merge(repo: string, number: number, merged: FakeApiMerge): void;
+  /** Releases `repo`, holding every merge of it made before. */
+  release(repo: string, release: FakeApiRelease): void;
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
@@ -426,5 +455,11 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     labels,
     issue,
     issues: options.issues,
+    merge: () => {
+      throw new Error('not implemented');
+    },
+    release: () => {
+      throw new Error('not implemented');
+    },
   };
 };

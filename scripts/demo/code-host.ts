@@ -8,7 +8,14 @@ import { dirname } from 'node:path';
 import { errorCode } from '../../src/platform/errors.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { ghOver } from '../../test/helpers/fake-gh.ts';
-import { type FakeApiPull, fakeGitHubApi } from '../../test/helpers/fake-github-api.ts';
+import {
+  type FakeApiIssue,
+  type FakeApiMerge,
+  type FakeApiPull,
+  type FakeApiRelease,
+  type FakeApiVisibility,
+  fakeGitHubApi,
+} from '../../test/helpers/fake-github-api.ts';
 import { BREW_ORDER, BREWERY, LOGIN, MASH_ORDER, ORDER } from './core.ts';
 
 /** Where the code host keeps its writes: one JSON line each. */
@@ -24,6 +31,16 @@ export interface CodeHost {
   pulls(): readonly FakeApiPull[];
   /** The comments on `repo#issue`. */
   comments(repo: string, issue: number): readonly { author: string; body: string }[];
+  /** Merges the pull request `repo#number`, as a person would; kept in the journal. */
+  merge(repo: string, number: number, merged: FakeApiMerge): void;
+  /** Releases `repo`, as its CI would on a merge; kept in the journal. */
+  release(repo: string, release: FakeApiRelease): void;
+}
+
+/** What the code host starts with: the issues of each repository, and who can read which. */
+export interface CodeHostSetup {
+  issues: Record<string, FakeApiIssue[]>;
+  visibilities?: Record<string, FakeApiVisibility>;
 }
 
 /** A write the code host was asked for, as its journal keeps it. */
@@ -34,7 +51,7 @@ interface Write {
 }
 
 /** The code host, with every write in `journal` made again first. */
-export const codeHost = async (journal: Journal): Promise<CodeHost> => {
+export const codeHost = async (journal: Journal, _setup?: CodeHostSetup): Promise<CodeHost> => {
   // Copies: the fake changes an issue's labels and assignees in place.
   const issues = [ORDER, BREW_ORDER, MASH_ORDER].map((order) => ({
     ...order,
@@ -68,6 +85,12 @@ export const codeHost = async (journal: Journal): Promise<CodeHost> => {
         author,
         body,
       })),
+    merge: () => {
+      throw new Error('not implemented');
+    },
+    release: () => {
+      throw new Error('not implemented');
+    },
   };
 };
 

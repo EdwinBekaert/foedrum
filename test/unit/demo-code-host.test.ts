@@ -103,6 +103,53 @@ describe('the demo code host', () => {
     ]);
   });
 
+  it('plays a merge and a release again for the next code host opened on its journal', async () => {
+    const journal = memoryJournal();
+    const first = await codeHost(journal);
+    const pull = { head: 'foedrum/demo.brewery/1-1/demo.web', base: 'main', title: 'T', body: 'B' };
+    const opened = await send(first, 'POST', `/repos/${TARGET}/pulls`, pull);
+    const { number } = (await opened.json()) as { number: number };
+    const at = '2026-11-02T10:00:00.000Z';
+    first.merge(TARGET, number, { sha: 'a'.repeat(40), at });
+    first.release(TARGET, { tag: 'v1.4.0', commit: 'b'.repeat(40), at, notes: 'French' });
+
+    const second = await codeHost(journal);
+    const read = (await (await send(second, 'GET', `/repos/${TARGET}/pulls/${number}`)).json()) as {
+      merge_commit_sha: string;
+    };
+    assert.equal(read.merge_commit_sha, 'a'.repeat(40));
+    assert.deepStrictEqual(second.pulls()[0]?.merged, { sha: 'a'.repeat(40), at });
+    const latest = (await (
+      await send(second, 'GET', `/repos/${TARGET}/releases/latest`)
+    ).json()) as {
+      tag_name: string;
+      body: string;
+    };
+    assert.deepStrictEqual(
+      { tag: latest.tag_name, notes: latest.body },
+      { tag: 'v1.4.0', notes: 'French' },
+    );
+  });
+
+  it('starts with the issues and the visibilities it is set up with, instead of the orders', async () => {
+    const order = { number: 5, labels: ['recipe:mash'], author: 'ann', title: 'Ladder' };
+    const host = await codeHost(memoryJournal(), {
+      issues: { [BREWERY]: [order] },
+      visibilities: { 'demo/lib': 'public' },
+    });
+    const listed = (await (await send(host, 'GET', `/repos/${BREWERY}/issues`)).json()) as {
+      number: number;
+    }[];
+    assert.deepStrictEqual(
+      listed.map(({ number }) => number),
+      [5],
+    );
+    const lib = (await (await send(host, 'GET', '/repos/demo/lib')).json()) as {
+      visibility: string;
+    };
+    assert.equal(lib.visibility, 'public');
+  });
+
   it('keeps no read', async () => {
     const journal = memoryJournal();
     const host = await codeHost(journal);
