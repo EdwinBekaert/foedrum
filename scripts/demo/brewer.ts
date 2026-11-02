@@ -158,8 +158,8 @@ const PLAN: Scripted = {
 };
 
 /**
- * The Nip fixture's Gauger and Cellarman, with a Taster for each lens step of the demo's parallel
- * group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the blocking correctness lens
+ * The Nip fixture's Maltster, Gauger and Cellarman, with a Taster for each lens step of the
+ * demo's parallel group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the blocking correctness lens
  * asks for changes with one finding, and the advisory ones approve with a finding of their own,
  * so the status comment shows each one's findings under its own step. The Cellarman's third
  * attempt fixes the finding and records it fixed, and the Finer runs after it once more. In
