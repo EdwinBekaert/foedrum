@@ -2440,24 +2440,6 @@ describe('openDriver', () => {
       assert.equal(given('b1'), 'acme/web');
     });
 
-    it('fails the attempt of an order that names no repository among several, retryably', async () => {
-      const { runner, started } = handRunner();
-      order('b1');
-      const driver = await open({ runner, worktrees: both() });
-      await driver.drive();
-      const finished = store
-        .eventsAfter(0)
-        .map(({ event }) => event)
-        .find((event) => event.type === 'step.finished');
-      assert.deepStrictEqual(finished?.type === 'step.finished' && finished.outcome, {
-        kind: 'failed',
-        retryable: true,
-        reason:
-          'the attempt could not get its worktree: batch b1 names no repository, and the Brewery has 2',
-      });
-      assert.deepStrictEqual([creates(app), creates(web), started], [[], [], []]);
-    });
-
     it('fails the attempt of a claimed issue whose repository the Brewery does not list', async () => {
       intake.issue({ kind: 'order', batchId: 'api-3', order: { issue: 3, repo: 'acme/api' } }, now);
       route('api-3');
@@ -2490,6 +2472,114 @@ describe('openDriver', () => {
         settings.cleans().map(({ scope }) => scope),
         [{}, { batchId: 'b1' }],
       );
+    });
+  });
+
+  describe('a Brewery order in a Brewery of several repositories (ADR 0301)', () => {
+    const appCommit = '1'.repeat(40);
+    const webCommit = '2'.repeat(40);
+    let app: FakeWorktrees;
+    let web: FakeWorktrees;
+    beforeEach(() => {
+      app = fakeWorktrees({ root: 'app-attempts', commit: appCommit });
+      web = fakeWorktrees({ root: 'web-attempts', commit: webCommit });
+    });
+    const both = () => [
+      { repo: 'acme/app', base: 'origin/main', alias: 'app', manager: app },
+      { repo: 'acme/web', base: 'origin/develop', manager: web },
+    ];
+    // The plan step only reads; implement writes.
+    const reads = ({ stepId }: AttemptRef) => stepId === 'plan';
+    const startedEvents = () =>
+      store.eventsAfter(0).flatMap(({ event }) => (event.type === 'step.started' ? [event] : []));
+    const orderFolder = (attempt: number) =>
+      join('work', 'brewery-orders', 'b1', 'plan', String(attempt));
+    const checkouts = (manager: FakeWorktrees) =>
+      manager.calls.flatMap((call) =>
+        call.kind === 'checkout' ? [[call.ref.attempt, call.name, call.target]] : [],
+      );
+
+    it("records a Brewery order's reading attempt in one folder, with a checkout of each repository named by its alias or its folder", async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const driver = await open({ runner, worktrees: both(), reads });
+      await driver.drive();
+      const [event] = startedEvents();
+      assert.equal(event?.session?.worktree, orderFolder(1));
+      assert.equal(event?.worktree, undefined);
+      assert.deepStrictEqual(event?.checkouts, [
+        { repo: 'acme/app', path: join(orderFolder(1), 'app'), commit: appCommit },
+        { repo: 'acme/web', path: join(orderFolder(1), 'acme.web'), commit: webCommit },
+      ]);
+      assert.deepStrictEqual(
+        [checkouts(app), checkouts(web)],
+        [
+          [[1, 'app', { kind: 'new', base: 'origin/main' }]],
+          [[1, 'acme.web', { kind: 'new', base: 'origin/develop' }]],
+        ],
+      );
+      assert.ok(!app.calls.some((call) => call.kind === 'create'));
+      assert.deepStrictEqual(started, [plan('b1')]);
+    });
+
+    it("the checkouts of a Brewery order's attempt are recorded and recreated at the same commits on resume", async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      let next = 0;
+      const sessionId = () => `0f8fad5b-d9cb-469f-a165-70867728950${next++}`;
+      const first = '0f8fad5b-d9cb-469f-a165-708677289500';
+      const driver = await open({
+        runner,
+        worktrees: both(),
+        reads,
+        sessionId,
+        resumes: () => true,
+      });
+      await driver.drive();
+      const flaky: Ending = { kind: 'failed', retryable: true, reason: 'claude crashed' };
+      const session = { sessionId: first, model: 'claude-sonnet-5-5', claudeVersion: '2.1.301' };
+      end(plan('b1'), flaky, { session });
+      await driver.drive();
+      const resumed = startedEvents().at(-1);
+      assert.equal(resumed?.attempt, 2);
+      assert.deepStrictEqual(resumed.session, {
+        id: first,
+        resumes: first,
+        worktree: orderFolder(1),
+      });
+      assert.equal(resumed.checkouts, undefined);
+      assert.deepStrictEqual(
+        [checkouts(app), checkouts(web)],
+        [
+          [
+            [1, 'app', { kind: 'new', base: 'origin/main' }],
+            [1, 'app', { kind: 'resume', commit: appCommit }],
+          ],
+          [
+            [1, 'acme.web', { kind: 'new', base: 'origin/develop' }],
+            [1, 'acme.web', { kind: 'resume', commit: webCommit }],
+          ],
+        ],
+      );
+    });
+
+    it('a writing step of a Brewery order in a Brewery of two repositories fails naming the step', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      const driver = await open({ runner, worktrees: both(), reads: () => false });
+      await driver.drive();
+      const finished = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .find((event) => event.type === 'step.finished');
+      assert.deepStrictEqual(finished?.type === 'step.finished' && finished.outcome, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'step plan writes, and a Brewery order in a Brewery of 2 repositories only plans: label it recipe:mash, or file it in its repository with the intake label',
+      });
+      const made = (manager: FakeWorktrees) => manager.calls.filter(({ kind }) => kind !== 'clean');
+      assert.deepStrictEqual([made(app), made(web), started], [[], [], []]);
     });
   });
 

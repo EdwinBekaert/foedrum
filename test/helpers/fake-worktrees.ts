@@ -1,9 +1,10 @@
 // A fake attempt worktree manager for engine tests: it records what the engine asks of it and
-// makes no folder and runs no git (ADR 0021). The real one is tested in attempt-worktrees*.test.ts.
+// makes no folder unless asked to and runs no git (ADR 0021). The real one is tested in attempt-worktrees*.test.ts.
 
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorktreeMerge } from '../../src/engine/base-merge.ts';
-import type { AttemptRef, Claims } from '../../src/workspace/attempt-worktrees.ts';
+import type { AttemptRef, Claims, Target } from '../../src/workspace/attempt-worktrees.ts';
 import { attemptBranch, attemptFolder } from '../../src/workspace/attempt-worktrees.ts';
 import type {
   AttemptWorktree,
@@ -14,6 +15,7 @@ import type {
 export type WorktreeCall =
   | { kind: 'create'; ref: AttemptRef; base: string }
   | { kind: 'recreate'; ref: AttemptRef; commit: string }
+  | { kind: 'checkout'; ref: AttemptRef; name: string; target: Target }
   | { kind: 'clean'; claims: Claims; scope: { batchId?: string } };
 
 export interface FakeWorktreesOptions {
@@ -27,6 +29,12 @@ export interface FakeWorktreesOptions {
   refuseRecreate?: (ref: AttemptRef) => string | undefined;
   /** The root `recreate` gives a worktree back under; default the attempts root. */
   recreateRoot?: string;
+  /**
+   * The folder a Brewery order's checkouts are made in, `<workRoot>/brewery-orders`; with
+   * `makeCheckouts`, each checkout is made there as an empty folder, so a test can list them.
+   */
+  ordersRoot?: string;
+  makeCheckouts?: boolean;
   /** Makes `clean` throw, as when git cannot list the worktrees. */
   cleanFails?: string;
 }
@@ -82,6 +90,13 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
       if (reason !== undefined) throw new Error(reason);
       const path = join(options.recreateRoot ?? root, ...attemptFolder(ref).split('/'));
       return { path, branch: attemptBranch(ref), commit: at };
+    },
+    async checkout(ref, name, target) {
+      calls.push({ kind: 'checkout', ref, name, target });
+      const folder = options.ordersRoot ?? join('work', 'brewery-orders');
+      const path = join(folder, ...attemptFolder(ref).split('/'), name);
+      if (options.makeCheckouts === true) mkdirSync(path, { recursive: true });
+      return { path, commit: target.kind === 'new' ? commit : target.commit };
     },
     async clean(claims, scope = {}): Promise<CleanReport> {
       calls.push({ kind: 'clean', claims, scope });

@@ -64,7 +64,7 @@ export interface ResumeShell {
   worktrees: (
     repository: ServeRepository,
     workRoot: string,
-  ) => Promise<Pick<AttemptWorktrees, 'recreate'>>;
+  ) => Promise<Pick<AttemptWorktrees, 'recreate' | 'checkout'>>;
   /** Whether Claude Code keeps the session `id` on this machine. */
   sessionFound: (id: string) => boolean;
   /** Writes an attempt's settings file, making its folder. */

@@ -65,6 +65,12 @@ export interface AttemptWorktree {
   commit: string;
 }
 
+/** A Brewery order's checkout of a repository: where it is, and the commit it is at (ADR 0301). */
+export interface Checkout {
+  path: string;
+  commit: string;
+}
+
 /** One line per item: what a cleanup removed, kept (with the reason) and could not remove. */
 export interface CleanReport {
   done: string[];
@@ -91,6 +97,12 @@ export interface AttemptWorktrees {
    * the clone has no ref of yet (ADR 0233). Throws when the fetch fails.
    */
   fetch(): Promise<void>;
+  /**
+   * Gives a read-only attempt of a Brewery order the checkout `name` of this repository in its
+   * folder under `<workRoot>/brewery-orders/` (ADR 0301): a detached worktree at `target`'s base
+   * after a fetch, or at its recorded commit when it resumes. Throws when that cannot be done.
+   */
+  checkout(ref: AttemptRef, name: string, target: Target): Promise<Checkout>;
   /**
    * Removes the worktrees, folders and local branches that nothing claims, stale index.lock
    * files of kept worktrees no attempt runs in, and the git directories of its own that a
@@ -375,6 +387,9 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
       const resolved = await commitOf(commit);
       if (resolved === undefined) throw new Error(`The commit ${commit} is no commit in ${clone}`);
       return attach(ref, { kind: 'resume', commit: resolved });
+    },
+    async checkout() {
+      throw new Error('not implemented');
     },
     async clean(claims, scope = {}) {
       const root = await realRoot();

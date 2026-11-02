@@ -81,8 +81,10 @@ export interface DriverActions {
 export interface RepositoryWorktrees {
   repo: string;
   base: string;
+  /** Its alias, which names its checkout in a Brewery order's folder (ADR 0301). */
+  alias?: string;
   manager: Pick<AttemptWorktrees, 'root' | 'create' | 'clean'> &
-    Partial<Pick<AttemptWorktrees, 'recreate'>>;
+    Partial<Pick<AttemptWorktrees, 'recreate' | 'checkout'>>;
   /**
    * How an attempt of a step that merges the base merges it before it runs (ADR 0164); without
    * it, nothing is merged.
@@ -138,6 +140,12 @@ export interface DriverOptions {
    * check steps.
    */
   brews?: (attempt: AttemptRef) => boolean;
+  /**
+   * Whether the brewer of an attempt only reads (`access: "read"`): such an attempt of a Brewery
+   * order in a Brewery of several repositories gets a checkout of each (ADR 0301), and any other
+   * attempt of such an order fails. None reads by default.
+   */
+  reads?: (attempt: AttemptRef) => boolean;
   /**
    * Whether the brewer of an attempt resumes the session of the attempt before it on a retry or an
    * answer (`retryMode: resume`, ADR 0117, ADR 0118); never by default. `foedrum serve` and

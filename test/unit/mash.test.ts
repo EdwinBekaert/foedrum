@@ -4,7 +4,7 @@
 // (ADR 0021).
 
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -27,7 +27,7 @@ import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
-import { local, serveInputs } from '../helpers/serve-brewery.ts';
+import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const t0 = new Date('2026-10-28T12:00:00.000Z');
@@ -88,6 +88,8 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
   let prompts: string[];
   /** The model each attempt was planned with. */
   let models: string[];
+  /** The working directory each attempt was planned in. */
+  let cwds: string[];
   /** The shell's clock: a later brew can be a minute on, past the status comment's limit. */
   let now: Date;
 
@@ -111,6 +113,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     started = [];
     prompts = [];
     models = [];
+    cwds = [];
     now = t0;
     api = fakeGitHubApi({
       login: 'ann',
@@ -148,6 +151,7 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
           const ended = plan(start).then(async (made) => {
             prompts.push(made.prompt);
             models.push(made.call.model);
+            cwds.push(made.cwd);
             const end = await inner.start(start).ended;
             // The Brewmaster's out doc stays in its worktree, as the real session leaves it.
             if (end.outDoc !== undefined) {
@@ -299,6 +303,61 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.equal(two?.resumes, one?.id);
     assert.match(prompts[1] ?? '', /A: sqlite/);
     assert.ok(planComment()?.includes('`schema`'));
+  });
+
+  describe('in a Brewery of two repositories (ADR 0301)', () => {
+    beforeEach(() => {
+      const files = serveInputs().files;
+      const { defaults } = readBreweryFiles(dir.path);
+      // acme/app has an alias, which names its checkout; acme/web has none.
+      const checks = { build: null, typecheck: null, lint: null, format: null, test: 'npm test' };
+      const two = {
+        repositories: { 'acme/web': { checks }, 'acme/app': { checks, alias: 'app' } },
+      };
+      const clones = { 'acme/web': join(dir.path, 'web'), 'acme/app': join(dir.path, 'app') };
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            config: config(two),
+            local: local({ workRoot: dir.path, clones }),
+            brewery: { ...files.brewery, ...(defaults === undefined ? {} : { defaults }) },
+          },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    });
+    /** serve's shell whose worktree managers make each checkout as a folder. */
+    const inCheckouts = (script: readonly Behaviour[]): ServeShell => ({
+      ...shell(script),
+      worktrees: async ({ repo }) =>
+        fakeWorktrees({
+          root: join(dir.path, repo.replace('/', '.'), 'attempts'),
+          ordersRoot: join(dir.path, 'brewery-orders'),
+          makeCheckouts: true,
+        }),
+    });
+
+    it("a Brewery order's plan attempt in a Brewery of two repositories gets a checkout of each at its base", async () => {
+      assert.equal(await runBrew(setup, inCheckouts([behave.needInput()]), request), 4);
+      assert.deepStrictEqual(started, ['plan#1']);
+      const folder = join(dir.path, 'brewery-orders', '12-1', 'plan', '1');
+      assert.deepStrictEqual(cwds, [folder]);
+      // Beside the Brewmaster's out doc, which it writes in its working directory.
+      const listed = readdirSync(folder, { withFileTypes: true });
+      const folders = listed.filter((entry) => entry.isDirectory()).map(({ name }) => name);
+      assert.deepStrictEqual(folders.sort(), ['acme.web', 'app']);
+      const [event] = store
+        .eventsAfter(0)
+        .flatMap(({ event }) => (event.type === 'step.started' ? [event] : []));
+      assert.deepStrictEqual(
+        event?.checkouts?.map(({ repo, path }) => [repo, path]),
+        [
+          ['acme/web', join(folder, 'acme.web')],
+          ['acme/app', join(folder, 'app')],
+        ],
+      );
+    });
   });
 
   describe('foedrum lauter: the plan corrected in a session at gate 1 (ADR 0286, #589)', () => {
