@@ -155,7 +155,7 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.ok(
       text.startsWith(
-        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n**Sub-orders**\n`,
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n**Sub-orders**\n`,
       ),
       text,
     );
@@ -369,6 +369,19 @@ describe('renderPlan (ADR 0233)', () => {
     );
   });
 
+  it('the plan comment links the full plan by its place', () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, {
+      place: '7-1/plan-2.md',
+      url: 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan 2.md',
+    });
+    assert.ok(
+      text.startsWith(
+        '### Foedrum · plan of batch `7-1`\n\nFull plan: [7-1/plan-2.md](<https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan%202.md>)\n\n',
+      ),
+      text.slice(0, 300),
+    );
+  });
+
   it('leaves no details open where it cuts: regression test (#658)', () => {
     const text = renderPlan('7-1', 'plan', longest());
     assert.match(text, /rest is cut/);
@@ -378,12 +391,16 @@ describe('renderPlan (ADR 0233)', () => {
   it('keeps the link and the next step when the text is cut to length (#658)', () => {
     const text = renderPlan('7-1', 'plan', longest(), undefined, fullPlan, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
-    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.ok(
+      text.startsWith(
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n`,
+      ),
+    );
     assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/);
   });
 
   it('counts the link in the length, for a text that fits only without it: regression test (#659)', () => {
-    const link = `\n\nFull plan: <${outDoc}>`;
+    const link = `\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)`;
     const sized = (n: number, extra: number): PlanReport => ({
       subOrders: Array.from({ length: n }, (_, i) =>
         subOrder(`s${i}`, { title: i === 0 ? 'y'.repeat(extra) : 'Build' }),
@@ -430,7 +447,11 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, fullPlan, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /\n#### /);
-    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.ok(
+      text.startsWith(
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n`,
+      ),
+    );
     assert.match(
       text,
       /\n\| `s\d{3}-x+`: y+ \| [^\n]+ \|\n\n… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/,
@@ -858,7 +879,8 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     await driver.applyEffects();
-    const link = (path: string) => `\n\nFull plan: <${stateBranchUrl}/batches/7-1/${path}>\n\n`;
+    const link = (path: string) =>
+      `\n\nFull plan: [7-1/${path}](<${stateBranchUrl}/batches/7-1/${path}>)\n\n`;
     assert.ok(only().body.includes(link('plan-1.md')), only().body);
     step('replan', planned(second));
     await driver.applyEffects();
@@ -890,7 +912,7 @@ describe('planEffects (ADR 0233)', () => {
     issue({ kind: 'record', event: { type: 'step.started', ...retried } });
     issue({ kind: 'finish', ...retried, ending: planned(three) });
     await driver.applyEffects();
-    const link = `\n\nFull plan: <${stateBranchUrl}/batches/7-1/plan-2.md>\n\n`;
+    const link = `\n\nFull plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)\n\n`;
     assert.ok(only().body.includes(link), only().body);
   });
 });

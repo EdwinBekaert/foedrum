@@ -1878,7 +1878,7 @@ describe('runBrew', () => {
       );
       const url = `https://github.localhost/${claimed.brewery}/issues/40#issuecomment-${plan?.id}`;
       assert.ok(
-        bodies.some((body) => body.includes(`is ready for your review: <${url}>`)),
+        bodies.some((body) => body.includes(`is ready for your review: [plan comment](<${url}>)`)),
         bodies.join('\n---\n'),
       );
     });

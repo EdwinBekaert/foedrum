@@ -195,6 +195,14 @@ const reasonClause = (reason: string): string => {
  */
 export const link = (url: string): string => `<${new URL(url).href}>`;
 
+/**
+ * A URL behind Foedrum's own `text`, as an out doc's place on the state branch: the URL in angle
+ * brackets inside the parentheses, so a `)` or a space in it cannot end the link early.
+ */
+export const labelled = (_text: string, _url: string): string => {
+  throw new Error('not implemented');
+};
+
 const waitText = (on: WaitCondition): string => {
   switch (on.kind) {
     case 'merge':

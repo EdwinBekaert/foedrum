@@ -367,7 +367,10 @@ describe('npm run demo', () => {
     const heading = mash.search(/^ +### Foedrum · plan of batch `3-1`$/m);
     assert.ok(heading >= 0, mash);
     const plan = mash.slice(heading);
-    assert.match(plan, /^ +Full plan: <https:\/\/github\.com\/demo\/brewery\/[^>]+>$/m);
+    assert.match(
+      plan,
+      /^ +Full plan: \[3-1\/plan-1\.md\]\(<https:\/\/github\.com\/demo\/brewery\/[^>]+>\)$/m,
+    );
     assert.match(plan, /^ +\| Sub-order \| Size \| Recipe \| Depends on \| Ready \|$/m);
     assert.match(plan, /^ +```mermaid\n +flowchart LR\n/m);
     assert.match(plan, /^ +s1 -->\|"code"\| s2$/m);
@@ -377,7 +380,9 @@ describe('npm run demo', () => {
     const statusUrl = /status comment: (\S+)$/m.exec(mash)?.[1] ?? assert.fail(mash);
     assert.notEqual(planUrl, statusUrl);
     assert.ok(
-      mash.includes(`🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: <${planUrl}>`),
+      mash.includes(
+        `🔔 **Stuck**: the plan of \`plan\` #1 is ready for your review: [plan comment](<${planUrl}>)`,
+      ),
       mash,
     );
   });
