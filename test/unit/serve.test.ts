@@ -2977,7 +2977,7 @@ Plan the order in {order}.
           },
         }),
       );
-      setup = result.kind === 'ready' ? result.setup : assert.fail();
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {
