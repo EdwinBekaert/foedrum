@@ -9,7 +9,10 @@ import {
   readingOf,
   settleReadings,
   tailOf,
+  withFailing,
 } from '../../src/checks/gravity.ts';
+import { parseJunit } from '../../src/formats/junit.ts';
+import { parseTap } from '../../src/formats/tap.ts';
 import { GravityReading, MAX_TAIL_LENGTH } from '../../src/schemas/events.ts';
 import { cpuTimeMs, descheduled } from '../helpers/load.ts';
 
@@ -303,5 +306,86 @@ describe('settleReadings', () => {
       blockerKind: 'environment',
       summary: 'the check "test" (npm test) could not start',
     });
+  });
+});
+
+describe('withFailing (#779)', () => {
+  const exited = (exitCode: number): GravityReading => ({
+    result: 'exited',
+    check: 'test',
+    command: 'npm test',
+    exitCode,
+    tail: '',
+  });
+  /** The report parseJunit reads from `cases`, each a testcase element. */
+  const reportOf = (...cases: string[]) => {
+    const read = parseJunit(
+      `<testsuites><testsuite name="all">${cases.join('')}</testsuite></testsuites>`,
+    );
+    return read.readable ? [read.report] : assert.fail(read.reason);
+  };
+  const failure = (name: string) => `<testcase name="${name}"><failure message="no"/></testcase>`;
+
+  it('keeps a failing name on one line: regression test', () => {
+    const named = withFailing(exited(1), reportOf(failure('adds&#10;two&#13;numbers')));
+    assert.deepEqual(named.result === 'exited' && named.failing, {
+      tests: ['adds two numbers'],
+      more: 0,
+    });
+  });
+
+  it('never cuts a name inside a surrogate pair: regression test', () => {
+    const beer = String.fromCodePoint(0x1f37a);
+    const name = `${'x'.repeat(198)}${beer}y`;
+    const named = withFailing(exited(1), reportOf(failure(name)));
+    assert.deepEqual(named.result === 'exited' && named.failing, {
+      tests: [`${'x'.repeat(198)}…`],
+      more: 0,
+    });
+    assert.equal(GravityReading.safeParse(named).success, true);
+  });
+
+  it('names no failing test of a reading that exited 0: regression test', () => {
+    assert.deepEqual(withFailing(exited(0), reportOf(failure('fails'))), exited(0));
+  });
+
+  it('names no failing test of a reading that did not exit: regression test', () => {
+    const killed: GravityReading = {
+      result: 'killed',
+      check: 'test',
+      command: 'npm test',
+      killed: 'timed-out',
+      tail: '',
+    };
+    assert.deepEqual(withFailing(killed, reportOf(failure('fails'))), killed);
+  });
+
+  it('names a failing subtest, never the suite around it: regression test', () => {
+    const tap = [
+      'TAP version 13',
+      '# Subtest: greets',
+      '    # Subtest: in French',
+      '    not ok 1 - in French',
+      '    1..1',
+      'not ok 1 - greets',
+      '1..1',
+    ].join('\n');
+    const read = parseTap(tap);
+    const reports = read.readable ? [read.report] : assert.fail(read.reason);
+    const named = withFailing(exited(1), reports);
+    assert.deepEqual(named.result === 'exited' && named.failing, {
+      tests: ['in French'],
+      more: 0,
+    });
+  });
+
+  it('names no failing test whose name is blank: regression test', () => {
+    const named = withFailing(exited(1), reportOf(failure('   '), failure('adds')));
+    assert.deepEqual(named.result === 'exited' && named.failing, { tests: ['adds'], more: 0 });
+    assert.equal(GravityReading.safeParse(named).success, true);
+  });
+
+  it('names nothing when the report has no failing test: regression test', () => {
+    assert.deepEqual(withFailing(exited(1), reportOf('<testcase name="passes"/>')), exited(1));
   });
 });

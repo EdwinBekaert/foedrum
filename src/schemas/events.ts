@@ -95,6 +95,9 @@ export type CheckConclusion = z.infer<typeof CheckConclusion>;
 
 /** The most of a check's output a gravity reading keeps: its end, where failures show (ADR 0069). */
 export const MAX_TAIL_LENGTH = 4000;
+/** The most failing tests a reading names, and the longest name it keeps of each (#779). */
+export const MOST_FAILING_TESTS = 10;
+export const MAX_TEST_NAME_LENGTH = 200;
 /** The longest line a record keeps of why a failed job's log could not be read (ADR 0228). */
 export const MAX_LOG_UNREAD_LENGTH = 200;
 
@@ -327,7 +330,20 @@ const ran = {
 export const GravityReading = z.discriminatedUnion('result', [
   // The repository has no such check (null in foedrum.jsonc): skipped, never guessed (ADR 0023).
   z.strictObject({ result: z.literal('skipped'), check: CheckName }),
-  z.strictObject({ result: z.literal('exited'), ...ran, exitCode: z.int(), tail: Tail }),
+  z.strictObject({
+    result: z.literal('exited'),
+    ...ran,
+    exitCode: z.int(),
+    tail: Tail,
+    // The failing tests its test reports named, read through the test map: a command that writes
+    // its reports to files may print nothing to its tail (#779).
+    failing: z
+      .strictObject({
+        tests: z.array(NonEmpty.max(MAX_TEST_NAME_LENGTH)).min(1).max(MOST_FAILING_TESTS),
+        more: Count,
+      })
+      .optional(),
+  }),
   // The process runner killed its tree: the step's deadline, a stop, or too much output.
   z.strictObject({
     result: z.literal('killed'),

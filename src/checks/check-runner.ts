@@ -53,6 +53,7 @@ import {
   planChecks,
   type RepositoryChecks,
   settleReadings,
+  withFailing,
 } from './gravity.ts';
 import {
   cut,
@@ -560,8 +561,10 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       ...(realRoot === worktree.path ? {} : { realRoot }),
       foldCase: foldsCase(platform),
     });
-    if (!verdict.proven) return failed(verdict.why);
-    return { ending: { kind: 'succeeded', output: null }, readings };
+    // The reading names the failing tests the reports name: its tail may hold none (#779).
+    const named = [...before, withFailing(reading, read)];
+    if (!verdict.proven) return { ...failed(verdict.why), readings: named };
+    return { ending: { kind: 'succeeded', output: null }, readings: named };
   };
 
   /**
@@ -885,7 +888,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // Only a passing run says a module no report came from was not reached, or that the map is
     // stale by it: a failing one may have stopped before it, so its own verdict stands and goes
     // along onFail (ADR 0280).
-    if (testMap === undefined || test === undefined || test.exitCode !== 0) return end;
+    if (testMap === undefined || test === undefined) return end;
+    if (test.exitCode !== 0)
+      return read === undefined ? end : namingFailing(end, test, worktree, read);
     const { repo } = worktree;
     const ended = (ending: AttemptEnd['ending']): AttemptEnd => ({ ...end, ending });
     const stuck = (why: string): AttemptEnd => ended(blocked('environment', why).ending);
@@ -935,6 +940,35 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // A step another check already failed or blocked keeps that ending.
     if (read === undefined || base === undefined || end.ending.kind !== 'succeeded') return end;
     return uncovered(end, worktree, { base, before, after: after.map }, signal);
+  };
+
+  /**
+   * `end` with its failed `test` reading naming the failing tests the reports of the effective
+   * map's modules name (#779): a check step cleared them before its run, so they are its own. A map
+   * or a report that cannot be read names none; a TRX report's tests are left unread (#727).
+   */
+  const namingFailing = (
+    end: AttemptEnd,
+    test: GravityReading,
+    worktree: WorktreeRef,
+    { before, after }: StepMaps,
+  ): AttemptEnd => {
+    if (after.kind !== 'map') return end;
+    const modules = effectiveMap(
+      before.kind === 'map' ? before.map : undefined,
+      after.map,
+      { atBase: [], deleted: [] },
+      false,
+    );
+    const reports = modules.flatMap(({ module }) => {
+      if (module.testReport.format === 'trx') return [];
+      const wrote = testReportsOf(module, worktree);
+      return 'reports' in wrote ? wrote.reports : [];
+    });
+    const readings = end.readings?.map((each) =>
+      each === test ? withFailing(each, reports) : each,
+    );
+    return readings === undefined ? end : { ...end, readings };
   };
 
   /**

@@ -342,14 +342,49 @@ export const checkOf = (reading: GravityReading): string => {
     : `the check "${reading.check}" (${reading.command})`;
 };
 
-/** A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140). */
+/** The most of a literal command a reading's line shows, so its result always fits after it. */
+const mostCommand = 80;
+
+/**
+ * The check a reading's line is of: a named check by its name alone, the setup or a literal
+ * command cut to `mostCommand`, so a long command never cuts off how it ended (#779).
+ */
+const shortCheckOf = (reading: GravityReading): string => {
+  if (reading.result === 'skipped' || reading.check !== undefined) {
+    return `the check "${reading.check}"`;
+  }
+  const chars = [...reading.command];
+  const command =
+    chars.length <= mostCommand ? reading.command : `${chars.slice(0, mostCommand - 1).join('')}…`;
+  return reading.setup === true ? `the setup "${command}"` : `the check "${command}"`;
+};
+
+type FailingTests = Extract<GravityReading, { result: 'exited' }>['failing'];
+
+/**
+ * The failing tests a reading's line names, their count first, so a line cut at `longest` still
+ * says how many failed: `5 tests failing: a, b, …` (ADR 0304).
+ */
+const failingCount = ({ tests, more }: NonNullable<FailingTests>): string => {
+  const count = tests.length + more;
+  const names = `${tests.join(', ')}${more === 0 ? '' : ', …'}`;
+  return `${count} ${count === 1 ? 'test' : 'tests'} failing: ${names}`;
+};
+
+/**
+ * A reading that did not pass, as its line in a comment says it: a named check by its name alone,
+ * unlike a check step's reason (`checkOf`, ADR 0069, ADR 0140), then how it ended and the failing
+ * tests its reports named (ADR 0304).
+ */
 export const readingText = (reading: GravityReading): string => {
-  const what = checkOf(reading);
+  const what = shortCheckOf(reading);
   switch (reading.result) {
     case 'skipped':
       return `${what} was skipped`;
-    case 'exited':
-      return `${what} failed with exit code ${reading.exitCode}`;
+    case 'exited': {
+      const failed = `${what} failed with exit code ${reading.exitCode}`;
+      return reading.failing === undefined ? failed : `${failed}, ${failingCount(reading.failing)}`;
+    }
     case 'signaled':
       return `${what} was ended by ${reading.signal}`;
     case 'unstarted':

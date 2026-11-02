@@ -578,12 +578,59 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await brief();
       assert.match(
         body,
-        /- Red proof `red`: the check "test" \(npm test\) failed with exit code 1, as the new tests should before the change\./,
+        /- Red proof `red`: the check "test" failed with exit code 1, as the new tests should before the change\./,
       );
       assert.match(
         body,
         /- `green` passed: the check "build" \(npm run build\)\. Not run: the check "format", which the repository does not have\./,
       );
+    });
+
+    it("the merge brief's red line keeps the check's result when its command is long", async () => {
+      order('nip');
+      run('gauge');
+      const command = `node --test ${'--test-reporter=tap --test-reporter-destination=report.tap '.repeat(4)}`;
+      const failing = { tests: ['welcomes a visitor in French'], more: 3 };
+      run('red', done, { readings: [{ ...redReading, command, tail: '', failing }] });
+      nipFromImplement();
+      finished([passed('ci/build')]);
+      assert.match(
+        await brief(),
+        /- Red proof `red`: the check "test" failed with exit code 1, 4 tests failing: welcomes a visitor in French, …, as the new tests should before the change\./,
+      );
+    });
+
+    it('the count of failing tests survives a cut line', async () => {
+      order('nip');
+      run('gauge');
+      const tests = [1, 2, 3, 4, 5].map(
+        (n) => `welcomes visitor ${n} in French with the greet library`,
+      );
+      run('red', done, { readings: [{ ...redReading, tail: '', failing: { tests, more: 0 } }] });
+      nipFromImplement();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(
+        body,
+        /- Red proof `red`: the check "test" failed with exit code 1, 5 tests failing: welcomes visitor 1 in French with the greet library, /,
+      );
+      // The line is cut within 200 characters: the last names do not fit, the count does.
+      assert.doesNotMatch(body, /visitor 5/);
+    });
+
+    it("the merge brief escapes a failing test's name that holds a mention and HTML", async () => {
+      order('nip');
+      run('gauge');
+      const failing = { tests: ['greets @someone with <img src=x>'], more: 0 };
+      run('red', done, { readings: [{ ...redReading, tail: '', failing }] });
+      nipFromImplement();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(
+        body,
+        /failed with exit code 1, 1 test failing: greets &#64;someone with &lt;img src=x&gt;,/,
+      );
+      assert.doesNotMatch(body, /@someone|<img/);
     });
 
     it('says each step that did not run, and why', async () => {

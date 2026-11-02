@@ -4,7 +4,13 @@
 
 import type { Ending } from '../engine/decide.ts';
 import { findSecrets } from '../formats/secrets.ts';
-import { type GravityReading, MAX_TAIL_LENGTH } from '../schemas/events.ts';
+import type { TestReport } from '../formats/test-report.ts';
+import {
+  type GravityReading,
+  MAX_TAIL_LENGTH,
+  MAX_TEST_NAME_LENGTH,
+  MOST_FAILING_TESTS,
+} from '../schemas/events.ts';
 import type { CheckName, Command } from '../schemas/primitives.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 
@@ -105,6 +111,48 @@ export function readingOf(
   if (run.exitCode === null) return { result: 'unstarted', ...ran, tail };
   return { result: 'exited', ...ran, exitCode: run.exitCode, tail };
 }
+
+type Exited = Extract<GravityReading, { result: 'exited' }>;
+type Failing = NonNullable<Exited['failing']>;
+
+/**
+ * A failing test's name as a reading keeps it: on one line, left out when it looks like a secret,
+ * since a brewer may have written it, and cut to `MAX_TEST_NAME_LENGTH`, never half a character.
+ */
+const keptName = (name: string): string => {
+  const line = name.replace(/\s+/g, ' ').trim();
+  if (findSecrets(line, () => false).length > 0)
+    return '[left out: a name that looks like a secret]';
+  if (line.length <= MAX_TEST_NAME_LENGTH) return line;
+  const kept = line.slice(0, MAX_TEST_NAME_LENGTH - 1);
+  // The first half of a surrogate pair whose second half was cut off.
+  const last = kept.charCodeAt(kept.length - 1);
+  return `${last >= 0xd800 && last <= 0xdbff ? kept.slice(0, -1) : kept}…`;
+};
+
+/**
+ * `reading` with the failing tests `reports` name, read through the test map (#779): a command
+ * that writes its reports to files may print nothing to its tail. Only an exit that did not pass
+ * names them, and only the leaves, since a suite's result follows its tests'.
+ */
+export function withFailing(
+  reading: GravityReading,
+  reports: readonly TestReport[],
+): GravityReading {
+  if (reading.result !== 'exited' || reading.exitCode === 0) return reading;
+  const names = reports
+    .flatMap(({ tests }) => tests)
+    .filter(({ result, leaf }) => leaf && result === 'failed')
+    .map(({ name }) => keptName(name))
+    .filter((name) => name !== '');
+  const tests = names.slice(0, MOST_FAILING_TESTS);
+  if (tests.length === 0) return reading;
+  return { ...reading, failing: { tests, more: names.length - tests.length } };
+}
+
+/** The failing tests a reading names: `a, b (and 3 more)`. */
+export const failingText = ({ tests, more }: Failing): string =>
+  `${tests.join(', ')}${more === 0 ? '' : ` (and ${more} more)`}`;
 
 /** Whether a reading lets the step go on: a skip, or an exit with code 0. */
 export function passed(reading: GravityReading): boolean {

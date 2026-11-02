@@ -645,7 +645,7 @@ describe('checkBases', () => {
       onTap();
       checked(tip1, { failed: failing });
       assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
-        `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the check "test" (npm test) failed with exit code 1`,
+        `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the check "test" failed with exit code 1`,
       ]);
       assert.ok(
         renderStatus(
@@ -701,13 +701,37 @@ describe('checkBases', () => {
         checked(String(n).repeat(40).slice(0, 40), { failed: reading });
         assert.match(
           baseCheckLines(log.state(), batch())[0] ?? '',
-          new RegExp(`: the check "test" \\(npm test\\) ${how.replace(/[.()]/g, '\\$&')}$`),
+          new RegExp(`: the check "test" ${how.replace(/[.()]/g, '\\$&')}$`),
         );
       }
       checked(tip1, { failed: { result: 'exited', command: 'make e2e', exitCode: 2, tail: '' } });
       assert.match(
         baseCheckLines(log.state(), batch())[0] ?? '',
         /: the check "make e2e" failed with exit code 2$/,
+      );
+    });
+
+    it('shows a literal command of exactly 80 characters whole: regression test', () => {
+      const command = `make ${'e'.repeat(75)}`;
+      onTap();
+      checked(tip1, { failed: { result: 'exited', command, exitCode: 2, tail: '' } });
+      assert.ok(
+        baseCheckLines(log.state(), batch())[0]?.endsWith(
+          `: the check "${command}" failed with exit code 2`,
+        ),
+        baseCheckLines(log.state(), batch())[0],
+      );
+    });
+
+    it('cuts a long literal command to 80 characters, so how it ended still shows: regression test', () => {
+      const command = `make ${'e2e-'.repeat(30)}`;
+      onTap();
+      checked(tip1, { failed: { result: 'exited', command, exitCode: 2, tail: '' } });
+      assert.ok(
+        baseCheckLines(log.state(), batch())[0]?.endsWith(
+          `: the check "${command.slice(0, 79)}…" failed with exit code 2`,
+        ),
+        baseCheckLines(log.state(), batch())[0],
       );
     });
 
@@ -836,7 +860,7 @@ describe('checkBases', () => {
           body.includes('`main` moved to `cccccccccccccccccccccccccccccccccccccccc`'),
           body,
         );
-        assert.ok(body.includes('the check "test" (npm test) failed with exit code 1'), body);
+        assert.ok(body.includes('the check "test" failed with exit code 1'), body);
         assert.ok(body.includes('```\nnot ok 1 - adds\n# fail 1\n```'), body);
         assert.match(body, /stays On tap/);
         assert.ok(body.includes(effectMarker(encoded('base_check_failed.1'))));
@@ -851,7 +875,7 @@ describe('checkBases', () => {
         checked(tip3, { failed: lint });
         assert.deepStrictEqual(await drain(github), ['base_check_failed.2']);
         assert.equal(bodies(github).length, 2);
-        assert.ok(bodies(github)[1]?.includes('the check "lint" (npm run lint)'));
+        assert.ok(bodies(github)[1]?.includes('the check "lint" failed with exit code 1'));
       });
 
       it('posts nothing for a pass after a failure, nor for checks that did not run', async () => {

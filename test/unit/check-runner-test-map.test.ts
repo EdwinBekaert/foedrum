@@ -278,13 +278,58 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       end.ending.kind === 'failed' ? [end.ending.kind, end.ending.retryable] : end.ending,
       ['failed', false],
     );
-    // The manifests before the run, and nothing of the map after it.
+    // The manifests before the run, and after it only the test reports that name its failing
+    // tests (#779): TRX's are left unread (#727).
     assert.deepEqual(asked, [
       `map of acme/api at ${tip}`,
       `manifests **/*.csproj in ${worktree}`,
       `map of acme/api at ${base}`,
       ...clearing,
+      `reports web/test-results.xml in ${worktree}`,
     ]);
+  });
+
+  it('a failed test check of a check step names the failing tests its reports name', async () => {
+    const failing =
+      '<testsuites><testsuite name="all"><testcase name="bills a month"><failure message="expected 3"/></testcase><testcase name="bills a day"/></testsuite></testsuites>';
+    const { run } = setup({ testExit: 1, texts: { [webReport]: failing } });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    const test = end.readings?.find((reading) => reading.check === 'test');
+    assert.deepEqual(test?.result === 'exited' ? test.failing : undefined, {
+      tests: ['bills a month'],
+      more: 0,
+    });
+  });
+
+  it("a failed test check names no test when the batch's map cannot be read, and keeps its ending: regression test", async () => {
+    const failing =
+      '<testsuites><testsuite name="all"><testcase name="bills a month"><failure message="no"/></testcase></testsuite></testsuites>';
+    const { run } = setup({
+      testExit: 1,
+      maps: { [base]: mapOf(web), [tip]: { kind: 'unreadable', reason: 'it is not JSONC' } },
+      texts: { [webReport]: failing },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the check "test" (npm test) failed with exit code 1',
+    });
+    const test = end.readings?.find((reading) => reading.check === 'test');
+    assert.equal(test?.result === 'exited' && test.failing, undefined);
+  });
+
+  it('a failed test check names no test when its report is not of its format, and keeps its ending: regression test', async () => {
+    const { run } = setup({ testExit: 1, texts: { [webReport]: 'not a report' } });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the check "test" (npm test) failed with exit code 1',
+    });
+    const test = end.readings?.find((reading) => reading.check === 'test');
+    assert.equal(test?.result === 'exited' && test.failing, undefined);
   });
 
   it("looks for no new module's report for a test check that did not exit", async () => {
