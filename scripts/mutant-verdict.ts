@@ -22,7 +22,12 @@ const read = async (path: string): Promise<Outcome[] | string> => {
   return typeof outcomes === 'string' ? `${path}: ${outcomes}` : outcomes;
 };
 
-export const mutantVerdict = async (baseline: string, run: string): Promise<Result> => {
+export const mutantVerdict = async (
+  baseline: string,
+  run: string,
+  files?: readonly string[],
+): Promise<Result> => {
+  if (files !== undefined) throw new Error('not implemented');
   const before = await read(baseline);
   if (typeof before === 'string') return { ok: false, lines: [before] };
   const after = await read(run);

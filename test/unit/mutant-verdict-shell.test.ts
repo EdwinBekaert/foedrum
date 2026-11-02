@@ -66,6 +66,16 @@ describe('the verdict on a mutant from two outcome files', () => {
     assert.ok(lines.every((text) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)));
   });
 
+  it("a mutant's verdict compares only the outcomes of the test files it ran", async () => {
+    const other = `${JSON.stringify({ file: 'test/unit/b.test.ts', test: ['other'], ok: true })}\n`;
+    writeFileSync(baseline, line('a', true) + other);
+    writeFileSync(run, line('a', true));
+    assert.deepEqual(await mutantVerdict(baseline, run, ['test/unit/a.test.ts']), {
+      ok: true,
+      lines: ['survived: the 1 tests that pass without the mutant pass with it'],
+    });
+  });
+
   it('fails when an outcome file cannot be read', async () => {
     writeFileSync(run, 'garbage\n');
     assert.deepEqual(await mutantVerdict(baseline, run), {
