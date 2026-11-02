@@ -1788,7 +1788,7 @@ describe('runBrew', () => {
       const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
       await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
       const bodies = (api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
-      const link = `<https://github.localhost/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>`;
+      const link = `[13-1/plan-1.md](<https://github.localhost/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
       assert.ok(
         bodies.some((body) => body.includes(`Full plan: ${link}`)),
         bodies.join('\n---\n'),
@@ -1818,7 +1818,7 @@ describe('runBrew', () => {
       }
       const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
       await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
-      const link = `<https://github.com/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>`;
+      const link = `[13-1/plan-1.md](<https://github.com/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
       const bodies = (api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
       const shown = bodies.join('\n---\n');
       assert.ok(
