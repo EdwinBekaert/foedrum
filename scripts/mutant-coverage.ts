@@ -84,10 +84,10 @@ export const main = async (argv: readonly string[]): Promise<MainResult> => {
   }
   const tests = testsFor(sources, [...new Set(locations.map(({ file }) => file))]);
   const records = await readRecords(root, folder, new Set(tests));
-  const plan =
-    typeof records === 'string'
-      ? { kind: 'fallback' as const, reason: records }
-      : coveringTests({ tests, records, sources, locations });
+  if (typeof records === 'string') {
+    return { exitCode: 0, stdout: [`fallback: ${records}`], stderr: [] };
+  }
+  const plan = coveringTests({ tests, records, sources, locations });
   if (plan.kind === 'fallback')
     return { exitCode: 0, stdout: [`fallback: ${plan.reason}`], stderr: [] };
   const stdout = plan.locations.map(({ file, line, tests: covering }) =>
