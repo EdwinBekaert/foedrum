@@ -412,6 +412,21 @@ describe('stop (ADR 0205)', () => {
           assert.match(decision.reason, /is not the latest attempt of its step/);
         }
       });
+
+      it('is refused for an attempt an earlier stop abandoned, under a later stop', () => {
+        // A skip leaves plan#1 its step's latest attempt; the second stop abandoned implement#1.
+        order(12);
+        start('b12');
+        stop();
+        accept({ kind: 'skip', batchId: 'b12', ...who });
+        start('b12', 'implement');
+        stop();
+        const decision = record(cancelled);
+        assert.equal(decision.kind, 'refused');
+        if (decision.kind === 'refused') {
+          assert.match(decision.reason, /was not abandoned by a stop/);
+        }
+      });
     });
 
     it("a stopped Brewery order's plan attempt resumes in its recorded checkouts", () => {
