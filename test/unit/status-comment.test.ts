@@ -2931,4 +2931,31 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       '[plan comment](<https://github.example/x#a%3Eb%20c>)',
     );
   });
+
+  it("keeps a pull request's link an autolink beside a labelled out doc: regression test (#778)", () => {
+    const text = rendered(
+      batch({
+        lane: { kind: 'conditioning', on: { kind: 'merge', pullRequest: pr }, remindAt: at },
+        steps: new Map([step('taste', done(1))]),
+      }),
+    );
+    assert.ok(text.includes(`the merge of <${pr}>`), text);
+    assert.equal(
+      stepOf(text, 'taste'),
+      `- ✅ \`taste\`: out doc: [7-1/taste-1.md](<${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>)`,
+    );
+  });
+
+  it('escapes what a brewer wrote next to a labelled link: regression test (#778)', () => {
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([step('plan', planned(1, ['Use [x](<y>) *now* @alice.']))]),
+      }),
+    );
+    assert.deepEqual(section(text).slice(1), [
+      '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* &#64;alice.',
+      `- \`plan\`: full plan: [7-1/plan-1.md](<${stateBranchUrl}/batches/7-1/plan-1.md>); [plan comment](<${planComment}>)`,
+    ]);
+  });
 });
