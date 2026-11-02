@@ -701,7 +701,7 @@ describe('checkBases', () => {
         checked(String(n).repeat(40).slice(0, 40), { failed: reading });
         assert.match(
           baseCheckLines(log.state(), batch())[0] ?? '',
-          new RegExp(`: the check "test" \\(npm test\\) ${how.replace(/[.()]/g, '\\$&')}$`),
+          new RegExp(`: the check "test" ${how.replace(/[.()]/g, '\\$&')}$`),
         );
       }
       checked(tip1, { failed: { result: 'exited', command: 'make e2e', exitCode: 2, tail: '' } });
@@ -851,7 +851,7 @@ describe('checkBases', () => {
         checked(tip3, { failed: lint });
         assert.deepStrictEqual(await drain(github), ['base_check_failed.2']);
         assert.equal(bodies(github).length, 2);
-        assert.ok(bodies(github)[1]?.includes('the check "lint" (npm run lint)'));
+        assert.ok(bodies(github)[1]?.includes('the check "lint" failed with exit code 1'));
       });
 
       it('posts nothing for a pass after a failure, nor for checks that did not run', async () => {
