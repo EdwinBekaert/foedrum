@@ -5,6 +5,8 @@
 
 import { type Dir, existsSync, opendirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AttemptRef } from '../engine/attempt-key.ts';
+import type { Batch } from '../engine/fold.ts';
 import { matchesWithDots } from '../engine/path-globs.ts';
 import { messageOf } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
@@ -51,6 +53,18 @@ export type ReadTestMapAt = (
   commit: string,
   signal?: AbortSignal,
 ) => Promise<MapRead>;
+
+/**
+ * The commit a test-first batch's start refusal reads `repo`'s test map at, for attempt `ref`
+ * (ADR 0297); undefined when there is none.
+ */
+export const refusalCommit = (
+  _batch: Batch,
+  _ref: AttemptRef,
+  _repo: string,
+): string | undefined => {
+  throw new Error('not implemented');
+};
 
 /** A map is a few modules' places: far less than this. */
 const MAX_MAP_BYTES = 1024 * 1024;

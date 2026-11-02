@@ -13,11 +13,14 @@ import {
   effectiveMap,
   manifestFreshness,
   readTestMap,
+  refusalCommit,
   reportPaths,
   reportUnder,
   testMaps,
   touchedPaths,
 } from '../../src/checks/test-map.ts';
+import { fold } from '../../src/engine/fold.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import type { TestMap, TestMapModule } from '../../src/schemas/test-map.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
@@ -583,5 +586,78 @@ describe('reportUnder: a report at or under a report path (ADR 0282)', () => {
     assert.equal(reportUnder('svc/test', 'svc/test/*/TestResults'), false);
     assert.equal(reportUnder('web/test-results.xml', 'web/test-results.xml'), true);
     assert.equal(reportUnder('web/test-results.xml.bak', 'web/test-results.xml'), false);
+  });
+});
+
+describe('refusalCommit: where the start refusal reads the map (ADR 0297)', () => {
+  const deadlineAt = '2026-11-02T12:30:00.000Z';
+  const [base, moved, tip] = ['a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)];
+  const ordered: Event[] = [
+    { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: deadlineAt },
+    { type: 'batch.recipe_chosen', batchId: '12-1', recipe: 'nip', reason: 'l', source: 'label' },
+  ];
+  const at = (stepId: string, attempt: number) => ({ batchId: '12-1', stepId, attempt });
+  const started = (stepId: string, attempt: number, commit: string, repo = 'acme/web'): Event[] => [
+    { type: 'step.scheduled', ...at(stepId, attempt), deadlineAt },
+    {
+      type: 'step.started',
+      ...at(stepId, attempt),
+      worktree: {
+        repo,
+        path: join('/work', `${stepId}-${attempt}`),
+        branch: `foedrum/12-1/${stepId}/${attempt}`,
+        commit,
+      },
+    },
+  ];
+  const refused: Event = {
+    type: 'step.finished',
+    ...at('gauge', 1),
+    outcome: { kind: 'failed', retryable: false, reason: 'needs a test map' },
+  };
+  const batchOf = (events: Event[]) => {
+    const batch = fold([...ordered, ...events]).batches.get('12-1');
+    assert.ok(batch !== undefined);
+    return batch;
+  };
+
+  it('reads where the attempt started while no attempt in the repository succeeded, so a retry reads a map committed after a refusal', () => {
+    const batch = batchOf([...started('gauge', 1, base), refused, ...started('gauge', 2, moved)]);
+    assert.equal(batch.starts?.['acme/web']?.commit, base);
+    assert.equal(refusalCommit(batch, at('gauge', 2), 'acme/web'), moved);
+  });
+
+  it('reads where the batch started once an attempt there succeeded, whatever a later attempt started at', () => {
+    const batch = batchOf([
+      ...started('gauge', 1, base),
+      { type: 'step.finished', ...at('gauge', 1), outcome: { kind: 'succeeded', output: null } },
+      ...started('red', 1, tip, 'Acme/Web'),
+    ]);
+    assert.equal(refusalCommit(batch, at('red', 1), 'acme/web'), base);
+    assert.equal(refusalCommit(batch, at('red', 1), 'ACME/web'), base);
+  });
+
+  it('reads where the batch started for an attempt with no worktree of its own', () => {
+    const batch = batchOf([
+      ...started('gauge', 1, base),
+      refused,
+      { type: 'step.scheduled', ...at('gauge', 2), deadlineAt, retry: true },
+      { type: 'step.started', ...at('gauge', 2) },
+    ]);
+    assert.equal(refusalCommit(batch, at('gauge', 2), 'acme/web'), base);
+  });
+
+  it('reads where the batch started in the repository for an attempt whose worktree is in another', () => {
+    const batch = batchOf([
+      ...started('gauge', 1, base),
+      refused,
+      ...started('gauge', 2, moved, 'acme/api'),
+    ]);
+    assert.equal(refusalCommit(batch, at('gauge', 2), 'acme/web'), base);
+  });
+
+  it('reads nothing in a repository the batch has not started in', () => {
+    const batch = batchOf([]);
+    assert.equal(refusalCommit(batch, at('gauge', 1), 'acme/web'), undefined);
   });
 });

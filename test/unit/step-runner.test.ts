@@ -123,6 +123,16 @@ describe('stepRunner', () => {
       assert.deepEqual(brewer.started, []);
     });
 
+    it('cancels an attempt stopped while the read runs, though the read then fails', async () => {
+      let fail: (error: Error) => void = () => {};
+      const { brewer, runner } = reading(new Promise((_, reject) => (fail = reject)));
+      const gauge = runner.start({ ref: ref('gauge'), limits: defaultLimits });
+      gauge.stop();
+      fail(new Error('git was stopped'));
+      assert.deepEqual((await gauge.ended).ending, { kind: 'cancelled' });
+      assert.deepEqual(brewer.started, []);
+    });
+
     it('stops the runner it started after the read', async () => {
       const { brewer, runner, stops } = reading(Promise.resolve(undefined));
       const gauge = runner.start({ ref: ref('gauge'), limits: defaultLimits });
