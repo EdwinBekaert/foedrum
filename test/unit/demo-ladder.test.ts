@@ -19,6 +19,7 @@ import {
   GREET_FR,
   LADDER_RECIPE,
   LIB,
+  ladderBrewers,
   PACKAGE,
   planFrom,
   releaseLines,
@@ -28,10 +29,15 @@ import {
 } from '../../scripts/demo/ladder-brewers.ts';
 import { stepLines } from '../../scripts/demo/walkthrough.ts';
 import type { ProcessOutcome } from '../../scripts/process-runner.ts';
+import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
+import type { AttemptStart } from '../../src/engine/brewer-runner.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import type { BreweryFile } from '../../src/engine/recipe-files.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import { PullRequestOutDoc } from '../../src/schemas/out-doc.ts';
+import { PlanOutDoc } from '../../src/schemas/plan.ts';
+import type { Git, GitResult } from '../../src/workspace/git.ts';
 
 const libManifest = `${JSON.stringify({ name: PACKAGE, version: VERSION })}\n`;
 const webManifest = `${JSON.stringify({ name: 'web', dependencies: { [PACKAGE]: VERSION } }, null, 2)}\n`;
@@ -441,5 +447,75 @@ describe('ladderProblems', () => {
       }),
       ['order #1 is open, not closed', 'foedrum approve 1-1 failed (exit code 1)'],
     );
+  });
+});
+
+describe('ladderBrewers', () => {
+  const cwd = resolve('/work/attempts/2-1/implement/1');
+  const startOf = (stepId: string, schema: AttemptStart['limits']['outDoc']['schema']) => ({
+    ref: { batchId: '2-1', stepId, attempt: 1 },
+    limits: { outDoc: { file: `${stepId}.md`, schema } },
+  });
+  /** The brewers in `cwd`, whose files are `files`, with a git that answers `code`. */
+  const brewers = (files: Record<string, string>, code = 0, prompt = '') => {
+    const log: string[] = [];
+    const git: Git = async (at, args): Promise<GitResult> => {
+      log.push(`git ${at} ${args[0]}`);
+      return { code, stdout: '', stderr: code === 0 ? '' : 'fatal: no identity' };
+    };
+    const runner = ladderBrewers({
+      plan: async () => ({ cwd, prompt }) as unknown as ClaudeAttemptPlan,
+      git,
+      read: (path) => files[path],
+      write: (path) => log.push(`write ${path}`),
+    });
+    return { runner, log };
+  };
+
+  it("commits the library's change in its worktree, and counts its commit (regression test)", async () => {
+    const { runner, log } = brewers({ [join(cwd, 'package.json')]: libManifest });
+    const end = await runner.start(startOf('implement', PullRequestOutDoc)).ended;
+    assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
+    assert.deepStrictEqual(log, [
+      `write ${join(cwd, 'greet.mjs')}`,
+      `write ${join(cwd, 'implement.md')}`,
+      `git ${cwd} add`,
+      `git ${cwd} commit`,
+    ]);
+  });
+
+  it('plans from the folder of checkouts and commits nothing (regression test)', async () => {
+    const { runner, log } = brewers({
+      [join(cwd, 'lib', 'package.json')]: libManifest,
+      [join(cwd, 'web', 'package.json')]: webManifest,
+    });
+    const end = await runner.start(startOf('plan', PlanOutDoc)).ended;
+    assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
+    assert.deepStrictEqual(log, [`write ${join(cwd, 'plan.md')}`]);
+  });
+
+  it("fails the attempt without a retry when git cannot commit, with git's reason (regression test)", async () => {
+    const { runner } = brewers({ [join(cwd, 'package.json')]: libManifest }, 128);
+    const { ending } = await runner.start(startOf('implement', PullRequestOutDoc)).ended;
+    assert.deepStrictEqual(ending, {
+      kind: 'failed',
+      retryable: false,
+      reason: 'the scripted brewer could not brew: git add: fatal: no identity',
+    });
+  });
+
+  it('fails the attempt without a retry when the application has no release to bump to (regression test)', async () => {
+    const { runner, log } = brewers({ [join(cwd, 'package.json')]: webManifest });
+    const { ending } = await runner.start(startOf('implement', PullRequestOutDoc)).ended;
+    assert.equal(ending.kind, 'failed');
+    assert.match(ending.kind === 'failed' ? ending.reason : '', /names no release/);
+    assert.deepStrictEqual(log, []);
+  });
+
+  it('ends a stopped attempt cancelled (regression test)', async () => {
+    const { runner } = brewers({ [join(cwd, 'package.json')]: libManifest });
+    const running = runner.start(startOf('implement', PullRequestOutDoc));
+    running.stop();
+    assert.deepStrictEqual((await running.ended).ending, { kind: 'cancelled' });
   });
 });
