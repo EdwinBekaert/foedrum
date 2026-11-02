@@ -29,6 +29,7 @@ describe('the covering test files of mutated lines, from V8 coverage files', () 
 
   const range = (from: string, to: string, count: number): Range => {
     const startOffset = A.indexOf(from);
+    assert.ok(startOffset >= 0, `${from} in a.ts`);
     return { startOffset, endOffset: A.indexOf(to, startOffset) + to.length, count };
   };
 
@@ -44,8 +45,8 @@ describe('the covering test files of mutated lines, from V8 coverage files', () 
       script(test, [{ startOffset: 0, endOffset: 10, count: 1 }]),
       script('src/a.ts', [
         { startOffset: 0, endOffset: A.length, count: 1 },
-        range('() => {\n  return 1', '};', 1),
-        range('() => {\n  return 2', '};', 0),
+        range('(): number => {\n  return 1', '};', 1),
+        range('(): number => {\n  return 2', '};', 0),
       ]),
     ];
     writeFileSync(join(coverage, name), JSON.stringify({ result }));
