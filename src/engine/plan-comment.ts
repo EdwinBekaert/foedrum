@@ -25,13 +25,7 @@ import { withoutSecrets } from './out-doc-text.ts';
 import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
-import {
-  code,
-  link as linked,
-  plain,
-  planNextStep,
-  type StatusComments,
-} from './status-comment.ts';
+import { code, labelled, plain, planNextStep, type StatusComments } from './status-comment.ts';
 
 /** The start of a plan comment's first line, before its batch; a status comment's never has it. */
 export const PLAN_HEADING = '### Foedrum · plan of batch';
@@ -192,7 +186,7 @@ export const renderPlan = (
   // First, and kept by a cut: the full plan, its assumptions among it, each whole (#658).
   const top = [
     `${PLAN_HEADING} ${code(batchId)}`,
-    ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan.url)}`]),
+    ...(fullPlan === undefined ? [] : ['', `Full plan: ${labelled(fullPlan.place, fullPlan.url)}`]),
     ...(changed === undefined
       ? []
       : [
