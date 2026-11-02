@@ -55,7 +55,7 @@ const attempt = (
 const routed = (stepId: string, number: number, from: string, why: 'failed' | 'findings') =>
   attempt(stepId, number, {}, { from, why }).slice(0, 2);
 
-const failedTest = (tail: string): GravityReading => ({
+const failedTest = (tail: string): Extract<GravityReading, { result: 'exited' }> => ({
   result: 'exited',
   check: 'test',
   command: 'npm test',
@@ -185,6 +185,48 @@ describe('routeOf', () => {
       assert.ok(text.includes(line), `${line} is not in ${text}`);
     }
     assert.doesNotMatch(text, /lint/);
+  });
+
+  /** The route input of implement #2, sent back by green #1 whose test check read `test`. */
+  const sentBackBy = (test: GravityReading): string =>
+    planned(
+      [
+        ...attempt('implement', 1),
+        ...attempt('green', 1, { ...greenFailed('unused'), readings: [test] }),
+        ...routed('implement', 2, 'green', 'failed'),
+      ],
+      'implement',
+      2,
+    )?.text ?? '';
+
+  it('a green failure with an empty tail tells the Cellarman the failing tests', () => {
+    const failing = { tests: ['adds the --json flag', 'prints usage'], more: 1 };
+    const text = sentBackBy({ ...failedTest(''), failing });
+    assert.ok(
+      text.endsWith(
+        'the check "test" (npm test) exited with code 1. Failing tests: adds the --json flag, prints usage (and 1 more). It printed nothing; its report names the failing tests above.',
+      ),
+      text,
+    );
+  });
+
+  it('a failed check with an empty tail and no report says it printed nothing', () => {
+    const text = sentBackBy(failedTest(''));
+    assert.ok(
+      text.endsWith('the check "test" (npm test) exited with code 1. It printed nothing.'),
+      text,
+    );
+  });
+
+  it('a failed check with a tail and no report reads as before: regression test', () => {
+    const text = sentBackBy(failedTest('not ok 1 - adds'));
+    assert.ok(
+      text.endsWith(
+        'the check "test" (npm test) exited with code 1. The end of its output:\nnot ok 1 - adds',
+      ),
+      text,
+    );
+    assert.doesNotMatch(text, /Failing tests|printed nothing/);
   });
 
   it('says only that the step sent it back when that step has no finished attempt', () => {

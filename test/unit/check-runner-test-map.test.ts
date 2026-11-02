@@ -278,13 +278,28 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       end.ending.kind === 'failed' ? [end.ending.kind, end.ending.retryable] : end.ending,
       ['failed', false],
     );
-    // The manifests before the run, and nothing of the map after it.
+    // The manifests before the run, and after it only the test reports that name its failing
+    // tests (#779): TRX's are left unread (#727).
     assert.deepEqual(asked, [
       `map of acme/api at ${tip}`,
       `manifests **/*.csproj in ${worktree}`,
       `map of acme/api at ${base}`,
       ...clearing,
+      `reports web/test-results.xml in ${worktree}`,
     ]);
+  });
+
+  it('a failed test check of a check step names the failing tests its reports name', async () => {
+    const failing =
+      '<testsuites><testsuite name="all"><testcase name="bills a month"><failure message="expected 3"/></testcase><testcase name="bills a day"/></testsuite></testsuites>';
+    const { run } = setup({ testExit: 1, texts: { [webReport]: failing } });
+    const end = await run();
+    assert.equal(end.ending.kind, 'failed');
+    const test = end.readings?.find((reading) => reading.check === 'test');
+    assert.deepEqual(test?.result === 'exited' ? test.failing : undefined, {
+      tests: ['bills a month'],
+      more: 0,
+    });
   });
 
   it("looks for no new module's report for a test check that did not exit", async () => {

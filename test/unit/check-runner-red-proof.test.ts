@@ -1040,3 +1040,52 @@ describe('createCheckRunner: the red proof reads every module of the test map (A
     );
   });
 });
+
+describe('createCheckRunner: the red reading names its failing tests (#779)', () => {
+  /** A TAP report of `count` failing tests, then one that passes. */
+  const failingTap = (count: number): string =>
+    [
+      'TAP version 13',
+      ...Array.from({ length: count }, (_, n) => `not ok ${n + 1} - fails ${n + 1}`),
+      `ok ${count + 1} - passes`,
+      `1..${count + 1}`,
+    ].join('\n');
+
+  it('a red reading of a test command that writes its report to a file names its failing tests', async () => {
+    const end = await setup(onMap(failingTap(12))).run();
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.deepEqual(end.readings, [
+      {
+        result: 'exited',
+        check: 'test',
+        command: 'npm test',
+        exitCode: 1,
+        tail: '',
+        failing: {
+          tests: Array.from({ length: 10 }, (_, n) => `fails ${n + 1}`),
+          more: 2,
+        },
+      },
+    ]);
+  });
+
+  it('a red reading leaves out a failing test name that looks like a secret and cuts a long one', async () => {
+    const token = `ghp_${'a1B2c3D4e5'.repeat(4)}`.slice(0, 40);
+    const long = `adds ${'x'.repeat(300)}`;
+    const tap = ['TAP version 13', `not ok 1 - leaks ${token}`, `not ok 2 - ${long}`, '1..2'];
+    const end = await setup(onMap(tap.join('\n'))).run();
+    const [reading] = end.readings ?? [];
+    const failing = reading?.result === 'exited' ? reading.failing : undefined;
+    assert.deepEqual(failing, {
+      tests: ['[left out: a name that looks like a secret]', `${long.slice(0, 199)}…`],
+      more: 0,
+    });
+  });
+
+  it('a red reading that exited 0 names no failing test, though its report has one: regression test', async () => {
+    const end = await setup({ ...onMap(), test: { exitCode: 0, stdout: '' } }).run();
+    assert.deepEqual(end.readings, [
+      { result: 'exited', check: 'test', command: 'npm test', exitCode: 0, tail: '' },
+    ]);
+  });
+});

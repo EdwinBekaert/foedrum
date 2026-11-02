@@ -645,7 +645,7 @@ describe('checkBases', () => {
       onTap();
       checked(tip1, { failed: failing });
       assert.deepStrictEqual(baseCheckLines(log.state(), batch()), [
-        `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the check "test" (npm test) failed with exit code 1`,
+        `- <${pullRequest}> fails on the merged tree with \`main\` at \`cccccccc\`: the check "test" failed with exit code 1`,
       ]);
       assert.ok(
         renderStatus(
@@ -836,7 +836,7 @@ describe('checkBases', () => {
           body.includes('`main` moved to `cccccccccccccccccccccccccccccccccccccccc`'),
           body,
         );
-        assert.ok(body.includes('the check "test" (npm test) failed with exit code 1'), body);
+        assert.ok(body.includes('the check "test" failed with exit code 1'), body);
         assert.ok(body.includes('```\nnot ok 1 - adds\n# fail 1\n```'), body);
         assert.match(body, /stays On tap/);
         assert.ok(body.includes(effectMarker(encoded('base_check_failed.1'))));
