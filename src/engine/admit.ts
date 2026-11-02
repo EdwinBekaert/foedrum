@@ -312,11 +312,10 @@ export function stoppedEnd(
   const name = `attempt ${stepId}#${attempt} of batch ${batchId}`;
   if (latestAttempt(step)?.attempt !== attempt)
     return `${name} is not the latest attempt of its step`;
+  // The stop that holds the batch abandoned it, not an earlier one a skip or a rewind left behind.
   const stopped =
     batch?.lane.kind === 'stuck' &&
-    batch.lane.reason.kind === 'stopped' &&
-    current.phase !== 'finished' &&
-    current.stopped === true;
+    batch.lane.stopped?.some((one) => one.stepId === stepId && one.attempt === attempt) === true;
   if (!stopped) return `${name} was not abandoned by a stop`;
   return outcome.kind === 'cancelled'
     ? undefined

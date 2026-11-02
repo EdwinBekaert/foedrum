@@ -39,9 +39,22 @@ export type Lane =
   | { kind: 'ordered'; routeBy: string }
   | { kind: 'brewing' }
   | { kind: 'conditioning'; on: WaitCondition; remindAt: string }
-  | { kind: 'stuck'; reason: StuckReason; options: readonly StuckOption[]; remindAt: string }
+  | {
+      kind: 'stuck';
+      reason: StuckReason;
+      options: readonly StuckOption[];
+      remindAt: string;
+      /** A stop's: the attempts it abandoned, whose cancelled ends it records (ADR 0302). */
+      stopped?: readonly StoppedAttempt[];
+    }
   | { kind: 'on_tap'; pullRequests: readonly string[] }
   | { kind: 'cancelled'; by: string; via: Surface };
+
+/** An attempt a person's stop abandoned (ADR 0302). */
+export interface StoppedAttempt {
+  stepId: string;
+  attempt: number;
+}
 
 /** A person's choice that scheduled an attempt (ADR 0286). */
 export interface Chosen {
@@ -730,11 +743,22 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.stuck': {
       const { reason, options, remindAt } = event;
-      return updateBatch(state, event.batchId, (batch) => ({
-        ...batch,
-        lane: { kind: 'stuck', reason, options, remindAt },
-        steps: abandon(batch.steps, reason.kind === 'stopped'),
-      }));
+      return updateBatch(state, event.batchId, (batch) => {
+        // A reminder makes the batch Stuck again for the same stop, which keeps what it abandoned.
+        const earlier = batch.lane.kind === 'stuck' ? (batch.lane.stopped ?? []) : [];
+        const stopped = reason.kind === 'stopped' ? [...earlier, ...unfinished(batch.steps)] : [];
+        return {
+          ...batch,
+          lane: {
+            kind: 'stuck',
+            reason,
+            options,
+            remindAt,
+            ...(stopped.length === 0 ? {} : { stopped }),
+          },
+          steps: abandon(batch.steps, reason.kind === 'stopped'),
+        };
+      });
     }
     case 'batch.resumed': {
       // A retry of a batch Stuck on routing waits to be routed again (ADR 0032).
@@ -1122,6 +1146,17 @@ function updateAttempt(
       }),
     };
   });
+}
+
+/** The attempts of `steps` that neither finished nor were abandoned before. */
+function unfinished(steps: ReadonlyMap<string, Step>): StoppedAttempt[] {
+  return [...steps.values()].flatMap((step) =>
+    [...step.attempts.values()].flatMap((attempt) =>
+      attempt.phase === 'finished' || attempt.abandoned === true
+        ? []
+        : [{ stepId: step.id, attempt: attempt.attempt }],
+    ),
+  );
 }
 
 /**
