@@ -308,6 +308,8 @@ describe('runServe', () => {
       .batches.get('12-1')?.lane;
     assert.equal(lane?.kind, 'on_tap', JSON.stringify(lane));
     assert.equal(plans.length, 1);
+    // Its order is an input, named as each input is; its tests from no gauge step are none.
+    assert.match(plans[0]?.prompt ?? '', /name="order"/);
     assert.doesNotMatch(plans[0]?.prompt ?? '', /name="tests"/);
   });
 
