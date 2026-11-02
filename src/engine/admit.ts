@@ -101,8 +101,11 @@ function rule(state: State, event: Event): string | undefined {
     case 'step.skipped':
       return lanes(state, event, ['ordered', 'brewing', 'conditioning']);
     case 'step.started':
-    case 'step.finished':
       return lanes(state, event, ['brewing']) ?? replacedOrAbandoned(state, event);
+    case 'step.finished':
+      return event.stopped === true
+        ? stoppedEnd(state, event)
+        : (lanes(state, event, ['brewing']) ?? replacedOrAbandoned(state, event));
     case 'input.received': {
       const refusal = lanes(state, event, ['stuck']);
       if (refusal !== undefined) return refusal;
@@ -287,6 +290,39 @@ function replacedOrAbandoned(
     ? `${name} was abandoned when the batch got stuck`
     : undefined;
 }
+
+/**
+ * Why `stopped` is refused on an end: only the cancelled end of the latest attempt of its step,
+ * which a person's stop abandoned while its batch is still Stuck on that stop, is recorded as the
+ * stop's (ADR 0302).
+ */
+export function stoppedEnd(
+  state: State,
+  {
+    batchId,
+    stepId,
+    attempt,
+    outcome,
+  }: Pick<StepFinished, 'batchId' | 'stepId' | 'attempt' | 'outcome'>,
+): string | undefined {
+  const batch = state.batches.get(batchId);
+  const step = batch?.steps.get(stepId);
+  const current = step?.attempts.get(attempt);
+  if (step === undefined || current === undefined) return undefined;
+  const name = `attempt ${stepId}#${attempt} of batch ${batchId}`;
+  if (latestAttempt(step)?.attempt !== attempt)
+    return `${name} is not the latest attempt of its step`;
+  // The stop that holds the batch abandoned it, not an earlier one a skip or a rewind left behind.
+  const stopped =
+    batch?.lane.kind === 'stuck' &&
+    batch.lane.stopped?.some((one) => one.stepId === stepId && one.attempt === attempt) === true;
+  if (!stopped) return `${name} was not abandoned by a stop`;
+  return outcome.kind === 'cancelled'
+    ? undefined
+    : `${name} was stopped: only a cancelled end is the stop's, not a ${outcome.kind} one`;
+}
+
+type StepFinished = Extract<Event, { type: 'step.finished' }>;
 
 /**
  * A rewind names the commit of each repository it resets; the batch of a sub-order or of a

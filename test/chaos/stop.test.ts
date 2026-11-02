@@ -12,8 +12,8 @@ import { handDrivenRun } from '../helpers/hand-driven.ts';
 import { forEachSeedAsync } from '../helpers/property.ts';
 
 const t0 = new Date('2026-10-26T16:00:00.000Z');
-// Each step may run twice: one loss to the kill, or the stopped attempt, which counts; a person's
-// retry schedules the step whatever attempts it has left (ADR 0205).
+// Each step may run twice: one loss to the kill; the stopped attempt counts against none (ADR 0302),
+// and a person's retry schedules the step whatever attempts it has left (ADR 0205).
 const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 2 }) });
 const who = { by: 'ada', via: 'terminal' } as const;
 
