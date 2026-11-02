@@ -124,10 +124,6 @@ const setup = ({
   prepare = undefined as string | undefined,
   /** The setup's exit code. */
   prepareExit = 0,
-  /** The text of a file at the proven step's tip, by `<rev>:<path>`; git finds no other. */
-  tips = {} as Record<string, string>,
-  /** The files at the tip whose read git was killed for, by `<rev>:<path>`. */
-  killedTips = [] as string[],
   /** The test map at each commit, when the runner reads maps (ADR 0274). */
   maps = undefined as Record<string, MapRead> | undefined,
   /** Where the repository's map is kept, when the runner is told (ADR 0018). */
@@ -165,16 +161,7 @@ const setup = ({
     order.push(`git ${args.join(' ')} in ${cwd}`);
     if (args.includes('--diff-filter=D')) return Promise.resolve(listed(deleted));
     if (args[0] === 'ls-tree') return Promise.resolve(listed(atBase));
-    if (args[0] !== 'cat-file') return Promise.resolve(diff);
-    if (killedTips.includes(args.at(-1) ?? '')) {
-      return Promise.resolve({ code: null, stdout: '', stderr: '', killed: 'timed-out' as const });
-    }
-    const tip = tips[args.at(-1) ?? ''];
-    return Promise.resolve(
-      tip === undefined
-        ? { code: 128, stdout: '', stderr: 'fatal: path does not exist\n' }
-        : { code: 0, stdout: tip, stderr: '' },
-    );
+    return Promise.resolve(diff);
   };
   const reports: ReportFiles = {
     clear: (file) => {
@@ -267,22 +254,6 @@ const onMap = (tap = stubFails) => ({
 });
 
 describe('createCheckRunner: the red proof (ADR 0078)', () => {
-  it("proves red the proven step's tests from TAP on stdout, with the step's commits from git", async () => {
-    const { order, run, execOptions } = setup();
-    const end = await run();
-    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    // TAP on stdout may be as large as a report file: 16 MiB, past the runner's default 4 MiB.
-    assert.equal(execOptions[0]?.maxOutputBytes, 16 * 1024 * 1024);
-    assert.deepEqual(
-      end.readings?.map((reading) => [reading.result, 'exitCode' in reading && reading.exitCode]),
-      [['exited', 1]],
-    );
-    assert.deepEqual(order, [
-      `git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/ ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 -- in ${clone}`,
-      `exec npm test in ${redTree}`,
-    ]);
-  });
-
   it("runs the repository's setup in the worktree before the red run (ADR 0140)", async () => {
     const { order, run } = setup({ ...onMap(), prepare: 'npm ci' });
     const end = await run();
@@ -463,141 +434,6 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
-  it("accepts the regression tests the proven step's latest success names in its out doc (ADR 0170)", async () => {
-    const [scheduled, started, finished] = gauged;
-    assert.ok(finished?.type === 'step.finished' && scheduled && started);
-    const output = {
-      status: 'done',
-      summary: 'Tests for add',
-      assumptions: [],
-      tests: ['adds two numbers'],
-      regressionTests: ['keeps subtracting'],
-    };
-    const named: Event = { ...finished, outcome: { kind: 'succeeded', output } };
-    const diff = [
-      gaugeDiff.trimEnd(),
-      'diff --git a/test/sub.test.mjs b/test/sub.test.mjs',
-      '--- /dev/null',
-      '+++ b/test/sub.test.mjs',
-      '@@ -0,0 +1,3 @@',
-      "+test('keeps subtracting', () => {",
-      '+  assert.equal(sub(2, 1), 1);',
-      '+});',
-      '',
-    ].join('\n');
-    const stdout = stubFails.replace('ok 2 - subtracts', 'ok 2 - keeps subtracting');
-    const events = [...ordered, scheduled, started, named, ...redStarted];
-    const { run } = setup({
-      events,
-      test: { exitCode: 1, stdout },
-      diff: { code: 0, stdout: diff, stderr: '' },
-    });
-    assert.deepEqual((await run()).ending, { kind: 'succeeded', output: null });
-    // Without the name, the passing test the step added fails the proof, as before.
-    const unnamed = setup({
-      test: { exitCode: 1, stdout },
-      diff: { code: 0, stdout: diff, stderr: '' },
-    });
-    assert.deepEqual(
-      (await unnamed.run()).ending,
-      failedWith(
-        'the red proof of step gauge failed: test "keeps subtracting" passes before the implementation: a stub must throw, not return a value',
-      ),
-    );
-    // A Gauger sent back names its tests again: the latest success's names count, as its commits do.
-    const gauge2 = { batchId: '12-1', stepId: 'gauge', attempt: 2 };
-    const stale: Event = {
-      ...finished,
-      outcome: { kind: 'succeeded', output: { ...output, regressionTests: ['keeps dividing'] } },
-    };
-    const again: Event[] = [
-      { type: 'step.scheduled', ...gauge2, deadlineAt },
-      {
-        type: 'step.started',
-        ...gauge2,
-        worktree: {
-          repo: 'acme/api',
-          path: join(root, 'gauge', '2'),
-          branch: 'foedrum/12-1/gauge/2',
-          commit: 'd'.repeat(40),
-        },
-      },
-      { type: 'step.finished', ...gauge2, outcome: { kind: 'succeeded', output } },
-    ];
-    const latest = setup({
-      events: [...ordered, scheduled, started, stale, ...again, ...redStarted],
-      test: { exitCode: 1, stdout },
-      diff: { code: 0, stdout: diff, stderr: '' },
-    });
-    assert.deepEqual((await latest.run()).ending, { kind: 'succeeded', output: null });
-  });
-
-  it('reads a JUnit report from its file, cleared before the test command runs', async () => {
-    const results = join(redTree, 'build', 'results.xml');
-    const xml =
-      '<testsuite><testcase name="adds two numbers"><failure message="not implemented"/></testcase></testsuite>';
-    const { order, run } = setup({
-      report: { format: 'junit', path: 'build/results.xml' },
-      files: { [results]: { kind: 'text', text: xml } },
-    });
-    const end = await run();
-    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.deepEqual(order.slice(1), [
-      `clear ${results}`,
-      `exec npm test in ${redTree}`,
-      `read ${results} inside ${redTree}`,
-    ]);
-  });
-
-  it('fails when the test command wrote no report, or one that cannot be read', async () => {
-    const tapFile = { format: 'tap', path: 'tap.txt' } as const;
-    const missing = await setup({ report: tapFile }).run();
-    assert.deepEqual(
-      missing.ending,
-      failedWith(
-        'the red proof of step gauge failed: the test command wrote no test report at tap.txt',
-      ),
-    );
-    const linked = await setup({
-      report: tapFile,
-      files: {
-        [join(redTree, 'tap.txt')]: { kind: 'unread', reason: 'it is outside the worktree' },
-      },
-    }).run();
-    assert.deepEqual(
-      linked.ending,
-      failedWith(
-        'the red proof of step gauge failed: the test report tap.txt cannot be read: it is outside the worktree',
-      ),
-    );
-    const garbage = await setup({ test: { exitCode: 1, stdout: 'Error: npm not found' } }).run();
-    assert.deepEqual(
-      garbage.ending,
-      failedWith(
-        'the red proof of step gauge failed: the test report on stdout is not TAP: it has no TAP test point',
-      ),
-    );
-  });
-
-  it('is blocked on the environment, running nothing, when the old report cannot be cleared', async () => {
-    const { order, run } = setup({
-      report: { format: 'junit', path: 'build/results.xml' },
-      clearFails: "EISDIR: illegal operation on a directory, rm 'build/results.xml'",
-    });
-    // The attempt ends with an outcome; it never rejects.
-    const end = await run().catch((error: Error) => ({ ending: { rejected: error.message } }));
-    assert.deepEqual(end.ending, {
-      kind: 'blocked',
-      blockerKind: 'environment',
-      summary:
-        "the test report build/results.xml cannot be cleared: EISDIR: illegal operation on a directory, rm 'build/results.xml'",
-    });
-    assert.ok(
-      order.every((line) => !line.startsWith('exec')),
-      order.join('\n'),
-    );
-  });
-
   it('settles a test command that did not exit as any check does (ADR 0069)', async () => {
     const end = await setup({
       ...onMap(),
@@ -658,92 +494,6 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     assert.deepEqual(order, []);
   });
 
-  // The Gauger adds a row to a table its test file declared before: no added line declares a test.
-  const rowDiff = [
-    'diff --git a/test/sum.test.mjs b/test/sum.test.mjs',
-    '--- a/test/sum.test.mjs',
-    '+++ b/test/sum.test.mjs',
-    '@@ -3,0 +4 @@',
-    "+  ['adds negatives', -1, -2, -3],",
-    '',
-  ].join('\n');
-  const rowFails = [
-    'TAP version 13',
-    'not ok 1 - adds negatives',
-    '  ---',
-    "  error: 'not implemented'",
-    '  ...',
-    '1..1',
-  ].join('\n');
-  const gaugeTip = 'refs/heads/foedrum/12-1/gauge/1';
-
-  it("reads a file the step's added lines declare no test in at its tip, and takes the row it added (#661)", async () => {
-    const { order, run } = setup({
-      diff: { code: 0, stdout: rowDiff, stderr: '' },
-      test: { exitCode: 1, stdout: rowFails },
-      tips: {
-        [`${gaugeTip}:test/sum.test.mjs`]:
-          "test.each([\n  ['adds', 1, 2, 3],\n])('%s', (_, a, b, sum) => {\n",
-      },
-    });
-    const end = await run();
-    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.deepEqual(
-      order.filter((line) => line.startsWith('git cat-file')),
-      [`git cat-file blob ${gaugeTip}:test/sum.test.mjs in ${clone}`],
-    );
-  });
-
-  it('is blocked on the environment when git was killed reading a file at the tip', async () => {
-    const { run } = setup({
-      diff: { code: 0, stdout: rowDiff, stderr: '' },
-      test: { exitCode: 1, stdout: rowFails },
-      killedTips: [`${gaugeTip}:test/sum.test.mjs`],
-    });
-    const end = await run();
-    assert.deepEqual(end.ending, {
-      kind: 'blocked',
-      blockerKind: 'environment',
-      summary:
-        'the files of step gauge at its tip cannot be read: git cat-file of test/sum.test.mjs was killed (timed-out)',
-    });
-  });
-
-  it('takes no file git cannot read at the tip for a test file: its row is no test the step added', async () => {
-    const { run } = setup({
-      diff: { code: 0, stdout: rowDiff, stderr: '' },
-      test: { exitCode: 1, stdout: rowFails },
-    });
-    const end = await run();
-    assert.deepEqual(
-      end.ending,
-      failedWith(
-        'the red proof of step gauge failed: none of the 1 tests in the report is one the step added',
-      ),
-    );
-  });
-
-  it('reads no file the step deleted at its tip', async () => {
-    const deleted = [
-      'diff --git a/test/old.test.mjs b/test/old.test.mjs',
-      'deleted file mode 100644',
-      '--- a/test/old.test.mjs',
-      '+++ /dev/null',
-      '@@ -1 +0,0 @@',
-      "-test('old', () => {});",
-      '',
-    ].join('\n');
-    const { order, run } = setup({
-      diff: { code: 0, stdout: `${gaugeDiff}${deleted}`, stderr: '' },
-    });
-    const end = await run();
-    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.deepEqual(
-      order.filter((line) => line.startsWith('git cat-file')),
-      [],
-    );
-  });
-
   it("is blocked on the environment when git cannot read the proven step's commits", async () => {
     const { order, run } = setup({
       ...onMap(),
@@ -760,16 +510,6 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
 });
 
 describe('createCheckRunner: the red proof and the test map (ADR 0274)', () => {
-  it('proves red as before in a repository with no test map and a testReport: regression test', async () => {
-    const { order, run } = setup({ maps: {} });
-    const end = await run();
-    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.deepEqual(
-      order.filter((line) => !line.startsWith('git')),
-      [`exec npm test in ${redTree}`],
-    );
-  });
-
   it('sticks a red proof on its environment for a new module no confirmed line reaches', async () => {
     const module = {
       code: ['src/**'],

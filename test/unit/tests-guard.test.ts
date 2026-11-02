@@ -56,17 +56,6 @@ const implementing: Event[] = [
   { type: 'step.started', ...ref, worktree: worktree('implement', implementStart) },
 ];
 
-const diff = (path: string, removed: string[], added: string[]) =>
-  [
-    `diff --git a/${path} b/${path}`,
-    `--- a/${path}`,
-    `+++ b/${path}`,
-    `@@ -1,${removed.length} +1,${added.length} @@`,
-    ...removed.map((line) => `-${line}`),
-    ...added.map((line) => `+${line}`),
-    '',
-  ].join('\n');
-
 const gaugeDiff = [
   'diff --git a/test/add.test.mjs b/test/add.test.mjs',
   '--- /dev/null',
@@ -77,13 +66,6 @@ const gaugeDiff = [
   '+});',
   '',
 ].join('\n');
-
-/** What the fake brewer committed: an assertion made weaker. */
-const weakened = diff(
-  'test/add.test.mjs',
-  ['  assert.equal(add(1, 2), 3);'],
-  ['  assert.ok(add(1, 2));'],
-);
 
 const ok = (stdout: string): GitResult => ({ code: 0, stdout, stderr: '' });
 
@@ -123,7 +105,6 @@ const blobOf = (path: string, at = 'b') => `${at}${path.length.toString().padSta
 const setup = ({
   events = [...ordered, ...gauged, ...implementing],
   behaviour = behave.succeed(),
-  changes = ok(weakened),
   protects = 'gauge' as string | null,
   git: gitOverride,
   maps,
@@ -134,7 +115,6 @@ const setup = ({
 }: {
   events?: Event[];
   behaviour?: Behaviour;
-  changes?: GitResult;
   /** `null`: the step has no testsUnchanged guard. */
   protects?: string | null;
   git?: Git;
@@ -177,7 +157,7 @@ const setup = ({
             : ok(`${lines.join('\n')}\n`),
         );
       }
-      return Promise.resolve(args.includes(gaugeStart) ? ok(gaugeDiff) : changes);
+      return Promise.resolve(ok(gaugeDiff));
     });
   const asked: AttemptRef[] = [];
   const runner = guardTests({
@@ -412,13 +392,6 @@ describe('guardTests: the test map (ADR 0274)', () => {
     const read = kept.calls.find(({ args }) => args.includes('cat-file'));
     assert.deepEqual(read?.args, ['cat-file', 'blob', blobOf('test/add.test.mjs')]);
     assert.equal(read?.options?.maxOutputBytes, 16 * 1024 * 1024);
-  });
-
-  it('a map only the proven step commits guards the files it places in no test area as no map does', async () => {
-    const maps = { [gaugeTip]: mapOf('spec/**') };
-    const { runner } = setup({ maps });
-    const end = await runner.start({ ref, limits: defaultLimits }).ended;
-    assert.deepEqual(end.ending, failedOn('assert.equal(add(1, 2), 3);'));
   });
 
   it('refuses a removed red line that the file held before the red step too', async () => {

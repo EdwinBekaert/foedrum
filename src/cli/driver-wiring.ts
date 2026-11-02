@@ -8,7 +8,7 @@ import { familyOfBrewer } from '../brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
-import { needsTestReport } from '../checks/red-proof.ts';
+import { needsTestMap } from '../checks/red-proof.ts';
 import { surveyed } from '../checks/survey.ts';
 import { addedUnmeasured, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
 import { guardTests } from '../checks/tests-guard.ts';
@@ -324,8 +324,6 @@ export const wireDriver = async (
   const plans = createAttemptPlans({
     state,
     brewers: setup.brewers,
-    // A Gauger its red proof sent back may name its tests without a commit (ADR 0258).
-    checks: setup.checks,
     models: setup.models,
     repoTools: (repo) => tools.get(repo.toLowerCase()) ?? [],
     // Every attempt of a brewer with a shell gets its repository's dependencies first (ADR 0163).
@@ -409,8 +407,8 @@ export const wireDriver = async (
     brewer,
     check: checks,
     isCheck,
-    // A batch whose red proof would run needs its repository's test report from the start, so
-    // no brewer spends tokens on a batch that cannot prove its tests red (ADR 0017).
+    // A batch whose red proof would run needs a test map from the start, or a survey that proposes
+    // one, so no brewer spends tokens on a batch that cannot prove its tests red (ADR 0297).
     refuse: ({ batchId }) => {
       const current = state();
       const batch = current.batches.get(batchId);
@@ -425,15 +423,24 @@ export const wireDriver = async (
         // The driver fails the attempt with the reason when it makes its worktree.
         return undefined;
       }
+      // A survey cannot write the Brewery: its map is there from the start, or never (ADR 0282).
+      if (mapKeptIn(repo) === 'brewery') {
+        return repositoryNamed(repo)?.testMap?.text === undefined
+          ? needsTestMap(name, repo, 'brewery')
+          : undefined;
+      }
       // A repository that keeps its test map has its survey propose one (ADR 0298).
       const survey = setup.checks.surveyCheck?.(name);
-      const surveys =
-        survey !== undefined &&
-        mapKeptIn(repo) === 'repo' &&
-        setup.recipes.find(name)?.skip(batch, survey.id) === undefined;
-      return repositoryNamed(repo)?.testReport === undefined && !surveys
-        ? needsTestReport(name, repo)
-        : undefined;
+      if (survey !== undefined && setup.recipes.find(name)?.skip(batch, survey.id) === undefined) {
+        return undefined;
+      }
+      // Read where the batch started, the same commit for each of its attempts: a map that cannot
+      // be read is the red proof's to name (ADR 0274).
+      const start = batch.starts?.[repo.toLowerCase()]?.commit;
+      if (start === undefined) return undefined;
+      return mapAt(repo, start).then((read) =>
+        read.kind === 'none' ? needsTestMap(name, repo, 'repo') : undefined,
+      );
     },
   });
   const inner = await openDriver({
