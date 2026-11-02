@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { release } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { DEMO_GIT_CONFIG } from '../../scripts/demo/brewer.ts';
 import {
   BREWERY,
@@ -295,21 +295,19 @@ const FAILED_READING = /not ok \d+ - greets a stranger when no name is given/;
 
 describe('the Nip recipe end to end', () => {
   let dir: TempDir;
-  beforeEach(() => {
+  /** The one run every test reads: it takes minutes. */
+  let brewed: Brewed;
+  let brewers: ReturnType<typeof scriptedNip> | undefined;
+  before(async () => {
     dir = makeTempDir('nip');
+    brewed = await brewNip(dir.path, { env: process.env, diagnosis: DIAGNOSIS }, (plan, git) => {
+      brewers = scriptedNip({ plan, git, config: DEMO_GIT_CONFIG, write });
+      return brewers;
+    });
   });
-  afterEach(() => removeTree(dir.path));
+  after(() => removeTree(dir.path));
 
   it('brews a labelled issue into one pull request through a red proof and a failed check', async () => {
-    let brewers: ReturnType<typeof scriptedNip> | undefined;
-    const brewed = await brewNip(
-      dir.path,
-      { env: process.env, diagnosis: DIAGNOSIS },
-      (plan, git) => {
-        brewers = scriptedNip({ plan, git, config: DEMO_GIT_CONFIG, write });
-        return brewers;
-      },
-    );
     await assertBrewed(brewed, dir.path);
 
     // The Cellarman's second attempt was told why it runs again; its first attempt was not.
