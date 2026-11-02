@@ -8,6 +8,8 @@ paths:
   - "**/scripts/mutant-verdict/**"
   - "**/scripts/mutant-tests.ts"
   - "**/scripts/mutant-tests/**"
+  - "**/scripts/mutant-coverage.ts"
+  - "**/scripts/mutant-coverage/**"
   - "**/scripts/citations.ts"
   - "**/scripts/citations/**"
   - "**/scripts/issue-draft.ts"
