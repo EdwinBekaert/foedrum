@@ -85,7 +85,8 @@ export const runsLine = (source: string, ranges: readonly Range[], line: number)
 };
 
 // The file's own test files, as the repository names them: test/unit/<name>.test.ts, and its
-// -core and -shell variants, also by the folder for a core.ts or shell.ts.
+// -core and -shell variants, and test/unit/<folder>-<name>.test.ts (mutant-coverage-core for
+// scripts/mutant-coverage/core.ts).
 const ownTestsOf = (file: string): Set<string> => {
   const name = posix.basename(file, '.ts');
   const folder = posix.basename(posix.dirname(file));
