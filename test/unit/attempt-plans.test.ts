@@ -9,8 +9,10 @@ import { describe, it } from 'node:test';
 import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import type { Ending } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
+import { type ReadPaths, touchesChecked } from '../../src/engine/plan-touches.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -1204,6 +1206,73 @@ describe('createAttemptPlans: plan', () => {
       ]);
       // Neither base is read: the brewer read each repository at its checkout's commit.
       assert.deepEqual(calls, []);
+    });
+
+    /** A start in the folder of checkouts, each folder's name unlike its repository's (ADR 0301). */
+    const inCheckouts = (): { folder: string; event: Event } => {
+      const folder = join('/work', 'brewery-orders', '12-1', 'brew', '1');
+      const event: Event = {
+        type: 'step.started',
+        ...ref,
+        session: { id: sessionId, worktree: folder },
+        checkouts: [
+          { repo: 'acme/api', path: join(folder, 'api'), commit: 'e'.repeat(40) },
+          { repo: 'acme/web', path: join(folder, 'acme.web'), commit: 'f'.repeat(40) },
+        ],
+      };
+      return { folder, event };
+    };
+
+    it("the repositories input names each checkout's folder when the attempt has no repository of its own", async () => {
+      const { event } = inCheckouts();
+      const inputs = [{ name: 'repositories', from: 'repositories' }];
+      const { plans } = planning(() => at, undefined, { inputs }, [...ordered, event]);
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/api, base origin\/main: read it in api\/\n- acme\/web, base origin\/trunk: read it in acme\.web\/\n<\/untrusted-input-/,
+      );
+      assert.doesNotMatch(prompt, /the one in your worktree/);
+    });
+
+    it('a plan in a Brewery of two repositories passes the touches check with paths in both (regression test)', async () => {
+      const { event } = inCheckouts();
+      const { plans } = planning(() => at, undefined, {}, [...ordered, event]);
+      const { touches } = await plans.plan(start);
+      const has: Record<string, Record<string, string[]>> = {
+        [join('/clones', 'acme/api')]: { ['e'.repeat(40)]: ['src/server.ts'] },
+        [join('/clones', 'acme/web')]: { ['f'.repeat(40)]: ['app/page.tsx'] },
+      };
+      const read: ReadPaths = async (clone, commit, paths) => ({
+        kind: 'read',
+        present: new Set(paths.filter((path) => has[clone]?.[commit]?.includes(path))),
+      });
+      const entry = (id: string, repo: string, path: string) => ({
+        id,
+        title: `Build ${id}`,
+        repo,
+        size: { lines: 100, mechanism: 'one change' },
+        doneWhen: 'a test passes',
+        touches: [{ path }],
+        dependencies: [],
+        recipe: 'tdd',
+        why: 'testable',
+        ready: true,
+      });
+      const plan = (web: string): Ending => ({
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'A plan',
+          assumptions: [],
+          subOrders: [entry('api', 'acme/api', 'src/server.ts'), entry('ui', 'acme/web', web)],
+        },
+      });
+      const passing = plan('app/page.tsx');
+      assert.deepEqual(await touchesChecked(read, passing, touches), passing);
+      // A path the web checkout does not have fails it.
+      const failing = await touchesChecked(read, plan('app/gone.tsx'), touches);
+      assert.equal(failing.kind, 'failed');
     });
 
     it("gives a plan in the folder of checkouts no repository's tools (regression test)", async () => {
