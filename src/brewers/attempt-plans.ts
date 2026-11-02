@@ -501,6 +501,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     ref: AttemptRef,
     found: StepBrewer,
     worktree: WorktreeRef | { path: string },
+    checkouts?: readonly { repo: string; path: string }[],
   ): Promise<{
     inputs: PromptInput[];
     houseYeast?: HouseYeastSelection;
@@ -509,9 +510,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    // A Brewery order's folder of checkouts is no repository's (ADR 0301).
+    // A Brewery order's folder of checkouts is no repository's, and holds each one (ADR 0301).
     const own = 'repo' in worktree ? worktree : undefined;
-    const repositories = { repositories: options.repositories ?? [], own: own?.repo };
+    const repositories = {
+      repositories: options.repositories ?? [],
+      own: own?.repo,
+      ...(checkouts === undefined ? {} : { checkouts }),
+    };
     // A sub-order's plan entry, read from its parent's recorded plan when its brewer asks (ADR 0290).
     const asks = found.brewer.inputs.some(({ from }) => from === 'plan-entry');
     const entry = asks && batch.plan !== undefined ? planEntryText(state(), batch.plan) : undefined;
@@ -654,7 +659,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
             );
       const { inputs, houseYeast, laterRound, earlierFindings } =
         resumes === undefined
-          ? await inputsFor(batch, ref, found, worktree)
+          ? await inputsFor(batch, ref, found, worktree, checkouts)
           : { inputs: [latest, kept].filter((input) => input !== undefined) };
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));

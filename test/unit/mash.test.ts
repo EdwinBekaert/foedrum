@@ -383,6 +383,15 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         ],
       );
     });
+
+    it("tells the Brewmaster the folder each repository's checkout is read in (#768)", async () => {
+      assert.equal(await runBrew(setup, inCheckouts([behave.needInput()]), request), 4);
+      assert.match(
+        prompts[0] ?? '',
+        /name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/web, base origin\/main: read it in acme\.web\/\n- acme\/app, base origin\/main: read it in app\/\n<\/untrusted-input-/,
+      );
+      assert.doesNotMatch(prompts[0] ?? '', /the one in your worktree/);
+    });
   });
 
   describe('foedrum lauter: the plan corrected in a session at gate 1 (ADR 0286, #589)', () => {

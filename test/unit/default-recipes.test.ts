@@ -54,6 +54,16 @@ describe('mash-in and the Innkeeper (ADR 0232)', () => {
       ['mash', 'nip'],
     );
   });
+
+  it("the Innkeeper gets the Brewery's repositories as an input", () => {
+    const loaded = loadRecipes(readBreweryFiles(join(root, '..', 'no-brewery')));
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const inputs = loaded.brewers.find('mash-in', 'innkeep')?.brewer.inputs;
+    assert.ok(
+      inputs?.some(({ name, from }) => name === 'repositories' && from === 'repositories'),
+      JSON.stringify(inputs),
+    );
+  });
 });
 
 describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () => {

@@ -241,23 +241,35 @@ const succeededIn = (batch: Batch, stepId: string): string | undefined => {
 
 /**
  * The Brewery's repositories and their bases, and the one an attempt's worktree holds: none for a
- * Brewery order's folder of checkouts (ADR 0301).
+ * Brewery order's folder of checkouts (ADR 0301), whose `checkouts` say where each one is.
  */
 interface BreweryRepositories {
   repositories: readonly { repo: string; base: string }[];
   own: string | undefined;
+  checkouts?: readonly { repo: string; path: string }[];
 }
 
-/** The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked. */
-const repositoriesText = ({ repositories, own }: BreweryRepositories): string =>
-  [
-    "The Brewery's repositories, each with the base its work starts from:",
-    ...repositories.map(({ repo, base }) =>
-      own !== undefined && sameRepo(repo, own)
-        ? `- ${repo}, base ${base}: this attempt's repository, the one in your worktree`
-        : `- ${repo}, base ${base}`,
-    ),
-  ].join('\n');
+/**
+ * The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked,
+ * or in a folder of checkouts the folder each one is read in (ADR 0301).
+ */
+const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories): string => {
+  const line = ({ repo, base }: { repo: string; base: string }): string => {
+    const checkout = checkouts?.find((each) => sameRepo(each.repo, repo));
+    if (checkout !== undefined) {
+      return `- ${repo}, base ${base}: read it in ${basename(checkout.path)}/`;
+    }
+    if (own !== undefined && sameRepo(repo, own)) {
+      return `- ${repo}, base ${base}: this attempt's repository, the one in your worktree`;
+    }
+    return `- ${repo}, base ${base}`;
+  };
+  const heading =
+    checkouts === undefined
+      ? "The Brewery's repositories, each with the base its work starts from:"
+      : "The Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:";
+  return [heading, ...repositories.map(line)].join('\n');
+};
 
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064);
