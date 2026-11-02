@@ -1,15 +1,17 @@
-// A test-first recipe end to end through openDriver (ADR 0017, ADR 0078), with real git, real
-// worktrees and a real test run (`node --test`, TAP on stdout), and the fake brewer runner in
+// A test-first recipe end to end through openDriver (ADR 0017, ADR 0274), with real git, real
+// worktrees, a committed test map and a real test run (`node --test`, TAP to the report the map
+// names), and the fake brewer runner in
 // place of claude: the Gauger's first commit does not compile and its red proof sends it back,
 // Cellarman's first attempt weakens an assertion and the guard stops it, and the bottle's branch
 // ends with the red commit followed by the green one.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
+import { testMaps } from '../../src/checks/test-map.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
@@ -55,6 +57,20 @@ const test = [
 const stub = "export function add() {\n  throw new Error('not implemented');\n}\n";
 const implementation = 'export function add(a, b) {\n  return a + b;\n}\n';
 
+// The repository's test map: one module, whose run writes its TAP to report.tap (ADR 0274).
+const testMap = JSON.stringify({
+  derivedFrom: { globs: ['readme.txt'], paths: ['readme.txt'] },
+  modules: [
+    {
+      name: 'app',
+      code: ['add.mjs'],
+      tests: { paths: ['add.test.mjs'] },
+      testReport: { format: 'tap', path: 'report.tap' },
+      coverage: 'none',
+    },
+  ],
+});
+
 const writer = (name: string, fields: Record<string, unknown> = {}) => ({
   path: `brewers/${name}.md`,
   text: brewerText(name, {
@@ -76,7 +92,9 @@ describe('a test-first recipe with real git and a real test run', () => {
     const seed = join(dir.path, 'seed');
     git(dir.path, ['init', '-q', '-b', 'main', seed]);
     writeFileSync(join(seed, 'readme.txt'), 'hello\n');
-    git(seed, ['add', 'readme.txt']);
+    mkdirSync(join(seed, '.foedrum'));
+    writeFileSync(join(seed, '.foedrum', 'test-map.jsonc'), testMap);
+    git(seed, ['add', 'readme.txt', '.foedrum/test-map.jsonc']);
     git(seed, ['commit', '-q', '-m', 'Initial commit']);
     const origin = join(dir.path, 'origin.git');
     user = join(dir.path, 'user');
@@ -153,6 +171,12 @@ describe('a test-first recipe with real git and a real test run', () => {
       ],
     });
     assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const mapAt = testMaps({
+      git: runGit,
+      clone: () => user,
+      keptIn: () => 'repo',
+      brewery: () => undefined,
+    });
     const checks = createCheckRunner({
       state,
       checks: loaded.checks,
@@ -161,9 +185,10 @@ describe('a test-first recipe with real git and a real test run', () => {
         typecheck: null,
         lint: null,
         format: null,
-        test: 'node --test --test-reporter=tap',
+        test: 'node --test --test-reporter=tap --test-reporter-destination=report.tap',
       }),
-      testReport: () => ({ format: 'tap' }),
+      testReport: () => undefined,
+      testMap: { at: mapAt },
       exec: execProcess,
       git: runGit,
       clone: () => user,
@@ -180,6 +205,7 @@ describe('a test-first recipe with real git and a real test run', () => {
       },
       git: runGit,
       clone: () => user,
+      testMap: mapAt,
     });
     const workRoot = join(dir.path, 'work');
     driver = await openDriver({

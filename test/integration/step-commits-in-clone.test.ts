@@ -1,4 +1,4 @@
-// The testsUnchanged guard and the red proof read a step's commits in the clone the attempt
+// The testsUnchanged guard and the red proof read a step's commits and its test map in the clone the attempt
 // worktrees were added to, never by discovery in an attempt's worktree (#210): with real git, a
 // worktree whose .git file points at another repository, one whose branches say the proven step
 // committed no tests and the guarded attempt changed nothing, changes neither verdict.
@@ -120,18 +120,42 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
     await removeTree(dir.path);
   });
 
+  // The test map the proven step commits: its one module's run writes TAP to report.tap.
+  const map = {
+    derivedFrom: { globs: ['package.json'], paths: [] },
+    modules: [
+      {
+        name: 'app',
+        code: ['add.mjs'],
+        tests: { paths: ['add.test.mjs'] },
+        testReport: { format: 'tap', path: 'report.tap' },
+        coverage: 'none',
+      },
+    ],
+  };
+  /** The proven step's map, committed on top of its tests: the new tip of its branch. */
+  const mapGauge = (): string => {
+    const gauge = join(dir.path, 'gauge');
+    mkdirSync(join(gauge, '.foedrum'));
+    return commit(gauge, { '.foedrum/test-map.jsonc': JSON.stringify(map) }, 'Map the tests');
+  };
+  const mapAt = () =>
+    testMaps({ git: runGit, clone: () => user, keptIn: () => 'repo', brewery: () => undefined });
+
   it('the guard still stops an attempt that weakened an assertion', async () => {
-    const implement = addWorktree('implement', gaugeTip);
+    const mapped = mapGauge();
+    const implement = addWorktree('implement', mapped);
     const weakened = test.replace('assert.equal(add(1, 2), 3);', 'assert.ok(true);');
     commit(implement, { 'add.test.mjs': weakened }, 'Weaken the test');
     pointAtDecoy(implement);
-    const events = [...gauged, ...started('implement', implement, gaugeTip)];
+    const events = [...gauged, ...started('implement', implement, mapped)];
     const guarded = guardTests({
       runner: fakeBrewerRunner({ implement: [behave.succeed()] }),
       state: () => fold(events),
       protects: () => 'gauge',
       git: runGit,
       clone: () => user,
+      testMap: mapAt(),
       clock,
     });
     const ref = { batchId: '12-1', stepId: 'implement', attempt: 1 };
@@ -145,25 +169,7 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
   });
 
   it('the guard reads the test map the proven step committed, in the clone (ADR 0274)', async () => {
-    const gauge = join(dir.path, 'gauge');
-    mkdirSync(join(gauge, '.foedrum'));
-    const map = {
-      derivedFrom: { globs: ['package.json'], paths: [] },
-      modules: [
-        {
-          name: 'app',
-          code: ['add.mjs'],
-          tests: { paths: ['add.test.mjs'] },
-          testReport: { format: 'tap', path: 'report.tap' },
-          coverage: 'none',
-        },
-      ],
-    };
-    const mapped = commit(
-      gauge,
-      { '.foedrum/test-map.jsonc': JSON.stringify(map) },
-      'Map the tests',
-    );
+    const mapped = mapGauge();
     const implement = addWorktree('implement', mapped);
     // An import line, which only the map's rule keeps: ADR 0078's let it change.
     const edited = test.replace("from './add.mjs';", "from './sum.mjs';");
@@ -175,12 +181,7 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
       protects: () => 'gauge',
       git: runGit,
       clone: () => user,
-      testMap: testMaps({
-        git: runGit,
-        clone: () => user,
-        keptIn: () => 'repo',
-        brewery: () => undefined,
-      }),
+      testMap: mapAt(),
       clock,
     });
     const ref = { batchId: '12-1', stepId: 'implement', attempt: 1 };
@@ -194,9 +195,10 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
   });
 
   it("the red proof still finds the proven step's tests", async () => {
-    const red = addWorktree('red', gaugeTip);
+    const mapped = mapGauge();
+    const red = addWorktree('red', mapped);
     pointAtDecoy(red);
-    const events = [...gauged, ...started('red', red, gaugeTip)];
+    const events = [...gauged, ...started('red', red, mapped)];
     const checks: StepChecks = {
       find: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? ['test'] : undefined),
       any: () => true,
@@ -211,9 +213,10 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
         typecheck: null,
         lint: null,
         format: null,
-        test: 'node --test --test-reporter=tap',
+        test: 'node --test --test-reporter=tap --test-reporter-destination=report.tap',
       }),
-      testReport: () => ({ format: 'tap' }),
+      testReport: () => undefined,
+      testMap: { at: mapAt() },
       exec: execProcess,
       git: runGit,
       clone: () => user,

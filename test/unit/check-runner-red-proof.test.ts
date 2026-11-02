@@ -238,6 +238,31 @@ const setup = ({
 
 const failedWith = (reason: string) => ({ kind: 'failed', retryable: false, reason });
 
+// One module whose run writes its TAP to test.tap, at the base and at the red step's tip (ADR 0274).
+const moduleMap: MapRead = {
+  kind: 'map',
+  map: {
+    derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+    modules: [
+      {
+        name: 'api',
+        code: ['src/**'],
+        tests: { paths: ['test/**'] },
+        testReport: { format: 'tap', path: 'test.tap' },
+        coverage: 'none',
+      },
+    ],
+  },
+};
+const testTap = join(redTree, 'test.tap');
+/** The repository's test map, and a run that writes `tap` to its module's report. */
+const onMap = (tap = stubFails) => ({
+  maps: { [gaugeStart]: moduleMap, ['b'.repeat(40)]: moduleMap },
+  found: { 'test.tap': [testTap] },
+  files: { [testTap]: { kind: 'text', text: tap } } as Record<string, OutDocRead>,
+  test: { exitCode: 1, stdout: '' } as Partial<ExecResult>,
+});
+
 describe('createCheckRunner: the red proof (ADR 0078)', () => {
   it("proves red the proven step's tests from TAP on stdout, with the step's commits from git", async () => {
     const { order, run, execOptions } = setup();
@@ -256,11 +281,11 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it("runs the repository's setup in the worktree before the red run (ADR 0140)", async () => {
-    const { order, run } = setup({ prepare: 'npm ci' });
+    const { order, run } = setup({ ...onMap(), prepare: 'npm ci' });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
     assert.deepEqual(
-      order.filter((line) => !line.startsWith('git')),
+      order.filter((line) => line.startsWith('setup') || line.startsWith('exec')),
       [`setup npm ci in ${redTree}`, `exec npm test in ${redTree}`],
     );
     assert.deepEqual(
@@ -281,6 +306,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
 
   it("runs no setup when the proven step's commits cannot be read (ADR 0140)", async () => {
     const { order, run } = setup({
+      ...onMap(),
       prepare: 'npm ci',
       diff: { code: 128, stdout: '', stderr: 'bad' },
     });
@@ -293,38 +319,35 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it("runs the setup after the proven step's commits are read and before the report is cleared (ADR 0140)", async () => {
-    const results = join(redTree, 'build', 'results.xml');
-    const xml =
-      '<testsuite><testcase name="adds two numbers"><failure message="not implemented"/></testcase></testsuite>';
-    const { order, run } = setup({
-      prepare: 'npm ci',
-      report: { format: 'junit', path: 'build/results.xml' },
-      files: { [results]: { kind: 'text', text: xml } },
-    });
+    const { order, run } = setup({ ...onMap(), prepare: 'npm ci' });
     const end = await run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-    assert.ok(order[0]?.startsWith('git '), order[0]);
-    assert.deepEqual(order.slice(1), [
-      `setup npm ci in ${redTree}`,
-      `clear ${results}`,
-      `exec npm test in ${redTree}`,
-      `read ${results} inside ${redTree}`,
-    ]);
+    assert.ok(order[0]?.startsWith('git -c core.quotePath=false diff '), order[0]);
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [
+        `setup npm ci in ${redTree}`,
+        `find test.tap in ${redTree}`,
+        `clear ${testTap}`,
+        `exec npm test in ${redTree}`,
+        `find test.tap in ${redTree}`,
+        `read ${testTap} inside ${redTree}`,
+      ],
+    );
   });
 
   it('ends a red proof on its environment, clearing and running nothing, when the setup fails (ADR 0140)', async () => {
-    const { order, run } = setup({
-      prepare: 'npm ci',
-      prepareExit: 1,
-      report: { format: 'junit', path: 'build/results.xml' },
-    });
+    const { order, run } = setup({ ...onMap(), prepare: 'npm ci', prepareExit: 1 });
     const end = await run();
     assert.deepEqual(end.ending, {
       kind: 'blocked',
       blockerKind: 'environment',
       summary: 'the setup "npm ci" failed with exit code 1',
     });
-    assert.deepEqual(order.slice(1), [`setup npm ci in ${redTree}`]);
+    assert.deepEqual(
+      order.filter((line) => !line.startsWith('git')),
+      [`setup npm ci in ${redTree}`],
+    );
     assert.deepEqual(
       end.readings?.map((reading) => 'setup' in reading && reading.setup),
       [true],
@@ -332,13 +355,13 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('says on native Windows that the red run ran unsandboxed (ADR 0076)', async () => {
-    const end = await setup({ platform: 'win32' }).run();
+    const end = await setup({ ...onMap(), platform: 'win32' }).run();
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
     assert.deepEqual(
       end.readings?.map((reading) => 'unsandboxed' in reading && reading.unsandboxed),
       [true],
     );
-    const elsewhere = await setup().run();
+    const elsewhere = await setup(onMap()).run();
     assert.deepEqual(
       elsewhere.readings?.map((reading) => 'unsandboxed' in reading),
       [false],
@@ -369,7 +392,10 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
         outcome: { kind: 'succeeded', output: null },
       },
     ];
-    const { order, run } = setup({ events: [...ordered, ...gauged, ...again, ...redStarted] });
+    const { order, run } = setup({
+      ...onMap(),
+      events: [...ordered, ...gauged, ...again, ...redStarted],
+    });
     await run();
     assert.match(
       order[0] ?? '',
@@ -397,7 +423,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
       { type: 'step.started', ...gauge(2), session: { ...session, resumes: session.id } },
       { type: 'step.finished', ...gauge(2), outcome: { kind: 'succeeded', output: null }, claude },
     ];
-    const { order, run } = setup({ events: [...ordered, ...resumed, ...redStarted] });
+    const { order, run } = setup({ ...onMap(), events: [...ordered, ...resumed, ...redStarted] });
     await run();
     assert.match(
       order[0] ?? '',
@@ -406,7 +432,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('rejects a red run that fails on a compile error (done when, #176)', async () => {
-    const { run } = setup({ test: { exitCode: 1, stdout: compileError } });
+    const { run } = setup(onMap(compileError));
     const end = await run();
     // The test check's reading is kept on a failed red proof too.
     assert.deepEqual(
@@ -422,14 +448,14 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('reads the report, never the exit code: a passing exit proves nothing, a failing one decides nothing', async () => {
-    const passing = await setup({ test: { exitCode: 0, stdout: stubFails } }).run();
+    const passing = await setup({ ...onMap(), test: { exitCode: 0, stdout: '' } }).run();
     assert.deepEqual(passing.ending, { kind: 'succeeded', output: null });
     const green = 'ok 1 - adds two numbers\n1..1\n';
-    const failing = await setup({ test: { exitCode: 1, stdout: green } }).run();
+    const failing = await setup(onMap(green)).run();
     assert.deepEqual(
       failing.ending,
       failedWith(
-        'the red proof of step gauge failed: test "adds two numbers" passes before the implementation: a stub must throw, not return a value',
+        'the red proof of step gauge failed: no test fails, so none shows the behaviour missing',
       ),
     );
   });
@@ -570,7 +596,10 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('settles a test command that did not exit as any check does (ADR 0069)', async () => {
-    const end = await setup({ test: { exitCode: null, killed: 'timed-out', stdout: '' } }).run();
+    const end = await setup({
+      ...onMap(),
+      test: { exitCode: null, killed: 'timed-out', stdout: '' },
+    }).run();
     assert.deepEqual(
       end.ending,
       failedWith('the check "test" (npm test) did not finish by the step\'s deadline'),
@@ -590,7 +619,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('is blocked on the environment, running nothing, when the repository has no test check', async () => {
-    const { order, run } = setup({ checks: { ...repository, test: null } });
+    const { order, run } = setup({ ...onMap(), checks: { ...repository, test: null } });
     const end = await run();
     assert.deepEqual(end.ending, {
       kind: 'blocked',
@@ -604,7 +633,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
   });
 
   it('is blocked on a divergence when the proven step has no attempt that succeeded', async () => {
-    const { order, run } = setup({ events: [...ordered, ...redStarted] });
+    const { order, run } = setup({ ...onMap(), events: [...ordered, ...redStarted] });
     const end = await run();
     assert.deepEqual(end.ending, {
       kind: 'blocked',
@@ -702,6 +731,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
 
   it("is blocked on the environment when git cannot read the proven step's commits", async () => {
     const { order, run } = setup({
+      ...onMap(),
       diff: { code: 128, stdout: '', stderr: 'fatal: bad revision\n' },
     });
     const end = await run();
