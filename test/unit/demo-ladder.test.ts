@@ -341,6 +341,10 @@ describe('ladderLifeEnd', () => {
     assert.equal(of('lib', ordered(PLANNED), stuck(PLANNED)), 'failed');
   });
 
+  it("fails the plan's life when another batch is Stuck (regression test)", () => {
+    assert.equal(of('plan', ordered(PLANNED), ordered('9-1'), stuck('9-1')), 'failed');
+  });
+
   it("ends the library's life once one sub-order's batch is on tap", () => {
     const planned = [ordered(PLANNED), onTap(PLANNED), ordered('2-1', PLANNED)];
     assert.equal(of('lib', ...planned), 'brewing');
@@ -603,5 +607,15 @@ describe('runLadder', () => {
     assert.equal(code, 1);
     assert.deepStrictEqual(lives, ['plan']);
     assert.ok(said.includes('demo: foedrum approve 1-1 failed (exit code 1)'), said.join('\n'));
+  });
+
+  it('stops at an error of its own, such as a merge with no pull request, and says it (regression test)', async () => {
+    const { code, said, lives } = await run({});
+    assert.equal(code, 1);
+    assert.deepStrictEqual(lives, ['plan', 'lib']);
+    assert.ok(
+      said.includes('demo: the ladder stopped: no pull request on demo/lib to merge'),
+      said.join('\n'),
+    );
   });
 });
