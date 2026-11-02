@@ -32,12 +32,16 @@ flowchart LR
 flowchart LR
   S["stop #12"] --> K["each brewing batch Stuck, stopped:<br/>its attempts abandoned"]
   K --> D["the driver stops their runs<br/>at its next tick"]
-  D -->|"retry"| R["the step scheduled again,<br/>fresh from the task tree"]
+  D -->|"its cancelled end,<br/>recorded stopped"| E["the batch still Stuck"]
+  E -->|"retry"| R["the step scheduled again,<br/>resuming the stopped session"]
 ```
 
 - The order is named and refused as a pause's is: a sub-order, or the Brewery issue that is a claimed issue's order, is refused with the order to stop; an order with no brewing batch is refused too. There is no `--all`: `pause --all --by` stops everything that runs, and one `continue --all` lifts it.
 - Each brewing batch of the order, its sub-orders' too, goes Stuck with reason `stopped`, which carries who stopped it, from where and why, and names the first step whose latest attempt had not finished; a batch with nothing running, only scheduled, goes Stuck the same way. Ordered, Conditioning and Stuck batches are left as they are.
-- Stuck abandons the batch's unfinished attempts, so the driver that runs one stops its process tree at its next tick, and the runner's end of it is refused; the attempt counts toward `maxAttempts` like any abandoned one. What it committed stays on its attempt branch while the batch has not ended, where `rewind` reaches it, and what it had not committed is lost.
-- A stopped batch offers `retry`, `skip`, `recipe`, `rewind` and `cancel`, with the Stuck reminder; `retry` always schedules the named step, fresh from the task tree as after any abandoned attempt ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)), and in a parallel group also the other children that had not ended; resuming the stopped session and spending no attempt is #536.
+- Stuck abandons the batch's unfinished attempts and marks them `stopped`, so the driver that runs one stops its process tree at its next tick ([ADR 0302](../../adr/0302-a-stopped-attempt-s-end-is-recorded-and-its-retry-resumes-its-session-and-spends-no-attempt.md)).
+- The runner's cancelled end of a stopped attempt is recorded with `stopped` on its `step.finished`, with claude's report, while the batch stays Stuck: no route runs and nothing is scheduled. Any other end of it, and the end of an attempt another Stuck abandoned, is refused.
+- No stopped attempt counts toward `maxAttempts`, its end recorded or not: the person stopped it, it did not fail.
+- What it committed stays on its attempt branch while the batch has not ended, where `rewind` reaches it, and what it had not committed is lost.
+- A stopped batch offers `retry`, `skip`, `recipe`, `rewind` and `cancel`, with the Stuck reminder; `retry` always schedules the named step, and in a parallel group also the other children that had not ended. With `retryMode: resume` the retry continues the stopped attempt's session in its worktree, or its checkouts, once its end was recorded ([ADR 0117](../../adr/0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md)); a stopped attempt whose end never came starts fresh from the task tree, as after any abandoned attempt.
 - A stop leaves a pause as it is, so a retried step of a paused batch waits for `continue`; a pause of a stopped batch holds what its retry schedules.
 - The status comment's Stuck line, `foedrum stuck`, `status` and `replay` say `stopped`, with who, from where and why.
