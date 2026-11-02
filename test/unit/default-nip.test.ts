@@ -807,6 +807,17 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
         reason: 'label',
         source: 'label',
       },
+      // The Cellarman's batch skipped the Gauger, so its prompt holds no tests input.
+      ...(stepId === 'implement'
+        ? [
+            {
+              type: 'step.skipped',
+              batchId: '12-1',
+              stepId: 'gauge',
+              when: 'recipe.testFirst',
+            } satisfies Event,
+          ]
+        : []),
       { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-21T13:00:00.000Z' },
       {
         type: 'step.started',
@@ -873,6 +884,18 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
 
   it("puts a sub-order's plan entry in its acceptance Taster's prompt", async () => {
     assert.match(await promptOf('acceptance', true), entry);
+  });
+
+  it('gives the Cellarman of a batch that is no sub-order no planEntry input: regression test', async () => {
+    const prompt = await promptOf('implement', false);
+    assert.match(prompt, /name="order">\nAdd a --json flag to status\.\n/);
+    assert.doesNotMatch(prompt, /name="planEntry"/);
+  });
+
+  it('gives a Cellarman whose recipe skipped the gauge step no tests input: regression test', async () => {
+    const prompt = await promptOf('implement', true);
+    assert.match(prompt, /name="order">\nAdd a --json flag to status\.\n/);
+    assert.doesNotMatch(prompt, /name="tests"/);
   });
 
   it('gives an order that is no sub-order the Gauger and acceptance prompts it had without the input: regression test', async () => {
