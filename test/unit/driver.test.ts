@@ -2563,6 +2563,54 @@ describe('openDriver', () => {
       );
     });
 
+    it("plans a Brewery order of a one-repository Brewery in that repository's worktree, as before: regression test", async () => {
+      order('b1');
+      const driver = await open({ worktrees: both().slice(1), reads });
+      await driver.drive();
+      const [event] = startedEvents();
+      assert.equal(event?.worktree?.repo, 'acme/web');
+      assert.equal(event?.checkouts, undefined);
+      assert.deepStrictEqual(
+        web.calls.flatMap((call) => (call.kind === 'clean' ? [] : [call.kind])),
+        ['create'],
+      );
+    });
+
+    it("gives a claimed issue's and a sub-order's reading attempts their repository's worktree: regression test", async () => {
+      intake.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, now);
+      order('b1');
+      const decomposed = {
+        type: 'order.decomposed' as const,
+        batchId: 'b1',
+        subOrders: [{ issue: 101, repo: 'acme/app' }],
+        dependencies: [],
+      };
+      assert.equal(intake.issue({ kind: 'record', event: decomposed }, now).kind, 'accepted');
+      const sub = {
+        kind: 'order',
+        batchId: 'b101',
+        order: { issue: 101 },
+        parentBatchId: 'b1',
+      } as const;
+      assert.equal(intake.issue(sub, now).kind, 'accepted');
+      for (const batchId of ['web-7', 'b101']) {
+        const route = {
+          kind: 'route',
+          batchId,
+          recipe: 'half',
+          reason: 'label',
+          source: 'label',
+        } as const;
+        assert.equal(intake.issue(route, now).kind, 'accepted');
+      }
+      const driver = await open({ takes: (id) => id !== 'b1', worktrees: both(), reads });
+      await driver.drive();
+      const given = new Map(startedEvents().map((event) => [event.batchId, event]));
+      assert.equal(given.get('web-7')?.worktree?.repo, 'acme/web');
+      assert.equal(given.get('b101')?.worktree?.repo, 'acme/app');
+      assert.ok(![...app.calls, ...web.calls].some((call) => call.kind === 'checkout'));
+    });
+
     it('a writing step of a Brewery order in a Brewery of two repositories fails naming the step', async () => {
       const { runner, started } = handRunner();
       order('b1');
