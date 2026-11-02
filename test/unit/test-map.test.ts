@@ -625,16 +625,17 @@ describe('refusalCommit: where the start refusal reads the map (ADR 0297)', () =
     const batch = batchOf([...started('gauge', 1, base), refused, ...started('gauge', 2, moved)]);
     assert.equal(batch.starts?.['acme/web']?.commit, base);
     assert.equal(refusalCommit(batch, at('gauge', 2), 'acme/web'), moved);
+    assert.equal(refusalCommit(batch, at('gauge', 2), 'ACME/web'), moved);
   });
 
-  it('reads where the batch started once an attempt there succeeded, whatever a later attempt started at', () => {
+  it('a batch with a succeeded attempt is not refused for a missing map: the red proof and the guard name it', () => {
     const batch = batchOf([
       ...started('gauge', 1, base),
       { type: 'step.finished', ...at('gauge', 1), outcome: { kind: 'succeeded', output: null } },
       ...started('red', 1, tip, 'Acme/Web'),
     ]);
-    assert.equal(refusalCommit(batch, at('red', 1), 'acme/web'), base);
-    assert.equal(refusalCommit(batch, at('red', 1), 'ACME/web'), base);
+    assert.equal(refusalCommit(batch, at('red', 1), 'acme/web'), undefined);
+    assert.equal(refusalCommit(batch, at('red', 1), 'ACME/web'), undefined);
   });
 
   it('reads where the batch started for an attempt with no worktree of its own', () => {
