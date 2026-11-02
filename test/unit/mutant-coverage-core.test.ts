@@ -102,6 +102,27 @@ describe('the test files that cover a mutated line', () => {
   });
 });
 
+describe('a test file name the covered list cannot carry', () => {
+  for (const name of [
+    'test/unit/a b.test.ts',
+    'test/unit/a\nb.test.ts',
+    `test/unit/a${String.fromCodePoint(0x2028)}b.test.ts`,
+  ]) {
+    it(`falls back to the direct and wide rounds for ${JSON.stringify(name)}`, () => {
+      const plan = coveringTests({
+        tests: [name, 'test/unit/decide.test.ts'],
+        records: records([['test/unit/decide.test.ts', foldRanges(false)]]),
+        sources,
+        locations: [{ file: 'src/engine/fold.ts', line: 5 }],
+      });
+      assert.deepEqual(plan, {
+        kind: 'fallback',
+        reason: `the test file name ${JSON.stringify(name)} cannot be listed on one line`,
+      });
+    });
+  }
+});
+
 describe('whether a line ran in one child', () => {
   it('a line inside a function no test calls reads as not covered', () => {
     const ranges = foldRanges(false);
