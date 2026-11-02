@@ -685,8 +685,10 @@ function apply(state: State, event: Event): State {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
         if (current.phase === 'finished') throw attemptError(event, 'was already finished');
         ran = ranIn(step, current);
+        // The end of an attempt a stop abandoned finishes it (ADR 0302).
+        const { abandoned: _, ...unfinished } = current;
         return {
-          ...current,
+          ...unfinished,
           phase: 'finished',
           outcome: event.outcome,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
@@ -695,6 +697,7 @@ function apply(state: State, event: Event): State {
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
+          ...(event.stopped === undefined ? {} : { stopped: event.stopped }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
           ...(event.findings === undefined ? {} : { findings: event.findings }),
           ...(event.staleMap === undefined ? {} : { staleMap: event.staleMap }),
@@ -730,7 +733,7 @@ function apply(state: State, event: Event): State {
       return updateBatch(state, event.batchId, (batch) => ({
         ...batch,
         lane: { kind: 'stuck', reason, options, remindAt },
-        steps: abandon(batch.steps),
+        steps: abandon(batch.steps, reason.kind === 'stopped'),
       }));
     }
     case 'batch.resumed': {
@@ -1121,15 +1124,20 @@ function updateAttempt(
   });
 }
 
-/** Marks every attempt that has not finished as abandoned. */
-function abandon(steps: ReadonlyMap<string, Step>): ReadonlyMap<string, Step> {
+/**
+ * Marks every attempt that has not finished as abandoned, and as `stopped` when a person's stop
+ * abandons it (ADR 0302); one an earlier Stuck abandoned keeps how it was abandoned.
+ */
+function abandon(steps: ReadonlyMap<string, Step>, stopped: boolean): ReadonlyMap<string, Step> {
   const abandoned = new Map<string, Step>();
   for (const [id, step] of steps) {
     const attempts = new Map<number, Attempt>();
     for (const [number, attempt] of step.attempts) {
       attempts.set(
         number,
-        attempt.phase === 'finished' ? attempt : { ...attempt, abandoned: true },
+        attempt.phase === 'finished' || attempt.abandoned === true
+          ? attempt
+          : { ...attempt, abandoned: true, ...(stopped ? { stopped: true } : {}) },
       );
     }
     abandoned.set(id, { ...step, attempts });
