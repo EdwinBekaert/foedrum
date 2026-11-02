@@ -2932,6 +2932,13 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
   });
 
+  it('escapes the text of a labelled link: regression test (#778)', () => {
+    assert.equal(
+      labelled('a]b *c* @d', 'https://github.example/x'),
+      '[a\\]b \\*c\\* &#64;d](<https://github.example/x>)',
+    );
+  });
+
   it("keeps a pull request's link an autolink beside a labelled out doc: regression test (#778)", () => {
     const text = rendered(
       batch({
