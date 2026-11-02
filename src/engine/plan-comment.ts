@@ -24,7 +24,7 @@ import type { Approval, Batch, State } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
 import { digestOf, knownCommits, quoted } from './pull-request.ts';
-import { outDocLink } from './state-branch.ts';
+import { outDocLink, outDocPlace } from './state-branch.ts';
 import {
   code,
   link as linked,
@@ -161,6 +161,12 @@ export interface ChangedInSession {
   at?: string;
 }
 
+/** The out doc of a plan: its place on the state branch, as `7-1/plan-2.md`, and its address. */
+export interface FullPlan {
+  place: string;
+  url: string;
+}
+
 /**
  * The plan comment's text for the plan `stepId` of `batchId` wrote, without its marker: every text
  * the brewer wrote one escaped line, left out when it looks like a secret.
@@ -171,7 +177,7 @@ export const renderPlan = (
   plan: PlanReport,
   isCommit: IsCommit = () => false,
   /** The out doc of the plan on the state branch, linked at the top (ADR 0266, ADR 0275). */
-  fullPlan?: string,
+  fullPlan?: FullPlan,
   /** Whether the batch waits Stuck for a review of this plan, which the last line says what to do with. */
   waitsForReview = false,
   /** The sign-off of this plan, which the Gate section shows (ADR 0281). */
@@ -186,7 +192,7 @@ export const renderPlan = (
   // First, and kept by a cut: the full plan, its assumptions among it, each whole (#658).
   const top = [
     `${PLAN_HEADING} ${code(batchId)}`,
-    ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan)}`]),
+    ...(fullPlan === undefined ? [] : ['', `Full plan: ${linked(fullPlan.url)}`]),
     ...(changed === undefined
       ? []
       : [
@@ -326,7 +332,10 @@ const planDue = (
   const fullPlan =
     stateBranchUrl === undefined
       ? undefined
-      : outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true);
+      : {
+          place: outDocPlace({ batchId, stepId, attempt }),
+          url: outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true),
+        };
   const { lane, approval } = batch;
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
   // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
