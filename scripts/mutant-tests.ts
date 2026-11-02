@@ -18,7 +18,7 @@ const FOLDERS = ['src', 'scripts', 'test'];
 // Every .ts regular file under the folders, by its path relative to the tree with /. A folder the
 // tree does not have is left out, and so is a link: the pull request's tree may hold one to a
 // device or a file outside it, which would be read without end.
-const readSources = async (tree: string): Promise<Map<string, string>> => {
+export const readSources = async (tree: string): Promise<Map<string, string>> => {
   const sources = new Map<string, string>();
   for (const folder of FOLDERS) {
     let entries: Dirent[];
