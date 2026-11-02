@@ -104,6 +104,8 @@ export interface Catalog {
 export interface StepBrewers {
   /** The brewer of step `stepId` of recipe `recipe`, or `undefined` when there is no such step. */
   find(recipe: string, stepId: string): StepBrewer | undefined;
+  /** Whether recipe `recipe` has a step of id `stepId`, of a brewer or not (#774). */
+  has(recipe: string, stepId: string): boolean;
 }
 
 /** The checks of the loaded recipes' check steps (ADR 0069). */
@@ -1217,7 +1219,10 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
       },
     },
     recipes: { find: (name) => recipes.get(name) },
-    brewers: { find: (recipe, id) => stepBrewers.get(recipe)?.get(id) },
+    brewers: {
+      find: (recipe, id) => stepBrewers.get(recipe)?.get(id),
+      has: (recipe, id) => recipes.get(recipe)?.has(id) ?? false,
+    },
     checks: {
       find: (recipe, id) => stepChecks.get(recipe)?.get(id)?.checks,
       any: () => [...stepChecks.values()].some((steps) => steps.size > 0),

@@ -807,7 +807,7 @@ describe('foedrum resume (ADR 0126)', () => {
       await resume(undefined, {
         setup: async () => ({
           kind: 'ready',
-          setup: { ...setup, brewers: { find: () => undefined } },
+          setup: { ...setup, brewers: { find: () => undefined, has: () => false } },
         }),
       }),
       refused('recipe pint has no step implement'),

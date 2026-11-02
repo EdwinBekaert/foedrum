@@ -125,6 +125,7 @@ describe('createAttemptPlans: plan', () => {
         const found = loaded.brewers.find(recipe, stepId);
         return found && { ...found, interactive };
       },
+      has: (recipe: string, stepId: string) => loaded.brewers.has(recipe, stepId),
     };
     const { plans } = setup(undefined, {}, undefined, brewers);
     const planned = await plans.plan(start);
