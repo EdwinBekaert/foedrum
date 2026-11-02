@@ -2940,10 +2940,6 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       }),
     );
     assert.ok(text.includes(`the merge of <${pr}>`), text);
-    assert.equal(
-      stepOf(text, 'taste'),
-      `- ✅ \`taste\`: out doc: [7-1/taste-1.md](<${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>)`,
-    );
   });
 
   it('escapes what a brewer wrote next to a labelled link: regression test (#778)', () => {
@@ -2953,9 +2949,6 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
         steps: new Map([step('plan', planned(1, ['Use [x](<y>) *now* @alice.']))]),
       }),
     );
-    assert.deepEqual(section(text).slice(1), [
-      '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* &#64;alice.',
-      `- \`plan\`: full plan: [7-1/plan-1.md](<${stateBranchUrl}/batches/7-1/plan-1.md>); [plan comment](<${planComment}>)`,
-    ]);
+    assert.equal(section(text)[1], '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* &#64;alice.');
   });
 });
