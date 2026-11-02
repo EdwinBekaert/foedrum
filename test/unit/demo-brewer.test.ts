@@ -5,7 +5,13 @@ import { DEMO_SCRIPT, type DemoBrewersOptions, demoBrewers } from '../../scripts
 import type { Life } from '../../scripts/demo/core.ts';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import type { AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
-import { FiningOutDoc, OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
+import {
+  FiningOutDoc,
+  OutDocFrontmatter,
+  SurveyOutDoc,
+  surveyOf,
+  TastingOutDoc,
+} from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import { NIP_SCRIPT } from '../helpers/nip-fixture.ts';
 
@@ -117,6 +123,26 @@ describe('the demo brewers', () => {
     assert.equal(log.at(-1), 'crash');
     assert.match(log.at(-2) ?? '', / commit$/);
     assert.equal(ended, false);
+  });
+
+  it("in the life that crashes, play the Maltster's survey to its end, committing the test map, and crash only after the Gauger's commit", async () => {
+    const { runner, log } = brewers('crash');
+    const { ending } = await runner.start({
+      ref: { batchId: '1-1', stepId: 'survey', attempt: 1 },
+      limits: { outDoc: { file: 'survey.md', schema: SurveyOutDoc } },
+    }).ended;
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    assert.equal(ending.kind === 'succeeded' && surveyOf(ending.output)?.map, 'new');
+    assert.deepStrictEqual(log, [
+      `write ${join(cwd, '.foedrum', 'test-map.jsonc')}`,
+      `write ${join(cwd, 'survey.md')}`,
+      `git ${cwd} add`,
+      `git ${cwd} commit`,
+    ]);
+    void runner.start(start).ended;
+    await settled();
+    assert.equal(log.at(-1), 'crash');
+    assert.match(log.at(-2) ?? '', / commit$/);
   });
 
   it('in the life that crashes, do not crash once the attempt was stopped while it committed', async () => {

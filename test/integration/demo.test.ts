@@ -29,6 +29,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type ExecResult, execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import type { Event } from '../../src/schemas/events.ts';
+import { surveyOf } from '../../src/schemas/out-doc.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { hangGuardMs } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -223,7 +224,7 @@ describe('npm run demo', () => {
       if (outcome !== '') inOrder.push(outcome);
     }
     assert.deepStrictEqual(inOrder, [
-      // The demo repository's map is the Brewery's, so the survey and its check need no run (ADR 0298).
+      // The Maltster proposes demo/web's map, and its check runs the tests against it (ADR 0298).
       'survey#1 succeeded',
       'survey-check#1 succeeded',
       'gauge#1 failed',
@@ -394,6 +395,38 @@ describe('npm run demo', () => {
     assert.equal(STEPS.length, 12);
     assert.equal(headingOf(11), 'Step 12 of 12: foedrum mash 3 --as ann');
     assert.ok(result.stdout.includes(`\n${headingOf(11)}\n`), result.stdout);
+  });
+
+  it("records the Maltster's survey with a session, and a survey-check that ran the tests against its map", () => {
+    const store = openSqliteEventStore(join(scratch, 'brewery', '.foedrum', 'index.db'));
+    let events: Event[];
+    try {
+      events = store.eventsAfter(0).map(({ event }) => event);
+    } finally {
+      store.close();
+    }
+    const finished = (stepId: string) =>
+      events.flatMap((event) =>
+        event.type === 'step.finished' && event.batchId === '1-1' && event.stepId === stepId
+          ? [event]
+          : [],
+      );
+    // demo/web has no map on main, so the Maltster's session proposes one: only it says new
+    // (ADR 0298).
+    const [survey] = finished('survey');
+    const map =
+      survey?.outcome.kind === 'succeeded' ? surveyOf(survey.outcome.output)?.map : undefined;
+    assert.equal(map, 'new', JSON.stringify(survey));
+    const [check] = finished('survey-check');
+    assert.equal(check?.outcome.kind, 'succeeded', JSON.stringify(check));
+    assert.deepStrictEqual(
+      check?.readings?.map((reading) => [reading.check, reading.result]),
+      [['test', 'exited']],
+    );
+    // Step 3 shows the survey's session as status sees it, and the status comment names the map's
+    // module, which green did not measure.
+    assert.match(part('brewing'), /brewing +survey #1 started/);
+    assert.match(part('pull-request'), /not measured, coverage none: greet/);
   });
 
   it("prints no line of the intake's failures, the reads of the on-tap pull request among them (#721)", () => {
