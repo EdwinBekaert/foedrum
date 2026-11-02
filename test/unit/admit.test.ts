@@ -395,6 +395,25 @@ describe('admit lane rules (ADR 0025)', () => {
     );
   });
 
+  it('refuses the stopped end of an attempt once the batch is Stuck again for another reason (ADR 0302)', () => {
+    const stopped: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: { kind: 'stopped', stepId: 'plan', by: 'octocat', via: 'plugin' },
+      options: ['retry', 'skip', 'recipe', 'rewind', 'cancel'],
+      remindAt,
+    };
+    const end: Event = {
+      type: 'step.finished',
+      ...attempt,
+      outcome: { kind: 'cancelled' },
+      stopped: true,
+    };
+    // The stop's own end is admitted; once the stuck batch is stuck on a question, it is not.
+    assert.equal(admit(fold([...lanes.brewing, stopped]), [end]).kind, 'accepted');
+    refused([...lanes.brewing, stopped, stuck], end, /was not abandoned by a stop/);
+  });
+
   it('refuses a rewind without commits (ADR 0025)', () => {
     refused(lanes.stuck, { ...rewound, shas: {} }, /rewind needs the commit of each repository/);
   });
