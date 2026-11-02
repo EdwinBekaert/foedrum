@@ -273,6 +273,16 @@ export const siblingSection = (body: string): string[] => {
   return section;
 };
 
+/** What the Cellar does between ticks, given where its life stands and whether the last tick added no event. */
+export const ladderTick = (_end: LadderLifeEnd, _quiet: boolean): 'wait' | 'end' => {
+  throw new Error('not implemented');
+};
+
+/** The part of the demo `npm run demo -- <positionals>` asks for, or undefined for any other. */
+export const demoPart = (_positionals: readonly string[]): 'default' | 'ladder' | undefined => {
+  throw new Error('not implemented');
+};
+
 /** What the shell gives the ladder: its output, its pauses, git, the CLI and the Cellar. */
 export interface LadderShell {
   scratch: string;

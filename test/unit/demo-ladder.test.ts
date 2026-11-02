@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { DIAGNOSIS } from '../../scripts/demo/core.ts';
 import {
+  demoPart,
   LADDER_ORDER,
   LADDER_STEPS,
   ladderBreweryFiles,
@@ -10,7 +11,9 @@ import {
   ladderLifeEnd,
   ladderLocalConfig,
   ladderProblems,
+  ladderTick,
   PLANNED,
+  runLadder,
   siblingSection,
 } from '../../scripts/demo/ladder.ts';
 import {
@@ -38,6 +41,7 @@ import type { Event } from '../../src/schemas/events.ts';
 import { PullRequestOutDoc } from '../../src/schemas/out-doc.ts';
 import { PlanOutDoc } from '../../src/schemas/plan.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
+import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const libManifest = `${JSON.stringify({ name: PACKAGE, version: VERSION })}\n`;
 const webManifest = `${JSON.stringify({ name: 'web', dependencies: { [PACKAGE]: VERSION } }, null, 2)}\n`;
@@ -517,5 +521,87 @@ describe('ladderBrewers', () => {
     const running = runner.start(startOf('implement', PullRequestOutDoc));
     running.stop();
     assert.deepStrictEqual((await running.ended).ending, { kind: 'cancelled' });
+  });
+});
+
+describe('ladderTick', () => {
+  const ended = { kind: 'ended', line: 'demo: batch 2-1 is on tap' } as const;
+
+  it('waits while the life brews, quiet or not', () => {
+    assert.equal(ladderTick({ kind: 'brewing' }, true), 'wait');
+    assert.equal(ladderTick({ kind: 'brewing' }, false), 'wait');
+  });
+
+  it('waits for a quiet tick after the life reached its end, so its last effects are applied', () => {
+    assert.equal(ladderTick(ended, false), 'wait');
+    assert.equal(ladderTick(ended, true), 'end');
+  });
+
+  it('ends a failed life at once', () => {
+    assert.equal(
+      ladderTick({ kind: 'failed', line: 'demo: batch 2-1 was cancelled' }, false),
+      'end',
+    );
+  });
+});
+
+describe('demoPart', () => {
+  it('is the default demo without an argument, and the ladder with ladder', () => {
+    assert.equal(demoPart([]), 'default');
+    assert.equal(demoPart(['ladder']), 'ladder');
+  });
+
+  it('is none for any other argument, or one more after ladder', () => {
+    assert.equal(demoPart(['ladr']), undefined);
+    assert.equal(demoPart(['ladder', 'x']), undefined);
+    assert.equal(demoPart(['x', 'ladder']), undefined);
+  });
+});
+
+describe('runLadder', () => {
+  /** A run on a shell whose `life` fails and whose `command` fails, and what it said and started. */
+  const run = async (failing: { life?: string; command?: string }) => {
+    const dir = makeTempDir('demo-ladder-shell');
+    const said: string[] = [];
+    const lives: string[] = [];
+    try {
+      const code = await runLadder({
+        scratch: dir.path,
+        say: (line) => said.push(line),
+        pause: async () => {},
+        write: () => {},
+        git: async () => '',
+        repository: async (name) => join(dir.path, name),
+        foedrum: async (_brewery, argv) => (argv[0] === failing.command ? 1 : 0),
+        live: async (life) => {
+          lives.push(life);
+          const exitCode = life === failing.life ? 1 : 0;
+          const output = exitCode === 0 ? '' : 'demo: batch 1-1 is Stuck: attempts_exhausted\n';
+          return { exitCode, output, stdout: output, stderr: '' } as ProcessOutcome;
+        },
+      });
+      return { code, said, lives };
+    } finally {
+      dir.remove();
+    }
+  };
+
+  it('stops at a life that failed, and says which and why', async () => {
+    const { code, said, lives } = await run({ life: 'plan' });
+    assert.equal(code, 1);
+    assert.deepStrictEqual(lives, ['plan']);
+    assert.ok(
+      said.includes(
+        "demo: the Cellar's plan life ended with exit code 1:\ndemo: batch 1-1 is Stuck: attempts_exhausted",
+      ),
+      said.join('\n'),
+    );
+  });
+
+  it('stops at a foedrum command that failed, and says which', async () => {
+    const { code, said, lives } = await run({ command: 'approve' });
+    assert.equal(code, 1);
+    assert.deepStrictEqual(lives, ['plan']);
+    assert.ok(said.includes('demo: foedrum approve 1-1 failed (exit code 1)'), said.join('\n'));
   });
 });
