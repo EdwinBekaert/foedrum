@@ -102,13 +102,17 @@ describe('the test files that cover a mutated line', () => {
   });
 });
 
+// A name as the reason quotes it: as JSON, with a line separator escaped too.
+const quoted = (text: string): string =>
+  JSON.stringify(text).replaceAll(String.fromCodePoint(0x2028), String.raw`\u2028`);
+
 describe('a test file name the covered list cannot carry', () => {
   for (const name of [
     'test/unit/a b.test.ts',
     'test/unit/a\nb.test.ts',
     `test/unit/a${String.fromCodePoint(0x2028)}b.test.ts`,
   ]) {
-    it(`falls back to the direct and wide rounds for ${JSON.stringify(name)}`, () => {
+    it(`falls back to the direct and wide rounds for ${quoted(name)}`, () => {
       const plan = coveringTests({
         tests: [name, 'test/unit/decide.test.ts'],
         records: records([['test/unit/decide.test.ts', foldRanges(false)]]),
@@ -117,7 +121,7 @@ describe('a test file name the covered list cannot carry', () => {
       });
       assert.deepEqual(plan, {
         kind: 'fallback',
-        reason: `the test file name ${JSON.stringify(name)} cannot be listed on one line`,
+        reason: `the test file name ${quoted(name)} cannot be listed on one line`,
       });
     });
   }

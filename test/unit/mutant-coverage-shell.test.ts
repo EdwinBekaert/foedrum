@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -34,10 +34,11 @@ describe('the covering test files of mutated lines, from V8 coverage files', () 
   };
 
   // A coverage file as a test file's child writes it: the test file, the preload and a.ts.
-  const record = (name: string, test: string): void => {
+  // `root` is the tree's path as the child's loader names it.
+  const record = (name: string, test: string, root = tree): void => {
     const script = (path: string, ranges: Range[]) => ({
       scriptId: String(Math.random()),
-      url: pathToFileURL(join(tree, path)).href,
+      url: pathToFileURL(join(root, path)).href,
       functions: [{ functionName: '', ranges, isBlockCoverage: true }],
     });
     const result = [
@@ -89,9 +90,35 @@ describe('the covering test files of mutated lines, from V8 coverage files', () 
     writeFileSync(join(coverage, 'coverage-2-1-0.json'), '{"result": [');
     assert.deepEqual(await main([tree, coverage, 'src/a.ts:2']), {
       exitCode: 0,
-      stdout: ['fallback: cannot read coverage-2-1-0.json: not V8 coverage'],
+      stdout: ['fallback: cannot read "coverage-2-1-0.json": not V8 coverage'],
       stderr: [],
     });
+  });
+
+  it('a coverage entry it cannot open falls back to the direct and wide rounds', async () => {
+    record('coverage-1-1-0.json', 'test/unit/c.test.ts');
+    mkdirSync(join(coverage, 'coverage-2-1-0.json'));
+    const result = await main([tree, coverage, 'src/a.ts:2']);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout.length, 1);
+    assert.match(result.stdout[0] ?? '', /^fallback: cannot read "coverage-2-1-0\.json": /);
+  });
+
+  it('a coverage file name with a line separator stays on the fallback line', async () => {
+    const separator = String.fromCodePoint(0x2028);
+    writeFileSync(join(coverage, `x${separator}covered src.json`), 'not json');
+    assert.deepEqual((await main([tree, coverage, 'src/a.ts:2'])).stdout, [
+      String.raw`fallback: cannot read "x\u2028covered src.json": not V8 coverage`,
+    ]);
+  });
+
+  it('reads coverage that names the tree by another path than its real one', async () => {
+    const link = join(dir.path, 'link');
+    symlinkSync(tree, link, 'junction');
+    record('coverage-1-1-0.json', 'test/unit/c.test.ts', link);
+    assert.deepEqual((await main([link, coverage, 'src/a.ts:2'])).stdout, [
+      'covered src/a.ts:2: test/unit/b.test.ts test/unit/c.test.ts',
+    ]);
   });
 
   it('a test file two coverage records name is run as covering every line', async () => {
