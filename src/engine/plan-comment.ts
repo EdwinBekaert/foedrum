@@ -323,13 +323,11 @@ const planDue = (
   const { next, latest: own } = revisions.latest(state, batchId);
   const previous = own ?? orderRevision(state, batch, issue);
   const { stepId, attempt, plan } = latest;
+  const ref = { batchId, stepId, attempt };
   const fullPlan =
     stateBranchUrl === undefined
       ? undefined
-      : {
-          place: outDocPlace({ batchId, stepId, attempt }),
-          url: outDocLink(stateBranchUrl, { batchId, stepId, attempt }, true),
-        };
+      : { place: outDocPlace(ref), url: outDocLink(stateBranchUrl, ref, true) };
   const { lane, approval } = batch;
   const review = lane.kind === 'stuck' && lane.reason.kind === 'plan_review';
   // An approved batch is on tap, which nothing leaves: its latest plan is the one approved.
