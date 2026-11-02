@@ -73,6 +73,7 @@ describe('renderPlan (ADR 0233)', () => {
   const next =
     'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.';
   const outDoc = 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan-2.md';
+  const fullPlan = { place: '7-1/plan-2.md', url: outDoc };
 
   it('shows a table of the sub-orders, a graph of their order and a section of each', () => {
     assert.equal(
@@ -151,10 +152,10 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it("opens with the link to the plan's out doc (#658)", () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.ok(
       text.startsWith(
-        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n**Sub-orders**\n`,
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n**Sub-orders**\n`,
       ),
       text,
     );
@@ -196,13 +197,13 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('ends with no next step when the plan does not wait for its review (#658)', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, outDoc);
+    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.doesNotMatch(text, /Next:|foedrum retry/);
     assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
   });
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
-    const text = renderPlan('7-1', 'plan', three, undefined, outDoc, true);
+    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, true);
     assert.ok(text.includes('\n\n**Gate**\n\nWaiting for `foedrum approve 7-1`.\n\n'), text);
   });
 
@@ -215,7 +216,7 @@ describe('renderPlan (ADR 0233)', () => {
       via: 'plugin',
       at: '2026-10-28T10:30:00.000Z',
     } as const;
-    const text = renderPlan('7-1', 'plan', three, undefined, outDoc, false, approval);
+    const text = renderPlan('7-1', 'plan', three, undefined, fullPlan, false, approval);
     assert.ok(
       text.endsWith(
         '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`.',
@@ -235,7 +236,7 @@ describe('renderPlan (ADR 0233)', () => {
       at: '2026-10-28T10:30:00.000Z',
     } as const;
     const four = { subOrders: [...three.subOrders, subOrder('docs', { ready: false })] };
-    const text = renderPlan('7-1', 'plan', four, undefined, outDoc, false, approval);
+    const text = renderPlan('7-1', 'plan', four, undefined, fullPlan, false, approval);
     assert.ok(
       text.endsWith(
         '**Gate**\n\nApproved by grace (plugin) at 2026-10-28T10:30:00.000Z.\n\nNot ready: `cli`, `docs`.',
@@ -262,7 +263,7 @@ describe('renderPlan (ADR 0233)', () => {
       'plan',
       three,
       undefined,
-      outDoc,
+      fullPlan,
       false,
       approval,
       undefined,
@@ -277,7 +278,7 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('ends with the next step (#658)', () => {
-    assert.ok(renderPlan('7-1', 'plan', three, undefined, outDoc, true).endsWith(`\n\n${next}`));
+    assert.ok(renderPlan('7-1', 'plan', three, undefined, fullPlan, true).endsWith(`\n\n${next}`));
   });
 
   it('shows a text with a quote, a hash, a line break, a mention and a backtick as itself, in the table and the graph', () => {
@@ -368,6 +369,19 @@ describe('renderPlan (ADR 0233)', () => {
     );
   });
 
+  it('the plan comment links the full plan by its place', () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, {
+      place: '7-1/plan-2.md',
+      url: 'https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan 2.md',
+    });
+    assert.ok(
+      text.startsWith(
+        '### Foedrum · plan of batch `7-1`\n\nFull plan: [7-1/plan-2.md](<https://github.com/alice/brewery/blob/foedrum/state/batches/7-1/plan%202.md>)\n\n',
+      ),
+      text.slice(0, 300),
+    );
+  });
+
   it('leaves no details open where it cuts: regression test (#658)', () => {
     const text = renderPlan('7-1', 'plan', longest());
     assert.match(text, /rest is cut/);
@@ -375,14 +389,18 @@ describe('renderPlan (ADR 0233)', () => {
   });
 
   it('keeps the link and the next step when the text is cut to length (#658)', () => {
-    const text = renderPlan('7-1', 'plan', longest(), undefined, outDoc, true);
+    const text = renderPlan('7-1', 'plan', longest(), undefined, fullPlan, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
-    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.ok(
+      text.startsWith(
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n`,
+      ),
+    );
     assert.match(text, /… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/);
   });
 
   it('counts the link in the length, for a text that fits only without it: regression test (#659)', () => {
-    const link = `\n\nFull plan: <${outDoc}>`;
+    const link = `\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)`;
     const sized = (n: number, extra: number): PlanReport => ({
       subOrders: Array.from({ length: n }, (_, i) =>
         subOrder(`s${i}`, { title: i === 0 ? 'y'.repeat(extra) : 'Build' }),
@@ -409,7 +427,7 @@ describe('renderPlan (ADR 0233)', () => {
     // Within the link's length of the limit: whole without it, too long with it.
     assert.ok(whole(plan));
     assert.ok(length(plan) + link.length > 60_000, `${length(plan)}`);
-    const text = renderPlan('7-1', 'plan', plan, undefined, outDoc);
+    const text = renderPlan('7-1', 'plan', plan, undefined, fullPlan);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.ok(text.includes(link), text.slice(0, 200));
   });
@@ -426,10 +444,14 @@ describe('renderPlan (ADR 0233)', () => {
         })),
       }),
     );
-    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, outDoc, true);
+    const text = renderPlan('7-1', 'plan', { subOrders: many }, undefined, fullPlan, true);
     assert.ok(text.length <= 60_000, `${text.length}`);
     assert.doesNotMatch(text, /\n#### /);
-    assert.ok(text.startsWith(`### Foedrum · plan of batch \`7-1\`\n\nFull plan: <${outDoc}>\n\n`));
+    assert.ok(
+      text.startsWith(
+        `### Foedrum · plan of batch \`7-1\`\n\nFull plan: [7-1/plan-2.md](<${outDoc}>)\n\n`,
+      ),
+    );
     assert.match(
       text,
       /\n\| `s\d{3}-x+`: y+ \| [^\n]+ \|\n\n… the rest is cut: GitHub keeps comments shorter\.\n\nNext: [^\n]+$/,
@@ -857,7 +879,8 @@ describe('planEffects (ADR 0233)', () => {
     order();
     step('plan', planned(three));
     await driver.applyEffects();
-    const link = (path: string) => `\n\nFull plan: <${stateBranchUrl}/batches/7-1/${path}>\n\n`;
+    const link = (path: string) =>
+      `\n\nFull plan: [7-1/${path}](<${stateBranchUrl}/batches/7-1/${path}>)\n\n`;
     assert.ok(only().body.includes(link('plan-1.md')), only().body);
     step('replan', planned(second));
     await driver.applyEffects();
@@ -889,7 +912,7 @@ describe('planEffects (ADR 0233)', () => {
     issue({ kind: 'record', event: { type: 'step.started', ...retried } });
     issue({ kind: 'finish', ...retried, ending: planned(three) });
     await driver.applyEffects();
-    const link = `\n\nFull plan: <${stateBranchUrl}/batches/7-1/plan-2.md>\n\n`;
+    const link = `\n\nFull plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)\n\n`;
     assert.ok(only().body.includes(link), only().body);
   });
 });

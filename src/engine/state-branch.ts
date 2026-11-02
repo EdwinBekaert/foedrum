@@ -94,8 +94,11 @@ export const logPathOf = (event: Event): string => {
   return batchId === undefined ? TOP_LEVEL_LOG : batchLog(batchId);
 };
 
-/** Where the out doc of an attempt goes: next to its batch's `events.jsonl`. */
-export const outDocPath = ({
+/**
+ * The out doc of an attempt within `batches/`, as `7-1/plan-2.md`: a batch id and a step id, both
+ * path-safe, and the attempt.
+ */
+export const outDocPlace = ({
   batchId,
   stepId,
   attempt,
@@ -107,8 +110,12 @@ export const outDocPath = ({
   if (!Number.isSafeInteger(attempt) || attempt < 1) {
     throw new Error(`Invalid attempt ${attempt}: it must be a positive integer`);
   }
-  return `batches/${segment(batchId, 'batch id')}/${segment(stepId, 'step id')}-${attempt}.md`;
+  return `${segment(batchId, 'batch id')}/${segment(stepId, 'step id')}-${attempt}.md`;
 };
+
+/** Where the out doc of an attempt goes: next to its batch's `events.jsonl`. */
+export const outDocPath = (ref: { batchId: string; stepId: string; attempt: number }): string =>
+  `batches/${outDocPlace(ref)}`;
 
 /**
  * The out doc of an attempt on `stateBranchUrl`, the branch's address on the code host: as GitHub

@@ -21,6 +21,7 @@ import {
 } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
+  labelled,
   renderStatus,
   type StatusComments,
   statusEffects,
@@ -2541,7 +2542,7 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
     assert.deepEqual(section(text), [
       '**Assumptions**',
       '- `plan`: Kept the flag',
-      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md>`,
+      `- \`plan\`: full plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
       '- `brew`: Port 8080 is free',
     ]);
   });
@@ -2618,7 +2619,9 @@ describe("renderStatus and statusEffects: a link to the plan's out doc (#659)", 
       }
       const body = comments.comments[0]?.body ?? assert.fail('no status comment');
       assert.ok(
-        section(body).includes(`- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-1.md>`),
+        section(body).includes(
+          `- \`plan\`: full plan: [7-1/plan-1.md](<${stateBranchUrl}/batches/7-1/plan-1.md>)`,
+        ),
         body,
       );
     } finally {
@@ -2689,7 +2692,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lines = text.split('\n');
     const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
-      `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: <${planComment}>`,
+      `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
       'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.',
       'Get it moving with `retry`, `cancel`.',
     ]);
@@ -2789,7 +2792,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.match(text, /^🔔 \*\*Stuck\*\*: the plan of `plan` #2 is ready for your review$/m);
     assert.equal(
       section(text).at(-1),
-      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md>`,
+      `- \`plan\`: full plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
     );
   });
 
@@ -2831,7 +2834,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
     assert.equal(
       section(text).at(-1),
-      `- \`plan\`: full plan: <${stateBranchUrl}/batches/7-1/plan-2.md>; plan comment: <${planComment}>`,
+      `- \`plan\`: full plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>); [plan comment](<${planComment}>)`,
     );
   });
 
@@ -2850,7 +2853,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       }),
     );
     assert.equal(stepOf(text, 'green'), '- ✅ `green`');
-    assert.match(stepOf(text, 'plan'), /out doc: </);
+    assert.match(stepOf(text, 'plan'), /out doc: \[/);
   });
 
   it('links no out doc of an action step, which writes none, as openPullRequest (#658)', () => {
@@ -2878,12 +2881,81 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     );
     assert.equal(
       stepOf(text, 'plan'),
-      `- ✅ \`plan\`: out doc: <${stateBranchUrl}/batches/7-1/plan-2.md>`,
+      `- ✅ \`plan\`: out doc: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)`,
     );
     assert.equal(stepOf(text, 'brew'), '- ❌ `brew`: attempt 3 failed: no');
     assert.equal(
       stepOf(text, 'taste'),
-      `- ✅ \`taste\`: out doc: <${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>`,
+      `- ✅ \`taste\`: out doc: [7-1/taste-1.md](<${stateBranchUrl}/batches/7-1/taste-1.md?plain=1>)`,
     );
+  });
+
+  it("a status comment links a step's out doc by its place on the state branch", () => {
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([step('plan', planned(1, ['Kept the flag.'])), step('fine', done(3))]),
+      }),
+    );
+    assert.equal(
+      stepOf(text, 'fine'),
+      `- ✅ \`fine\`: out doc: [7-1/fine-3.md](<${stateBranchUrl}/batches/7-1/fine-3.md?plain=1>)`,
+    );
+    assert.equal(
+      section(text).at(-1),
+      `- \`plan\`: full plan: [7-1/plan-1.md](<${stateBranchUrl}/batches/7-1/plan-1.md>); [plan comment](<${planComment}>)`,
+    );
+  });
+
+  it('the plan_review Stuck line links the plan comment by name', () => {
+    const text = rendered(
+      batch({ lane: review, steps: new Map([step('plan', planned(2, ['Kept the flag.']))]) }),
+    );
+    assert.ok(
+      text
+        .split('\n')
+        .includes(
+          `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
+        ),
+      text,
+    );
+  });
+
+  it('a labelled link keeps a parenthesis or a space in its URL inside the link', () => {
+    assert.equal(
+      labelled('7-1/plan-2.md', 'https://github.example/a b)/plan-2.md'),
+      '[7-1/plan-2.md](<https://github.example/a%20b)/plan-2.md>)',
+    );
+    assert.equal(
+      labelled('plan comment', 'https://github.example/x#a>b c'),
+      '[plan comment](<https://github.example/x#a%3Eb%20c>)',
+    );
+  });
+
+  it('escapes the text of a labelled link: regression test (#778)', () => {
+    assert.equal(
+      labelled('a]b *c* @d', 'https://github.example/x'),
+      '[a\\]b \\*c\\* &#64;d](<https://github.example/x>)',
+    );
+  });
+
+  it("keeps a pull request's link an autolink beside a labelled out doc: regression test (#778)", () => {
+    const text = rendered(
+      batch({
+        lane: { kind: 'conditioning', on: { kind: 'merge', pullRequest: pr }, remindAt: at },
+        steps: new Map([step('taste', done(1))]),
+      }),
+    );
+    assert.ok(text.includes(`the merge of <${pr}>`), text);
+  });
+
+  it('escapes what a brewer wrote next to a labelled link: regression test (#778)', () => {
+    const text = rendered(
+      batch({
+        lane: review,
+        steps: new Map([step('plan', planned(1, ['Use [x](<y>) *now* @alice.']))]),
+      }),
+    );
+    assert.equal(section(text)[1], '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* &#64;alice.');
   });
 });

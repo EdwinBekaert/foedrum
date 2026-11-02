@@ -49,7 +49,7 @@ import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
-import { outDocLink } from './state-branch.ts';
+import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { usageWindowsText } from './usage-window.ts';
 
@@ -195,6 +195,12 @@ const reasonClause = (reason: string): string => {
  */
 export const link = (url: string): string => `<${new URL(url).href}>`;
 
+/**
+ * A URL behind Foedrum's own `text`, as an out doc's place on the state branch: the URL in angle
+ * brackets inside the parentheses, so a `)` or a space in it cannot end the link early.
+ */
+export const labelled = (text: string, url: string): string => `[${plain(text)}](${link(url)})`;
+
 const waitText = (on: WaitCondition): string => {
   switch (on.kind) {
     case 'merge':
@@ -253,7 +259,7 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: 
       return `${code(reason.stepId)}: ${link(reason.pullRequest)} failed its checks on ${code(reason.head)} ${after}: ${[...checks, ...more].join(', ')}`;
     }
     case 'plan_review': {
-      const at = planComment === undefined ? '' : `: ${link(planComment)}`;
+      const at = planComment === undefined ? '' : `: ${labelled('plan comment', planComment)}`;
       return `the plan of ${code(reason.stepId)} #${reason.attempt} is ready for your review${at}`;
     }
     // Who stopped it and why are a person's words, shown as plain text (ADR 0205).
@@ -632,17 +638,18 @@ const stuckStep = ({ lane }: Batch): string | undefined =>
  * The out doc of the attempt `attempt` of `stepId` on `stateBranchUrl`: a plan's as GitHub renders
  * it, since its body reads (ADR 0275), any other's as written.
  */
-const outDocUrl = (
+const outDocLabelled = (
   batch: Batch,
   stepId: string,
   done: { attempt: number; output: unknown },
   stateBranchUrl: string,
-): string =>
-  outDocLink(
-    stateBranchUrl,
-    { batchId: batch.id, stepId, attempt: done.attempt },
-    planOf(done.output) !== undefined,
+): string => {
+  const ref = { batchId: batch.id, stepId, attempt: done.attempt };
+  return labelled(
+    outDocPlace(ref),
+    outDocLink(stateBranchUrl, ref, planOf(done.output) !== undefined),
   );
+};
 
 const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: string): string => {
   const id = code(stepId);
@@ -667,7 +674,7 @@ const stepLine = (batch: Batch, stepId: string, told: Told, stateBranchUrl?: str
     case 'succeeded':
       return stateBranchUrl === undefined || !OutDocAssumptions.safeParse(outcome.output).success
         ? `- ✅ ${id}`
-        : `- ✅ ${id}: out doc: ${link(outDocUrl(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl))}`;
+        : `- ✅ ${id}: out doc: ${outDocLabelled(batch, stepId, { attempt: n, output: outcome.output }, stateBranchUrl)}`;
     case 'failed':
       return `- ❌ ${id}: attempt ${n} failed: ${told(plainReason(outcome.reason), stepId)}`;
     case 'needs_input': {
@@ -823,9 +830,9 @@ const fullPlanLine = (
   if (stateBranchUrl === undefined) return [];
   const done = latestSucceeded(batch, stepId);
   if (done === undefined || planOf(done.output) === undefined) return [];
-  const shown = planComment === undefined ? '' : `; plan comment: ${link(planComment)}`;
+  const shown = planComment === undefined ? '' : `; ${labelled('plan comment', planComment)}`;
   return [
-    `- ${code(stepId)}: full plan: ${link(outDocUrl(batch, stepId, done, stateBranchUrl))}${shown}`,
+    `- ${code(stepId)}: full plan: ${outDocLabelled(batch, stepId, done, stateBranchUrl)}${shown}`,
   ];
 };
 
