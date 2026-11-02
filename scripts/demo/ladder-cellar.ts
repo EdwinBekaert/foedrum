@@ -111,7 +111,7 @@ const shell: ServeShell = {
         const told = releaseLines(prompt);
         if (told.length === 0) return;
         out(`${TOLD_LINE} batch ${ref.batchId} is told the release it waited for, as {release}:`);
-        for (const line of told) out(`  ${line}`);
+        for (const line of told) out(line === '' ? '' : `  ${line}`);
       },
     }),
   gh: host.exec,
