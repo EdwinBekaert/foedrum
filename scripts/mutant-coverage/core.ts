@@ -101,11 +101,14 @@ export const quoted = (text: string): string =>
 
 const LISTABLE = /^[\w./@+-]+$/;
 
+// Whether a path can go on a covered line, whose names a space separates.
+export const listable = (path: string): boolean => LISTABLE.test(path);
+
 export const coveringTests = ({ tests, records, sources, locations }: CoverageInput): Plan => {
   if (tests.length === 0) return { kind: 'fallback', reason: 'no test file imports the files' };
   // The covered line lists the test files with a space between them, so a name holding a space
   // or a line break could split one or forge a line.
-  const odd = tests.find((test) => !LISTABLE.test(test));
+  const odd = tests.find((test) => !listable(test));
   if (odd !== undefined) {
     const reason = `the test file name ${quoted(odd)} cannot be listed on one line`;
     return { kind: 'fallback', reason };

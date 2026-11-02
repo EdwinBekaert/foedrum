@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import {
   coveringTests,
   type Location,
+  listable,
   parseCoverage,
   quoted,
   type Range,
@@ -65,7 +66,13 @@ const readRecords = async (
     const byPath = new Map<string, Range[]>();
     for (const [url, ranges] of scripts) {
       if (!url.startsWith('file:')) continue;
-      const path = inTree(roots, fileURLToPath(url));
+      let file: string;
+      try {
+        file = fileURLToPath(url);
+      } catch {
+        return `cannot read ${quoted(name)}: not V8 coverage`;
+      }
+      const path = inTree(roots, file);
       if (path !== undefined) byPath.set(path, ranges);
     }
     for (const test of [...byPath.keys()].filter((path) => tests.has(path))) {
@@ -102,7 +109,11 @@ export const main = async (argv: readonly string[]): Promise<MainResult> => {
     const line = Number(text.slice(at + 1));
     const count = sources.get(file)?.split('\n').length ?? 0;
     if (at < 0 || !Number.isInteger(line) || line < 1 || line > count) {
-      const why = `mutant-coverage: ${text} is not a line of a source file of the tree`;
+      const why = `mutant-coverage: ${quoted(text)} is not a line of a source file of the tree`;
+      return { exitCode: 1, stdout: [], stderr: [why] };
+    }
+    if (!listable(file)) {
+      const why = `mutant-coverage: ${quoted(text)} names a file the list cannot carry`;
       return { exitCode: 1, stdout: [], stderr: [why] };
     }
     locations.push({ file, line });
