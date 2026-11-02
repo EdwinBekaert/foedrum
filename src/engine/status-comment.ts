@@ -2,7 +2,6 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { failingText } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
   CoverageListing,
@@ -360,9 +359,22 @@ const shortCheckOf = (reading: GravityReading): string => {
   return reading.setup === true ? `the setup "${command}"` : `the check "${command}"`;
 };
 
+type FailingTests = Extract<GravityReading, { result: 'exited' }>['failing'];
+
 /**
- * A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140), with the
- * failing tests its reports named (#779).
+ * The failing tests a reading's line names, their count first, so a line cut at `longest` still
+ * says how many failed: `5 tests failing: a, b, …` (ADR 0304).
+ */
+const failingCount = ({ tests, more }: NonNullable<FailingTests>): string => {
+  const count = tests.length + more;
+  const names = `${tests.join(', ')}${more === 0 ? '' : ', …'}`;
+  return `${count} ${count === 1 ? 'test' : 'tests'} failing: ${names}`;
+};
+
+/**
+ * A reading that did not pass, as its line in a comment says it: a named check by its name alone,
+ * unlike a check step's reason (`checkOf`, ADR 0069, ADR 0140), then how it ended and the failing
+ * tests its reports named (ADR 0304).
  */
 export const readingText = (reading: GravityReading): string => {
   const what = shortCheckOf(reading);
@@ -371,7 +383,7 @@ export const readingText = (reading: GravityReading): string => {
       return `${what} was skipped`;
     case 'exited': {
       const failed = `${what} failed with exit code ${reading.exitCode}`;
-      return reading.failing === undefined ? failed : `${failed}: ${failingText(reading.failing)}`;
+      return reading.failing === undefined ? failed : `${failed}, ${failingCount(reading.failing)}`;
     }
     case 'signaled':
       return `${what} was ended by ${reading.signal}`;
