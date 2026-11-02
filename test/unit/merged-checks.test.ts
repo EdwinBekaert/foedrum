@@ -424,7 +424,7 @@ describe('createMergedChecks', () => {
     state.tip = tip2;
     await pass();
     assert.deepStrictEqual(baseCheckLines(log.state(), batch('web-8')), [
-      `- <${web2}> fails on the merged tree with \`main\` at \`dddddddd\`: the check "typecheck" (npm run typecheck) failed with exit code 2`,
+      `- <${web2}> fails on the merged tree with \`main\` at \`dddddddd\`: the check "typecheck" failed with exit code 2`,
     ]);
     assert.deepStrictEqual(
       batch('web-8').baseChecks?.map(({ tip }) => tip),
