@@ -11,6 +11,8 @@
 // It walks through it in steps (scripts/demo/walkthrough.ts), each with what to look for, and
 // waits for Enter between them on a terminal; `--no-pause` goes straight through. `--in <folder>`
 // runs it in another folder inside .foedrum/tmp, as the integration test does.
+// `npm run demo -- ladder` runs the ladder instead (scripts/demo/ladder.ts, ADR 0294): an order
+// across two repositories, from its plan to its close.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -40,6 +42,8 @@ import {
   TARGET,
   USER,
 } from './demo/core.ts';
+import { runLadder } from './demo/ladder.ts';
+import { LIB, WEB } from './demo/ladder-brewers.ts';
 import {
   BATCH,
   commentMarkdown,
@@ -67,9 +71,15 @@ const indented = (lines: readonly string[]): void => {
   for (const line of lines) say(line === '' ? '' : `  ${line}`);
 };
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   options: { in: { type: 'string' }, 'no-pause': { type: 'boolean' } },
+  allowPositionals: true,
 });
+const ladder = positionals[0] === 'ladder';
+if (positionals.length > (ladder ? 1 : 0)) {
+  process.stderr.write('usage: npm run demo -- [ladder] [--no-pause] [--in <folder>]\n');
+  process.exit(2);
+}
 let scratch: string;
 try {
   scratch = scratchFolder(root, values.in, process.cwd());
@@ -83,11 +93,12 @@ try {
 const ownGit = gitEnvOf(scratch);
 Object.assign(process.env, ownGit);
 
-const git = async (cwd: string, args: string[]): Promise<void> => {
+const git = async (cwd: string, args: string[]): Promise<string> => {
   const result = await runGit(cwd, args, { config: DEMO_GIT_CONFIG, env: ownGit });
   if (result.code !== 0) {
     throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${result.stderr.trim()}`);
   }
+  return result.stdout;
 };
 const write = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
@@ -143,17 +154,46 @@ const foedrum = async (
   brewery: string,
   argv: string[],
   shown = (output: string): string[] => output.trimEnd().split('\n'),
-): Promise<void> => {
+): Promise<number> => {
   const { exitCode, stdout, stderr } = await cliFromCheckout(argv, brewery, { user: () => USER });
   commands.push({ argv, exitCode, stderr });
   say(`$ foedrum ${argv.join(' ')}`);
   indented(shown(`${stdout}${stderr}`));
+  return exitCode;
 };
 
-say(`demo: a scratch Brewery ${BREWERY} and its target ${TARGET} in ${scratch}`);
+say(
+  ladder
+    ? `demo: the ladder, a scratch Brewery ${BREWERY} and its targets ${LIB} and ${WEB} in ${scratch}`
+    : `demo: a scratch Brewery ${BREWERY} and its target ${TARGET} in ${scratch}`,
+);
 // The last run's folder goes first: the demo always starts from nothing.
 await removeTree(scratch);
 mkdirSync(scratch, { recursive: true });
+
+if (ladder) {
+  const ladderCellar = join(root, 'scripts', 'demo', 'ladder-cellar.ts');
+  process.exitCode = await runLadder({
+    scratch,
+    say,
+    pause: async () => {
+      if (pausesBetweenSteps({ noPause, interactive, inputEnded })) await pause();
+    },
+    write,
+    git,
+    repository,
+    foedrum: (brewery, argv) => foedrum(brewery, argv),
+    live: (life) =>
+      execProcess(process.execPath, [ladderCellar, scratch, life], {
+        cwd: root,
+        env: process.env,
+        timeoutMs: LIFE_MS,
+      }),
+  });
+  // The rest is the default demo's: exit once the ladder's output is written.
+  await new Promise<void>((done) => process.stdout.write('', () => done()));
+  process.exit();
+}
 write(ownGit.GIT_CONFIG_GLOBAL, gitConfig(join(scratch, 'web.git')));
 const web = await repository('web', NIP_TARGET_FILES);
 const brewery = await repository('brewery', breweryFiles());
