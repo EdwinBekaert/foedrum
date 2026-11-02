@@ -5,6 +5,8 @@
 
 import { type Dir, existsSync, opendirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AttemptRef } from '../engine/attempt-key.ts';
+import type { Batch } from '../engine/fold.ts';
 import { matchesWithDots } from '../engine/path-globs.ts';
 import { messageOf } from '../platform/errors.ts';
 import { pathInside } from '../platform/paths.ts';
@@ -51,6 +53,23 @@ export type ReadTestMapAt = (
   commit: string,
   signal?: AbortSignal,
 ) => Promise<MapRead>;
+
+/**
+ * The commit a test-first batch's start refusal reads `repo`'s test map at, for attempt `ref`
+ * (ADR 0297): where `ref`'s own worktree started, so a retry after a refusal reads a map committed
+ * to the base since, else where the batch started there. Undefined when the refusal does not
+ * apply: the batch has not started there, or an attempt there succeeded, after which the red proof
+ * and the testsUnchanged guard name a missing map.
+ */
+export const refusalCommit = (batch: Batch, ref: AttemptRef, repo: string): string | undefined => {
+  const start = batch.starts?.[repo.toLowerCase()];
+  if (start === undefined || start.succeeded) return undefined;
+  const attempt = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+  const own = attempt?.phase === 'scheduled' ? undefined : attempt?.worktree;
+  return own !== undefined && own.repo.toLowerCase() === repo.toLowerCase()
+    ? own.commit
+    : start.commit;
+};
 
 /** A map is a few modules' places: far less than this. */
 const MAX_MAP_BYTES = 1024 * 1024;

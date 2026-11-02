@@ -10,7 +10,7 @@ import type {
   Usage,
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
-import { gaugeOf, type OutDocFrontmatter, readOutDoc, tastingOf } from '../schemas/out-doc.ts';
+import { type OutDocFrontmatter, readOutDoc, tastingOf } from '../schemas/out-doc.ts';
 import { unreadableBody } from '../schemas/plan.ts';
 import type { ScanFinding } from '../schemas/store.ts';
 import type { z } from '../schemas/zod.ts';
@@ -31,12 +31,6 @@ export interface AttemptLimits {
    * needs a commit after it (ADR 0074).
    */
   commitsSince?: string;
-  /**
-   * For a Gauger a failed red proof of its step sent back, in that round: a `done` that names its
-   * tests needs no commit, since the tests it committed before may only have lacked their names
-   * (ADR 0258).
-   */
-  namesOnly?: true;
   /**
    * For a plan: a `done` out doc's body must hold its summary and assumptions, so the out doc the
    * comments link reads on GitHub (ADR 0275).
@@ -214,19 +208,15 @@ const failed = (retryable: boolean, reason: string): Ending => ({
 /**
  * A `done` of a brewer that produces commits, by what git said of its commits after `since`
  * (ADR 0074): without one its work never reached the task tree, so a human sees why, unless a
- * Finer says there was nothing to simplify (ADR 0166), or a Gauger its red proof sent back
- * (`namesOnly`) names its tests (ADR 0258).
+ * Finer says there was nothing to simplify (ADR 0166).
  */
 function doneWithCommits(
   seen: CommitsSeen = { kind: 'uncounted', reason: 'the runner did not count them' },
   since: string,
   output: OutDocFrontmatter,
-  namesOnly: boolean,
 ): Ending {
   const start = since.slice(0, 7);
   const unchanged = 'unchanged' in output && output.unchanged !== undefined;
-  // The tests it committed before may only have lacked their names, which the next red proof reads.
-  const renamed = namesOnly && gaugeOf(output) !== undefined;
   switch (seen.kind) {
     case 'counted':
       if (unchanged && seen.count > 0) {
@@ -235,7 +225,7 @@ function doneWithCommits(
           `the out doc says nothing was simplified, but the brewer made ${seen.count} commit${seen.count === 1 ? '' : 's'} since ${start}`,
         );
       }
-      if (unchanged || renamed || seen.count > 0) return { kind: 'succeeded', output };
+      if (unchanged || seen.count > 0) return { kind: 'succeeded', output };
       // Not retried: a brewer that found nothing to change would find it again.
       return {
         kind: 'blocked',
@@ -366,12 +356,7 @@ export function settleAttempt(facts: AttemptFacts, limits: AttemptLimits): Endin
           return failed(true, `the out doc ${outDoc.file} is invalid: ${unread}`);
       }
       if (limits.commitsSince === undefined) return { kind: 'succeeded', output: frontmatter };
-      return doneWithCommits(
-        facts.commits,
-        limits.commitsSince,
-        frontmatter,
-        limits.namesOnly === true,
-      );
+      return doneWithCommits(facts.commits, limits.commitsSince, frontmatter);
     case 'needs_input':
       return { kind: 'needs_input', questions: frontmatter.questions };
     case 'blocked':

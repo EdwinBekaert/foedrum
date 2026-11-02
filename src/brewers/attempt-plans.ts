@@ -11,15 +11,10 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
-import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
+import { attemptRecipeOf, type Batch, type State } from '../engine/fold.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
-import {
-  MAX_INPUT_BYTES,
-  type StepBrewer,
-  type StepBrewers,
-  type StepChecks,
-} from '../engine/recipe-files.ts';
+import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -85,8 +80,6 @@ export interface AttemptPlansOptions {
   state: () => State;
   /** The brewers of the recipes' steps (`loadRecipes`). */
   brewers: StepBrewers;
-  /** The red proofs of the recipes' check steps (`loadRecipes`): which step each proves (ADR 0258). */
-  checks?: Pick<StepChecks, 'proves'>;
   models: ModelsConfig;
   /** The toolchain rules of a repository (`foedrum.jsonc`, ADR 0023). */
   repoTools: (repo: string) => readonly string[];
@@ -735,16 +728,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const start = worktreeOf(batch, ref)?.worktree.commit;
       const lenses = found.together ?? (found.lens === undefined ? undefined : [found.lens]);
       const choices = found.choices?.map(({ name }) => name);
-      // A failed red proof of this step sent its round back: a retry starts as the attempt it
-      // retries (ADR 0258).
-      const step = batch?.steps.get(ref.stepId);
-      const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
-      const recipe = batch?.recipe?.name;
-      const sentBack =
-        route?.why === 'failed' &&
-        recipe !== undefined &&
-        options.checks?.proves(recipe, route.from) === ref.stepId;
-      return attemptLimits(found.brewer, start, found.blocking, lenses, choices, sentBack);
+      return attemptLimits(found.brewer, start, found.blocking, lenses, choices);
     },
     outDoc: outDocOf,
   };

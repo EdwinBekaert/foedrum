@@ -1,4 +1,4 @@
-// The testsUnchanged guard and the red proof read a step's commits in the clone the attempt
+// The testsUnchanged guard and the red proof read a step's commits and its test map in the clone the attempt
 // worktrees were added to, never by discovery in an attempt's worktree (#210): with real git, a
 // worktree whose .git file points at another repository, one whose branches say the proven step
 // committed no tests and the guarded attempt changed nothing, changes neither verdict.
@@ -9,7 +9,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createCheckRunner } from '../../src/checks/check-runner.ts';
-import { readDiff, readFilesAt, readTestFiles } from '../../src/checks/step-commits.ts';
+import { readFilesAt } from '../../src/checks/step-commits.ts';
 import { testMaps } from '../../src/checks/test-map.ts';
 import { guardTests } from '../../src/checks/tests-guard.ts';
 import { brewerBaseEnv } from '../../src/engine/brewer-env.ts';
@@ -120,18 +120,42 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
     await removeTree(dir.path);
   });
 
+  // The test map the proven step commits: its one module's run writes TAP to report.tap.
+  const map = {
+    derivedFrom: { globs: ['package.json'], paths: [] },
+    modules: [
+      {
+        name: 'app',
+        code: ['add.mjs'],
+        tests: { paths: ['add.test.mjs'] },
+        testReport: { format: 'tap', path: 'report.tap' },
+        coverage: 'none',
+      },
+    ],
+  };
+  /** The proven step's map, committed on top of its tests: the new tip of its branch. */
+  const mapGauge = (): string => {
+    const gauge = join(dir.path, 'gauge');
+    mkdirSync(join(gauge, '.foedrum'));
+    return commit(gauge, { '.foedrum/test-map.jsonc': JSON.stringify(map) }, 'Map the tests');
+  };
+  const mapAt = () =>
+    testMaps({ git: runGit, clone: () => user, keptIn: () => 'repo', brewery: () => undefined });
+
   it('the guard still stops an attempt that weakened an assertion', async () => {
-    const implement = addWorktree('implement', gaugeTip);
+    const mapped = mapGauge();
+    const implement = addWorktree('implement', mapped);
     const weakened = test.replace('assert.equal(add(1, 2), 3);', 'assert.ok(true);');
     commit(implement, { 'add.test.mjs': weakened }, 'Weaken the test');
     pointAtDecoy(implement);
-    const events = [...gauged, ...started('implement', implement, gaugeTip)];
+    const events = [...gauged, ...started('implement', implement, mapped)];
     const guarded = guardTests({
       runner: fakeBrewerRunner({ implement: [behave.succeed()] }),
       state: () => fold(events),
       protects: () => 'gauge',
       git: runGit,
       clone: () => user,
+      testMap: mapAt(),
       clock,
     });
     const ref = { batchId: '12-1', stepId: 'implement', attempt: 1 };
@@ -145,25 +169,7 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
   });
 
   it('the guard reads the test map the proven step committed, in the clone (ADR 0274)', async () => {
-    const gauge = join(dir.path, 'gauge');
-    mkdirSync(join(gauge, '.foedrum'));
-    const map = {
-      derivedFrom: { globs: ['package.json'], paths: [] },
-      modules: [
-        {
-          name: 'app',
-          code: ['add.mjs'],
-          tests: { paths: ['add.test.mjs'] },
-          testReport: { format: 'tap', path: 'report.tap' },
-          coverage: 'none',
-        },
-      ],
-    };
-    const mapped = commit(
-      gauge,
-      { '.foedrum/test-map.jsonc': JSON.stringify(map) },
-      'Map the tests',
-    );
+    const mapped = mapGauge();
     const implement = addWorktree('implement', mapped);
     // An import line, which only the map's rule keeps: ADR 0078's let it change.
     const edited = test.replace("from './add.mjs';", "from './sum.mjs';");
@@ -175,12 +181,7 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
       protects: () => 'gauge',
       git: runGit,
       clone: () => user,
-      testMap: testMaps({
-        git: runGit,
-        clone: () => user,
-        keptIn: () => 'repo',
-        brewery: () => undefined,
-      }),
+      testMap: mapAt(),
       clock,
     });
     const ref = { batchId: '12-1', stepId: 'implement', attempt: 1 };
@@ -194,9 +195,10 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
   });
 
   it("the red proof still finds the proven step's tests", async () => {
-    const red = addWorktree('red', gaugeTip);
+    const mapped = mapGauge();
+    const red = addWorktree('red', mapped);
     pointAtDecoy(red);
-    const events = [...gauged, ...started('red', red, gaugeTip)];
+    const events = [...gauged, ...started('red', red, mapped)];
     const checks: StepChecks = {
       find: (recipe, stepId) => (recipe === 'nip' && stepId === 'red' ? ['test'] : undefined),
       any: () => true,
@@ -211,9 +213,10 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
         typecheck: null,
         lint: null,
         format: null,
-        test: 'node --test --test-reporter=tap',
+        test: 'node --test --test-reporter=tap --test-reporter-destination=report.tap',
       }),
-      testReport: () => ({ format: 'tap' }),
+      testReport: () => undefined,
+      testMap: { at: mapAt() },
       exec: execProcess,
       git: runGit,
       clone: () => user,
@@ -223,38 +226,6 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
     const ref = { batchId: '12-1', stepId: 'red', attempt: 1 };
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
-  });
-});
-
-describe('the red proof reads a table its step added a row to at the tip, with real git (ADR 0262)', () => {
-  let dir: TempDir;
-  afterEach(async () => {
-    await removeTree(dir.path);
-  });
-
-  it('takes the file the row went into for a test file, and the data file beside it for none', async () => {
-    dir = makeTempDir('read-test-files');
-    const repo = join(dir.path, 'repo');
-    git(dir.path, ['init', '-q', '-b', 'main', repo]);
-    const table =
-      "test.each([\n  ['adds', 1, 2, 3],\n])('%s', (_, a, b, sum) => {\n  assert.equal(add(a, b), sum);\n});\n";
-    const before = commit(
-      repo,
-      { 'sum.test.mjs': table, 'event.json': '{\n  "type": "object"\n}\n' },
-      'A table of sums',
-    );
-    const rowAdded = table.replace(
-      "  ['adds', 1, 2, 3],\n",
-      "  ['adds', 1, 2, 3],\n  ['adds negatives', -1, -2, -3],\n",
-    );
-    const tip = commit(
-      repo,
-      { 'sum.test.mjs': rowAdded, 'event.json': '{\n  "type": "array"\n}\n' },
-      'Red: adds negatives',
-    );
-    const diff = await readDiff(runGit, repo, { from: before, to: tip });
-    assert.ok('files' in diff, JSON.stringify(diff));
-    assert.deepEqual([...(await readTestFiles(runGit, repo, tip, diff.files))], ['sum.test.mjs']);
   });
 });
 

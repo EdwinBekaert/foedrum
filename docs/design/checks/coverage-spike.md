@@ -16,10 +16,9 @@ Line-level coverage of the change, read from LCOV or Cobertura, should answer fo
 
 This spike tests that on real reports from Node's built-in coverage (TypeScript) and from coverlet (C#).
 
-### What name reading costs today
+### What name reading cost
 
-The red proof finds the step's tests by matching each reported name against the lines the step added (`judgeRed` and `declares` in `src/checks/red-proof.ts`).
-It does this through the forms of ADR 0176, the `EXPRESSION_END` list of ADR 0178 and 0182, and `DECLARATIONS` in `src/checks/tests-unchanged.ts`.
+At the time of this spike, the red proof found the step's tests by matching each reported name against the lines the step added (`judgeRed` and `declares` in `src/checks/red-proof.ts`), through the forms of ADR 0176, the `EXPRESSION_END` list of ADR 0178 and 0182, and `DECLARATIONS` in `src/checks/tests-unchanged.ts`; [ADR 0297](../../adr/0297-the-red-proof-reads-a-test-map-only-and-a-test-first-batch-with-none-is-stuck-before-its-first-step.md) removed them.
 The maintainer's first live brew (Brewery batch 12-2, #660, #661) showed what that costs:
 - A regenerated `schemas/event.json` added `"type": "array",`. The quoted `array` read as a declaration of two older tests named `array`, so the red proof refused the step for nine passing tests ([ADR 0262](../../adr/0262-a-string-literal-declares-a-test-only-in-a-file-that-declares-a-test-at-the-step-s-tip.md)).
 - The Gauger sent back to name its tests had nothing to commit and was blocked as a divergence ([ADR 0258](../../adr/0258-a-gauger-its-red-proof-sent-back-may-name-its-tests-without-a-commit.md)).
@@ -232,7 +231,7 @@ Like the test report's file, the folder would be removed before the run.
 - **What the red proof gives up:** attributing a skipped test and catching a stub that returns a value, unless test files are included in coverage (C#), or a skip anywhere fails the proof.
 - **Load errors.** Whether `LOAD_ERRORS` stays in either design, and whether a test project with no report counts as one. `FileLoadException` (seen once here), and `Could not load file or assembly` as a `FileNotFoundException`'s message, joined it in [ADR 0269](../../adr/0269-the-red-proof-refuses-net-s-assembly-and-type-load-failures.md), each matched as an exception's text.
 - **testsUnchanged.** Keep every line the red step added to a test file, or keep today's declaration and assertion filter on those lines.
-- **Configuration.** Whether a `coverageReport` sits beside `testReport`, LCOV by file and Cobertura by folder, and whether a test-first recipe without one is Stuck (`environment`), as `needsTestReport` makes it today without a test report.
+- **Configuration.** Whether a `coverageReport` sits beside `testReport`, LCOV by file and Cobertura by folder, and whether a test-first recipe without one is Stuck (`environment`), as `needsTestReport` made it then without a test report.
 - **Other platforms.** Whether separators, coverlet's second `<source>` and case in path matching behave on macOS and Linux as on Windows.
 - **Cost.** +18% on a Node run and 3–5 s per .NET test project, measured on a busy machine.
 - **Languages with weak coverage tools** (ColdFusion, #618): what a test-first recipe does there.

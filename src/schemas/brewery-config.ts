@@ -20,7 +20,7 @@ const Checks = z
   .strictObject({ build: check, typecheck: check, lint: check, format: check, test: check })
   .describe('The command behind each check recipes name, or null when the repository has none');
 
-/** Where the structured report of the test check is, for red proof (ADR 0017). */
+/** Where the structured report of the test check is, for a test map's freshness (ADR 0282). */
 const TestReport = z.discriminatedUnion('format', [
   z.strictObject({
     format: z.literal('tap'),
