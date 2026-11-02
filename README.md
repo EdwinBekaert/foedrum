@@ -70,9 +70,9 @@ From a terminal outside a Claude Code session, `foedrum brew <issue>` drives und
 
 ## How it fits together
 
-[![The brewing line: how one issue is brewed into a pull request, step by step](docs/images/foedrum-brewing-line.png)](docs/images/foedrum-brewing-line.png)
+[![The brewing line: how one issue is brewed into pull requests, step by step](docs/images/foedrum-brewing-line.png)](docs/images/foedrum-brewing-line.png)
 
-The full line as designed. Each recipe picks its own steps: Nip, the quick fix that works today, starts at the Gauger and is tasted through two lenses.
+The full line as designed. Each recipe picks its own steps: Nip, the quick fix that works today, starts at the Maltster's survey and is tasted through two lenses, correctness and acceptance.
 
 ## Documentation
 
