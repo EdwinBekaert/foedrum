@@ -1,7 +1,8 @@
 // The Nip fixture (#180, ADR 0121): a tiny target repository with one source file and one
 // `node --test` test, a Brewery that brews with Nip from `defaults/` (ADR 0098), the order that
-// routes to it, and the scripted Gauger, Cellarman, Finer and Taster that play it in serve's runner
-// seam: the Gauger commits a failing test, the Cellarman's first fix fails the check once, its
+// routes to it, and the scripted Maltster, Gauger, Cellarman, Finer and Taster that play it in
+// serve's runner seam: the Maltster commits the repository's test map (ADR 0298), the Gauger
+// commits a failing test, the Cellarman's first fix fails the check once, its
 // second one passes, the Finer finds nothing to simplify, and the Taster reports one advisory
 // finding. Each attempt commits in its own worktree and leaves its out doc there, as a brewer
 // would, so the red proof, the testsUnchanged guard, the checks and the route input (ADR 0128)
@@ -10,8 +11,10 @@
 
 import { join } from 'node:path';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
+import { TEST_MAP_PATH } from '../../src/checks/test-map.ts';
 import { attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import type { TestMap } from '../../src/schemas/test-map.ts';
 import type { Git, GitOptions } from '../../src/workspace/git.ts';
 import { behave, fakeBrewerRunner, outDoc } from './fake-brewer-runner.ts';
 
@@ -31,8 +34,16 @@ export const NIP_ORDER = {
   labels: ['recipe:nip'],
 };
 
-/** The target repository on main: one source file and its one test. */
+/** Where the test line writes its TAP report beside stdout's, which the test map names. */
+export const NIP_TEST_REPORT = 'greet.tap';
+
+/**
+ * The target repository on main: one source file and its one test, its manifest, and no test map;
+ * git ignores the report every test run writes, so no commit takes it.
+ */
 export const NIP_TARGET_FILES: Readonly<Record<string, string>> = {
+  'package.json': '{\n  "name": "web",\n  "private": true\n}\n',
+  '.gitignore': `${NIP_TEST_REPORT}\n`,
   'greet.mjs': "export function greet(name) {\n  return 'Hello, ' + name + '!';\n}\n",
   'greet.test.mjs': [
     "import assert from 'node:assert/strict';",
@@ -45,6 +56,25 @@ export const NIP_TARGET_FILES: Readonly<Record<string, string>> = {
     '',
   ].join('\n'),
 };
+
+/**
+ * The test map the Maltster commits (ADR 0274): derived from the one manifest, one module whose
+ * report is the test line's TAP file, and no coverage tool.
+ */
+export const NIP_TEST_MAP = {
+  derivedFrom: { globs: ['package.json'], paths: ['package.json'] },
+  modules: [
+    {
+      name: 'greet',
+      code: ['greet.mjs'],
+      tests: { paths: ['*.test.mjs'] },
+      testReport: { format: 'tap', path: NIP_TEST_REPORT },
+      coverage: 'none',
+    },
+  ],
+} satisfies TestMap;
+
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /** The test the Gauger adds, by the name the runner reports. */
 const NIP_TEST = 'greets a stranger when no name is given';
@@ -68,13 +98,21 @@ export interface Scripted {
 
 /**
  * What each attempt of a step commits, by step id and then in the order the runner starts that
- * step's attempts in a batch (ADR 0139): the Gauger's failing test,
+ * step's attempts in a batch (ADR 0139): the Maltster's test map, the Gauger's failing test,
  * the Cellarman's fix that forgets the `!` (the check reads it red), then the one that does not,
  * the Finer after each with nothing to simplify, and Nip's two Tasters side by side (ADR 0197): an
  * advisory finding through the correctness lens, and an approval through the acceptance lens,
  * which finds both items of the order's checklist built.
  */
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
+  survey: [
+    {
+      files: { [TEST_MAP_PATH]: json(NIP_TEST_MAP) },
+      message: 'Map the tests and reports of greet',
+      summary: `The test map has one module, greet: its TAP report is ${NIP_TEST_REPORT}, and it has no coverage tool.`,
+      doc: { map: 'new' },
+    },
+  ],
   gauge: [
     {
       files: {
@@ -149,10 +187,9 @@ export const scriptedOutDoc = ({ summary, tasting, fining, dispositions, doc }: 
   });
 
 /**
- * The repository's checks and test report: only `test`, which writes TAP to stdout, as the red
- * proof reads it (ADR 0017). Its test map is the Brewery's, which has none, so Nip's survey ends
- * without a session and the red proof reads the tests' names (ADR 0298); #750 brews it through a
- * real map.
+ * The repository's checks: only `test`, which writes TAP to stdout, where a failed check's reading
+ * shows it, and to the report file the test map names. No `testReport`: the repository keeps its
+ * test map, which the survey proposes and the red proof reads (ADR 0274, ADR 0298).
  */
 export const nipTargetConfig = () => ({
   checks: {
@@ -160,17 +197,13 @@ export const nipTargetConfig = () => ({
     typecheck: null,
     lint: null,
     format: null,
-    test: 'node --test --test-reporter=tap',
+    test: `node --test --test-reporter=tap --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination=${NIP_TEST_REPORT}`,
   },
-  testReport: { format: 'tap' },
-  testMap: 'brewery',
 });
-
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /**
  * The Brewery's files, by path relative to its checkout: no recipe or brewer of its own, so Nip,
- * the Gauger, the Cellarman, the Finer and the Taster come from `defaults/`. Their model alias is builder (ADR 0100).
+ * the Maltster, the Gauger, the Cellarman, the Finer and the Taster come from `defaults/`. Their model alias is builder (ADR 0100).
  */
 export const nipBreweryFiles = (options: {
   brewery: string;
@@ -202,7 +235,7 @@ export interface ScriptedNip extends BrewerRunner {
   readonly prompts: ReadonlyMap<string, string>;
 }
 
-/** The scripted Gauger, Cellarman, Finer and Taster of `NIP_SCRIPT` (or `script`), in serve's runner seam. */
+/** The scripted Maltster, Gauger, Cellarman, Finer and Taster of `NIP_SCRIPT` (or `script`), in serve's runner seam. */
 export const scriptedNip = (options: ScriptedNipOptions): ScriptedNip => {
   const { plan, git, config, write, script = NIP_SCRIPT } = options;
   const prompts = new Map<string, string>();
