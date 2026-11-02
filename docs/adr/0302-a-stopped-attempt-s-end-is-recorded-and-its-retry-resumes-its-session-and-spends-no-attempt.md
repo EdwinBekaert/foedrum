@@ -14,13 +14,15 @@ A pause's stop at `--by` already does both right ([ADR 0202](0202-pause-and-cont
 
 ### What a stop marks
 - **The stop is as before**: each brewing batch goes Stuck at once with reason `stopped`, its unfinished attempts are abandoned, and the driver stops their runs at its next tick. The Stuck line and its options do not change.
-- **The fold marks the attempts that Stuck abandons `stopped`** beside `abandoned`. An attempt an earlier Stuck abandoned keeps how it was abandoned, so a later stop of its batch does not mark it.
+- **The fold marks the attempts that Stuck abandons `stopped`** beside `abandoned`, for the count. An attempt an earlier Stuck abandoned keeps how it was abandoned, so a later stop of its batch does not mark it.
+- **The Stuck lane of a stop names the attempts it abandoned** (`stopped` on the lane), for the end. A Stuck reminder, which makes the batch Stuck again for the same reason, keeps them; any other lane drops them.
 
 ### What is recorded
 - **The runner's cancelled end of an attempt the stop abandoned is recorded**: a `step.finished` with the cancelled outcome, claude's init report, the receipt and the usage, and `stopped: true`. The attempt is finished and no longer abandoned.
 - **Recording it never moves the batch**: it stays Stuck on the stop, no route runs and no attempt is scheduled.
-- `decide`'s `finish` records an end as the stop's when it is cancelled, the batch is Stuck with reason `stopped`, and the attempt is its step's latest and was abandoned by that stop. The log says so, so no driver flag carries it, unlike `paused`: a pause can be lifted or replaced between the kill and the end, while a stopped batch stays Stuck until a person acts, and that person's `retry`, `rewind` or `recipe` replaces the attempt as its step's latest.
-- `admit` admits `stopped` on a `step.finished` only there (`stoppedEnd`), for every writer: on a batch that brews, on an attempt another Stuck abandoned, on one a later attempt replaced, or on an end that is not cancelled, it is refused.
+- `decide`'s `finish` records an end as the stop's when it is cancelled, the attempt is its step's latest, and the lane of the Stuck batch names it: the stop that holds the batch abandoned it. The log says so, so no driver flag carries it, unlike `paused`: a pause can be lifted or replaced between the kill and the end, while a stopped batch stays Stuck on that stop until a person acts.
+  A `skip`, a `rewind` or a `recipe` can leave the stopped attempt its step's latest while the batch brews again; its late end is then refused, also under a later stop, which did not abandon it.
+- `admit` admits `stopped` on a `step.finished` only there (`stoppedEnd`), for every writer: on a batch that brews, on an attempt another Stuck or an earlier stop abandoned, on one a later attempt replaced, or on an end that is not cancelled, it is refused.
 - Every other end of an abandoned attempt is refused as before: one another Stuck abandoned, and an end of a stopped attempt that is not cancelled (it finished as the kill came). That attempt stays abandoned.
 
 ### The count
@@ -36,7 +38,7 @@ A pause's stop at `--by` already does both right ([ADR 0202](0202-pause-and-cont
 ## Consequences
 - `stop` then `retry` continues the brewer's session where it was, and costs the step no attempt: the redo is only what the attempt had not committed or said before the kill.
 - One abandoned attempt now finishes: code that reads an abandoned attempt as never ending reads it as finished once its end comes, which the driver's `isOver` already counts as over.
-- `step.finished` gains one field, `stopped`, and the fold's attempts one mark; no new event, lane or driver rule.
+- `step.finished` gains one field, `stopped`, the fold's attempts one mark and the Stuck lane one list; no new event, lane or driver rule.
 - The status comment and `foedrum stuck` show the stop as before; `foedrum brewers` counts the stopped attempt's cancelled end as it counts a pause's.
 
 ## Alternatives considered
