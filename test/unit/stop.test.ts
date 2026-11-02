@@ -483,6 +483,27 @@ describe('stop (ADR 0205)', () => {
         assert.equal(reason()?.kind, 'stopped');
       });
 
+      it("records the stopped ends of both of a parallel group's running children", () => {
+        order(12, 'tasting');
+        start('b12');
+        accept({ kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 1, ending: succeeded });
+        start('b12', 'b');
+        start('b12', 'a');
+        stop();
+        for (const stepId of ['b', 'a']) {
+          const decision = issue({
+            kind: 'finish',
+            batchId: 'b12',
+            stepId,
+            attempt: 1,
+            ending: cancelled,
+          });
+          assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+          const attempt = batch('b12').steps.get(stepId)?.attempts.get(1);
+          assert.equal(attempt?.phase === 'finished' && attempt.stopped, true);
+        }
+      });
+
       it('refuses a second end of a stopped attempt', () => {
         order(12);
         startSession();
