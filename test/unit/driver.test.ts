@@ -1992,6 +1992,44 @@ describe('openDriver', () => {
       );
     });
 
+    it('records the end of an attempt a stop killed, and its retry resumes its session (ADR 0302)', async () => {
+      const { runner, started: ran } = handRunner(inSession(first));
+      const manager = fakeWorktrees();
+      order('b1');
+      const driver = await openResuming(manager, runner);
+      await driver.drive();
+      const stop = { kind: 'stop', order: { issue: 1 }, by: 'octocat', via: 'terminal' } as const;
+      assert.equal(intake.issue(stop, now).kind, 'accepted');
+      await driver.tick();
+      const finished = store
+        .eventsAfter(0)
+        .flatMap(({ event }) => (event.type === 'step.finished' ? [event] : []));
+      assert.deepStrictEqual(
+        finished.map(({ stepId, attempt, outcome, claude, stopped }) => ({
+          stepId,
+          attempt,
+          outcome,
+          claude,
+          stopped,
+        })),
+        [
+          {
+            stepId: 'plan',
+            attempt: 1,
+            outcome: { kind: 'cancelled' },
+            claude: { version: '2.1.301', model: 'claude-sonnet-5-5' },
+            stopped: true,
+          },
+        ],
+      );
+      assert.equal(driver.state().batches.get('b1')?.lane.kind, 'stuck');
+      const retry = { kind: 'retry', batchId: 'b1', by: 'octocat', via: 'terminal' } as const;
+      assert.equal(intake.issue(retry, now).kind, 'accepted');
+      await driver.drive();
+      assert.deepStrictEqual(ran, [plan('b1'), plan('b1', 2)]);
+      assert.equal(started().at(-1)?.session?.resumes, first);
+    });
+
     it('starts a resumed attempt only once the lease of the attempt before it is gone (ADR 0055)', async () => {
       const { runner, end, started: ran } = handRunner();
       const manager = fakeWorktrees();

@@ -225,8 +225,11 @@ describe('stop (ADR 0205)', () => {
           ...(where === 'worktree' ? { worktree } : { checkouts }),
         },
       });
-    const finish = (attempt: number, ending: Ending, more: { claude?: typeof claude } = {}) =>
-      issue({ kind: 'finish', batchId: 'b12', stepId: 'plan', attempt, ending, ...more });
+    const finish = (
+      attempt: number,
+      ending: Ending,
+      more: { claude?: typeof claude; paused?: true } = {},
+    ) => issue({ kind: 'finish', batchId: 'b12', stepId: 'plan', attempt, ending, ...more });
     const stop = () => accept({ kind: 'stop', order: { issue: 12 }, ...who });
     const retry = () => accept({ kind: 'retry', batchId: 'b12', ...who });
     const reason = () => {
@@ -447,6 +450,58 @@ describe('stop (ADR 0205)', () => {
     });
 
     describe('regression tests', () => {
+      it('records the stopped end after a Stuck reminder, which keeps what the stop abandoned', () => {
+        order(12);
+        startSession();
+        stop();
+        now = new Date(t0.getTime() + defaultReminderMs);
+        accept({ kind: 'remind', batchId: 'b12' });
+        const decision = finish(1, cancelled, { claude });
+        assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+        const attempt = batch('b12').steps.get('plan')?.attempts.get(1);
+        assert.equal(attempt?.phase === 'finished' && attempt.stopped, true);
+      });
+
+      it("records a paused run's stopped end as the stop's, without paused", () => {
+        order(12);
+        startSession();
+        stop();
+        assert.deepStrictEqual(finish(1, cancelled, { claude, paused: true }), {
+          kind: 'accepted',
+          events: [
+            {
+              type: 'step.finished',
+              batchId: 'b12',
+              stepId: 'plan',
+              attempt: 1,
+              outcome: cancelled,
+              claude,
+              stopped: true,
+            },
+          ],
+        });
+        assert.equal(reason()?.kind, 'stopped');
+      });
+
+      it('refuses a second end of a stopped attempt', () => {
+        order(12);
+        startSession();
+        stop();
+        finish(1, cancelled, { claude });
+        const decision = admit(log.state(), [
+          {
+            type: 'step.finished',
+            batchId: 'b12',
+            stepId: 'plan',
+            attempt: 1,
+            outcome: cancelled,
+            stopped: true,
+          },
+        ]);
+        assert.equal(decision.kind, 'refused');
+        if (decision.kind === 'refused') assert.match(decision.reason, /was already finished/);
+      });
+
       it('refuses an end of a stopped attempt that is not cancelled', () => {
         order(12);
         startSession();
