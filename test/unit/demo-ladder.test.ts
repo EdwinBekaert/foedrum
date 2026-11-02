@@ -321,6 +321,13 @@ describe('ladderLifeEnd', () => {
     },
     options: ['retry'],
   });
+  /** The planned batch Stuck with its plan ready for review (ADR 0275). */
+  const reviewing = {
+    type: 'batch.stuck',
+    batchId: PLANNED,
+    reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+    options: ['approve'],
+  };
   const applied = (batchId: string, effect: string): object => ({
     type: 'effect.applied',
     key: JSON.stringify([batchId, effect]),
@@ -334,7 +341,11 @@ describe('ladderLifeEnd', () => {
 
   it("ends the plan's life once the planned batch is Stuck", () => {
     assert.equal(of('plan', ordered(PLANNED)), 'brewing');
-    assert.equal(of('plan', ordered(PLANNED), stuck(PLANNED)), 'ended');
+    assert.equal(of('plan', ordered(PLANNED), reviewing), 'ended');
+  });
+
+  it("fails the plan's life when the planned batch is Stuck for anything but its review", () => {
+    assert.equal(of('plan', ordered(PLANNED), stuck(PLANNED)), 'failed');
   });
 
   it('fails a later life when the planned batch is Stuck', () => {
