@@ -711,6 +711,9 @@ export const Event = z.discriminatedUnion('type', [
     houseYeast: HouseYeastSelection.optional(),
     // Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202).
     paused: z.literal(true).optional(),
+    // The cancelled end of an attempt a person's stop abandoned, recorded while its batch stays
+    // Stuck: it counts against no retry, and a retry resumes its session (ADR 0302).
+    stopped: z.literal(true).optional(),
     // Ended as claude hit a usage limit: it counts against no retry, and its step runs again once
     // the usage window reopens (ADR 0206).
     usageLimited: z.literal(true).optional(),

@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { admit } from '../../src/engine/admit.ts';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
 import type { AttemptEnd, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import {
@@ -16,7 +17,9 @@ import { openDriver } from '../../src/engine/driver.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Batch } from '../../src/engine/fold.ts';
 import { pauseOf } from '../../src/engine/pauses.ts';
+import { resumeOf } from '../../src/engine/session-resume.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -194,14 +197,279 @@ describe('stop (ADR 0205)', () => {
     assert.equal(batch('b7').lane.kind, 'brewing');
   });
 
-  it('refuses the end of the attempt it stopped, so that end is not recorded', () => {
-    order(12);
-    start('b12');
-    accept({ kind: 'stop', order: { issue: 12 }, ...who });
-    refuse(
-      { kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 1, ending: { kind: 'cancelled' } },
-      /^batch b12 is stuck; finish needs it brewing$/,
-    );
+  describe("a stopped attempt's end (ADR 0302)", () => {
+    const claude = { version: '2.1.301', model: 'claude-sonnet-5-5' };
+    const sessionId = '0f8fad5b-d9cb-469f-a165-708677289501';
+    const worktree = {
+      repo: 'acme/app',
+      path: 'work/b12/plan/1',
+      branch: 'foedrum/b12/plan/1',
+      commit: 'c'.repeat(40),
+    };
+    const checkouts = [
+      { repo: 'acme/app', path: 'work/b12/plan/1/app', commit: 'a'.repeat(40) },
+      { repo: 'acme/web', path: 'work/b12/plan/1/web', commit: 'b'.repeat(40) },
+    ];
+    const cancelled = { kind: 'cancelled' } as const;
+    const failed = { kind: 'failed', retryable: true, reason: 'tests fail' } as const;
+    /** Starts plan#1 of b12 in session `sessionId`, in a worktree or a Brewery order's checkouts. */
+    const startSession = (where: 'worktree' | 'checkouts' = 'worktree') =>
+      accept({
+        kind: 'record',
+        event: {
+          type: 'step.started',
+          batchId: 'b12',
+          stepId: 'plan',
+          attempt: 1,
+          session: { id: sessionId, worktree: worktree.path },
+          ...(where === 'worktree' ? { worktree } : { checkouts }),
+        },
+      });
+    const finish = (attempt: number, ending: Ending, more: { claude?: typeof claude } = {}) =>
+      issue({ kind: 'finish', batchId: 'b12', stepId: 'plan', attempt, ending, ...more });
+    const stop = () => accept({ kind: 'stop', order: { issue: 12 }, ...who });
+    const retry = () => accept({ kind: 'retry', batchId: 'b12', ...who });
+    const reason = () => {
+      const { lane } = batch('b12');
+      return lane.kind === 'stuck' ? lane.reason : undefined;
+    };
+
+    it('the end of a stopped attempt is recorded and the batch stays Stuck', () => {
+      order(12);
+      startSession();
+      stop();
+      const decision = finish(1, cancelled, { claude });
+      assert.deepStrictEqual(decision, {
+        kind: 'accepted',
+        events: [
+          {
+            type: 'step.finished',
+            batchId: 'b12',
+            stepId: 'plan',
+            attempt: 1,
+            outcome: cancelled,
+            claude,
+            stopped: true,
+          },
+        ],
+      });
+      assert.equal(reason()?.kind, 'stopped');
+      const attempt = batch('b12').steps.get('plan')?.attempts.get(1);
+      assert.equal(attempt?.phase, 'finished');
+      assert.equal(attempt !== undefined && 'abandoned' in attempt, false);
+    });
+
+    it("a stop then a retry resumes the stopped attempt's session", () => {
+      order(12);
+      startSession();
+      stop();
+      finish(1, cancelled, { claude });
+      retry();
+      assert.deepStrictEqual(
+        resumeOf(batch('b12'), { batchId: 'b12', stepId: 'plan', attempt: 2 }),
+        {
+          kind: 'resume',
+          session: sessionId,
+          from: { batchId: 'b12', stepId: 'plan', attempt: 1 },
+          worktree,
+        },
+      );
+    });
+
+    it("a stopped attempt counts against none of the step's attempts", () => {
+      // pint allows one attempt: the stopped one leaves it to the retry.
+      order(12);
+      startSession();
+      stop();
+      finish(1, cancelled, { claude });
+      retry();
+      start('b12', 'plan', 2);
+      finish(2, failed);
+      assert.deepStrictEqual(reason(), {
+        kind: 'attempts_exhausted',
+        stepId: 'plan',
+        attempts: 1,
+        lastReason: 'tests fail',
+      });
+    });
+
+    it('with maxAttempts 2, a stop, a retry and one retryable failure still retries', () => {
+      order(12, 'lager');
+      startSession();
+      stop();
+      finish(1, cancelled, { claude });
+      retry();
+      start('b12', 'plan', 2);
+      const decision = finish(2, failed);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      assert.equal(batch('b12').lane.kind, 'brewing');
+      const third = batch('b12').steps.get('plan')?.attempts.get(3);
+      assert.equal(third?.phase === 'scheduled' && third.retry, true);
+    });
+
+    it("a stopped attempt whose end never came counts against none of the step's attempts", () => {
+      order(12);
+      start('b12');
+      stop();
+      retry();
+      start('b12', 'plan', 2);
+      finish(2, failed);
+      assert.deepStrictEqual(reason(), {
+        kind: 'attempts_exhausted',
+        stepId: 'plan',
+        attempts: 1,
+        lastReason: 'tests fail',
+      });
+    });
+
+    it('still counts an attempt another Stuck abandoned before a later stop', () => {
+      order(12, 'lager');
+      start('b12');
+      const stall = { lastProgressAt: t0, turnsWithoutProgress: 3 };
+      accept({ kind: 'stall', batchId: 'b12', stepId: 'plan', attempt: 1, ...stall });
+      retry();
+      start('b12', 'plan', 2);
+      stop();
+      retry();
+      start('b12', 'plan', 3);
+      finish(3, failed);
+      assert.deepStrictEqual(reason(), {
+        kind: 'attempts_exhausted',
+        stepId: 'plan',
+        attempts: 2,
+        lastReason: 'tests fail',
+      });
+    });
+
+    // The guard before append, as another writer's event meets it.
+    describe('admitted with stopped', () => {
+      const record = (outcome: StepOutcome, attempt = 1) =>
+        admit(log.state(), [
+          {
+            type: 'step.finished',
+            batchId: 'b12',
+            stepId: 'plan',
+            attempt,
+            outcome,
+            stopped: true,
+          },
+        ]);
+
+      it('is admitted for the cancelled end of the attempt a stop abandoned', () => {
+        order(12);
+        start('b12');
+        stop();
+        assert.equal(record(cancelled).kind, 'accepted');
+      });
+
+      it('is refused while the batch brews', () => {
+        order(12);
+        start('b12');
+        const decision = record(cancelled);
+        assert.equal(decision.kind, 'refused');
+        if (decision.kind === 'refused') {
+          assert.match(decision.reason, /was not abandoned by a stop/);
+        }
+      });
+
+      it('is refused for an end that is not cancelled', () => {
+        order(12);
+        start('b12');
+        stop();
+        const decision = record(failed);
+        assert.equal(decision.kind, 'refused');
+        if (decision.kind === 'refused') assert.match(decision.reason, /only a cancelled end/);
+      });
+
+      it('is refused when another Stuck abandoned the attempt', () => {
+        order(12);
+        start('b12');
+        accept({
+          kind: 'stall',
+          batchId: 'b12',
+          stepId: 'plan',
+          attempt: 1,
+          lastProgressAt: t0,
+          turnsWithoutProgress: 3,
+        });
+        const decision = record(cancelled);
+        assert.equal(decision.kind, 'refused');
+        if (decision.kind === 'refused') {
+          assert.match(decision.reason, /was not abandoned by a stop/);
+        }
+      });
+
+      it('is refused for a stopped attempt a later one replaced', () => {
+        order(12, 'lager');
+        start('b12');
+        stop();
+        retry();
+        start('b12', 'plan', 2);
+        stop();
+        const decision = record(cancelled, 1);
+        assert.equal(decision.kind, 'refused');
+        if (decision.kind === 'refused') {
+          assert.match(decision.reason, /is not the latest attempt of its step/);
+        }
+      });
+    });
+
+    it("a stopped Brewery order's plan attempt resumes in its recorded checkouts", () => {
+      order(12);
+      startSession('checkouts');
+      stop();
+      finish(1, cancelled, { claude });
+      retry();
+      assert.deepStrictEqual(
+        resumeOf(batch('b12'), { batchId: 'b12', stepId: 'plan', attempt: 2 }),
+        {
+          kind: 'resume',
+          session: sessionId,
+          from: { batchId: 'b12', stepId: 'plan', attempt: 1 },
+          checkouts,
+        },
+      );
+    });
+
+    describe('regression tests', () => {
+      it('refuses an end of a stopped attempt that is not cancelled', () => {
+        order(12);
+        startSession();
+        stop();
+        refuse(
+          { kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 1, ending: failed, claude },
+          /^batch b12 is stuck; finish needs it brewing$/,
+        );
+      });
+
+      it('a stop whose run never reports its end retries fresh', () => {
+        order(12);
+        startSession();
+        stop();
+        retry();
+        assert.deepStrictEqual(
+          resumeOf(batch('b12'), { batchId: 'b12', stepId: 'plan', attempt: 2 }),
+          { kind: 'fresh', why: 'plan#1 has no session claude started' },
+        );
+      });
+
+      it('refuses the end of an attempt any other Stuck abandoned', () => {
+        order(12);
+        startSession();
+        accept({
+          kind: 'stall',
+          batchId: 'b12',
+          stepId: 'plan',
+          attempt: 1,
+          lastProgressAt: t0,
+          turnsWithoutProgress: 3,
+        });
+        refuse(
+          { kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 1, ending: cancelled, claude },
+          /^batch b12 is stuck; finish needs it brewing$/,
+        );
+      });
+    });
   });
 
   describe('retry', () => {
@@ -223,23 +491,6 @@ describe('stop (ADR 0205)', () => {
         retry: true,
       });
       assert.equal(batch('b12').lane.kind, 'brewing');
-    });
-
-    it('counts the stopped attempt, so a later retryable failure uses up the step sooner', () => {
-      order(12, 'lager');
-      start('b12');
-      accept({ kind: 'stop', order: { issue: 12 }, ...who });
-      accept({ kind: 'retry', batchId: 'b12', ...who });
-      start('b12', 'plan', 2);
-      const failed = { kind: 'failed', retryable: true, reason: 'tests fail' } as const;
-      accept({ kind: 'finish', batchId: 'b12', stepId: 'plan', attempt: 2, ending: failed });
-      const { lane } = batch('b12');
-      assert.deepStrictEqual(lane.kind === 'stuck' && lane.reason, {
-        kind: 'attempts_exhausted',
-        stepId: 'plan',
-        attempts: 2,
-        lastReason: 'tests fail',
-      });
     });
 
     it("resumes a parallel group's children that had not ended", () => {

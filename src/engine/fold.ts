@@ -69,6 +69,8 @@ export type Attempt =
       /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
       chosen?: Chosen;
       abandoned?: true;
+      /** Abandoned by a person's stop (ADR 0302): it counts against no retry. */
+      stopped?: true;
     }
   | {
       phase: 'started';
@@ -90,6 +92,8 @@ export type Attempt =
       /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
       interactiveSince?: string;
       abandoned?: true;
+      /** Abandoned by a person's stop (ADR 0302): it counts against no retry. */
+      stopped?: true;
     }
   | {
       phase: 'finished';
@@ -122,6 +126,8 @@ export type Attempt =
       receipt?: Receipt;
       /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
       paused?: true;
+      /** Stopped by a person: it counts against no retry, and a retry resumes it (ADR 0302). */
+      stopped?: true;
       /** Ended as claude hit a usage limit: it counts against no retry (ADR 0206). */
       usageLimited?: true;
       /** A blocking Taster's findings, when it asked for changes (ADR 0221). */
