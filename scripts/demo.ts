@@ -42,7 +42,7 @@ import {
   TARGET,
   USER,
 } from './demo/core.ts';
-import { runLadder } from './demo/ladder.ts';
+import { demoPart, runLadder } from './demo/ladder.ts';
 import { LIB, WEB } from './demo/ladder-brewers.ts';
 import {
   BATCH,
@@ -75,8 +75,8 @@ const { values, positionals } = parseArgs({
   options: { in: { type: 'string' }, 'no-pause': { type: 'boolean' } },
   allowPositionals: true,
 });
-const ladder = positionals[0] === 'ladder';
-if (positionals.length > (ladder ? 1 : 0)) {
+const part = demoPart(positionals);
+if (part === undefined) {
   process.stderr.write('usage: npm run demo -- [ladder] [--no-pause] [--in <folder>]\n');
   process.exit(2);
 }
@@ -163,7 +163,7 @@ const foedrum = async (
 };
 
 say(
-  ladder
+  part === 'ladder'
     ? `demo: the ladder, a scratch Brewery ${BREWERY} and its targets ${LIB} and ${WEB} in ${scratch}`
     : `demo: a scratch Brewery ${BREWERY} and its target ${TARGET} in ${scratch}`,
 );
@@ -171,7 +171,7 @@ say(
 await removeTree(scratch);
 mkdirSync(scratch, { recursive: true });
 
-if (ladder) {
+if (part === 'ladder') {
   const ladderCellar = join(root, 'scripts', 'demo', 'ladder-cellar.ts');
   process.exitCode = await runLadder({
     scratch,

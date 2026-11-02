@@ -19,7 +19,7 @@ import { messageOf } from '../../src/platform/errors.ts';
 import { runGit } from '../../src/workspace/git.ts';
 import { codeHost, fileJournal } from './code-host.ts';
 import { DIAGNOSIS } from './core.ts';
-import { LADDER_HOST, type LadderLife, ladderLifeEnd, TOLD_LINE } from './ladder.ts';
+import { LADDER_HOST, type LadderLife, ladderLifeEnd, ladderTick, TOLD_LINE } from './ladder.ts';
 import { ladderBrewers, releaseLines } from './ladder-brewers.ts';
 import { STATUS_LINE } from './walkthrough.ts';
 
@@ -93,7 +93,7 @@ const shell: ServeShell = {
     seen = events.length;
     if (!quiet) await showStatus();
     const end = ladderLifeEnd(life, events);
-    if (end.kind === 'brewing' || (end.kind === 'ended' && !quiet)) return machine.wait(ms, signal);
+    if (ladderTick(end, quiet) === 'wait') return machine.wait(ms, signal);
     out(end.line);
     failed = end.kind === 'failed';
     ended.abort();

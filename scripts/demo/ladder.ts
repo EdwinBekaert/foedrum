@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { type Batch, fold } from '../../src/engine/fold.ts';
 import { PLAN_HEADING } from '../../src/engine/plan-comment.ts';
+import { messageOf } from '../../src/platform/errors.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { ProcessOutcome } from '../process-runner.ts';
 import { type CodeHost, type CodeHostSetup, codeHost, fileJournal } from './code-host.ts';
@@ -274,14 +275,17 @@ export const siblingSection = (body: string): string[] => {
 };
 
 /** What the Cellar does between ticks, given where its life stands and whether the last tick added no event. */
-export const ladderTick = (_end: LadderLifeEnd, _quiet: boolean): 'wait' | 'end' => {
-  throw new Error('not implemented');
-};
+export const ladderTick = (end: LadderLifeEnd, quiet: boolean): 'wait' | 'end' =>
+  end.kind === 'brewing' || (end.kind === 'ended' && !quiet) ? 'wait' : 'end';
 
 /** The part of the demo `npm run demo -- <positionals>` asks for, or undefined for any other. */
-export const demoPart = (_positionals: readonly string[]): 'default' | 'ladder' | undefined => {
-  throw new Error('not implemented');
+export const demoPart = (positionals: readonly string[]): 'default' | 'ladder' | undefined => {
+  if (positionals.length === 0) return 'default';
+  return positionals.length === 1 && positionals[0] === 'ladder' ? 'ladder' : undefined;
 };
+
+/** Ends the ladder's walk at a failed life or command, which the report names. */
+class Stopped extends Error {}
 
 /** What the shell gives the ladder: its output, its pauses, git, the CLI and the Cellar. */
 export interface LadderShell {
@@ -349,12 +353,15 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
   const live = async (life: LadderLife): Promise<ProcessOutcome> => {
     const outcome = await shell.live(life);
     lives.set(life, outcome);
+    if (outcome.exitCode !== 0) throw new Stopped();
     return outcome;
   };
   const failedCommands: string[] = [];
   const foedrum = async (argv: string[]): Promise<void> => {
     const code = await shell.foedrum(brewery, argv);
-    if (code !== 0) failedCommands.push(`foedrum ${argv.join(' ')} failed (exit code ${code})`);
+    if (code === 0) return;
+    failedCommands.push(`foedrum ${argv.join(' ')} failed (exit code ${code})`);
+    throw new Stopped();
   };
   const journal = fileJournal(join(scratch, 'code-host.jsonl'));
   const host = (): Promise<CodeHost> => codeHost(journal, LADDER_HOST);
@@ -362,6 +369,8 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     (await (await host()).fetch(`https://api.github.com/repos/${path}`)).json();
   const comments = async (issue: number) => (await host()).comments(BREWERY, issue);
   const pullOn = async (repo: string) => (await host()).pulls().find((pull) => pull.repo === repo);
+  const orderState = async (): Promise<string | undefined> =>
+    ((await read(`${BREWERY}/issues/${LADDER_ORDER.number}`)) as { state?: string }).state;
 
   write(join(scratch, 'gitconfig'), ladderGitConfig(scratch));
   const clones = {
@@ -396,147 +405,162 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     return at;
   };
 
-  await next();
-  say(
-    `demo: issue #${LADDER_ORDER.number} of ${BREWERY} by ${USER}, labelled ${LADDER_ORDER.labels.join(', ')}:`,
-  );
-  indented([`"${LADDER_ORDER.title}"`, LADDER_ORDER.body]);
-  say('demo: the Cellar starts and brews until the plan waits for its review');
-  indented(outputLines(await live('plan')));
-  for (const comment of await comments(LADDER_ORDER.number)) {
-    const what = comment.body.includes(PLAN_HEADING) ? 'plan comment' : 'status comment';
+  /** The fourteen steps; a failed life or command, or a git that fails, ends them early. */
+  const walk = async (): Promise<void> => {
+    await next();
     say(
-      `demo: ${what} on ${BREWERY}#${LADDER_ORDER.number}, its Markdown without the hidden revision marker:`,
+      `demo: issue #${LADDER_ORDER.number} of ${BREWERY} by ${USER}, labelled ${LADDER_ORDER.labels.join(', ')}:`,
     );
-    indented(commentMarkdown(comment.body).split('\n'));
-  }
+    indented([`"${LADDER_ORDER.title}"`, LADDER_ORDER.body]);
+    say('demo: the Cellar starts and brews until the plan waits for its review');
+    indented(outputLines(await live('plan')));
+    for (const comment of await comments(LADDER_ORDER.number)) {
+      const what = comment.body.includes(PLAN_HEADING) ? 'plan comment' : 'status comment';
+      say(
+        `demo: ${what} on ${BREWERY}#${LADDER_ORDER.number}, its Markdown without the hidden revision marker:`,
+      );
+      indented(commentMarkdown(comment.body).split('\n'));
+    }
 
-  await next();
-  await foedrum(['approve', PLANNED]);
+    await next();
+    await foedrum(['approve', PLANNED]);
 
-  await next();
-  say('demo: the Cellar starts again, and brews until the first pull request is on tap');
-  const lib = await live('lib');
-  const subIssues = (await read(`${BREWERY}/issues/${LADDER_ORDER.number}/sub_issues`)) as {
-    number: number;
-    title?: string;
-    labels: { name: string }[];
-  }[];
-  for (const issue of subIssues) {
-    const blockedBy = (await read(`${BREWERY}/issues/${issue.number}/dependencies/blocked_by`)) as {
+    await next();
+    say('demo: the Cellar starts again, and brews until the first pull request is on tap');
+    const lib = await live('lib');
+    const subIssues = (await read(`${BREWERY}/issues/${LADDER_ORDER.number}/sub_issues`)) as {
       number: number;
+      title?: string;
+      labels: { name: string }[];
     }[];
-    say(`demo: sub-issue #${issue.number} of #${LADDER_ORDER.number}: "${issue.title ?? ''}"`);
-    indented([
-      `labels: ${issue.labels.map(({ name }) => name).join(', ')}`,
-      `blocked by: ${blockedBy.map(({ number }) => `#${number}`).join(', ') || 'none'}`,
-    ]);
-  }
+    for (const issue of subIssues) {
+      const blockedBy = (await read(
+        `${BREWERY}/issues/${issue.number}/dependencies/blocked_by`,
+      )) as {
+        number: number;
+      }[];
+      say(`demo: sub-issue #${issue.number} of #${LADDER_ORDER.number}: "${issue.title ?? ''}"`);
+      indented([
+        `labels: ${issue.labels.map(({ name }) => name).join(', ')}`,
+        `blocked by: ${blockedBy.map(({ number }) => `#${number}`).join(', ') || 'none'}`,
+      ]);
+    }
 
-  await next();
-  indented(outputLines(lib));
-  const first = await pullOn(LIB);
-  if (first !== undefined) {
+    await next();
+    indented(outputLines(lib));
+    const first = await pullOn(LIB);
+    if (first !== undefined) {
+      say(
+        `demo: pull request #${first.number} on ${first.repo}: "${first.title}", ${first.head} into ${first.base}`,
+      );
+    }
+
+    await next();
+    const mergedAt = await merge(LIB);
+    // The library's CI: the version in package.json, the tag on that commit, and a release.
+    const libClone = clones[LIB];
+    const manifest = JSON.parse(await git(libClone, ['show', 'HEAD:package.json'])) as Record<
+      string,
+      unknown
+    >;
+    write(join(libClone, 'package.json'), json({ ...manifest, version: RELEASED }));
+    await git(libClone, ['commit', '-q', '-am', `Release ${RELEASED}`]);
+    await git(libClone, ['tag', RELEASE_TAG]);
+    await git(libClone, ['push', '-q', 'origin', 'main', RELEASE_TAG]);
+    const commit = (await git(libClone, ['rev-parse', 'HEAD'])).trim();
+    const notes = 'greet takes a language: fr greets in French.';
+    (await host()).release(LIB, {
+      tag: RELEASE_TAG,
+      commit,
+      at: new Date(mergedAt.getTime() + 1000).toISOString(),
+      notes,
+    });
     say(
-      `demo: pull request #${first.number} on ${first.repo}: "${first.title}", ${first.head} into ${first.base}`,
+      `demo: ${LIB}'s CI commits package.json at ${RELEASED}, tags it ${RELEASE_TAG} on ${commit.slice(0, 7)}, and releases it: "${notes}"`,
     );
-  }
 
-  await next();
-  const mergedAt = await merge(LIB);
-  // The library's CI: the version in package.json, the tag on that commit, and a release.
-  const libClone = clones[LIB];
-  const manifest = JSON.parse(await git(libClone, ['show', 'HEAD:package.json'])) as Record<
-    string,
-    unknown
-  >;
-  write(join(libClone, 'package.json'), json({ ...manifest, version: RELEASED }));
-  await git(libClone, ['commit', '-q', '-am', `Release ${RELEASED}`]);
-  await git(libClone, ['tag', RELEASE_TAG]);
-  await git(libClone, ['push', '-q', 'origin', 'main', RELEASE_TAG]);
-  const commit = (await git(libClone, ['rev-parse', 'HEAD'])).trim();
-  const notes = 'greet takes a language: fr greets in French.';
-  (await host()).release(LIB, {
-    tag: RELEASE_TAG,
-    commit,
-    at: new Date(mergedAt.getTime() + 1000).toISOString(),
-    notes,
-  });
-  say(
-    `demo: ${LIB}'s CI commits package.json at ${RELEASED}, tags it ${RELEASE_TAG} on ${commit.slice(0, 7)}, and releases it: "${notes}"`,
-  );
+    await next();
+    say('demo: the Cellar starts again, and brews until the second pull request is on tap');
+    const web = outputLines(await live('web'));
+    const told = web.findIndex((line) => line.startsWith(TOLD_LINE));
+    const cut = told === -1 ? web.length : told;
+    indented(web.slice(0, cut));
 
-  await next();
-  say('demo: the Cellar starts again, and brews until the second pull request is on tap');
-  const web = outputLines(await live('web'));
-  const told = web.findIndex((line) => line.startsWith(TOLD_LINE));
-  const cut = told === -1 ? web.length : told;
-  indented(web.slice(0, cut));
+    await next();
+    indented(web.slice(cut));
 
-  await next();
-  indented(web.slice(cut));
+    await next();
+    const second = await pullOn(WEB);
+    const webClone = clones[WEB];
+    if (second !== undefined) {
+      await git(webClone, ['fetch', '-q', 'origin', second.head]);
+      say(`$ git diff main ${second.head} -- package.json`);
+      indented(
+        (await git(webClone, ['diff', 'main', 'FETCH_HEAD', '--', 'package.json']))
+          .trimEnd()
+          .split('\n'),
+      );
+    }
 
-  await next();
-  const second = await pullOn(WEB);
-  const webClone = clones[WEB];
-  if (second !== undefined) {
-    await git(webClone, ['fetch', '-q', 'origin', second.head]);
-    say(`$ git diff main ${second.head} -- package.json`);
-    indented(
-      (await git(webClone, ['diff', 'main', 'FETCH_HEAD', '--', 'package.json']))
-        .trimEnd()
-        .split('\n'),
+    await next();
+    if (second !== undefined) {
+      say(
+        `demo: pull request #${second.number} on ${second.repo}: "${second.title}", ${second.head} into ${second.base}`,
+      );
+    }
+
+    await next();
+    for (const pull of (await host()).pulls()) {
+      say(`demo: the body of ${pull.repo}#${pull.number} starts:`);
+      indented(siblingSection(pull.body));
+    }
+
+    await next();
+    await merge(WEB);
+
+    await next();
+    say("demo: the Cellar starts again, and brews until the order's issue is closed");
+    indented(outputLines(await live('close')));
+    const status = (await comments(LADDER_ORDER.number)).find(
+      ({ body }) => !body.includes(PLAN_HEADING) && !body.includes('Foedrum closes this order'),
     );
+    if (status !== undefined) {
+      say(
+        `demo: status comment on ${BREWERY}#${LADDER_ORDER.number}, its Markdown without the hidden revision marker:`,
+      );
+      indented(commentMarkdown(status.body).split('\n'));
+    }
+
+    await next();
+    say(`demo: ${BREWERY}#${LADDER_ORDER.number} is ${(await orderState()) ?? 'not found'}`);
+    for (const comment of await comments(LADDER_ORDER.number)) {
+      if (!comment.body.includes('Foedrum closes this order')) continue;
+      say(`demo: comment by ${comment.author} on ${BREWERY}#${LADDER_ORDER.number}:`);
+      indented(commentMarkdown(comment.body).split('\n'));
+    }
+
+    await next();
+    await foedrum(['status', String(LADDER_ORDER.number)]);
+  };
+
+  /** Why the walk ended early, beyond the failed lives and commands, or nothing. */
+  let ended: string | undefined;
+  try {
+    await walk();
+  } catch (error) {
+    if (!(error instanceof Stopped)) ended = `the ladder stopped: ${messageOf(error)}`;
   }
-
-  await next();
-  if (second !== undefined) {
-    say(
-      `demo: pull request #${second.number} on ${second.repo}: "${second.title}", ${second.head} into ${second.base}`,
-    );
-  }
-
-  await next();
-  for (const pull of (await host()).pulls()) {
-    say(`demo: the body of ${pull.repo}#${pull.number} starts:`);
-    indented(siblingSection(pull.body));
-  }
-
-  await next();
-  await merge(WEB);
-
-  await next();
-  say("demo: the Cellar starts again, and brews until the order's issue is closed");
-  indented(outputLines(await live('close')));
-  const status = (await comments(LADDER_ORDER.number)).find(
-    ({ body }) => !body.includes(PLAN_HEADING) && !body.includes('Foedrum closes this order'),
-  );
-  if (status !== undefined) {
-    say(
-      `demo: status comment on ${BREWERY}#${LADDER_ORDER.number}, its Markdown without the hidden revision marker:`,
-    );
-    indented(commentMarkdown(status.body).split('\n'));
-  }
-
-  await next();
-  const order = (await read(`${BREWERY}/issues/${LADDER_ORDER.number}`)) as { state?: string };
-  say(`demo: ${BREWERY}#${LADDER_ORDER.number} is ${order.state ?? 'not found'}`);
-  for (const comment of await comments(LADDER_ORDER.number)) {
-    if (!comment.body.includes('Foedrum closes this order')) continue;
-    say(`demo: comment by ${comment.author} on ${BREWERY}#${LADDER_ORDER.number}:`);
-    indented(commentMarkdown(comment.body).split('\n'));
-  }
-
-  await next();
-  await foedrum(['status', String(LADDER_ORDER.number)]);
 
   say('');
-  const problems = ladderProblems({
-    lives,
-    pulls: (await host()).pulls(),
-    orderState: order.state,
-    failedCommands,
-  });
+  const problems = [
+    ...ladderProblems({
+      lives,
+      pulls: (await host()).pulls(),
+      orderState: await orderState(),
+      failedCommands,
+    }),
+    ...(ended === undefined ? [] : [ended]),
+  ];
   for (const problem of problems) say(`demo: ${problem}`);
   if (problems.length === 0) {
     say(
