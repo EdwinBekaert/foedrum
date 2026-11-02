@@ -264,7 +264,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (found === undefined && asIssueOfPull !== undefined && method === 'GET' && what === '') {
       return json(200, {
         number: asIssueOfPull.number,
-        state: 'open',
+        state: asIssueOfPull.merged === undefined ? 'open' : 'closed',
         user: { login: asIssueOfPull.author },
         labels: [],
         title: asIssueOfPull.title,
@@ -359,15 +359,18 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
         head: { ref: found.head, sha: headOf(found.number), repo: { full_name: found.repo } },
       });
     }
+    // Only the open ones, as GitHub lists them unless asked for every state; a merged one is closed.
+    const open = ofRepo.filter((pull) => pull.merged === undefined);
     if (method === 'GET') {
       const head = url.searchParams.get('head')?.split(':').slice(1).join(':');
+      const listed = url.searchParams.get('state') === 'all' ? ofRepo : open;
       return json(
         200,
-        ofRepo.filter((pull) => head === undefined || pull.head === head).map(asPull),
+        listed.filter((pull) => head === undefined || pull.head === head).map(asPull),
       );
     }
     const fields = body as Omit<FakeApiPull, 'repo' | 'number' | 'author'>;
-    if (ofRepo.some((pull) => pull.head === fields.head)) {
+    if (open.some((pull) => pull.head === fields.head)) {
       return json(422, { message: 'A pull request already exists' });
     }
     const pull = { repo: repo.toLowerCase(), number: ++ids, author: login, ...fields };
