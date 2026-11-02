@@ -534,6 +534,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       found.chosenBy !== undefined,
       entry,
       release,
+      (id) => brewers.has(recipe, id),
     );
     const inputs: PromptInput[] = [];
     for (const input of planned) {

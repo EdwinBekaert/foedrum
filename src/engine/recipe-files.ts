@@ -1221,9 +1221,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     recipes: { find: (name) => recipes.get(name) },
     brewers: {
       find: (recipe, id) => stepBrewers.get(recipe)?.get(id),
-      has: () => {
-        throw new Error('not implemented');
-      },
+      has: (recipe, id) => recipes.get(recipe)?.has(id) ?? false,
     },
     checks: {
       find: (recipe, id) => stepChecks.get(recipe)?.get(id)?.checks,
