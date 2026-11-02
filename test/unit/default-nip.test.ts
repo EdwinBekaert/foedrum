@@ -652,13 +652,16 @@ describe('the default Cellarman', () => {
 describe('the default Gauger', () => {
   const gauger = () => valid(loadRecipes(noFiles)).brewers.find('nip', 'gauge');
 
-  it('says up front that stubs throw "not implemented" and that test names are the runner\'s', () => {
+  it('says up front that stubs throw "not implemented" and that the red proof reads the test map, not test names', () => {
     const found = gauger();
     assert.ok(found !== undefined, 'nip has no gauge step');
     // The first section: everything before the second heading.
     const [upFront = ''] = found.instructions.split(/\n(?=## )/).filter((part) => part.trim());
     assert.match(upFront, /throw[^\n]*not implemented/i);
-    assert.match(upFront, /names? the (?:test )?runner reports/i);
+    assert.match(
+      upFront,
+      /red proof reads the repository's test map[^\n]*never your tests' names/i,
+    );
   });
 
   it("holds the test-design lens's checklist in its prompt, as an input, not a copy", async () => {
