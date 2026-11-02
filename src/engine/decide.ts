@@ -666,7 +666,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
         }
       : ending;
   const stopped = !byStop && paused === true && stoppedByPause(draft, command);
-  const limited = byStop ? undefined : usageLimitOf(draft, command);
+  const limited = usageLimitOf(draft, command);
   draft.push({
     type: 'step.finished',
     batchId,
