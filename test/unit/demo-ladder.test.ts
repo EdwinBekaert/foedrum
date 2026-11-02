@@ -480,7 +480,7 @@ describe('ladderBrewers', () => {
     return { runner, log };
   };
 
-  it("commits the library's change in its worktree, and counts its commit (regression test)", async () => {
+  it("commits the library's change in its worktree (regression test)", async () => {
     const { runner, log } = brewers({ [join(cwd, 'package.json')]: libManifest });
     const end = await runner.start(startOf('implement', PullRequestOutDoc)).ended;
     assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
