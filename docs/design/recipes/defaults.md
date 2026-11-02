@@ -27,7 +27,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Maltster | Proposes a repository's test map from its manifests when it is missing or stale, in the test-first recipes' `survey` step, committing nothing else ([ADR 0298](../../adr/0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)); in `mash` the Brewmaster gathers its own context (ADR 0234) | builder (sonnet) | medium |
 | Brewmaster | Gathers the context and writes the plan: sub-orders with what each is done when, read-only | planner (opus) | high |
 | Gauger | Writes failing tests (and minimal stubs, no implementation) from the order and plan | builder (sonnet) | high |
-| Cellarman | Makes the Gauger's tests pass without changing them | builder (sonnet) | high |
+| Cellarman | Reads the Gauger's tests, then makes them pass without changing them; a sub-order's Cellarman also reads its plan entry ([ADR 0290](../../adr/0290-a-sub-order-s-brewers-read-its-plan-entry-from-the-parent-s-recorded-plan.md)) | builder (sonnet) | high |
 | Finer | Simplifies the change without changing what it does, and commits it ([fining](fining.md)) | builder (sonnet) | high |
 | Taster | Reviews a diff or a plan through its step's lens, or several together (read-only; [tasting](tasting.md)) | builder (sonnet) | medium |
 | Brett | Mutation check: proposes plausible bugs; the engine confirms which ones the tests miss (advisory by default) | sonnet | medium |
