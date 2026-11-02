@@ -52,7 +52,7 @@ export const STEPS: readonly Step[] = [
     id: 'brewing',
     title: 'foedrum status as the batch moves',
     lookFor:
-      'the batch goes from the order to brewing; gauge #1 commits a failing test before the kill.',
+      "the batch goes from the order to brewing: survey #1 is the Maltster's session, which commits the test map, survey-check #1 runs the tests against it, and gauge #1 commits a failing test before the kill.",
   },
   {
     id: 'restart',

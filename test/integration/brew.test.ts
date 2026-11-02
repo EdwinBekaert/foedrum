@@ -105,7 +105,11 @@ describe('foedrum brew', () => {
           plan,
           git,
           config: DEMO_GIT_CONFIG,
-          write: (path, text) => writeFileSync(path, text),
+          // The Maltster's map goes into a folder the worktree does not have yet.
+          write: (path, text) => {
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, text);
+          },
           script: DEMO_SCRIPT,
         }),
       gh: host.exec,

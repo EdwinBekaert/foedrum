@@ -14,8 +14,8 @@
 // runs `foedrum brew`'s own runBrew on the issue instead of the Cellar, on the same machine and
 // seams (ADR 0139), and with `mash` as `foedrum mash` runs it (ADR 0232).
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { runBrew } from '../../src/cli/brew.ts';
 import { cliFromCheckout } from '../../src/cli/cli-main.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
@@ -143,7 +143,11 @@ const shell: ServeShell = {
     demoBrewers({
       plan,
       git: runGit,
-      write: (path, text) => writeFileSync(path, text),
+      // The Maltster's map goes into a folder the worktree does not have yet.
+      write: (path, text) => {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, text);
+      },
       life,
       crash,
       // The attempt as status shows it; in the restart, once, the one it lost first. foedrum brew

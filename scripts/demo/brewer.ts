@@ -1,8 +1,8 @@
-// npm run demo's brewers (ADR 0097, ADR 0139): the Nip fixture's scripted Gauger, Cellarman and
-// Finer (test/helpers/nip-fixture.ts), a Taster for each lens step of the demo's parallel group, and
-// the third order's Innkeeper and Brewmaster (ADR 0232, ADR 0234), in serve's runner seam, as the E2E test runs them, so the Gauger's and the Cellarman's attempts
+// npm run demo's brewers (ADR 0097, ADR 0139): the Nip fixture's scripted Maltster, Gauger,
+// Cellarman and Finer (test/helpers/nip-fixture.ts), a Taster for each lens step of the demo's parallel group, and
+// the third order's Innkeeper and Brewmaster (ADR 0232, ADR 0234), in serve's runner seam, as the E2E test runs them, so the Maltster's, the Gauger's and the Cellarman's attempts
 // commit in their worktrees and no model is asked. In the life that crashes, the Cellar's process is
-// killed once the first attempt has committed, before that attempt ends.
+// killed once the Gauger's first attempt has committed, before that attempt ends.
 
 import { devNull } from 'node:os';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
@@ -18,7 +18,7 @@ export interface DemoBrewersOptions {
   git: Git;
   write: (path: string, text: string) => void;
   life: Life;
-  /** Kills the Cellar's process; called once the commit is made, in the life that crashes. */
+  /** Kills the Cellar's process; called once the Gauger's commit is made, in the life that crashes. */
   crash: () => void;
   /** Called once the attempt has started, before the brewer writes; the demo shows it there. */
   started?: (ref: AttemptStart['ref']) => Promise<void>;
@@ -167,6 +167,7 @@ const PLAN: Scripted = {
  * them again.
  */
 export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
+  survey: NIP_SCRIPT.survey ?? [],
   gauge: NIP_SCRIPT.gauge ?? [],
   implement: [...(NIP_SCRIPT.implement ?? []), FIX_SPACES],
   fine: [...(NIP_SCRIPT.fine ?? []), ...(NIP_SCRIPT.fine ?? []).slice(0, 1)],
@@ -207,7 +208,10 @@ export const demoBrewers = (options: DemoBrewersOptions): BrewerRunner => {
         run = nip.start(start);
         const end = await run.ended;
         brewed?.(start.ref, nip.prompts.get(attemptKey.encode(start.ref)) ?? '');
-        if (life !== 'crash' || stopped || end.ending.kind !== 'succeeded') return end;
+        // The kill takes the Gauger's attempt, which has committed its test: the Maltster's
+        // survey before it ends as it would.
+        const gauged = start.ref.stepId === 'gauge';
+        if (life !== 'crash' || !gauged || stopped || end.ending.kind !== 'succeeded') return end;
         crash();
         // The process dies with the attempt still running.
         return new Promise<never>(() => {});
