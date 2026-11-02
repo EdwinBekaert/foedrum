@@ -999,6 +999,10 @@
           "type": "boolean",
           "const": true
         },
+        "stopped": {
+          "type": "boolean",
+          "const": true
+        },
         "usageLimited": {
           "type": "boolean",
           "const": true

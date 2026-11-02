@@ -136,21 +136,16 @@ export const WEB_FILES: Readonly<Record<string, string>> = {
 const NO_CHECKS = { build: null, typecheck: null, lint: null, format: null, test: null };
 
 /**
- * The ladder's recipe: the Cellarman, then the pull request, with no test first, so the Gauger's
- * step, whose out doc the Cellarman reads as `tests`, is skipped, as Nip's is without one. Without
- * that step the Cellarman's batch goes Stuck at once (#774).
+ * The ladder's recipe: the Cellarman, then the pull request, with no test first and no Gauger, so
+ * the Cellarman's `tests` input is left out (#774).
  */
 export const ladderRecipeText = (): string =>
-  `// The Cellarman, then the pull request: the ladder shows an order's path, not its checks.\n// The gauge step is skipped; it is there because the Cellarman's tests input needs it (#774).\n${json(
+  `// The Cellarman, then the pull request: the ladder shows an order's path, not its checks.\n${json(
     {
       name: LADDER_RECIPE,
       description: 'One change, then its pull request, with no checks',
       testFirst: false,
-      steps: [
-        { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
-        { id: 'implement', brewer: 'cellarman' },
-        { action: 'openPullRequest' },
-      ],
+      steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
     },
   )}`;
 

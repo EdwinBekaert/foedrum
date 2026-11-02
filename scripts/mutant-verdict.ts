@@ -1,7 +1,8 @@
-// `node scripts/mutant-verdict.ts <baseline.jsonl> <run.jsonl>`: says whether a mutant was
-// killed, from the outcomes scripts/test-outcomes-reporter.ts wrote for a run without the mutant
-// and a run with it (issue #43, ADR 0040). mutant-verdict/core.ts decides. Exits 1 when an outcome file
-// cannot be read or the baseline has no passing test.
+// `node scripts/mutant-verdict.ts <baseline.jsonl> <run.jsonl> [<test file>...]`: says whether a
+// mutant was killed, from the outcomes scripts/test-outcomes-reporter.ts wrote for a run without
+// the mutant and a run with it (issue #43, ADR 0040). Given the test files the run ran, it reads
+// only their outcomes in the baseline (ADR 0303). mutant-verdict/core.ts decides. Exits 1 when
+// an outcome file cannot be read or the baseline has no passing test.
 
 import { readFile } from 'node:fs/promises';
 import { type Outcome, parseOutcomes, verdictOf } from './mutant-verdict/core.ts';
@@ -22,9 +23,15 @@ const read = async (path: string): Promise<Outcome[] | string> => {
   return typeof outcomes === 'string' ? `${path}: ${outcomes}` : outcomes;
 };
 
-export const mutantVerdict = async (baseline: string, run: string): Promise<Result> => {
-  const before = await read(baseline);
-  if (typeof before === 'string') return { ok: false, lines: [before] };
+export const mutantVerdict = async (
+  baseline: string,
+  run: string,
+  files?: readonly string[],
+): Promise<Result> => {
+  const all = await read(baseline);
+  if (typeof all === 'string') return { ok: false, lines: [all] };
+  // A run over some of the baseline's test files is judged against their outcomes only.
+  const before = files === undefined ? all : all.filter(({ file }) => files.includes(file));
   const after = await read(run);
   if (typeof after === 'string') return { ok: false, lines: [after] };
   const verdict = verdictOf(before, after);
@@ -55,14 +62,31 @@ export const mutantVerdict = async (baseline: string, run: string): Promise<Resu
   }
 };
 
-if (import.meta.main) {
-  const [baseline, run] = process.argv.slice(2);
+export interface MainResult {
+  exitCode: number;
+  stdout: string[];
+  stderr: string[];
+}
+
+// The command line: its arguments, and what it prints and exits with.
+export const main = async (argv: readonly string[]): Promise<MainResult> => {
+  const [baseline, run, ...files] = argv;
   if (baseline === undefined || run === undefined) {
-    console.error('usage: node scripts/mutant-verdict.ts <baseline.jsonl> <run.jsonl>');
-    process.exitCode = 2;
-  } else {
-    const { ok, lines } = await mutantVerdict(baseline, run);
-    for (const line of lines) console.log(`mutant-verdict: ${line}`);
-    if (!ok) process.exitCode = 1;
+    const usage =
+      'usage: node scripts/mutant-verdict.ts <baseline.jsonl> <run.jsonl> [<test file>...]';
+    return { exitCode: 2, stdout: [], stderr: [usage] };
   }
+  const { ok, lines } = await mutantVerdict(baseline, run, files.length > 0 ? files : undefined);
+  return {
+    exitCode: ok ? 0 : 1,
+    stdout: lines.map((line) => `mutant-verdict: ${line}`),
+    stderr: [],
+  };
+};
+
+if (import.meta.main) {
+  const { exitCode, stdout, stderr } = await main(process.argv.slice(2));
+  for (const line of stdout) console.log(line);
+  for (const line of stderr) console.error(line);
+  process.exitCode = exitCode;
 }

@@ -39,9 +39,22 @@ export type Lane =
   | { kind: 'ordered'; routeBy: string }
   | { kind: 'brewing' }
   | { kind: 'conditioning'; on: WaitCondition; remindAt: string }
-  | { kind: 'stuck'; reason: StuckReason; options: readonly StuckOption[]; remindAt: string }
+  | {
+      kind: 'stuck';
+      reason: StuckReason;
+      options: readonly StuckOption[];
+      remindAt: string;
+      /** A stop's: the attempts it abandoned, whose cancelled ends it records (ADR 0302). */
+      stopped?: readonly StoppedAttempt[];
+    }
   | { kind: 'on_tap'; pullRequests: readonly string[] }
   | { kind: 'cancelled'; by: string; via: Surface };
+
+/** An attempt a person's stop abandoned (ADR 0302). */
+export interface StoppedAttempt {
+  stepId: string;
+  attempt: number;
+}
 
 /** A person's choice that scheduled an attempt (ADR 0286). */
 export interface Chosen {
@@ -69,6 +82,8 @@ export type Attempt =
       /** Scheduled by a person's lauter, who chose it and from where (ADR 0286). */
       chosen?: Chosen;
       abandoned?: true;
+      /** Abandoned by a person's stop (ADR 0302): it counts against no retry. */
+      stopped?: true;
     }
   | {
       phase: 'started';
@@ -90,6 +105,8 @@ export type Attempt =
       /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
       interactiveSince?: string;
       abandoned?: true;
+      /** Abandoned by a person's stop (ADR 0302): it counts against no retry. */
+      stopped?: true;
     }
   | {
       phase: 'finished';
@@ -122,6 +139,8 @@ export type Attempt =
       receipt?: Receipt;
       /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
       paused?: true;
+      /** Stopped by a person: it counts against no retry, and a retry resumes it (ADR 0302). */
+      stopped?: true;
       /** Ended as claude hit a usage limit: it counts against no retry (ADR 0206). */
       usageLimited?: true;
       /** A blocking Taster's findings, when it asked for changes (ADR 0221). */
@@ -679,8 +698,10 @@ function apply(state: State, event: Event): State {
         if (current.phase === 'scheduled') throw attemptError(event, 'was never started');
         if (current.phase === 'finished') throw attemptError(event, 'was already finished');
         ran = ranIn(step, current);
+        // The end of an attempt a stop abandoned finishes it (ADR 0302).
+        const { abandoned: _, ...unfinished } = current;
         return {
-          ...current,
+          ...unfinished,
           phase: 'finished',
           outcome: event.outcome,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
@@ -689,6 +710,7 @@ function apply(state: State, event: Event): State {
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
+          ...(event.stopped === undefined ? {} : { stopped: event.stopped }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
           ...(event.findings === undefined ? {} : { findings: event.findings }),
           ...(event.staleMap === undefined ? {} : { staleMap: event.staleMap }),
@@ -721,11 +743,22 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.stuck': {
       const { reason, options, remindAt } = event;
-      return updateBatch(state, event.batchId, (batch) => ({
-        ...batch,
-        lane: { kind: 'stuck', reason, options, remindAt },
-        steps: abandon(batch.steps),
-      }));
+      return updateBatch(state, event.batchId, (batch) => {
+        // A reminder makes the batch Stuck again for the same stop, which keeps what it abandoned.
+        const earlier = batch.lane.kind === 'stuck' ? (batch.lane.stopped ?? []) : [];
+        const stopped = reason.kind === 'stopped' ? [...earlier, ...unfinished(batch.steps)] : [];
+        return {
+          ...batch,
+          lane: {
+            kind: 'stuck',
+            reason,
+            options,
+            remindAt,
+            ...(stopped.length === 0 ? {} : { stopped }),
+          },
+          steps: abandon(batch.steps, reason.kind === 'stopped'),
+        };
+      });
     }
     case 'batch.resumed': {
       // A retry of a batch Stuck on routing waits to be routed again (ADR 0032).
@@ -1115,15 +1148,31 @@ function updateAttempt(
   });
 }
 
-/** Marks every attempt that has not finished as abandoned. */
-function abandon(steps: ReadonlyMap<string, Step>): ReadonlyMap<string, Step> {
+/** The attempts of `steps` that neither finished nor were abandoned before. */
+function unfinished(steps: ReadonlyMap<string, Step>): StoppedAttempt[] {
+  return [...steps.values()].flatMap((step) =>
+    [...step.attempts.values()].flatMap((attempt) =>
+      attempt.phase === 'finished' || attempt.abandoned === true
+        ? []
+        : [{ stepId: step.id, attempt: attempt.attempt }],
+    ),
+  );
+}
+
+/**
+ * Marks every attempt that has not finished as abandoned, and as `stopped` when a person's stop
+ * abandons it (ADR 0302); one an earlier Stuck abandoned keeps how it was abandoned.
+ */
+function abandon(steps: ReadonlyMap<string, Step>, stopped: boolean): ReadonlyMap<string, Step> {
   const abandoned = new Map<string, Step>();
   for (const [id, step] of steps) {
     const attempts = new Map<number, Attempt>();
     for (const [number, attempt] of step.attempts) {
       attempts.set(
         number,
-        attempt.phase === 'finished' ? attempt : { ...attempt, abandoned: true },
+        attempt.phase === 'finished' || attempt.abandoned === true
+          ? attempt
+          : { ...attempt, abandoned: true, ...(stopped ? { stopped: true } : {}) },
       );
     }
     abandoned.set(id, { ...step, attempts });

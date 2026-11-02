@@ -38,6 +38,7 @@ import {
   noPlanToReview,
   notAllowed,
   planDigest,
+  stoppedEnd,
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
 import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
@@ -646,7 +647,15 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     paused,
     reopensAt,
   } = command;
-  const recipe = recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
+  // The cancelled end of an attempt a person's stop abandoned is recorded, and the batch stays
+  // Stuck: its retry resumes the session and spends no attempt (ADR 0302).
+  const byStop =
+    ending.kind === 'cancelled' &&
+    draft.batch(batchId).lane.kind === 'stuck' &&
+    stoppedEnd(draft.state, { batchId, stepId, attempt, outcome: ending }) === undefined;
+  const recipe = byStop
+    ? undefined
+    : recipeOf(draft, requireLane(draft.batch(batchId), 'finish', ['brewing']));
   // A blocked out doc is a final failure of its attempt; the blocker kind routes it below.
   const outcome: StepOutcome =
     ending.kind === 'blocked'
@@ -656,7 +665,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
           reason: `${blockedBy(ending.blockerKind)}${ending.summary}`,
         }
       : ending;
-  const stopped = paused === true && stoppedByPause(draft, command);
+  const stopped = !byStop && paused === true && stoppedByPause(draft, command);
   const limited = usageLimitOf(draft, command);
   draft.push({
     type: 'step.finished',
@@ -672,6 +681,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
     ...(stopped ? { paused: true } : {}),
+    ...(byStop ? { stopped: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
     // A blocking Taster's findings, which no other event keeps unless its rounds run out (ADR 0221).
     ...(ending.kind === 'blocked' && ending.findings !== undefined
@@ -681,7 +691,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
   // The window is the subscription's, whatever becomes of this step. An end refused because its
   // batch left brewing closes nothing: the next brewer meets the limit and closes it (ADR 0206).
   if (limited !== undefined && reopensAt !== undefined) close(draft, limited, reopensAt);
-  if (leftRecipe(draft, recipe, batchId, stepId)) return;
+  if (recipe === undefined || leftRecipe(draft, recipe, batchId, stepId)) return;
   // A pause is a person's choice and a usage limit the subscription's wait, no failure: the step
   // runs again whatever attempts it has left, after the reopen for a usage limit.
   if (stopped || limited !== undefined) {
@@ -770,8 +780,8 @@ function retryOrStick(
   const batch = draft.batch(batchId);
   const recipe = recipeOf(draft, batch);
   if (leftRecipe(draft, recipe, batchId, stepId)) return;
-  // An attempt a pause stopped counts against no retry (ADR 0202).
-  const counted = withoutPaused(batch, stepId);
+  // An attempt a pause or a person's stop stopped counts against no retry (ADR 0202, ADR 0302).
+  const counted = countedAttempts(batch, stepId);
   if (retryable && recipe.mayRetry(counted, stepId)) {
     // An interactive step waits for a person to open its session again, never at once (ADR 0222).
     if (recipe.interactive(stepId)) stick(draft, batchId, { kind: 'waiting_for_session', stepId });
@@ -1585,16 +1595,19 @@ function stoppedByPause(draft: Draft, command: Extract<Command, { kind: 'finish'
 
 /**
  * `batch` as a recipe counts the attempts of `stepId`: without those a pause stopped (ADR 0202),
- * those a usage limit ended (ADR 0206), and those a Stuck abandoned before they started (ADR 0222).
+ * those a usage limit ended (ADR 0206), those a Stuck abandoned before they started (ADR 0222), and
+ * those a person's stop abandoned, whether their end was recorded or not (ADR 0302).
  */
-function withoutPaused(batch: Batch, stepId: string): Batch {
+function countedAttempts(batch: Batch, stepId: string): Batch {
   const step = batch.steps.get(stepId);
   if (step === undefined) return batch;
   // Nor does one a Stuck abandoned before it started, a wait for a session's too (ADR 0222).
-  const attempts = [...step.attempts].filter(([, attempt]) =>
-    attempt.phase === 'finished'
-      ? attempt.paused !== true && attempt.usageLimited !== true
-      : attempt.phase !== 'scheduled' || attempt.abandoned !== true,
+  const attempts = [...step.attempts].filter(
+    ([, attempt]) =>
+      attempt.stopped !== true &&
+      (attempt.phase === 'finished'
+        ? attempt.paused !== true && attempt.usageLimited !== true
+        : attempt.phase !== 'scheduled' || attempt.abandoned !== true),
   );
   if (attempts.length === step.attempts.size) return batch;
   const counted: Step = { ...step, attempts: new Map(attempts) };

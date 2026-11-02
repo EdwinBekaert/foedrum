@@ -477,6 +477,8 @@ describe('brewerSource', () => {
     brewers: {
       find: (recipe, stepId) =>
         recipe === 'pint' && stepId === 'plan' ? stepBrewer('planner') : undefined,
+      has: (recipe, stepId) =>
+        recipe === 'pint' && ['plan', 'green', 'open-pull-request'].includes(stepId),
     },
     catalog: {
       brewers: [

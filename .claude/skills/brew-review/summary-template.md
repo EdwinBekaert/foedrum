@@ -33,11 +33,11 @@ Verdicts: correctness approve · security approve · …
 
 ### Mutation check (Brett)
 
-<m> min <s> s · round 1: <d> test files (direct) · round 2: <w> test files (wide), <k> mutants (or "not needed") (or "one round: <w> test files", when the criteria's `mutant-tests.ts` predates `--direct`)
+<m> min <s> s · covered: a baseline of <w> test files (wide) with coverage, <c1>–<c2> test files per mutant (or "round 1: <d> test files (direct) · round 2: <w> test files (wide), <k> mutants (or "not needed")", with why the covered round fell back: `fallback: <reason>`, the coverage baseline timed out, or the criteria's copy predates `mutant-coverage.ts`; or "one round: <w> test files", when the criteria's `mutant-tests.ts` predates `--direct`)
 
 | # | Mutant | Result | Disposition |
 |---|---|---|---|
-| 1 | `src/…:42` removed timeout | survived / killed in round <1 or 2> by `<first test>` / killed (timed out) in round <1 or 2> / not judged (…) / invalid: <reason> | … |
+| 1 | `src/…:42` removed timeout | survived / killed by `<first test>` (covered, <t> test files) or in round <1 or 2> / killed (timed out) / not run (no test covers `<file>:<line>`) / not judged (…) / invalid: <reason> | … |
 | 2 *(script)* | `src/…:7` isValid always false | … | … |
 
 ### House yeast

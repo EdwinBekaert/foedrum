@@ -936,12 +936,17 @@ describe('inputsOf', () => {
   });
 
   it('throws when the step an input names has no out doc yet', () => {
+    // A brewer's step that has not run yet (#774).
+    const tasting: StepBrewer = {
+      brewer: brewer({ name: 'taster', output: { doc: 'tasting.md', schema: 'tasting' } }),
+      instructions: 'Taste.',
+    };
     assert.throws(
       () =>
         inputsOf(
           [{ name: 'tasting', from: 'step:taste', trusted: false }],
           batch(),
-          stepBrewer,
+          (id) => (id === 'taste' ? tasting : stepBrewer(id)),
           brewWorktree,
         ),
       /the input "tasting" needs the out doc of step taste, which has none yet/,
@@ -974,6 +979,42 @@ describe('inputsOf', () => {
     assert.deepEqual(
       inputsOf(inputs, skipped, stepBrewer, brewWorktree).map(({ name }) => name),
       ['malt'],
+    );
+  });
+
+  /** inputsOf of `inputs` in a recipe whose steps are `steps`, every other argument as by default. */
+  const inRecipe = (inputs: BrewerFrontmatter['inputs'], steps: readonly string[]) =>
+    inputsOf(
+      inputs,
+      batch(),
+      stepBrewer,
+      brewWorktree,
+      undefined,
+      undefined,
+      [],
+      false,
+      undefined,
+      undefined,
+      (id) => steps.includes(id),
+    );
+
+  it('an input from a step the recipe does not have is left out, as a skipped step is', () => {
+    const inputs = brewer({
+      inputs: [
+        { name: 'tests', from: 'step:gauge' },
+        { name: 'malt', from: 'step:malt' },
+      ],
+    }).inputs;
+    assert.deepEqual(
+      inRecipe(inputs, ['malt', 'implement']).map(({ name }) => name),
+      ['malt'],
+    );
+  });
+
+  it("throws when an input names a step of the recipe that is no brewer's, which has no out doc", () => {
+    assert.throws(
+      () => inRecipe([{ name: 'tests', from: 'step:green', trusted: false }], ['green']),
+      /^Error: the input "tests" names step green, which is no brewer's step and has no out doc$/,
     );
   });
 });
