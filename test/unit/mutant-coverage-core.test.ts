@@ -88,6 +88,42 @@ describe('the test files that cover a mutated line', () => {
     });
   });
 
+  it('runs the own test file by each of its forms: -core, -shell and the folder', () => {
+    const cases: [file: string, own: string][] = [
+      ['src/engine/fold.ts', 'test/unit/fold-core.test.ts'],
+      ['src/engine/fold.ts', 'test/unit/fold-shell.test.ts'],
+      ['scripts/mutant-coverage/core.ts', 'test/unit/mutant-coverage-core.test.ts'],
+    ];
+    for (const [file, own] of cases) {
+      const plan = coveringTests({
+        tests: [own, 'test/unit/decide.test.ts'],
+        records: new Map([
+          [own, new Map([[file, foldRanges(false)]])],
+          ['test/unit/decide.test.ts', new Map([[file, foldRanges(false)]])],
+        ]),
+        sources: new Map([[file, FOLD]]),
+        locations: [{ file, line: 3 }],
+      });
+      assert.deepEqual(
+        plan,
+        { kind: 'covered', locations: [{ file, line: 3, tests: [own] }] },
+        own,
+      );
+    }
+  });
+
+  it('falls back when no test file imports the files', () => {
+    assert.deepEqual(
+      coveringTests({
+        tests: [],
+        records: records([['test/unit/decide.test.ts', foldRanges(false)]]),
+        sources,
+        locations: [{ file: 'src/engine/fold.ts', line: 3 }],
+      }),
+      { kind: 'fallback', reason: 'no test file imports the files' },
+    );
+  });
+
   it('a test file with no coverage record is run as covering every line', () => {
     const plan = coveringTests({
       tests: ['test/unit/crashed.test.ts', 'test/unit/decide.test.ts'],
