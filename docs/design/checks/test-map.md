@@ -1,7 +1,7 @@
 # The test map
 
 > **Built.** The map's file, its schema, where it is kept, the effective map, the Stuck reason for a module no confirmed line reaches (#706), [the red proof](red-proof.md) that reads it (#709), what `testsUnchanged` keeps by it ([the red proof](red-proof.md), #711), the uncovered-line check (#710), a skip the batch added failing it (#727), freshness (#718) and the survey that proposes a map (#708).
-> Until #747, a repository with no map still has its red proof read the tests' names.
+> A test-first batch with no map is Stuck before its first step, unless its survey proposes one ([the red proof](red-proof.md), [ADR 0297](../../adr/0297-the-red-proof-reads-a-test-map-only-and-a-test-first-batch-with-none-is-stuck-before-its-first-step.md)).
 
 A target repository's test map says, for each module, where its code is, where its tests live, and where its test and coverage reports are written ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 It says where things are and holds no commands: the commands stay in `foedrum.jsonc`, confirmed by a person ([ADR 0023](../../adr/0023-language-independent-recipes.md)).
@@ -79,7 +79,7 @@ The guard `testMapOnly` fails an attempt retryably when its commits changed any 
 The survey's check is a check step with `of` naming the survey, which the loader accepts only for an earlier survey and a check list with `test`.
 It runs nothing when the survey found the map fresh or the Brewery's; otherwise it runs as any check step that runs the tests, except that a module that wrote no report after a passing run, and a map stale by the run, fail the step instead of sticking or only naming it.
 Every failure it does not retry is a disagreement, `the test map the survey proposed disagrees with a run of <repository>: …`, sent back to the survey along `onFail`; once the route has no round left, the check blocks the batch on its environment, `no test map the survey proposed agrees with a run of <repository>: …`, rather than leaving it Stuck as out of attempts.
-A test-first batch whose recipe runs a survey check, in a repository that keeps its map, no longer needs `testReport` before its first step.
+A test-first batch whose recipe runs a survey check, in a repository that keeps its map, gets its map from the survey; one with no map and no survey, or whose Brewery keeps no map, is Stuck before its first step ([the red proof](red-proof.md)).
 The merge brief says why the pull request changes the map, under its sensitive-path line ([GitHub](../humans/github.md)).
 
 **It is a sensitive path.** A change to `.foedrum/test-map.jsonc` gets the status comment's sensitive-path line without the repository naming it in `sensitivePaths` ([ADR 0201](../../adr/0201-a-repository-names-its-sensitive-paths-and-a-batch-that-touches-one-says-so.md)), and the line after it names each module the batch's map adds with `coverage: none`.

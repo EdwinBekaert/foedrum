@@ -34,6 +34,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   A command is one line, or `{ "run", "windows", "macos", "linux" }` with per-OS overrides.
 - `testReport` is `{ "format": "tap" }` (the test command writes TAP to standard output), `{ "format": "tap", "path": … }` or `{ "format": "junit", "path": … }`; the path is relative to the worktree, never leaves it, and uses only file names Windows can create (no device names such as `con`, no trailing dot or space, none of `<>:"|?*` or control characters).
   A test report needs a `test` command.
+  The red proof reads the test map's reports, not this one; freshness by runs reads where it is written ([the test map](../checks/test-map.md)).
 - Every `tools` rule must stay within `permissionCeiling`, which fails closed ([ADR 0026](../../adr/0026-how-a-permission-ceiling-covers-a-rule.md)).
   A ceiling rule covers the same tool when it has no specifier, when its specifier is the rule's, or when its specifier, read as a glob, matches the rule's specifier (`Bash(dotnet *)` covers `Bash(dotnet test*)`, not the other way round).
   In a `Bash` or `PowerShell` rule a `*` never stands for a shell operator or grouping (`;&|` backtick `$<>(){}`; PowerShell runs a parenthesised argument), so `Bash(npm *)` does not cover `Bash(npm test && curl …)`.
