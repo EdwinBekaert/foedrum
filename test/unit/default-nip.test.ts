@@ -527,6 +527,16 @@ describe('the default Cellarman', () => {
     assert.match(wrongTest, /out doc's text/);
   });
 
+  it("the default Cellarman's prompt tells it to read the Gauger's tests before it writes code", () => {
+    const found = cellarman();
+    assert.ok(found !== undefined, 'nip has no implement step');
+    const [upFront = ''] = found.instructions.split(/\n(?=## )/).filter((part) => part.trim());
+    assert.match(
+      upFront,
+      /Before you write any code[^\n]*\{tests\}[^\n]*regressionTests[^\n]*read/,
+    );
+  });
+
   it('asks a dismissed and a pre-existing why to name its evidence, and its example shows one (#521, ADR 0204)', () => {
     const found = cellarman();
     assert.ok(found !== undefined, 'nip has no implement step');
@@ -807,6 +817,17 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
         reason: 'label',
         source: 'label',
       },
+      // The Cellarman's batch skipped the Gauger, so its prompt holds no tests input.
+      ...(stepId === 'implement'
+        ? [
+            {
+              type: 'step.skipped',
+              batchId: '12-1',
+              stepId: 'gauge',
+              when: 'recipe.testFirst',
+            } satisfies Event,
+          ]
+        : []),
       { type: 'step.scheduled', ...ref, deadlineAt: '2026-10-21T13:00:00.000Z' },
       {
         type: 'step.started',
@@ -874,6 +895,24 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
 
   it("puts a sub-order's plan entry in its acceptance Taster's prompt", async () => {
     assert.match(await promptOf('acceptance', true), entry);
+  });
+
+  it('the Cellarman of a sub-order gets its plan entry as an input', async () => {
+    const prompt = await promptOf('implement', true);
+    assert.match(prompt, entry);
+    assert.match(prompt.split('## Untrusted input')[0] ?? '', /\{planEntry\}[^\n]*touches/);
+  });
+
+  it('gives the Cellarman of a batch that is no sub-order no planEntry input: regression test', async () => {
+    const prompt = await promptOf('implement', false);
+    assert.match(prompt, /name="order">\nAdd a --json flag to status\.\n/);
+    assert.doesNotMatch(prompt, /name="planEntry"/);
+  });
+
+  it('gives a Cellarman whose recipe skipped the gauge step no tests input: regression test', async () => {
+    const prompt = await promptOf('implement', true);
+    assert.match(prompt, /name="order">\nAdd a --json flag to status\.\n/);
+    assert.doesNotMatch(prompt, /name="tests"/);
   });
 
   it('gives an order that is no sub-order the Gauger and acceptance prompts it had without the input: regression test', async () => {
