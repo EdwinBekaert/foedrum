@@ -93,6 +93,16 @@ describe('the fake GitHub API', () => {
     assert.equal(answer.status, 404);
   });
 
+  it('answers 404 to a change of a pull request it opened that names no body (regression test)', async () => {
+    const { github, number } = await opened();
+    const answer = await github.fetch(`${api}/repos/acme/web/pulls/${number}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title: 'Greet again' }),
+    });
+    assert.equal(answer.status, 404);
+    assert.equal(github.pulls.find((pull) => pull.number === number)?.body, 'Closes #7');
+  });
+
   it('revises the body of a pull request it opened', async () => {
     const { github, url, number, client, reads } = await opened();
     const host = githubPullRequests({ client, reads, login: async () => 'ann' });
@@ -287,6 +297,23 @@ describe("the fake GitHub API's releases", () => {
     const latest = await reader.latest('acme/lib');
     assert.ok(latest !== undefined);
     assert.equal(await reader.holds('acme/lib', latest, url), true);
+  });
+
+  it("keeps each repository's merges and releases to itself (regression test)", async () => {
+    const { github, number } = await merged();
+    // A merge of acme/web, a release of acme/lib: neither reaches the other repository.
+    const answer = await github.fetch(`${api}/repos/acme/web/pulls`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Web', head: 'foedrum/9', base: 'main', body: 'B' }),
+    });
+    const web = ((await answer.json()) as { number: number }).number;
+    github.merge('acme/web', web, { sha: LATER, at: T1 });
+    github.release('acme/lib', { tag: 'v1.4.0', commit: TAGGED, at: T2 });
+    const compared = await github.fetch(`${api}/repos/acme/lib/compare/v1.4.0...${LATER}`);
+    assert.equal(((await compared.json()) as { status: string }).status, 'ahead');
+    assert.equal((await github.fetch(`${api}/repos/acme/lib/git/commits/${LATER}`)).status, 404);
+    assert.equal((await github.fetch(`${api}/repos/acme/web/git/commits/${MERGE}`)).status, 404);
+    assert.throws(() => github.merge('acme/web', number, { sha: MERGE, at: T1 }), /acme\/web#/);
   });
 
   it('holds no merge made after a release, though dated before it', async () => {
