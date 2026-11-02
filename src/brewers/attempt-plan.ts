@@ -290,6 +290,7 @@ export function inputsOf(
   chosen = false,
   planEntry?: string,
   release?: ReleaseInput,
+  _recipeHas: (stepId: string) => boolean = () => true,
 ): PlannedInput[] {
   // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere. A
   // plan entry input is a sub-order's (ADR 0290): left out of a batch that is none.

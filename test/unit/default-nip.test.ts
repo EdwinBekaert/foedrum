@@ -832,6 +832,7 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
         const inputs = found.brewer.inputs.filter(({ from }) => from !== 'plan-entry');
         return { ...found, brewer: { ...found.brewer, inputs } };
       },
+      has: (recipe: string, stepId: string) => brewers.has(recipe, stepId),
     };
   };
   const promptOf = async (

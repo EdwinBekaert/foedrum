@@ -23,6 +23,7 @@ import {
   type BrewerRunner,
   settleAttempt,
 } from '../../src/engine/brewer-runner.ts';
+import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
@@ -267,6 +268,47 @@ describe('runServe', () => {
       createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane,
       { kind: 'on_tap', pullRequests: [`https://github.com/acme/web/pull/${pull?.number}`] },
     );
+  });
+
+  it('the Cellarman brews in a recipe with no gauge step', async () => {
+    // Foedrum's own Cellarman, whose tests input names step:gauge (#774).
+    const porter = JSON.stringify({
+      name: 'porter',
+      description: 'The Cellarman, then the pull request, with no Gauger.',
+      steps: [{ id: 'implement', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot: dir.path }),
+          // No brewers/ of its own: a folder that does not exist has none, so the defaults load.
+          brewery: {
+            ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+            recipes: [{ path: 'recipes/porter.jsonc', text: porter }],
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    const inner = openSqliteEventStore(':memory:');
+    store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store, recipes: setup.recipes });
+    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    log.issue(
+      { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
+      t0,
+    );
+    // The Cellarman's guards read its change with git: here it changed nothing they refuse.
+    const git = async () => ({ code: 0, stdout: '', stderr: '' });
+    assert.equal(await runServe(setup, shell({ git })), 0);
+    const lane = createCommandLog({ store, recipes: setup.recipes })
+      .state()
+      .batches.get('12-1')?.lane;
+    assert.equal(lane?.kind, 'on_tap', JSON.stringify(lane));
+    assert.equal(plans.length, 1);
+    assert.doesNotMatch(plans[0]?.prompt ?? '', /name="tests"/);
   });
 
   it("records the sensitive files the push of a repository's pull request touches (ADR 0201)", async () => {
@@ -2933,7 +2975,7 @@ Plan the order in {order}.
           },
         }),
       );
-      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      setup = result.kind === 'ready' ? result.setup : assert.fail();
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {
