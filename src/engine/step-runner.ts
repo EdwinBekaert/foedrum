@@ -40,8 +40,10 @@ export function stepRunner({ brewer, check, isCheck, refuse }: StepRunnerOptions
           running = runner.start(attempt);
           return running.ended;
         },
-        (error: unknown) =>
-          refusal(`whether ${attempt.ref.stepId} may run cannot be read: ${messageOf(error)}`),
+        (error: unknown): AttemptEnd =>
+          stopped
+            ? { ending: { kind: 'cancelled' } }
+            : refusal(`whether ${attempt.ref.stepId} may run cannot be read: ${messageOf(error)}`),
       );
       return {
         ended,

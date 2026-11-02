@@ -56,14 +56,18 @@ export type ReadTestMapAt = (
 
 /**
  * The commit a test-first batch's start refusal reads `repo`'s test map at, for attempt `ref`
- * (ADR 0297); undefined when there is none.
+ * (ADR 0297): where the batch started there once an attempt there succeeded, so no attempt's own
+ * commits change the answer; before that, where `ref`'s own worktree started, so a retry after a
+ * refusal reads a map committed to the base since; undefined when the batch has not started there.
  */
-export const refusalCommit = (
-  _batch: Batch,
-  _ref: AttemptRef,
-  _repo: string,
-): string | undefined => {
-  throw new Error('not implemented');
+export const refusalCommit = (batch: Batch, ref: AttemptRef, repo: string): string | undefined => {
+  const start = batch.starts?.[repo.toLowerCase()];
+  if (start === undefined || start.succeeded) return start?.commit;
+  const attempt = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt);
+  const own = attempt?.phase === 'scheduled' ? undefined : attempt?.worktree;
+  return own !== undefined && own.repo.toLowerCase() === repo.toLowerCase()
+    ? own.commit
+    : start.commit;
 };
 
 /** A map is a few modules' places: far less than this. */

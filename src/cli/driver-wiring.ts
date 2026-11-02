@@ -10,7 +10,7 @@ import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
 import { needsTestMap } from '../checks/red-proof.ts';
 import { surveyed } from '../checks/survey.ts';
-import { addedUnmeasured, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
+import { addedUnmeasured, refusalCommit, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
 import { guardTests } from '../checks/tests-guard.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { baseConflictEffects } from '../engine/base-check.ts';
@@ -409,7 +409,8 @@ export const wireDriver = async (
     isCheck,
     // A batch whose red proof would run needs a test map from the start, or a survey that proposes
     // one, so no brewer spends tokens on a batch that cannot prove its tests red (ADR 0297).
-    refuse: ({ batchId }) => {
+    refuse: (ref) => {
+      const { batchId } = ref;
       const current = state();
       const batch = current.batches.get(batchId);
       const name = batch?.recipe?.name;
@@ -434,11 +435,11 @@ export const wireDriver = async (
       if (survey !== undefined && setup.recipes.find(name)?.skip(batch, survey.id) === undefined) {
         return undefined;
       }
-      // Read where the batch started, the same commit for each of its attempts: a map that cannot
-      // be read is the red proof's to name (ADR 0274).
-      const start = batch.starts?.[repo.toLowerCase()]?.commit;
-      if (start === undefined) return undefined;
-      return mapAt(repo, start).then((read) =>
+      // Read where the batch started, or where this attempt did while none succeeded there: a map
+      // that cannot be read is the red proof's to name (ADR 0274).
+      const at = refusalCommit(batch, ref, repo);
+      if (at === undefined) return undefined;
+      return mapAt(repo, at).then((read) =>
         read.kind === 'none' ? needsTestMap(name, repo, 'repo') : undefined,
       );
     },
