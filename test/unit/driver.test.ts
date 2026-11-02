@@ -2611,6 +2611,103 @@ describe('openDriver', () => {
       assert.ok(![...app.calls, ...web.calls].some((call) => call.kind === 'checkout'));
     });
 
+    const outcomes = () =>
+      store
+        .eventsAfter(0)
+        .flatMap(({ event }) => (event.type === 'step.finished' ? [event.outcome] : []));
+    const session = { sessionId: '0f8fad5b-d9cb-469f-a165-708677289500' };
+    const inSession = {
+      session: { ...session, model: 'claude-sonnet-5-5', claudeVersion: '2.1.301' },
+    };
+
+    it('fails the attempt retryably when a checkout cannot be made (regression test)', async () => {
+      const { runner, started } = handRunner();
+      web = fakeWorktrees({ refuseCheckout: () => 'no space left on device' });
+      order('b1');
+      const driver = await open({ runner, worktrees: both(), reads });
+      await driver.drive();
+      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(outcomes()[0], {
+        kind: 'failed',
+        retryable: true,
+        reason: 'the attempt could not get its checkouts: no space left on device',
+      });
+    });
+
+    it("tells the runner a Brewery order's session can be resumed (regression test)", async () => {
+      const given: AttemptLimits[] = [];
+      const { runner } = handRunner();
+      order('b1');
+      const start: BrewerRunner['start'] = (attempt) => {
+        given.push(attempt.limits);
+        return runner.start(attempt);
+      };
+      const driver = await open({ runner: { ...runner, start }, worktrees: both(), reads });
+      await driver.drive();
+      assert.deepStrictEqual(
+        given.map((limits) => limits.resumable),
+        [true],
+      );
+    });
+
+    it('starts fresh, saying why, when the checkouts of the session cannot be made again (regression test)', async () => {
+      const { runner, end } = handRunner();
+      web = fakeWorktrees({
+        commit: webCommit,
+        refuseCheckout: (_ref, target) =>
+          target.kind === 'resume' ? 'the commit is gone' : undefined,
+      });
+      order('b1');
+      const driver = await open({
+        runner,
+        worktrees: both(),
+        reads,
+        sessionId: () => session.sessionId,
+        resumes: () => true,
+      });
+      await driver.drive();
+      end(plan('b1'), { kind: 'failed', retryable: true, reason: 'claude crashed' }, inSession);
+      await driver.drive();
+      const fresh = startedEvents().at(-1);
+      assert.equal(fresh?.attempt, 2);
+      assert.equal(
+        fresh.session?.fallback,
+        'the worktree of plan#1 could not be recreated: the commit is gone',
+      );
+      assert.equal(fresh.session?.worktree, orderFolder(2));
+    });
+
+    it('fails a turn overrun for good when the checkouts of its session cannot be made again (regression test)', async () => {
+      const { runner, end, started } = handRunner();
+      web = fakeWorktrees({
+        refuseCheckout: (_ref, target) =>
+          target.kind === 'resume' ? 'the commit is gone' : undefined,
+      });
+      order('b1');
+      const driver = await open({
+        runner,
+        worktrees: both(),
+        reads,
+        sessionId: () => session.sessionId,
+      });
+      await driver.drive();
+      const overran: Ending = {
+        kind: 'failed',
+        retryable: true,
+        reason: 'budget exceeded: 81 turns, maxTurns is 80',
+        overran: 'turns',
+      };
+      end(plan('b1'), overran, inSession);
+      await driver.drive();
+      assert.deepStrictEqual(started, [plan('b1')]);
+      assert.deepStrictEqual(outcomes().at(-1), {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'the turn budget ran out, and its session cannot be resumed: the worktree of plan#1 could not be recreated: the commit is gone',
+      });
+    });
+
     it('a writing step of a Brewery order in a Brewery of two repositories fails naming the step', async () => {
       const { runner, started } = handRunner();
       order('b1');

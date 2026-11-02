@@ -35,6 +35,8 @@ export interface FakeWorktreesOptions {
    */
   ordersRoot?: string;
   makeCheckouts?: boolean;
+  /** Why `checkout` cannot make this checkout, or undefined to make it. */
+  refuseCheckout?: (ref: AttemptRef, target: Target) => string | undefined;
   /** Makes `clean` throw, as when git cannot list the worktrees. */
   cleanFails?: string;
 }
@@ -93,6 +95,8 @@ export const fakeWorktrees = (options: FakeWorktreesOptions = {}): FakeWorktrees
     },
     async checkout(ref, name, target) {
       calls.push({ kind: 'checkout', ref, name, target });
+      const reason = options.refuseCheckout?.(ref, target);
+      if (reason !== undefined) throw new Error(reason);
       const folder = options.ordersRoot ?? join('work', 'brewery-orders');
       const path = join(folder, ...attemptFolder(ref).split('/'), name);
       if (options.makeCheckouts === true) mkdirSync(path, { recursive: true });
