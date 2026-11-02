@@ -93,6 +93,11 @@ const ownTestsOf = (file: string): Set<string> => {
   return new Set(names.map((base) => `test/unit/${base}.test.ts`));
 };
 
+// A name an outside party wrote, quoted so it stays on its line: as JSON, with the line and
+// paragraph separators JSON leaves as they are escaped too.
+export const quoted = (text: string): string =>
+  JSON.stringify(text).replace(/[\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16)}`);
+
 const LISTABLE = /^[\w./@+-]+$/;
 
 export const coveringTests = ({ tests, records, sources, locations }: CoverageInput): Plan => {
@@ -101,7 +106,7 @@ export const coveringTests = ({ tests, records, sources, locations }: CoverageIn
   // or a line break could split one or forge a line.
   const odd = tests.find((test) => !LISTABLE.test(test));
   if (odd !== undefined) {
-    const reason = `the test file name ${JSON.stringify(odd)} cannot be listed on one line`;
+    const reason = `the test file name ${quoted(odd)} cannot be listed on one line`;
     return { kind: 'fallback', reason };
   }
   if (!tests.some((test) => records.has(test))) {

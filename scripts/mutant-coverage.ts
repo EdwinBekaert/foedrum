@@ -6,9 +6,15 @@
 // wide rounds instead (ADR 0171). mutant-coverage/core.ts decides.
 
 import { readdir, readFile, realpath } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { coveringTests, type Location, parseCoverage, type Range } from './mutant-coverage/core.ts';
+import {
+  coveringTests,
+  type Location,
+  parseCoverage,
+  quoted,
+  type Range,
+} from './mutant-coverage/core.ts';
 import { testsFor } from './mutant-tests/core.ts';
 import { readSources } from './mutant-tests.ts';
 
@@ -20,10 +26,21 @@ export interface MainResult {
 
 type Records = Map<string, Map<string, Range[]>>;
 
+// The path of `file` in the tree, by the first of the tree's paths it lies under: the loader may
+// name the tree by a path its real path resolves (a link, a short name, another drive letter).
+const inTree = (roots: readonly string[], file: string): string | undefined => {
+  for (const root of roots) {
+    const path = relative(root, file);
+    if (path !== '' && !path.startsWith('..') && !isAbsolute(path))
+      return path.split(sep).join('/');
+  }
+  return undefined;
+};
+
 // Per test file of `tests`, the ranges of each script its child loaded, by its path in the tree.
 // A test file two records name is left out, so it runs as covering every line.
 const readRecords = async (
-  tree: string,
+  roots: readonly string[],
   folder: string,
   tests: ReadonlySet<string>,
 ): Promise<Records | string> => {
@@ -36,12 +53,20 @@ const readRecords = async (
   const records: Records = new Map();
   const twice = new Set<string>();
   for (const name of names) {
-    const scripts = parseCoverage(await readFile(join(folder, name), 'utf8'));
-    if (typeof scripts === 'string') return `cannot read ${name}: ${scripts}`;
+    let text: string;
+    try {
+      text = await readFile(join(folder, name), 'utf8');
+    } catch (error) {
+      // The code only: the message names the path, which holds the name unquoted.
+      return `cannot read ${quoted(name)}: ${(error as NodeJS.ErrnoException).code ?? 'an error'}`;
+    }
+    const scripts = parseCoverage(text);
+    if (typeof scripts === 'string') return `cannot read ${quoted(name)}: ${scripts}`;
     const byPath = new Map<string, Range[]>();
     for (const [url, ranges] of scripts) {
       if (!url.startsWith('file:')) continue;
-      byPath.set(relative(tree, fileURLToPath(url)).split(sep).join('/'), ranges);
+      const path = inTree(roots, fileURLToPath(url));
+      if (path !== undefined) byPath.set(path, ranges);
     }
     for (const test of [...byPath.keys()].filter((path) => tests.has(path))) {
       if (records.has(test)) twice.add(test);
@@ -83,7 +108,7 @@ export const main = async (argv: readonly string[]): Promise<MainResult> => {
     locations.push({ file, line });
   }
   const tests = testsFor(sources, [...new Set(locations.map(({ file }) => file))]);
-  const records = await readRecords(root, folder, new Set(tests));
+  const records = await readRecords([root, resolve(tree)], folder, new Set(tests));
   if (typeof records === 'string') {
     return { exitCode: 0, stdout: [`fallback: ${records}`], stderr: [] };
   }
