@@ -84,6 +84,15 @@ describe('the walkthrough steps', () => {
     }
   });
 
+  it("open the default demo's twelve steps, from the diagnosis to the mash (regression test)", () => {
+    assert.deepStrictEqual(stepLines(0).slice(0, 2), [
+      '',
+      'Step 1 of 12: The diagnosis serve runs with',
+    ]);
+    assert.equal(stepLines(11)[1], 'Step 12 of 12: foedrum mash 3 --as ann');
+    assert.equal(headingOf(11), 'Step 12 of 12: foedrum mash 3 --as ann');
+  });
+
   it('wrap what to look for under its label (regression test)', () => {
     const wrapped = STEPS.flatMap((_, index) => stepLines(index).slice(3));
     assert.ok(wrapped.length > 0);

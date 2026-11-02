@@ -107,28 +107,33 @@ export const STEPS: readonly Step[] = [
   },
 ];
 
-/** The heading line of `STEPS[index]`. */
-export const headingOf = (index: number): string =>
-  `Step ${index + 1} of ${STEPS.length}: ${STEPS[index]?.title}`;
+/** The heading line of `steps[index]`: the default demo's, or the ladder's. */
+export const headingOf = (
+  index: number,
+  steps: readonly Pick<Step, 'title' | 'lookFor'>[] = STEPS,
+): string => `Step ${index + 1} of ${steps.length}: ${steps[index]?.title}`;
 
 /** The width the walkthrough wraps what to look for at. */
 const WIDTH = 80;
 
 /**
- * What the walkthrough prints to open `STEPS[index]`: a blank line, its heading, and what to look
+ * What the walkthrough prints to open `steps[index]`: a blank line, its heading, and what to look
  * for, wrapped at `WIDTH` under its label.
  */
-export const stepLines = (index: number): string[] => {
+export const stepLines = (
+  index: number,
+  steps: readonly Pick<Step, 'title' | 'lookFor'>[] = STEPS,
+): string[] => {
   const lines: string[] = [];
   let line = 'Look for:';
-  for (const word of (STEPS[index]?.lookFor ?? '').split(' ')) {
+  for (const word of (steps[index]?.lookFor ?? '').split(' ')) {
     if (line.length + 1 + word.length <= WIDTH) line = `${line} ${word}`;
     else {
       lines.push(line);
       line = `${' '.repeat('Look for: '.length)}${word}`;
     }
   }
-  return ['', headingOf(index), ...lines, line];
+  return ['', headingOf(index, steps), ...lines, line];
 };
 
 /** The line a pause shows while it waits for Enter. */
