@@ -145,10 +145,9 @@ export function withFailing(
     .filter(({ result, leaf }) => leaf && result === 'failed')
     .map(({ name }) => keptName(name))
     .filter((name) => name !== '');
-  const [first, ...rest] = names.slice(0, MOST_FAILING_TESTS);
-  if (first === undefined) return reading;
-  const failing: Failing = { tests: [first, ...rest], more: names.length - 1 - rest.length };
-  return { ...reading, failing };
+  const tests = names.slice(0, MOST_FAILING_TESTS);
+  if (tests.length === 0) return reading;
+  return { ...reading, failing: { tests, more: names.length - tests.length } };
 }
 
 /** The failing tests a reading names: `a, b (and 3 more)`. */
