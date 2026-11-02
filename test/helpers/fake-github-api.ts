@@ -1,6 +1,7 @@
 // A fake GitHub API behind a `fetch`, for `foedrum serve`'s tests (ADR 0068): the issues of each
-// repository, its claim refs with their commits, and the marks of its issues, answered by method
-// and path the way the GitHub layer asks (src/github/). No network (ADR 0021).
+// repository, its claim refs with their commits, the marks of its issues, its pull requests, which
+// a test merges, and its releases, which a test makes as a repository's CI would, answered by
+// method and path the way the GitHub layer asks (src/github/). No network (ADR 0021).
 
 export interface FakeApiIssue {
   number: number;
@@ -122,6 +123,16 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   const messages = new Map<string, string>();
   const comments = new Map<string, { id: number; author: string; body: string }[]>();
   const labels = new Map<string, Set<string>>();
+  // The releases of each repository, in the order made, each with the merges made before it.
+  const releases = new Map<string, (FakeApiRelease & { held: string[] })[]>();
+  const releasesOf = (repo: string) => releases.get(repo.toLowerCase()) ?? [];
+  /** The one of `made` with the latest date, or undefined when there is none. */
+  const newest = <T extends { at: string }>(made: readonly T[]): T | undefined =>
+    made.reduce<T | undefined>(
+      (latest, each) =>
+        latest === undefined || Date.parse(each.at) > Date.parse(latest.at) ? each : latest,
+      undefined,
+    );
   let ids = 0;
   let commits = 0;
   const repoIssues = (repo: string): FakeApiIssue[] => options.issues[repo.toLowerCase()] ?? [];
@@ -163,9 +174,15 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   });
   const labelsOf = (found: FakeApiIssue) => found.labels.map((name) => ({ name }));
 
-  // The two GraphQL requests of the claim host: a repository's id, and a conditional delete.
+  // The GraphQL requests of the claim host, a repository's id and a conditional delete, and the
+  // release reader's newest tag by its commit's date.
   const graphql = (body: unknown): Response => {
     const { query, variables } = body as { query: string; variables: Record<string, unknown> };
+    if (query.includes('refs(refPrefix: "refs/tags/"')) {
+      const tag = newest(releasesOf(`${variables.owner}/${variables.name}`));
+      const nodes = tag === undefined ? [] : [{ name: tag.tag, target: { committedDate: tag.at } }];
+      return json(200, { data: { repository: { refs: { nodes } } } });
+    }
     if (query.includes('repository(')) {
       return json(200, { data: { repository: { id: `R_${variables.owner}/${variables.name}` } } });
     }
@@ -326,12 +343,18 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const [, number] = /\/pulls\/(\d+)$/.exec(url.pathname) ?? [];
     if (number !== undefined) {
       const found = ofRepo.find((pull) => pull.number === Number(number));
-      if (method !== 'GET' || found === undefined) return notFound();
+      if (found === undefined) return notFound();
+      // Its body revised, as the sibling sections of an order's pull requests are (ADR 0292).
+      const revised = (body ?? {}) as { body?: string };
+      if (method === 'PATCH' && revised.body !== undefined) found.body = revised.body;
+      else if (method !== 'GET') return notFound();
+      const { merged } = found;
       return json(200, {
         ...asPull(found),
-        state: 'open',
-        merged: false,
-        merged_at: null,
+        state: merged === undefined ? 'open' : 'closed',
+        merged: merged !== undefined,
+        merged_at: merged?.at ?? null,
+        merge_commit_sha: merged?.sha ?? null,
         body: found.body,
         head: { ref: found.head, sha: headOf(found.number), repo: { full_name: found.repo } },
       });
@@ -384,16 +407,53 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     }
     if (method === 'GET' && rest.startsWith('git/commits/')) {
       const sha = rest.slice('git/commits/'.length);
+      // A merge commit, as git's data API gives it, with its date (ADR 0223).
+      const merge = pulls.find(
+        (pull) => pull.repo === repo.toLowerCase() && pull.merged?.sha === sha,
+      );
+      if (merge?.merged !== undefined) {
+        const message = `Merge pull request #${merge.number}`;
+        return json(200, { sha, message, committer: { date: merge.merged.at } });
+      }
       const message = messages.get(sha);
       return message === undefined ? notFound() : json(200, { sha, message });
     }
     return notFound();
   };
 
+  // A repository's latest published release, and how one of its commits stands to a release's tag:
+  // its own commit, a merge made before it, or any other, which the tag does not hold.
+  const onRelease = (method: string, repo: string, rest: string): Response => {
+    if (method !== 'GET') return notFound();
+    if (rest === 'releases/latest') {
+      const latest = newest(releasesOf(repo).filter((each) => each.tagOnly !== true));
+      if (latest === undefined) return notFound();
+      return json(200, {
+        tag_name: latest.tag,
+        html_url: `https://github.com/${repo}/releases/tag/${encodeURIComponent(latest.tag)}`,
+        body: latest.notes ?? null,
+        published_at: latest.at,
+      });
+    }
+    const [, base = '', head] = /^compare\/(.+)\.\.\.([0-9a-f]{40})$/.exec(rest) ?? [];
+    const tagged = releasesOf(repo).find((each) => each.tag === decodeURIComponent(base));
+    if (tagged === undefined || head === undefined) return notFound();
+    const status =
+      head === tagged.commit ? 'identical' : tagged.held.includes(head) ? 'behind' : 'ahead';
+    return json(200, { status });
+  };
+
   const answer = (method: string, url: URL, body: unknown): Response => {
     const path = url.pathname;
     if (method === 'GET' && path === '/user') return json(200, { login });
     if (method === 'POST' && path === '/graphql') return graphql(body);
+    // A repository itself: who can read it (ADR 0300).
+    const [, whole] = /^\/repos\/([^/]+\/[^/]+)$/.exec(path) ?? [];
+    if (whole !== undefined) {
+      const visibility = options.visibilities?.[whole.toLowerCase()];
+      if (method !== 'GET' || visibility === undefined) return notFound();
+      return json(200, { full_name: whole, private: visibility === 'private', visibility });
+    }
     const [, repo = '', rest = ''] = /^\/repos\/([^/]+\/[^/]+)\/(.*)$/.exec(path) ?? [];
     if (method === 'GET' && rest === 'issues') {
       const wanted = url.searchParams.get('labels')?.split(',') ?? [];
@@ -417,6 +477,9 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (rest.startsWith('git/')) return onGit(method, repo, rest, body);
     if (/^pulls(?:\/\d+)?$/.test(rest)) return onPulls(method, repo, url, body);
     if (rest.startsWith('commits/')) return onCommit(method, repo, rest);
+    if (rest === 'releases/latest' || rest.startsWith('compare/')) {
+      return onRelease(method, repo, rest);
+    }
     if (method === 'POST' && rest === 'labels') {
       const { name } = body as { name: string };
       const made = labels.get(repo.toLowerCase()) ?? new Set();
@@ -455,11 +518,17 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     labels,
     issue,
     issues: options.issues,
-    merge: () => {
-      throw new Error('not implemented');
+    merge: (repo, number, merged) => {
+      const pull = pulls.find((each) => each.repo === repo.toLowerCase() && each.number === number);
+      if (pull === undefined) throw new Error(`The fake opened no pull request ${repo}#${number}`);
+      pull.merged = { ...merged };
     },
-    release: () => {
-      throw new Error('not implemented');
+    release: (repo, release) => {
+      const key = repo.toLowerCase();
+      const held = pulls.flatMap((pull) =>
+        pull.repo === key && pull.merged !== undefined ? [pull.merged.sha] : [],
+      );
+      releases.set(key, [...releasesOf(key), { ...release, held }]);
     },
   };
 };
