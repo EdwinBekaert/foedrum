@@ -1223,6 +1223,18 @@ describe('createAttemptPlans: plan', () => {
       return { folder, event };
     };
 
+    it("the repositories input names each checkout's folder when the attempt has no repository of its own", async () => {
+      const { event } = inCheckouts();
+      const inputs = [{ name: 'repositories', from: 'repositories' }];
+      const { plans } = planning(() => at, undefined, { inputs }, [...ordered, event]);
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/api, base origin\/main: read it in api\/\n- acme\/web, base origin\/trunk: read it in acme\.web\/\n<\/untrusted-input-/,
+      );
+      assert.doesNotMatch(prompt, /the one in your worktree/);
+    });
+
     it('a plan in a Brewery of two repositories passes the touches check with paths in both (regression test)', async () => {
       const { event } = inCheckouts();
       const { plans } = planning(() => at, undefined, {}, [...ordered, event]);
