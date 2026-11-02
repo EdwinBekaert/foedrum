@@ -487,10 +487,11 @@ export const ORDERS_FOLDER = 'brewery-orders';
 
 /**
  * The folder of a repository's checkout in a Brewery order's attempt folder (ADR 0301): its alias,
- * or `<owner>.<name>` without one. An alias has no dot, so the two never meet.
+ * or `<owner>.<name>` without one or for an alias no folder can have, such as `aux` on Windows. An
+ * alias has no dot, so the two never meet.
  */
 export const checkoutName = (repo: string, alias: string | undefined): string =>
-  alias ?? repoFolder(repo);
+  alias !== undefined && PathSafeId.safeParse(alias).success ? alias : repoFolder(repo);
 
 /** The attempt and checkout of a folder below the orders folder (`/` separators), or undefined. */
 export const parseCheckoutFolder = (
