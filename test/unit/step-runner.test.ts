@@ -75,6 +75,74 @@ describe('stepRunner', () => {
     assert.deepEqual([check.started, brewer.started], [[], ['brew']]);
   });
 
+  describe('a refusal that needs a read (ADR 0297)', () => {
+    /** A step runner whose refusal of `gauge` waits for `read`, and the brewer's stops. */
+    const reading = (read: Promise<string | undefined>) => {
+      const brewer = named('brewer', []);
+      const stops: string[] = [];
+      const runner = stepRunner({
+        brewer: {
+          ...brewer.runner,
+          start: (attempt) => {
+            const running = brewer.runner.start(attempt);
+            return { ...running, stop: () => stops.push(attempt.ref.stepId) };
+          },
+        },
+        check: named('check', []).runner,
+        isCheck: () => false,
+        refuse: (attempt) => (attempt.stepId === 'gauge' ? read : undefined),
+      });
+      return { brewer, runner, stops };
+    };
+
+    it('blocks the attempt on the environment with what the read found, starting no runner', async () => {
+      const { brewer, runner } = reading(Promise.resolve('no test map'));
+      const ended = await runner.start({ ref: ref('gauge'), limits: defaultLimits }).ended;
+      assert.deepEqual(ended.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'no test map',
+      });
+      assert.deepEqual(brewer.started, []);
+    });
+
+    it('starts the attempt once the read finds nothing to refuse', async () => {
+      const { brewer, runner } = reading(Promise.resolve(undefined));
+      const ended = await runner.start({ ref: ref('gauge'), limits: defaultLimits }).ended;
+      assert.deepEqual(ended.ending, { kind: 'succeeded', output: 'brewer' });
+      assert.deepEqual(brewer.started, ['gauge']);
+    });
+
+    it('cancels an attempt stopped while the read runs, and starts no runner', async () => {
+      let answer: (why: string | undefined) => void = () => {};
+      const { brewer, runner } = reading(new Promise((resolve) => (answer = resolve)));
+      const gauge = runner.start({ ref: ref('gauge'), limits: defaultLimits });
+      gauge.stop();
+      answer(undefined);
+      assert.deepEqual((await gauge.ended).ending, { kind: 'cancelled' });
+      assert.deepEqual(brewer.started, []);
+    });
+
+    it('stops the runner it started after the read', async () => {
+      const { brewer, runner, stops } = reading(Promise.resolve(undefined));
+      const gauge = runner.start({ ref: ref('gauge'), limits: defaultLimits });
+      await gauge.ended;
+      gauge.stop();
+      assert.deepEqual([brewer.started, stops], [['gauge'], ['gauge']]);
+    });
+
+    it('blocks the attempt on the environment when the read fails', async () => {
+      const { brewer, runner } = reading(Promise.reject(new Error('git crashed')));
+      const ended = await runner.start({ ref: ref('gauge'), limits: defaultLimits }).ended;
+      assert.deepEqual(ended.ending, {
+        kind: 'blocked',
+        blockerKind: 'environment',
+        summary: 'whether gauge may run cannot be read: git crashed',
+      });
+      assert.deepEqual(brewer.started, []);
+    });
+  });
+
   it('reports the progress of whichever runner runs the attempt', () => {
     const { runner } = setup();
     assert.equal(runner.progress(ref('green'))?.turnsWithoutProgress, 5);

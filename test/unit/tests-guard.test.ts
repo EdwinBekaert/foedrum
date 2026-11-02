@@ -1,7 +1,7 @@
-// The testsUnchanged guard around the brewer runner (ADR 0017, ADR 0078): once an attempt of a
-// guarded step succeeded, it reads from git what the proven step committed and what the attempt
-// changed, and fails the attempt when it changed or removed a test declaration or assertion. Runs
-// with the fake brewer runner and a fake git (ADR 0021).
+// The testsUnchanged guard around the brewer runner (ADR 0017, ADR 0274): once an attempt of a
+// guarded step succeeded, it reads from git what the proven step committed and the test files at
+// the attempt's branch, and fails the attempt when it changed or removed a line the step added to
+// a test file of the test map. Runs with the fake brewer runner and a fake git (ADR 0021).
 
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -84,19 +84,6 @@ const weakened = diff(
   ['  assert.equal(add(1, 2), 3);'],
   ['  assert.ok(add(1, 2));'],
 );
-/** A fixture and the implementation. */
-const fixture = [
-  'diff --git a/test/fixtures/pairs.json b/test/fixtures/pairs.json',
-  '--- /dev/null',
-  '+++ b/test/fixtures/pairs.json',
-  '@@ -0,0 +1 @@',
-  '+[[1, 2]]',
-  diff(
-    'src/add.mjs',
-    ["export const add = () => { throw new Error('not implemented'); };"],
-    ['export const add = (a, b) => a + b;'],
-  ),
-].join('\n');
 
 const ok = (stdout: string): GitResult => ({ code: 0, stdout, stderr: '' });
 
@@ -118,8 +105,6 @@ const mapOf = (tests: string): MapRead => ({
   },
 });
 const none: MapRead = { kind: 'none' };
-/** What the fake brewer committed: a line of the red test that declares and asserts nothing. */
-const closingDropped = diff('test/add.test.mjs', ['});'], []);
 /** The red test file's lines as the Gauger committed them. */
 const gaugeLines = ["test('adds two numbers', () => {", '  assert.equal(add(1, 2), 3);', '});'];
 /** The red test file at the attempt's tip: as the Gauger left it, weakened, or without its `});`. */
@@ -153,7 +138,7 @@ const setup = ({
   /** `null`: the step has no testsUnchanged guard. */
   protects?: string | null;
   git?: Git;
-  /** The test map by commit; absent, the guard reads none. */
+  /** The test map by commit; absent, the base's map keeps the tests under `test/`. */
   maps?: Readonly<Record<string, MapRead>>;
   /** The test map reader itself, in place of `maps`. */
   mapAt?: ReadTestMapAt;
@@ -204,15 +189,12 @@ const setup = ({
     },
     git,
     clone: (repo) => (repo === 'acme/api' ? clone : join('/work', 'other')),
-    ...(mapAt !== undefined ? { testMap: mapAt } : {}),
-    ...(maps === undefined
-      ? {}
-      : {
-          testMap: (repo: string, commit: string) => {
-            mapReads.push([repo, commit]);
-            return Promise.resolve(maps[commit] ?? none);
-          },
-        }),
+    testMap:
+      mapAt ??
+      ((repo: string, commit: string) => {
+        mapReads.push([repo, commit]);
+        return Promise.resolve((maps ?? { [gaugeStart]: mapOf('test/**') })[commit] ?? none);
+      }),
     platform,
   });
   return { calls, asked, runner, mapReads };
@@ -230,24 +212,16 @@ describe('guardTests (ADR 0078)', () => {
     });
     const flags =
       '-c core.quotePath=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=0 --src-prefix=a/ --dst-prefix=b/';
-    assert.deepEqual(
-      calls.map(({ cwd, args }) => [cwd, args.join(' ')]),
-      [
-        // In the clone, never the attempt's worktree, whose .git file its brewer can rewrite.
-        [clone, `${flags} ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`],
-        // Its own commits end at its branch, which the task tree carries on, whatever HEAD is,
-        // and only in the files the proven step committed, each read as a literal path.
-        [
-          clone,
-          `${flags} ${implementStart} refs/heads/foedrum/12-1/implement/1 -- :(literal)test/add.test.mjs`,
-        ],
-      ],
-    );
+    // In the clone, never the attempt's worktree, whose .git file its brewer can rewrite: the
+    // proven step's commits, then its test file at the attempt's branch, which the task tree
+    // carries on whatever HEAD is.
+    assert.ok(calls.every(({ cwd }) => cwd === clone));
+    assert.deepEqual(calls.map(({ args }) => args.join(' ')).slice(0, 2), [
+      `${flags} ${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`,
+      '--literal-pathspecs ls-tree -z --full-tree refs/heads/foedrum/12-1/implement/1 -- test/add.test.mjs',
+    ]);
     // A large but ordinary change still reads: past the runner's default 4 MiB.
-    assert.deepEqual(
-      calls.map(({ options }) => options?.maxOutputBytes),
-      [16 * 1024 * 1024, 16 * 1024 * 1024],
-    );
+    assert.equal(calls[0]?.options?.maxOutputBytes, 16 * 1024 * 1024);
   });
 
   it('reads the worktree and branch a resumed attempt ran in, for its own and the proven step (#327, ADR 0117)', async () => {
@@ -293,29 +267,24 @@ describe('guardTests (ADR 0078)', () => {
     const { calls, runner } = setup({ events });
     const end = await runner.start({ ref: { ...ref, attempt: 2 }, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'failed');
-    // Where each worktree started, to the branch of the attempt that made it (ADR 0117).
-    assert.deepEqual(
-      calls.map(({ args }) => args.slice(args.indexOf('--dst-prefix=b/') + 1).join(' ')),
-      [
-        `${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`,
-        `${implementStart} refs/heads/foedrum/12-1/implement/1 -- :(literal)test/add.test.mjs`,
-      ],
+    // The branch of the attempt that made each worktree (ADR 0117).
+    const [proven, tip] = calls.map(({ args }) => args.join(' '));
+    assert.match(proven ?? '', / -- *$/);
+    assert.ok(proven?.includes(`${gaugeStart} refs/heads/foedrum/12-1/gauge/1 --`), proven);
+    assert.ok(
+      tip?.includes(' ls-tree ') && tip.includes('refs/heads/foedrum/12-1/implement/1 '),
+      tip,
     );
   });
 
   it('lets through a brewer that only adds a fixture (done when, #176)', async () => {
-    const { runner } = setup({ changes: ok(fixture) });
+    const { runner } = setup({ tip: tips.kept });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
   });
 
   it('names how many more lines changed after the first', async () => {
-    const both = diff(
-      'test/add.test.mjs',
-      ["test('adds two numbers', () => {", '  assert.equal(add(1, 2), 3);'],
-      [],
-    );
-    const { runner } = setup({ changes: ok(both) });
+    const { runner } = setup({ tip: { 'test/add.test.mjs': ['});'] } });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(
       end.ending.kind === 'failed' && end.ending.reason,
@@ -345,7 +314,7 @@ describe('guardTests (ADR 0078)', () => {
 
   it('is blocked on the environment when git cannot read the commits', async () => {
     const { runner } = setup({
-      changes: { code: 128, stdout: '', stderr: 'fatal: bad object HEAD\n' },
+      git: () => Promise.resolve({ code: 128, stdout: '', stderr: 'fatal: bad object HEAD\n' }),
     });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, {
@@ -391,7 +360,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
 
   it("keeps every line the red step added to a separate test file of the base's map", async () => {
     const maps = { [gaugeStart]: mapOf('test/**') };
-    const { runner, mapReads } = setup({ changes: ok(closingDropped), maps, tip: tips.closing });
+    const { runner, mapReads } = setup({ maps, tip: tips.closing });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, failedOn('});'));
     // The base's map, where the batch started, and the map the proven step committed.
@@ -403,7 +372,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
 
   it("guards a test file only the proven step's map lists", async () => {
     const maps = { [gaugeTip]: mapOf('test/**') };
-    const { runner } = setup({ changes: ok(closingDropped), maps, tip: tips.closing });
+    const { runner } = setup({ maps, tip: tips.closing });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.deepEqual(end.ending, failedOn('});'));
   });
@@ -417,7 +386,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
 
   it("reads each guarded test file at the attempt's branch in the clone, and a file it removed loses every line", async () => {
     const maps = { [gaugeStart]: mapOf('test/**') };
-    const { runner, calls } = setup({ changes: ok(closingDropped), maps, tip: {} });
+    const { runner, calls } = setup({ maps, tip: {} });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(
       end.ending.kind === 'failed' && end.ending.reason,
@@ -436,7 +405,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
 
   it('keeps a red line a later step removed a copy of, while the tip still holds it', async () => {
     const maps = { [gaugeStart]: mapOf('test/**') };
-    const kept = setup({ changes: ok(closingDropped), maps, tip: tips.kept });
+    const kept = setup({ maps, tip: tips.kept });
     const end = await kept.runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(end.ending.kind, 'succeeded');
     // The tip's text is read by the object `ls-tree` named, with the diff's bounds.
@@ -487,7 +456,7 @@ describe('guardTests: the test map (ADR 0274)', () => {
       Promise.resolve(
         args.includes('ls-tree')
           ? { code: 128, stdout: '', stderr: 'fatal: not a tree object\n' }
-          : ok(args.includes(gaugeStart) ? gaugeDiff : closingDropped),
+          : ok(gaugeDiff),
       );
     const { runner } = setup({ maps, git });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
@@ -531,7 +500,7 @@ describe('guardTests: regression tests', () => {
         );
       }
       if (args.includes('cat-file')) return Promise.resolve(read(args.at(-1) ?? ''));
-      return Promise.resolve(ok(args.includes(gaugeStart) ? gaugeDiff : closingDropped));
+      return Promise.resolve(ok(gaugeDiff));
     };
 
   it('is blocked on the environment when git cannot read a test file it listed at the tip', async () => {
@@ -571,7 +540,6 @@ describe('guardTests: regression tests', () => {
     const folding = setup({
       maps,
       platform: 'win32',
-      changes: ok(closingDropped),
       tip: tips.closing,
     });
     const end = await folding.runner.start({ ref, limits: defaultLimits }).ended;
@@ -579,7 +547,7 @@ describe('guardTests: regression tests', () => {
       end.ending.kind === 'failed' && end.ending.reason,
       'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: });',
     );
-    const exact = setup({ maps, changes: ok(closingDropped), tip: tips.closing });
+    const exact = setup({ maps, tip: tips.closing });
     const ended = await exact.runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(ended.ending.kind, 'succeeded');
   });
@@ -596,7 +564,6 @@ describe('guardTests: regression tests', () => {
     const maps = { [moved]: mapOf('test/**') };
     const { runner, mapReads } = setup({
       events,
-      changes: ok(closingDropped),
       maps,
       tip: tips.closing,
     });
@@ -610,7 +577,7 @@ describe('guardTests: regression tests', () => {
 
   it("lets no map the proven step committed narrow the base's", async () => {
     const maps = { [gaugeStart]: mapOf('test/**'), [gaugeTip]: mapOf('spec/**') };
-    const { runner } = setup({ changes: ok(closingDropped), maps, tip: tips.closing });
+    const { runner } = setup({ maps, tip: tips.closing });
     const end = await runner.start({ ref, limits: defaultLimits }).ended;
     assert.equal(
       end.ending.kind === 'failed' && end.ending.reason,
@@ -637,18 +604,16 @@ describe('guardTests: regression tests', () => {
     assert.deepEqual(calls, []);
   });
 
-  it("a repository with no test map keeps today's testsUnchanged", async () => {
+  it('blocks the guard on its environment when neither the base nor the proven step has a test map', async () => {
     const maps = { [gaugeStart]: none, [gaugeTip]: none };
-    const weakening = setup({ maps });
-    const end = await weakening.runner.start({ ref, limits: defaultLimits }).ended;
-    assert.equal(
-      end.ending.kind === 'failed' && end.ending.reason,
-      'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: assert.equal(add(1, 2), 3);',
-    );
-    // Without a map the guard keeps declarations and assertions only, as ADR 0078 has it.
-    const closing = setup({ changes: ok(closingDropped), maps });
-    const ended = await closing.runner.start({ ref, limits: defaultLimits }).ended;
-    assert.equal(ended.ending.kind, 'succeeded');
+    const { runner } = setup({ maps });
+    const end = await runner.start({ ref, limits: defaultLimits }).ended;
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'the guard testsUnchanged finds no test map of acme/api where the batch started or at the tip of step gauge (ADR 0297)',
+    });
   });
 
   it('the guard still holds against the Finer', async () => {
@@ -666,10 +631,10 @@ describe('guardTests: regression tests', () => {
       end.ending.kind === 'failed' && end.ending.reason,
       'the guard testsUnchanged: the attempt changed or removed a line of the tests of step gauge, test/add.test.mjs: assert.equal(add(1, 2), 3);',
     );
-    // The Finer's own commits, from where it started to its branch (ADR 0166).
+    // The red test file at the Finer's own branch (ADR 0166).
     assert.ok(
       calls.some(
-        ({ args }) => args.includes(fineStart) && args.includes('refs/heads/foedrum/12-1/fine/1'),
+        ({ args }) => args.includes('ls-tree') && args.includes('refs/heads/foedrum/12-1/fine/1'),
       ),
     );
   });

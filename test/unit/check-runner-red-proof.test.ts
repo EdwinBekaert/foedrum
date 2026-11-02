@@ -130,6 +130,8 @@ const setup = ({
   killedTips = [] as string[],
   /** The test map at each commit, when the runner reads maps (ADR 0274). */
   maps = undefined as Record<string, MapRead> | undefined,
+  /** Where the repository's map is kept, when the runner is told (ADR 0018). */
+  keptIn = undefined as 'repo' | 'brewery' | undefined,
   /** The tip map's manifests against the worktree's files (ADR 0282). */
   manifests = { kind: 'fresh' } as ManifestFreshness,
   /** The paths among the map and its globs that the batch's change touched. */
@@ -228,6 +230,7 @@ const setup = ({
             isFolder: (path: string) => folders.includes(path),
             manifests: async () => manifests,
             touched: async () => ({ paths: touched }),
+            ...(keptIn === undefined ? {} : { keptIn: () => keptIn }),
           },
         }),
   });
@@ -297,7 +300,7 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
-  it('runs no setup for a red proof that is blocked before its run: no test report (ADR 0140)', async () => {
+  it('runs no setup for a red proof that is blocked before its run: no test map (ADR 0140)', async () => {
     const { order, run } = setup({ prepare: 'npm ci', report: null });
     const end = await run();
     assert.equal(end.ending.kind, 'blocked');
@@ -606,14 +609,26 @@ describe('createCheckRunner: the red proof (ADR 0078)', () => {
     );
   });
 
-  it('is blocked on the environment, running nothing, when the repository has no test report', async () => {
-    const { order, run } = setup({ report: null });
+  it('is blocked on the environment, running nothing, when the repository has no test map', async () => {
+    const { order, run } = setup();
     const end = await run();
     assert.deepEqual(end.ending, {
       kind: 'blocked',
       blockerKind: 'environment',
       summary:
-        'recipe nip proves its tests red, which needs the test report of acme/api: add "testReport" to its entry in foedrum.jsonc, { "format": "tap" } or { "format": "junit", "path": "<file>" } (ADR 0017)',
+        'recipe nip proves its tests red, which needs a test map of acme/api: commit .foedrum/test-map.jsonc to acme/api, or add a survey step to the recipe (ADR 0297)',
+    });
+    assert.deepEqual(order, []);
+  });
+
+  it('a red proof whose Brewery keeps no map for the repository is Stuck naming the file', async () => {
+    const { order, run } = setup({ maps: {}, keptIn: 'brewery' });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'blocked',
+      blockerKind: 'environment',
+      summary:
+        'recipe nip proves its tests red, which needs a test map of acme/api: the Brewery keeps it and has none, so add test-maps/acme/api.jsonc to the Brewery (ADR 0297)',
     });
     assert.deepEqual(order, []);
   });
