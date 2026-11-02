@@ -413,18 +413,26 @@ export const openAttemptWorktrees = (options: AttemptWorktreesOptions): AttemptW
       try {
         // The out doc a read-only attempt wrote in its folder goes first, unless it still runs.
         const folder = join(orders, batchId);
+        // A checkout still there, this clone's kept one or another clone's, keeps the folder whole.
+        let holdsCheckout = false;
         for (const step of await entriesOf(folder)) {
           if (!step.isDirectory()) continue;
-          for (const { name } of await entriesOf(join(folder, step.name))) {
-            const inside = `${batchId}/${step.name}/${name}`;
+          for (const attempt of await entriesOf(join(folder, step.name))) {
+            const inside = `${batchId}/${step.name}/${attempt.name}`;
+            const path = join(folder, step.name, attempt.name);
+            if (attempt.isDirectory()) {
+              for (const checkout of await entriesOf(path)) {
+                if (existsSync(join(path, checkout.name, '.git'))) holdsCheckout = true;
+              }
+            }
             const ref = parseAttemptFolder(inside);
             const outDoc = claims.outDocs?.get(inside);
             if (ref === undefined || outDoc === undefined || isLeased(claims, ref)) continue;
-            const file = join(folder, step.name, name, outDoc);
+            const file = join(path, outDoc);
             if ((await lstat(file).catch(() => undefined))?.isFile() === true) await rm(file);
           }
         }
-        if (await removeEmptyFolders(join(orders, batchId))) {
+        if (!holdsCheckout && (await removeEmptyFolders(folder))) {
           report.done.push(`removed Brewery order folder ${batchId}`);
         }
       } catch (error) {
