@@ -2223,6 +2223,31 @@ Plan the order in {order}.
       assert.deepStrictEqual([brewed, batch?.lane.kind], [['gauge', 'implement'], 'on_tap']);
     });
 
+    it('lets a map that cannot be read past the start refusal, for the red proof to name: regression test', async () => {
+      const clone = mappedGit([]);
+      const git: Git = async (cwd, args) =>
+        args[0] === 'cat-file' && args.at(-1) === 'a'.repeat(40)
+          ? { code: 0, stdout: '{ "modules": ', stderr: '' }
+          : clone(cwd, args);
+      const { brewed, batch } = await brewTestFirst(
+        testFirstSetup({}),
+        [],
+        git,
+        undefined,
+        'report.tap',
+      );
+      assert.equal(brewed[0], 'gauge');
+      const reason = batch?.lane.kind === 'stuck' ? batch.lane.reason : undefined;
+      assert.match(
+        JSON.stringify(reason ?? {}),
+        /the test map of acme\/web at [0-9a-f]{40} cannot be read/,
+      );
+      assert.ok(
+        !JSON.stringify(reason ?? {}).includes('which needs a test map'),
+        JSON.stringify(reason),
+      );
+    });
+
     it("reads the repository's map for the start refusal at the commit the attempt started at: regression test", async () => {
       // The clone has the map only there: read anywhere else, the batch would be Stuck.
       const asked: string[] = [];
