@@ -93,8 +93,17 @@ const ownTestsOf = (file: string): Set<string> => {
   return new Set(names.map((base) => `test/unit/${base}.test.ts`));
 };
 
+const LISTABLE = /^[\w./@+-]+$/;
+
 export const coveringTests = ({ tests, records, sources, locations }: CoverageInput): Plan => {
   if (tests.length === 0) return { kind: 'fallback', reason: 'no test file imports the files' };
+  // The covered line lists the test files with a space between them, so a name holding a space
+  // or a line break could split one or forge a line.
+  const odd = tests.find((test) => !LISTABLE.test(test));
+  if (odd !== undefined) {
+    const reason = `the test file name ${JSON.stringify(odd)} cannot be listed on one line`;
+    return { kind: 'fallback', reason };
+  }
   if (!tests.some((test) => records.has(test))) {
     return { kind: 'fallback', reason: 'no coverage record names a test file of the run' };
   }
