@@ -2,6 +2,7 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
+import { failingText } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
   CoverageListing,
@@ -342,14 +343,36 @@ export const checkOf = (reading: GravityReading): string => {
     : `the check "${reading.check}" (${reading.command})`;
 };
 
-/** A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140). */
+/** The most of a literal command a reading's line shows, so its result always fits after it. */
+const mostCommand = 80;
+
+/**
+ * The check a reading's line is of: a named check by its name alone, the setup or a literal
+ * command cut to `mostCommand`, so a long command never cuts off how it ended (#779).
+ */
+const shortCheckOf = (reading: GravityReading): string => {
+  if (reading.result === 'skipped' || reading.check !== undefined) {
+    return `the check "${reading.check}"`;
+  }
+  const chars = [...reading.command];
+  const command =
+    chars.length <= mostCommand ? reading.command : `${chars.slice(0, mostCommand - 1).join('')}…`;
+  return reading.setup === true ? `the setup "${command}"` : `the check "${command}"`;
+};
+
+/**
+ * A reading that did not pass, as a check step's reason says it (ADR 0069, ADR 0140), with the
+ * failing tests its reports named (#779).
+ */
 export const readingText = (reading: GravityReading): string => {
-  const what = checkOf(reading);
+  const what = shortCheckOf(reading);
   switch (reading.result) {
     case 'skipped':
       return `${what} was skipped`;
-    case 'exited':
-      return `${what} failed with exit code ${reading.exitCode}`;
+    case 'exited': {
+      const failed = `${what} failed with exit code ${reading.exitCode}`;
+      return reading.failing === undefined ? failed : `${failed}: ${failingText(reading.failing)}`;
+    }
     case 'signaled':
       return `${what} was ended by ${reading.signal}`;
     case 'unstarted':

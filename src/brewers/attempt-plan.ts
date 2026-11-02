@@ -3,7 +3,7 @@
 // attempt-plans.ts reads the state, the inputs and the files.
 
 import { basename, dirname, join } from 'node:path';
-import { checkName, passed } from '../checks/gravity.ts';
+import { checkName, failingText, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
@@ -956,7 +956,16 @@ function failedReading(reading: GravityReading): string[] {
       }
     }
   })();
-  return [`${checkName(reading)} ${ended}. The end of its output:\n${reading.tail}`];
+  // A command that writes its reports to files may print nothing: its reports name the tests (#779).
+  const failing = reading.result === 'exited' ? reading.failing : undefined;
+  const named = failing === undefined ? '' : ` Failing tests: ${failingText(failing)}.`;
+  const output =
+    reading.tail !== ''
+      ? `The end of its output:\n${reading.tail}`
+      : failing === undefined
+        ? 'It printed nothing.'
+        : 'It printed nothing; its report names the failing tests above.';
+  return [`${checkName(reading)} ${ended}.${named} ${output}`];
 }
 
 /** `text` held to `limit` bytes: its start, never half a character, then a note naming `what`. */
