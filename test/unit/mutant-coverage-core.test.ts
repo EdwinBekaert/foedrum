@@ -173,6 +173,12 @@ describe('whether a line ran in one child', () => {
     assert.equal(runsLine(FOLD, ranges, 1), true);
   });
 
+  it('reads a line by its code, not by the indentation a range that ran holds', () => {
+    // Only `return 2;` lies in the range that never ran; its indentation lies in the script's.
+    const ranges = [script(FOLD, 1), span(FOLD, 'return 2;', 'return 2;', 0)];
+    assert.equal(runsLine(FOLD, ranges, 8), false);
+  });
+
   it('a file that starts with a byte order mark maps its offsets after the mark', () => {
     // V8 compiles the text after the mark, so its offsets do not count it: one character off,
     // the branch's closing brace on line 4 would read as the line break after it, which ran.

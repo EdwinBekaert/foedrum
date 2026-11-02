@@ -121,6 +121,23 @@ describe('the covering test files of mutated lines, from V8 coverage files', () 
     ]);
   });
 
+  it('leaves out a record of a sibling folder whose name starts with the tree', async () => {
+    record('coverage-1-1-0.json', 'test/unit/c.test.ts', `${tree}-old`);
+    record('coverage-2-1-0.json', 'test/unit/b.test.ts');
+    // c.test.ts has no record of its own, so it runs as covering every line.
+    assert.deepEqual((await main([tree, coverage, 'src/a.ts:5'])).stdout, [
+      'covered src/a.ts:5: test/unit/c.test.ts',
+    ]);
+  });
+
+  it('a missing coverage folder falls back to the direct and wide rounds', async () => {
+    assert.deepEqual(await main([tree, join(dir.path, 'missing'), 'src/a.ts:2']), {
+      exitCode: 0,
+      stdout: ['fallback: no coverage record names a test file of the run'],
+      stderr: [],
+    });
+  });
+
   it('a test file two coverage records name is run as covering every line', async () => {
     record('coverage-1-1-0.json', 'test/unit/c.test.ts');
     record('coverage-2-1-0.json', 'test/unit/c.test.ts');
