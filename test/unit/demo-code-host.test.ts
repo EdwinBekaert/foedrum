@@ -131,6 +131,35 @@ describe('the demo code host', () => {
     );
   });
 
+  it('plays a release again holding the merge made before it (regression test)', async () => {
+    const journal = memoryJournal();
+    const first = await codeHost(journal);
+    const pull = { head: 'foedrum/demo.brewery/1-1/demo.web', base: 'main', title: 'T', body: 'B' };
+    const opened = await send(first, 'POST', `/repos/${TARGET}/pulls`, pull);
+    const { number } = (await opened.json()) as { number: number };
+    const at = '2026-11-02T10:00:00.000Z';
+    first.merge(TARGET, number, { sha: 'a'.repeat(40), at });
+    first.release(TARGET, { tag: 'v1.4.0', commit: 'b'.repeat(40), at });
+    const second = await codeHost(journal);
+    const compared = await send(
+      second,
+      'GET',
+      `/repos/${TARGET}/compare/v1.4.0...${'a'.repeat(40)}`,
+    );
+    assert.equal(((await compared.json()) as { status: string }).status, 'behind');
+  });
+
+  it('keeps a merge it refuses out of its journal (regression test)', async () => {
+    const journal = memoryJournal();
+    const first = await codeHost(journal);
+    assert.throws(() =>
+      first.merge(TARGET, 99, { sha: 'a'.repeat(40), at: '2026-11-02T10:00:00.000Z' }),
+    );
+    assert.deepStrictEqual(journal.kept, []);
+    // The next code host opens on that journal.
+    assert.deepStrictEqual((await codeHost(journal)).pulls(), []);
+  });
+
   it('starts with the issues and the visibilities it is set up with, instead of the orders', async () => {
     const order = { number: 5, labels: ['recipe:mash'], author: 'ann', title: 'Ladder' };
     const host = await codeHost(memoryJournal(), {
