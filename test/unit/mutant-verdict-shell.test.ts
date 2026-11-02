@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { mutantVerdict } from '../../scripts/mutant-verdict.ts';
+import { main, mutantVerdict } from '../../scripts/mutant-verdict.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const line = (name: string, ok: boolean): string =>
@@ -64,6 +64,28 @@ describe('the verdict on a mutant from two outcome files', () => {
       `  ${JSON.stringify(`test/unit/a.test.ts > suite > ${forged}`)}`,
     ]);
     assert.ok(lines.every((text) => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)));
+  });
+
+  it("a mutant's verdict compares only the outcomes of the test files it ran", async () => {
+    const other = `${JSON.stringify({ file: 'test/unit/b.test.ts', test: ['other'], ok: true })}\n`;
+    writeFileSync(baseline, line('a', true) + other);
+    writeFileSync(run, line('a', true));
+    assert.deepEqual(await mutantVerdict(baseline, run, ['test/unit/a.test.ts']), {
+      ok: true,
+      lines: ['survived: the 1 tests that pass without the mutant pass with it'],
+    });
+  });
+
+  it('passes the test files given after the two outcome files on to the verdict', async () => {
+    const other = `${JSON.stringify({ file: 'test/unit/b.test.ts', test: ['other'], ok: true })}\n`;
+    writeFileSync(baseline, line('a', true) + other);
+    writeFileSync(run, line('a', true));
+    assert.deepEqual(await main([baseline, run, 'test/unit/a.test.ts']), {
+      exitCode: 0,
+      stdout: ['mutant-verdict: survived: the 1 tests that pass without the mutant pass with it'],
+      stderr: [],
+    });
+    assert.deepEqual((await main([baseline, run])).stdout[0], 'mutant-verdict: killed by 1 tests:');
   });
 
   it('fails when an outcome file cannot be read', async () => {
