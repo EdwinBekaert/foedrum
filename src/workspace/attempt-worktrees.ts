@@ -265,15 +265,6 @@ export const planClean = (
   const kept: string[] = [];
   const inScope = (batchId: string): boolean =>
     scope.batchId === undefined || scope.batchId === batchId;
-  // A worktree with a live lease is never removed (#37: the driver renews the lease, so it
-  // expires when the driver dies, even while an orphaned brewer process still runs).
-  const leased = (ref: AttemptRef): boolean =>
-    claims.leased.some(
-      (other) =>
-        other.batchId === ref.batchId &&
-        other.stepId === ref.stepId &&
-        other.attempt === ref.attempt,
-    );
   // A batch the state does not know has no claim on the attempts root, which is Foedrum's.
   const live = (batchId: string): boolean => claims.batches.get(batchId) === 'live';
   const tips = new Map(facts.branches.map((branch) => [branch.name, branch]));
@@ -319,12 +310,14 @@ export const planClean = (
       } else kept.push(`kept worktree ${inside}: not an attempt folder`);
       continue;
     }
-    const isLeased = leased(ref);
+    // A worktree with a live lease is never removed (#37: the driver renews the lease, so it
+    // expires when the driver dies, even while an orphaned brewer process still runs).
+    const held = isLeased(claims, ref);
     const nested = nestedIn(inside);
     // undefined: kept without a word, as every worktree of a live batch is.
     let removal: RemovalOrKeep | undefined;
     if (live(batchId)) removal = undefined;
-    else if (isLeased) removal = { kind: 'keep', reason: LEASED };
+    else if (held) removal = { kind: 'keep', reason: LEASED };
     else if (nested !== undefined) {
       removal = { kind: 'keep', reason: `it contains the worktree ${nested.inside}` };
     } else if (worktree.lockReason !== undefined) {
@@ -351,7 +344,7 @@ export const planClean = (
       continue;
     }
     if (removal !== undefined) kept.push(`kept worktree ${inside}: ${removal.reason}`);
-    if (!isLeased && record !== undefined && (state === 'clean' || state === 'dirty')) {
+    if (!held && record !== undefined && (state === 'clean' || state === 'dirty')) {
       actions.push({ kind: 'index-lock', label: inside, gitDir: record });
     }
   }
@@ -368,7 +361,7 @@ export const planClean = (
       const nested = nestedIn(inside);
       if (ref === undefined) kept.push(`kept folder ${inside}: not an attempt folder`);
       else if (live(batchId)) continue;
-      else if (leased(ref)) kept.push(`kept folder ${inside}: ${LEASED}`);
+      else if (isLeased(claims, ref)) kept.push(`kept folder ${inside}: ${LEASED}`);
       // git lists it under another spelling of its path, or it belongs to another clone:
       // either way removing it would skip the checks a worktree gets.
       else if (withGit.includes(entry)) {
@@ -406,7 +399,7 @@ export const planClean = (
     const ref = parseAttemptBranch(branch.name);
     const at = checkedOut.get(branch.name);
     const reason =
-      ref !== undefined && leased(ref)
+      ref !== undefined && isLeased(claims, ref)
         ? LEASED
         : !claims.batches.has(batchId)
           ? `no batch ${batchId} in this Brewery`

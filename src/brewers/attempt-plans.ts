@@ -611,10 +611,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       // and of none its own (ADR 0301).
       const step = batch?.steps.get(stepId);
       const inFolder =
-        ranIn === undefined &&
-        step !== undefined &&
-        session !== undefined &&
-        checkoutsOf(step, session.id) !== undefined;
+        step !== undefined && session !== undefined && checkoutsOf(step, session.id) !== undefined;
       if (batch === undefined || (ranIn === undefined && !inFolder)) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
       }
