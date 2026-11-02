@@ -123,6 +123,38 @@ describe('the fake GitHub API', () => {
     assert.equal(commit.committer.date, T1);
   });
 
+  it('lists a merged pull request by its head only when asked for every state', async () => {
+    const { github, number } = await opened();
+    github.merge('acme/web', number, { sha: MERGE, at: T1 });
+    const listed = async (query: string) =>
+      (
+        (await (await github.fetch(`${api}/repos/acme/web/pulls?${query}`)).json()) as {
+          number: number;
+        }[]
+      ).map((pull) => pull.number);
+    assert.deepStrictEqual(await listed('head=acme:foedrum/7'), []);
+    assert.deepStrictEqual(await listed('head=acme:foedrum/7&state=all'), [number]);
+  });
+
+  it('opens a new pull request on the head of a merged one', async () => {
+    const { github, number } = await opened();
+    github.merge('acme/web', number, { sha: MERGE, at: T1 });
+    const answer = await github.fetch(`${api}/repos/acme/web/pulls`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Again', head: 'foedrum/7', base: 'main', body: 'B' }),
+    });
+    assert.equal(answer.status, 201);
+  });
+
+  it('answers the issue read of a merged pull request as closed', async () => {
+    const { github, number } = await opened();
+    github.merge('acme/web', number, { sha: MERGE, at: T1 });
+    const read = (await (await github.fetch(`${api}/repos/acme/web/issues/${number}`)).json()) as {
+      state: string;
+    };
+    assert.equal(read.state, 'closed');
+  });
+
   it('refuses to merge a pull request it never opened', async () => {
     const { github, number } = await opened();
     assert.throws(() => github.merge('acme/web', number + 1, { sha: MERGE, at: T1 }), /acme\/web#/);
