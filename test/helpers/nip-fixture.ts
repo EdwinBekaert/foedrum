@@ -74,6 +74,8 @@ export const NIP_TEST_MAP = {
   ],
 } satisfies TestMap;
 
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+
 /** The test the Gauger adds, by the name the runner reports. */
 const NIP_TEST = 'greets a stranger when no name is given';
 
@@ -105,7 +107,7 @@ export interface Scripted {
 export const NIP_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   survey: [
     {
-      files: { [TEST_MAP_PATH]: `${JSON.stringify(NIP_TEST_MAP, null, 2)}\n` },
+      files: { [TEST_MAP_PATH]: json(NIP_TEST_MAP) },
       message: 'Map the tests and reports of greet',
       summary: `The test map has one module, greet: its TAP report is ${NIP_TEST_REPORT}, and it has no coverage tool.`,
       doc: { map: 'new' },
@@ -198,8 +200,6 @@ export const nipTargetConfig = () => ({
     test: `node --test --test-reporter=tap --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination=${NIP_TEST_REPORT}`,
   },
 });
-
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /**
  * The Brewery's files, by path relative to its checkout: no recipe or brewer of its own, so Nip,
