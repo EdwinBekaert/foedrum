@@ -182,7 +182,7 @@ if (ladder) {
     write,
     git,
     repository,
-    foedrum: (brewery, argv) => foedrum(brewery, argv),
+    foedrum,
     live: (life) =>
       execProcess(process.execPath, [ladderCellar, scratch, life], {
         cwd: root,

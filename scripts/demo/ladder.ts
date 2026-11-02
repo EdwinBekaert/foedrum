@@ -117,19 +117,19 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   },
 ];
 
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+
 /** The library's files on main. */
 export const LIB_FILES: Readonly<Record<string, string>> = {
-  'package.json': `${JSON.stringify({ name: PACKAGE, version: VERSION }, null, 2)}\n`,
+  'package.json': json({ name: PACKAGE, version: VERSION }),
   'greet.mjs': "export function greet(name) {\n  return 'Hello, ' + name + '!';\n}\n",
 };
 
 /** The application's files on main: it takes the library from its releases. */
 export const WEB_FILES: Readonly<Record<string, string>> = {
-  'package.json': `${JSON.stringify({ name: 'web', private: true, dependencies: { [PACKAGE]: VERSION } }, null, 2)}\n`,
+  'package.json': json({ name: 'web', private: true, dependencies: { [PACKAGE]: VERSION } }),
   'index.mjs': `import { greet } from '${PACKAGE}';\n\nconsole.log(greet('Ann', 'fr'));\n`,
 };
-
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /** No check of either repository runs: the ladder shows the order's path, not its checks. */
 const NO_CHECKS = { build: null, typecheck: null, lint: null, format: null, test: null };
@@ -245,12 +245,11 @@ export const ladderLifeEnd = (
         : { kind: 'brewing' };
     }
     case 'close': {
-      const closed = events.some(
-        ({ event }) =>
-          event.type === 'effect.applied' &&
-          effectKey.decode(event.key).batchId === PLANNED &&
-          effectKey.decode(event.key).effect === 'close.issue',
-      );
+      const closed = events.some(({ event }) => {
+        if (event.type !== 'effect.applied') return false;
+        const { batchId, effect } = effectKey.decode(event.key);
+        return batchId === PLANNED && effect === 'close.issue';
+      });
       return closed
         ? { kind: 'ended', line: `demo: order #${LADDER_ORDER.number} is closed` }
         : { kind: 'brewing' };
@@ -364,12 +363,12 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
 
   /**
    * Merges `repo`'s pull request into main with a merge commit in its clone, pushes it, and tells
-   * the code host, as a person merging on GitHub would; the merge commit.
+   * the code host, as a person merging on GitHub would; when it merged.
    */
-  const merge = async (repo: typeof LIB | typeof WEB): Promise<{ sha: string; at: Date }> => {
+  const merge = async (repo: typeof LIB | typeof WEB): Promise<Date> => {
     const pull = await pullOn(repo);
     if (pull === undefined) throw new Error(`no pull request on ${repo} to merge`);
-    const clone = clones[repo] ?? '';
+    const clone = clones[repo];
     await git(clone, ['fetch', '-q', 'origin', pull.head]);
     await git(clone, [
       'merge',
@@ -384,7 +383,7 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     const at = new Date();
     (await host()).merge(repo, pull.number, { sha, at: at.toISOString() });
     say(`demo: ${USER} merges ${repo}#${pull.number} into main as ${sha.slice(0, 7)}`);
-    return { sha, at };
+    return at;
   };
 
   await next();
@@ -434,9 +433,9 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
   }
 
   await next();
-  const merged = await merge(LIB);
+  const mergedAt = await merge(LIB);
   // The library's CI: the version in package.json, the tag on that commit, and a release.
-  const libClone = clones[LIB] ?? '';
+  const libClone = clones[LIB];
   const manifest = JSON.parse(await git(libClone, ['show', 'HEAD:package.json'])) as Record<
     string,
     unknown
@@ -450,7 +449,7 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
   (await host()).release(LIB, {
     tag: RELEASE_TAG,
     commit,
-    at: new Date(merged.at.getTime() + 1000).toISOString(),
+    at: new Date(mergedAt.getTime() + 1000).toISOString(),
     notes,
   });
   say(
@@ -469,7 +468,7 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
 
   await next();
   const second = await pullOn(WEB);
-  const webClone = clones[WEB] ?? '';
+  const webClone = clones[WEB];
   if (second !== undefined) {
     await git(webClone, ['fetch', '-q', 'origin', second.head]);
     say(`$ git diff main ${second.head} -- package.json`);
