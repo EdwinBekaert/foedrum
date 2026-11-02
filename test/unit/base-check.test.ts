@@ -711,6 +711,18 @@ describe('checkBases', () => {
       );
     });
 
+    it('cuts a long literal command to 80 characters, so how it ended still shows: regression test', () => {
+      const command = `make ${'e2e-'.repeat(30)}`;
+      onTap();
+      checked(tip1, { failed: { result: 'exited', command, exitCode: 2, tail: '' } });
+      assert.ok(
+        baseCheckLines(log.state(), batch())[0]?.endsWith(
+          `: the check "${command.slice(0, 79)}…" failed with exit code 2`,
+        ),
+        baseCheckLines(log.state(), batch())[0],
+      );
+    });
+
     it('keeps the failure and the reason on the fold of the check', () => {
       onTap();
       checked(tip1, { failed: failing });

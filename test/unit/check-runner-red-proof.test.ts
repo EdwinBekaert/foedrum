@@ -1082,6 +1082,35 @@ describe('createCheckRunner: the red reading names its failing tests (#779)', ()
     });
   });
 
+  it('a red proof that is not proven still names the failing tests of its reading: regression test', async () => {
+    // The step's test lies outside the map's test areas, so the proof is refused.
+    const elsewhere: MapRead = {
+      kind: 'map',
+      map: {
+        derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+        modules: [
+          {
+            name: 'api',
+            code: ['src/**'],
+            tests: { paths: ['spec/**'] },
+            testReport: { format: 'tap', path: 'test.tap' },
+            coverage: 'none',
+          },
+        ],
+      },
+    };
+    const end = await setup({
+      ...onMap(),
+      maps: { [gaugeStart]: elsewhere, ['b'.repeat(40)]: elsewhere },
+    }).run();
+    assert.equal(end.ending.kind, 'failed');
+    const [reading] = end.readings ?? [];
+    assert.deepEqual(reading?.result === 'exited' && reading.failing, {
+      tests: ['adds two numbers'],
+      more: 0,
+    });
+  });
+
   it('a red reading that exited 0 names no failing test, though its report has one: regression test', async () => {
     const end = await setup({ ...onMap(), test: { exitCode: 0, stdout: '' } }).run();
     assert.deepEqual(end.readings, [

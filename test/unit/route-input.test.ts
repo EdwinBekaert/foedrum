@@ -210,6 +210,17 @@ describe('routeOf', () => {
     );
   });
 
+  it('a failed check with a tail and failing tests names them before its output: regression test', () => {
+    const failing = { tests: ['adds'], more: 0 };
+    const text = sentBackBy({ ...failedTest('not ok 1 - adds'), failing });
+    assert.ok(
+      text.endsWith(
+        'the check "test" (npm test) exited with code 1. Failing tests: adds. The end of its output:\nnot ok 1 - adds',
+      ),
+      text,
+    );
+  });
+
   it('a failed check with an empty tail and no report says it printed nothing', () => {
     const text = sentBackBy(failedTest(''));
     assert.ok(

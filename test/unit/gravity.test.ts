@@ -12,6 +12,7 @@ import {
   withFailing,
 } from '../../src/checks/gravity.ts';
 import { parseJunit } from '../../src/formats/junit.ts';
+import { parseTap } from '../../src/formats/tap.ts';
 import { GravityReading, MAX_TAIL_LENGTH } from '../../src/schemas/events.ts';
 import { cpuTimeMs, descheduled } from '../helpers/load.ts';
 
@@ -357,6 +358,31 @@ describe('withFailing (#779)', () => {
       tail: '',
     };
     assert.deepEqual(withFailing(killed, reportOf(failure('fails'))), killed);
+  });
+
+  it('names a failing subtest, never the suite around it: regression test', () => {
+    const tap = [
+      'TAP version 13',
+      '# Subtest: greets',
+      '    # Subtest: in French',
+      '    not ok 1 - in French',
+      '    1..1',
+      'not ok 1 - greets',
+      '1..1',
+    ].join('\n');
+    const read = parseTap(tap);
+    const reports = read.readable ? [read.report] : assert.fail(read.reason);
+    const named = withFailing(exited(1), reports);
+    assert.deepEqual(named.result === 'exited' && named.failing, {
+      tests: ['in French'],
+      more: 0,
+    });
+  });
+
+  it('names no failing test whose name is blank: regression test', () => {
+    const named = withFailing(exited(1), reportOf(failure('   '), failure('adds')));
+    assert.deepEqual(named.result === 'exited' && named.failing, { tests: ['adds'], more: 0 });
+    assert.equal(GravityReading.safeParse(named).success, true);
   });
 
   it('names nothing when the report has no failing test: regression test', () => {
