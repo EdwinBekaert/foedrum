@@ -488,3 +488,92 @@ export const planWorktree = (
   const at = target.kind === 'new' ? target.base : target.commit;
   return { kind: 'add', prune, newBranch: true, at };
 };
+
+/** The folder under the work root that holds a Brewery order's checkouts (ADR 0301). */
+export const ORDERS_FOLDER = 'brewery-orders';
+
+/**
+ * The folder of a repository's checkout in a Brewery order's attempt folder (ADR 0301): its alias,
+ * or `<owner>.<name>` without one. An alias has no dot, so the two never meet.
+ */
+export const checkoutName = (repo: string, alias: string | undefined): string =>
+  alias ?? repoFolder(repo);
+
+/** The attempt and checkout of a folder below the orders folder (`/` separators), or undefined. */
+export const parseCheckoutFolder = (
+  inside: string,
+): { ref: AttemptRef; name: string } | undefined => {
+  const parts = inside.split('/');
+  const name = parts.pop() ?? '';
+  const ref = attemptOf(parts);
+  return ref !== undefined && PathSafeId.safeParse(name).success ? { ref, name } : undefined;
+};
+
+/** How a Brewery order's checkout is made: added detached, there already, or not at all. */
+export type CheckoutPlan =
+  | { kind: 'reuse' }
+  | { kind: 'add'; prune: string | undefined; at: string }
+  | { kind: 'refuse'; reason: string };
+
+/**
+ * How a checkout gets made (ADR 0301): a resumed attempt reuses the one that is there; a new one
+ * finds none, since the next attempt has names of its own (ADR 0029).
+ */
+export const planCheckout = (
+  label: string,
+  facts: { listed: Pick<ListedFact, 'state' | 'branch' | 'record'> | undefined; exists: boolean },
+  target: Target,
+): CheckoutPlan => {
+  const { listed, exists } = facts;
+  if (listed !== undefined && listed.state !== 'gone') {
+    const usable =
+      (listed.state === 'clean' || listed.state === 'dirty') && listed.branch === undefined;
+    if (target.kind === 'resume' && usable) return { kind: 'reuse' };
+    return { kind: 'refuse', reason: `the checkout ${label} is there already (${listed.state})` };
+  }
+  if (exists) return { kind: 'refuse', reason: `${label} is a folder git does not know` };
+  return {
+    kind: 'add',
+    prune: listed?.record,
+    at: target.kind === 'new' ? target.base : target.commit,
+  };
+};
+
+/** Whether a live lease holds attempt `ref` (#37). */
+export const isLeased = (claims: Claims, ref: AttemptRef): boolean =>
+  claims.leased.some(
+    (other) =>
+      other.batchId === ref.batchId && other.stepId === ref.stepId && other.attempt === ref.attempt,
+  );
+
+/**
+ * What a cleanup removes of a clone's checkouts under the orders folder (ADR 0301): those of the
+ * ended batches in scope that no live lease holds and nothing locks, as a worktree is removed.
+ */
+export const planCheckoutClean = (
+  checkouts: readonly (ListedFact & { inside: string })[],
+  claims: Claims,
+  scope: { batchId?: string } = {},
+): { actions: (Removal & { label: string })[]; kept: string[] } => {
+  const actions: (Removal & { label: string })[] = [];
+  const kept: string[] = [];
+  for (const checkout of checkouts) {
+    const { inside } = checkout;
+    const found = parseCheckoutFolder(inside);
+    if (found === undefined) {
+      kept.push(`kept worktree ${ORDERS_FOLDER}/${inside}: not a checkout folder`);
+      continue;
+    }
+    const { batchId } = found.ref;
+    if (scope.batchId !== undefined && scope.batchId !== batchId) continue;
+    if (claims.batches.get(batchId) === 'live') continue;
+    const removal: RemovalOrKeep = isLeased(claims, found.ref)
+      ? { kind: 'keep', reason: LEASED }
+      : checkout.lockReason !== undefined
+        ? { kind: 'keep', reason: `locked: ${checkout.lockReason || 'no reason given'}` }
+        : removalOf(checkout);
+    if (removal.kind === 'keep') kept.push(`kept checkout ${inside}: ${removal.reason}`);
+    else actions.push({ ...removal, label: inside });
+  }
+  return { actions, kept };
+};

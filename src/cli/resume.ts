@@ -3,7 +3,7 @@
 // environment, while the attempt's lease claims it. resume-main.ts gives it the real machine; unit
 // tests give fakes.
 
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   attemptPermissions,
   attemptSystemPrompt,
@@ -32,7 +32,8 @@ import { envNameKey } from '../platform/env.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
 import type { ResumeCommand } from '../schemas/commands.ts';
-import type { SessionRef, WorktreeRef } from '../schemas/events.ts';
+import type { CheckoutRef, SessionRef, WorktreeRef } from '../schemas/events.ts';
+import { checkoutName } from '../workspace/attempt-worktrees.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { CliResult } from './run.ts';
 import { type ServeRepository, type ServeSetup, storePath } from './serve-config.ts';
@@ -152,12 +153,14 @@ export const terminalEnv = (
   );
 };
 
-/** The attempt resume opens: its session and the worktree it ran in. */
-interface Target {
-  ref: AttemptRef;
-  session: SessionRef;
-  worktree: WorktreeRef;
-}
+/**
+ * The attempt resume opens: its session and the worktree it ran in, or a Brewery order's checkouts
+ * of every repository (ADR 0301).
+ */
+type Target = { ref: AttemptRef; session: SessionRef } & (
+  | { worktree: WorktreeRef }
+  | { checkouts: readonly CheckoutRef[] }
+);
 
 type Refused = { refused: string };
 
@@ -171,11 +174,36 @@ const finishedTarget = (state: State, ref: AttemptRef): Target | Refused => {
     return { refused: `batch ${ref.batchId} has no attempt ${labelOf(ref)}` };
   }
   if (attempt.phase !== 'finished') return { refused: `${named} has not finished` };
-  const { session, worktree } = attempt;
+  const { session, worktree, checkouts } = attempt;
+  if (session !== undefined && checkouts !== undefined) return { ref, session, checkouts };
   if (session === undefined || worktree === undefined) {
     return { refused: `${named} ran no brewer: it has no session` };
   }
   return { ref, session, worktree };
+};
+
+/**
+ * Where a resumed session runs again: its worktree, recreated at its commit, or a Brewery order's
+ * folder, each checkout made again at its commit (ADR 0301).
+ */
+const placeOf = async (
+  ref: AttemptRef,
+  places: readonly { repository: ServeRepository; commit: string }[],
+  inWorktree: boolean,
+  worktrees: (
+    repository: ServeRepository,
+  ) => Promise<Pick<AttemptWorktrees, 'recreate' | 'checkout'>>,
+): Promise<string> => {
+  const paths: string[] = [];
+  for (const { repository, commit } of places) {
+    const manager = await worktrees(repository);
+    if (inWorktree) return (await manager.recreate(ref, commit)).path;
+    const name = checkoutName(repository.repo, repository.alias);
+    paths.push((await manager.checkout(ref, name, { kind: 'resume', commit })).path);
+  }
+  const [first] = paths;
+  if (first === undefined) throw new Error(`attempt ${labelOf(ref)} names no repository`);
+  return dirname(first);
 };
 
 /** The step of a running batch whose session resume continues as the batch's driver (ADR 0127). */
@@ -364,16 +392,19 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
       return failed(`the session ${session} of ${label} is not on this machine: ${kept}`);
     }
     if ('running' in target) return await shell.running({ batchId, stepId: ref.stepId });
-    const { worktree } = target;
     const ready = await shell.setup();
     if (ready.kind === 'refused') {
       const stderr = ready.problems.map((problem) => `foedrum resume: ${problem}\n`).join('');
       return { exitCode: 1, stdout: '', stderr };
     }
     const { setup } = ready;
-    const repository = setup.repositories.find(({ repo }) => sameRepo(repo, worktree.repo));
-    if (repository === undefined) {
-      return failed(`${worktree.repo} is no repository of this Brewery`);
+    // Its worktree's repository, or every repository a Brewery order's checkouts hold (ADR 0301).
+    const recorded = 'worktree' in target ? [target.worktree] : target.checkouts;
+    const places: { repository: ServeRepository; commit: string }[] = [];
+    for (const { repo, commit } of recorded) {
+      const repository = setup.repositories.find((each) => sameRepo(each.repo, repo));
+      if (repository === undefined) return failed(`${repo} is no repository of this Brewery`);
+      places.push({ repository, commit });
     }
     // The recipe the attempt ran under, which the batch may have left since (ADR 0265).
     const recipe = attemptRecipeOf(state, ref) ?? '';
@@ -430,11 +461,14 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     };
     const stop = shell.heartbeat(defaultLeaseMs / 3, renew);
     try {
-      const { recreate } = await shell.worktrees(repository, setup.workRoot);
-      const { path: folder } = await recreate(ref, worktree.commit);
+      const folder = await placeOf(ref, places, 'worktree' in target, (repository) =>
+        shell.worktrees(repository, setup.workRoot),
+      );
+      // A Brewery order's folder is no repository's, so it gets no repository's tools.
+      const [own] = places;
       const permissions = attemptPermissions(
         found.brewer,
-        repository.tools,
+        'worktree' in target && own !== undefined ? own.repository.tools : [],
         setup.sandbox,
         setup.configDirs,
         setup.brewerEnv.base,

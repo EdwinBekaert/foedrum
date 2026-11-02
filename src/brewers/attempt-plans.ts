@@ -21,7 +21,7 @@ import {
   type StepChecks,
 } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
-import { afterOverrun, ranIn } from '../engine/session-resume.ts';
+import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -261,14 +261,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * it. A base the clone has no ref of is fetched once, through its worktree manager; one that still
    * cannot be read is carried with why, which blocks only a plan that names its repository.
    */
-  const planRepositories = async (worktree: {
-    repo: string;
-    commit: string;
-  }): Promise<PlanRepository[]> =>
+  const planRepositories = async (
+    worktree: { repo: string; commit: string } | undefined,
+  ): Promise<PlanRepository[]> =>
     Promise.all(
       (options.repositories ?? []).map(async ({ repo, base }): Promise<PlanRepository> => {
         const clone = options.clone(repo);
-        if (sameRepo(repo, worktree.repo)) return { repo, clone, commit: worktree.commit };
+        if (worktree !== undefined && sameRepo(repo, worktree.repo)) {
+          return { repo, clone, commit: worktree.commit };
+        }
         const read = gitIn(repo, `the base ${base} of ${repo} was not read`);
         const resolve = async () =>
           (await read(['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
@@ -503,7 +504,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     batch: Batch,
     ref: AttemptRef,
     found: StepBrewer,
-    worktree: WorktreeRef,
+    worktree: WorktreeRef | { path: string },
   ): Promise<{
     inputs: PromptInput[];
     houseYeast?: HouseYeastSelection;
@@ -512,7 +513,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   }> => {
     const recipe = batch.recipe?.name ?? '';
     const stepBrewer = (id: string) => brewers.find(recipe, id);
-    const repositories = { repositories: options.repositories ?? [], own: worktree.repo };
+    // A Brewery order's folder of checkouts is no repository's (ADR 0301).
+    const own = 'repo' in worktree ? worktree : undefined;
+    const repositories = { repositories: options.repositories ?? [], own: own?.repo };
     // A sub-order's plan entry, read from its parent's recorded plan when its brewer asks (ADR 0290).
     const asks = found.brewer.inputs.some(({ from }) => from === 'plan-entry');
     const entry = asks && batch.plan !== undefined ? planEntryText(state(), batch.plan) : undefined;
@@ -538,22 +541,22 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
     // A Finer simplifies the change, so it reads it as a Taster of a diff does (ADR 0166).
     const merged = mergedBase(state(), batch.id);
-    const start = merged ?? changeStart(batch, worktree.repo);
+    const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
     const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
     const since = diffLens || found.brewer.output.schema === FINING ? start : undefined;
     let laterRound: LaterRound | undefined;
-    if (since !== undefined) {
+    if (since !== undefined && own !== undefined) {
       // The regression tests the batch's steps named, for the test-design lens (ADR 0170).
       const regression = [...batch.steps.keys()].flatMap((step) => {
         const names = stepTests(batch, step)?.regressionTests ?? [];
         return names.length === 0 ? [] : [{ step, names }];
       });
-      inputs.push(await changeFor(worktree.repo, since, worktree.commit, regression));
+      inputs.push(await changeFor(own.repo, since, own.commit, regression));
       // A later round of a lens step reviews the change since the round before (ADR 0190).
       if (diffLens) {
-        const round = await roundFor(batch, ref, worktree, merged);
+        const round = await roundFor(batch, ref, own, merged);
         if (round.input !== undefined) inputs.push(round.input);
         laterRound = round.laterRound;
       }
@@ -565,8 +568,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;
     const rules =
-      found.brewer.houseYeast && houseYeast !== undefined
-        ? await houseYeastFor(worktree.repo, start, worktree.commit, stepLenses, houseYeast)
+      found.brewer.houseYeast && houseYeast !== undefined && own !== undefined
+        ? await houseYeastFor(own.repo, start, own.commit, stepLenses, houseYeast)
         : undefined;
     if (rules !== undefined) inputs.push(...rules.inputs);
     const answers = answersOf(batch, ref.stepId);
@@ -602,15 +605,24 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const { batchId, stepId, attempt } = ref;
       const batch = state().batches.get(batchId);
       const ranIn = worktreeOf(batch, ref);
-      if (batch === undefined || ranIn === undefined) {
-        throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
-      }
-      const { worktree, madeBy } = ranIn;
       const started = startedOf(batch, ref);
       const session = started?.session;
+      // A Brewery order's read-only attempt runs in its folder of checkouts, of every repository
+      // and of none its own (ADR 0301).
+      const step = batch?.steps.get(stepId);
+      const inFolder =
+        ranIn === undefined &&
+        step !== undefined &&
+        session !== undefined &&
+        checkoutsOf(step, session.id) !== undefined;
+      if (batch === undefined || (ranIn === undefined && !inFolder)) {
+        throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no worktree`);
+      }
       if (session === undefined) {
         throw new Error(`attempt ${stepId}#${attempt} of batch ${batchId} has no session`);
       }
+      const own = ranIn?.worktree;
+      const worktree = own ?? { path: session.worktree };
       const recipe = batch.recipe?.name ?? '';
       const found = brewers.find(recipe, stepId);
       if (found === undefined) throw new Error(`recipe ${recipe} has no step ${stepId}`);
@@ -656,7 +668,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         worktree: worktree.path,
         inputs,
         models: options.models,
-        repoTools: options.repoTools(worktree.repo),
+        repoTools: own === undefined ? [] : options.repoTools(own.repo),
         sandbox: options.sandbox,
         ...(options.configDirs === undefined ? {} : { configDirs: options.configDirs }),
         settingsFile,
@@ -676,7 +688,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       // resumed one too, since the driver may have added its worktree again. Not for a brewer
       // that cannot run a command, such as a read-only Taster: it could not use them (ADR 0163).
       const shell = plan.permissions.allow.some((rule) => shellTools.has(parseRule(rule).tool));
-      const setup = shell ? options.repoSetup?.(worktree.repo) : undefined;
+      const setup = shell && own !== undefined ? options.repoSetup?.(own.repo) : undefined;
       const prepared =
         setup === undefined || started === undefined
           ? plan
@@ -690,13 +702,18 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
             };
       const checked =
         found.brewer.output.schema === PLAN
-          ? { ...prepared, touches: await planRepositories(worktree) }
+          ? { ...prepared, touches: await planRepositories(own) }
           : prepared;
       if (found.brewer.produces !== 'commits') return checked;
       // Its commits are counted on its branch in the clone, built from the attempt that made the
       // worktree as the worktree's is, never from the recorded branch or the worktree's own git
       // files (ADR 0037, ADR 0117).
-      const commits = { clone: options.clone(worktree.repo), branch: attemptBranch(madeBy) };
+      if (own === undefined || ranIn === undefined) {
+        throw new Error(
+          `attempt ${stepId}#${attempt} of batch ${batchId} commits in no repository`,
+        );
+      }
+      const commits = { clone: options.clone(own.repo), branch: attemptBranch(ranIn.madeBy) };
       return { ...checked, commits };
     },
     limits: (ref) => {

@@ -5,8 +5,10 @@
 // ones, and applies a batch's effects only while it holds the batch's lease (ADR 0033).
 
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 import { messageOf } from '../platform/errors.ts';
-import { ClaudeReport, Receipt, type SessionRef } from '../schemas/events.ts';
+import { type CheckoutRef, ClaudeReport, Receipt, type SessionRef } from '../schemas/events.ts';
+import { checkoutName, type Target } from '../workspace/attempt-worktrees.ts';
 import type {
   AttemptWorktree,
   AttemptWorktrees,
@@ -34,7 +36,7 @@ import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from '.
 import { type Batch, runningAttempt, type State } from './fold.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
-import { afterOverrun, resumeOf } from './session-resume.ts';
+import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
 import { createSupervisor, type Notice } from './supervisor-loop.ts';
@@ -230,10 +232,7 @@ export const repositoryOf = <R extends { readonly repo: string }>(
   batchId: string,
   repositories: readonly R[],
 ): R => {
-  const batch = state.batches.get(batchId);
-  // A Brewery issue that is a sub-order writes in its repository, with a parent batch or not.
-  const repo =
-    batch?.repo ?? (batch === undefined ? undefined : state.subOrders.get(batch.issue)?.repo);
+  const repo = ownRepoOf(state, batchId);
   if (repo === undefined) {
     const [only] = repositories;
     if (only !== undefined && repositories.length === 1) return only;
@@ -246,6 +245,16 @@ export const repositoryOf = <R extends { readonly repo: string }>(
     throw new Error(`batch ${batchId} writes in ${repo}, which the Brewery does not list`);
   }
   return found;
+};
+
+/**
+ * The repository of `batchId`'s own: a claimed issue's or a sub-order's; undefined for a Brewery
+ * order, which has none (ADR 0063, ADR 0301).
+ */
+const ownRepoOf = (state: State, batchId: string): string | undefined => {
+  const batch = state.batches.get(batchId);
+  // A Brewery issue that is a sub-order writes in its repository, with a parent batch or not.
+  return batch?.repo ?? (batch === undefined ? undefined : state.subOrders.get(batch.issue)?.repo);
 };
 
 /** How much of a rejected run's message its summary keeps: the runner may quote what it read. */
@@ -356,6 +365,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     brews = () => true,
     family = () => undefined,
     resumes = () => false,
+    reads = () => false,
     zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     sessionId = randomUUID,
     drivesOn = () => true,
@@ -572,6 +582,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       return true;
     });
     if (!leased) return false;
+    if (inCheckouts(log.state(), ref.batchId)) return startInCheckouts(ref, key, started);
     let repository: RepositoryWorktrees;
     let made: AttemptWorktree;
     let fallback: string | undefined;
@@ -580,7 +591,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       repository = repositoryOf(state, ref.batchId, worktrees);
       const batch = state.batches.get(ref.batchId);
       if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
-      const resumed = await resumption(repository, batch, ref);
+      const { recreate } = repository.manager;
+      const resumed = await resumption(batch, ref, (found) =>
+        recreate === undefined || !('worktree' in found)
+          ? undefined
+          : async () => {
+              const { commit } = found.worktree;
+              return { path: (await recreate(found.from, commit)).path, start: commit };
+            },
+      );
       if (resumed.kind === 'resumed') {
         // In the worktree of the session it continues, with none of its own (ADR 0029).
         const event = { ...started, session: resumed.session };
@@ -590,7 +609,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         }
         // A routed fix's merge, kept in that worktree or made again in one recreated without it
         // (ADR 0244).
-        if (!routedMerge(batch, ref)) return true;
+        if (!routedMerge(batch, ref) || resumed.start === undefined) return true;
         const { worktree: path } = resumed.session;
         return mergeBase(ref, key, repository, { path, commit: resumed.start });
       }
@@ -628,6 +647,97 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       return false;
     }
     return mergeBase(ref, key, repository, made);
+  };
+
+  /**
+   * Whether an attempt of `batchId` runs in checkouts of every repository instead of a worktree: a
+   * Brewery order, with no repository of its own, in a Brewery of several (ADR 0301).
+   */
+  const inCheckouts = (state: State, batchId: string): boolean =>
+    worktrees.length > 1 && ownRepoOf(state, batchId) === undefined;
+
+  /**
+   * Makes a checkout of every repository for attempt `ref`, each at what `at` gives it, in one
+   * folder (ADR 0301): that folder and what to record of each.
+   */
+  const checkOut = async (
+    ref: AttemptRef,
+    at: (repository: RepositoryWorktrees) => Target,
+  ): Promise<{ folder: string; checkouts: CheckoutRef[] }> => {
+    const checkouts: CheckoutRef[] = [];
+    for (const repository of worktrees) {
+      const { repo, alias, manager } = repository;
+      if (manager.checkout === undefined) throw new Error(`${repo} cannot be checked out here`);
+      const made = await manager.checkout(ref, checkoutName(repo, alias), at(repository));
+      checkouts.push({ repo, path: made.path, commit: made.commit });
+    }
+    const [first] = checkouts;
+    if (first === undefined) throw new Error('the Brewery lists no repository');
+    return { folder: dirname(first.path), checkouts };
+  };
+
+  /**
+   * Starts an attempt of a Brewery order in a Brewery of several repositories (ADR 0301): a
+   * read-only one in a folder with a checkout of each at its base, or in the folder of the session
+   * it continues, made again at the recorded commits. Any other attempt fails for good: such an
+   * order only plans.
+   */
+  const startInCheckouts = async (
+    ref: AttemptRef,
+    key: string,
+    started: Extract<RecordedEvent, { type: 'step.started' }>,
+  ): Promise<boolean> => {
+    const fail = (ending: Ending): false => {
+      if (recordStart(started)) issue({ kind: 'finish', ...ref, ending });
+      releaseAttempt(key);
+      return false;
+    };
+    if (!reads(ref)) {
+      const reason = `step ${ref.stepId} writes, and a Brewery order in a Brewery of ${worktrees.length} repositories only plans: label it recipe:mash, or file it in its repository with the intake label`;
+      return fail({ kind: 'failed', retryable: false, reason });
+    }
+    let fallback: string | undefined;
+    let made: { folder: string; checkouts: CheckoutRef[] };
+    try {
+      const batch = log.state().batches.get(ref.batchId);
+      if (batch === undefined) throw new Error(`no batch ${ref.batchId}`);
+      const resumed = await resumption(batch, ref, (found) =>
+        'checkouts' in found
+          ? async () => {
+              const back = await checkOut(found.from, ({ repo }) => {
+                const recorded = found.checkouts.find((each) => sameRepo(each.repo, repo));
+                if (recorded === undefined) throw new Error(`no checkout of ${repo} was recorded`);
+                return { kind: 'resume', commit: recorded.commit };
+              });
+              return { path: back.folder };
+            }
+          : undefined,
+      );
+      if (resumed.kind === 'resumed') {
+        if (recordStart({ ...started, session: resumed.session })) return true;
+        releaseAttempt(key);
+        return false;
+      }
+      fallback = resumed.fallback;
+      // A fresh start would run out of the same budget: the retry ends here (ADR 0175).
+      if (afterOverrun(batch, ref)) {
+        const why = fallback ?? `${ref.stepId}#${ref.attempt - 1} has no session to resume`;
+        const reason = `the turn budget ran out, and its session cannot be resumed: ${why}`;
+        return fail({ kind: 'failed', retryable: false, reason });
+      }
+      made = await checkOut(ref, ({ base }) => ({ kind: 'new', base }));
+    } catch (error) {
+      const reason = `the attempt could not get its checkouts: ${messageOf(error)}`;
+      return fail({ kind: 'failed', retryable: true, reason });
+    }
+    const session = {
+      id: sessionId(),
+      worktree: made.folder,
+      ...(fallback === undefined ? {} : { fallback }),
+    };
+    if (recordStart({ ...started, session, checkouts: made.checkouts })) return true;
+    releaseAttempt(key);
+    return false;
   };
 
   /**
@@ -710,11 +820,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
    * waits for the lease of the attempt before it anyway (ADR 0055).
    */
   const resumption = async (
-    repository: RepositoryWorktrees,
     batch: Batch,
     ref: AttemptRef,
+    back: (
+      found: Extract<Resumption, { kind: 'resume' }>,
+    ) => (() => Promise<{ path: string; start?: string }>) | undefined,
   ): Promise<
-    { kind: 'resumed'; session: SessionRef; start: string } | { kind: 'fresh'; fallback?: string }
+    { kind: 'resumed'; session: SessionRef; start?: string } | { kind: 'fresh'; fallback?: string }
   > => {
     // After a turn overrun whatever the brewer's retryMode: a fresh start would meet the same
     // budget (ADR 0175).
@@ -724,14 +836,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     if (found.kind === 'fresh') return { kind: 'fresh', fallback: found.why };
     const { from, session } = found;
     const name = `${from.stepId}#${from.attempt}`;
-    const { manager } = repository;
-    if (manager.recreate === undefined) {
+    const giveBack = back(found);
+    if (giveBack === undefined) {
       return { kind: 'fresh', fallback: `the worktree of ${name} cannot be recreated here` };
     }
     try {
-      const back = await manager.recreate(from, found.worktree.commit);
-      const resumedIn = { id: session, resumes: session, worktree: back.path };
-      return { kind: 'resumed', session: resumedIn, start: found.worktree.commit };
+      const { path, start } = await giveBack();
+      const resumedIn = { id: session, resumes: session, worktree: path };
+      return { kind: 'resumed', session: resumedIn, ...(start === undefined ? {} : { start }) };
     } catch (error) {
       const why = `the worktree of ${name} could not be recreated: ${messageOf(error)}`;
       return { kind: 'fresh', fallback: why };
@@ -745,6 +857,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   const limitsOf = (ref: AttemptRef): AttemptLimits => {
     const given = limits(ref);
     if (!brews(ref) || worktrees.length === 0) return given;
+    // A Brewery order's checkouts are made again by every repository's manager (ADR 0301).
+    if (inCheckouts(log.state(), ref.batchId)) {
+      const all = worktrees.every(({ manager }) => manager.checkout !== undefined);
+      return all ? { ...given, resumable: true } : given;
+    }
     const { manager } = repositoryOf(log.state(), ref.batchId, worktrees);
     return manager.recreate === undefined ? given : { ...given, resumable: true };
   };

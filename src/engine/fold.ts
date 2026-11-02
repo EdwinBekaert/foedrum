@@ -3,6 +3,7 @@
 
 import type {
   Answer,
+  CheckoutRef,
   ClaudeReport,
   CoverageListing,
   Dependency,
@@ -84,6 +85,8 @@ export type Attempt =
       chosen?: Chosen;
       session?: SessionRef;
       worktree?: WorktreeRef;
+      /** A Brewery order's read-only attempt's, in place of a worktree (ADR 0301). */
+      checkouts?: readonly CheckoutRef[];
       /** An interactive step's: when its session opened, a person's wait (ADR 0222). */
       interactiveSince?: string;
       abandoned?: true;
@@ -103,6 +106,8 @@ export type Attempt =
       chosen?: Chosen;
       session?: SessionRef;
       worktree?: WorktreeRef;
+      /** A Brewery order's read-only attempt's, in place of a worktree (ADR 0301). */
+      checkouts?: readonly CheckoutRef[];
       /** An interactive step's: when its session opened (ADR 0222), kept from its start. */
       interactiveSince?: string;
       outcome: StepOutcome;
@@ -654,6 +659,7 @@ function apply(state: State, event: Event): State {
           phase: 'started',
           ...(event.session === undefined ? {} : { session: event.session }),
           ...(event.worktree === undefined ? {} : { worktree: event.worktree }),
+          ...(event.checkouts === undefined ? {} : { checkouts: event.checkouts }),
           ...(event.interactiveSince === undefined
             ? {}
             : { interactiveSince: event.interactiveSince }),

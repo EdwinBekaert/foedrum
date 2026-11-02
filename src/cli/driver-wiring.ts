@@ -162,7 +162,7 @@ export const wireDriver = async (
   const fetches = new Map<string, () => Promise<void>>();
   const pushes: PullRequestRepository[] = [];
   for (const repository of setup.repositories) {
-    const { repo, base } = repository;
+    const { repo, base, alias } = repository;
     const manager = await shell.worktrees(repository);
     fetches.set(repo.toLowerCase(), () => manager.fetch());
     // The pull request goes into the branch the attempts start from (ADR 0071).
@@ -170,7 +170,7 @@ export const wireDriver = async (
     const push = shell.push(repository);
     // The last check before the pull request merges that branch as the push fetches it (ADR 0164).
     const merge = { base: into, push, worktree: shell.merge(repository) };
-    worktrees.push({ repo, base, manager, merge });
+    worktrees.push({ repo, base, ...(alias === undefined ? {} : { alias }), manager, merge });
     // The test map is a sensitive path where the repository keeps it (ADR 0274).
     const sensitivePaths = sensitivePathsOf({
       ...repository,
@@ -460,6 +460,14 @@ export const wireDriver = async (
     worktrees,
     // A check step runs no claude, so it has no session (ADR 0116).
     brews: (ref) => !isCheck(ref),
+    // A brewer that only reads plans a Brewery order in a checkout of every repository, in the
+    // recipe its attempt was scheduled under (ADR 0301).
+    reads: ({ batchId, stepId, attempt }) => {
+      const batch = state().batches.get(batchId);
+      const scheduled = batch?.steps.get(stepId)?.attempts.get(attempt)?.recipe;
+      const recipe = scheduled ?? batch?.recipe?.name ?? '';
+      return setup.brewers.find(recipe, stepId)?.brewer.access === 'read';
+    },
     // The family of the model the brewer runs on, a blind-tasting swap included, says which
     // closed usage window holds it (ADR 0215).
     family: ({ batchId, stepId }) => {

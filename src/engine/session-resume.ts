@@ -2,7 +2,7 @@
 // attempt before it, when claude started it and an attempt of it has a worktree to run in again.
 // Pure: the driver recreates the worktree and records the start.
 
-import type { WorktreeRef } from '../schemas/events.ts';
+import type { CheckoutRef, WorktreeRef } from '../schemas/events.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import { type Attempt, attemptBefore, type Batch, type Step } from './fold.ts';
 
@@ -15,6 +15,13 @@ export type Resumption =
       /** The attempt that made the worktree the session ran in, and that worktree. */
       from: AttemptRef;
       worktree: WorktreeRef;
+    }
+  | {
+      kind: 'resume';
+      session: string;
+      /** The attempt that made the checkouts of a Brewery order the session ran in (ADR 0301). */
+      from: AttemptRef;
+      checkouts: readonly CheckoutRef[];
     }
   | { kind: 'fresh'; why: string };
 
@@ -31,6 +38,19 @@ export function worktreeOf(
     if (attempt.phase === 'scheduled' || attempt.session?.id !== id) continue;
     const { worktree } = attempt;
     if (worktree !== undefined) return { attempt: attempt.attempt, worktree };
+  }
+  return undefined;
+}
+
+/** The attempt of `step` that made the checkouts session `id` runs in, and those (ADR 0301). */
+export function checkoutsOf(
+  step: Step,
+  id: string,
+): { attempt: number; checkouts: readonly CheckoutRef[] } | undefined {
+  for (const attempt of step.attempts.values()) {
+    if (attempt.phase === 'scheduled' || attempt.session?.id !== id) continue;
+    const { checkouts } = attempt;
+    if (checkouts !== undefined) return { attempt: attempt.attempt, checkouts };
   }
   return undefined;
 }
@@ -109,7 +129,13 @@ export function resumeOf(batch: Batch, ref: AttemptRef): Resumption | undefined 
   }
   const made = worktreeOf(step, session.id);
   if (made === undefined) {
-    return { kind: 'fresh', why: `no attempt of session ${session.id} has a worktree` };
+    // A Brewery order's read-only session ran in checkouts of every repository (ADR 0301).
+    const checked = checkoutsOf(step, session.id);
+    if (checked === undefined) {
+      return { kind: 'fresh', why: `no attempt of session ${session.id} has a worktree` };
+    }
+    const from = { batchId: ref.batchId, stepId: ref.stepId, attempt: checked.attempt };
+    return { kind: 'resume', session: session.id, from, checkouts: checked.checkouts };
   }
   const from = { batchId: ref.batchId, stepId: ref.stepId, attempt: made.attempt };
   return { kind: 'resume', session: session.id, from, worktree: made.worktree };

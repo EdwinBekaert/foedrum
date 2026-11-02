@@ -66,6 +66,8 @@ export interface ServeInputs {
 /** A target repository the attempts write in. */
 export interface ServeRepository {
   repo: string;
+  /** Its alias, which names its checkout in a Brewery order's folder (ADR 0301). */
+  alias?: string;
   source: RepositorySource;
   /** The revision new attempt worktrees start at: `origin/<base>`. */
   base: string;
@@ -323,6 +325,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
       }
       return {
         repo,
+        ...(repository.alias === undefined ? {} : { alias: repository.alias }),
         source,
         base: `origin/${repository.base ?? DEFAULT_BASE}`,
         ...(clone === undefined ? {} : { clone }),

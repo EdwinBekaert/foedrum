@@ -396,6 +396,33 @@
           ],
           "additionalProperties": false
         },
+        "checkouts": {
+          "minItems": 2,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "repo": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*\\/(?!\\.\\.?$)[\\w.][\\w.-]*$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            },
+            "required": [
+              "repo",
+              "path",
+              "commit"
+            ],
+            "additionalProperties": false
+          }
+        },
         "interactiveSince": {
           "type": "string",
           "format": "date-time",
