@@ -146,8 +146,27 @@ describe('the covering test files of mutated lines, from V8 coverage files', () 
       assert.deepEqual(await main([tree, coverage, location]), {
         exitCode: 1,
         stdout: [],
-        stderr: [`mutant-coverage: ${location} is not a line of a source file of the tree`],
+        stderr: [`mutant-coverage: "${location}" is not a line of a source file of the tree`],
       });
     }
+  });
+
+  it('refuses a mutated file whose name the list cannot carry, quoted', async () => {
+    const separator = String.fromCodePoint(0x2028);
+    write(`src/a${separator}b.ts`, A);
+    assert.deepEqual(await main([tree, coverage, `src/a${separator}b.ts:2`]), {
+      exitCode: 1,
+      stdout: [],
+      stderr: [String.raw`mutant-coverage: "src/a\u2028b.ts:2" names a file the list cannot carry`],
+    });
+  });
+
+  it('a coverage record with a file URL it cannot read falls back', async () => {
+    record('coverage-1-1-0.json', 'test/unit/c.test.ts');
+    const result = [{ scriptId: '1', url: 'file:///a%2Fb.ts', functions: [] }];
+    writeFileSync(join(coverage, 'coverage-2-1-0.json'), JSON.stringify({ result }));
+    assert.deepEqual((await main([tree, coverage, 'src/a.ts:2'])).stdout, [
+      'fallback: cannot read "coverage-2-1-0.json": not V8 coverage',
+    ]);
   });
 });
