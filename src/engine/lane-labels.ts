@@ -12,7 +12,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch } from './fold.ts';
 import { same } from './issue-claims.ts';
-import { type SubOrderRow, subOrderRows } from './order-end.ts';
+import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 
 /** The labels of the lanes, in the order a batch moves through them. */
 export const laneLabels = LaneLabelName.options;
@@ -28,13 +28,13 @@ export interface LaneLabelHost extends Pick<IssueMarks, 'labels' | 'addLabel' | 
 
 /**
  * The label of `batch`'s lane: the person's action while it waits on them (ADR 0316). None for a
- * cancelled batch, nor for one on tap that waits on nobody: its pull requests ended, or it has
- * none and no approved plan.
+ * cancelled batch, nor for one on tap that waits on nobody: its pull requests ended, its order's
+ * sub-orders all merged, or it has none and no approved plan.
  */
 export const laneLabel = (
   batch: Batch,
   /** Its order's sub-orders, in merge order, once it is split (ADR 0293). */
-  _subOrders: readonly SubOrderRow[] = [],
+  subOrders: readonly SubOrderRow[] = [],
 ): LaneLabelName | undefined => {
   const { lane } = batch;
   switch (lane.kind) {
@@ -57,8 +57,10 @@ export const laneLabel = (
       if (lane.pullRequests.some((url) => batch.pullRequestEnds?.[url] === undefined)) {
         return 'foedrum:awaiting-merge';
       }
-      // A plan a person approved: its sub-orders brew (ADR 0281, ADR 0285).
-      return lane.pullRequests.length === 0 && batch.approval !== undefined
+      // A plan a person approved: its sub-orders brew until every one merged (ADR 0281, ADR 0293).
+      return lane.pullRequests.length === 0 &&
+        batch.approval !== undefined &&
+        orderEnd(subOrders)?.kind !== 'done'
         ? 'foedrum:sub-orders'
         : undefined;
     }

@@ -143,6 +143,9 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
 export const planNextStep = (batchId: string, command: (text: string) => string): string =>
   `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, correct it in a session with ${command(`foedrum lauter ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}.`;
 
+/** The options of a plan's review that `planNextStep` names. */
+const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry', 'cancel']);
+
 /** `rounds` rounds of a findings route, in words. */
 export const roundsText = (rounds: number): string =>
   `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`;
@@ -592,8 +595,14 @@ const nextLines = (
       `get it moving with ${shown.map(code).join(', ')}`;
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
-      case 'plan_review':
-        return [`Next: ${planNextStep(batch.id, code)}`];
+      case 'plan_review': {
+        const others = options.filter((option) => !planCommands.has(option));
+        const also =
+          others.length === 0
+            ? ''
+            : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map(code).join(', ')}.`;
+        return [`Next: ${planNextStep(batch.id, code)}${also}`];
+      }
       case 'needs_input': {
         const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
         const others = options.filter((option) => option !== 'answer');
