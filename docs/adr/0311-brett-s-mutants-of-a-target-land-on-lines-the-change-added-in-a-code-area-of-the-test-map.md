@@ -1,0 +1,30 @@
+# 0311. Brett's mutants of a target land on lines the change added, in a code area of the test map
+
+Date: 2026-11-03 · Status: Accepted · Amends [0034](0034-brett-mutants-as-structured-line-edits.md) (where a target's mutant may land, and the word rule in any language) and [0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) (`src/` and `scripts/` stay the rule of Foedrum's own reviews only)
+
+## Context
+[ADR 0034](0034-brett-mutants-as-structured-line-edits.md) gives a mutant's shape, `{ file, line, original, replacement, description }`, and its validity: a file under `src/`, a line whose text is `original`, and a replacement that adds no identifier or string.
+[ADR 0040](0040-brett-covers-scripts-and-kills-need-a-failing-test.md) widened the folders to `src/` and `scripts/`.
+Both were written for this repository's review tooling (`scripts/mutants/core.ts`), and ADR 0034 said the engine's Brett would get a zod schema in `src/schemas/` that the checker then uses.
+A target repository has no `src/` rule: its code may live anywhere, in any language, beside its tests, data and configuration.
+What a batch's change touched, and where a repository's code is, the engine already knows: the diff's added lines (`parseDiff`'s `addedAt`) and the effective test map's code areas ([ADR 0274](0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)), which the red proof and the uncovered-line check read.
+The word rule strips `//` and `/* */` comments, which are JavaScript's; in Python or Ruby a `#` would not be stripped, and a `//` in a string-free line of another language may be an operator.
+
+## Decision
+- **The `mutants` out doc.** A brewer whose `output.schema` is `mutants` writes `mutants`, a list of at most 5 `MutantEdit`s (`file`, `line`, `original`, `replacement`, `description`, each bounded), in `src/schemas/out-doc.ts`; an out doc with more is invalid, and the brewer is told so. A `done` with none is valid: there was nothing worth mutating, which its body says. The schema is the one source of the shape: the review tooling's `Mutant` is its type too.
+- **A target's mutant lands on a line the change added, in a code area of the effective test map.** `mutantCheck` in `src/checks/mutants.ts` checks one mutant against the batch's change, in this order, each with its reason: a plain relative path; a path in a code area of the effective map; a file the change added a line to; the line whose trimmed text is `original` (at `line`, else the only such line, as ADR 0034); that line among the change's added lines; then the replacement rule. So a mutant never lands in a test, data or configuration file, nor in code the change did not touch.
+- **The replacement rule is language-neutral.** One line, more than whitespace changed, and no word or quoted string the original lacks. `//` and `/* */` comments are stripped only for the JavaScript, TypeScript and C-family extensions (`.js`, `.ts`, `.c`, `.cpp`, `.cs`, `.java`, `.go`, `.rs`, `.kt`, `.swift`, `.scala`, `.dart` and their variants); elsewhere a comment counts as the line's text.
+- **Foedrum's own reviews keep their rule.** `scripts/mutants/core.ts` keeps its `src/`/`scripts/` folders and its touched-file rule, and imports the replacement rule and the line edit from `src/checks/mutants.ts`, so the two never drift. That file imports nothing at run time, and the review skill copies it from the base beside `core.ts`, as it copies `src/platform/paths.ts`.
+- **A default `brett` brewer.** `defaults/brewers/brett.md`: read-only (`access: read`, `produces: report`, its edit tool for `mutants.md` only), on the `builder` alias, given the change as a Finer is ([ADR 0166](0166-the-finer-simplifies-a-batch-s-change-before-green.md)), the order, and a sub-order's plan entry and release. No default recipe runs it yet.
+
+## Consequences
+- A target's mutant comes back as an exact line edit, or with a reason a person can read (`line 4 of calc/rates.py is not a line the change added`, `"tests/test_rates.py" is in no code area of the test map`, `the replacement adds or, debug`).
+- In a language whose comments are not stripped, a mutant may turn commented-out code on: its words are the original line's. The line is one the batch's change added, and a mutant runs only in a scratch tree and is never committed, so what it can turn on is code the change itself wrote in a comment.
+- A mutant of a module whose tests are inline (in its code area) may land on a test line the change added; the test map does not tell them apart.
+- A Brewery can name `brett` in a recipe step and get a checked list of mutants in its out doc; nothing runs them yet. Running them in scratch trees is #798, and showing survivors in the pull request, with `blocking`, is #799.
+
+## Alternatives considered
+- **Keep ADR 0034's folder rule for targets (`src/` only).** Many repositories have no `src/`, and a `src/` may hold tests or generated files; the test map is where the engine already reads a repository's code.
+- **Any line of a code file, not only added ones.** A mutant of code the change did not touch says nothing about the change's tests, and the base's own tests already ran on that code.
+- **Strip comments by a table of every language's markers.** A wrong marker strips code (`#` is not a comment in C, `--` is an operator in C), and an unknown language would still need a default; the common languages Brett is likely to meet get the strip, the rest the text as it is.
+- **A copy of the rules in `scripts/mutants/core.ts`.** It is what `isPlainPath` is for the citation checker; here the review copies the shared file from the base too, so one copy is enough, and two would drift.
