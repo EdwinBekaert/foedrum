@@ -27,7 +27,7 @@ import {
   statusEffects,
 } from '../../src/engine/status-comment.ts';
 import { expiredLeaseReason, lostReason } from '../../src/engine/supervisor.ts';
-import type { StuckReason } from '../../src/schemas/events.ts';
+import type { GravityReading, StuckReason } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -617,20 +617,30 @@ describe('renderStatus', () => {
   });
 
   it("a failed check step's Path clause gives its failing count", () => {
-    const reading = {
+    const reading: GravityReading = {
       result: 'exited',
       check: 'test',
       command: 'npm test',
       exitCode: 1,
       tail: '',
       failing: { tests: ['adds', 'prints usage', 'reads a file'], more: 2 },
-    } as const;
+    };
     const reason =
       'the check "test" (npm test) failed with exit code 1: 5 tests failing: adds, prints usage, reads a file, …';
     const text = renderStatus(
       batch({
         steps: new Map([
-          step('green', { ...failed(1, reason), readings: [reading] }, running(2)),
+          step(
+            'green',
+            {
+              phase: 'finished',
+              attempt: 1,
+              deadlineAt: at,
+              outcome: { kind: 'failed', retryable: false, reason },
+              readings: [reading],
+            },
+            running(2),
+          ),
         ]),
         path: [
           { stepId: 'green', attempt: 1 },
@@ -646,19 +656,29 @@ describe('renderStatus', () => {
   });
 
   it("a failed attempt whose reason is not its readings' keeps its own clause on the path: regression test", () => {
-    const reading = {
+    const reading: GravityReading = {
       result: 'exited',
       check: 'test',
       command: 'npm test',
       exitCode: 1,
       tail: '',
       failing: { tests: ['adds'], more: 0 },
-    } as const;
+    };
     const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
     const text = renderStatus(
       batch({
         steps: new Map([
-          step('green', { ...failed(1, reason), readings: [reading] }, running(2)),
+          step(
+            'green',
+            {
+              phase: 'finished',
+              attempt: 1,
+              deadlineAt: at,
+              outcome: { kind: 'failed', retryable: false, reason },
+              readings: [reading],
+            },
+            running(2),
+          ),
         ]),
         path: [
           { stepId: 'green', attempt: 1 },
