@@ -354,7 +354,7 @@ const openLines = (steps: Steps, told: Told): string[] =>
   );
 
 /**
- * Each blocking Taster's step blocked by its findings that a person's skip went past, and each
+ * Each blocking step, a Taster's or Brett's, blocked by its findings that a person's skip went past, and each
  * finding its round recorded (ADR 0221), which the skip accepted.
  */
 const skippedOpenLines = (steps: Steps, told: Told): string[] =>
