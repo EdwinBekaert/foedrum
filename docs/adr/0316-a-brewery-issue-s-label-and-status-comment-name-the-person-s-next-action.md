@@ -19,13 +19,13 @@ The first real run of M2's exit (2026-11-02, Brewery order #14 and its sub-order
   | Stuck, `needs_input` | `foedrum:awaiting-answer` |
   | Stuck, any other reason | `foedrum:stuck` |
   | On tap, a pull request with no merge or close recorded | `foedrum:awaiting-merge` |
-  | On tap, no pull request, an approved plan | `foedrum:sub-orders` |
-  | On tap otherwise (every pull request ended, or none and no approved plan), Cancelled | none |
+  | On tap, no pull request, an approved plan whose sub-orders have not all merged | `foedrum:sub-orders` |
+  | On tap otherwise (every pull request ended, every sub-order merged, or none and no approved plan), Cancelled | none |
 
   Filtering an issue list by `awaiting-` shows everything that is the person's turn.
 - **`foedrum:on-tap` is retired.** The ledger still parses a revision that left it (`RetiredLaneLabel`, `src/schemas/lane-label.ts`), and every revision takes it off with the lane labels. A batch whose latest revision left it gets no new one while it stays on tap, so an upgrade does not relabel every issue that ended on tap. Its next lane change, such as a pull request sent back to brewing, replaces it.
 - **Every status comment that waits on the person, or hands over, ends its first block with one `Next:` line** (`nextLines`, `src/engine/status-comment.ts`). The first block is the lane line, the sub-order rows, the pause and the usage windows. It comes before everything a cut can drop, so a long comment keeps it:
-  - Stuck for review: `Next:` and what to do with the plan (`planNextStep`), as before, and no separate `Get it moving with …` line, since `planNextStep` names the commands.
+  - Stuck for review: `Next:` and what to do with the plan (`planNextStep`), as before, then ``Its other option: `recipe`.`` for the lane's options it does not name. There is no separate `Get it moving with …` line.
   - Stuck for input: ``Next: answer the questions above with `foedrum answer <batch> <answer 1> …`, or get it moving with `retry`, `cancel`.``
   - Stuck for any other reason: ``Next: get it moving with `retry`, `cancel`.`` This replaces the `Get it moving with …` line, with the same options.
   - On tap with open pull requests: `Next: review and merge <each one not merged or closed>.`
