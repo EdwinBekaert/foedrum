@@ -1,6 +1,6 @@
 # 0312. A Taster on a plan lens step reads the batch's latest plan, and ties each finding to a sub-order
 
-Date: 2026-11-03 · Status: Accepted · Amends [0143](0143-lenses-in-two-folders-diff-and-plan.md) (what a step that reviews a plan reads, and how a house-yeast rule names a plan lens), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the input a lens step's Taster reads besides its lens) and [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (the batch's plan reaches one more kind of step, and its input's source names the plan attempt)
+Date: 2026-11-03 · Status: Accepted · Amends [0143](0143-lenses-in-two-folders-diff-and-plan.md) (what a step that reviews a plan reads, and how a house-yeast rule names a plan lens), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (the input a lens step's Taster reads besides its lens), [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (the batch's plan reaches one more kind of step, and its input's source names the plan attempt) and [0169](0169-house-yeast-rules-reach-a-batch-s-brewers-by-scope-and-lens.md) (a plan lens step reads a repository's rules at the commit its worktree holds, with no file changed)
 
 ## Context
 Since ADR 0143 a lens step with no committing step before it reviews a plan and must name a lens of `lenses/plan/`.
