@@ -13,8 +13,8 @@ import { pathInside, samePath } from '../src/platform/paths.ts';
 import {
   type ChangedFile,
   editFile,
+  type LineEdit,
   type Mutant,
-  type MutantEdit,
   parseMutant,
   sameAnswerLine,
   sameAnswerMutants,
@@ -47,7 +47,7 @@ const realOrUndefined = (path: string): Promise<string | undefined> =>
 const edit = async (
   tree: string,
   mutant: Mutant,
-): Promise<{ ok: false; reason: string } | (MutantEdit & { ok: true; target: string })> => {
+): Promise<{ ok: false; reason: string } | (LineEdit & { ok: true; target: string })> => {
   const [name = ''] = mutant.file.split('/');
   const root = await realpath(tree);
   const folder = await realOrUndefined(join(tree, name));

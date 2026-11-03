@@ -15,13 +15,10 @@ import {
   strings,
 } from '../../src/checks/mutants.ts';
 
-export type { Mutant };
+export type { LineEdit, Mutant };
 export { editFile };
 
 export type MutantCheck = { ok: true; mutant: Mutant } | { ok: false; reason: string };
-
-// `line` is the line the edit replaced, which may differ from the mutant's line number.
-export type MutantEdit = LineEdit;
 
 // The folders whose files a mutant may edit.
 const MUTABLE_FOLDERS = ['src', 'scripts'];
