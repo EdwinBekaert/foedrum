@@ -258,6 +258,35 @@ describe('laneLabelEffects', () => {
     assert.equal(store.findEffect({ batchId: '7-2', effect: 'label.1' }), undefined);
   });
 
+  it('a lane change takes the retired foedrum:on-tap off the issue', async () => {
+    // An older Foedrum left foedrum:on-tap on the issue of a batch on tap, and recorded it.
+    order();
+    brew();
+    finish();
+    store.withTransaction((tx) =>
+      tx.recordEffect({ batchId: '7-1', effect: 'label.1' }, { label: 'foedrum:on-tap' }),
+    );
+    labels.of(brewery, 7).push('foedrum:on-tap');
+    const driver = await open();
+    await driver.tick();
+    // Still on tap: the issue keeps the label it has, and no revision is written on upgrade.
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:on-tap']);
+    assert.equal(revision(2), undefined);
+    store.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.stuck',
+        batchId: '7-1',
+        reason: { kind: 'deadline_passed', stepId: 'plan', deadlineAt: at },
+        options: ['retry', 'cancel'],
+        remindAt: at,
+      }),
+    );
+    await driver.tick();
+    assert.deepEqual(labels.of(brewery, 7), ['foedrum:stuck']);
+    assert.ok(labels.calls.includes('remove foedrum:on-tap'));
+    assert.deepEqual(revision(2), { result: { label: 'foedrum:stuck' } });
+  });
+
   describe('a claimed target issue (ADR 0144)', () => {
     const order = { issue: 3, repo: 'alice/web' };
     /** The ledger records that `batchId` opened the Brewery issue #20 as its order. */
