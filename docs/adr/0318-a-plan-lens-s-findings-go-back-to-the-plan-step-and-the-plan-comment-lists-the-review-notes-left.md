@@ -1,6 +1,6 @@
 # 0318. A plan lens's findings go back to the plan step, and the plan comment lists the review notes left
 
-Date: 2026-11-03 · Status: Accepted · Amends [0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md) (a plan step records dispositions too, and a plan lens's later round reads them as a plan's), [0204](0204-a-dismissal-names-the-evidence-that-shows-it.md) (the evidence a plan's dismissal names), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the plan comment's Review section), [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) and [0312](0312-a-taster-on-a-plan-lens-step-reads-the-batch-s-latest-plan-and-ties-each-finding-to-a-sub-order.md) (one more kind of step gets the plan input it names)
+Date: 2026-11-03 · Status: Accepted · Amends [0191](0191-the-step-a-findings-route-goes-back-to-records-a-disposition-for-each-finding.md) (a plan step records dispositions too, and a plan lens's later round reads them as a plan's), [0204](0204-a-dismissal-names-the-evidence-that-shows-it.md) (the evidence a plan's dismissal names), [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) (the plan comment is also due when a plan lens round ends), [0275](0275-a-finished-plan-waits-stuck-for-its-review-and-every-comment-links-the-doc-it-sums-up.md) (the plan comment's Review section), [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) and [0312](0312-a-taster-on-a-plan-lens-step-reads-the-batch-s-latest-plan-and-ties-each-finding-to-a-sub-order.md) (one more kind of step gets the plan input it names)
 
 ## Context
 Since ADR 0312 a Taster on a plan lens step reviews the batch's latest plan and starts each finding's `why` with the sub-order it is about.
@@ -26,6 +26,7 @@ Decided with the maintainer (2026-11-03): plan lenses taste apart; in `mash` cov
   Each text is one escaped line, left out for a fixed line naming its step when it looks like a secret, a finding's naming the lens step and a why's the plan's.
   **The cut**: ten notes per step, then `` - `naive`: and <n> more ``, as the status comment's findings; past GitHub's length, the comment's whole-block cut is as before (ADR 0275).
   **No round**: "None yet." while no step reviewed the plan; "No findings." when steps did and left no note.
+  The notes are part of the comment's text, so a plan lens round that ends makes a revision of the plan comment due, as a new plan does (ADR 0233).
 
 ## Consequences
 - Once #802 runs plan lenses in `mash`, a person at gate 1 sees what its lenses found and what the Brewmaster did about each, and approves, lauters or retries knowing it.
