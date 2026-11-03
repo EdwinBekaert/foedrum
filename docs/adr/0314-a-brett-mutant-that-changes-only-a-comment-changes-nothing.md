@@ -19,6 +19,7 @@ The word rule already strips `//` and `/* */` comments where they are known, the
 ## Consequences
 - Brett's comment-only edits come back invalid, with a reason a person can read: from `mutantCheck`, which no engine path calls yet (#798 will), and in `/brew-review`'s mutation check, which no longer reports them as survivors to dismiss by hand.
 - A multi-line `/* */` comment is still read line by line: a line inside one that holds no `/*` or `*/` is code to the rule, as it is to the word rule.
+- The rule does not read regular expression literals or template strings that span lines, as the word rule does not: a quote inside one (`/'/.test(s) && t === 'a//b'`) can pair with a later quote and leave a `//` after it read as a comment. A mutant after it is then refused as changing nothing, a lost mutant, never one let through.
 - `mutantCheck`, its verdict and the line edit are unchanged; only the comparison is.
 
 ## Alternatives considered
