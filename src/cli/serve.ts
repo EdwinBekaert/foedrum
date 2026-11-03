@@ -253,6 +253,17 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
   }
   const opened: Opened = { lock };
   let polling: Promise<void> | undefined;
+  // The passes that wait for the next tick to apply the effects of what they ordered (ADR 0316).
+  const waitingForTick: (() => void)[] = [];
+  const settle = (passes: readonly (() => void)[]): void => {
+    for (const each of passes) each();
+  };
+  // Once serve stops, no tick comes: a pass that reaches its wait after that goes on at once.
+  let stopping = false;
+  const ticksStopped = (): void => {
+    stopping = true;
+    settle(waitingForTick.splice(0));
+  };
   let stopRuns: AbortController | undefined;
   let merged: MergedChecks | undefined;
   try {
@@ -307,6 +318,10 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       bases,
       checks: githubCheckReader(reads, client),
       releases: githubReleaseReader(reads, client),
+      // The next tick applies the effects of what the pass ordered, so an issue shows its Ordered
+      // lane before the pass routes its batch: never beside a drive (ADR 0316).
+      ordered: () =>
+        stopping ? Promise.resolve() : new Promise((resolve) => waitingForTick.push(resolve)),
     });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).
     let nextPoll = Number.NEGATIVE_INFINITY;
@@ -341,11 +356,18 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     while (!signal.aborted) {
       poll();
       merged?.poll(runs);
-      await tick(driver, report);
+      // Only a pass that waited before the tick began: its effects run after this tick's drive.
+      const waited = waitingForTick.splice(0);
+      try {
+        await tick(driver, report);
+      } finally {
+        settle(waited);
+      }
       if (signal.aborted) break;
       await wait(intervalMs, signal);
     }
-    // Its deadline bounds the wait.
+    // Its deadline bounds the wait; a pass that waits for a tick gets none.
+    ticksStopped();
     await polling;
     say('stopped');
     return 0;
@@ -361,6 +383,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
     // The run on a merged tree is stopped first; it and the pass underway write to the store until
     // they settle.
     stopRuns?.abort();
+    ticksStopped();
     await polling;
     await merged?.settled();
     // Closing the driver stops its runs and lets the lock go; without one, the lock goes here.
