@@ -3,6 +3,7 @@
 // the planners' repositories input and `foedrum doctor` show. Each ecosystem is one reader in
 // `READERS`; the core knows none of them.
 
+import type { MapRead } from '../checks/test-map.ts';
 import { dotnetManifest } from '../formats/dotnet-manifest.ts';
 import type { DependencyVia, ManifestReader } from '../formats/manifest-reader.ts';
 import { npmManifest } from '../formats/npm-manifest.ts';
@@ -33,6 +34,17 @@ export const mapName = (text: string): string => {
     .trim();
   return line.length > MAX_MAP_NAME_LENGTH ? `${line.slice(0, MAX_MAP_NAME_LENGTH - 1)}…` : line;
 };
+
+/** A test map's module names, or why it could not be read. */
+export type MapModules = readonly string[] | { unread: string };
+
+/** The module names of a test map as it was read: none without one (ADR 0274). */
+export const modulesOf = (read: MapRead | undefined): MapModules =>
+  read?.kind === 'map'
+    ? read.map.modules.map(({ name }) => name)
+    : read?.kind === 'unreadable'
+      ? { unread: read.reason }
+      : [];
 
 /** A manifest as git gave it: its text, or why it could not be read. */
 export type ManifestFile = { path: string } & ({ text: string } | { unread: string });
@@ -66,7 +78,7 @@ const cleanVia = (via: DependencyVia): SystemMapEntry['dependsOn'][number]['via'
  */
 export const entryOf = (
   files: readonly ManifestFile[],
-  modules: readonly string[],
+  modules: MapModules,
   leftFiles = 0,
 ): SystemMapEntry => {
   const manifests: NonNullable<SystemMapEntry['manifests']> = [];
@@ -94,7 +106,11 @@ export const entryOf = (
       if (name !== '' && via !== undefined) dependsOn.push({ name, ecosystem, via });
     }
   }
-  const named = modules.map(mapName).filter((each) => each !== '');
+  if ('unread' in modules) {
+    const reason = mapName(modules.unread);
+    unreadable.push({ path: 'its test map', reason: reason === '' ? 'no reason given' : reason });
+  }
+  const named = ('unread' in modules ? [] : modules).map(mapName).filter((each) => each !== '');
   const lists = [manifests, publishes, dependsOn, named, unreadable];
   const left =
     leftFiles + lists.reduce((sum, list) => sum + Math.max(0, list.length - MAX_MAP_ITEMS), 0);
@@ -111,7 +127,7 @@ export const entryOf = (
 /** Whether git was stopped or timed out: a read that may pass when it is tried again. */
 const cutShort = ({ killed }: GitResult): boolean => killed === 'timed-out' || killed === 'stopped';
 
-const gitWhy = (result: GitResult): string =>
+export const gitWhy = (result: GitResult): string =>
   result.stderr.trim().split('\n').at(-1)?.trim() || `git exited with ${result.code ?? 'no code'}`;
 
 /**

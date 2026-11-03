@@ -19,7 +19,7 @@ import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
-import { entryOf, manifestsAt, mapName } from '../engine/system-map.ts';
+import { entryOf, type MapModules, manifestsAt, mapName, modulesOf } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -321,8 +321,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       try {
         const manifests = await read(at.clone, at.commit);
         if ('again' in manifests) continue;
-        const map = await options.testMapAt?.(at.repo, at.commit);
-        const modules = map?.kind === 'map' ? map.map.modules.map(({ name }) => name) : [];
+        // A test map that cannot be read is a line of the entry, beside the manifests read.
+        let modules: MapModules;
+        try {
+          modules = modulesOf(await options.testMapAt?.(at.repo, at.commit));
+        } catch (error) {
+          modules = { unread: messageOf(error) };
+        }
         entry = entryOf(manifests.files, modules, manifests.left);
       } catch (error) {
         const reason = mapName(messageOf(error)) || 'git failed';

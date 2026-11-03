@@ -4,7 +4,7 @@
 
 import { join } from 'node:path';
 import { breweryMapPath, testMaps } from '../checks/test-map.ts';
-import { entryOf, manifestsAt } from '../engine/system-map.ts';
+import { entryOf, gitWhy, manifestsAt, modulesOf } from '../engine/system-map.ts';
 import { messageOf } from '../platform/errors.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
@@ -60,22 +60,23 @@ export const readDoctorMap = async (sources: DoctorMapSources): Promise<DoctorMa
       if (clone === undefined || !exists(clone)) {
         return { ...named, read: { unread: 'it has no clone here yet' } };
       }
-      const resolved = await git(
-        clone,
-        ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`],
-        {
-          timeoutMs: 10_000,
-        },
-      );
-      const commit = resolved.stdout.trim();
-      if (resolved.code !== 0 || commit === '') {
-        return { ...named, read: { unread: `its clone has no ${base}` } };
-      }
       try {
+        const args = ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`];
+        const resolved = await git(clone, args, { timeoutMs: 10_000 });
+        const commit = resolved.stdout.trim();
+        // A base git was stopped on is not said to be missing.
+        if (resolved.killed !== undefined) {
+          return {
+            ...named,
+            read: { unread: `git could not resolve ${base}: ${gitWhy(resolved)}` },
+          };
+        }
+        if (resolved.code !== 0 || commit === '') {
+          return { ...named, read: { unread: `its clone has no ${base}` } };
+        }
         const manifests = await manifestsAt(git)(clone, commit);
         if ('again' in manifests) return { ...named, read: { unread: manifests.again } };
-        const map = await mapAt(repo, commit);
-        const modules = map.kind === 'map' ? map.map.modules.map(({ name }) => name) : [];
+        const modules = modulesOf(await mapAt(repo, commit));
         const entry = entryOf(manifests.files, modules, manifests.left);
         return { ...named, read: { commit, entry } };
       } catch (error) {
