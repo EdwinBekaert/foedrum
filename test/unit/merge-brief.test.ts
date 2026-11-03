@@ -15,7 +15,7 @@ import { type MergeBriefHost, mergeBriefEffects } from '../../src/engine/merge-b
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
-import type { GravityReading, HeadCheck } from '../../src/schemas/events.ts';
+import type { GravityReading, HeadCheck, MutantRecord } from '../../src/schemas/events.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { PushResult, SensitiveFiles } from '../../src/schemas/store.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -74,6 +74,12 @@ const recipes = fakeRecipes({
     steps: ['implement', 'taste', 'fix', OPEN],
     actions: { [OPEN]: 'openPullRequest' },
     routes: { [OPEN]: { pull_request: 'fix' } },
+    pullRequests: [],
+  }),
+  // A Brett step after the change, advisory (ADR 0319).
+  mutated: fakeRecipe({
+    steps: ['implement', 'mutants', OPEN],
+    actions: { [OPEN]: 'openPullRequest' },
     pullRequests: [],
   }),
   // No Taster at all.
@@ -187,7 +193,11 @@ describe('the merge brief (ADR 0225)', () => {
   const run = (
     stepId: string,
     ending: Ending = done,
-    { readings, commit }: { readings?: GravityReading[]; commit?: string } = {},
+    {
+      readings,
+      commit,
+      mutants,
+    }: { readings?: GravityReading[]; commit?: string; mutants?: MutantRecord[] } = {},
     batchId = 'web-7',
   ): void => {
     const attempts = log.state().batches.get(batchId)?.steps.get(stepId)?.attempts;
@@ -199,7 +209,13 @@ describe('the merge brief (ADR 0225)', () => {
         ? {}
         : { worktree: { repo: 'acme/web', path: `/w/${stepId}`, branch: stepId, commit } };
     accept({ kind: 'record', event: { type: 'step.started', ...ref, ...worktree } });
-    accept({ kind: 'finish', ...ref, ending, ...(readings === undefined ? {} : { readings }) });
+    accept({
+      kind: 'finish',
+      ...ref,
+      ending,
+      ...(readings === undefined ? {} : { readings }),
+      ...(mutants === undefined ? {} : { mutants }),
+    });
   };
   /** The action's scheduled attempt: the push of `round` recorded, and the pull request opened. */
   const open = (round = 1, commit = head, sensitive?: SensitiveFiles, batchId = 'web-7'): void => {
@@ -841,6 +857,38 @@ describe('the merge brief (ADR 0225)', () => {
       nip();
       finished([passed('ci/build')]);
       assert.match(await brief(), /\*\*Risk left\*\*\nNone recorded\./);
+    });
+
+    it("the merge brief's risk left names each survivor", async () => {
+      order('mutated');
+      run('implement');
+      run('mutants', done, {
+        commit: head,
+        mutants: [
+          {
+            file: 'src/clamp.ts',
+            line: 3,
+            description: 'clamp at ten',
+            original: 'return n > 10 ? 10 : n;',
+            replacement: 'return n >= 10 ? 10 : n;',
+            verdict: { kind: 'survived' },
+          },
+          {
+            file: 'src/clamp.ts',
+            line: 2,
+            description: 'clamp at zero',
+            verdict: { kind: 'killed', by: 'clamps big numbers' },
+          },
+        ],
+      });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(
+        body,
+        /\*\*Risk left\*\*\n- `mutants`: survived: src\/clamp\.ts:3: - return n &gt; 10 \? 10 : n; \/ \+ return n &gt;= 10 \? 10 : n;: clamp at ten$/m,
+      );
+      assert.doesNotMatch(body, /clamp at zero/);
     });
 
     it('takes the risk left of the last tasting round only', async () => {

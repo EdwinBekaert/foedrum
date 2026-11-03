@@ -108,6 +108,11 @@ describe('the walkthrough steps', () => {
     assert.match(lookFor('pull-request'), /a line per round/);
   });
 
+  it("say that the status comment's Findings list Brett's survivor (ADR 0319)", () => {
+    const lookFor = STEPS.find((step) => step.id === 'pull-request')?.lookFor ?? '';
+    assert.match(lookFor, /Findings Brett's survivor/);
+  });
+
   it('say that the diagnosis is the demo own, not doctor on this machine', () => {
     assert.match(STEPS[0]?.lookFor ?? '', /demo's own/);
     assert.match(STEPS[0]?.lookFor ?? '', /not foedrum doctor/);

@@ -257,6 +257,8 @@ describe('runServe: a Brett step (ADR 0313)', () => {
         file: 'src/add.mjs',
         line: 2,
         description: 'clamp at ten',
+        original: 'export const clamp = (n) => (n > 10 ? 10 : n);',
+        replacement: 'export const clamp = (n) => (n >= 10 ? 10 : n);',
         verdict: { kind: 'survived' },
       },
       {
@@ -276,5 +278,54 @@ describe('runServe: a Brett step (ADR 0313)', () => {
     assert.match(replay, /mutants\s+src\/add\.mjs:1 add subtracts: killed by adds two numbers/);
     assert.match(replay, /src\/add\.mjs:2 clamp at ten: survived/);
     assert.match(replay, /src\/add\.mjs:1 add a third: invalid, the replacement adds c/);
+  });
+
+  it('a blocking Brett step sends its survivors to the fix step', async () => {
+    // Brett blocks, and its findings go back to brew once; its second round proposes none.
+    const blocking = JSON.stringify({
+      name: 'tasting',
+      description: 'Brews an order, then has a blocking Brett mutate its change.',
+      steps: [
+        { id: 'brew', brewer: 'cellarman' },
+        {
+          id: 'brett',
+          brewer: 'brett',
+          blocking: true,
+          onBlocked: { findings: { goto: 'brew', maxRounds: 1 } },
+        },
+        { action: 'openPullRequest' },
+      ],
+      testFirst: false,
+    });
+    const { events, batch } = await brew(blocking, (attempt) => (attempt === 1 ? mutants : []));
+    const brett = events.flatMap(({ event }) =>
+      event.type === 'step.finished' && event.stepId === 'brett' ? [event] : [],
+    );
+    assert.equal(brett.length, 2);
+    const [first, second] = brett;
+    assert.equal(first?.outcome.kind, 'failed');
+    assert.match(
+      first?.outcome.kind === 'failed' ? first.outcome.reason : '',
+      /^blocked \(findings\): the tests let a mutant survive: src\/add\.mjs:2: - export const clamp = \(n\) => \(n > 10 \? 10 : n\); \/ \+ export const clamp = \(n\) => \(n >= 10 \? 10 : n\);: clamp at ten$/,
+    );
+    assert.deepStrictEqual(first?.findings, {
+      kept: [
+        {
+          file: 'src/add.mjs',
+          line: 2,
+          severity: 'major',
+          why: 'the tests let a mutant survive: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten',
+          introduced: true,
+        },
+      ],
+      more: 0,
+    });
+    // Brew's second attempt was sent back by Brett's findings, and the batch went on tap after it.
+    assert.deepStrictEqual(batch.steps.get('brew')?.attempts.get(2)?.route, {
+      from: 'brett',
+      why: 'findings',
+    });
+    assert.equal(second?.outcome.kind, 'succeeded');
+    assert.equal(batch.lane.kind, 'on_tap');
   });
 });

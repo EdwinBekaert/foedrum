@@ -296,11 +296,18 @@ describe('npm run demo', () => {
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
+      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `mutants #1` ✅ → `open-pull-request #1` ✅/,
     );
     for (const lens of ['security', 'test-design']) {
       assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
     }
+    // Brett's mutants ran in scratch trees: the one no test reaches survived, listed with its edit
+    // under Findings, and the other was killed (ADR 0319).
+    assert.match(
+      comment,
+      /^- `mutants`: survived: greet\.mjs:2: - return .*name\.trim\(\) === .* \/ \+ return .*\(name === .*: greet greets a name of only spaces as itself$/m,
+    );
+    assert.match(comment, /^- `mutants`: 2 mutants: 1 survived, 1 killed$/m);
     assert.ok(
       events.some((event) => event.type === 'batch.on_tap' && event.batchId === '2-1'),
       JSON.stringify(events),

@@ -454,6 +454,10 @@ export const MutantRecord = z.strictObject({
   file: MutantText,
   line: z.int().positive(),
   description: MutantText,
+  // A survivor's edit, the line it replaced and the line that replaced it (empty to delete it), so
+  // the pull request can show it (ADR 0319); optional, so a store from before reads as today.
+  original: z.string().max(MAX_MUTANT_TEXT).optional(),
+  replacement: z.string().max(MAX_MUTANT_TEXT).optional(),
   verdict: MutantVerdict,
 });
 export type MutantRecord = z.infer<typeof MutantRecord>;

@@ -218,7 +218,7 @@ const setup = ({
   clonedGit?: Git;
   /** The test map at every commit. */
   mapAt?: MapRead;
-  /** Whether the step blocks. */
+  /** Whether the step blocks on a survivor (ADR 0319). */
   blocking?: boolean;
 }) => {
   const opened: { commit: string; edit?: Edited; path: string }[] = [];
@@ -351,6 +351,8 @@ describe('mutated, judging mutants', () => {
         file: 'src/add.mjs',
         line: 2,
         description: 'clamp at ten',
+        original: 'export const clamp = (n) => (n > 10 ? 10 : n);',
+        replacement: 'export const clamp = (n) => (n >= 10 ? 10 : n);',
         verdict: { kind: 'survived' },
       },
     ]);

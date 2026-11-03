@@ -1545,6 +1545,18 @@ describe('loadRecipes: lens steps with a Taster (ADR 0161)', () => {
     assert.equal(result.brewers.find('amber', 'taste')?.blocking, true);
   });
 
+  it('a recipe with a blocking Brett step loads', () => {
+    const brett = brewer('brett', { output: { doc: 'mutants.md', schema: 'mutants' } });
+    const step = {
+      id: 'mutants',
+      brewer: 'brett',
+      blocking: true,
+      onBlocked: { findings: { goto: 'cellarman', maxRounds: 1 } },
+    };
+    const result = valid(tasting([step], [committer, taster, brett]));
+    assert.equal(result.brewers.find('amber', 'mutants')?.blocking, true);
+  });
+
   it('refuses a Taster without a lens', () => {
     assert.deepEqual(problemsOf(tasting([{ id: 'taste', brewer: 'taster' }])), [
       'recipes/amber.jsonc: step "taste" has the Taster "taster" and no "lens": name the lens it reviews through (ADR 0161)',
