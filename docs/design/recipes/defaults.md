@@ -30,8 +30,7 @@ Default models are aliases in `models.jsonc`, resolved to the current model of t
 | Cellarman | Reads the Gauger's tests, then makes them pass without changing them; a sub-order's Cellarman also reads its plan entry ([ADR 0290](../../adr/0290-a-sub-order-s-brewers-read-its-plan-entry-from-the-parent-s-recorded-plan.md)) | builder (sonnet) | high |
 | Finer | Simplifies the change without changing what it does, and commits it ([fining](fining.md)) | builder (sonnet) | high |
 | Taster | Reviews a diff or a plan through its step's lens, or several together (read-only; [tasting](tasting.md)) | builder (sonnet) | medium |
-| Brett | Proposes up to 5 mutants of the change, each a one-line edit of a line it added, which the engine checks (read-only; [tasting](tasting.md), [ADR 0311](../../adr/0311-brett-s-mutants-of-a-target-land-on-lines-the-change-added-in-a-code-area-of-the-test-map.md)); no default recipe runs it yet | builder (sonnet) | medium |
-| Brett | Mutation check: proposes plausible bugs; the engine confirms which ones the tests miss (advisory by default) | sonnet | medium |
+| Brett | Proposes up to 5 mutants of the change, each a one-line edit of a line it added, which the engine checks (read-only; [tasting](tasting.md), [ADR 0311](../../adr/0311-brett-s-mutants-of-a-target-land-on-lines-the-change-added-in-a-code-area-of-the-test-map.md)); no default recipe runs it yet, and the engine's run of them, whose survivors are advisory by default, is #798 | builder (sonnet) | medium |
 | Cooper | Fixes review findings | sonnet | high |
 | Blender | Resolves merge conflicts (bounded) | opus | medium |
 | Microbiologist | Bug triage: reproduce, root cause, failing test | opus | medium |
