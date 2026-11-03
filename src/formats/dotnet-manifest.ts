@@ -28,12 +28,10 @@ const stem = (path: string): string => fileName(path.replaceAll('\\', '/')).repl
 const fromRoot = (manifest: string, path: string): string =>
   posix.normalize(posix.join(posix.dirname(manifest), path.replaceAll('\\', '/')));
 
-const firstText = (root: Element, name: string): string | undefined => {
-  const text = descendants(root, name)
+const firstText = (root: Element, name: string): string | undefined =>
+  descendants(root, name)
     .map((element) => textOf(element).trim())
     .find((each) => each !== '');
-  return text;
-};
 
 const readProject = (path: string, text: string): ManifestRead => {
   let root: Element;
