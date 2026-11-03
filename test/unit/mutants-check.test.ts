@@ -67,6 +67,12 @@ new file mode 100644
 +  if (a > b) return a; // or c
 +  return b;
 +};
+diff --git a/web/MAX.TS b/web/MAX.TS
+new file mode 100644
+--- /dev/null
++++ b/web/MAX.TS
+@@ -0,0 +1 @@
++if (a > b) return a; // or c
 `;
 
 const contents: Record<string, string> = {
@@ -75,6 +81,7 @@ const contents: Record<string, string> = {
   'tests/test_rates.py': 'def test_rate():\n    assert rate(5, 1) == 0.2\n',
   'README.md': '# Calc\nRates: 0.1 and 0.2\n',
   'web/total.ts': total,
+  'web/MAX.TS': 'if (a > b) return a; // or c\n',
 };
 
 /** The change as the engine reads it: git's diff of the batch, and the files at its head. */
@@ -208,6 +215,18 @@ describe('mutantCheck: a target repository (ADR 0311)', () => {
     );
     assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
     assert.equal(verdict.line, 5);
+  });
+
+  it('strips the comments of a file whose extension is in capitals', () => {
+    assert.equal(
+      reasonOf({
+        file: 'web/MAX.TS',
+        line: 1,
+        original: 'if (a > b) return a; // or c',
+        replacement: 'if (a > b || c) return a;',
+      }),
+      'the replacement adds c',
+    );
   });
 
   it('reads the mutants of a done out doc only', () => {
