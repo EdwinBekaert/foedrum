@@ -298,7 +298,15 @@ export type CheckTree = (
   worktree: TreeIn,
   deadlineAt: string,
   signal: AbortSignal,
+  /** For a merged tree, the commits it merges: where its test maps are read (ADR 0307). */
+  merged?: MergedCommits,
 ) => Promise<AttemptEnd>;
+
+/** The commits of an open pull request's merged tree: its head and the base's tip (ADR 0203). */
+export interface MergedCommits {
+  head: string;
+  tip: string;
+}
 
 /** Where a tree is: its repository and its folder. */
 export type TreeIn = Pick<WorktreeRef, 'repo' | 'path'>;
@@ -445,7 +453,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
    */
   const testReportsOf = (
     module: TestMapModule,
-    worktree: WorktreeRef,
+    worktree: TreeIn,
   ): { reports: MappedReport[] } | { stuck: string } | { failed: string } => {
     const find = options.testMap?.reports ?? reportPaths;
     const isFolder = options.testMap?.isFolder ?? folderAt;
@@ -623,7 +631,18 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
    * The checks `refs` of the tree in `worktree`, the repository's setup first: a check step's
    * attempt's, and the merged tree of an open pull request (ADR 0203).
    */
-  const checkTree: CheckTree = async (refs, worktree, deadlineAt, signal) => {
+  const checkTree: CheckTree = async (refs, worktree, deadlineAt, signal, merged) => {
+    const end = await checksOf(refs, worktree, deadlineAt, signal);
+    return merged === undefined ? end : mergedNaming(end, worktree, merged, signal);
+  };
+
+  /** The checks `refs` of the tree in `worktree`, as `checkTree` runs them, before any naming. */
+  const checksOf = async (
+    refs: readonly CheckRef[],
+    worktree: TreeIn,
+    deadlineAt: string,
+    signal: AbortSignal,
+  ): Promise<AttemptEnd> => {
     let repository = NO_CHECKS;
     const named = refs.find((check) => typeof check === 'string');
     if (named !== undefined) {
@@ -950,7 +969,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   const namingFailing = (
     end: AttemptEnd,
     test: GravityReading,
-    worktree: WorktreeRef,
+    worktree: TreeIn,
     { before, after }: StepMaps,
   ): AttemptEnd => {
     if (after.kind !== 'map') return end;
@@ -968,7 +987,32 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const readings = end.readings?.map((each) =>
       each === test ? withFailing(each, reports) : each,
     );
-    return readings === undefined ? end : { ...end, readings };
+    // Settled again, so the reason names the tests too (ADR 0307).
+    return readings === undefined ? end : { ...end, readings, ending: settleReadings(readings) };
+  };
+
+  /**
+   * `end` of the checks on an open pull request's merged tree with its failed test reading naming
+   * the failing tests (ADR 0307): the effective map of the base's map at `tip` and the batch's at
+   * `head`, as a check step reads it. The merged tree's worktree is fresh, so its reports are this
+   * run's with nothing cleared. A map or a report that cannot be read names none: the check only
+   * tells the fix step, and never waits on the map.
+   */
+  const mergedNaming = async (
+    end: AttemptEnd,
+    worktree: TreeIn,
+    { head, tip }: MergedCommits,
+    signal: AbortSignal,
+  ): Promise<AttemptEnd> => {
+    const { testMap } = options;
+    const test = end.readings?.find(
+      (reading) =>
+        reading.result === 'exited' && reading.check === 'test' && reading.exitCode !== 0,
+    );
+    if (testMap === undefined || test === undefined) return end;
+    const before = await testMap.at(worktree.repo, tip, signal);
+    const after = await testMap.at(worktree.repo, head, signal);
+    return namingFailing(end, test, worktree, { base: tip, before, after });
   };
 
   /**

@@ -2,9 +2,10 @@
 // repository's test map when it has none or a stale one, checked against one run of its tests
 // (ADR 0282, ADR 0298); then the Gauger commits failing tests,
 // the red proof shows they fail for the missing behaviour, Cellarman makes them pass, the Finer
-// simplifies the change (ADR 0166), the checks read the result, two Tasters review the change side
-// by side, through the correctness and acceptance lenses (ADR 0168, ADR 0197), correctness's changes
-// send the batch back to Cellarman (ADR 0264), and the pull request opens with their findings (ADR 0161).
+// simplifies the change (ADR 0166), the checks read the result, three Tasters review the change side
+// by side, through the correctness, acceptance and security lenses (ADR 0168, ADR 0197, ADR 0306),
+// correctness's changes send the batch back to Cellarman (ADR 0264), and the pull request opens with
+// their findings (ADR 0161).
 {
   "$schema": "../../schemas/recipe.json",
   "name": "nip",
@@ -47,7 +48,7 @@
     {
       "id": "taste",
       "parallel": [
-        // Blocking: once both Tasters end, its changes send the batch back to Cellarman, twice at
+        // Blocking: once all three Tasters end, its changes send the batch back to Cellarman, twice at
         // most, through the Finer and green again, and then it is Stuck (ADR 0168, ADR 0264).
         {
           "id": "correctness",
@@ -57,7 +58,10 @@
           "onBlocked": { "findings": { "goto": "implement", "maxRounds": 2 } }
         },
         // Advisory: whether the change builds each item of the order's checklist, and nothing else.
-        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance" }
+        { "id": "acceptance", "brewer": "taster", "lens": "diff/acceptance" },
+        // Advisory: untrusted input the change handles, and where it goes (ADR 0306). A Brewery
+        // that wants it to block sets "blocking" in its own nip.jsonc.
+        { "id": "security", "brewer": "taster", "lens": "diff/security" }
       ]
     },
     // A check that fails on the pull request's head sends the batch back to Cellarman, twice at most,

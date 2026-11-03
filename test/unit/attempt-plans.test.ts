@@ -1683,3 +1683,229 @@ describe('createAttemptPlans: limits', () => {
     });
   });
 });
+
+describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
+  // Recipe first's review writes review.md, second's writes tasting.md; a person chooses second
+  // after review#1 succeeded under first. Each later step reads review's out doc or plan.
+  const switching = loadRecipes({
+    recipes: [
+      {
+        path: 'recipes/first.jsonc',
+        text: recipeText('first', [
+          { id: 'review', brewer: 'reviewer' },
+          { id: 'brew', brewer: 'quick' },
+          { id: 'gauge', brewer: 'gauger' },
+        ]),
+      },
+      {
+        path: 'recipes/second.jsonc',
+        text: recipeText('second', [
+          { id: 'review', brewer: 'taster' },
+          { id: 'brew', brewer: 'slow' },
+          { id: 'implement', brewer: 'implementer' },
+        ]),
+      },
+    ],
+    brewers: [
+      {
+        path: 'brewers/reviewer.md',
+        text: brewerText('reviewer', { output: { doc: 'review.md', schema: 'outDoc' } }),
+      },
+      {
+        path: 'brewers/taster.md',
+        text: brewerText('taster', { output: { doc: 'tasting.md', schema: 'outDoc' } }),
+      },
+      { path: 'brewers/quick.md', text: brewerText('quick', { maxTurns: 5 }) },
+      { path: 'brewers/slow.md', text: brewerText('slow', { maxTurns: 50 }) },
+      {
+        // Reads implement, a step only second has.
+        path: 'brewers/gauger.md',
+        text: brewerText('gauger', { inputs: [{ name: 'implemented', from: 'step:implement' }] }),
+      },
+      {
+        path: 'brewers/implementer.md',
+        text: brewerText('implementer', {
+          inputs: [{ name: 'review', from: 'step:review' }],
+        }),
+      },
+    ],
+  });
+  assert.ok(switching.valid, switching.valid ? '' : switching.problems.join('\n'));
+  const deadlineAt = '2026-10-17T13:00:00.000Z';
+  const reviewTree = join('/work', 'review-1');
+  const review = { batchId: '12-1', stepId: 'review', attempt: 1 };
+  const implement = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+  const chosen = (recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: '12-1',
+    recipe,
+    reason: 'a person chose it',
+    source: 'human',
+    by: 'octocat',
+    via: 'terminal',
+  });
+  const startedAt = (at: typeof ref, path: string): Event => ({
+    type: 'step.started',
+    ...at,
+    session: { id: sessionId, worktree: path },
+    worktree: {
+      repo: 'acme/api',
+      path,
+      branch: `foedrum/12-1/${at.stepId}/${at.attempt}`,
+      commit: 'c'.repeat(40),
+    },
+  });
+  const reviewed: Event[] = [
+    ordered[0] as Event,
+    chosen('first'),
+    { type: 'step.scheduled', ...review, deadlineAt },
+    startedAt(review, reviewTree),
+    { type: 'step.finished', ...review, outcome: { kind: 'succeeded', output: null } },
+  ];
+
+  it("a step input reads the out doc its attempt's brewer wrote after the batch switched recipes", async () => {
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'review.md'), root: reviewTree }]);
+  });
+
+  it('an attempt planned after the batch switched recipes gets the brewer of the recipe it was scheduled under', async () => {
+    const events: Event[] = [
+      ...reviewed,
+      { type: 'step.scheduled', ...ref, deadlineAt },
+      startedAt(ref, worktree),
+      chosen('second'),
+    ];
+    const { plans } = setup(events, {}, undefined, switching.brewers);
+    assert.equal(plans.limits(ref).maxTurns, 5);
+    const { prompt } = await plans.plan({ ...start, ref });
+    assert.match(prompt, /Do the work of the quick\./);
+    assert.doesNotMatch(prompt, /Do the work of the slow\./);
+  });
+
+  it("reads a step input's out doc in the recipe a batch that never switched brews: regression test", async () => {
+    const events: Event[] = [
+      ordered[0] as Event,
+      chosen('second'),
+      { type: 'step.scheduled', ...review, deadlineAt },
+      startedAt(review, reviewTree),
+      { type: 'step.finished', ...review, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'tasting.md'), root: reviewTree }]);
+  });
+
+  it("reads a step input's out doc in the batch's recipe when its attempt recorded none: regression test", async () => {
+    // review#1 was scheduled before any recipe was chosen, so it recorded none.
+    const events: Event[] = [
+      ordered[0] as Event,
+      { type: 'step.scheduled', ...review, deadlineAt },
+      chosen('second'),
+      startedAt(review, reviewTree),
+      { type: 'step.finished', ...review, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    assert.equal(
+      fold(events).batches.get('12-1')?.steps.get('review')?.attempts.get(1)?.recipe,
+      undefined,
+    );
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'tasting.md'), root: reviewTree }]);
+  });
+
+  it("reads a step input's out doc in the recipe of its latest succeeded attempt, not an earlier one: regression test", async () => {
+    // review#1 succeeded under first; review#2, after the switch, under second.
+    const review2Tree = join('/work', 'review-2');
+    const review2 = { ...review, attempt: 2 };
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...review2, deadlineAt },
+      startedAt(review2, review2Tree),
+      { type: 'step.finished', ...review2, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(review2Tree, 'tasting.md'), root: review2Tree }]);
+  });
+
+  it("leaves out a step input its attempt's recipe lacks, though the recipe the batch switched to has it: regression test", async () => {
+    // gauge#1 was scheduled under first, which has no implement; second, chosen since, has one
+    // that never ran, so in second's terms the input would need an out doc it has none of.
+    const gauge = { batchId: '12-1', stepId: 'gauge', attempt: 1 };
+    const events: Event[] = [
+      ...reviewed,
+      { type: 'step.scheduled', ...gauge, deadlineAt },
+      startedAt(gauge, worktree),
+      chosen('second'),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    const { prompt } = await plans.plan({ ...start, ref: gauge });
+    assert.match(prompt, /Do the work of the gauger\./);
+    assert.doesNotMatch(prompt, /name="implemented"/);
+    assert.deepEqual(reads, []);
+  });
+
+  it("refuses a step input whose attempt's recipe no longer gives its step a brewer, reading no file under the current recipe's name: regression test", async () => {
+    // The Brewery dropped first after review#1 ran under it.
+    const withoutFirst = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/second.jsonc',
+          text: recipeText('second', [
+            { id: 'review', brewer: 'taster' },
+            { id: 'implement', brewer: 'implementer' },
+          ]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/taster.md',
+          text: brewerText('taster', { output: { doc: 'tasting.md', schema: 'outDoc' } }),
+        },
+        {
+          path: 'brewers/implementer.md',
+          text: brewerText('implementer', { inputs: [{ name: 'review', from: 'step:review' }] }),
+        },
+      ],
+    });
+    assert.ok(withoutFirst.valid, withoutFirst.valid ? '' : withoutFirst.problems.join('\n'));
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, withoutFirst.brewers);
+    await assert.rejects(
+      plans.plan({ ...start, ref: implement }),
+      /^Error: the input "review" names step review, which is no brewer's step and has no out doc$/,
+    );
+    assert.deepEqual(reads, []);
+  });
+
+  it("a route input reads the out doc of the routing attempt's brewer after the batch switched recipes", async () => {
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...ref, deadlineAt, route: { from: 'review', why: 'findings' } },
+      startedAt(ref, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'review.md'), root: reviewTree }]);
+  });
+});

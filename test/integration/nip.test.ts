@@ -202,9 +202,9 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
 
   // The red proof read the Gauger's test red, the first green check failed and sent the batch
   // back to the Cellarman, and the second one passed.
-  // Nip's two Tasters run side by side, so either may finish first: compared in the recipe's order
-  // (ADR 0197).
-  const tasters = ['correctness', 'acceptance'];
+  // Nip's three Tasters run side by side, so any may finish first: compared in the recipe's order
+  // (ADR 0197, ADR 0306).
+  const tasters = ['correctness', 'acceptance', 'security'];
   const outcomes = events.flatMap((event) =>
     event.type === 'step.finished'
       ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
@@ -228,6 +228,7 @@ const assertBrewed = async ({ output, events, api, run }: Brewed, scratch: strin
       'green#2 succeeded',
       'correctness#1 succeeded',
       'acceptance#1 succeeded',
+      'security#1 succeeded',
       'open-pull-request#1 succeeded',
     ],
     dump,
@@ -330,6 +331,16 @@ describe('the Nip recipe end to end', () => {
     assert.match(acceptance, /# Lens: acceptance/);
   });
 
+  it("a Nip batch's status comment lists the security Taster beside the other two", () => {
+    const comments = brewed.api.comments.get(`${BREWERY}#${NIP_ORDER.number}`) ?? [];
+    const body = comments[0]?.body ?? '';
+    // The Tasters' attempts share the path's line of the round they ran in (ADR 0168, ADR 0306).
+    const tasted = body.split('\n').find((line) => line.includes('`correctness #1`'));
+    assert.ok(tasted !== undefined, body);
+    assert.match(tasted, /`acceptance #1`/);
+    assert.match(tasted, /`security #1`/);
+  });
+
   it("proves red and green through the test map the Maltster's session committed, reading no test names", () => {
     const { events, api } = brewed;
     const finished = (stepId: string) =>
@@ -427,8 +438,10 @@ describe('the Nip recipe end to end with the real claude', {
       if (body.includes('# Maltster')) return brew('survey', 1, 'survey.md');
       if (body.includes('# Gauger')) return [probe, ...brew('gauge', 1, 'gauge.md')];
       if (body.includes('# Taster')) {
-        // Nip's two Tasters, told apart by the lens in their prompt (ADR 0197).
-        const lens = body.includes('# Lens: acceptance') ? 'acceptance' : 'correctness';
+        // Nip's three Tasters, told apart by the lens in their prompt (ADR 0197, ADR 0306).
+        const lens =
+          ['acceptance', 'security'].find((each) => body.includes(`# Lens: ${each}`)) ??
+          'correctness';
         const [scripted] = NIP_SCRIPT[lens] ?? [];
         assert.ok(scripted !== undefined);
         const content = scriptedOutDoc(scripted);

@@ -68,7 +68,11 @@ export const mergedCheckRun =
     const end = await tree(repository)(
       due.head,
       due.tip,
-      (path) => checkTree(step.refs, { repo: repository.repo, path }, deadlineAt, signal),
+      (path) =>
+        checkTree(step.refs, { repo: repository.repo, path }, deadlineAt, signal, {
+          head: due.head,
+          tip: due.tip,
+        }),
       signal,
     );
     return mergedCheckEnd(end, signal);

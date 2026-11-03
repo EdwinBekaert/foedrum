@@ -150,6 +150,44 @@ export function withFailing(
   return { ...reading, failing: { tests, more: names.length - tests.length } };
 }
 
+/** The most of a command a line or a reason naming failing tests shows, so the count fits after it. */
+const MOST_COMMAND = 80;
+
+/** `command` cut to `MOST_COMMAND` characters, never half of one, with `…` when it was (#779). */
+export const shortCommand = (command: string): string => {
+  const chars = [...command];
+  return chars.length <= MOST_COMMAND ? command : `${chars.slice(0, MOST_COMMAND - 1).join('')}…`;
+};
+
+/** The most failing tests a reason names, and the most characters their names take (ADR 0307). */
+const MOST_REASON_TESTS = 3;
+const MOST_REASON_NAMES = 300;
+
+/** How many tests failed, as a reason and a comment say it: `5 tests failing`. */
+export const testsFailing = ({ tests, more }: Failing): string => {
+  const count = tests.length + more;
+  return `${count} ${count === 1 ? 'test' : 'tests'} failing`;
+};
+
+/**
+ * The failing tests as a reason says them, the count first: `5 tests failing: a, b, …`. The names
+ * stop at `MOST_REASON_TESTS` or `MOST_REASON_NAMES` characters, the first always kept, so ten long
+ * names never make a reason of thousands (ADR 0307).
+ */
+const failingReason = ({ tests, more }: Failing): string => {
+  const count = tests.length + more;
+  const shown: string[] = [];
+  let length = 0;
+  for (const name of tests.slice(0, MOST_REASON_TESTS)) {
+    const after = length + (shown.length === 0 ? 0 : 2) + name.length;
+    if (shown.length > 0 && after > MOST_REASON_NAMES) break;
+    shown.push(name);
+    length = after;
+  }
+  const rest = shown.length < count ? ', …' : '';
+  return `${testsFailing({ tests, more })}: ${shown.join(', ')}${rest}`;
+};
+
 /** The failing tests a reading names: `a, b (and 3 more)`. */
 export const failingText = ({ tests, more }: Failing): string =>
   `${tests.join(', ')}${more === 0 ? '' : ` (and ${more} more)`}`;
@@ -227,8 +265,16 @@ export function settleReadings(readings: readonly GravityReading[]): Ending {
     case 'skipped':
       throw new Error('A skipped check passes');
     // The same tree would read the same again: no retry, the onFail route or Stuck.
+    // With the failing tests its reports named after ': ', so the path's first clause stays as it
+    // was, and the command cut, so a long one never cuts off the count (ADR 0307).
     case 'exited': {
-      const reason = `${checkName(decisive)} failed with exit code ${decisive.exitCode}`;
+      const { failing } = decisive;
+      if (failing === undefined) {
+        const reason = `${checkName(decisive)} failed with exit code ${decisive.exitCode}`;
+        return { kind: 'failed', retryable: false, reason };
+      }
+      const check = checkName({ ...decisive, command: shortCommand(decisive.command) });
+      const reason = `${check} failed with exit code ${decisive.exitCode}: ${failingReason(failing)}`;
       return { kind: 'failed', retryable: false, reason };
     }
     // A crash of the code under check is a failure of the tree, as an exit code is.
