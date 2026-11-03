@@ -556,6 +556,35 @@ describe('mutated, on a blocking step (ADR 0319)', () => {
       [{ kind: 'killed', by: 'adds two numbers' }],
     );
   });
+
+  it('a blocking Brett step with two survivors is blocked by both, each named in its summary (regression test)', async () => {
+    const { end } = setup({ runner: brett([boundary, subtracts]), blocking: true });
+    const ended = await end();
+    assert.deepStrictEqual(ended.ending, {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary:
+        'the tests let 2 mutants survive: src/add.mjs:2: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten; src/add.mjs:1: - export const add = (a, b) => a + b; / + export const add = (a, b) => a - b;: add subtracts',
+      findings: [
+        {
+          file: 'src/add.mjs',
+          line: 2,
+          severity: 'major',
+          why: 'the tests let a mutant survive: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten',
+          introduced: true,
+        },
+        {
+          file: 'src/add.mjs',
+          line: 1,
+          severity: 'major',
+          why: 'the tests let a mutant survive: - export const add = (a, b) => a + b; / + export const add = (a, b) => a - b;: add subtracts',
+          introduced: true,
+        },
+      ],
+    });
+    // The verdicts stay on the attempt's end beside the blocked ending.
+    assert.equal(ended.mutants?.length, 2);
+  });
 });
 
 describe('mutated, its edges', () => {
@@ -770,6 +799,47 @@ describe('mutated, round two', () => {
       mutants: ended.mutants,
     });
     assert.equal(finished.success, true, JSON.stringify(finished.error?.issues));
+  });
+
+  it("cuts a survivor's edit and leaves a secret in it out, as its other texts (regression test)", async () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const keyed = `export const key = '${token}'.length > 10;`;
+    const sum = `export const sum = ${Array.from({ length: 150 }, () => '1').join(' + ')};`;
+    const lines = [keyed, sum];
+    const source = `${lines.join('\n')}\n`;
+    const added = [
+      'diff --git a/src/add.mjs b/src/add.mjs',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/src/add.mjs',
+      '@@ -0,0 +1,2 @@',
+      ...lines.map((line) => `+${line}`),
+      '',
+    ].join('\n');
+    const keyedGit: Git = async (cwd, args) => {
+      if (args.includes('diff')) return ok(added);
+      if (args.includes('cat-file')) return ok(source);
+      return git(cwd, args);
+    };
+    const mutants = [
+      mutant(keyed, keyed.replace('>', '>='), 1, 'a longer key'),
+      mutant(sum, sum.replace('+', '-'), 2, 'one less'),
+    ];
+    const ended = await setup({
+      runner: brett(mutants),
+      clonedGit: keyedGit,
+      checkedOut: source,
+    }).end();
+    const [secret, long] = ended.mutants ?? [];
+    assert.equal(secret?.verdict.kind, 'survived');
+    assert.equal(secret?.original, '[left out: a name that looks like a secret]');
+    assert.equal(secret?.replacement, '[left out: a name that looks like a secret]');
+    assert.equal(long?.verdict.kind, 'survived');
+    assert.equal(long?.original?.length, MAX_MUTANT_TEXT);
+    assert.ok(long?.original?.endsWith('…'));
+    assert.equal(long?.replacement?.length, MAX_MUTANT_TEXT);
+    assert.doesNotMatch(JSON.stringify(ended.mutants), /ghp|A1b2/);
   });
 
   it('runs no mutant of a brewer that does not mutate, even when its output holds mutants (regression test)', async () => {
