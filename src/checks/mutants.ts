@@ -4,13 +4,10 @@
 // (scripts/mutants/core.ts) imports these rules, and the review skill copies this file from a
 // pull request's base beside it, so it imports nothing at run time.
 
-/** A mutant's place and edit: one line of a file, and the text that replaces it. */
-export interface Mutant {
-  file: string;
-  line: number;
-  original: string;
-  replacement: string;
-}
+import type { MutantEdit } from '../schemas/out-doc.ts';
+
+/** A mutant's place and edit, of the out doc's shape (ADR 0034): one line, and its replacement. */
+export type Mutant = Pick<MutantEdit, 'file' | 'line' | 'original' | 'replacement'>;
 
 // `line` is the line the edit replaced, which may differ from the mutant's line number.
 export type LineEdit = { ok: true; content: string; line: number } | { ok: false; reason: string };
@@ -101,4 +98,31 @@ export const editFile = (mutant: Mutant, content: string | undefined): LineEdit 
 
   lines[line - 1] = replacement === '' ? bom : `${indent}${replacement}${ending}`;
   return { ok: true, content: lines.join(''), line };
+};
+
+/** A file the batch's change left at its head: its text, and the lines the change added to it. */
+export interface ChangedFile {
+  content: string;
+  added: ReadonlySet<number>;
+}
+
+/** What a target repository's mutant is checked against (ADR 0311). */
+export interface TargetChange {
+  /** Whether a path is in a code area of the effective test map (ADR 0274). */
+  inCode: (path: string) => boolean;
+  /** The file at `path` when the change added a line to it; else undefined. */
+  changed: (path: string) => ChangedFile | undefined;
+}
+
+/** A valid mutant with the line it edits and the file's content after the edit, or why not. */
+export type MutantVerdict =
+  | { ok: true; mutant: Mutant; line: number; content: string }
+  | { ok: false; reason: string };
+
+/**
+ * Checks a mutant Brett proposed for a target repository (ADR 0311): a plain path in a code area
+ * of the test map, a line the change added, and a replacement that is a small bug of it.
+ */
+export const mutantCheck = (_mutant: Mutant, _change: TargetChange): MutantVerdict => {
+  throw new Error('not implemented');
 };
