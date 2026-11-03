@@ -6,8 +6,10 @@ import { readBreweryFiles } from '../engine/brewery-files.ts';
 import { readDenylist } from '../platform/denylist.ts';
 import { resolveExecutable } from '../platform/executables.ts';
 import { execProcess } from '../platform/processes.ts';
+import { runGitWith } from '../workspace/git.ts';
 import type { DoctorFacts } from './doctor.ts';
 import { type DoctorShell, gatherDoctorFacts } from './doctor-facts.ts';
+import { readDoctorMap } from './doctor-map.ts';
 
 /**
  * On Linux, whether AppArmor restricts unprivileged user namespaces, as
@@ -43,6 +45,15 @@ export const doctorFromCheckout = (
     cwd,
     readFile: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined),
     readBrewery: () => readBreweryFiles(cwd),
+    // The map's clones are read with git alone, at each repository's base (ADR 0317).
+    systemMap: () =>
+      readDoctorMap({
+        git: runGitWith(options?.exec ?? execProcess),
+        home: homedir(),
+        cwd,
+        readFile: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : undefined),
+        exists: existsSync,
+      }),
     restrictsUserns: options?.restrictsUserns ?? (() => restrictsUserns(process.platform)),
     denylist:
       options?.denylist ??

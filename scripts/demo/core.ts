@@ -42,10 +42,11 @@ const LENS_STEPS = [
  * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of three lens
  * steps, correctness, acceptance and security (ADR 0197, ADR 0306), swapped for the demo's own
  * three, correctness, security and test design, one of which blocks (ADR 0193). Nip's own correctness blocks too, with two rounds where the demo's
- * has one (ADR 0264).
+ * has one (ADR 0264). After the group, an advisory Brett step mutates the change: a parallel group
+ * runs only Tasters (ADR 0168), and no default recipe runs Brett yet (ADR 0319).
  */
 export const recipeText = (): string =>
-  `// Nip's steps, tasted through three lenses side by side (ADR 0168), one of them blocking (ADR 0193).\n${JSON.stringify(
+  `// Nip's steps, tasted through three lenses side by side (ADR 0168), one of them blocking (ADR 0193), then mutated by Brett (ADR 0319).\n${JSON.stringify(
     {
       name: RECIPE,
       description: 'Quick fix in one repository, test-first, tasted through three lenses at once',
@@ -79,6 +80,7 @@ export const recipeText = (): string =>
           onFail: { goto: 'implement', maxRounds: 1 },
         },
         { id: 'taste', parallel: LENS_STEPS },
+        { id: 'mutants', brewer: 'brett' },
         { action: 'openPullRequest', onPullRequestFail: { goto: 'implement', maxRounds: 2 } },
       ],
     },
@@ -271,6 +273,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.waiting':
       case 'bottle.opened':
       case 'release.observed':
+      case 'system.mapped':
       case 'batch.taken_over':
       case 'pull_request.ended':
       case 'pull_request.base_checked':

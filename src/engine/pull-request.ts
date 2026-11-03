@@ -4,6 +4,7 @@
 
 import { createHash } from 'node:crypto';
 import type { IsCommit } from '../formats/secrets.ts';
+import type { MutantRecord } from '../schemas/events.ts';
 import {
   type Disposition,
   dispositionsOf,
@@ -15,6 +16,7 @@ import {
   type GaugeReport,
   gaugeOf,
   lensFirst,
+  MutantsOutDoc,
   OutDocFrontmatter,
   PullRequestOutDoc,
   type PullRequestSections,
@@ -31,6 +33,7 @@ import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
+import { mutantLines } from './survivors.ts';
 
 /**
  * The effect that pushes the batch's task tree to its bottle branch in `round` of its pull request:
@@ -235,6 +238,8 @@ export interface StepReport {
   gauge?: GaugeReport;
   /** The findings its attempts marked pre-existing, for a person to file (ADR 0191). */
   toFile?: readonly PreExisting[];
+  /** A Brett step's mutants with the engine's verdicts (ADR 0313), its survivors listed (ADR 0319). */
+  mutants?: readonly MutantRecord[];
 }
 
 /** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
@@ -393,12 +398,14 @@ export const stepReports = (batch: Batch): StepReport[] =>
     if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
     // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
     // a pullRequest brewer's the pull request's sections (ADR 0167), a Finer's its changes
-    // (ADR 0166), and a Gauger's its tests (ADR 0170).
+    // (ADR 0166), a Gauger's its tests (ADR 0170), and Brett's its mutants (ADR 0319).
     const { output } = latest.outcome;
+    const { mutants = [] } = latest;
     const doc = OutDocFrontmatter.or(TastingOutDoc)
       .or(PullRequestOutDoc)
       .or(FiningOutDoc)
       .or(GaugeOutDoc)
+      .or(MutantsOutDoc)
       .safeParse(output);
     if (!doc.success) return [];
     const { summary, assumptions } = doc.data;
@@ -417,6 +424,7 @@ export const stepReports = (batch: Batch): StepReport[] =>
         ...(fining === undefined ? {} : { fining }),
         ...(gauge === undefined ? {} : { gauge }),
         ...(toFile.length === 0 ? {} : { toFile }),
+        ...(mutants.length === 0 ? {} : { mutants }),
       },
     ];
   });
@@ -976,7 +984,7 @@ export const pullRequestText = ({
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
   const lines = reports.flatMap(
-    ({ stepId, summary, assumptions, tasting, fining, gauge, toFile }) => [
+    ({ stepId, summary, assumptions, tasting, fining, gauge, toFile, mutants = [] }) => [
       `${stepId}: ${shown(summary, stepId)}`,
       ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
       ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
@@ -1005,6 +1013,8 @@ export const pullRequestText = ({
             // What its review leaves, in its words (ADR 0214).
             ...(tasting.riskLeft ?? []).map((risk) => `  risk left: ${flat(risk, stepId)}`),
           ]),
+      // Brett's survivors, each with its edit, and what became of the rest (ADR 0319).
+      ...mutantLines(mutants, (text) => flat(text, stepId)).map((line) => `  ${line}`),
     ],
   );
   // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model

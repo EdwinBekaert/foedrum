@@ -23,6 +23,7 @@ import {
   LADDER_RECIPE,
   LIB,
   ladderBrewers,
+  MAPPED_DEPENDENCY,
   PACKAGE,
   planFrom,
   releaseLines,
@@ -131,9 +132,22 @@ describe("the ladder's Brewmaster", () => {
         read.push(path);
         return files[path];
       },
-      '',
+      `- ${WEB}\n  ${MAPPED_DEPENDENCY} (npm)`,
     );
     assert.deepStrictEqual(read, [join('lib', 'package.json'), join('web', 'package.json')]);
+  });
+
+  it("plans only when its repositories input's system map names the application's dependency on the library (ADR 0317)", () => {
+    const files: Record<string, string> = {
+      [join(ALIASES[LIB], 'package.json')]: libManifest,
+      [join(ALIASES[WEB], 'package.json')]: webManifest,
+    };
+    assert.throws(
+      () => turnOf('plan', (path) => files[path], `- ${WEB}, base origin/main`),
+      /repositories input maps no dependency of demo\/web on demo\/lib/,
+    );
+    const turn = turnOf('plan', (path) => files[path], `  ${MAPPED_DEPENDENCY} (npm)`);
+    assert.match(turn.summary, /Greet in French/);
   });
 });
 
@@ -504,10 +518,14 @@ describe('ladderBrewers', () => {
   });
 
   it('plans from the folder of checkouts and commits nothing (regression test)', async () => {
-    const { runner, log } = brewers({
-      [join(cwd, 'lib', 'package.json')]: libManifest,
-      [join(cwd, 'web', 'package.json')]: webManifest,
-    });
+    const { runner, log } = brewers(
+      {
+        [join(cwd, 'lib', 'package.json')]: libManifest,
+        [join(cwd, 'web', 'package.json')]: webManifest,
+      },
+      0,
+      `  ${MAPPED_DEPENDENCY} (npm)`,
+    );
     const end = await runner.start(startOf('plan', PlanOutDoc)).ended;
     assert.equal(end.ending.kind, 'succeeded', JSON.stringify(end));
     assert.deepStrictEqual(log, [`write ${join(cwd, 'plan.md')}`]);

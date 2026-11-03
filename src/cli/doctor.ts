@@ -11,10 +11,12 @@ import {
   loadRecipes,
   replacedDefaults,
 } from '../engine/recipe-files.ts';
+import { mapLines } from '../engine/system-map.ts';
 import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
+import type { DoctorMapRepository } from './doctor-map.ts';
 import { githubHostname } from './serve-config.ts';
 
 /** The tools doctor looks for on PATH. */
@@ -65,6 +67,8 @@ export interface DoctorFacts {
   restrictsUserns?: boolean | undefined;
   /** How this machine is kept awake while an attempt runs, or why it cannot be (ADR 0195). */
   keepAwake?: AwakeMechanism | undefined;
+  /** Each repository of the Brewery read at its base for the system map (ADR 0317). */
+  systemMap?: readonly DoctorMapRepository[] | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */
@@ -151,6 +155,8 @@ export interface Diagnosis {
   notices?: readonly string[];
   /** The local gate's denylist, when doctor looked for it (ADR 0114). */
   denylist?: DenylistFact;
+  /** The system map's lines, whole, when the Brewery has repositories (ADR 0317). */
+  systemMap?: readonly string[];
   /** No required problem. */
   ok: boolean;
 }
@@ -222,6 +228,24 @@ const wsl2OrContainer = (windows: boolean) =>
  */
 const USERNS_ADVICE =
   'AppArmor restricts unprivileged user namespaces here (kernel.apparmor_restrict_unprivileged_userns is 1), so bwrap cannot make its sandbox unless a profile lets it: brewers\' sandboxed commands and check steps then do not start. Add the AppArmor profile for /usr/bin/bwrap that Claude Code\'s sandbox docs give (https://code.claude.com/docs/en/sandboxing, "Ubuntu 24.04 and later: allow bubblewrap to create user namespaces"), then run sudo systemctl reload apparmor.';
+
+/**
+ * The system map as doctor read it (ADR 0317): each repository's line with the commit its base was
+ * read at, or why it was not, and its map lines whole, as the planners' input has them before its cut.
+ */
+export const systemMapLines = (repositories: readonly DoctorMapRepository[]): string[] => {
+  const mapped = repositories.map(({ repo, description, read }) => ({
+    repo,
+    ...(description === undefined ? {} : { description }),
+    ...('entry' in read ? { entry: read.entry } : {}),
+  }));
+  return repositories.flatMap(({ repo, base, read }, at) => [
+    'commit' in read
+      ? `- ${repo}, base ${base} at ${read.commit.slice(0, 12)}`
+      : `- ${repo}, base ${base}: not read, ${read.unread}`,
+    ...mapLines(mapped[at] ?? { repo }, mapped).map((line) => `  ${line}`),
+  ]);
+};
 
 /** The first dotted number a version command printed; `undefined` when it failed. */
 const versionOf = (run: ToolRun | undefined): string | undefined =>
@@ -729,6 +753,9 @@ export const diagnose = (facts: DoctorFacts): Diagnosis => {
     ...(recipes.notices === undefined ? {} : { notices: recipes.notices }),
     ...(facts.denylist === undefined ? {} : { denylist: facts.denylist }),
     ...(facts.keepAwake === undefined ? {} : { keepAwake: facts.keepAwake }),
+    ...(facts.systemMap === undefined || facts.systemMap.length === 0
+      ? {}
+      : { systemMap: systemMapLines(facts.systemMap) }),
     ok: problems.every((problem) => !problem.required),
   };
 };
@@ -779,6 +806,7 @@ export const formatDiagnosis = ({
   notices = [],
   denylist,
   keepAwake,
+  systemMap = [],
   ok,
 }: Diagnosis): string => {
   const lines = [
@@ -828,6 +856,9 @@ export const formatDiagnosis = ({
       ),
       '',
     );
+  }
+  if (systemMap.length > 0) {
+    lines.push("System map (the planners' repositories input, ADR 0317):", ...systemMap, '');
   }
   if (problems.length > 0) {
     lines.push(

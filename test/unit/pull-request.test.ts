@@ -18,7 +18,7 @@ import {
   stepReports,
   unlinked,
 } from '../../src/engine/pull-request.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import type { Event, MutantRecord } from '../../src/schemas/events.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
 import { cpuTimeMs, descheduled } from '../helpers/load.ts';
 
@@ -191,6 +191,85 @@ describe("stepReports: a Taster's findings (ADR 0161)", () => {
         tasting: { verdict: 'changes', findings: [blocker, before] },
       },
     ]);
+  });
+});
+
+describe("stepReports and the body: Brett's survivors (ADR 0319)", () => {
+  const survived: MutantRecord = {
+    file: 'src/clamp.ts',
+    line: 3,
+    description: 'clamp at ten',
+    original: 'return n > 10 ? 10 : n;',
+    replacement: 'return n >= 10 ? 10 : n;',
+    verdict: { kind: 'survived' },
+  };
+  const killed: MutantRecord = {
+    file: 'src/clamp.ts',
+    line: 2,
+    description: 'clamp at zero',
+    verdict: { kind: 'killed', by: 'clamps big numbers' },
+  };
+  const proposed = { ...outDoc('Two mutants'), mutants: [] };
+  const mutated = fold([
+    ordered,
+    chosen,
+    ...ran('mutants', 1).slice(0, 2),
+    {
+      type: 'step.finished',
+      batchId: '12-1',
+      stepId: 'mutants',
+      attempt: 1,
+      outcome: { kind: 'succeeded', output: proposed },
+      mutants: [survived, killed],
+    },
+  ]).batches.get('12-1');
+
+  it('the pull request body lists the survivors and counts the killed', () => {
+    assert.ok(mutated !== undefined);
+    const reports = stepReports(mutated);
+    assert.deepEqual(reports, [
+      { stepId: 'mutants', summary: 'Two mutants', assumptions: [], mutants: [survived, killed] },
+    ]);
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Clamp at ten', closes, reports });
+    assert.ok(
+      body.includes(
+        [
+          'mutants: Two mutants',
+          '  survived: src/clamp.ts:3: - return n > 10 ? 10 : n; / + return n >= 10 ? 10 : n;: clamp at ten',
+          '  2 mutants: 1 survived, 1 killed',
+          '```',
+        ].join('\n'),
+      ),
+      body,
+    );
+  });
+
+  it("puts a survivor's texts on one line and leaves out one that looks like a secret, as the other reports (regression test)", () => {
+    const leaky: MutantRecord = {
+      ...survived,
+      original: `const key = '${token}';`,
+      description: 'leaks\n  the   key',
+    };
+    const reports = [
+      { stepId: 'mutants', summary: 'One mutant', assumptions: [], mutants: [leaky] },
+    ];
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Clamp at ten', closes, reports });
+    assert.ok(
+      body.includes(
+        '  survived: src/clamp.ts:3: - [left out: a text of step mutants that looks like a secret] / + return n >= 10 ? 10 : n;: leaks the key',
+      ),
+      body,
+    );
+    assert.doesNotMatch(body, /ghp|A1b2/);
+  });
+
+  it('an advisory Brett step with survivors opens no draft when every Taster approved (regression test)', () => {
+    assert.ok(mutated !== undefined);
+    const approved = { verdict: 'approve' as const, findings: [] };
+    const tasted = { stepId: 'taste', summary: 'Tasted', assumptions: [], tasting: approved };
+    assert.equal(opensAsDraft([...stepReports(mutated), tasted]), false);
   });
 });
 

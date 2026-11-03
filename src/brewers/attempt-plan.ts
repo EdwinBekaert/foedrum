@@ -9,13 +9,14 @@ import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
-import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
+import { type Attempt, attemptBefore, type Batch, type State } from '../engine/fold.ts';
 import { lensRounds, reviewed, roundFindings, withDispositions } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
 import type { ReleaseInput } from '../engine/release-input.ts';
 import { ranIn } from '../engine/session-resume.ts';
+import { cappedMap, type MappedRepository, mapLines } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { familyOf, type ModelFamily } from '../engine/usage-window.ts';
 import { findSecrets } from '../formats/secrets.ts';
@@ -250,16 +251,19 @@ const succeededIn = (batch: Batch, stepId: string): Attempt | undefined => {
  * Brewery order's folder of checkouts (ADR 0301), whose `checkouts` say where each one is.
  */
 interface BreweryRepositories {
-  repositories: readonly { repo: string; base: string }[];
+  repositories: readonly { repo: string; base: string; description?: string }[];
+  /** Each repository's recorded system map entry, by lower-case name (ADR 0317). */
+  map?: State['systemMap'];
   own: string | undefined;
   checkouts?: readonly { repo: string; path: string }[];
 }
 
 /**
  * The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked,
- * or in a folder of checkouts the folder each one is read in (ADR 0301).
+ * or in a folder of checkouts the folder each one is read in (ADR 0301), each followed by its lines
+ * of the system map, held to its size (ADR 0317).
  */
-const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories): string => {
+const repositoriesText = ({ repositories, map, own, checkouts }: BreweryRepositories): string => {
   const line = ({ repo, base }: { repo: string; base: string }): string => {
     const checkout = checkouts?.find((each) => sameRepo(each.repo, repo));
     if (checkout !== undefined) {
@@ -274,7 +278,19 @@ const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories)
     checkouts === undefined
       ? "The Brewery's repositories, each with the base its work starts from:"
       : "The Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:";
-  return [heading, ...repositories.map(line)].join('\n');
+  const mapped: MappedRepository[] = repositories.map(({ repo, description }) => {
+    const entry = map?.get(repo.toLowerCase())?.entry;
+    return {
+      repo,
+      ...(description === undefined ? {} : { description }),
+      ...(entry === undefined ? {} : { entry }),
+    };
+  });
+  const blocks = repositories.map((repository, at) => ({
+    line: line(repository),
+    map: mapLines(mapped[at] ?? repository, mapped),
+  }));
+  return [heading, ...cappedMap(blocks)].join('\n');
 };
 
 /** The input `name`: the Brewery's repositories, one line each (ADR 0234, ADR 0301). */

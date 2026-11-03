@@ -6,6 +6,7 @@ import { BlockerKind, MOST_DISPOSITIONS, MOST_MUTANTS, TastingFinding } from './
 import { CheckName, RelativePath } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
+import { SystemMapEntry } from './system-map.ts';
 import { z } from './zod.ts';
 
 const Id = NonEmpty;
@@ -454,6 +455,10 @@ export const MutantRecord = z.strictObject({
   file: MutantText,
   line: z.int().positive(),
   description: MutantText,
+  // A survivor's edit, the line it replaced and the line that replaced it (empty to delete it), so
+  // the pull request can show it (ADR 0319); optional, so a store from before reads as today.
+  original: z.string().max(MAX_MUTANT_TEXT).optional(),
+  replacement: z.string().max(MAX_MUTANT_TEXT).optional(),
   verdict: MutantVerdict,
 });
 export type MutantRecord = z.infer<typeof MutantRecord>;
@@ -836,6 +841,13 @@ export const Event = z.discriminatedUnion('type', [
     /** The release's web page, and its notes cut to `MAX_RELEASE_NOTES_LENGTH`; a bare tag has neither. */
     url: HttpsUrl.optional(),
     notes: z.string().max(MAX_RELEASE_NOTES_LENGTH).optional(),
+  }),
+  z.strictObject({
+    type: z.literal('system.mapped'),
+    repo: Repo,
+    /** The base commit the manifests were read at (ADR 0317). */
+    commit: CommitSha,
+    entry: SystemMapEntry,
   }),
   z.strictObject({
     type: z.literal('batch.rewound'),

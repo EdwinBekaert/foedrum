@@ -37,7 +37,10 @@ export interface AttemptLimits {
    * comments link reads on GitHub (ADR 0275).
    */
   readableBody?: true;
-  /** For a Taster's blocking step: a `done` with the verdict `changes` is blocked by findings (ADR 0161). */
+  /**
+   * For a blocking step: a Taster's `done` with the verdict `changes` is blocked by findings (ADR
+   * 0161), and a Brett attempt with a surviving mutant is (ADR 0319).
+   */
   blocking?: boolean;
   /**
    * The driver can resume the attempt's session: a claude step with a worktree manager that

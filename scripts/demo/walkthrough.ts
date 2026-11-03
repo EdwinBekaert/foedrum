@@ -70,7 +70,7 @@ export const STEPS: readonly Step[] = [
     id: 'pull-request',
     title: 'The pull request and the status comment',
     lookFor:
-      'one pull request and one status comment, though the Cellar lived twice; its path has a line per round.',
+      "one pull request and one status comment, though the Cellar lived twice; its path has a line per round, its Findings Brett's survivor.",
   },
   {
     id: 'on-tap',

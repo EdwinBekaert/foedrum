@@ -286,6 +286,58 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.deepStrictEqual(models, ['opus']);
   });
 
+  it("records each repository's system map through the driver's log, and the Brewmaster reads it (ADR 0317): regression test", async () => {
+    const base = 'c'.repeat(40);
+    const mapping: ServeShell = {
+      ...shell([planned]),
+      git: async (_cwd, args) => {
+        const stdout =
+          args[0] === 'rev-parse'
+            ? `${base}\n`
+            : args[0] === 'ls-tree'
+              ? args.includes('--name-only')
+                ? 'package.json\0'
+                : ''
+              : JSON.stringify({ name: '@acme/web' });
+        return { code: 0, stdout, stderr: '' };
+      },
+    };
+    assert.equal(await runBrew(setup, mapping, request), 3, lines.join('\n'));
+    const mapped = store
+      .eventsAfter(0)
+      .flatMap(({ event }) => (event.type === 'system.mapped' ? [event] : []));
+    assert.deepStrictEqual(
+      mapped.map(({ repo, commit, entry }) => [repo, commit, entry.publishes]),
+      [['acme/web', base, [{ name: '@acme/web', ecosystem: 'npm' }]]],
+    );
+    assert.match(prompts[0] ?? '', /\n {2}publishes `@acme\/web` \(npm\)\n/);
+  });
+
+  it("says why a repository's system map was not read, and records none (ADR 0317)", async () => {
+    const failing: ServeShell = {
+      ...shell([planned]),
+      git: async (_cwd, args) =>
+        args[0] === 'rev-parse'
+          ? { code: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' }
+          : args[0] === 'ls-tree' && args.includes('--name-only')
+            ? { code: 128, stdout: '', stderr: 'fatal: Unable to create index.lock\n' }
+            : { code: 0, stdout: '', stderr: '' },
+    };
+    assert.equal(await runBrew(setup, failing, request), 3, lines.join('\n'));
+    assert.ok(
+      lines.some((line) =>
+        line.includes(
+          `the system map of acme/web was not read: git could not list ${'c'.repeat(40)}: fatal: Unable to create index.lock`,
+        ),
+      ),
+      lines.join('\n'),
+    );
+    assert.deepStrictEqual(
+      store.eventsAfter(0).filter(({ event }) => event.type === 'system.mapped'),
+      [],
+    );
+  });
+
   it('retries a plan missing a field in the same session, told which field', async () => {
     const [first, ...rest] = subOrders;
     const { doneWhen: _, ...missing } = first ?? assert.fail();
@@ -469,10 +521,11 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       };
       assert.equal(await runBrew(setup, tasting, request), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
-      // Its house yeast, and no change: no diff is read for a plan.
+      // Its house yeast, and the bases the system map is read at (ADR 0317), and no change: no
+      // diff is read for a plan.
       assert.deepStrictEqual(
-        gits.map((call) => call.split(' ')[0]),
-        ['ls-tree'],
+        [...new Set(gits.map((call) => call.split(' ')[0]))],
+        ['rev-parse', 'ls-tree'],
       );
       // The Taster read the plan, and no change.
       assert.match(

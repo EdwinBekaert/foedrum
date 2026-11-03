@@ -5,7 +5,7 @@
 // files.
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
-import { SURVEY, TASTING } from '../schemas/out-doc.ts';
+import { MUTANTS, SURVEY, TASTING } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
@@ -72,7 +72,10 @@ export interface StepBrewer {
   lens?: string;
   /** On a Taster's step of several lenses: each, in the step's order, reviewed together (ADR 0220). */
   together?: readonly string[];
-  /** On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161). */
+  /**
+   * On a Taster's step: whether a `changes` verdict holds the batch up (ADR 0161); on Brett's,
+   * whether a survivor does (ADR 0319).
+   */
   blocking?: boolean;
   /** On an interactive step: the recipe's first message to the session (ADR 0222). */
   interactive?: { prompt: string };
@@ -411,9 +414,13 @@ function runnableStep(step: Step): BrewerStep | CheckStep | ActionStep | string 
 /** Whether `brewer` is a Taster: it answers with findings and a verdict (ADR 0161). */
 const isTaster = (brewer: BrewerFrontmatter): boolean => brewer.output.schema === TASTING;
 
+/** Whether `brewer` is Brett: it proposes mutants, which the engine runs (ADR 0311, ADR 0313). */
+const isBrett = (brewer: BrewerFrontmatter): boolean => brewer.output.schema === MUTANTS;
+
 /**
  * Why the lens and blocking flag of `step` cannot load with `brewer` (ADR 0161): a lens only on a
- * Taster's step, which needs one, and blocking only there, since Brett's would change nothing yet.
+ * Taster's step, which needs one, and blocking only there or on Brett's, whose survivors then
+ * block it (ADR 0319).
  */
 function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
   const id = stepId(step);
@@ -429,7 +436,7 @@ function untasted(step: BrewerStep, brewer: BrewerFrontmatter): string[] {
         : [
             `step "${id}" has "lenses", but its brewer "${brewer.name}" is no Taster: a lens step's brewer answers with the out doc schema "${TASTING}" (ADR 0161, ADR 0220)`,
           ]),
-      ...(step.blocking === undefined
+      ...(step.blocking === undefined || isBrett(brewer)
         ? []
         : [`step "${id}" has "blocking", which the engine does not follow yet (ADR 0053)`]),
     ];
@@ -791,9 +798,11 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
   const [first] = stepLensFiles;
   if (first === undefined) {
     const { prompt, chosenBy } = step;
-    if (prompt === undefined) return { line, brewer: found };
+    // A Brett step that blocks: its survivors block it by findings (ADR 0319).
+    const stepBrewer = step.blocking === undefined ? found : { ...found, blocking: step.blocking };
+    if (prompt === undefined) return { line, brewer: stepBrewer };
     const chosen = chosenBy === undefined ? {} : { chosenBy };
-    return { line, brewer: { ...found, interactive: { prompt }, ...chosen } };
+    return { line, brewer: { ...stepBrewer, interactive: { prompt }, ...chosen } };
   }
   // A Taster reads its step's lens as ADR 0098's lens input (ADR 0161), and a step's lenses
   // together as that one input, which names each (ADR 0220): no lens name holds a comma.

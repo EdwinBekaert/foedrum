@@ -93,6 +93,9 @@ export const planFrom = (lib: string | undefined, web: string | undefined): Scri
   };
 };
 
+/** The system map's line for the application's dependency on the library (ADR 0317). */
+export const MAPPED_DEPENDENCY = `depends on \`${PACKAGE}\` from ${LIB} by version \`${VERSION}\``;
+
 /** The tag of the release the prompt's `release` input names, as written (ADR 0291). */
 const TAG = /^- Tag, as written: (\S+)$/m;
 
@@ -130,6 +133,10 @@ export const turnOf = (
   prompt: string,
 ): Scripted => {
   if (stepId === 'plan') {
+    // The system map names the link the plan rests on before any manifest is opened (ADR 0317).
+    if (!prompt.includes(MAPPED_DEPENDENCY)) {
+      throw new Error(`the Brewmaster's repositories input maps no dependency of ${WEB} on ${LIB}`);
+    }
     return planFrom(
       read(join(ALIASES[LIB], 'package.json')),
       read(join(ALIASES[WEB], 'package.json')),

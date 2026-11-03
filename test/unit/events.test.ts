@@ -120,6 +120,23 @@ const valid: Record<Event['type'], Event> = {
     package: 'lib-core',
     version: '2.4.0',
   },
+  'system.mapped': {
+    type: 'system.mapped',
+    repo: 'acme/web',
+    commit: 'a'.repeat(40),
+    entry: {
+      publishes: [{ name: 'web', ecosystem: 'npm' }],
+      dependsOn: [
+        {
+          name: '@acme/lib-core',
+          ecosystem: 'npm',
+          via: { kind: 'git', url: 'git+https://github.com/acme/lib-core.git', ref: 'v2.4.0' },
+        },
+      ],
+      modules: ['web'],
+      unreadable: [{ path: 'tools/package.json', reason: 'it is not a JSON object' }],
+    },
+  },
   'batch.rewound': {
     type: 'batch.rewound',
     batchId: 'b1',
