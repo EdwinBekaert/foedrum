@@ -517,6 +517,10 @@ const orderEndLines = (rows: readonly SubOrderRow[]): string[] => {
   return [`Keeps the order open: ${named.join(', ')}`];
 };
 
+/** Issue `numbers` as `#1, #2`. */
+const issueNumbers = (numbers: readonly number[]): string =>
+  numbers.map((number) => `#${number}`).join(', ');
+
 /** The lane, and for Stuck why; never a reminder's time, which changes alone. */
 const laneText = (
   batch: Batch,
@@ -561,7 +565,7 @@ const laneText = (
       const opened =
         subIssues === undefined || subIssues.length === 0
           ? ''
-          : `; sub-issues ${subIssues.map((number) => `#${number}`).join(', ')}`;
+          : `; sub-issues ${issueNumbers(subIssues)}`;
       return [`🍻 **On tap**: plan approved by ${plain(approval.by)} (${approval.via})${opened}`];
     }
     case 'cancelled':
@@ -613,12 +617,11 @@ const nextLines = (
   if (end?.kind === 'done') return [];
   if (end !== undefined && end.left.length > 0) {
     return [
-      `Next: see to what keeps the order open (${end.left.map(({ subOrder }) => `#${subOrder}`).join(', ')}).`,
+      `Next: see to what keeps the order open (${issueNumbers(end.left.map(({ subOrder }) => subOrder))}).`,
     ];
   }
   const numbers = rows.length > 0 ? rows.map(({ subOrder }) => subOrder) : (subIssues ?? []);
-  const named =
-    numbers.length === 0 ? '' : ` (${numbers.map((number) => `#${number}`).join(', ')})`;
+  const named = numbers.length === 0 ? '' : ` (${issueNumbers(numbers)})`;
   return [
     `Next: nothing to do; the sub-orders brew${named}, and each pull request comes to you on tap.`,
   ];

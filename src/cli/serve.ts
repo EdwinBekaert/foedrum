@@ -314,7 +314,7 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
       releases: githubReleaseReader(reads, client),
       // The next tick applies the effects of what the pass ordered, so an issue shows its Ordered
       // lane before the pass routes its batch: never beside a drive (ADR 0316).
-      ordered: () => new Promise((settle) => waitingForTick.push(settle)),
+      ordered: () => new Promise((resolve) => waitingForTick.push(resolve)),
     });
     // The pass underway, never awaited by a tick: a slow GitHub holds off no heartbeat (ADR 0068).
     let nextPoll = Number.NEGATIVE_INFINITY;
