@@ -9,7 +9,7 @@ Foedrum computes it from manifests, with git and no model, and never writes it i
 - One reader per ecosystem in `src/formats/`, each a `ManifestReader`: the paths it reads, and what a manifest says the repository publishes and depends on.
   The core (`src/engine/system-map.ts`) walks the list `READERS` and knows no ecosystem.
   - npm (`npm-manifest.ts`): `package.json`'s `name`, and each entry of `dependencies`, `devDependencies`, `peerDependencies` and `optionalDependencies` as a version, a git URL with the ref after its `#`, or a `file:` folder, read from the manifest's own folder with `/` between its folders.
-  - .NET (`dotnet-manifest.ts`): a `.csproj`, `.fsproj` or `.vbproj` file's `PackageId` (else its file name, unless `IsPackable` is false), its `PackageReference`s and its `ProjectReference`s, and a `.sln` file's projects outside the repository.
+  - .NET (`dotnet-manifest.ts`): a `.csproj`, `.fsproj` or `.vbproj` file's `PackageId` (else its file name when `IsPackable` or `GeneratePackageOnBuild` is true), its `PackageReference`s and its `ProjectReference`s, and a `.sln` file's projects outside the repository.
   - Manifests under `node_modules`, `bin` and `obj` are not read.
 - The repository's test map at the same commit, for its module names ([test map](../checks/test-map.md)).
 
@@ -21,7 +21,7 @@ A manifest that cannot be parsed, or that git cannot read, is kept as a line say
 - A repository's entry is a `system.mapped` event with the base commit it was read at ([events](../engine/events.md)); the fold keeps the latest per repository, and the record refuses a second one at the same commit.
 - When an attempt that reads the `repositories` input is planned (its brewer names it, or its lenses review a plan, [ADR 0312](../../adr/0312-a-taster-on-a-plan-lens-step-reads-the-batch-s-latest-plan-and-ties-each-finding-to-a-sub-order.md)), each repository's base commit is resolved in its clone, and only a repository whose base moved since its entry is read again.
   No tick reads it.
-- A base git cannot list is recorded with why; a read git was stopped or timed out on is not recorded, so the next such attempt reads it again.
+- A base git cannot list, or was stopped or timed out on, is not recorded: the driver says why, and the next such attempt reads it again.
 
 ## What the planners read
 

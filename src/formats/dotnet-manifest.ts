@@ -41,7 +41,9 @@ const readProject = (path: string, text: string): ManifestRead => {
     if (error instanceof NotXml) return { kind: 'unreadable', reason: `not XML: ${error.message}` };
     throw error;
   }
-  const packable = firstText(root, 'IsPackable')?.toLowerCase() !== 'false';
+  // A project is a package when it names its id or says it packs; an app or a test project is none.
+  const says = (name: string) => firstText(root, name)?.toLowerCase() === 'true';
+  const packable = says('IsPackable') || says('GeneratePackageOnBuild');
   const id = firstText(root, 'PackageId') ?? (packable ? stem(path) : undefined);
   const dependsOn: ManifestDependency[] = [];
   for (const reference of descendants(root, 'PackageReference')) {

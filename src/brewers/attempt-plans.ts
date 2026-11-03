@@ -19,7 +19,7 @@ import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
-import { entryOf, type MapModules, manifestsAt, mapName, modulesOf } from '../engine/system-map.ts';
+import { entryOf, type MapModules, manifestsAt, modulesOf } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -37,7 +37,6 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
-import type { SystemMapEntry } from '../schemas/system-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
@@ -308,8 +307,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /**
    * Reads the system map again of each repository whose base commit is not the one its entry was
-   * read at, and records it (ADR 0317): a base git cannot list is recorded with why, never left out,
-   * and one git was stopped or timed out on is left for the next attempt that reads the map.
+   * read at, and records it (ADR 0317). A base git cannot list, or was stopped or timed out on, is
+   * recorded as nothing: `mapUnread` says why, and the next attempt that reads the map tries again.
    */
   const refreshMap = async (): Promise<void> => {
     const { git, recordMap } = options;
@@ -319,27 +318,24 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       if (!('commit' in at) || state().systemMap.get(at.repo.toLowerCase())?.commit === at.commit) {
         continue;
       }
-      let entry: SystemMapEntry;
+      let manifests: Awaited<ReturnType<typeof read>>;
       try {
-        const manifests = await read(at.clone, at.commit);
-        if ('again' in manifests) continue;
-        // A test map that cannot be read is a line of the entry, beside the manifests read.
-        let modules: MapModules;
-        try {
-          modules = modulesOf(await options.testMapAt?.(at.repo, at.commit));
-        } catch (error) {
-          modules = { unread: messageOf(error) };
-        }
-        entry = entryOf(manifests.files, modules, manifests.left);
+        manifests = await read(at.clone, at.commit);
       } catch (error) {
-        const reason = mapName(messageOf(error)) || 'git failed';
-        entry = {
-          publishes: [],
-          dependsOn: [],
-          modules: [],
-          unreadable: [{ path: 'its files', reason }],
-        };
+        manifests = { again: messageOf(error) };
       }
+      if ('again' in manifests) {
+        options.mapUnread?.(at.repo, manifests.again);
+        continue;
+      }
+      // A test map that cannot be read is a line of the entry, beside the manifests read.
+      let modules: MapModules;
+      try {
+        modules = modulesOf(await options.testMapAt?.(at.repo, at.commit));
+      } catch (error) {
+        modules = { unread: messageOf(error) };
+      }
+      const entry = entryOf(manifests.files, modules, manifests.left);
       recordMap({ type: 'system.mapped', repo: at.repo, commit: at.commit, entry });
     }
   };

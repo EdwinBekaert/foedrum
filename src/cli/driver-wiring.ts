@@ -352,6 +352,7 @@ export const wireDriver = async (
         say(`the system map of ${event.repo} was not recorded: ${decision.reason}`);
     },
     testMapAt: mapAt,
+    mapUnread: (repo, reason) => say(`the system map of ${repo} was not read: ${reason}`),
     // A brewer that asks for house yeast gets the rules that match its change (ADR 0169).
     houseYeast: {
       files: setup.houseYeast ?? [],

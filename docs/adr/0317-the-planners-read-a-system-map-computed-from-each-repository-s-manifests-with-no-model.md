@@ -14,7 +14,7 @@ The maintainer decided on 2026-11-02 and 2026-11-03 (#765) that Foedrum computes
   For each repository, Foedrum lists its files at its base commit with `git ls-tree` and reads each manifest a reader matches with `git cat-file`: no network, no install, no model.
   A reader is one file per ecosystem in `src/formats/` with the shape `ManifestReader`: which paths it reads, and what a manifest's text says the repository publishes and depends on.
   `npm-manifest.ts` reads `package.json`: its `name`, and each entry of its four dependency fields as a version, a git URL with the ref after its `#`, or a `file:` folder, read from the manifest's own folder with `/` between its folders.
-  `dotnet-manifest.ts` reads `.csproj`, `.fsproj` and `.vbproj` files (the `PackageId`, else the file's name unless `IsPackable` is false, and each `PackageReference` and `ProjectReference`) and `.sln` files (each project outside the repository).
+  `dotnet-manifest.ts` reads `.csproj`, `.fsproj` and `.vbproj` files (the `PackageId`, else the file's name when `IsPackable` or `GeneratePackageOnBuild` is true, so an app or a test project publishes nothing, and each `PackageReference` and `ProjectReference`) and `.sln` files (each project outside the repository).
   Manifests under `node_modules`, `bin` and `obj` are not read.
   The core, `src/engine/system-map.ts`, walks the list `READERS` and knows no ecosystem, so another reader is one more file and one more entry in the list.
 - **A recorded entry per repository and base commit.**
@@ -24,8 +24,7 @@ The maintainer decided on 2026-11-02 and 2026-11-03 (#765) that Foedrum computes
 - **Read again when the base moved.**
   When an attempt that reads the `repositories` input is planned (its brewer names it, or its lenses review a plan, which gets it from the engine, ADR 0312), the attempt plans resolve each repository's base commit in its clone, as a plan's touches check does (ADR 0233), and read the map again only of a repository whose base commit is not the one its latest entry was read at.
   No tick reads it.
-  A base git cannot list is recorded with why, never left out.
-  A read git was stopped or timed out on is not recorded, so the next attempt that reads the map reads it again.
+  A base git cannot list, or was stopped or timed out on, is not recorded: the driver says why, and the next attempt that reads the map reads it again, since such a failure (an index lock, a fetch racing the read) may not repeat, and a recorded entry at that commit would stand until the base moves.
 - **Repository text is untrusted.**
   Every name, version, URL and path is cut to one line of at most 120 characters, its control characters and line breaks made spaces and a backtick a quote, before it is recorded, and each list to 200 items with the rest counted.
   A manifest that cannot be parsed gives a line that says so, never a silent gap.
