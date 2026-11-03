@@ -33,6 +33,7 @@ const total = [
   '  if (a > b) return a; // or c',
   '  return b;',
   '};',
+  '// the larger of the two',
   '',
 ].join('\n');
 
@@ -62,11 +63,12 @@ diff --git a/web/total.ts b/web/total.ts
 new file mode 100644
 --- /dev/null
 +++ b/web/total.ts
-@@ -0,0 +1,4 @@
+@@ -0,0 +1,5 @@
 +export const total = (a: number, b: number): number => {
 +  if (a > b) return a; // or c
 +  return b;
 +};
++// the larger of the two
 diff --git a/web/MAX.TS b/web/MAX.TS
 new file mode 100644
 --- /dev/null
@@ -194,6 +196,30 @@ describe('mutantCheck: a target repository (ADR 0311)', () => {
     );
     assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
     assert.equal(verdict.line, 3);
+  });
+
+  it('a replacement that only drops a trailing comment changes nothing where comments are known', () => {
+    assert.equal(
+      reasonOf({
+        file: 'web/total.ts',
+        line: 2,
+        original: 'if (a > b) return a; // or c',
+        replacement: 'if (a > b) return a;',
+      }),
+      'the replacement changes nothing',
+    );
+  });
+
+  it('deleting a line that is only a comment changes nothing where comments are known', () => {
+    assert.equal(
+      reasonOf({
+        file: 'web/total.ts',
+        line: 5,
+        original: '// the larger of the two',
+        replacement: '',
+      }),
+      'the replacement changes nothing',
+    );
   });
 
   it('a mutant whose original is on no line of its file is invalid', () => {
