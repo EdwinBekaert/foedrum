@@ -7,7 +7,7 @@ import { BreweryConfig } from './brewery-config.ts';
 import { Event } from './events.ts';
 import { HouseYeastRule } from './house-yeast.ts';
 import { ModelsConfig } from './models.ts';
-import { OutDocFrontmatter } from './out-doc.ts';
+import { MutantsOutDoc, OutDocFrontmatter } from './out-doc.ts';
 import { Recipe } from './recipe.ts';
 import { StepOutcome } from './step-outcome.ts';
 import { TestMap } from './test-map.ts';
@@ -19,6 +19,7 @@ const schemas: Record<string, z.ZodType> = {
   'foedrum.json': BreweryConfig,
   'house-yeast.json': HouseYeastRule,
   'models.json': ModelsConfig,
+  'mutants.json': MutantsOutDoc,
   'out-doc.json': OutDocFrontmatter,
   'recipe.json': Recipe,
   'step-outcome.json': StepOutcome,

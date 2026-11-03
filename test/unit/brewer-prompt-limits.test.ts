@@ -16,6 +16,9 @@ import {
   MAX_DISPOSITION_WHY,
   MAX_FINING_FILE,
   MAX_HOW_IT_WORKS,
+  MAX_MUTANT_DESCRIPTION,
+  MAX_MUTANT_FILE,
+  MAX_MUTANT_LINE,
   MAX_RISK_LEFT,
   MAX_SEE_IT,
   MAX_SURVEY_PATH,
@@ -24,9 +27,12 @@ import {
   MOST_BEFORE_AFTER,
   MOST_DISPOSITIONS,
   MOST_FINING_CHANGES,
+  MOST_MUTANTS,
   MOST_RISKS_LEFT,
   MOST_SURVEY_PATHS,
   MOST_TESTS,
+  MUTANTS,
+  MutantsOutDoc,
   PULL_REQUEST,
   PullRequestOutDoc,
   SURVEY,
@@ -81,6 +87,18 @@ const noDispositions = {
 
 /** Every default brewer, by its file's name. */
 const brewers: Record<string, Expected> = {
+  brett: {
+    name: MUTANTS,
+    schema: MutantsOutDoc,
+    stated: [
+      ['mutants', MOST_MUTANTS, 'mutants'],
+      ['file', MAX_MUTANT_FILE, 'characters'],
+      ['original', MAX_MUTANT_LINE, 'characters'],
+      ['replacement', MAX_MUTANT_LINE, 'characters'],
+      ['description', MAX_MUTANT_DESCRIPTION, 'characters'],
+    ],
+    unstated: noDispositions,
+  },
   brewmaster: {
     name: PLAN,
     schema: PlanOutDoc,

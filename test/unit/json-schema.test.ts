@@ -33,6 +33,7 @@ describe('writeJsonSchemas', () => {
       'foedrum.json',
       'house-yeast.json',
       'models.json',
+      'mutants.json',
       'out-doc.json',
       'recipe.json',
       'step-outcome.json',

@@ -21,7 +21,7 @@ It also says to check the evidence a dismissed or pre-existing finding's `why` n
 The pull request lists the `pre-existing` ones for a person to file ([open the pull request](open-pull-request.md)).
 A findings blocker on a step with no route is Stuck as any other blocker, with its summary only.
 A `lens` or `lenses` on a brewer that is no Taster, a Taster's step with neither, and a lens no folder has fail the load with a line each.
-Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
+Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine's run of them (#798) confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
 
 Lenses live in two folders, by what they review ([ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md)): `lenses/diff/` for a diff (code) and `lenses/plan/` for a plan (an order's breakdown, #391), in the Brewery and in `defaults/lenses/`.
 A lens is named by its folder and file name, `diff/security` or `plan/coverage`, so the two folders can hold a lens of the same file name.
@@ -65,8 +65,12 @@ Its findings show their lens before their severity (`diff/security, major in src
 The status comment shows ten findings per lens when every finding of the step names one, and ten per step otherwise.
 The default recipes run their lenses apart: together was measured on a seeded change and fell short of the rule that picks it ([ADR 0224](../../adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)).
 
-**Brett's mutants are checked by the engine.** Brett proposes a few mutants, each as a one-line structured edit (`file`, `line`, `original`, `replacement`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
-The engine checks each edit (an existing file under `src/` or `scripts/`, a line whose text is `original`, no new identifier or string), applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading.
+**Brett's mutants are one-line edits, checked against the change.** Brett ([`defaults/brewers/brett.md`](../../../defaults/brewers/brett.md)) proposes a few mutants in a `mutants` out doc, at most 5, each as a one-line structured edit (`file`, `line`, `original`, `replacement`, `description`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
+A brewer whose out doc schema is `mutants` gets the input `change`, as a Finer and a Taster that reviews a diff do.
+`mutantCheck` checks each edit on its own and gives the reason for one it refuses (in `src/checks/mutants.ts`, [ADR 0311](../../adr/0311-brett-s-mutants-of-a-target-land-on-lines-the-change-added-in-a-code-area-of-the-test-map.md)): a plain relative path, in a code area of the effective [test map](../checks/test-map.md), on a line whose text is `original` and that the batch's change added, and a replacement of one line that changes more than whitespace and adds no word or quoted string the original lacks.
+Comments are left out of that comparison only for JavaScript, TypeScript and the C family, by the file's extension; elsewhere a comment counts as the line's text.
+Foedrum's own review tooling checks the same replacement rule for files under `src/` and `scripts/` of this repository ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)).
+No engine path calls `mutantCheck` yet: a Brett step's out doc is read against its schema only, and the run that checks each edit, applies a valid one with an exact line replacement in a disposable `scratch` tree and runs the gravity reading comes in #798; no default recipe runs Brett yet.
 Only a test that fails because of the mutant catches it: the reading is compared test by test with the reading of the unmutated tree, so a test that fails anyway, a time budget or a coverage threshold does not count ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)).
 Only mutants the tests do not catch are **confirmed survivors**.
 They are listed in the pull request description and handed to the Cooper together with the lens findings whenever it runs; they block the verdict only when `"blocking": true`.
