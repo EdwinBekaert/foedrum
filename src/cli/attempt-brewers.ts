@@ -1,11 +1,14 @@
 // What the driver and its runners ask about an attempt's brewer, found in the recipe the attempt
 // was scheduled under, which the batch may have left since, as its plan does (ADR 0309, ADR 0310).
 
+import { familyOfBrewer } from '../brewers/attempt-plan.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import type { State } from '../engine/fold.ts';
+import { attemptRecipeOf, type State } from '../engine/fold.ts';
 import type { StepBrewers } from '../engine/recipe-files.ts';
 import type { ModelFamily } from '../engine/usage-window.ts';
+import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
+import { SURVEY } from '../schemas/out-doc.ts';
 
 export interface AttemptBrewersOptions {
   state: () => State;
@@ -24,18 +27,31 @@ export interface AttemptBrewers {
   /** Whether the attempt's brewer writes a survey (ADR 0298). */
   surveys(ref: AttemptRef): boolean;
   /** Whether the attempt's brewer has guard `guard`. */
-  guarded(ref: AttemptRef, guard: string): boolean;
+  guarded(ref: AttemptRef, guard: BrewerFrontmatter['guards'][number]): boolean;
 }
 
-export const attemptBrewers = (_options: AttemptBrewersOptions): AttemptBrewers => {
-  const notImplemented = (): never => {
-    throw new Error('not implemented');
+export const attemptBrewers = ({
+  state,
+  brewers,
+  models,
+}: AttemptBrewersOptions): AttemptBrewers => {
+  // In its batch's recipe for an attempt that recorded none (ADR 0309).
+  const brewerOf = (ref: AttemptRef) => {
+    const recipe = attemptRecipeOf(state(), ref);
+    return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId);
   };
   return {
-    reads: notImplemented,
-    family: notImplemented,
-    resumes: notImplemented,
-    surveys: notImplemented,
-    guarded: notImplemented,
+    reads: (ref) => brewerOf(ref)?.brewer.access === 'read',
+    family: (ref) => {
+      const found = brewerOf(ref);
+      return found && familyOfBrewer(models, found.brewer);
+    },
+    // An interactive step's session opens anew, with the whole prompt (ADR 0222).
+    resumes: (ref) => {
+      const found = brewerOf(ref);
+      return found?.interactive === undefined && found?.brewer.retryMode === 'resume';
+    },
+    surveys: (ref) => brewerOf(ref)?.brewer.output.schema === SURVEY,
+    guarded: (ref, guard) => brewerOf(ref)?.brewer.guards.includes(guard) ?? false,
   };
 };
