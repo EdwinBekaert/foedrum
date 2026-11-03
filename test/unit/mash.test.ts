@@ -466,10 +466,11 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       };
       assert.equal(await runBrew(setup, tasting, request), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
-      // Its house yeast, and no change: no diff is read for a plan.
+      // Its house yeast, and the bases the system map is read at (ADR 0317), and no change: no
+      // diff is read for a plan.
       assert.deepStrictEqual(
-        gits.map((call) => call.split(' ')[0]),
-        ['ls-tree'],
+        [...new Set(gits.map((call) => call.split(' ')[0]))],
+        ['rev-parse', 'ls-tree'],
       );
       // The Taster read the plan, and no change.
       assert.match(
