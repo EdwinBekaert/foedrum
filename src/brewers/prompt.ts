@@ -10,6 +10,8 @@ export type InputSource =
   | { kind: 'issue-body'; issue: number }
   | { kind: 'comment'; issue: number; comment: number }
   | { kind: 'out-doc'; step: string }
+  /** The batch's latest plan: the out doc of the plan attempt that wrote it (ADR 0312). */
+  | { kind: 'plan'; step: string; attempt: number }
   | { kind: 'file'; path: string }
   /** A house-yeast rule, with the file it was read from (ADR 0169). */
   | { kind: 'house-yeast'; rule: string; path?: string }
@@ -86,6 +88,8 @@ function describeSource(source: InputSource): string {
       return `comment ${source.comment} on issue #${source.issue}`;
     case 'out-doc':
       return `out doc of step ${source.step}`;
+    case 'plan':
+      throw new Error('not implemented');
     case 'file':
       return `file ${source.path}`;
     case 'house-yeast':
