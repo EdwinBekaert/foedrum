@@ -283,4 +283,29 @@ describe('openCommitTree', () => {
     assert.equal(readFileSync(join(outside, 'add.mjs'), 'utf8'), 'outside\n');
     assert.equal(existsSync(join(root, 'one.tree')), false);
   });
+
+  it('writes no edit to a file the checked-out tree does not hold (regression test)', async () => {
+    const root = nextFolder();
+    const recorded = recordingGit(ok());
+    const git: Git = async (cwd, args, options) => {
+      const result = await recorded.git(cwd, args, options);
+      if (args.includes('worktree') && args.includes('add')) {
+        mkdirSync(args.at(-2) ?? '', { recursive: true });
+      }
+      return result;
+    };
+    let used = false;
+    await assert.rejects(
+      openCommitTree({ git, clone, own: { url, root, id: () => 'one' } })(
+        COMMIT,
+        async () => {
+          used = true;
+        },
+        { edit: { file: 'src/gone.mjs', rewrite: () => 'the mutant' } },
+      ),
+      { message: '"src/gone.mjs" is no regular file of the scratch tree' },
+    );
+    assert.equal(used, false);
+    assert.equal(existsSync(join(root, 'one.tree', 'src', 'gone.mjs')), false);
+  });
 });

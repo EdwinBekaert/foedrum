@@ -1259,4 +1259,29 @@ describe("createCheckRunner's testRun: a scratch tree's tests (ADR 0313)", () =>
       /the test report t\/report\.tap of module "tapped"/,
     );
   });
+
+  it("a test run leaves a TRX module's report uncleared and unread (#727, regression test)", async () => {
+    const scratch = { repo: 'acme/api', path: worktree };
+    const { runner, asked } = setup({
+      found: { 't/report.tap': [tapReport] },
+      texts: {
+        [tapReport]:
+          'TAP version 13' + String.fromCodePoint(10) + 'ok 1 - adds' + String.fromCodePoint(10),
+      },
+    });
+    const modules = [
+      { module: billing, added: false },
+      { module: tapped, added: false },
+    ];
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal);
+    assert.equal(end.kind, 'ran');
+    assert.deepStrictEqual(end.kind === 'ran' ? end.reports.map(({ module }) => module) : [], [
+      'tapped',
+    ]);
+    assert.ok(asked.includes(`reports t/report.tap in ${worktree}`), asked.join(', '));
+    assert.equal(
+      asked.some((line) => line.includes('TestResults')),
+      false,
+    );
+  });
 });

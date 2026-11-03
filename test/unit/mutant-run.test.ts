@@ -198,9 +198,11 @@ const setup = ({
   runner,
   mutates = true,
   events = eventsOf(),
-  runs = (edit) => ran(edit === undefined ? baseline : baseline),
+  runs = () => ran(baseline),
   clock = () => t0,
   checkedOut = code,
+  clonedGit = git,
+  mapAt = map,
 }: {
   runner: BrewerRunner;
   mutates?: boolean;
@@ -209,6 +211,10 @@ const setup = ({
   clock?: () => Date;
   /** The mutant's file as git checks it out in a scratch tree. */
   checkedOut?: string;
+  /** git in the clone, where the change and the mutant's file are read. */
+  clonedGit?: Git;
+  /** The test map at every commit. */
+  mapAt?: MapRead;
 }) => {
   const opened: { commit: string; edit?: Edited; path: string }[] = [];
   const removed: string[] = [];
@@ -242,16 +248,17 @@ const setup = ({
     runner,
     state: () => state,
     mutates: () => mutates,
-    git,
+    git: clonedGit,
     clone: () => clone,
-    testMap: async () => map,
+    testMap: async () => mapAt,
     tree: () => tree,
     testRun,
     platform: 'linux',
     clock,
   });
-  const end = () => wrapped.start({ ref, prompt: 'Mutate' } as never).ended;
-  return { end, opened, removed, runDeadlines };
+  const start = () => wrapped.start({ ref, prompt: 'Mutate' } as never);
+  const end = () => start().ended;
+  return { end, start, wrapped, opened, removed, runDeadlines };
 };
 
 /** Each run's outcome by the mutant its tree holds. */
@@ -374,9 +381,8 @@ describe('mutated, judging mutants', () => {
 
   it('a mutant is judged against a fresh baseline, so a test that already failed kills nothing', async () => {
     const broken = { ...baseline, 'clamps big numbers': 'failed' } as const;
-    const runs = (edit: Edited | undefined) =>
-      // The baseline fails one test; the mutant fails the same one, and no other.
-      ran(edit === undefined ? broken : broken);
+    // The baseline fails one test; the mutant fails the same one, and no other.
+    const runs = () => ran(broken);
     const { end, opened, removed } = setup({ runner: brett([boundary, subtracts]), runs });
     const ended = await end();
     assert.deepStrictEqual(
@@ -496,8 +502,7 @@ describe('mutated, judging mutants', () => {
   });
 
   it('a mutant whose module passed no test at the baseline is not judged', async () => {
-    const runs = (edit: Edited | undefined) =>
-      ran(edit === undefined ? { 'adds two numbers': 'failed' } : { 'adds two numbers': 'failed' });
+    const runs = () => ran({ 'adds two numbers': 'failed' });
     const { end } = setup({ runner: brett([subtracts]), runs });
     const ended = await end();
     assert.deepStrictEqual(
@@ -529,5 +534,130 @@ describe('mutated, judging mutants', () => {
         },
       ],
     );
+  });
+});
+
+describe('mutated, its edges', () => {
+  const verdicts = async (options: Parameters<typeof setup>[0]) =>
+    (await setup(options).end()).mutants?.map(({ verdict }) => verdict);
+  const signaled = {
+    kind: 'ran',
+    reading: {
+      result: 'signaled',
+      check: 'test',
+      command: 'npm test',
+      signal: 'SIGSEGV',
+      tail: '',
+    },
+    reports: [],
+  } as const;
+
+  it('reports progress while its mutants run, and none once the attempt ended (regression test)', async () => {
+    let release = () => {};
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    let entered = () => {};
+    const running = new Promise<void>((done) => {
+      entered = done;
+    });
+    const runs = async () => {
+      entered();
+      await gate;
+      return ran(baseline);
+    };
+    const { start, wrapped } = setup({ runner: brett([boundary]), runs });
+    const attempt = start();
+    await running;
+    assert.deepStrictEqual(wrapped.progress(ref), { lastProgressAt: t0, turnsWithoutProgress: 0 });
+    release();
+    await attempt.ended;
+    assert.equal(wrapped.progress(ref), undefined);
+  });
+
+  it('a stop while the mutants run ends the attempt cancelled (regression test)', async () => {
+    let entered = () => {};
+    const running = new Promise<void>((done) => {
+      entered = done;
+    });
+    // The run ends once the stop reaches it, as the process runner kills a run's tree.
+    const runs = async (): Promise<TestRunEnd> => {
+      entered();
+      await new Promise((done) => setTimeout(done, 0));
+      return ran(baseline);
+    };
+    const { start } = setup({ runner: brett([boundary]), runs });
+    const attempt = start();
+    await running;
+    attempt.stop();
+    assert.deepStrictEqual((await attempt.ended).ending, { kind: 'cancelled' });
+  });
+
+  it('a change or a file that cannot be read, or no test map, leaves every mutant not judged (regression test)', async () => {
+    const failing =
+      (word: string): Git =>
+      async (cwd, args, options) =>
+        args.includes(word)
+          ? { code: 128, stdout: '', stderr: `fatal: no ${word}\n` }
+          : git(cwd, args, options);
+    assert.deepStrictEqual(
+      await verdicts({ runner: brett([boundary]), clonedGit: failing('diff') }),
+      [{ kind: 'notJudged', why: 'the change of the batch cannot be read: fatal: no diff' }],
+    );
+    assert.deepStrictEqual(
+      await verdicts({ runner: brett([boundary]), clonedGit: failing('cat-file') }),
+      [{ kind: 'notJudged', why: 'src/add.mjs cannot be read: fatal: no cat-file' }],
+    );
+    assert.deepStrictEqual(await verdicts({ runner: brett([boundary]), mapAt: { kind: 'none' } }), [
+      { kind: 'notJudged', why: 'acme/api has no test map' },
+    ]);
+  });
+
+  it('a baseline that did not run or did not exit, and a mutant run a signal ended, are not judged (regression test)', async () => {
+    const unrun = () => ({ kind: 'unrun', why: 'npm ci failed' }) as const;
+    assert.deepStrictEqual(await verdicts({ runner: brett([boundary]), runs: unrun }), [
+      { kind: 'notJudged', why: 'the baseline did not run: npm ci failed' },
+    ]);
+    assert.deepStrictEqual(await verdicts({ runner: brett([boundary]), runs: () => signaled }), [
+      { kind: 'notJudged', why: "the baseline's test check ended signaled" },
+    ]);
+    const mutantSignaled = (edit: Edited | undefined) =>
+      edit === undefined ? ran(baseline) : signaled;
+    assert.deepStrictEqual(await verdicts({ runner: brett([boundary]), runs: mutantSignaled }), [
+      { kind: 'notJudged', why: 'its test check ended signaled' },
+    ]);
+  });
+
+  it("a Brewery order's attempt with checkouts and no worktree runs no mutant (regression test)", async () => {
+    const events = eventsOf().map((event) =>
+      event.type === 'step.started' && event.stepId === 'brett'
+        ? { type: 'step.started' as const, ...ref }
+        : event,
+    );
+    const end: AttemptEnd = {
+      ending: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Mutants', mutants: [{ ...boundary }] },
+      },
+    };
+    const { end: ended, opened } = setup({ runner: brett([boundary], end), events });
+    assert.deepStrictEqual(await ended(), end);
+    assert.deepStrictEqual(opened, []);
+  });
+
+  it('a mutant of a fast suite still gets a minute to run (regression test)', async () => {
+    let now = t0.getTime();
+    // The baseline takes ten seconds: three of them would be thirty.
+    const runs = (edit: Edited | undefined): TestRunEnd => {
+      if (edit === undefined) now += 10_000;
+      return ran(baseline);
+    };
+    const { end, runDeadlines } = setup({
+      runner: brett([boundary]),
+      runs,
+      clock: () => new Date(now),
+    });
+    await end();
+    assert.equal(runDeadlines[1], new Date(t0.getTime() + 10_000 + 60_000).toISOString());
   });
 });
