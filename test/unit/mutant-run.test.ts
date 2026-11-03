@@ -10,15 +10,16 @@ import type { TestRun, TestRunEnd } from '../../src/checks/check-runner.ts';
 import { mutated } from '../../src/checks/mutant-run.ts';
 import { mutantCheck } from '../../src/checks/mutants.ts';
 import type { MappedReport } from '../../src/checks/red-proof.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { MapRead, ReadTestMapAt } from '../../src/checks/test-map.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import type { AttemptEnd, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { TestResult } from '../../src/formats/test-report.ts';
+import { messageOf } from '../../src/platform/errors.ts';
 import { Event, MAX_MUTANT_TEXT } from '../../src/schemas/events.ts';
-import type { MutantEdit } from '../../src/schemas/out-doc.ts';
+import { type MutantEdit, MutantsOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
 
@@ -205,6 +206,8 @@ const setup = ({
   checkedOut = code,
   clonedGit = git,
   mapAt = map,
+  testMap = async () => mapAt,
+  blocking = false,
 }: {
   runner: BrewerRunner;
   mutates?: boolean;
@@ -217,6 +220,10 @@ const setup = ({
   clonedGit?: Git;
   /** The test map at every commit. */
   mapAt?: MapRead;
+  /** The test map by commit, `mapAt` at every one unless given. */
+  testMap?: ReadTestMapAt;
+  /** Whether the step blocks on a survivor (ADR 0319). */
+  blocking?: boolean;
 }) => {
   const opened: { commit: string; edit?: Edited; path: string }[] = [];
   const removed: string[] = [];
@@ -252,13 +259,14 @@ const setup = ({
     mutates: () => mutates,
     git: clonedGit,
     clone: () => clone,
-    testMap: async () => mapAt,
+    testMap,
     tree: () => tree,
     testRun,
     platform: 'linux',
     clock,
   });
-  const start = () => wrapped.start({ ref, prompt: 'Mutate' } as never);
+  const limits = { outDoc: { file: 'mutants.md', schema: MutantsOutDoc }, blocking };
+  const start = () => wrapped.start({ ref, limits });
   const end = () => start().ended;
   return { end, start, wrapped, opened, removed, runDeadlines };
 };
@@ -347,6 +355,8 @@ describe('mutated, judging mutants', () => {
         file: 'src/add.mjs',
         line: 2,
         description: 'clamp at ten',
+        original: 'export const clamp = (n) => (n > 10 ? 10 : n);',
+        replacement: 'export const clamp = (n) => (n >= 10 ? 10 : n);',
         verdict: { kind: 'survived' },
       },
     ]);
@@ -539,7 +549,70 @@ describe('mutated, judging mutants', () => {
   });
 });
 
+describe('mutated, on a blocking step (ADR 0319)', () => {
+  it('a blocking Brett step whose mutants the tests all kill succeeds (regression test)', async () => {
+    const runs = byEdit(new Map([['a - b', { ...baseline, 'adds two numbers': 'failed' }]]));
+    const { end } = setup({ runner: brett([subtracts]), runs, blocking: true });
+    const ended = await end();
+    assert.equal(ended.ending.kind, 'succeeded');
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ verdict }) => verdict),
+      [{ kind: 'killed', by: 'adds two numbers' }],
+    );
+  });
+
+  it('a blocking Brett step with two survivors is blocked by both, each named in its summary (regression test)', async () => {
+    const { end } = setup({ runner: brett([boundary, subtracts]), blocking: true });
+    const ended = await end();
+    assert.deepStrictEqual(ended.ending, {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary:
+        'the tests let 2 mutants survive: src/add.mjs:2: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten; src/add.mjs:1: - export const add = (a, b) => a + b; / + export const add = (a, b) => a - b;: add subtracts',
+      findings: [
+        {
+          file: 'src/add.mjs',
+          line: 2,
+          severity: 'major',
+          why: 'the tests let a mutant survive: - export const clamp = (n) => (n > 10 ? 10 : n); / + export const clamp = (n) => (n >= 10 ? 10 : n);: clamp at ten',
+          introduced: true,
+        },
+        {
+          file: 'src/add.mjs',
+          line: 1,
+          severity: 'major',
+          why: 'the tests let a mutant survive: - export const add = (a, b) => a + b; / + export const add = (a, b) => a - b;: add subtracts',
+          introduced: true,
+        },
+      ],
+    });
+    // The verdicts stay on the attempt's end beside the blocked ending.
+    assert.equal(ended.mutants?.length, 2);
+  });
+});
+
 describe('mutated, its edges', () => {
+  it('a judge that throws records every mutant not judged, and the attempt keeps its end', async () => {
+    const throwing: ReadTestMapAt = async () => {
+      throw new Error('the clone is gone');
+    };
+    for (const blocking of [false, true]) {
+      const { end } = setup({ runner: brett([boundary, subtracts]), testMap: throwing, blocking });
+      // A rejection would make the driver record the attempt blocked by its environment.
+      const ended = await end().catch((error: unknown) => ({ rejected: messageOf(error) }));
+      assert.ok('ending' in ended, JSON.stringify(ended));
+      assert.equal(ended.ending.kind, 'succeeded', `blocking: ${blocking}`);
+      const why = 'the mutants could not be run: the clone is gone';
+      assert.deepStrictEqual(
+        ended.mutants?.map(({ line, verdict }) => [line, verdict]),
+        [
+          [2, { kind: 'notJudged', why }],
+          [1, { kind: 'notJudged', why }],
+        ],
+      );
+    }
+  });
+
   const verdicts = async (options: Parameters<typeof setup>[0]) =>
     (await setup(options).end()).mutants?.map(({ verdict }) => verdict);
   const signaled = {
@@ -751,6 +824,47 @@ describe('mutated, round two', () => {
       mutants: ended.mutants,
     });
     assert.equal(finished.success, true, JSON.stringify(finished.error?.issues));
+  });
+
+  it("cuts a survivor's edit and leaves a secret in it out, as its other texts (regression test)", async () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const keyed = `export const key = '${token}'.length > 10;`;
+    const sum = `export const sum = ${Array.from({ length: 150 }, () => '1').join(' + ')};`;
+    const lines = [keyed, sum];
+    const source = `${lines.join('\n')}\n`;
+    const added = [
+      'diff --git a/src/add.mjs b/src/add.mjs',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/src/add.mjs',
+      '@@ -0,0 +1,2 @@',
+      ...lines.map((line) => `+${line}`),
+      '',
+    ].join('\n');
+    const keyedGit: Git = async (cwd, args) => {
+      if (args.includes('diff')) return ok(added);
+      if (args.includes('cat-file')) return ok(source);
+      return git(cwd, args);
+    };
+    const mutants = [
+      mutant(keyed, keyed.replace('>', '>='), 1, 'a longer key'),
+      mutant(sum, sum.replace('+', '-'), 2, 'one less'),
+    ];
+    const ended = await setup({
+      runner: brett(mutants),
+      clonedGit: keyedGit,
+      checkedOut: source,
+    }).end();
+    const [secret, long] = ended.mutants ?? [];
+    assert.equal(secret?.verdict.kind, 'survived');
+    assert.equal(secret?.original, '[left out: a name that looks like a secret]');
+    assert.equal(secret?.replacement, '[left out: a name that looks like a secret]');
+    assert.equal(long?.verdict.kind, 'survived');
+    assert.equal(long?.original?.length, MAX_MUTANT_TEXT);
+    assert.ok(long?.original?.endsWith('…'));
+    assert.equal(long?.replacement?.length, MAX_MUTANT_TEXT);
+    assert.doesNotMatch(JSON.stringify(ended.mutants), /ghp|A1b2/);
   });
 
   it('runs no mutant of a brewer that does not mutate, even when its output holds mutants (regression test)', async () => {

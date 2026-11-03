@@ -1394,6 +1394,131 @@ describe('renderStatus', () => {
     );
   });
 
+  it("the status comment lists a Brett step's confirmed survivors", () => {
+    const mutated: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Mutants', assumptions: [], mutants: [] },
+      },
+      mutants: [
+        {
+          file: 'src/clamp.ts',
+          line: 3,
+          description: 'clamp at ten',
+          original: 'return n > 10 ? 10 : n;',
+          replacement: 'return n >= 10 ? 10 : n;',
+          verdict: { kind: 'survived' },
+        },
+        {
+          file: 'src/clamp.ts',
+          line: 3,
+          description: 'clamp at zero',
+          verdict: { kind: 'killed', by: 'clamps big numbers' },
+        },
+        {
+          file: 'src/clamp.ts',
+          line: 2,
+          description: 'drop the check',
+          verdict: { kind: 'notJudged', why: 'the baseline did not run' },
+        },
+        {
+          file: 'src/clamp.ts',
+          line: 1,
+          description: 'leak the *key*',
+          original: `const key = '${token}';`,
+          replacement: '',
+          verdict: { kind: 'survived' },
+        },
+      ],
+    };
+    const text = renderStatus(batch({ steps: new Map([step('mutants', mutated)]) }), ['mutants']);
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Findings**');
+    assert.ok(at_ >= 0, text);
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 4), [
+      '- `mutants`: survived: src/clamp.ts:3: - return n &gt; 10 ? 10 : n; / + return n &gt;= 10 ? 10 : n;: clamp at ten',
+      '- `mutants`: survived: src/clamp.ts:1: - \\[left out: a text of step mutants that looks like a secret\\] / + : leak the \\*key\\*',
+      '- `mutants`: 4 mutants: 2 survived, 1 killed, 1 not judged',
+    ]);
+    noToken(text);
+  });
+
+  it("lists a survivor recorded without its edit, after the Tasters' findings (regression test)", () => {
+    const tasted: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [{ severity: 'minor', why: 'a small thing', introduced: true }],
+        },
+      },
+    };
+    // A store from before ADR 0319 kept no survivor's edit.
+    const mutated: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'succeeded',
+        output: { status: 'done', summary: 'Mutants', assumptions: [], mutants: [] },
+      },
+      mutants: [
+        {
+          file: 'src/clamp.ts',
+          line: 3,
+          description: 'clamp at ten',
+          verdict: { kind: 'survived' },
+        },
+      ],
+    };
+    const text = renderStatus(
+      batch({ steps: new Map([step('mutants', mutated), step('taste', tasted)]) }),
+      ['mutants', 'taste'],
+    );
+    const lines = text.split('\n');
+    const at_ = lines.indexOf('**Findings**');
+    assert.deepEqual(lines.slice(at_ + 1, at_ + 4), [
+      '- `taste`: minor: a small thing',
+      '- `mutants`: survived: src/clamp.ts:3: clamp at ten',
+      '- `mutants`: 1 mutant: 1 survived',
+    ]);
+  });
+
+  it('lists no survivor of a Brett step whose latest attempt was blocked by them (regression test)', () => {
+    const blocked: Attempt = {
+      phase: 'finished',
+      attempt: 1,
+      deadlineAt: at,
+      outcome: {
+        kind: 'failed',
+        retryable: false,
+        reason: 'blocked (findings): the tests let a mutant survive: src/clamp.ts:3: clamp at ten',
+      },
+      mutants: [
+        {
+          file: 'src/clamp.ts',
+          line: 3,
+          description: 'clamp at ten',
+          original: 'return n > 10 ? 10 : n;',
+          replacement: 'return n >= 10 ? 10 : n;',
+          verdict: { kind: 'survived' },
+        },
+      ],
+    };
+    const text = renderStatus(batch({ steps: new Map([step('mutants', blocked)]) }), ['mutants']);
+    assert.match(text, /`mutants`: attempt 1 failed: blocked \(findings\)/);
+    assert.doesNotMatch(text, /survived:|1 mutant/);
+  });
+
   it("escapes a Finer's change and leaves out one that looks like a secret (review of #462)", () => {
     const output = {
       status: 'done',

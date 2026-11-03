@@ -157,6 +157,38 @@ const PLAN: Scripted = {
   },
 };
 
+/** The line of greet.mjs the Cellarman's fix of the finding leaves, which Brett mutates. */
+const TRIMMED = "return 'Hello, ' + (name.trim() === '' ? 'stranger' : name) + '!';";
+
+/**
+ * Brett's out doc (ADR 0311): two mutants of that line, which the engine runs in scratch trees
+ * (ADR 0313). Greeting a name as a stranger kills the one, by the Gauger's test; greeting a name
+ * of only spaces as itself survives the other, since no test gives one (ADR 0319).
+ */
+const MUTANTS: Scripted = {
+  files: {},
+  message: '',
+  summary: 'Two mutants of greet.mjs:2.',
+  doc: {
+    mutants: [
+      {
+        file: 'greet.mjs',
+        line: 2,
+        original: TRIMMED,
+        replacement: "return 'Hello, ' + (name.trim() !== '' ? 'stranger' : name) + '!';",
+        description: 'greet greets every visitor who gives a name as a stranger',
+      },
+      {
+        file: 'greet.mjs',
+        line: 2,
+        original: TRIMMED,
+        replacement: "return 'Hello, ' + (name === '' ? 'stranger' : name) + '!';",
+        description: 'greet greets a name of only spaces as itself',
+      },
+    ],
+  },
+};
+
 /**
  * The Nip fixture's Maltster, Gauger and Cellarman, with a Taster for each lens step of the
  * demo's parallel group (ADR 0168), playing a tasting loop (ADR 0193). In round 1 the blocking correctness lens
@@ -164,7 +196,7 @@ const PLAN: Scripted = {
  * so the status comment shows each one's findings under its own step. The Cellarman's third
  * attempt fixes the finding and records it fixed, and the Finer runs after it once more. In
  * round 2 correctness approves, and the advisory lenses, whose findings are still open, raise
- * them again.
+ * them again. Brett mutates the change after them, once.
  */
 export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   survey: NIP_SCRIPT.survey ?? [],
@@ -187,6 +219,7 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   ],
   security: [security, security],
   'test-design': [testDesign, testDesign],
+  mutants: [MUTANTS],
   // The third order's mash: the Innkeeper's question, then the Brewmaster's plan (ADR 0232).
   innkeep: [INNKEEP],
   plan: [PLAN],

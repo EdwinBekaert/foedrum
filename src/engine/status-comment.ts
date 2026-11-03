@@ -52,6 +52,7 @@ import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
+import { mutantLines } from './survivors.ts';
 import { usageWindowsText } from './usage-window.ts';
 
 /**
@@ -959,12 +960,18 @@ const assumptionLines = (
       : [...shown, ...fullPlanLine(batch, stepId, stateBranchUrl, planComment)];
   });
 
-/** The output of `stepId`'s latest finished attempt when it succeeded; else undefined. */
-const latestOutput = (batch: Batch, stepId: string): unknown => {
+/** The latest finished attempt of `stepId` when it succeeded; else undefined. */
+const latestSucceededAttempt = (batch: Batch, stepId: string) => {
   const finished = latestFirst(batch, stepId).find((attempt) => attempt.phase === 'finished');
   return finished?.phase === 'finished' && finished.outcome.kind === 'succeeded'
-    ? finished.outcome.output
+    ? finished
     : undefined;
+};
+
+/** The output of `stepId`'s latest finished attempt when it succeeded; else undefined. */
+const latestOutput = (batch: Batch, stepId: string): unknown => {
+  const finished = latestSucceededAttempt(batch, stepId);
+  return finished?.outcome.kind === 'succeeded' ? finished.outcome.output : undefined;
 };
 
 /** How many of a step's new tests, and of its regression tests, the comment shows. */
@@ -1011,6 +1018,18 @@ const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): str
       ),
     );
   });
+
+/**
+ * Each confirmed survivor of a Brett step whose latest finished attempt succeeded, where it is, its
+ * edit and the bug it plants, and how many mutants had each verdict (ADR 0319): a blocking step's
+ * survivors end its attempt blocked, as a Taster's findings do.
+ */
+const survivorLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
+  stepIds.flatMap((stepId) =>
+    mutantLines(latestSucceededAttempt(batch, stepId)?.mutants ?? [], (text) =>
+      told(text, stepId),
+    ).map((line) => `- ${code(stepId)}: ${line}`),
+  );
 
 /** How many items of one Taster's risk left the comment shows. */
 const mostRisksLeft = 5;
@@ -1223,7 +1242,7 @@ export const renderStatus = (
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);
   if (tests.length > 0) sections.push(['**Tests**', ...tests]);
-  const findings = findingLines(batch, stepIds, told);
+  const findings = [...findingLines(batch, stepIds, told), ...survivorLines(batch, stepIds, told)];
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
   const risksLeft = riskLeftLines(batch, stepIds, told);
   if (risksLeft.length > 0) sections.push(['**Risk left**', ...risksLeft]);

@@ -179,9 +179,11 @@ describe('the demo Brewery', () => {
         { id: 'test-design', brewer: 'taster', lens: 'diff/test-design' },
       ],
     };
+    // Brett mutates the change after the group, advisory (ADR 0319).
+    const mutants = { id: 'mutants', brewer: 'brett' };
     assert.deepStrictEqual(
       recipe.steps,
-      nip.steps.map((step) => (step.id === 'taste' ? group : step)),
+      nip.steps.flatMap((step) => (step.id === 'taste' ? [group, mutants] : [step])),
     );
   });
 

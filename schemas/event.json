@@ -1250,6 +1250,14 @@
                 "maxLength": 500,
                 "pattern": "\\S"
               },
+              "original": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "replacement": {
+                "type": "string",
+                "maxLength": 500
+              },
               "verdict": {
                 "oneOf": [
                   {
