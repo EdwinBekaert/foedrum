@@ -15,8 +15,8 @@ const models: ModelsConfig = {
   brewers: {},
 };
 
-// Step brew of recipe first is a Maltster-like brewer: on Opus, resuming, surveying, guarded.
-// Step brew of recipe second is a plain brewer on Sonnet that starts fresh, unguarded.
+// Step brew of recipe first is a Maltster-like brewer: on Opus, resuming, surveying, testMapOnly.
+// Step brew of recipe second is a plain brewer on Sonnet that starts fresh, testsUnchanged.
 const loaded = loadRecipes({
   recipes: [
     {
@@ -41,7 +41,7 @@ const loaded = loadRecipes({
         model: 'deep',
         retryMode: 'resume',
         output: { doc: 'survey.md', schema: 'survey' },
-        guards: ['testMapOnly', 'testsUnchanged'],
+        guards: ['testMapOnly'],
       }),
     },
     {
@@ -50,6 +50,7 @@ const loaded = loadRecipes({
         model: 'builder',
         retryMode: 'fresh',
         access: 'write',
+        guards: ['testsUnchanged'],
       }),
     },
   ],
@@ -96,7 +97,7 @@ describe('attemptBrewers (ADR 0310)', () => {
   it("an attempt's guards come from the recipe it was scheduled under after the batch switched recipes", () => {
     const brewers = lookups(switched);
     assert.equal(brewers.guarded(ref, 'testMapOnly'), true);
-    assert.equal(brewers.guarded(ref, 'testsUnchanged'), true);
+    assert.equal(brewers.guarded(ref, 'testsUnchanged'), false);
   });
 
   it('whether an attempt only reads comes from the recipe it was scheduled under: regression test', () => {
@@ -109,6 +110,7 @@ describe('attemptBrewers (ADR 0310)', () => {
     assert.equal(brewers.resumes(ref), false);
     assert.equal(brewers.surveys(ref), false);
     assert.equal(brewers.guarded(ref, 'testMapOnly'), false);
+    assert.equal(brewers.guarded(ref, 'testsUnchanged'), true);
     assert.equal(brewers.reads(ref), false);
   });
 
@@ -118,7 +120,7 @@ describe('attemptBrewers (ADR 0310)', () => {
     assert.equal(brewers.family(ref), 'Opus');
     assert.equal(brewers.resumes(ref), true);
     assert.equal(brewers.surveys(ref), true);
-    assert.equal(brewers.guarded(ref, 'testsUnchanged'), true);
+    assert.equal(brewers.guarded(ref, 'testMapOnly'), true);
     assert.equal(brewers.reads(ref), true);
   });
 
