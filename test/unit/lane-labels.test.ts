@@ -62,6 +62,21 @@ const fakeLabels = () => {
   return { host, calls, of };
 };
 
+/** Batch `7-1` in `lane`, with `fields`. */
+const batch = (lane: Lane, fields: Partial<Batch> = {}): Batch => ({
+  id: '7-1',
+  issue: 7,
+  lane,
+  steps: new Map(),
+  rewinds: [],
+  ...fields,
+});
+const stuck = (reason: Extract<Lane, { kind: 'stuck' }>['reason']): Lane => ({
+  kind: 'stuck',
+  reason,
+  options: ['retry', 'cancel'],
+  remindAt: at,
+});
 describe('laneLabel', () => {
   it('names one label for each lane, and none for a cancelled batch', () => {
     const lanes: [Lane, string | undefined][] = [
@@ -83,13 +98,6 @@ describe('laneLabel', () => {
       [{ kind: 'on_tap', pullRequests: [pr] }, 'foedrum:on-tap'],
       [{ kind: 'cancelled', by: 'alice', via: 'terminal' }, undefined],
     ];
-    const batch = (lane: Lane): Batch => ({
-      id: '7-1',
-      issue: 7,
-      lane,
-      steps: new Map(),
-      rewinds: [],
-    });
     for (const [lane, label] of lanes) assert.equal(laneLabel(batch(lane)), label, lane.kind);
     assert.deepEqual(
       [...laneLabels],
@@ -101,6 +109,17 @@ describe('laneLabel', () => {
         'foedrum:on-tap',
       ],
     );
+  });
+
+  it('a batch Stuck for another reason keeps foedrum:stuck', () => {
+    const reasons = [
+      { kind: 'waiting_for_session', stepId: 'plan' },
+      { kind: 'deadline_passed', stepId: 'plan', deadlineAt: at },
+      { kind: 'routing', deadlineAt: at },
+    ] as const;
+    for (const reason of reasons) {
+      assert.equal(laneLabel(batch(stuck(reason))), 'foedrum:stuck', reason.kind);
+    }
   });
 });
 
