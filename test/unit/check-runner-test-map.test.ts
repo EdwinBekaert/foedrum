@@ -138,6 +138,8 @@ const setup = ({
   refused = {} as Record<string, string>,
   /** null: the test check was killed at its deadline. */
   testExit = 0 as number | null,
+  /** The typecheck check's exit code. */
+  typecheckExit = 0,
   /** Where the map is kept (ADR 0018). */
   keptIn = 'repo' as 'repo' | 'brewery',
   /** The tip map's manifests against the worktree's files. */
@@ -162,7 +164,8 @@ const setup = ({
       const killed = 'timed-out' as const;
       return Promise.resolve({ exitCode: null, stdout: output, stderr: '', output, killed });
     }
-    const exitCode = file === 'npm test' ? testExit : 0;
+    const exitCode =
+      file === 'npm test' ? testExit : file === 'npm run typecheck' ? typecheckExit : 0;
     return Promise.resolve({ exitCode, stdout: output, stderr: '', output });
   };
   const stepChecks: StepChecks = {
@@ -380,6 +383,26 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
       const tree = { repo: 'acme/api', path: merged };
       const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
       assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.deepEqual(asked, []);
+    });
+
+    it('a merged-tree check whose failing check is not the test check reads no map: regression test', async () => {
+      const { runner, asked } = setup({
+        typecheckExit: 2,
+        maps: { [tip]: mapOf(web), [head]: mapOf(web) },
+        found: { 'web/test-results.xml': [mergedReport] },
+        texts: { [mergedReport]: failingOf('bills a month') },
+      });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['typecheck', 'test'], tree, deadlineAt, live, {
+        head,
+        tip,
+      });
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the check "typecheck" (npm run typecheck) failed with exit code 2',
+      });
       assert.deepEqual(asked, []);
     });
   });
