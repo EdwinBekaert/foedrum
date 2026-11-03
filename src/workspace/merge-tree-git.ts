@@ -4,9 +4,11 @@
 // runs only through the injected `Git`, so unit tests pass a fake one (ADR 0021). The checks on
 // the merged tree get a worktree of it from such a directory (ADR 0203).
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
+import { pathInside } from '../platform/paths.ts';
+import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import { isCommitSha } from '../schemas/store.ts';
 import {
@@ -214,8 +216,18 @@ export const openCommitTree =
         sha,
         async (worktree) => {
           if (edit !== undefined) {
-            // A plain relative path the mutant check accepted.
+            // A plain relative path the mutant check accepted. A link the commit holds, there or on
+            // the way, could lead the write out of the tree: only a regular file inside it is edited.
             const file = join(worktree, ...edit.file.split('/'));
+            const found = await lstat(file).catch(() => undefined);
+            if (
+              found?.isFile() !== true ||
+              pathInside(realPath(worktree), realPath(file)) === undefined
+            ) {
+              throw new Error(
+                `${JSON.stringify(edit.file)} is no regular file of the scratch tree`,
+              );
+            }
             await writeFile(file, edit.content);
           }
           return use(worktree);
