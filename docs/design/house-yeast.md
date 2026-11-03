@@ -40,6 +40,7 @@ A human always approves a rule.
 
 **Foedrum's own reviews** ([ADR 0122](../adr/0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)): until the state branch carries them, `/brew-review` records candidates in `.foedrum/house-yeast-candidates.jsonl` of the main checkout, which every worktree shares.
 Each lens reads the rules at the base whose scope matches the change, within the budget, and the summary names the rules the budget cut and flags structural rules as promotion candidates.
+`node scripts/house-yeast.ts recurring` reports, per active rule, the reviews that recorded its lesson again after its adoption, and lists a rule recorded in at least `minReviews` of them (`scripts/house-yeast/core.ts`) as a candidate for a lint or script check, semantic ones too: telling the reviews and sessions did not stop the defect, so a person decides in an issue of its own whether a check could (#685).
 
 **Foedrum's own sessions** ([ADR 0271](../adr/0271-foedrum-s-own-sessions-load-the-house-yeast-rules-as-generated-path-scoped-rule-files.md)): `npm run house-yeast:rules` writes the active rules into `.claude/rules/house-yeast/`, one file per set of paths, each glob under any folder, with `paths` frontmatter, so a Claude Code session loads a rule when it reads or changes a file the rule's globs match, whatever lens it names.
 A rule with only a language is scoped to that language's extensions, and one with neither to every file.
