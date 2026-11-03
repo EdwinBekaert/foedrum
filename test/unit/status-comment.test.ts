@@ -616,6 +616,32 @@ describe('renderStatus', () => {
     );
   });
 
+  it("a failed attempt whose reason is not its readings' keeps its own clause on the path: regression test", () => {
+    const reading = {
+      result: 'exited',
+      check: 'test',
+      command: 'npm test',
+      exitCode: 1,
+      tail: '',
+      failing: { tests: ['adds'], more: 0 },
+    } as const;
+    const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
+    const text = renderStatus(
+      batch({
+        steps: new Map([step('green', { ...failed(1, reason), readings: [reading] }, running(2))]),
+        path: [
+          { stepId: 'green', attempt: 1 },
+          { stepId: 'green', attempt: 2 },
+        ],
+      }),
+      ['green'],
+    );
+    assert.equal(
+      pathOf(text),
+      'Path: `green #1` ❌ the test map the survey proposed disagrees… → `green #2` ▶️',
+    );
+  });
+
   const failedPath = (reason: string): string =>
     pathOf(
       renderStatus(
