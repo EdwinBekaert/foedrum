@@ -35,6 +35,12 @@ const squash = (code: string): string =>
     .replace(/\s+/g, ' ')
     .replace(/ ?([^\p{ID_Continue}$ ]) ?/gu, '$1');
 
+// The line with its `//` and `/* */` comments blanked and its strings kept: the leftmost of a
+// string and a comment wins, so `"http://x"` is no comment and a quote in a comment no string.
+const stringsOrComments = new RegExp(`${strings.source}|${comments.source}`, 'g');
+const withoutComments = (code: string): string =>
+  code.replace(stringsOrComments, (match) => (/^['"`]/.test(match) ? match : ' '));
+
 // The strings and the words (identifiers, property names, keywords) in a line of code, outside
 // `//` and `/* */` comments when `stripped`, so a mutant cannot turn commented-out code on; the
 // boolean literals count as literals, which a mutant may change.
@@ -48,14 +54,16 @@ const names = (code: string, stripped: boolean): Set<string> => {
 
 /**
  * Why a mutant's replacement is not a small bug of its original, or undefined: more than one
- * line, a change of whitespace only, or a word or string the original lacks, its line and block
- * comments left out when `stripped`.
+ * line, a change of whitespace only (or of comments only), or a word or string the original
+ * lacks, its line and block comments left out when `stripped`.
  */
 export const replacementReason = (mutant: Mutant, stripped = true): string | undefined => {
   if (/[\r\n\p{Zl}\p{Zp}]/u.test(mutant.replacement)) {
     return 'the replacement is more than one line';
   }
-  if (squash(mutant.replacement) === squash(mutant.original)) {
+  // A comment edit alone is no change where comments are stripped: no test can see it (ADR 0314).
+  const code = stripped ? withoutComments : (line: string) => line;
+  if (squash(code(mutant.replacement)) === squash(code(mutant.original))) {
     return 'the replacement changes nothing';
   }
   // A mutant may only change operators and number or boolean literals, or delete or reorder
