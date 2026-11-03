@@ -18,7 +18,7 @@ Decided with the maintainer on 2026-11-03 (#800, split from #587): the plan lens
   A plan lens step before the batch has any plan fails its attempt's plan: `the input "plan" needs the batch's plan, which it has none of yet`.
 - **The repositories.** The same step gets the Brewery's repositories as the input `repositories` (ADR 0234), as the Brewmaster does, so a lens can read whether the code already does what an entry asks.
   A Taster is read-only, so in a Brewery order in a Brewery of several repositories it already runs in a folder of checkouts, one per repository (ADR 0301), and the input names each folder.
-- **No change.** A plan lens step gets no `change` and no later round's change, and its house yeast is read at the commit its worktree holds, with no file changed: rules apply by their lens (ADR 0169), `plan/<name>` or a bare name, as `scope.lens` already reads them.
+- **No change.** A plan lens step gets no `change` and no later round's change, and its house yeast is read at the commit its worktree holds, with no file changed, so only the rules that name neither files nor a language apply, each by its lens (ADR 0169): `plan/<name>` or a bare name, as `scope.lens` already reads them.
   A Taster in a folder of checkouts has no repository of its own, and gets no house yeast, as before.
 - **The finding's place.** No field is added to `tasting`.
   A finding about one sub-order starts its `why` with the sub-order's id (`writer: …`) and leaves `file` and `line` out, unless it points at a file and line the Taster read in a repository.
