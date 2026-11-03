@@ -335,6 +335,15 @@ describe('recurringRules', () => {
     );
   });
 
+  it('lists the rules no candidate names by id, whatever order they come in', () => {
+    const counted = recurringRules(
+      [adopted('zeta', '2026-10-20'), adopted('alpha', '2026-10-20')],
+      [seen('other', '1-a', '2026-10-21')],
+      '2026-10-01',
+    );
+    assert.deepEqual(counted, { counted: [], unnamed: ['alpha', 'zeta'] });
+  });
+
   it('leaves out a review recorded on the day the rule was adopted', () => {
     const counted = recurringRules(
       [adopted('waits', '2026-10-20')],

@@ -415,12 +415,30 @@ describe('node scripts/house-yeast.ts recurring', () => {
     ),
   };
 
+  it('prints the usage and exits 2 without the rules folder or the store', () => {
+    for (const args of [['recurring'], ['recurring', dir]]) {
+      const result = runWith(args, retired);
+      assert.equal(result.code, 2, args.join(' '));
+      assert.match(result.err, /^usage:/);
+    }
+  });
+
+  it('prints no "never recorded" heading when every rule was recorded', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl'], {
+      ...ruleFile('waits', '2026-10-20'),
+      'store.jsonl': seen('waits', '1-a', '2026-10-21'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^waits: /);
+    assert.doesNotMatch(result.out, /never recorded/);
+  });
+
   it('leaves out a retired rule', () => {
     assert.equal(runWith(['recurring', dir, 'store.jsonl'], retired).out, 'no adopted rules\n');
   });
 
   it('refuses a --min or --since it cannot read', () => {
-    for (const flag of [['--min', '0'], ['--since', '30-10-2026'], ['--min']]) {
+    for (const flag of [['--min', '0'], ['--since', '30-10-2026'], ['--min'], ['--since']]) {
       const result = runWith(['recurring', dir, 'store.jsonl', ...flag], retired);
       assert.equal(result.code, 2, flag.join(' '));
       assert.match(result.err, /^usage:/);
