@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { settleReadings } from '../../src/checks/gravity.ts';
 import { effectMarker } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
@@ -616,6 +617,35 @@ describe('renderStatus', () => {
     );
   });
 
+  /**
+   * The path of a check step whose first attempt failed with `reading`, its reason settled from it
+   * as a check step's is (ADR 0307) unless `reason` is given.
+   */
+  const checkedPath = (reading: GravityReading, reason?: string): string => {
+    const settled = settleReadings([reading]);
+    const failed =
+      settled.kind === 'failed' ? settled : assert.fail('the reading settles to a failure');
+    const outcome = reason === undefined ? failed : { ...failed, reason };
+    return pathOf(
+      renderStatus(
+        batch({
+          steps: new Map([
+            step(
+              'green',
+              { phase: 'finished', attempt: 1, deadlineAt: at, outcome, readings: [reading] },
+              running(2),
+            ),
+          ]),
+          path: [
+            { stepId: 'green', attempt: 1 },
+            { stepId: 'green', attempt: 2 },
+          ],
+        }),
+        ['green'],
+      ),
+    );
+  };
+
   it("a failed check step's Path clause gives its failing count", () => {
     const reading: GravityReading = {
       result: 'exited',
@@ -625,32 +655,8 @@ describe('renderStatus', () => {
       tail: '',
       failing: { tests: ['adds', 'prints usage', 'reads a file'], more: 2 },
     };
-    const reason =
-      'the check "test" (npm test) failed with exit code 1: 5 tests failing: adds, prints usage, reads a file, …';
-    const text = renderStatus(
-      batch({
-        steps: new Map([
-          step(
-            'green',
-            {
-              phase: 'finished',
-              attempt: 1,
-              deadlineAt: at,
-              outcome: { kind: 'failed', retryable: false, reason },
-              readings: [reading],
-            },
-            running(2),
-          ),
-        ]),
-        path: [
-          { stepId: 'green', attempt: 1 },
-          { stepId: 'green', attempt: 2 },
-        ],
-      }),
-      ['green'],
-    );
     assert.equal(
-      pathOf(text),
+      checkedPath(reading),
       'Path: `green #1` ❌ the check "test" failed, 5 tests failing → `green #2` ▶️',
     );
   });
@@ -665,30 +671,8 @@ describe('renderStatus', () => {
       failing: { tests: ['adds'], more: 0 },
     };
     const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
-    const text = renderStatus(
-      batch({
-        steps: new Map([
-          step(
-            'green',
-            {
-              phase: 'finished',
-              attempt: 1,
-              deadlineAt: at,
-              outcome: { kind: 'failed', retryable: false, reason },
-              readings: [reading],
-            },
-            running(2),
-          ),
-        ]),
-        path: [
-          { stepId: 'green', attempt: 1 },
-          { stepId: 'green', attempt: 2 },
-        ],
-      }),
-      ['green'],
-    );
     assert.equal(
-      pathOf(text),
+      checkedPath(reading, reason),
       'Path: `green #1` ❌ the test map the survey proposed disagrees… → `green #2` ▶️',
     );
   });
