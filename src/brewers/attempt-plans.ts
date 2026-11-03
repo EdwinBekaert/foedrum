@@ -526,7 +526,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const release = asksRelease ? releaseInput(state(), batch) : undefined;
     // The checks that ran on the commit the attempt starts at, when its brewer asks (ADR 0308).
     const asksChecks = found.brewer.inputs.some(({ from }) => from === 'checks');
-    const checks = asksChecks ? checksInput(batch, own?.commit) : undefined;
+    const checks = asksChecks ? checksInput(state(), batch, own?.commit) : undefined;
     const planned = inputsOf(
       found.brewer.inputs,
       batch,

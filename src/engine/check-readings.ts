@@ -3,7 +3,8 @@
 // attempt starts at (ADR 0308).
 
 import type { GravityReading } from '../schemas/events.ts';
-import { type Batch, latestAttempt } from './fold.ts';
+import { startMergeOf } from './base-merge.ts';
+import { type Batch, latestAttempt, type State } from './fold.ts';
 import { checkOf, readingText } from './status-comment.ts';
 
 /** `readings` with the repository's setup left out (ADR 0163): the run's, not the change's. */
@@ -40,14 +41,22 @@ const endedText = (reading: GravityReading): string => {
 /**
  * The `checks` input of an attempt of `batch` that starts at `commit` (ADR 0308): each step whose
  * latest attempt finished on that same commit, with how each of its checks ended, its setup left
- * out. A check step never commits, so the commit its worktree started at is the one it checked.
- * Undefined when none did, or the attempt has no commit of its own (a Brewery order's, ADR 0301).
+ * out. A check step commits nothing of its own, so the commit it checked is the merge of the base
+ * it made at its start (ADR 0164), else the one its worktree started at. Undefined when none did,
+ * or the attempt has no commit of its own (a Brewery order's, ADR 0301).
  */
-export const checksInput = (batch: Batch, commit: string | undefined): ChecksInput | undefined => {
+export const checksInput = (
+  state: State,
+  batch: Batch,
+  commit: string | undefined,
+): ChecksInput | undefined => {
   if (commit === undefined) return undefined;
   const lines = [...batch.steps.values()].flatMap((step) => {
     const latest = latestAttempt(step);
-    if (latest?.phase !== 'finished' || latest.worktree?.commit !== commit) return [];
+    if (latest?.phase !== 'finished') return [];
+    const ref = { batchId: batch.id, stepId: step.id, attempt: latest.attempt };
+    const checked = startMergeOf(state, ref)?.merged ?? latest.worktree?.commit;
+    if (checked !== commit) return [];
     const readings = ofTheChange(latest.readings ?? []);
     if (readings.length === 0) return [];
     return [`- Step ${step.id}:`, ...readings.map((reading) => `  - ${endedText(reading)}`)];

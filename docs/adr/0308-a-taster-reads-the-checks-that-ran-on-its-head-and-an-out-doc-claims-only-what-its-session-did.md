@@ -1,6 +1,6 @@
 # 0308. A Taster reads the checks that ran on its head, and an out doc claims only what its session did
 
-Date: 2026-11-03 · Status: Accepted · Amends [0214](0214-a-taster-s-out-doc-says-what-risk-is-left.md) (a Taster's risk left never lists a check its `checks` input shows ran, and names a file it could not read only after it tried), [0005](0005-typed-step-outcomes-and-out-docs.md) (the out doc contract gains one rule on claims, and its budget goes from about 300 to about 350 tokens) and [0291](0291-a-release-blocked-sub-order-s-brewers-read-the-release-it-waited-for-as-written.md) (a Taster looks for the released code in its worktree before it says it could not read it)
+Date: 2026-11-03 · Status: Accepted · Amends [0214](0214-a-taster-s-out-doc-says-what-risk-is-left.md) (a Taster's risk left never lists a check its `checks` input shows ran, and names a file it could not read only after it tried), [0005](0005-typed-step-outcomes-and-out-docs.md) (the out doc contract gains one rule on claims, and its budget goes from about 300 to about 350 tokens), [0074](0074-git-commit-grants-fixed-git-rules-and-done-needs-a-commit.md) and [0085](0085-the-out-doc-contract-names-the-attempts-shell-commands.md) (the contract's test bounds go from 1,200 to 1,400 characters, and from 1,400 to 1,600 with the commit lines) and [0291](0291-a-release-blocked-sub-order-s-brewers-read-the-release-it-waited-for-as-written.md) (a Taster looks for the released code in its worktree before it says it could not read it)
 
 ## Context
 M2's first real exit run (2026-11-02, batches 15-1 and 16-1) showed out docs that claim what their sessions never did.
@@ -12,7 +12,8 @@ A Taster is read-only and runs no command (ADR 0161), so it cannot know what the
 ## Decision
 - **A brewer input source `checks`**: `{ "name": "checks", "from": "checks" }`, filled by the engine (`checksInput`, `src/engine/check-readings.ts`), for each step of the batch whose latest attempt finished on the commit the asking attempt's worktree starts at, in the order the batch's steps first appear: the step's id and how each of its checks ended, passed, failed in the status comment's words (with its failing tests, ADR 0304), or not run because the repository does not have it.
   The tag's source is `the checks that ran on commit <sha>`.
-- **The same commit ties a reading to the head.** A reading records no commit, but its attempt's worktree does, from its `step.started`, and a check step never commits, so the commit its worktree started at is the one it checked.
+- **The same commit ties a reading to the head.** A reading records no commit, but its attempt does: a check step commits nothing of its own, so the commit it checked is the merge of the base it made at its start, which the ledger records ([ADR 0164](0164-a-batch-merges-its-base-before-its-last-check.md)), else the one its worktree started at, from its `step.started`.
+  Nip's `green` merges the base whenever it moved, and the Tasters after it start at that merge.
   A later round after a fix with no check since gets no input, and a check that failed on the head before the fix is never shown as the head's.
 - **Setup readings are left out** (ADR 0163), as the merge brief leaves them out: they are the run's install, not the change's checks.
   `checkReadings` moves beside `checksInput`, so the brief and the input read readings in one place.
