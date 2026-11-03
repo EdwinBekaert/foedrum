@@ -531,7 +531,7 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     assert.match(change, /\[cut: the rest is past the change input's limit of 262144 bytes\]$/);
   });
 
-  it('gives a Taster that reviews a plan no change, and reads none', async () => {
+  it('fails the plan of a Taster that reviews a plan before the batch has one, reading no change', async () => {
     const planned: BreweryFiles = {
       ...withRecipe('amber', [
         { id: 'correctness', brewer: 'taster', lens: 'plan/coverage' },
@@ -541,12 +541,10 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
     };
     const { plan, calls } = await planTaster(answers, planned);
-    const { prompt } = await plan;
-    assert.match(
-      prompt,
-      /source="lens plan\/coverage, file lenses\/plan\/coverage\.md" name="lens">/,
+    await assert.rejects(
+      plan,
+      /^Error: the input "plan" needs the batch's plan, which it has none of yet$/,
     );
-    assert.doesNotMatch(prompt, /name="change"/);
     assert.deepEqual(calls, []);
   });
 

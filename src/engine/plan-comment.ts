@@ -205,7 +205,7 @@ export const renderPlan = (
   const order = subOrders.length < 2 ? [] : [['**Order**', '', ...graph(subOrders, told)]];
   const sections = subOrders.map((subOrder) => section(subOrder, told));
   const others = alternatives === undefined ? [] : [alternativesOf(alternatives, told)];
-  // The Review is filled by the plan lenses (#587); the Gate by approve (ADR 0281).
+  // The Review is filled by the plan lenses (#801); the Gate by approve (ADR 0281).
   // An approved plan's sub-orders that are not ready stay so until #589 corrects them.
   const notReady = subOrders.filter(({ ready }) => !ready).map(({ id }) => code(told(id)));
   const gate =

@@ -81,3 +81,21 @@ describe("mash's Brewmaster and the Brewery's recipes (ADR 0234, ADR 0232)", () 
     );
   });
 });
+
+describe('the default plan lens (ADR 0312)', () => {
+  it('a step after plan that names plan/naive-reader loads it from defaults/lenses/plan/', () => {
+    const files = readBreweryFiles(join(root, '..', 'no-brewery'));
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+    ];
+    const kettle = { name: 'kettle', description: 'Plan, then read it.', testFirst: false, steps };
+    const loaded = loadRecipes({
+      ...files,
+      recipes: [{ path: 'recipes/kettle.jsonc', text: JSON.stringify(kettle) }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const lens = loaded.brewers.find('kettle', 'naive')?.lenses?.get('plan/naive-reader');
+    assert.equal(lens?.path, 'defaults/lenses/plan/naive-reader.md');
+  });
+});

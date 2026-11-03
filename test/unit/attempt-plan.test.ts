@@ -883,7 +883,7 @@ describe('inputsOf', () => {
     );
     assert.deepEqual(input, {
       name: 'plan',
-      source: { kind: 'out-doc', step: 'plan' },
+      source: { kind: 'plan', step: 'plan', attempt: 1 },
       read: {
         kind: 'file',
         path: join('/work', 'plan-1', 'plan.md'),

@@ -275,6 +275,51 @@ const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories)
   return [heading, ...repositories.map(line)].join('\n');
 };
 
+/** The input `name`: the Brewery's repositories, one line each (ADR 0234, ADR 0301). */
+const repositoriesInput = (name: string, brewery: BreweryRepositories): PlannedInput => ({
+  name,
+  source: { kind: 'repositories' },
+  read: { kind: 'text', text: repositoriesText(brewery) },
+});
+
+/**
+ * The input `name` of the batch's latest plan (ADR 0286, ADR 0312): the out doc of the plan
+ * attempt that wrote it, read where that attempt ran; throws while the batch has none.
+ */
+const planInput = (
+  name: string,
+  batch: Batch,
+  stepBrewer: (stepId: string, attempt?: number) => StepBrewer | undefined,
+): PlannedInput => {
+  const latest = latestPlan(batch);
+  if (latest !== undefined) {
+    const { stepId: step, attempt } = latest;
+    const root = worktreeOf(batch.steps.get(step)?.attempts.get(attempt));
+    const doc = stepBrewer(step, attempt)?.brewer.output.doc;
+    if (root !== undefined && doc !== undefined) {
+      return {
+        name,
+        source: { kind: 'plan', step, attempt },
+        read: { kind: 'file', path: join(root, doc), root },
+      };
+    }
+  }
+  throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
+};
+
+/**
+ * What the engine gives a step whose lenses review a plan (ADR 0312), after its brewer's own
+ * inputs: the batch's latest plan as `plan`, and the Brewery's repositories as `repositories`.
+ */
+export const planLensInputs = (
+  batch: Batch,
+  stepBrewer: (stepId: string, attempt?: number) => StepBrewer | undefined,
+  brewery: BreweryRepositories,
+): PlannedInput[] => [
+  planInput('plan', batch, stepBrewer),
+  repositoriesInput('repositories', brewery),
+];
+
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064) or
  * that `recipeHas` says its recipe does not have (#774); throws when a step it names is no
@@ -322,8 +367,7 @@ export function inputsOf(
       }
       if (from === 'repositories') {
         if (brewery === undefined) throw new Error(`the input "${name}" has no repositories`);
-        const read: InputRead = { kind: 'text', text: repositoriesText(brewery) };
-        return { name, source: { kind: 'repositories' }, read };
+        return repositoriesInput(name, brewery);
       }
       if (from === 'recipes') {
         const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
@@ -350,25 +394,7 @@ export function inputsOf(
         const source = { kind: 'checks', commit: checks.commit } as const;
         return { name, source, read: { kind: 'text', text: checks.text } };
       }
-      if (from === 'plan') {
-        const latest = latestPlan(batch);
-        const root =
-          latest === undefined
-            ? undefined
-            : worktreeOf(batch.steps.get(latest.stepId)?.attempts.get(latest.attempt));
-        const doc =
-          latest === undefined
-            ? undefined
-            : stepBrewer(latest.stepId, latest.attempt)?.brewer.output.doc;
-        if (latest === undefined || root === undefined || doc === undefined) {
-          throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
-        }
-        return {
-          name,
-          source: { kind: 'out-doc', step: latest.stepId },
-          read: { kind: 'file', path: join(root, doc), root },
-        };
-      }
+      if (from === 'plan') return planInput(name, batch, stepBrewer);
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);
         const done = succeededIn(batch, step);

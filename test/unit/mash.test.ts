@@ -17,6 +17,7 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { recipeText } from '../helpers/brewery-files.ts';
 import {
   type Behaviour,
   behave,
@@ -393,6 +394,98 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         /name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/web, base origin\/main: read it in acme\.web\/\n- acme\/app, base origin\/main: read it in app\/\n<\/untrusted-input-/,
       );
       assert.doesNotMatch(prompts[0] ?? '', /the one in your worktree/);
+    });
+  });
+
+  describe('a plan lens step after plan (ADR 0312)', () => {
+    beforeEach(() => {
+      const files = serveInputs().files;
+      const { defaults } = readBreweryFiles(dir.path);
+      // The Brewery's own recipe: the Brewmaster's plan, then the default Taster through a plan lens.
+      const kettle = recipeText(
+        'kettle',
+        [
+          { id: 'plan', brewer: 'brewmaster' },
+          { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+        ],
+        { testFirst: false },
+      );
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            local: local({ workRoot: dir.path }),
+            brewery: {
+              ...files.brewery,
+              recipes: [...files.brewery.recipes, { path: 'recipes/kettle.jsonc', text: kettle }],
+              lenses: [
+                { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+              ],
+              ...(defaults === undefined ? {} : { defaults }),
+            },
+          },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            {
+              number: 12,
+              labels: ['recipe:kettle'],
+              author: 'ann',
+              title: 'Export the batches',
+              body: 'Add an export of the batches, with a guide.',
+            },
+          ],
+        },
+      });
+    });
+
+    it('a recipe of plan then a plan/naive-reader taste lists its findings before the plan waits for review', async () => {
+      const finding = {
+        severity: 'major',
+        why: 'writer: its entry says "the flag" without naming it, so its brewer cannot build it alone',
+        introduced: true,
+      };
+      const tasted = behave.succeedWith(
+        { verdict: 'changes', findings: [finding] },
+        'Read each sub-order alone',
+      );
+      const gits: string[] = [];
+      const tasting: ServeShell = {
+        ...shell([planned, tasted]),
+        // The Taster's house yeast is read at the commit it reviews (ADR 0169): the clone has none.
+        git: (_cwd, args) => {
+          gits.push(args.join(' '));
+          return args[0] === 'ls-tree'
+            ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+            : Promise.reject(new Error(`no git ${args[0]} runs here`));
+        },
+      };
+      assert.equal(await runBrew(setup, tasting, request), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
+      // Its house yeast, and no change: no diff is read for a plan.
+      assert.deepStrictEqual(
+        gits.map((call) => call.split(' ')[0]),
+        ['ls-tree'],
+      );
+      // The Taster read the plan, and no change.
+      assert.match(
+        prompts[1] ?? '',
+        /source="the plan of step plan#1" name="plan">[^<]*"title": "The export writer"/,
+        lines.join('\n'),
+      );
+      assert.doesNotMatch(prompts[1] ?? '', /name="change"/);
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
+        kind: 'plan_review',
+        stepId: 'plan',
+        attempt: 1,
+      });
+      const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
+      assert.ok(status.includes(finding.why), status);
     });
   });
 
