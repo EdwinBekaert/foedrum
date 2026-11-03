@@ -2,7 +2,7 @@
 
 import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
-import { BlockerKind, MOST_DISPOSITIONS, TastingFinding } from './out-doc.ts';
+import { BlockerKind, MOST_DISPOSITIONS, MOST_MUTANTS, TastingFinding } from './out-doc.ts';
 import { CheckName, RelativePath } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
@@ -429,6 +429,35 @@ export const CoverageListing = z.strictObject({
 });
 export type CoverageListing = z.infer<typeof CoverageListing>;
 
+/** The most of a recorded mutant's file, description, reason or why (ADR 0313). */
+export const MAX_MUTANT_TEXT = 500;
+
+const MutantText = NonEmpty.max(MAX_MUTANT_TEXT);
+
+/**
+ * What the engine found of one of Brett's mutants (ADR 0040, ADR 0313): killed by the first test
+ * the mutant makes fail (it fails more often or passes less often than at the baseline, or no
+ * longer reports), survived, timed out (killed), invalid by the mutant check's reason, or not
+ * judged, with why, as a mutant that broke the build is.
+ */
+export const MutantVerdict = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('killed'), by: NonEmpty.max(MAX_TEST_NAME_LENGTH) }),
+  z.strictObject({ kind: z.literal('survived') }),
+  z.strictObject({ kind: z.literal('timedOut') }),
+  z.strictObject({ kind: z.literal('invalid'), reason: MutantText }),
+  z.strictObject({ kind: z.literal('notJudged'), why: MutantText }),
+]);
+export type MutantVerdict = z.infer<typeof MutantVerdict>;
+
+/** One mutant of a Brett attempt as `step.finished` keeps it: where, what, and its verdict. */
+export const MutantRecord = z.strictObject({
+  file: MutantText,
+  line: z.int().positive(),
+  description: MutantText,
+  verdict: MutantVerdict,
+});
+export type MutantRecord = z.infer<typeof MutantRecord>;
+
 /**
  * The findings of an attempt blocked by findings, a blocking Taster's `changes` (ADR 0221): the
  * first of them, cut as a Stuck reason's open findings are, and how many more there were.
@@ -739,6 +768,8 @@ export const Event = z.discriminatedUnion('type', [
     staleMap: StaleMap.optional(),
     // What a check step's uncovered-line check did not measure (ADR 0274).
     coverage: CoverageListing.optional(),
+    // A Brett attempt's mutants, each with what the engine's runs found (ADR 0313).
+    mutants: z.array(MutantRecord).min(1).max(MOST_MUTANTS).optional(),
   }),
   z.strictObject({
     type: z.literal('input.received'),

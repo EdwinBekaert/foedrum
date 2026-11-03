@@ -29,7 +29,7 @@ import type { ExecProcess } from '../platform/processes.ts';
 import { CELLAR_OWNER } from '../schemas/commands.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
 import type { Git } from '../workspace/git.ts';
-import type { MergedTree } from '../workspace/merge-tree-git.ts';
+import type { CommitTree, MergedTree } from '../workspace/merge-tree-git.ts';
 import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { mergedCheckRun } from './merged-check-run.ts';
 import { printable } from './run.ts';
@@ -89,6 +89,11 @@ export interface ServeShell {
    * directory of Foedrum's own with the clone's objects; absent, no checks run on one.
    */
   mergedTree?: (repository: ServeRepository) => MergedTree;
+  /**
+   * A scratch worktree of a commit, where a Brett attempt's mutants run (ADR 0313), in a git
+   * directory of Foedrum's own with the clone's objects; absent, no mutant runs.
+   */
+  commitTree?: (repository: ServeRepository) => CommitTree;
   /** The brewer runner: `claudeBrewerRunner` with `claude` and the plans. */
   runner: (
     claude: string,

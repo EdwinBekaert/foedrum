@@ -311,8 +311,25 @@ export interface MergedCommits {
 /** Where a tree is: its repository and its folder. */
 export type TreeIn = Pick<WorktreeRef, 'repo' | 'path'>;
 
-/** The check runner, and the checks of a tree it runs a check step's through. */
-export type CheckRunner = BrewerRunner & { checkTree: CheckTree };
+/**
+ * The repository's test check run in a scratch tree, its setup first, and the test reports the
+ * modules wrote where the test map says (ADR 0313); or why it did not run or its reports cannot be
+ * read.
+ */
+export type TestRun = (
+  tree: TreeIn,
+  modules: readonly EffectiveModule[],
+  deadlineAt: string,
+  signal: AbortSignal,
+) => Promise<TestRunEnd>;
+
+/** What a test run read: the test check's reading and each module's reports, or why none. */
+export type TestRunEnd =
+  | { kind: 'ran'; reading: GravityReading; reports: readonly MappedReport[] }
+  | { kind: 'unrun'; why: string };
+
+/** The check runner, the checks of a tree it runs a check step's through, and a tree's tests. */
+export type CheckRunner = BrewerRunner & { checkTree: CheckTree; testRun: TestRun };
 
 export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   const { state, checks, exec, git, clone, clock, platform = process.platform } = options;
@@ -674,6 +691,42 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if (!passed(reading)) break;
     }
     return { ending: settleReadings(readings), readings };
+  };
+
+  /**
+   * The test check in a scratch tree (ADR 0313): every report path of `modules` cleared, since a
+   * report the commit holds must never stand for the run's, the setup and the test check run, and
+   * each module's reports read where the map says. A TRX report is left unread (#727).
+   */
+  const testRun: TestRun = async (tree, modules, deadlineAt, signal) => {
+    const read = modules.filter(({ module }) => module.testReport.format !== 'trx');
+    const patterns = read.map(({ module }) => module.testReport.path);
+    const find = options.testMap?.reports ?? reportPaths;
+    const unclear =
+      patterns.map(unclearable).find((reason) => reason !== undefined) ??
+      (await clearReportPaths(patterns, tree.path, find, reports.clear));
+    if (unclear !== undefined) {
+      return { kind: 'unrun', why: `the test reports cannot be cleared: ${unclear}` };
+    }
+    const end = await checksOf(['test'], tree, deadlineAt, signal);
+    const readings = end.readings ?? [];
+    const reading = readings.find((each) => each.check === 'test');
+    if (reading === undefined) {
+      const why = end.ending.kind === 'blocked' ? end.ending.summary : 'the test check did not run';
+      const setup = readings.find((each) => !passed(each));
+      return {
+        kind: 'unrun',
+        why: setup === undefined ? why : `the repository's setup did not pass: ${setup.result}`,
+      };
+    }
+    const wrote: MappedReport[] = [];
+    for (const { module } of read) {
+      const found = testReportsOf(module, tree);
+      if ('stuck' in found) return { kind: 'unrun', why: found.stuck };
+      if ('failed' in found) return { kind: 'unrun', why: found.failed };
+      wrote.push(...found.reports);
+    }
+    return { kind: 'ran', reading, reports: wrote };
   };
 
   const run = async (ref: AttemptRef, signal: AbortSignal): Promise<AttemptEnd> => {
@@ -1220,5 +1273,6 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     },
     progress: (ref) => running.get(attemptKey.encode(ref)),
     checkTree,
+    testRun,
   };
 }
