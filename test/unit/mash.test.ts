@@ -675,6 +675,16 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
     });
 
+    it("shows no note of a plan lens's round before the latest plan: regression test (ADR 0318)", async () => {
+      // naive#2 reviews nothing: its environment blocks it, so its latest round is naive#1, on plan#1.
+      const script = [planned, blocks, replanned, behave.blocked('environment', 'No checkout')];
+      assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      assert.equal(review, '**Review**\n\nNone yet.');
+    });
+
     it('lists on the plan comment the findings still open when the plan lens runs out of rounds (ADR 0318)', async () => {
       const stillBlocks = behave.succeedWith(
         { verdict: 'changes', findings: [flag] },
