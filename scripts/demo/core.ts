@@ -39,10 +39,10 @@ const LENS_STEPS = [
 ] as const;
 
 /**
- * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of two lens
- * steps, correctness and acceptance (ADR 0197), swapped for a group of three, one of which blocks
- * (ADR 0193). Nip itself keeps its two, so no Nip batch pays for three Taster runs (#448); its
- * correctness blocks too, with two rounds where the demo's has one (ADR 0264).
+ * The recipe: Nip's steps from `defaults/recipes/nip.jsonc`, with its taste group of three lens
+ * steps, correctness, acceptance and security (ADR 0197, ADR 0306), swapped for the demo's own
+ * three, correctness, security and test design, one of which blocks (ADR 0193). Nip's own correctness blocks too, with two rounds where the demo's
+ * has one (ADR 0264).
  */
 export const recipeText = (): string =>
   `// Nip's steps, tasted through three lenses side by side (ADR 0168), one of them blocking (ADR 0193).\n${JSON.stringify(

@@ -20,8 +20,8 @@ const SEVEN = [
   'diff/test-design',
 ] as const;
 
-/** Nip's two lenses (ADR 0197). */
-const NIP = ['diff/correctness', 'diff/acceptance'] as const;
+/** Nip's three lenses (ADR 0197, ADR 0306). */
+const NIP = ['diff/correctness', 'diff/acceptance', 'diff/security'] as const;
 
 /** A setup that runs, and its lenses. */
 export const SETUPS = {
@@ -333,7 +333,7 @@ export const scoreRun = (record: RunRecord, key: Key, lenses = SETUPS[record.set
   return { found, others } satisfies RunScore;
 };
 
-/** A setup as the table shows it: the three that run, and Nip's two apart read from apart-7. */
+/** A setup as the table shows it: the three that run, and Nip's three apart read from apart-7. */
 export type Shown = SetupName | 'apart-nip';
 const SHOWN: readonly Shown[] = ['apart-7', 'together-7', 'apart-nip', 'together-nip'];
 
@@ -443,8 +443,9 @@ const summaryOf = (
 
 /**
  * Each shown setup over its runs: per run number the run that did not fail is scored, and every
- * failed one is listed. Nip's two apart are apart-7's correctness and acceptance attempts, side by
- * side: their tasting time is the longer of the two, and they have no wall time of their own.
+ * failed one is listed. Nip's three apart are apart-7's correctness, acceptance and security
+ * attempts, side by side: their tasting time is the longest of the three, and they have no wall time
+ * of their own.
  */
 export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary[] => {
   const ofSetup = (setup: SetupName) => {
@@ -472,7 +473,7 @@ export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary
     const nipSteps = new Set(NIP.map(stepIdOf));
     const runs = scored.map((record) => {
       const attempts = record.attempts.filter(({ stepId }) => nipSteps.has(stepId));
-      // Its two steps never ran on their own, so it has no wall time of its own.
+      // Its three steps never ran on their own, so it has no wall time of its own.
       return { record, attempts, wallMs: Number.NaN };
     });
     return summaryOf(setup, NIP, runs, failed, key);
