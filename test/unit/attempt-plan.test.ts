@@ -892,6 +892,59 @@ describe('inputsOf', () => {
     });
   });
 
+  it("a plan input reads the out doc its attempt's brewer wrote after the batch switched recipes", () => {
+    const plan = {
+      status: 'done',
+      summary: 'Planned',
+      assumptions: [],
+      subOrders: [
+        {
+          id: 'api',
+          title: 'Build the API',
+          repo: 'acme/api',
+          size: { lines: 200, mechanism: 'one handler' },
+          doneWhen: 'a test passes',
+          touches: [{ path: 'src/api.ts' }],
+          recipe: 'tdd',
+          why: 'testable',
+          ready: true,
+        },
+      ],
+    };
+    const plan2 = { batchId: '12-1', stepId: 'plan', attempt: 2 };
+    const planned: Event[] = [
+      ...events,
+      { type: 'step.scheduled', ...plan2, deadlineAt: '2026-10-17T13:00:00.000Z' },
+      { type: 'step.started', ...plan2, worktree: worktreeOf('plan-2') },
+      { type: 'step.finished', ...plan2, outcome: { kind: 'succeeded', output: plan } },
+    ];
+    const found = fold(planned).batches.get('12-1');
+    assert.ok(found !== undefined);
+    // plan#2's brewer, in the recipe it was scheduled under, wrote plan.md; the step's brewer in
+    // the recipe the batch brews now writes draft.md.
+    const planner = (doc: string): StepBrewer => ({
+      brewer: brewer({ name: 'brewmaster', output: { doc, schema: 'plan' } }),
+      instructions: 'Plan.',
+    });
+    const byAttempt = (id: string, attempt?: number): StepBrewer | undefined =>
+      id === 'plan' ? planner(attempt === 2 ? 'plan.md' : 'draft.md') : stepBrewer(id);
+    const [input] = inputsOf(
+      planInput,
+      found,
+      byAttempt,
+      brewWorktree,
+      new Map(),
+      undefined,
+      [],
+      true,
+    );
+    assert.deepEqual(input?.read, {
+      kind: 'file',
+      path: join('/work', 'plan-2', 'plan.md'),
+      root: join('/work', 'plan-2'),
+    });
+  });
+
   it("reads each input in order: the order's issue, an earlier step's out doc, a file of the worktree", () => {
     const inputs = brewer({
       inputs: [

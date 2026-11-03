@@ -1,5 +1,5 @@
 // The attempt plans' shell (#148, ADR 0059): for an attempt the driver started, it finds the brewer
-// of its step in the batch's recipe, reads the brewer's inputs and makes the settings file's
+// of its step in the recipe the attempt was scheduled under (ADR 0309), reads the brewer's inputs and makes the settings file's
 // folder, then plans the attempt through attempt-plan.ts, which decides, in the session the driver
 // recorded (ADR 0116).
 
@@ -134,7 +134,7 @@ export interface AttemptPlansOptions {
 export interface AttemptPlans {
   /** The plan of an attempt the driver started; rejects when it cannot be made. */
   plan(attempt: AttemptStart): Promise<ClaudeAttemptPlan>;
-  /** The limits of an attempt, from the brewer of its step in its batch's recipe. */
+  /** The limits of an attempt, from the brewer of its step in the recipe it was scheduled under (ADR 0309). */
   limits(ref: AttemptRef): AttemptLimits;
   /**
    * The out doc of the brewer of an attempt's step in the recipe it was scheduled under; undefined
@@ -183,18 +183,16 @@ const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontm
 export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   const { state, brewers, workRoot, platform = process.platform, files = realFiles } = options;
 
-  // The brewer of a step in the recipe its batch brews; undefined without one.
-  const brewerOf = ({ batchId, stepId }: { batchId: string; stepId: string }) => {
-    const recipe = state().batches.get(batchId)?.recipe?.name;
-    return recipe === undefined ? undefined : brewers.find(recipe, stepId);
+  // The brewer of an attempt's step in the recipe it was scheduled under, which the batch may have
+  // left since (ADR 0309); in its batch's recipe for an attempt that recorded none, undefined without one.
+  const brewerOf = (ref: AttemptRef) => {
+    const recipe = attemptRecipeOf(state(), ref);
+    return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId);
   };
 
   // The out doc of an attempt's brewer in the recipe it was scheduled under, which the batch may
   // have left since (#657); in its batch's recipe for an attempt that recorded none.
-  const outDocOf = (ref: AttemptRef) => {
-    const recipe = attemptRecipeOf(state(), ref);
-    return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId)?.brewer.output.doc;
-  };
+  const outDocOf = (ref: AttemptRef) => brewerOf(ref)?.brewer.output.doc;
 
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
@@ -508,8 +506,15 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     laterRound?: LaterRound;
     earlierFindings?: true;
   }> => {
-    const recipe = batch.recipe?.name ?? '';
-    const stepBrewer = (id: string) => brewers.find(recipe, id);
+    // The recipe this attempt brews; an earlier attempt's out doc is named by its own (ADR 0309).
+    const recipe = attemptRecipeOf(state(), ref) ?? '';
+    const stepBrewer = (id: string, attempt?: number) =>
+      brewers.find(
+        attempt === undefined
+          ? recipe
+          : (attemptRecipeOf(state(), { batchId: batch.id, stepId: id, attempt }) ?? ''),
+        id,
+      );
     // A Brewery order's folder of checkouts is no repository's, and holds each one (ADR 0301).
     const own = 'repo' in worktree ? worktree : undefined;
     const repositories = {
@@ -579,7 +584,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const route = routeOf(
       batch,
       ref,
-      (id) => stepBrewer(id)?.brewer.output.doc,
+      (id, attempt) => stepBrewer(id, attempt)?.brewer.output.doc,
       (of) => startMergeOf(state(), of),
     );
     if (route !== undefined) {
@@ -625,7 +630,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       }
       const own = ranIn?.worktree;
       const worktree = own ?? { path: session.worktree };
-      const recipe = batch.recipe?.name ?? '';
+      const recipe = attemptRecipeOf(state(), ref) ?? '';
       const found = brewers.find(recipe, stepId);
       if (found === undefined) throw new Error(`recipe ${recipe} has no step ${stepId}`);
       // A resumed session holds the inputs its first attempt read and the answers of the rounds
