@@ -36,20 +36,22 @@ const squash = (code: string): string =>
     .replace(/ ?([^\p{ID_Continue}$ ]) ?/gu, '$1');
 
 // The strings and the words (identifiers, property names, keywords) in a line of code, outside
-// comments, so a mutant cannot turn commented-out code on; the boolean literals count as
-// literals, which a mutant may change.
-const names = (code: string): Set<string> => {
+// `//` and `/* */` comments when `stripped`, so a mutant cannot turn commented-out code on; the
+// boolean literals count as literals, which a mutant may change.
+const names = (code: string, stripped: boolean): Set<string> => {
   const quoted = code.match(strings) ?? [];
-  const rest = code.replace(strings, ' ').replace(comments, ' ').replace(numbers, ' ');
+  const uncommented = stripped ? code.replace(strings, ' ').replace(comments, ' ') : code;
+  const rest = uncommented.replace(strings, ' ').replace(numbers, ' ');
   const bare = (rest.match(words) ?? []).filter((word) => word !== 'true' && word !== 'false');
   return new Set([...quoted, ...bare]);
 };
 
 /**
  * Why a mutant's replacement is not a small bug of its original, or undefined: more than one
- * line, a change of whitespace only, or a word or string the original lacks.
+ * line, a change of whitespace only, or a word or string the original lacks, its line and block
+ * comments left out when `stripped`.
  */
-export const replacementReason = (mutant: Mutant): string | undefined => {
+export const replacementReason = (mutant: Mutant, stripped = true): string | undefined => {
   if (/[\r\n\p{Zl}\p{Zp}]/u.test(mutant.replacement)) {
     return 'the replacement is more than one line';
   }
@@ -58,8 +60,8 @@ export const replacementReason = (mutant: Mutant): string | undefined => {
   }
   // A mutant may only change operators and number or boolean literals, or delete or reorder
   // existing code: a small bug, never a new capability.
-  const known = names(mutant.original);
-  const added = [...names(mutant.replacement)].filter((name) => !known.has(name));
+  const known = names(mutant.original, stripped);
+  const added = [...names(mutant.replacement, stripped)].filter((name) => !known.has(name));
   return added.length > 0 ? `the replacement adds ${added.join(', ')}` : undefined;
 };
 
@@ -100,6 +102,17 @@ export const editFile = (mutant: Mutant, content: string | undefined): LineEdit 
   return { ok: true, content: lines.join(''), line };
 };
 
+// The extensions of the languages whose comments are `//` and `/* */`: JavaScript and TypeScript,
+// and the C family. Elsewhere a comment counts as the line's text (ADR 0311).
+const C_COMMENTS = new Set(
+  'js mjs cjs jsx ts mts cts tsx c h cc cpp cxx hh hpp hxx cs java kt kts go rs swift scala dart'.split(
+    ' ',
+  ),
+);
+
+const commentsKnown = (file: string): boolean =>
+  C_COMMENTS.has(/\.([^./]+)$/.exec(file)?.[1]?.toLowerCase() ?? '');
+
 /** A file the batch's change left at its head: its text, and the lines the change added to it. */
 export interface ChangedFile {
   content: string;
@@ -123,6 +136,28 @@ export type MutantVerdict =
  * Checks a mutant Brett proposed for a target repository (ADR 0311): a plain path in a code area
  * of the test map, a line the change added, and a replacement that is a small bug of it.
  */
-export const mutantCheck = (_mutant: Mutant, _change: TargetChange): MutantVerdict => {
-  throw new Error('not implemented');
+export const mutantCheck = (mutant: Mutant, change: TargetChange): MutantVerdict => {
+  // The name is model output; quoted, its control characters cannot forge a line.
+  const name = JSON.stringify(mutant.file);
+  if (!isPlainPath(mutant.file))
+    return { ok: false, reason: `${name} is not a plain relative path` };
+  if (!change.inCode(mutant.file)) {
+    return { ok: false, reason: `${name} is in no code area of the test map` };
+  }
+  const file = change.changed(mutant.file);
+  if (file === undefined) {
+    return { ok: false, reason: `${name} is not a file the change added a line to` };
+  }
+  const edit = editFile(mutant, file.content);
+  if (!edit.ok) return edit;
+  if (!file.added.has(edit.line)) {
+    return {
+      ok: false,
+      reason: `line ${edit.line} of ${mutant.file} is not a line the change added`,
+    };
+  }
+  const reason = replacementReason(mutant, commentsKnown(mutant.file));
+  return reason === undefined
+    ? { ok: true, mutant, line: edit.line, content: edit.content }
+    : { ok: false, reason };
 };

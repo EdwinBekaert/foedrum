@@ -422,10 +422,11 @@ export type MutantEdit = z.infer<typeof MutantEdit>;
  * A done with none is valid: there was nothing worth mutating, which its body says (ADR 0311).
  */
 export const MutantsOutDoc = outDocFrontmatter({
-  mutants: z.array(MutantEdit).default([]),
+  mutants: z.array(MutantEdit).max(MOST_MUTANTS).default([]),
 });
 
 /** The mutants of an attempt's `output` when Brett wrote it and was done; else undefined. */
-export const mutantsOf = (_output: unknown): readonly MutantEdit[] | undefined => {
-  throw new Error('not implemented');
+export const mutantsOf = (output: unknown): readonly MutantEdit[] | undefined => {
+  const read = MutantsOutDoc.safeParse(output);
+  return read.success && read.data.status === 'done' ? read.data.mutants : undefined;
 };
