@@ -79,6 +79,7 @@ A survivor's record also keeps its edit, the line it replaced and the line that 
 The runs start below normal priority with #809.
 Only a test that fails because of the mutant catches it: the reading is compared test by test with the reading of the unmutated tree, so a test that fails anyway, a time budget or a coverage threshold does not count ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)).
 Only mutants the tests do not catch are **confirmed survivors**.
+When the work around the session throws, every proposed mutant is recorded `notJudged` with why, and the attempt keeps its own end ([ADR 0319](../../adr/0319-brett-s-survivors-are-listed-where-findings-are-and-a-blocking-brett-step-sends-them-back.md)).
 **The survivors are listed where findings are** (`src/engine/survivors.ts`, [ADR 0319](../../adr/0319-brett-s-survivors-are-listed-where-findings-are-and-a-blocking-brett-step-sends-them-back.md)): for a Brett step whose latest attempt succeeded, the status comment's Findings and the pull request's report of the step list each survivor on one line, `survived: <file>:<line>: - <original> / + <replacement>: <description>`, and count the mutants by verdict (`2 mutants: 1 survived, 1 killed`); the merge brief's Risk left lists each survivor.
 Every text is model or repository text, told through the same filters as a Taster's findings.
 A Brett step is advisory by default: its attempt succeeds whatever the verdicts, and a survivor never makes the pull request a draft.
