@@ -2,7 +2,7 @@
 // proposed rule (issue #32, ADR 0122). scripts/house-yeast.ts reads and writes the files. The
 // selection is src/brewers/house-yeast.ts, where src/ can use it too (#453).
 
-import { type Selection, section } from '../../src/brewers/house-yeast.ts';
+import { byCodeUnits, type Selection, section } from '../../src/brewers/house-yeast.ts';
 import { HouseYeastCandidate, type HouseYeastRule } from '../../src/schemas/house-yeast.ts';
 import { z } from '../../src/schemas/zod.ts';
 
@@ -88,6 +88,63 @@ export const proposeRule = (
     body: newest.rule.trim(),
     reviews,
   };
+};
+
+/** The reviews after which a rule is listed as a candidate for a promotion review (#685, ADR 0315). */
+export const minReviews = 10;
+
+/** The day Foedrum's own sessions started loading the rules (#677), the report's second column. */
+export const defaultSince = '2026-10-30';
+
+export interface Recurrence {
+  id: string;
+  created: string;
+  /** The reviews that recorded the rule's lesson after the day it was proposed (its `created`)… */
+  reviews: number;
+  /** …of all the reviews recorded after that day. */
+  of: number;
+  /** The same, after the later of that day and the given date. */
+  sinceReviews: number;
+  sinceOf: number;
+}
+
+/**
+ * How often reviews recorded each active rule's lesson again after it was proposed (#685), most
+ * recorded first; a rule whose id no candidate ever named is `unnamed`, so a renamed lesson never
+ * reads as a rule that works.
+ */
+export const recurringRules = (
+  rules: readonly HouseYeastRule[],
+  candidates: readonly HouseYeastCandidate[],
+  since: string,
+): { counted: Recurrence[]; unnamed: string[] } => {
+  // Strictly after the day: a review on the day itself may be the one that proposed the rule.
+  const reviewsAfter = (day: string, lesson?: string): number =>
+    new Set(
+      candidates
+        .filter((c) => c.seen > day && (lesson === undefined || c.lesson === lesson))
+        .map((c) => c.review),
+    ).size;
+  const named = new Set(candidates.map((c) => c.lesson));
+  const counted = rules
+    .filter(({ id }) => named.has(id))
+    .map(({ id, created }) => {
+      const from = created > since ? created : since;
+      return {
+        id,
+        created,
+        reviews: reviewsAfter(created, id),
+        of: reviewsAfter(created),
+        sinceReviews: reviewsAfter(from, id),
+        sinceOf: reviewsAfter(from),
+      };
+    })
+    .sort((a, b) => b.reviews - a.reviews || byCodeUnits(a.id, b.id));
+  const unnamed = rules
+    .filter(({ id }) => !named.has(id))
+    .map(({ id }) => id)
+    .sort(byCodeUnits);
+  return { counted, unnamed };
 };
 
 /** The text of `.foedrum/house-yeast/<id>.md`: JSON frontmatter, then the rule. */
