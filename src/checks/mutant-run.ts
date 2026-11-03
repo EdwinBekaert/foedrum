@@ -88,8 +88,9 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
   const { runner, state, mutates, git, clone, testMap, tree, testRun } = options;
   const { clock = () => new Date() } = options;
   const foldCase = foldsCase(options.platform);
-  // The attempts whose mutants it runs: it reports their progress, so their leases hold.
-  const judging = new Map<string, AttemptProgress>();
+  // The attempts whose mutants it runs: the engine's own work, live as long as it lasts, so their
+  // leases hold and no test run reads as a stalled brewer (ADR 0027).
+  const judging = new Set<string>();
 
   /** The batch's change in `repo`, from where it started to `commit`, or why it cannot be read. */
   const changeOf = async (
@@ -163,9 +164,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
     if (attempt === undefined || worktree === undefined) return end;
     const { repo, commit } = worktree;
     const lastEnd = Date.parse(attempt.deadlineAt) - DEADLINE_MARGIN_MS;
-    const progressed = () =>
-      judging.set(attemptKey.encode(ref), { lastProgressAt: clock(), turnsWithoutProgress: 0 });
-    progressed();
+    judging.add(attemptKey.encode(ref));
     const ended = (verdicts: readonly MutantRecord[]): AttemptEnd =>
       signal.aborted ? { ...end, ending: { kind: 'cancelled' } } : { ...end, mutants: verdicts };
 
@@ -196,7 +195,6 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
 
     /** A run of the tests in a fresh scratch tree, the mutant's edit in it when one is given. */
     const runIn = async (until: number, edit?: TreeEdit): Promise<TestRunEnd> => {
-      progressed();
       const deadline = new Date(until).toISOString();
       try {
         return await scratch(
@@ -317,6 +315,10 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
         },
       };
     },
-    progress: (ref) => runner.progress(ref) ?? judging.get(attemptKey.encode(ref)),
+    progress: (ref): AttemptProgress | undefined =>
+      runner.progress(ref) ??
+      (judging.has(attemptKey.encode(ref))
+        ? { lastProgressAt: clock(), turnsWithoutProgress: 0 }
+        : undefined),
   };
 }

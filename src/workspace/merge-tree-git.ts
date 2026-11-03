@@ -229,7 +229,16 @@ export const openCommitTree =
                 `${JSON.stringify(edit.file)} is no regular file of the scratch tree`,
               );
             }
-            await writeFile(file, edit.rewrite(await readFile(file, 'utf8')));
+            // Read strictly: a lossy decode would rewrite every byte that is not UTF-8.
+            let text: string;
+            try {
+              text = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(file));
+            } catch {
+              throw new Error(
+                `${JSON.stringify(edit.file)} is not UTF-8: a rewrite would change more than its line`,
+              );
+            }
+            await writeFile(file, edit.rewrite(text));
           }
           return use(worktree);
         },
