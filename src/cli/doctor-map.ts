@@ -72,10 +72,12 @@ export const readDoctorMap = async (sources: DoctorMapSources): Promise<DoctorMa
         return { ...named, read: { unread: `its clone has no ${base}` } };
       }
       try {
-        const { files: manifests, left } = await manifestsAt(git)(clone, commit);
+        const manifests = await manifestsAt(git)(clone, commit);
+        if ('again' in manifests) return { ...named, read: { unread: manifests.again } };
         const map = await mapAt(repo, commit);
         const modules = map.kind === 'map' ? map.map.modules.map(({ name }) => name) : [];
-        return { ...named, read: { commit, entry: entryOf(manifests, modules, left) } };
+        const entry = entryOf(manifests.files, modules, manifests.left);
+        return { ...named, read: { commit, entry } };
       } catch (error) {
         return { ...named, read: { unread: messageOf(error) } };
       }

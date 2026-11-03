@@ -1,6 +1,7 @@
 // npm's manifest for the system map (ADR 0317): `package.json`'s name is the package a repository
 // publishes, and each dependency field's entries what it depends on, a git URL or a folder included.
 
+import { posix } from 'node:path';
 import { parseJson } from './json.ts';
 import {
   type DependencyVia,
@@ -21,15 +22,21 @@ const FIELDS = [
 const GIT = /^(?:git\+|git:|github:|gitlab:|bitbucket:)/i;
 const OWNER_NAME = /^[\w.-]+\/[\w.-]+(?:#.*)?$/;
 
-/** How a dependency's spec names it: a git URL with the ref after its `#`, a folder, or a version. */
-const viaOf = (spec: string): DependencyVia => {
+/**
+ * How a dependency's spec in the manifest at `path` names it: a git URL with the ref after its `#`,
+ * a folder from the repository's root, with `/` between its folders, or a version.
+ */
+const viaOf = (path: string, spec: string): DependencyVia => {
   if (GIT.test(spec) || OWNER_NAME.test(spec)) {
     const hash = spec.indexOf('#');
     if (hash < 0) return { kind: 'git', url: spec };
     const ref = spec.slice(hash + 1);
     return { kind: 'git', url: spec.slice(0, hash), ...(ref === '' ? {} : { ref }) };
   }
-  if (spec.startsWith('file:')) return { kind: 'project', path: spec.slice('file:'.length) };
+  if (spec.startsWith('file:')) {
+    const folder = spec.slice('file:'.length).replaceAll('\\', '/');
+    return { kind: 'project', path: posix.normalize(posix.join(posix.dirname(path), folder)) };
+  }
   return { kind: 'package', version: spec };
 };
 
@@ -41,7 +48,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 export const npmManifest: ManifestReader = {
   ecosystem: 'npm',
   matches: (path) => fileName(path) === 'package.json' && !inBuiltFolder(path),
-  read: (_path, text) => {
+  read: (path, text) => {
     const manifest = parseJson(text.startsWith(BOM) ? text.slice(1) : text);
     if (!isObject(manifest)) return { kind: 'unreadable', reason: 'it is not a JSON object' };
     const publishes = typeof manifest.name === 'string' ? [manifest.name] : [];
@@ -52,7 +59,7 @@ export const npmManifest: ManifestReader = {
       if (!isObject(entries))
         return { kind: 'unreadable', reason: `its ${field} is not an object` };
       for (const [name, spec] of Object.entries(entries)) {
-        if (typeof spec === 'string') dependsOn.push({ name, via: viaOf(spec) });
+        if (typeof spec === 'string') dependsOn.push({ name, via: viaOf(path, spec) });
       }
     }
     return { kind: 'read', publishes, dependsOn };

@@ -2,11 +2,14 @@
 // what a manifest's text says the repository publishes and depends on. Repository content, so
 // untrusted input (ADR 0041). Pure; a reader of another ecosystem is one more file of this shape.
 
-/** How a manifest names a dependency: by a package and its version, a git URL, or a project path. */
-export type DependencyVia =
-  | { kind: 'package'; version?: string }
-  | { kind: 'git'; url: string; ref?: string }
-  | { kind: 'project'; path: string };
+import type { MapDependencyVia } from '../schemas/system-map.ts';
+import type { z } from '../schemas/zod.ts';
+
+/**
+ * How a manifest names a dependency: by a package and its version, a git URL, or a project path
+ * from the repository's root; the schema's shape, before the map cuts its values.
+ */
+export type DependencyVia = z.input<typeof MapDependencyVia>;
 
 export interface ManifestDependency {
   name: string;

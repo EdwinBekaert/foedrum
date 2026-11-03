@@ -305,7 +305,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   /**
    * Reads the system map again of each repository whose base commit is not the one its entry was
-   * read at, and records it (ADR 0317): a base git cannot list is recorded with why, never left out.
+   * read at, and records it (ADR 0317): a base git cannot list is recorded with why, never left out,
+   * and one git was stopped or timed out on is left for the next attempt that reads the map.
    */
   const refreshMap = async (): Promise<void> => {
     const { git, recordMap } = options;
@@ -317,10 +318,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       }
       let entry: SystemMapEntry;
       try {
-        const { files, left } = await read(at.clone, at.commit);
+        const manifests = await read(at.clone, at.commit);
+        if ('again' in manifests) continue;
         const map = await options.testMapAt?.(at.repo, at.commit);
         const modules = map?.kind === 'map' ? map.map.modules.map(({ name }) => name) : [];
-        entry = entryOf(files, modules, left);
+        entry = entryOf(manifests.files, modules, manifests.left);
       } catch (error) {
         const reason = mapName(messageOf(error)) || 'git failed';
         entry = {

@@ -60,15 +60,16 @@ const cleanVia = (via: DependencyVia): SystemMapEntry['dependsOn'][number]['via'
 };
 
 /**
- * A repository's entry from its manifests and its test map's modules: each manifest read by the
- * first reader that matches it, every value cut to a line, each list to `MAX_MAP_ITEMS`, with what
- * that left out counted. Pure.
+ * A repository's entry from its manifests and its test map's modules: each manifest, with its
+ * ecosystem, read by the first reader that matches it, every value cut to a line, each list to
+ * `MAX_MAP_ITEMS`, with what that left out counted. Pure.
  */
 export const entryOf = (
   files: readonly ManifestFile[],
   modules: readonly string[],
   leftFiles = 0,
 ): SystemMapEntry => {
+  const manifests: NonNullable<SystemMapEntry['manifests']> = [];
   const publishes: SystemMapEntry['publishes'] = [];
   const dependsOn: SystemMapEntry['dependsOn'] = [];
   const unreadable: SystemMapEntry['unreadable'] = [];
@@ -76,6 +77,7 @@ export const entryOf = (
     const reader = READERS.find((each) => each.matches(file.path));
     if (reader === undefined) continue;
     const path = mapName(file.path);
+    manifests.push({ path, ecosystem: reader.ecosystem });
     const read = 'text' in file ? reader.read(file.path, file.text) : undefined;
     if (read === undefined || read.kind === 'unreadable') {
       const reason = mapName(read?.reason ?? ('unread' in file ? file.unread : ''));
@@ -93,10 +95,11 @@ export const entryOf = (
     }
   }
   const named = modules.map(mapName).filter((each) => each !== '');
-  const lists = [publishes, dependsOn, named, unreadable];
+  const lists = [manifests, publishes, dependsOn, named, unreadable];
   const left =
     leftFiles + lists.reduce((sum, list) => sum + Math.max(0, list.length - MAX_MAP_ITEMS), 0);
   return {
+    manifests: manifests.slice(0, MAX_MAP_ITEMS),
     publishes: publishes.slice(0, MAX_MAP_ITEMS),
     dependsOn: dependsOn.slice(0, MAX_MAP_ITEMS),
     modules: named.slice(0, MAX_MAP_ITEMS),
@@ -105,13 +108,17 @@ export const entryOf = (
   };
 };
 
+/** Whether git was stopped or timed out: a read that may pass when it is tried again. */
+const cutShort = ({ killed }: GitResult): boolean => killed === 'timed-out' || killed === 'stopped';
+
 const gitWhy = (result: GitResult): string =>
   result.stderr.trim().split('\n').at(-1)?.trim() || `git exited with ${result.code ?? 'no code'}`;
 
 /**
  * The manifests of the repository in `clone` at `commit`, read with git alone: `ls-tree` lists its
  * files, `cat-file` reads each one a reader matches, at most `MAX_MANIFESTS` of them. Throws when
- * git cannot list the commit.
+ * git cannot list the commit; when git was stopped or timed out, which a later read may not be, it
+ * gives why instead, and the map is not recorded.
  */
 export const manifestsAt =
   (git: Git) =>
@@ -119,13 +126,14 @@ export const manifestsAt =
     clone: string,
     commit: string,
     signal?: AbortSignal,
-  ): Promise<{ files: ManifestFile[]; left: number }> => {
+  ): Promise<{ files: ManifestFile[]; left: number } | { again: string }> => {
     const options = { timeoutMs: READ_MS, ...(signal === undefined ? {} : { signal }) };
     const listing = await git(
       clone,
       ['ls-tree', '-r', '-z', '--full-tree', '--name-only', commit],
       { ...options, maxOutputBytes: MAX_LISTING_BYTES },
     );
+    if (cutShort(listing)) return { again: `git did not list ${commit}: ${gitWhy(listing)}` };
     if (listing.code !== 0) throw new Error(`git could not list ${commit}: ${gitWhy(listing)}`);
     const paths = listing.stdout
       .split('\0')
@@ -136,6 +144,7 @@ export const manifestsAt =
         ...options,
         maxOutputBytes: MAX_MANIFEST_BYTES,
       });
+      if (cutShort(read)) return { again: `git did not read ${path}: ${gitWhy(read)}` };
       files.push(
         read.code === 0
           ? { path, text: read.stdout }
@@ -186,7 +195,10 @@ const fromRepo = (
       return repoOfPath(via.path, others);
     case 'package':
       return others.find(({ entry }) =>
-        entry?.publishes.some((each) => each.name === name && each.ecosystem === ecosystem),
+        // npm names are lower case, and NuGet's ids match in any case.
+        entry?.publishes.some(
+          (each) => each.name.toLowerCase() === name.toLowerCase() && each.ecosystem === ecosystem,
+        ),
       )?.repo;
     default: {
       const unknown: never = via;
@@ -211,8 +223,8 @@ const byWhat = (via: SystemMapEntry['dependsOn'][number]['via']): string => {
 };
 
 /**
- * The lines the map gives `repository` among `all`, each without its indent: its description,
- * what it publishes, each dependency on another repository of the Brewery, its test map's modules,
+ * The lines the map gives `repository` among `all`, each without its indent: its description, its
+ * manifests with their ecosystems, what it publishes, each dependency on another repository of the Brewery, its test map's modules,
  * each manifest that could not be read, and how much its entry left out.
  */
 export const mapLines = (
@@ -222,6 +234,8 @@ export const mapLines = (
   const { description, entry } = repository;
   const lines = description === undefined ? [] : [mapName(description)];
   if (entry === undefined) return lines;
+  const manifests = (entry.manifests ?? []).map(({ path, ecosystem }) => `${path} (${ecosystem})`);
+  if (manifests.length > 0) lines.push(`manifests: ${manifests.join(', ')}`);
   const others = all.filter(({ repo }) => !sameRepo(repo, repository.repo));
   for (const { name, ecosystem } of entry.publishes)
     lines.push(`publishes \`${name}\` (${ecosystem})`);
