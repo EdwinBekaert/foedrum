@@ -163,6 +163,12 @@ export const shortCommand = (command: string): string => {
 const MOST_REASON_TESTS = 3;
 const MOST_REASON_NAMES = 300;
 
+/** How many tests failed, as a reason and a comment say it: `5 tests failing`. */
+export const testsFailing = ({ tests, more }: Failing): string => {
+  const count = tests.length + more;
+  return `${count} ${count === 1 ? 'test' : 'tests'} failing`;
+};
+
 /**
  * The failing tests as a reason says them, the count first: `5 tests failing: a, b, …`. The names
  * stop at `MOST_REASON_TESTS` or `MOST_REASON_NAMES` characters, the first always kept, so ten long
@@ -179,7 +185,7 @@ const failingReason = ({ tests, more }: Failing): string => {
     length = after;
   }
   const rest = shown.length < count ? ', …' : '';
-  return `${count} ${count === 1 ? 'test' : 'tests'} failing: ${shown.join(', ')}${rest}`;
+  return `${testsFailing({ tests, more })}: ${shown.join(', ')}${rest}`;
 };
 
 /** The failing tests a reading names: `a, b (and 3 more)`. */

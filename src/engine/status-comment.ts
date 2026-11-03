@@ -2,7 +2,7 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { passed, settleReadings, shortCommand } from '../checks/gravity.ts';
+import { passed, settleReadings, shortCommand, testsFailing } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
   CoverageListing,
@@ -373,9 +373,8 @@ type FailingTests = Extract<GravityReading, { result: 'exited' }>['failing'];
  * says how many failed: `5 tests failing: a, b, …` (ADR 0304).
  */
 const failingCount = ({ tests, more }: NonNullable<FailingTests>): string => {
-  const count = tests.length + more;
   const names = `${tests.join(', ')}${more === 0 ? '' : ', …'}`;
-  return `${count} ${count === 1 ? 'test' : 'tests'} failing: ${names}`;
+  return `${testsFailing({ tests, more })}: ${names}`;
 };
 
 /**
@@ -392,8 +391,7 @@ const failingClause = (
   if (settled.kind !== 'failed' || settled.reason !== reason) return undefined;
   const decisive = readings.find((reading) => !passed(reading));
   if (decisive?.result !== 'exited' || decisive.failing === undefined) return undefined;
-  const count = decisive.failing.tests.length + decisive.failing.more;
-  return `${shortCheckOf(decisive)} failed, ${count} ${count === 1 ? 'test' : 'tests'} failing`;
+  return `${shortCheckOf(decisive)} failed, ${testsFailing(decisive.failing)}`;
 };
 
 /**
