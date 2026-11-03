@@ -196,7 +196,31 @@ export type CommitTree = <T>(
  * Foedrum's own as the merged tree is (ADR 0203). Both go when `use` ends, also when it fails.
  */
 export const openCommitTree =
-  (_options: MergeTreeOptions): CommitTree =>
-  () => {
-    throw new Error('not implemented');
+  ({ git, clone, own }: MergeTreeOptions): CommitTree =>
+  async <T>(
+    commit: string,
+    use: (worktree: string) => Promise<T>,
+    options: { signal?: AbortSignal; edit?: TreeEdit } = {},
+  ): Promise<T> => {
+    const { signal, edit } = options;
+    const sha = fullSha(commit);
+    if (own === undefined) {
+      throw new Error(`The scratch tree in ${clone} names no URL to reach the remote by`);
+    }
+    return withOwnGitDir(git, clone, own, signal, (dir) =>
+      checkedOut(
+        { git, clone },
+        dir,
+        sha,
+        async (worktree) => {
+          if (edit !== undefined) {
+            // A plain relative path the mutant check accepted.
+            const file = join(worktree, ...edit.file.split('/'));
+            await writeFile(file, edit.content);
+          }
+          return use(worktree);
+        },
+        signal,
+      ),
+    );
   };

@@ -693,6 +693,42 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     return { ending: settleReadings(readings), readings };
   };
 
+  /**
+   * The test check in a scratch tree (ADR 0313): every report path of `modules` cleared, since a
+   * report the commit holds must never stand for the run's, the setup and the test check run, and
+   * each module's reports read where the map says. A TRX report is left unread (#727).
+   */
+  const testRun: TestRun = async (tree, modules, deadlineAt, signal) => {
+    const read = modules.filter(({ module }) => module.testReport.format !== 'trx');
+    const patterns = read.map(({ module }) => module.testReport.path);
+    const find = options.testMap?.reports ?? reportPaths;
+    const unclear =
+      patterns.map(unclearable).find((reason) => reason !== undefined) ??
+      (await clearReportPaths(patterns, tree.path, find, reports.clear));
+    if (unclear !== undefined) {
+      return { kind: 'unrun', why: `the test reports cannot be cleared: ${unclear}` };
+    }
+    const end = await checksOf(['test'], tree, deadlineAt, signal);
+    const readings = end.readings ?? [];
+    const reading = readings.find((each) => each.check === 'test');
+    if (reading === undefined) {
+      const why = end.ending.kind === 'blocked' ? end.ending.summary : 'the test check did not run';
+      const setup = readings.find((each) => !passed(each));
+      return {
+        kind: 'unrun',
+        why: setup === undefined ? why : `the repository's setup did not pass: ${setup.result}`,
+      };
+    }
+    const wrote: MappedReport[] = [];
+    for (const { module } of read) {
+      const found = testReportsOf(module, tree);
+      if ('stuck' in found) return { kind: 'unrun', why: found.stuck };
+      if ('failed' in found) return { kind: 'unrun', why: found.failed };
+      wrote.push(...found.reports);
+    }
+    return { kind: 'ran', reading, reports: wrote };
+  };
+
   const run = async (ref: AttemptRef, signal: AbortSignal): Promise<AttemptEnd> => {
     const { batchId, stepId, attempt } = ref;
     const batch = state().batches.get(batchId);
@@ -1237,8 +1273,6 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     },
     progress: (ref) => running.get(attemptKey.encode(ref)),
     checkTree,
-    testRun: () => {
-      throw new Error('not implemented');
-    },
+    testRun,
   };
 }
