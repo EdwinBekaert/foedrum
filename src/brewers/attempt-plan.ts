@@ -10,7 +10,7 @@ import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
 import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
-import { lensRounds, reviewed, withDispositions } from '../engine/lens-rounds.ts';
+import { lensRounds, reviewed, roundFindings, withDispositions } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
@@ -40,7 +40,6 @@ import {
   TASTING,
   type TastingFinding,
   TastingOutDoc,
-  tastingOf,
   tastingOutDocOf,
 } from '../schemas/out-doc.ts';
 import { PLAN, PlanOutDoc } from '../schemas/plan.ts';
@@ -616,8 +615,7 @@ export function earlierRoundsOf(
   return lensRounds(batch, ref.stepId, ref.attempt).map(({ attempt, ran, dispositions }) => {
     const step = `${ref.stepId}#${attempt}`;
     if (ran.outcome.kind === 'succeeded') {
-      const findings = tastingOf(ran.outcome.output)?.findings ?? [];
-      return { step, dispositions, findings };
+      return { step, dispositions, findings: roundFindings(ran) };
     }
     // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
     const root = ran.worktree?.path ?? ran.session?.worktree;
