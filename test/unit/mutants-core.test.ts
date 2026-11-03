@@ -221,6 +221,36 @@ describe('parseMutant allowlist edge cases', () => {
     );
   });
 
+  it('a replacement that only edits a block comment changes nothing where comments are known', () => {
+    assert.match(
+      reasonOf(
+        mutant({
+          original: 'return delay * 2; /* doubled */',
+          replacement: 'return delay * 2; /* tripled */',
+        }),
+      ),
+      /changes nothing/,
+    );
+  });
+
+  it('a comment marker inside a string is no comment when a replacement is compared', () => {
+    const edit = { original: 'const a = "//" + b;', replacement: 'const a = "//" - b;' };
+    assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
+  });
+
+  it('an escaped slash before a slash is no comment when a replacement is compared', () => {
+    const edit = {
+      original: String.raw`if (url.replace(/^https?:\/\//, '') === host) return 1;`,
+      replacement: String.raw`if (url.replace(/^https?:\/\//, '') !== host) return 1;`,
+    };
+    assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
+  });
+
+  it('a string edit is a change when a replacement is compared', () => {
+    const edit = { original: 'log("a", "b"); // a', replacement: 'log("b", "b"); // a' };
+    assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
+  });
+
   it('rejects a replacement with a JavaScript line separator', () => {
     assert.match(reasonOf(mutant({ replacement: 'a; b;' })), /one line/);
   });
