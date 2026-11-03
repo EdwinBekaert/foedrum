@@ -265,6 +265,21 @@ describe('settleReadings', () => {
     });
   });
 
+  it("a failed check step's reason with a long command keeps its count", () => {
+    const command = `node --test ${'test/unit/a-long-file-name.test.ts '.repeat(20)}`;
+    const name = (letter: string) => `${letter} ${'x'.repeat(190)}`;
+    const failing = { tests: [name('a'), name('b'), name('c'), name('d')], more: 6 };
+    const ending = settleReadings([
+      { result: 'exited', check: 'test', command, exitCode: 1, tail: '', failing },
+    ]);
+    const reason = ending.kind === 'failed' ? ending.reason : assert.fail();
+    // The command cut to 80 characters, and the names to 300, after the count.
+    assert.equal(
+      reason,
+      `the check "test" (${command.slice(0, 79)}…) failed with exit code 1: 10 tests failing: ${name('a')}, …`,
+    );
+  });
+
   it("fails without a retry when a check ran past the step's deadline", () => {
     assert.deepEqual(settleReadings([{ result: 'killed', ...ran, killed: 'timed-out' }]), {
       kind: 'failed',

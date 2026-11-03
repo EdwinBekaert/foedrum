@@ -298,7 +298,15 @@ export type CheckTree = (
   worktree: TreeIn,
   deadlineAt: string,
   signal: AbortSignal,
+  /** For a merged tree, the commits it merges: where its test maps are read (ADR 0307). */
+  merged?: MergedCommits,
 ) => Promise<AttemptEnd>;
+
+/** The commits of an open pull request's merged tree: its head and the base's tip (ADR 0203). */
+export interface MergedCommits {
+  head: string;
+  tip: string;
+}
 
 /** Where a tree is: its repository and its folder. */
 export type TreeIn = Pick<WorktreeRef, 'repo' | 'path'>;

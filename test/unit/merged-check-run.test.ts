@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { CheckTree, TreeIn } from '../../src/checks/check-runner.ts';
+import type { CheckTree, MergedCommits, TreeIn } from '../../src/checks/check-runner.ts';
 import { mergedCheckRun } from '../../src/cli/merged-check-run.ts';
 import type { ServeSetup } from '../../src/cli/serve-config.ts';
 import type { AttemptEnd } from '../../src/engine/brewer-runner.ts';
@@ -58,14 +58,19 @@ describe('mergedCheckRun', () => {
 
   /** A run whose check runner answers `end`, and what it was asked. */
   const runWith = (end: AttemptEnd) => {
-    const asked: { refs: readonly unknown[]; tree: TreeIn; deadlineAt: string }[] = [];
+    const asked: {
+      refs: readonly unknown[];
+      tree: TreeIn;
+      deadlineAt: string;
+      merged: MergedCommits | undefined;
+    }[] = [];
     const trees: string[] = [];
     const tree = (): MergedTree => async (from, to, use) => {
       trees.push(`${from} ${to}`);
       return use(merged);
     };
-    const checkTree: CheckTree = async (refs, worktree, deadlineAt) => {
-      asked.push({ refs, tree: worktree, deadlineAt });
+    const checkTree: CheckTree = async (refs, worktree, deadlineAt, _signal, merged) => {
+      asked.push({ refs, tree: worktree, deadlineAt, merged });
       return end;
     };
     return {
@@ -91,6 +96,8 @@ describe('mergedCheckRun', () => {
         refs: ['test'],
         tree: { repo: 'acme/web', path: merged },
         deadlineAt: new Date(now.getTime() + GREEN_MS).toISOString(),
+        // Where the check runner reads the test maps of the merged tree (ADR 0307).
+        merged: { head, tip },
       },
     ]);
   });
