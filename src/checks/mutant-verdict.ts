@@ -42,13 +42,21 @@ export const judgeRun = (
   baseline: readonly MappedReport[],
   run: readonly MappedReport[],
   module: string,
+  /** Whether the run's test check failed: with no report, the mutant broke the build. */
+  failed: boolean,
 ): RunVerdict => {
   const before = tally(baseline, module);
   if (![...before.values()].some(({ passed }) => passed > 0)) {
     return { kind: 'notJudged', why: `no test of module "${module}" passed at the baseline` };
   }
+  // A build the mutant broke is neither killed nor survived: no test ran against it, as
+  // Stryker's CompileError and PIT's non-viable mutants (ADR 0313).
   if (!run.some((report) => report.module === module)) {
-    return { kind: 'notJudged', why: `module "${module}" wrote no test report` };
+    const why = `module "${module}" wrote no test report`;
+    return {
+      kind: 'notJudged',
+      why: failed ? `the mutant broke the build: ${why} and its test check failed` : why,
+    };
   }
   const after = tally(run, module);
   // The first test of the run that fails more often, or passes less often, than at the baseline.

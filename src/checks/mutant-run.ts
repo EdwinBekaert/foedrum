@@ -19,7 +19,7 @@ import type { CommitTree, TreeEdit } from '../workspace/merge-tree-git.ts';
 import type { TestRun, TestRunEnd, TreeIn } from './check-runner.ts';
 import { keptName } from './gravity.ts';
 import { judgeRun } from './mutant-verdict.ts';
-import { type ChangedFile, isPlainPath, mutantCheck } from './mutants.ts';
+import { type ChangedFile, editFile, isPlainPath, mutantCheck } from './mutants.ts';
 import { readDiff } from './step-commits.ts';
 import { areaOf, type EffectiveModule, effectiveMap, type ReadTestMapAt } from './test-map.ts';
 
@@ -252,7 +252,14 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
         continue;
       }
       const until = Math.min(lastEnd, now + budget);
-      const run = await runIn(until, { file: mutant.file, rewrite: () => verdict.content });
+      // The line edit on the file as git checked it out, so its line endings and encoding stay
+      // those of the baseline's tree.
+      const rewrite = (checkedOut: string): string => {
+        const edited = editFile(mutant, checkedOut);
+        if (!edited.ok) throw new Error(edited.reason);
+        return edited.content;
+      };
+      const run = await runIn(until, { file: mutant.file, rewrite });
       if (run.kind === 'unrun') {
         record(notJudged(run.why));
         continue;
@@ -272,7 +279,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
         continue;
       }
       const module = areaOf(change.modules, mutant.file, foldCase)?.module ?? '';
-      const judged = judgeRun(baseline.reports, run.reports, module);
+      const judged = judgeRun(baseline.reports, run.reports, module, reading.exitCode !== 0);
       switch (judged.kind) {
         case 'killed':
           // A test's name is the run's text: one of blanks only is said so.
