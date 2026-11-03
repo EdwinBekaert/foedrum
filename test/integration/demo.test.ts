@@ -245,6 +245,8 @@ describe('npm run demo', () => {
       'green#3 succeeded',
       // Round 2 approves.
       ...['correctness', 'security', 'test-design'].map((lens) => `${lens}#2 succeeded`),
+      // Brett's mutants run after the group, advisory (ADR 0319).
+      'mutants#1 succeeded',
       'open-pull-request#1 succeeded',
     ]);
     // In each round, the parallel group's three lens attempts all started before any of them
