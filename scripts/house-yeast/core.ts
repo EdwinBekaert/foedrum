@@ -90,7 +90,7 @@ export const proposeRule = (
   };
 };
 
-/** The reviews after which an adopted rule is listed as a candidate for a lint or script check (#685). */
+/** The reviews after which a rule is listed as a candidate for a promotion review (#685, ADR 0315). */
 export const minReviews = 10;
 
 /** The day Foedrum's own sessions started loading the rules (#677), the report's second column. */
@@ -99,7 +99,7 @@ export const defaultSince = '2026-10-30';
 export interface Recurrence {
   id: string;
   created: string;
-  /** The reviews that recorded the rule's lesson after the day it was adopted… */
+  /** The reviews that recorded the rule's lesson after the day it was proposed (its `created`)… */
   reviews: number;
   /** …of all the reviews recorded after that day. */
   of: number;
@@ -109,15 +109,16 @@ export interface Recurrence {
 }
 
 /**
- * How often reviews recorded each adopted rule's lesson again (#685), most recorded first; a rule
- * whose id no candidate ever named is `unnamed`, so a renamed lesson never reads as a rule that works.
+ * How often reviews recorded each active rule's lesson again after it was proposed (#685), most
+ * recorded first; a rule whose id no candidate ever named is `unnamed`, so a renamed lesson never
+ * reads as a rule that works.
  */
 export const recurringRules = (
   rules: readonly HouseYeastRule[],
   candidates: readonly HouseYeastCandidate[],
   since: string,
 ): { counted: Recurrence[]; unnamed: string[] } => {
-  // Strictly after the day: a review on the day itself may be the one that adopted the rule.
+  // Strictly after the day: a review on the day itself may be the one that proposed the rule.
   const reviewsAfter = (day: string, lesson?: string): number =>
     new Set(
       candidates
