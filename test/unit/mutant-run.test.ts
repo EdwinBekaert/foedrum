@@ -660,4 +660,19 @@ describe('mutated, its edges', () => {
     await end();
     assert.equal(runDeadlines[1], new Date(t0.getTime() + 10_000 + 60_000).toISOString());
   });
+
+  it('a test map that cannot be read is named by where it was read, never by a commit hash, which reads as a secret', async () => {
+    assert.deepStrictEqual(
+      await verdicts({
+        runner: brett([boundary]),
+        mapAt: { kind: 'unreadable', reason: 'bad JSON' },
+      }),
+      [
+        {
+          kind: 'notJudged',
+          why: 'the test map of acme/api where the batch started cannot be read: bad JSON',
+        },
+      ],
+    );
+  });
 });
