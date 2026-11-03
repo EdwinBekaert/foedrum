@@ -12,6 +12,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch } from './fold.ts';
 import { same } from './issue-claims.ts';
+import { type SubOrderRow, subOrderRows } from './order-end.ts';
 
 /** The labels of the lanes, in the order a batch moves through them. */
 export const laneLabels = LaneLabelName.options;
@@ -30,7 +31,11 @@ export interface LaneLabelHost extends Pick<IssueMarks, 'labels' | 'addLabel' | 
  * cancelled batch, nor for one on tap that waits on nobody: its pull requests ended, or it has
  * none and no approved plan.
  */
-export const laneLabel = (batch: Batch): LaneLabelName | undefined => {
+export const laneLabel = (
+  batch: Batch,
+  /** Its order's sub-orders, in merge order, once it is split (ADR 0293). */
+  _subOrders: readonly SubOrderRow[] = [],
+): LaneLabelName | undefined => {
   const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
@@ -116,7 +121,8 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
       );
       const revision = revisions.length + 1;
       const previous = revisions.at(-1);
-      const label = laneLabel(batch) ?? null;
+      const rows = batch.decomposed === true ? subOrderRows(state, batch.issue) : [];
+      const label = laneLabel(batch, rows) ?? null;
       // Nothing to show, or shown already; a batch cancelled before its first label has none.
       if (previous === undefined ? label === null : previous.label === label) return [];
       // An older Foedrum's on-tap label stays until the lane changes: no upgrade rewrites every
