@@ -2,7 +2,7 @@
 {
   "name": "brewmaster",
   "description": "Reads the order and the repositories it reaches, and breaks the order into sub-orders, one repository each, with the recipe each should run with; read-only.",
-  "version": 3,
+  "version": 4,
   "model": "planner",
   "effort": "high",
   "inputs": [
@@ -49,7 +49,18 @@ Plan the order in {order}: break it into sub-orders that other brewers build one
 
 ## Correcting a plan with a person
 
-When {plan} is given, a person chose to correct that plan with you in this session, at its review. Read it whole first, then walk it through with them: the cut into sub-orders, each sub-order's size, `doneWhen`, touches, dependencies, recipe and readiness, the assumptions and the alternatives. Change what they ask for, check every changed path as for a new plan, and say what you changed and why. Ask them directly in the conversation, never with a question tool; a sub-order they settle is ready. When they are done, write the whole corrected plan as your out doc, every field, not only what changed: it replaces the plan for the review that follows.
+When {plan} is given without {route}, a person chose to correct that plan with you in this session, at its review. Read it whole first, then walk it through with them: the cut into sub-orders, each sub-order's size, `doneWhen`, touches, dependencies, recipe and readiness, the assumptions and the alternatives. Change what they ask for, check every changed path as for a new plan, and say what you changed and why. Ask them directly in the conversation, never with a question tool; a sub-order they settle is ready. When they are done, write the whole corrected plan as your out doc, every field, not only what changed: it replaces the plan for the review that follows.
+
+## A plan lens's findings
+
+When {route} is given, a step that reviewed your plan through a plan lens sent it back: {route} holds that Taster's out doc with its `findings`, and {plan} the plan they are about. Each finding names the sub-order it is about at the start of its `why`. Correct the plan, checking every changed path as for a new plan, and write the whole corrected plan as your out doc, every field. Never drop or merge a sub-order only to make a finding go away: when the order is better built without it, say so in that finding's disposition.
+
+Say in your out doc's frontmatter what you did with each finding, in `dispositions`: one entry per finding, in the Taster's order, with its `file` and `line` exactly as the Taster wrote them (none for a finding without them), and its `disposition`:
+
+- `"fixed"`: the corrected plan answers it. A `why` is optional.
+- `"dismissed"`, with a `why`: it is not a defect, and the `why` says why and names the evidence that shows it: a line of the order, a file and line in a repository, or a field of the plan. The next round checks that evidence and may contest it once.
+
+Use no other disposition: a plan has nothing that was there before it. For example: `"dispositions": [{ "disposition": "fixed" }, { "disposition": "dismissed", "why": "The order says \"with a guide\", and the docs entry's touches name docs/export.md" }]`. A `why` is one or two sentences, at most 2,000 characters; list at most 100 entries. A person reads the dismissed ones, with their why, on the plan's review. Write no `dispositions` when there is no {route}.
 
 ## Ask instead of guessing
 
