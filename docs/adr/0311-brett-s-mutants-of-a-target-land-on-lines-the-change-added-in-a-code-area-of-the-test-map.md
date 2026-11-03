@@ -21,7 +21,7 @@ The word rule strips `//` and `/* */` comments, which are JavaScript's; in Pytho
 - A target's mutant comes back as an exact line edit, or with a reason a person can read (`line 4 of calc/rates.py is not a line the change added`, `"tests/test_rates.py" is in no code area of the test map`, `the replacement adds or, debug`).
 - In a language whose comments are not stripped, a mutant may turn commented-out code on: its words are the original line's. The line is one the batch's change added, and a mutant runs only in a scratch tree and is never committed, so what it can turn on is code the change itself wrote in a comment.
 - A mutant of a module whose tests are inline (in its code area) may land on a test line the change added; the test map does not tell them apart.
-- A Brewery can name `brett` in a recipe step and get a checked list of mutants in its out doc; nothing runs them yet. Running them in scratch trees is #798, and showing survivors in the pull request, with `blocking`, is #799.
+- A Brewery can name `brett` in a recipe step and get a list of at most 5 mutants in its out doc, read against the `mutants` schema; no engine path calls `mutantCheck` yet. Checking and running them in scratch trees is #798, and showing survivors in the pull request, with `blocking`, is #799.
 
 ## Alternatives considered
 - **Keep ADR 0034's folder rule for targets (`src/` only).** Many repositories have no `src/`, and a `src/` may hold tests or generated files; the test map is where the engine already reads a repository's code.
