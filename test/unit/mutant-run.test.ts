@@ -18,7 +18,7 @@ import type { TestResult } from '../../src/formats/test-report.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { MutantEdit } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
-import type { CommitTree, TreeEdit } from '../../src/workspace/merge-tree-git.ts';
+import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
 
 const t0 = new Date('2026-11-03T12:00:00.000Z');
 const deadlineAt = '2026-11-03T12:20:00.000Z';
@@ -156,6 +156,12 @@ const brett = (mutants: readonly MutantEdit[], end?: AttemptEnd): BrewerRunner =
 
 type Outcomes = Readonly<Record<string, TestResult>>;
 
+/** A mutant tree's file as its edit rewrote the commit's text. */
+interface Edited {
+  file: string;
+  content: string;
+}
+
 /** A report of module api with these tests, in this order. */
 const report = (outcomes: Outcomes): MappedReport => ({
   module: 'api',
@@ -198,16 +204,20 @@ const setup = ({
   runner: BrewerRunner;
   mutates?: boolean;
   events?: Event[];
-  runs?: (edit: TreeEdit | undefined, deadlineAt: string) => TestRunEnd | Promise<TestRunEnd>;
+  runs?: (edit: Edited | undefined, deadlineAt: string) => TestRunEnd | Promise<TestRunEnd>;
   clock?: () => Date;
 }) => {
-  const opened: { commit: string; edit?: TreeEdit; path: string }[] = [];
+  const opened: { commit: string; edit?: Edited; path: string }[] = [];
   const removed: string[] = [];
-  const edits = new Map<string, TreeEdit | undefined>();
+  const edits = new Map<string, Edited | undefined>();
   const tree: CommitTree = async (commit, use, options = {}) => {
     const path = join('/scratch', String(opened.length + 1));
-    opened.push({ commit, path, ...(options.edit === undefined ? {} : { edit: options.edit }) });
-    edits.set(path, options.edit);
+    const edit =
+      options.edit === undefined
+        ? undefined
+        : { file: options.edit.file, content: options.edit.rewrite(code) };
+    opened.push({ commit, path, ...(edit === undefined ? {} : { edit }) });
+    edits.set(path, edit);
     try {
       return await use(path);
     } finally {
@@ -244,7 +254,7 @@ const setup = ({
 /** Each run's outcome by the mutant its tree holds. */
 const byEdit =
   (outcomes: ReadonlyMap<string, Outcomes>) =>
-  (edit: TreeEdit | undefined): TestRunEnd => {
+  (edit: Edited | undefined): TestRunEnd => {
     if (edit === undefined) return ran(baseline);
     const found = [...outcomes].find(([replacement]) => edit.content.includes(replacement));
     return ran(found === undefined ? baseline : found[1]);
@@ -361,7 +371,7 @@ describe('mutated, judging mutants', () => {
 
   it('a mutant is judged against a fresh baseline, so a test that already failed kills nothing', async () => {
     const broken = { ...baseline, 'clamps big numbers': 'failed' } as const;
-    const runs = (edit: TreeEdit | undefined) =>
+    const runs = (edit: Edited | undefined) =>
       // The baseline fails one test; the mutant fails the same one, and no other.
       ran(edit === undefined ? broken : broken);
     const { end, opened, removed } = setup({ runner: brett([boundary, subtracts]), runs });
@@ -388,7 +398,7 @@ describe('mutated, judging mutants', () => {
   });
 
   it('the scratch trees are removed when the runs end, also when one fails', async () => {
-    const runs = (edit: TreeEdit | undefined) => {
+    const runs = (edit: Edited | undefined) => {
       if (edit?.content.includes('a - b')) throw new Error('the tree is gone');
       return ran(baseline);
     };
@@ -408,7 +418,7 @@ describe('mutated, judging mutants', () => {
 
   it('a mutant whose run passes three times the baseline time times out, which kills it', async () => {
     let now = t0.getTime();
-    const runs = (edit: TreeEdit | undefined, runDeadline: string): TestRunEnd => {
+    const runs = (edit: Edited | undefined, runDeadline: string): TestRunEnd => {
       // The baseline takes a minute; the looping mutant runs until its deadline.
       if (edit === undefined) {
         now += 60_000;
@@ -447,7 +457,7 @@ describe('mutated, judging mutants', () => {
   it("mutants left when the step's deadline nears are not judged, and the attempt still succeeds", async () => {
     let now = t0.getTime();
     // The baseline takes until three minutes before the step's deadline.
-    const runs = (edit: TreeEdit | undefined, runDeadline: string): TestRunEnd => {
+    const runs = (edit: Edited | undefined, runDeadline: string): TestRunEnd => {
       now = edit === undefined ? Date.parse(deadlineAt) - 3 * 60_000 : Date.parse(runDeadline);
       return edit === undefined
         ? ran(baseline)
@@ -483,7 +493,7 @@ describe('mutated, judging mutants', () => {
   });
 
   it('a mutant whose module passed no test at the baseline is not judged', async () => {
-    const runs = (edit: TreeEdit | undefined) =>
+    const runs = (edit: Edited | undefined) =>
       ran(edit === undefined ? { 'adds two numbers': 'failed' } : { 'adds two numbers': 'failed' });
     const { end } = setup({ runner: brett([subtracts]), runs });
     const ended = await end();

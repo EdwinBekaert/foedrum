@@ -15,7 +15,7 @@ import { foldsCase } from '../platform/paths.ts';
 import { MAX_MUTANT_TEXT, type MutantRecord, type MutantVerdict } from '../schemas/events.ts';
 import { type MutantEdit, mutantsOf } from '../schemas/out-doc.ts';
 import type { Git } from '../workspace/git.ts';
-import type { CommitTree } from '../workspace/merge-tree-git.ts';
+import type { CommitTree, TreeEdit } from '../workspace/merge-tree-git.ts';
 import type { TestRun, TestRunEnd, TreeIn } from './check-runner.ts';
 import { keptName } from './gravity.ts';
 import { judgeRun } from './mutant-verdict.ts';
@@ -194,10 +194,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
     const scratch = tree(repo);
 
     /** A run of the tests in a fresh scratch tree, the mutant's edit in it when one is given. */
-    const runIn = async (
-      until: number,
-      edit?: { file: string; content: string },
-    ): Promise<TestRunEnd> => {
+    const runIn = async (until: number, edit?: TreeEdit): Promise<TestRunEnd> => {
       progressed();
       const deadline = new Date(until).toISOString();
       try {
@@ -255,7 +252,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
         continue;
       }
       const until = Math.min(lastEnd, now + budget);
-      const run = await runIn(until, { file: mutant.file, content: verdict.content });
+      const run = await runIn(until, { file: mutant.file, rewrite: () => verdict.content });
       if (run.kind === 'unrun') {
         record(notJudged(run.why));
         continue;

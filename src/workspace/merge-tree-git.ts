@@ -4,7 +4,7 @@
 // runs only through the injected `Git`, so unit tests pass a fake one (ADR 0021). The checks on
 // the merged tree get a worktree of it from such a directory (ADR 0203).
 
-import { lstat, mkdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
 import { pathInside } from '../platform/paths.ts';
@@ -177,11 +177,12 @@ const checkedOut = async <T>(
   }
 };
 
-/** A file a scratch tree gets in place of the commit's: a mutant's (ADR 0313). */
+/** A file of a scratch tree rewritten after its checkout: a mutant's (ADR 0313). */
 export interface TreeEdit {
   /** A plain relative path, with forward slashes. */
   file: string;
-  content: string;
+  /** The file's new text from its text as git checked it out; throws when it cannot be made. */
+  rewrite: (checkedOut: string) => string;
 }
 
 /**
@@ -228,7 +229,7 @@ export const openCommitTree =
                 `${JSON.stringify(edit.file)} is no regular file of the scratch tree`,
               );
             }
-            await writeFile(file, edit.content);
+            await writeFile(file, edit.rewrite(await readFile(file, 'utf8')));
           }
           return use(worktree);
         },

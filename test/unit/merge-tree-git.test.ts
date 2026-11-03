@@ -275,7 +275,7 @@ describe('openCommitTree', () => {
         async () => {
           used = true;
         },
-        { edit: { file: 'src/add.mjs', content: 'the mutant\n' } },
+        { edit: { file: 'src/add.mjs', rewrite: () => 'the mutant\n' } },
       ),
       { message: '"src/add.mjs" is no regular file of the scratch tree' },
     );

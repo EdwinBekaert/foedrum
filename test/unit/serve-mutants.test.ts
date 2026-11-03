@@ -166,7 +166,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, code);
       if (options.edit !== undefined) {
-        writeFileSync(join(path, ...options.edit.file.split('/')), options.edit.content);
+        writeFileSync(join(path, ...options.edit.file.split('/')), options.edit.rewrite(code));
       }
       return use(path);
     };

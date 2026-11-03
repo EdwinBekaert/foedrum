@@ -202,7 +202,7 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
       clone,
       own: { url: join(dir.path, 'nowhere.git'), root },
     });
-    const edit = { file: 'app.txt', content: 'the mutant\n' };
+    const edit = { file: 'app.txt', rewrite: () => 'the mutant\n' };
     let seen = '';
     const read = await commitTree(
       head,
