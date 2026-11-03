@@ -1684,6 +1684,24 @@ describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
     assert.deepEqual(reads, [{ file: join(reviewTree, 'tasting.md'), root: reviewTree }]);
   });
 
+  it("reads a step input's out doc in the recipe of its latest succeeded attempt, not an earlier one: regression test", async () => {
+    // review#1 succeeded under first; review#2, after the switch, under second.
+    const review2Tree = join('/work', 'review-2');
+    const review2 = { ...review, attempt: 2 };
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...review2, deadlineAt },
+      startedAt(review2, review2Tree),
+      { type: 'step.finished', ...review2, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(review2Tree, 'tasting.md'), root: review2Tree }]);
+  });
+
   it("a route input reads the out doc of the routing attempt's brewer after the batch switched recipes", async () => {
     const events: Event[] = [
       ...reviewed,
