@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
+import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -2059,5 +2060,221 @@ describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
     const { plans, reads } = setup(events, {}, undefined, switching.brewers);
     await plans.plan({ ...start, ref });
     assert.deepEqual(reads, [{ file: join(reviewTree, 'review.md'), root: reviewTree }]);
+  });
+});
+
+describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
+  // The default Taster and Brewmaster, and the Brewery's own plan lens.
+  const tasting = loadRecipes({
+    ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+    recipes: [
+      {
+        path: 'recipes/amber.jsonc',
+        text: recipeText(
+          'amber',
+          [
+            { id: 'plan', brewer: 'brewmaster' },
+            { id: 'taste', brewer: 'taster', lens: 'plan/naive-reader' },
+          ],
+          { testFirst: false },
+        ),
+      },
+    ],
+    lenses: [{ path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' }],
+  });
+  assert.ok(tasting.valid, tasting.valid ? '' : tasting.problems.join('\n'));
+  const deadlineAt = '2026-10-17T13:00:00.000Z';
+  const taste = { batchId: '12-1', stepId: 'taste', attempt: 1 };
+  const plannedBy = (attempt: number, title: string) => ({
+    status: 'done',
+    summary: 'Planned',
+    assumptions: [],
+    subOrders: [
+      {
+        id: 'api',
+        title,
+        repo: 'acme/api',
+        size: { lines: 200, mechanism: 'one handler' },
+        doneWhen: 'a test passes',
+        touches: [{ path: 'src/api.ts' }],
+        recipe: 'nip',
+        why: `planned by plan#${attempt}`,
+        ready: true,
+      },
+    ],
+  });
+  /** Attempt `attempt` of plan, in its own worktree, done with a plan of one sub-order. */
+  const planAttempt = (attempt: number, title: string): Event[] => {
+    const at = { batchId: '12-1', stepId: 'plan', attempt };
+    const path = join('/work', `plan-${attempt}`);
+    return [
+      { type: 'step.scheduled', ...at, deadlineAt },
+      {
+        type: 'step.started',
+        ...at,
+        session: { id: sessionId, worktree: path },
+        worktree: {
+          repo: 'acme/api',
+          path,
+          branch: `foedrum/12-1/plan/${attempt}`,
+          commit: `${attempt}`.repeat(40),
+        },
+      },
+      {
+        type: 'step.finished',
+        ...at,
+        outcome: { kind: 'succeeded', output: plannedBy(attempt, title) },
+      },
+    ];
+  };
+  const amber: Event[] = [
+    { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy: deadlineAt },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: '12-1',
+      recipe: 'amber',
+      reason: 'label',
+      source: 'label',
+    },
+    ...planAttempt(1, 'Build the API'),
+    ...planAttempt(2, 'Build the API, planned again'),
+    { type: 'step.scheduled', ...taste, deadlineAt },
+  ];
+  const tasteTree = join('/work', 'taste-1');
+  const inTree: Event = {
+    type: 'step.started',
+    ...taste,
+    session: { id: sessionId, worktree: tasteTree },
+    worktree: {
+      repo: 'acme/api',
+      path: tasteTree,
+      branch: 'foedrum/12-1/taste/1',
+      commit: 'e'.repeat(40),
+    },
+  };
+  // What each plan attempt left in its worktree: only the latest is the batch's plan.
+  const planDocs: Record<string, OutDocRead> = {
+    [join('/work', 'plan-1', 'plan.md')]: { kind: 'text', text: '# The first plan\n' },
+    [join('/work', 'plan-2', 'plan.md')]: { kind: 'text', text: '# The plan planned again\n' },
+  };
+  const repositories = [
+    { repo: 'acme/api', base: 'origin/main' },
+    { repo: 'acme/web', base: 'origin/trunk' },
+  ];
+  /** The Taster's prompt and the files read for it, with no git: a plan step reads no change. */
+  const planTaste = async (events: Event[]) => {
+    const { plans, reads } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+    });
+    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    return { prompt, reads };
+  };
+
+  it("a plan lens step's Taster gets the batch's latest plan and no change", async () => {
+    const { prompt, reads } = await planTaste([...amber, inTree]);
+    assert.match(
+      prompt,
+      /<untrusted-input-[0-9a-f]+ source="the plan of step plan#2" name="plan">\n# The plan planned again\n\n<\/untrusted-input-/,
+    );
+    assert.doesNotMatch(prompt, /# The first plan/);
+    assert.ok(
+      reads.some(
+        ({ file, root }) =>
+          file === join('/work', 'plan-2', 'plan.md') && root === join('/work', 'plan-2'),
+      ),
+    );
+    assert.doesNotMatch(prompt, /name="change"/);
+  });
+
+  it("a plan lens step's Taster in a Brewery order gets the repositories", async () => {
+    const folder = join('/work', 'brewery-orders', '12-1', 'taste', '1');
+    const inFolder: Event = {
+      type: 'step.started',
+      ...taste,
+      session: { id: sessionId, worktree: folder },
+      checkouts: [
+        { repo: 'acme/api', path: join(folder, 'api'), commit: 'e'.repeat(40) },
+        { repo: 'acme/web', path: join(folder, 'acme.web'), commit: 'f'.repeat(40) },
+      ],
+    };
+    const { prompt } = await planTaste([...amber, inFolder]);
+    assert.match(
+      prompt,
+      /source="the Brewery's repositories" name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/api, base origin\/main: read it in api\/\n- acme\/web, base origin\/trunk: read it in acme\.web\/\n<\/untrusted-input-/,
+    );
+  });
+
+  it("gives a step of plan lenses together the batch's latest plan and the repositories: regression test", async () => {
+    const together = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'plan', brewer: 'brewmaster' },
+              { id: 'taste', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      lenses: [
+        { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+        { path: 'lenses/plan/sizing.md', text: 'Weigh each sub-order.\n' },
+      ],
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', together.brewers, {
+      repositories,
+    });
+    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.match(
+      prompt,
+      /source="the plan of step plan#2" name="plan">\n# The plan planned again\n/,
+    );
+    assert.match(prompt, /source="the Brewery's repositories" name="repositories">/);
+  });
+
+  it("reads a plan lens step's house yeast at its worktree's commit, not where the batch started, with no diff: regression test", async () => {
+    const calls: string[] = [];
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      houseYeast: { files: [], keptIn: () => 'repo' },
+      git: async (cwd, args) => {
+        calls.push(`${cwd} ${args.join(' ')}`);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    // The batch started at plan#1's commit, 1…1; the Taster's worktree holds e…e.
+    assert.deepEqual(calls, [
+      `${join('/clones', 'acme/api')} ls-tree -z ${'e'.repeat(40)} -- .foedrum/house-yeast/`,
+    ]);
+  });
+
+  it("gives a plan lens step's Taster no checks and no change input: regression test", async () => {
+    const { prompt } = await planTaste([...amber, inTree]);
+    assert.doesNotMatch(prompt, /name="checks"/);
+    assert.doesNotMatch(prompt, /name="change"/);
+    assert.doesNotMatch(prompt, /name="roundChange"/);
+  });
+
+  it("leaves the Brewmaster's own plan input out of a plan attempt no choice scheduled, though the batch has a plan: regression test", async () => {
+    const plan3 = { batchId: '12-1', stepId: 'plan', attempt: 3 };
+    const events: Event[] = [
+      ...amber.slice(0, -1),
+      { type: 'step.scheduled', ...plan3, deadlineAt },
+      { ...inTree, ...plan3 },
+    ];
+    const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+      git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
+    });
+    const { prompt } = await plans.plan({ ref: plan3, limits: plans.limits(plan3) });
+    assert.match(prompt, /name="repositories"/);
+    assert.doesNotMatch(prompt, /name="plan"/);
   });
 });
