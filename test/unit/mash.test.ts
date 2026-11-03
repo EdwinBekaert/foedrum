@@ -17,6 +17,7 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { code, plain } from '../../src/engine/status-comment.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import {
   type Behaviour,
@@ -154,10 +155,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
             models.push(made.call.model);
             cwds.push(made.cwd);
             const end = await inner.start(start).ended;
-            // The Brewmaster's out doc stays in its worktree, as the real session leaves it.
+            // The out doc stays in its worktree, as the real session leaves it: a plan lens step's
+            // Taster's under its own name, which the route and a later round read (ADR 0128).
             if (end.outDoc !== undefined) {
               mkdirSync(made.cwd, { recursive: true });
-              writeFileSync(join(made.cwd, 'plan.md'), end.outDoc);
+              const doc = start.ref.stepId === 'naive' ? 'taste.md' : 'plan.md';
+              writeFileSync(join(made.cwd, doc), end.outDoc);
             }
             return end;
           });
@@ -539,6 +542,272 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       });
       const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
       assert.ok(status.includes(finding.why), status);
+    });
+  });
+
+  describe('a blocking plan lens sends the plan back to the Brewmaster (ADR 0318, #801)', () => {
+    beforeEach(() => {
+      const files = serveInputs().files;
+      const { defaults } = readBreweryFiles(dir.path);
+      // The Brewmaster's plan, then a plan lens that blocks and sends its findings back to it.
+      const kettle = recipeText(
+        'kettle',
+        [
+          { id: 'plan', brewer: 'brewmaster' },
+          {
+            id: 'naive',
+            brewer: 'taster',
+            lens: 'plan/naive-reader',
+            blocking: true,
+            onBlocked: { findings: { goto: 'plan', maxRounds: 2 } },
+          },
+        ],
+        { testFirst: false },
+      );
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            local: local({ workRoot: dir.path }),
+            brewery: {
+              ...files.brewery,
+              recipes: [...files.brewery.recipes, { path: 'recipes/kettle.jsonc', text: kettle }],
+              lenses: [
+                { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+              ],
+              ...(defaults === undefined ? {} : { defaults }),
+            },
+          },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            {
+              number: 12,
+              labels: ['recipe:kettle'],
+              author: 'ann',
+              title: 'Export the batches',
+              body: 'Add an export of the batches, with a guide.',
+            },
+          ],
+        },
+      });
+    });
+
+    /** Two findings on two sub-orders: one the plan fixes, one it dismisses. */
+    const flag = {
+      severity: 'major',
+      why: 'writer: its entry says "the flag" without naming it',
+      introduced: true,
+    };
+    const guide = {
+      severity: 'major',
+      why: 'docs: its entry does not say where the guide goes',
+      introduced: true,
+    };
+    const advisory = {
+      severity: 'minor',
+      why: 'schema: its done-when could name the test file',
+      introduced: true,
+    };
+    const blocks = behave.succeedWith(
+      { verdict: 'changes', findings: [flag, guide] },
+      'Two entries leave a guess',
+    );
+    const approves = behave.succeedWith(
+      { verdict: 'approve', findings: [advisory] },
+      'Each entry reads alone',
+    );
+    const evidence = 'The order says "with a guide" and docs/export.md is in its touches';
+    const replanned = behave.succeedWith(
+      {
+        subOrders,
+        alternatives,
+        dispositions: [{ disposition: 'fixed' }, { disposition: 'dismissed', why: evidence }],
+      },
+      'Planned again',
+    );
+    /** serve's shell with no git but the house yeast's empty listing. */
+    const tasting = (script: readonly Behaviour[]): ServeShell => ({
+      ...shell(script),
+      git: (_cwd, args) =>
+        args[0] === 'ls-tree'
+          ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+          : Promise.reject(new Error(`no git ${args[0]} runs here`)),
+    });
+
+    it('a blocking plan lens sends its findings back to the plan step', async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
+        kind: 'plan_review',
+        stepId: 'plan',
+        attempt: 2,
+      });
+    });
+
+    it("the Brewmaster's route input holds the plan lens's findings", async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      const route =
+        /<[^>]*source="why step plan runs again: the findings of step naive" name="route">([^<]*)</.exec(
+          prompts[2] ?? '',
+        )?.[1];
+      assert.ok(route !== undefined, prompts[2]);
+      // The Taster's out doc as it wrote it: its findings in JSON.
+      const said = [flag.why, guide.why].map((why) => JSON.stringify(why));
+      assert.ok(
+        said.every((why) => route.includes(why)),
+        route,
+      );
+      // Only the round the route sent it back from: the first plan had none.
+      assert.doesNotMatch(prompts[0] ?? '', /name="route"/);
+    });
+
+    it('a plan step a findings route sent back gets the plan it corrects (ADR 0318)', async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      assert.match(
+        prompts[2] ?? '',
+        /source="the plan of step plan#1" name="plan">[^<]*"title": "The export writer"/,
+      );
+      // The first plan had no plan before it, and no route.
+      assert.doesNotMatch(prompts[0] ?? '', /name="plan"/);
+    });
+
+    it("a plan's dispositions name their evidence", async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      const second = prompts[3] ?? '';
+      // The later round is told what a plan's dismissal names, not what a change's does.
+      assert.ok(
+        second.includes(
+          "Check the evidence a dismissed finding's why names: a line of the order, a file and line in a repository, or a field of the plan.",
+        ),
+        second,
+      );
+      assert.doesNotMatch(second, /a file and line, a test, or a sentence of the order/);
+      // Each earlier finding at its place in the plan, with what the Brewmaster did with it.
+      const earlier = /name="earlierFindings">([^<]*)</.exec(second)?.[1] ?? '';
+      assert.equal(
+        earlier.trim(),
+        [
+          'Round naive#1:',
+          `- major in the plan as a whole: ${flag.why}`,
+          '  fixed',
+          `- major in the plan as a whole: ${guide.why}`,
+          `  dismissed: ${evidence}`,
+        ].join('\n'),
+      );
+      // The first round had no earlier one.
+      assert.doesNotMatch(prompts[1] ?? '', /name="earlierFindings"/);
+    });
+
+    it('the plan comment at gate 1 lists the review notes left', async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      // The dismissed finding with the evidence the plan named, and the advisory one of the
+      // round that approved; the fixed one is in the plan.
+      assert.equal(
+        review,
+        [
+          '**Review**',
+          '',
+          `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
+          `  - why: ${plain(evidence)}`,
+          `- ${code('naive')} #2: minor, advisory: ${plain(advisory.why)}`,
+        ].join('\n'),
+      );
+    });
+
+    it("shows no note of a plan lens's round before the latest plan: regression test (ADR 0318)", async () => {
+      // naive#2 reviews nothing: its environment blocks it, so its latest round is naive#1, on plan#1.
+      const script = [planned, blocks, replanned, behave.blocked('environment', 'No checkout')];
+      assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
+      assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      assert.equal(review, '**Review**\n\nNone yet.');
+    });
+
+    it('lists on the plan comment the findings still open when the plan lens runs out of rounds (ADR 0318)', async () => {
+      const stillBlocks = behave.succeedWith(
+        { verdict: 'changes', findings: [flag] },
+        'One entry still leaves a guess',
+      );
+      const script = [planned, blocks, replanned, stillBlocks, replanned, stillBlocks];
+      assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.equal(lane.kind === 'stuck' ? lane.reason.kind : lane.kind, 'blocked');
+      const last = started.filter((ref) => ref.startsWith('naive#')).length;
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      // The dismissal of the first round with its evidence, then the last round's finding, open;
+      // the middle round's finding the plan fixed leaves none.
+      assert.equal(
+        review,
+        [
+          '**Review**',
+          '',
+          `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
+          `  - why: ${plain(evidence)}`,
+          `- ${code('naive')} #${last}: major, open: ${plain(flag.why)}`,
+        ].join('\n'),
+      );
+    });
+
+    it('lists a finding the plan left as there before, and none it fixed or left without a disposition: regression test (ADR 0318)', async () => {
+      const third = { severity: 'major', why: 'cli: its flags are open', introduced: true };
+      const three = behave.succeedWith(
+        { verdict: 'changes', findings: [flag, guide, third] },
+        'Three entries leave a guess',
+      );
+      const before = 'docs/export.md has no guide at the base';
+      // The first finding fixed, the second there before, the third with no disposition.
+      const partly = behave.succeedWith(
+        {
+          subOrders,
+          alternatives,
+          dispositions: [{ disposition: 'fixed' }, { disposition: 'pre-existing', why: before }],
+        },
+        'Planned again',
+      );
+      const script = [planned, three, partly, approves];
+      assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      assert.equal(
+        review,
+        [
+          '**Review**',
+          '',
+          `- ${code('naive')} #1: major, pre-existing: ${plain(guide.why)}`,
+          `  - why: ${plain(before)}`,
+          `- ${code('naive')} #2: minor, advisory: ${plain(advisory.why)}`,
+        ].join('\n'),
+      );
     });
   });
 

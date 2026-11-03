@@ -60,6 +60,7 @@ import {
   planLensInputs,
   type RegressionTests,
   type Resumed,
+  type Reviewed,
   retryInputOf,
   roundBefore,
   routeInput,
@@ -444,7 +445,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * it (ADR 0128); none for a first round. An out doc that cannot be read is not an error: its round
    * says so.
    */
-  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, found: StepBrewer) => {
+  const earlierFindingsFor = (batch: Batch, ref: AttemptRef, found: StepBrewer, of: Reviewed) => {
     const planned = earlierRoundsOf(batch, ref, found.brewer.output.doc);
     if (planned.length === 0) return undefined;
     const rounds = planned.map((round): EarlierRound => {
@@ -468,7 +469,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         }
       }
     });
-    return earlierFindingsInput(ref.stepId, rounds);
+    return earlierFindingsInput(ref.stepId, rounds, of);
   };
 
   /**
@@ -559,7 +560,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     inputs: PromptInput[];
     houseYeast?: HouseYeastSelection;
     laterRound?: LaterRound;
-    earlierFindings?: true;
+    earlierFindings?: Reviewed;
   }> => {
     // The recipe this attempt brews; an earlier attempt's out doc is named by its own (ADR 0309).
     const recipe = attemptRecipeOf(state(), ref) ?? '';
@@ -595,6 +596,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // The checks that ran on the commit the attempt starts at, when its brewer asks (ADR 0308).
     const asksChecks = found.brewer.inputs.some(({ from }) => from === 'checks');
     const checks = asksChecks ? checksInput(state(), batch, own?.commit) : undefined;
+    // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318).
+    const routed = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
     const planned = inputsOf(
       found.brewer.inputs,
       batch,
@@ -603,7 +606,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       found.lenses,
       repositories,
       found.choices,
-      found.chosenBy !== undefined,
+      found.chosenBy !== undefined || routed?.why === 'findings',
       entry,
       release,
       (id) => brewers.has(recipe, id),
@@ -643,8 +646,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       }
     }
     // A later round of a Taster's step gets what the earlier rounds found (ADR 0191).
+    const reviews: Reviewed = planLens ? 'plan' : 'change';
     const earlier =
-      found.brewer.output.schema === TASTING ? earlierFindingsFor(batch, ref, found) : undefined;
+      found.brewer.output.schema === TASTING
+        ? earlierFindingsFor(batch, ref, found, reviews)
+        : undefined;
     if (earlier !== undefined) inputs.push(earlier);
     // Only where the driver gives the Brewery's rules: serve always does (ADR 0169).
     const { houseYeast } = options;
@@ -683,7 +689,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       inputs,
       ...(rules === undefined ? {} : { houseYeast: rules.record }),
       ...(laterRound === undefined ? {} : { laterRound }),
-      ...(earlier === undefined ? {} : { earlierFindings: true as const }),
+      ...(earlier === undefined ? {} : { earlierFindings: reviews }),
     };
   };
 

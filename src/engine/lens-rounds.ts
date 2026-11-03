@@ -2,7 +2,12 @@
 // them, with the dispositions the brewer its findings route brought back wrote. The attempt plan
 // gives a later round the earlier ones from it.
 
-import { type Disposition, dispositionsOf } from '../schemas/out-doc.ts';
+import {
+  type Disposition,
+  dispositionsOf,
+  type TastingFinding,
+  tastingOf,
+} from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { onFindings } from './decide.ts';
 import type { Attempt, Batch } from './fold.ts';
@@ -74,3 +79,30 @@ export function lensRounds(batch: Batch, stepId: string, before?: number): LensR
   }
   return rounds;
 }
+
+/**
+ * The findings a round of a Taster's step left: a success's from its out doc, a blocked round's
+ * as `step.finished` recorded them (ADR 0221).
+ */
+export const roundFindings = (ran: LensRound['ran']): readonly TastingFinding[] =>
+  ran.outcome.kind === 'succeeded'
+    ? (tastingOf(ran.outcome.output)?.findings ?? [])
+    : (ran.findings?.kept ?? []);
+
+/**
+ * Each of `findings` with the first of `dispositions` at its place not already taken, or none
+ * (ADR 0191), as the merge brief pairs a disposition with its finding.
+ */
+export const withDispositions = <
+  F extends { file?: string | undefined; line?: number | undefined },
+>(
+  findings: readonly F[],
+  dispositions: readonly Disposition[],
+): { finding: F; disposition?: Disposition }[] => {
+  const left = [...dispositions];
+  return findings.map((finding) => {
+    const at = left.findIndex(({ file, line }) => file === finding.file && line === finding.line);
+    const [disposition] = at < 0 ? [] : left.splice(at, 1);
+    return disposition === undefined ? { finding } : { finding, disposition };
+  });
+};

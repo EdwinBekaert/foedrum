@@ -5,6 +5,7 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import type { PlanOrigin, Surface } from '../schemas/events.ts';
+import type { TastingFinding } from '../schemas/out-doc.ts';
 import {
   type PlanAlternatives,
   type PlannedSubOrder,
@@ -21,9 +22,10 @@ import {
 } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
 import type { Approval, Batch, State } from './fold.ts';
+import { lensRounds, roundFindings, withDispositions } from './lens-rounds.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
-import { digestOf, knownCommits, quoted } from './pull-request.ts';
+import { digestOf, findingText, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { code, labelled, plain, planNextStep, type StatusComments } from './status-comment.ts';
 
@@ -155,6 +157,89 @@ export interface ChangedInSession {
   at?: string;
 }
 
+/**
+ * A note a plan lens step left at gate 1 (ADR 0318): a finding of its round `attempt`, advisory or
+ * still open after the rounds, or one the plan dismissed or left as there before, with its `why`.
+ */
+export interface ReviewNote {
+  stepId: string;
+  attempt: number;
+  finding: TastingFinding;
+  left: 'advisory' | 'open' | 'dismissed' | 'pre-existing';
+  why?: string;
+}
+
+/** How many notes of one plan lens step the Review shows, as the status comment shows findings. */
+const mostReviewNotes = 10;
+
+/**
+ * The notes the plan lens steps left on the plan `stepId#attempt` of `batch` (ADR 0318): of each
+ * step whose latest round reviewed after that plan, in the order the steps ran, each finding the
+ * plan dismissed or left as there before in an earlier round, with its why, then the latest
+ * round's findings, advisory when it succeeded, still open when it ended blocked; undefined while
+ * no step reviewed it. A fixed finding is in the plan, so it leaves no note.
+ */
+export const reviewNotes = (
+  batch: Batch,
+  stepId: string,
+  attempt: number,
+): ReviewNote[] | undefined => {
+  const path = batch.path ?? [];
+  const placeOf = (step: string, n: number) =>
+    path.findIndex((ref) => ref.stepId === step && ref.attempt === n);
+  const planned = placeOf(stepId, attempt);
+  let reviewed = false;
+  const notes: ReviewNote[] = [];
+  for (const step of new Set(path.slice(planned + 1).map((ref) => ref.stepId))) {
+    const rounds = lensRounds(batch, step);
+    const latest = rounds.at(-1);
+    if (latest === undefined || placeOf(step, latest.attempt) < planned) continue;
+    reviewed = true;
+    for (const round of rounds.slice(0, -1)) {
+      for (const { finding, disposition } of withDispositions(
+        roundFindings(round.ran),
+        round.dispositions,
+      )) {
+        if (disposition === undefined || disposition.disposition === 'fixed') continue;
+        notes.push({
+          stepId: step,
+          attempt: round.attempt,
+          finding,
+          left: disposition.disposition,
+          why: disposition.why,
+        });
+      }
+    }
+    const left = latest.ran.outcome.kind === 'succeeded' ? 'advisory' : 'open';
+    for (const finding of roundFindings(latest.ran)) {
+      notes.push({ stepId: step, attempt: latest.attempt, finding, left });
+    }
+  }
+  return reviewed ? notes : undefined;
+};
+
+/**
+ * The Review section's lines (ADR 0318): `mostReviewNotes` notes of each step, then how many more,
+ * a finding as its step's Taster wrote it, a why as the plan's step `planStep` wrote it, each left
+ * out when it looks like a secret.
+ */
+const reviewLines = (
+  notes: readonly ReviewNote[],
+  planStep: string,
+  isCommit: IsCommit,
+): string[] =>
+  [...Map.groupBy(notes, (note) => note.stepId)].flatMap(([stepId, ofStep]) => {
+    const told = (text: string, by: string) => plain(withoutSecrets(text, by, isCommit));
+    const shown = ofStep
+      .slice(0, mostReviewNotes)
+      .flatMap(({ attempt, finding, left, why }) => [
+        `- ${code(stepId)} #${attempt}: ${told(findingText(finding), stepId)}, ${left}: ${told(finding.why, stepId)}`,
+        ...(why === undefined ? [] : [`  - why: ${told(why, planStep)}`]),
+      ]);
+    const more = ofStep.length - mostReviewNotes;
+    return more > 0 ? [...shown, `- ${code(stepId)}: and ${more} more`] : shown;
+  });
+
 /** The out doc of a plan: its place on the state branch, as `7-1/plan-2.md`, and its address. */
 export interface FullPlan {
   place: string;
@@ -180,6 +265,8 @@ export const renderPlan = (
   changed?: ChangedInSession,
   /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
   opened: readonly OpenedSubIssue[] = [],
+  /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
+  review?: readonly ReviewNote[],
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -205,7 +292,7 @@ export const renderPlan = (
   const order = subOrders.length < 2 ? [] : [['**Order**', '', ...graph(subOrders, told)]];
   const sections = subOrders.map((subOrder) => section(subOrder, told));
   const others = alternatives === undefined ? [] : [alternativesOf(alternatives, told)];
-  // The Review is filled by the plan lenses (#801); the Gate by approve (ADR 0281).
+  // The Review is filled by the plan lenses (ADR 0318); the Gate by approve (ADR 0281).
   // An approved plan's sub-orders that are not ready stay so until #589 corrects them.
   const notReady = subOrders.filter(({ ready }) => !ready).map(({ id }) => code(told(id)));
   const gate =
@@ -222,7 +309,15 @@ export const renderPlan = (
         ]
       : [waitsForReview ? `Waiting for ${code(`foedrum approve ${batchId}`)}.` : 'None yet.'];
   const after = [
-    ['**Review**', '', 'None yet.'],
+    [
+      '**Review**',
+      '',
+      ...(review === undefined
+        ? ['None yet.']
+        : review.length === 0
+          ? ['No findings.']
+          : reviewLines(review, stepId, isCommit)),
+    ],
     ['**Gate**', '', ...gate],
   ];
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
@@ -350,6 +445,7 @@ const planDue = (
     approval,
     changed,
     opened,
+    reviewNotes(batch, stepId, attempt),
   );
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
@@ -368,8 +464,9 @@ export interface PlanEffectsOptions {
 /**
  * The plan comment of every order whose batch has a succeeded plan, for the driver: a revision
  * whenever its text changed, edited in place, a later batch of the order editing the same comment.
- * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233), and its Gate when
- * a pass opens the approved plan's sub-issues, which the driver applies before it (ADR 0285).
+ * No limit a minute: a plan changes only when a plan step succeeds (ADR 0233), its Gate when a
+ * pass opens the approved plan's sub-issues, which the driver applies before it (ADR 0285), and
+ * its Review when a plan lens round ends (ADR 0318).
  */
 export const planEffects = (options: PlanEffectsOptions): DriverEffects => {
   const { brewery, comments, stateBranchUrl } = options;

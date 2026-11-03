@@ -16,7 +16,9 @@ import {
   planCommentOf,
   planEffects,
   planEntryText,
+  type ReviewNote,
   renderPlan,
+  reviewNotes,
 } from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { StatusComments } from '../../src/engine/status-comment.ts';
@@ -200,6 +202,87 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.doesNotMatch(text, /Next:|foedrum retry/);
     assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
+  });
+
+  /** `renderPlan` of `three`, waiting for its review, with the notes `review` its lenses left. */
+  const reviewed = (review?: readonly ReviewNote[]) =>
+    renderPlan('7-1', 'plan', three, undefined, fullPlan, true, undefined, undefined, [], review);
+  /** The Review section of a plan comment. */
+  const reviewOf = (text: string) =>
+    text.slice(text.indexOf('**Review**'), text.indexOf('**Gate**')).trim();
+
+  it('says "None yet." in the Review when no plan lens reviewed the plan: regression test (ADR 0318)', () => {
+    assert.equal(reviewOf(reviewed()), '**Review**\n\nNone yet.');
+  });
+
+  it('says "No findings." in the Review when its plan lenses left no note (ADR 0318)', () => {
+    assert.equal(reviewOf(reviewed([])), '**Review**\n\nNo findings.');
+  });
+
+  it("shows ten review notes of a step, then how many more, and another step's after them (ADR 0318)", () => {
+    const note = (stepId: string, n: number): ReviewNote => ({
+      stepId,
+      attempt: 2,
+      finding: { severity: 'minor', why: `api: note ${n}`, introduced: true },
+      left: 'advisory',
+    });
+    // sizing's note comes between naive's: the section groups them by step.
+    const naive = Array.from({ length: 12 }, (_, n) => note('naive', n + 1));
+    const notes = [...naive.slice(0, 6), note('sizing', 1), ...naive.slice(6)];
+    const lines = reviewOf(reviewed(notes)).split('\n').slice(2);
+    assert.deepStrictEqual(lines, [
+      ...Array.from(
+        { length: 10 },
+        (_, n) => `- \`naive\` #2: minor, advisory: api: note ${n + 1}`,
+      ),
+      '- `naive`: and 2 more',
+      '- `sizing` #2: minor, advisory: api: note 1',
+    ]);
+  });
+
+  it("names a review note's lens, its place in a repository, and a still-open finding (ADR 0318)", () => {
+    const text = reviewed([
+      {
+        stepId: 'plans',
+        attempt: 3,
+        finding: {
+          lens: 'plan/sizing',
+          file: 'src/server.ts',
+          line: 4,
+          severity: 'major',
+          why: 'api: the endpoint is there already',
+          introduced: true,
+        },
+        left: 'open',
+      },
+    ]);
+    assert.equal(
+      reviewOf(text),
+      '**Review**\n\n- `plans` #3: plan/sizing, major in src/server.ts:4, open: api: the endpoint is there already',
+    );
+  });
+
+  it("leaves out a review note's finding or why that looks like a secret (ADR 0318)", () => {
+    const text = reviewed([
+      {
+        stepId: 'naive',
+        attempt: 1,
+        finding: { severity: 'major', why: `api: use ${token}`, introduced: true },
+        left: 'dismissed',
+        why: `the order names ${token}`,
+      },
+    ]);
+    assert.doesNotMatch(text, new RegExp(token));
+    assert.equal(
+      reviewOf(text),
+      [
+        '**Review**',
+        '',
+        '- `naive` #1: major, dismissed: \\[left out: a text of step naive that looks like a secret\\]',
+        // The why is the plan's: its step wrote it.
+        '  - why: \\[left out: a text of step plan that looks like a secret\\]',
+      ].join('\n'),
+    );
   });
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {
@@ -914,5 +997,87 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     const link = `\n\nFull plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)\n\n`;
     assert.ok(only().body.includes(link), only().body);
+  });
+});
+
+describe('reviewNotes (ADR 0318)', () => {
+  const deadlineAt = '2026-10-31T10:00:00.000Z';
+  /** One attempt of `stepId` that succeeded with `output`. */
+  const ran = (stepId: string, attempt: number, output: object): Event[] => [
+    { type: 'step.scheduled', batchId: '7-1', stepId, attempt, deadlineAt },
+    {
+      type: 'step.started',
+      batchId: '7-1',
+      stepId,
+      attempt,
+      worktree: {
+        repo: 'alice/brewery',
+        path: `/work/${stepId}-${attempt}`,
+        branch: `foedrum/7-1/${stepId}/${attempt}`,
+        commit: 'c'.repeat(40),
+      },
+    },
+    {
+      type: 'step.finished',
+      batchId: '7-1',
+      stepId,
+      attempt,
+      outcome: { kind: 'succeeded', output: JSON.parse(JSON.stringify(output)) },
+    },
+  ];
+  const plan = { status: 'done', summary: 'A plan', assumptions: [], subOrders: [subOrder('api')] };
+  /** A Taster's approval with one finding about `api`. */
+  const approves = (why: string) => ({
+    status: 'done',
+    summary: 'Each entry reads alone',
+    verdict: 'approve',
+    findings: [{ severity: 'minor', why: `api: ${why}`, introduced: true }],
+  });
+
+  it("lists each step's latest round after the latest plan, in the order the steps ran, and none before it: regression test", () => {
+    const batch = fold([
+      { type: 'batch.ordered', batchId: '7-1', order: { issue: 7 }, routeBy: deadlineAt },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '7-1',
+        recipe: 'mash',
+        reason: 'label',
+        source: 'label',
+      },
+      ...ran('plan', 1, plan),
+      ...ran('naive', 1, approves('reviewed the first plan')),
+      ...ran('plan', 2, plan),
+      // sizing runs before naive's second round, though naive ran first before the plan.
+      ...ran('sizing', 1, approves('sized the second plan')),
+      ...ran('naive', 2, approves('read the second plan')),
+    ]).batches.get('7-1');
+    assert.ok(batch !== undefined);
+    const notes = reviewNotes(batch, 'plan', 2);
+    assert.deepStrictEqual(
+      notes?.map(
+        ({ stepId, attempt, finding, left }) => `${stepId}#${attempt} ${left}: ${finding.why}`,
+      ),
+      [
+        'sizing#1 advisory: api: sized the second plan',
+        'naive#2 advisory: api: read the second plan',
+      ],
+    );
+  });
+
+  it('gives no notes, not none yet, when a step reviewed the latest plan and found nothing: regression test', () => {
+    const batch = fold([
+      { type: 'batch.ordered', batchId: '7-1', order: { issue: 7 }, routeBy: deadlineAt },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '7-1',
+        recipe: 'mash',
+        reason: 'label',
+        source: 'label',
+      },
+      ...ran('plan', 1, plan),
+      ...ran('naive', 1, { ...approves('unused'), findings: [] }),
+    ]).batches.get('7-1');
+    assert.ok(batch !== undefined);
+    assert.deepStrictEqual(reviewNotes(batch, 'plan', 1), []);
   });
 });
