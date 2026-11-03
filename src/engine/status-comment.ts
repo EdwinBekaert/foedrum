@@ -2,7 +2,7 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
-import { shortCommand } from '../checks/gravity.ts';
+import { passed, settleReadings, shortCommand } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
   CoverageListing,
@@ -182,6 +182,11 @@ const withoutParentheses = (text: string): string => {
  */
 const reasonClause = (reason: string): string => {
   const [clause = reason] = reason.split(': ');
+  return clauseWithin(clause);
+};
+
+/** A clause within `mostReason`: without a parenthesised part when it is too long, cut at a word. */
+const clauseWithin = (clause: string): string => {
   if (clause.length <= mostReason) return clause;
   const bare = withoutParentheses(clause);
   if (bare.length <= mostReason) return bare;
@@ -371,6 +376,24 @@ const failingCount = ({ tests, more }: NonNullable<FailingTests>): string => {
   const count = tests.length + more;
   const names = `${tests.join(', ')}${more === 0 ? '' : ', …'}`;
   return `${count} ${count === 1 ? 'test' : 'tests'} failing: ${names}`;
+};
+
+/**
+ * A failed check step's attempt as the path says it when its readings named failing tests: the
+ * check and their count, `the check "test" failed, 5 tests failing`, read from the readings, never
+ * from the reason (ADR 0307). Only when the readings settle to the reason itself: an attempt that
+ * failed for another reason after its checks keeps that reason's clause.
+ */
+const failingClause = (
+  reason: string,
+  readings: readonly GravityReading[] = [],
+): string | undefined => {
+  const settled = settleReadings(readings);
+  if (settled.kind !== 'failed' || settled.reason !== reason) return undefined;
+  const decisive = readings.find((reading) => !passed(reading));
+  if (decisive?.result !== 'exited' || decisive.failing === undefined) return undefined;
+  const count = decisive.failing.tests.length + decisive.failing.more;
+  return `${shortCheckOf(decisive)} failed, ${count} ${count === 1 ? 'test' : 'tests'} failing`;
 };
 
 /**
@@ -756,7 +779,10 @@ const pathLines = (batch: Batch, told: Told): string[] => {
     const { outcome } = ended;
     // Why a failed attempt failed, so a retry does not read as the step failing (#656).
     if (outcome.kind === 'failed') {
-      return `${mark} ${told(outcome.reason, stepId, longest, reasonClause)}`;
+      const counted = failingClause(outcome.reason, ended.readings);
+      return counted === undefined
+        ? `${mark} ${told(outcome.reason, stepId, longest, reasonClause)}`
+        : `${mark} ${told(counted, stepId, longest, clauseWithin)}`;
     }
     const input = outcome.kind === 'needs_input' ? answerOf(batch, stepId, attempt) : undefined;
     if (input === undefined) return mark;
