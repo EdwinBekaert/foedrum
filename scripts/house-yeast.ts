@@ -264,20 +264,14 @@ export const run = (args: string[], deps: RunDeps): number => {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--asked') asked = true;
-    else if (arg === '--budget') {
+    else if (arg === '--budget' || arg === '--min') {
       const value = args[++i] ?? '';
       if (!/^[1-9][0-9]*$/.test(value)) {
         deps.err(usage);
         return 2;
       }
-      budget = Number(value);
-    } else if (arg === '--min') {
-      const value = args[++i] ?? '';
-      if (!/^[1-9][0-9]*$/.test(value)) {
-        deps.err(usage);
-        return 2;
-      }
-      min = Number(value);
+      if (arg === '--budget') budget = Number(value);
+      else min = Number(value);
     } else if (arg === '--since') {
       since = args[++i] ?? '';
       if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(since)) {
