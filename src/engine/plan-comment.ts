@@ -5,6 +5,7 @@
 
 import type { IsCommit } from '../formats/secrets.ts';
 import type { PlanOrigin, Surface } from '../schemas/events.ts';
+import type { TastingFinding } from '../schemas/out-doc.ts';
 import {
   type PlanAlternatives,
   type PlannedSubOrder,
@@ -155,6 +156,18 @@ export interface ChangedInSession {
   at?: string;
 }
 
+/**
+ * A note a plan lens step left at gate 1 (ADR 0318): a finding of its round `attempt`, advisory or
+ * still open after the rounds, or one the plan dismissed or left as there before, with its `why`.
+ */
+export interface ReviewNote {
+  stepId: string;
+  attempt: number;
+  finding: TastingFinding;
+  left: 'advisory' | 'open' | 'dismissed' | 'pre-existing';
+  why?: string;
+}
+
 /** The out doc of a plan: its place on the state branch, as `7-1/plan-2.md`, and its address. */
 export interface FullPlan {
   place: string;
@@ -180,6 +193,8 @@ export const renderPlan = (
   changed?: ChangedInSession,
   /** The sub-issues the approved plan opened so far, which the Gate section names (ADR 0285). */
   opened: readonly OpenedSubIssue[] = [],
+  /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
+  _review?: readonly ReviewNote[],
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;

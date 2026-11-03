@@ -16,6 +16,7 @@ import {
   planCommentOf,
   planEffects,
   planEntryText,
+  type ReviewNote,
   renderPlan,
 } from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -200,6 +201,88 @@ describe('renderPlan (ADR 0233)', () => {
     const text = renderPlan('7-1', 'plan', three, undefined, fullPlan);
     assert.doesNotMatch(text, /Next:|foedrum retry/);
     assert.ok(text.endsWith('**Gate**\n\nNone yet.'), text.slice(-80));
+  });
+
+  /** `renderPlan` of `three`, waiting for its review, with the notes `review` its lenses left. */
+  const reviewed = (review?: readonly ReviewNote[]) =>
+    renderPlan('7-1', 'plan', three, undefined, fullPlan, true, undefined, undefined, [], review);
+  /** The Review section of a plan comment. */
+  const reviewOf = (text: string) =>
+    text.slice(text.indexOf('**Review**'), text.indexOf('**Gate**')).trim();
+
+  it('says "None yet." in the Review when no plan lens reviewed the plan: regression test (ADR 0318)', () => {
+    assert.equal(reviewOf(reviewed()), '**Review**\n\nNone yet.');
+  });
+
+  it('says "No findings." in the Review when its plan lenses left no note (ADR 0318)', () => {
+    assert.equal(reviewOf(reviewed([])), '**Review**\n\nNo findings.');
+  });
+
+  it("shows ten review notes of a step, then how many more, and another step's after them (ADR 0318)", () => {
+    const note = (stepId: string, n: number): ReviewNote => ({
+      stepId,
+      attempt: 2,
+      finding: { severity: 'minor', why: `api: note ${n}`, introduced: true },
+      left: 'advisory',
+    });
+    const notes = [
+      ...Array.from({ length: 12 }, (_, n) => note('naive', n + 1)),
+      note('sizing', 1),
+    ];
+    const lines = reviewOf(reviewed(notes)).split('\n').slice(2);
+    assert.deepStrictEqual(lines, [
+      ...Array.from(
+        { length: 10 },
+        (_, n) => `- \`naive\` #2: minor, advisory: api: note ${n + 1}`,
+      ),
+      '- `naive`: and 2 more',
+      '- `sizing` #2: minor, advisory: api: note 1',
+    ]);
+  });
+
+  it("names a review note's lens, its place in a repository, and a still-open finding (ADR 0318)", () => {
+    const text = reviewed([
+      {
+        stepId: 'plans',
+        attempt: 3,
+        finding: {
+          lens: 'plan/sizing',
+          file: 'src/server.ts',
+          line: 4,
+          severity: 'major',
+          why: 'api: the endpoint is there already',
+          introduced: true,
+        },
+        left: 'open',
+      },
+    ]);
+    assert.equal(
+      reviewOf(text),
+      '**Review**\n\n- `plans` #3: plan/sizing, major in src/server.ts:4, open: api: the endpoint is there already',
+    );
+  });
+
+  it("leaves out a review note's finding or why that looks like a secret (ADR 0318)", () => {
+    const text = reviewed([
+      {
+        stepId: 'naive',
+        attempt: 1,
+        finding: { severity: 'major', why: `api: use ${token}`, introduced: true },
+        left: 'dismissed',
+        why: `the order names ${token}`,
+      },
+    ]);
+    assert.doesNotMatch(text, new RegExp(token));
+    assert.equal(
+      reviewOf(text),
+      [
+        '**Review**',
+        '',
+        '- `naive` #1: major, dismissed: \\[left out: a text of step naive that looks like a secret\\]',
+        // The why is the plan's: its step wrote it.
+        '  - why: \\[left out: a text of step plan that looks like a secret\\]',
+      ].join('\n'),
+    );
   });
 
   it('says the gate waits for foedrum approve while the plan waits for its review (#588)', () => {

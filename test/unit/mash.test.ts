@@ -17,6 +17,7 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { code, plain } from '../../src/engine/status-comment.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
 import {
   type Behaviour,
@@ -619,6 +620,82 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       );
       // Only the round the route sent it back from: the first plan had none.
       assert.doesNotMatch(prompts[0] ?? '', /name="route"/);
+    });
+
+    it("a plan's dispositions name their evidence", async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      const second = prompts[3] ?? '';
+      // The later round is told what a plan's dismissal names, not what a change's does.
+      assert.ok(
+        second.includes(
+          "Check the evidence a dismissed finding's why names: a line of the order, a file and line in a repository, or a field of the plan.",
+        ),
+        second,
+      );
+      assert.doesNotMatch(second, /a file and line, a test, or a sentence of the order/);
+      // Each earlier finding at its place in the plan, with what the Brewmaster did with it.
+      const earlier = /name="earlierFindings">([^<]*)</.exec(second)?.[1] ?? '';
+      assert.equal(
+        earlier.trim(),
+        [
+          'Round naive#1:',
+          `- major in the plan as a whole: ${flag.why}`,
+          '  fixed',
+          `- major in the plan as a whole: ${guide.why}`,
+          `  dismissed: ${evidence}`,
+        ].join('\n'),
+      );
+      // The first round had no earlier one.
+      assert.doesNotMatch(prompts[1] ?? '', /name="earlierFindings"/);
+    });
+
+    it('the plan comment at gate 1 lists the review notes left', async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      // The dismissed finding with the evidence the plan named, and the advisory one of the
+      // round that approved; the fixed one is in the plan.
+      assert.equal(
+        review,
+        [
+          '**Review**',
+          '',
+          `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
+          `  - why: ${plain(evidence)}`,
+          `- ${code('naive')} #2: minor, advisory: ${plain(advisory.why)}`,
+        ].join('\n'),
+      );
+    });
+
+    it('lists on the plan comment the findings still open when the plan lens runs out of rounds (ADR 0318)', async () => {
+      const stillBlocks = behave.succeedWith(
+        { verdict: 'changes', findings: [flag] },
+        'One entry still leaves a guess',
+      );
+      const script = [planned, blocks, replanned, stillBlocks, replanned, stillBlocks];
+      assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.equal(lane.kind === 'stuck' ? lane.reason.kind : lane.kind, 'blocked');
+      const last = started.filter((ref) => ref.startsWith('naive#')).length;
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      // The last round's finding, open; the dismissal of the first round with its evidence.
+      assert.ok(
+        review.includes(`- ${code('naive')} #${last}: major, open: ${plain(flag.why)}`),
+        review,
+      );
+      assert.ok(
+        review.includes(`- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`),
+        review,
+      );
     });
   });
 
