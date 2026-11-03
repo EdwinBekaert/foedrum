@@ -200,12 +200,15 @@ const setup = ({
   events = eventsOf(),
   runs = (edit) => ran(edit === undefined ? baseline : baseline),
   clock = () => t0,
+  checkedOut = code,
 }: {
   runner: BrewerRunner;
   mutates?: boolean;
   events?: Event[];
   runs?: (edit: Edited | undefined, deadlineAt: string) => TestRunEnd | Promise<TestRunEnd>;
   clock?: () => Date;
+  /** The mutant's file as git checks it out in a scratch tree. */
+  checkedOut?: string;
 }) => {
   const opened: { commit: string; edit?: Edited; path: string }[] = [];
   const removed: string[] = [];
@@ -215,7 +218,7 @@ const setup = ({
     const edit =
       options.edit === undefined
         ? undefined
-        : { file: options.edit.file, content: options.edit.rewrite(code) };
+        : { file: options.edit.file, content: options.edit.rewrite(checkedOut) };
     opened.push({ commit, path, ...(edit === undefined ? {} : { edit }) });
     edits.set(path, edit);
     try {
@@ -500,6 +503,31 @@ describe('mutated, judging mutants', () => {
     assert.deepStrictEqual(
       ended.mutants?.map(({ verdict }) => verdict),
       [{ kind: 'notJudged', why: 'no test of module "api" passed at the baseline' }],
+    );
+  });
+
+  it('a mutant tree keeps the line endings git checked out', async () => {
+    // As Git for Windows checks a text file out with core.autocrlf.
+    const crlf = code.replace(/\n/g, '\r\n');
+    const { end, opened } = setup({ runner: brett([boundary]), checkedOut: crlf });
+    await end();
+    assert.equal(opened[1]?.edit?.content, crlf.replace('(n > 10 ? 10 : n)', '(n >= 10 ? 10 : n)'));
+  });
+
+  it('a mutant that breaks the build is not judged, and its reason says so', async () => {
+    // The module wrote no report and its test check failed: a compile error (ADR 0313).
+    const runs = (edit: Edited | undefined): TestRunEnd =>
+      edit === undefined ? ran(baseline) : { kind: 'ran', reading: exited(1), reports: [] };
+    const { end } = setup({ runner: brett([subtracts]), runs });
+    const ended = await end();
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ verdict }) => verdict),
+      [
+        {
+          kind: 'notJudged',
+          why: 'the mutant broke the build: module "api" wrote no test report and its test check failed',
+        },
+      ],
     );
   });
 });
