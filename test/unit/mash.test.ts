@@ -154,10 +154,12 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
             models.push(made.call.model);
             cwds.push(made.cwd);
             const end = await inner.start(start).ended;
-            // The Brewmaster's out doc stays in its worktree, as the real session leaves it.
+            // The out doc stays in its worktree, as the real session leaves it: a plan lens step's
+            // Taster's under its own name, which the route and a later round read (ADR 0128).
             if (end.outDoc !== undefined) {
               mkdirSync(made.cwd, { recursive: true });
-              writeFileSync(join(made.cwd, 'plan.md'), end.outDoc);
+              const doc = start.ref.stepId === 'naive' ? 'taste.md' : 'plan.md';
+              writeFileSync(join(made.cwd, doc), end.outDoc);
             }
             return end;
           });
@@ -486,6 +488,137 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       });
       const status = comments().find(({ body }) => body.includes('Foedrum · batch'))?.body ?? '';
       assert.ok(status.includes(finding.why), status);
+    });
+  });
+
+  describe('a blocking plan lens sends the plan back to the Brewmaster (ADR 0318, #801)', () => {
+    beforeEach(() => {
+      const files = serveInputs().files;
+      const { defaults } = readBreweryFiles(dir.path);
+      // The Brewmaster's plan, then a plan lens that blocks and sends its findings back to it.
+      const kettle = recipeText(
+        'kettle',
+        [
+          { id: 'plan', brewer: 'brewmaster' },
+          {
+            id: 'naive',
+            brewer: 'taster',
+            lens: 'plan/naive-reader',
+            blocking: true,
+            onBlocked: { findings: { goto: 'plan', maxRounds: 2 } },
+          },
+        ],
+        { testFirst: false },
+      );
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            local: local({ workRoot: dir.path }),
+            brewery: {
+              ...files.brewery,
+              recipes: [...files.brewery.recipes, { path: 'recipes/kettle.jsonc', text: kettle }],
+              lenses: [
+                { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+              ],
+              ...(defaults === undefined ? {} : { defaults }),
+            },
+          },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      api = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            {
+              number: 12,
+              labels: ['recipe:kettle'],
+              author: 'ann',
+              title: 'Export the batches',
+              body: 'Add an export of the batches, with a guide.',
+            },
+          ],
+        },
+      });
+    });
+
+    /** Two findings on two sub-orders: one the plan fixes, one it dismisses. */
+    const flag = {
+      severity: 'major',
+      why: 'writer: its entry says "the flag" without naming it',
+      introduced: true,
+    };
+    const guide = {
+      severity: 'major',
+      why: 'docs: its entry does not say where the guide goes',
+      introduced: true,
+    };
+    const advisory = {
+      severity: 'minor',
+      why: 'schema: its done-when could name the test file',
+      introduced: true,
+    };
+    const blocks = behave.succeedWith(
+      { verdict: 'changes', findings: [flag, guide] },
+      'Two entries leave a guess',
+    );
+    const approves = behave.succeedWith(
+      { verdict: 'approve', findings: [advisory] },
+      'Each entry reads alone',
+    );
+    const evidence = 'The order says "with a guide" and docs/export.md is in its touches';
+    const replanned = behave.succeedWith(
+      {
+        subOrders,
+        alternatives,
+        dispositions: [{ disposition: 'fixed' }, { disposition: 'dismissed', why: evidence }],
+      },
+      'Planned again',
+    );
+    /** serve's shell with no git but the house yeast's empty listing. */
+    const tasting = (script: readonly Behaviour[]): ServeShell => ({
+      ...shell(script),
+      git: (_cwd, args) =>
+        args[0] === 'ls-tree'
+          ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+          : Promise.reject(new Error(`no git ${args[0]} runs here`)),
+    });
+
+    it('a blocking plan lens sends its findings back to the plan step', async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      assert.deepStrictEqual(started, ['plan#1', 'naive#1', 'plan#2', 'naive#2']);
+      const { lane } = log().state().batches.get('12-1') ?? assert.fail('no batch 12-1');
+      assert.deepStrictEqual(lane.kind === 'stuck' ? lane.reason : lane, {
+        kind: 'plan_review',
+        stepId: 'plan',
+        attempt: 2,
+      });
+    });
+
+    it("the Brewmaster's route input holds the plan lens's findings", async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      const route =
+        /<[^>]*source="why step plan runs again: the findings of step naive" name="route">([^<]*)</.exec(
+          prompts[2] ?? '',
+        )?.[1];
+      assert.ok(route !== undefined, prompts[2]);
+      // The Taster's out doc as it wrote it: its findings in JSON.
+      const said = [flag.why, guide.why].map((why) => JSON.stringify(why));
+      assert.ok(
+        said.every((why) => route.includes(why)),
+        route,
+      );
+      // Only the round the route sent it back from: the first plan had none.
+      assert.doesNotMatch(prompts[0] ?? '', /name="route"/);
     });
   });
 
