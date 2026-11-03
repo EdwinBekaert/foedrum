@@ -1549,3 +1549,115 @@ describe('createAttemptPlans: limits', () => {
     });
   });
 });
+
+describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
+  // Recipe first's review writes review.md, second's writes tasting.md; a person chooses second
+  // after review#1 succeeded under first. Each later step reads review's out doc or plan.
+  const switching = loadRecipes({
+    recipes: [
+      {
+        path: 'recipes/first.jsonc',
+        text: recipeText('first', [
+          { id: 'review', brewer: 'reviewer' },
+          { id: 'brew', brewer: 'quick' },
+        ]),
+      },
+      {
+        path: 'recipes/second.jsonc',
+        text: recipeText('second', [
+          { id: 'review', brewer: 'taster' },
+          { id: 'brew', brewer: 'slow' },
+          { id: 'implement', brewer: 'implementer' },
+        ]),
+      },
+    ],
+    brewers: [
+      {
+        path: 'brewers/reviewer.md',
+        text: brewerText('reviewer', { output: { doc: 'review.md', schema: 'outDoc' } }),
+      },
+      {
+        path: 'brewers/taster.md',
+        text: brewerText('taster', { output: { doc: 'tasting.md', schema: 'outDoc' } }),
+      },
+      { path: 'brewers/quick.md', text: brewerText('quick', { maxTurns: 5 }) },
+      { path: 'brewers/slow.md', text: brewerText('slow', { maxTurns: 50 }) },
+      {
+        path: 'brewers/implementer.md',
+        text: brewerText('implementer', {
+          inputs: [{ name: 'review', from: 'step:review' }],
+        }),
+      },
+    ],
+  });
+  assert.ok(switching.valid, switching.valid ? '' : switching.problems.join('\n'));
+  const deadlineAt = '2026-10-17T13:00:00.000Z';
+  const reviewTree = join('/work', 'review-1');
+  const review = { batchId: '12-1', stepId: 'review', attempt: 1 };
+  const implement = { batchId: '12-1', stepId: 'implement', attempt: 1 };
+  const chosen = (recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: '12-1',
+    recipe,
+    reason: 'a person chose it',
+    source: 'human',
+    by: 'octocat',
+    via: 'terminal',
+  });
+  const startedAt = (at: typeof ref, path: string): Event => ({
+    type: 'step.started',
+    ...at,
+    session: { id: sessionId, worktree: path },
+    worktree: {
+      repo: 'acme/api',
+      path,
+      branch: `foedrum/12-1/${at.stepId}/${at.attempt}`,
+      commit: 'c'.repeat(40),
+    },
+  });
+  const reviewed: Event[] = [
+    ordered[0] as Event,
+    chosen('first'),
+    { type: 'step.scheduled', ...review, deadlineAt },
+    startedAt(review, reviewTree),
+    { type: 'step.finished', ...review, outcome: { kind: 'succeeded', output: null } },
+  ];
+
+  it("a step input reads the out doc its attempt's brewer wrote after the batch switched recipes", async () => {
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'review.md'), root: reviewTree }]);
+  });
+
+  it('an attempt planned after the batch switched recipes gets the brewer of the recipe it was scheduled under', async () => {
+    const events: Event[] = [
+      ...reviewed,
+      { type: 'step.scheduled', ...ref, deadlineAt },
+      startedAt(ref, worktree),
+      chosen('second'),
+    ];
+    const { plans } = setup(events, {}, undefined, switching.brewers);
+    assert.equal(plans.limits(ref).maxTurns, 5);
+    const { prompt } = await plans.plan({ ...start, ref });
+    assert.match(prompt, /Do the work of the quick\./);
+    assert.doesNotMatch(prompt, /Do the work of the slow\./);
+  });
+
+  it("a route input reads the out doc of the routing attempt's brewer after the batch switched recipes", async () => {
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...ref, deadlineAt, route: { from: 'review', why: 'findings' } },
+      startedAt(ref, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'review.md'), root: reviewTree }]);
+  });
+});
