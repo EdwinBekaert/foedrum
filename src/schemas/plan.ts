@@ -49,7 +49,7 @@ export const PlannedSubOrder = z
     id: PlanId,
     title: lineOf(MAX_TITLE),
     repo: Repo,
-    // An estimate, with no cap: the sizing lens and the gate judge it (#587, #588).
+    // An estimate, with no cap: the sizing lens and the gate judge it (#802, #588).
     size: z.strictObject({ lines: z.int().positive(), mechanism: line }),
     doneWhen: line,
     touches: z.array(Touch).min(1).max(MOST_TOUCHES),
