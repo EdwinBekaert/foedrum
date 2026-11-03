@@ -624,6 +624,19 @@ describe('createIntake', () => {
       assert.deepStrictEqual(seen, [['12-1 ordered']]);
     });
 
+    it('waits for no tick in a pass that orders nothing, though an Ordered batch waits for its route', async () => {
+      // #7 was ordered by hand and carries no recipe label: it waits for its routing deadline.
+      accept({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+      let calls = 0;
+      const ordered = async (): Promise<void> => {
+        calls++;
+      };
+      const { tracker } = fakeTracker({ [brewery]: [issue(7)], [web]: [], [api]: [] });
+      await breweryIntake(tracker, { ordered }).poll();
+      assert.deepStrictEqual(lanes(), ['7-1 ordered']);
+      assert.equal(calls, 0);
+    });
+
     it('orders only open issues an allow-listed user opened with a recipe label, never twice', async () => {
       accept({ kind: 'order', batchId: '5-1', order: { issue: 5 } });
       accept({ kind: 'cancel', batchId: '5-1', by: 'alice', via: 'terminal' });

@@ -2811,6 +2811,43 @@ Plan the order in {order}.
         );
         assert.equal(lock.held, false);
       });
+
+      it('goes on at once when it reaches the wait after the stop', {
+        timeout: 60_000,
+      }, async () => {
+        store = empty();
+        setup = intakeSetup({ concurrency: 1 });
+        const github = labelled();
+        // The pass's listing of the Brewery's issues answers only once serve is stopping.
+        let answer: () => void = () => {};
+        const stopping = new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+        const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+          if (/^\/repos\/acme\/brewery\/issues$/i.test(new URL(String(input)).pathname)) {
+            await stopping;
+          }
+          return github.fetch(input, init);
+        }) as typeof globalThis.fetch;
+        const ran = await runServe(
+          setup,
+          shell({
+            fetch,
+            runner: () => hanging,
+            // Ends a pass that waits for the tick no stopped serve starts; never reached otherwise.
+            intakeDeadlineMs: 5000,
+            wait: async () => {
+              controller.abort();
+              answer();
+            },
+          }),
+        );
+        assert.equal(ran, 0);
+        assert.ok(!lines.some((line) => /longer than its deadline/.test(line)), lines.join('\n'));
+        assert.equal(lines.at(-1), 'foedrum serve: stopped');
+        // It ordered after the stop and routed without waiting for a tick.
+        assert.equal(lane('12-1'), 'brewing');
+      });
     });
 
     it('orders and routes a labelled Brewery issue and a claimed target issue, marks the claim and releases it', async () => {
