@@ -104,7 +104,8 @@ export interface AttemptPlansOptions {
   repositories?: readonly { repo: string; base: string; description?: string }[];
   /**
    * Records a repository's system map entry at its base commit (ADR 0317), read when an attempt
-   * whose brewer asks for the repositories is planned and the base moved since the entry recorded.
+   * that reads the repositories (its brewer names them, or its lenses review a plan, ADR 0312) is
+   * planned and the base moved since the entry recorded.
    * Without it, the map is neither read nor recorded.
    */
   recordMap?: (event: Extract<Event, { type: 'system.mapped' }>) => void;
