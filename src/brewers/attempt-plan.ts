@@ -105,8 +105,11 @@ export interface PlanFacts {
   outDocFrom?: string;
   /** For a later round of a lens step that reviews a diff, what it is told (ADR 0190). */
   laterRound?: LaterRound;
-  /** Whether its inputs hold the earlier rounds' findings, which the fixed text explains (ADR 0191). */
-  earlierFindings?: true;
+  /**
+   * When its inputs hold the earlier rounds' findings, which the fixed text explains (ADR 0191):
+   * of a step that reviews a change, or a plan (ADR 0318).
+   */
+  earlierFindings?: Reviewed;
   /** On a step of several lenses together, its lenses in its order, which the fixed text names (ADR 0220). */
   together?: readonly string[];
   env: { base: Env; forced: Env; platform: NodeJS.Platform };
@@ -629,8 +632,18 @@ export const MAX_EARLIER_FINDINGS_BYTES = 64 * 1024;
 /** Model text on one line. */
 const flatLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
-/** One round's findings, each with the first disposition at its place not already taken. */
-function roundLines(findings: readonly TastingFinding[], dispositions: readonly Disposition[]) {
+/** What a lens step reviews: a change, or a plan (ADR 0312). */
+export type Reviewed = 'change' | 'plan';
+
+/**
+ * One round's findings, each with the first disposition at its place not already taken; a finding
+ * with no file is about the change, or the plan, as a whole (ADR 0318).
+ */
+function roundLines(
+  findings: readonly TastingFinding[],
+  dispositions: readonly Disposition[],
+  of: Reviewed,
+) {
   if (findings.length === 0) return ['No findings.'];
   return withDispositions(findings, dispositions).flatMap(({ finding, disposition: disposed }) => {
     const before = finding.introduced ? '' : ', there before the change';
@@ -639,7 +652,7 @@ function roundLines(findings: readonly TastingFinding[], dispositions: readonly 
         ? 'open'
         : `${disposed.disposition}${disposed.why === undefined ? '' : `: ${flatLine(disposed.why)}`}`;
     return [
-      `- ${lensFirst(finding)}${finding.severity} in ${placeOf(finding)}${before}: ${flatLine(finding.why)}`,
+      `- ${lensFirst(finding)}${finding.severity} in ${finding.file === undefined ? `the ${of} as a whole` : placeOf(finding)}${before}: ${flatLine(finding.why)}`,
       `  ${said}`,
     ];
   });
@@ -647,16 +660,21 @@ function roundLines(findings: readonly TastingFinding[], dispositions: readonly 
 
 /**
  * The input of a later round of `stepId` (ADR 0191): the earlier rounds' findings in the order the
- * rounds ran, each with the disposition at its place, or open, held to its limit.
+ * rounds ran, each with the disposition at its place, or open, held to its limit; `of` says what
+ * the step reviews, a change or a plan (ADR 0318).
  */
-export function earlierFindingsInput(stepId: string, rounds: readonly EarlierRound[]): PromptInput {
+export function earlierFindingsInput(
+  stepId: string,
+  rounds: readonly EarlierRound[],
+  of: Reviewed = 'change',
+): PromptInput {
   const text = rounds
     .map((round) =>
       [
         `Round ${round.step}:`,
         ...('unread' in round
           ? [`Its findings could not be read: ${flatLine(round.unread)}.`]
-          : roundLines(round.findings, round.dispositions)),
+          : roundLines(round.findings, round.dispositions, of)),
       ].join('\n'),
     )
     .join('\n\n');
@@ -682,7 +700,7 @@ function togetherText(lenses: readonly string[]): string {
 }
 
 /** The engine's fixed text for a later round of a lens step with earlier findings (ADR 0191, ADR 0204). */
-const EARLIER_FINDINGS_TEXT = [
+const EARLIER_CHANGE_FINDINGS_TEXT = [
   "## The earlier rounds' findings",
   '',
   '{earlierFindings} holds the findings of the earlier rounds of this step, in the order they ran, each with what the step the batch went back to did with it: fixed, dismissed as not a defect, pre-existing (there before the change), or open.',
@@ -692,6 +710,26 @@ const EARLIER_FINDINGS_TEXT = [
   "- Check the evidence a dismissed or pre-existing finding's why names: a file and line, a test, or a sentence of the order or of a decision record. Treat a dismissed or pre-existing finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way.",
   '- Judge an open finding again, as you judge the rest of the change.',
 ].join('\n');
+
+/**
+ * The engine's fixed text for a later round of a plan lens step (ADR 0318): the plan step records
+ * fixed or dismissed, and a plan's dismissal names a line of the order, a repository's file and
+ * line, or a field of the plan.
+ */
+const EARLIER_PLAN_FINDINGS_TEXT = [
+  "## The earlier rounds' findings",
+  '',
+  '{earlierFindings} holds the findings of the earlier rounds of this step, in the order they ran, each with what the step that wrote the plan did with it: fixed in the plan, dismissed as not a defect, or open.',
+  '',
+  '- Never raise a fixed or dismissed finding again as it was.',
+  '- When the plan did not fix a finding, or you hold a dismissal wrong, raise it once as a new finding that names the old one and says why.',
+  "- Check the evidence a dismissed finding's why names: a line of the order, a file and line in a repository, or a field of the plan. Treat a dismissed finding whose why names no evidence, or whose evidence does not show what it claims, as held wrong, and raise it once the same way.",
+  '- Judge an open finding again, as you judge the rest of the plan.',
+].join('\n');
+
+/** The fixed text for a later round of a lens step that reviews `of`. */
+const earlierFindingsText = (of: Reviewed): string =>
+  of === 'plan' ? EARLIER_PLAN_FINDINGS_TEXT : EARLIER_CHANGE_FINDINGS_TEXT;
 
 /** The most of a route input a prompt holds, in UTF-8 bytes (ADR 0128). */
 export const MAX_ROUTE_INPUT_BYTES = 64 * 1024;
@@ -1270,7 +1308,7 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const round = [
     ...(facts.together === undefined ? [] : [togetherText(facts.together)]),
     ...(facts.laterRound === undefined ? [] : [laterRoundText(facts.laterRound)]),
-    ...(facts.earlierFindings === true ? [EARLIER_FINDINGS_TEXT] : []),
+    ...(facts.earlierFindings === undefined ? [] : [earlierFindingsText(facts.earlierFindings)]),
   ];
   // The Brewery's first message to an interactive step's session follows the brewer's own.
   const recipePrompt = facts.interactive === undefined ? [] : [facts.interactive.prompt.trimEnd()];
