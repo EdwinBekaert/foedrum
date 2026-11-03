@@ -356,6 +356,32 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
         `reports web/test-results.xml in ${merged}`,
       ]);
     });
+
+    it('a merged-tree check with no map names none: regression test', async () => {
+      const { runner } = setup({
+        testExit: 1,
+        maps: {},
+        found: { 'web/test-results.xml': [mergedReport] },
+        texts: { [mergedReport]: failingOf('bills a month') },
+      });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      const test = end.readings?.find((reading) => reading.check === 'test');
+      assert.equal(test?.result === 'exited' && test.failing, undefined);
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the check "test" (npm test) failed with exit code 1',
+      });
+    });
+
+    it('a passing merged-tree check reads no report: regression test', async () => {
+      const { runner, asked } = setup({ maps: { [tip]: mapOf(web), [head]: mapOf(web) } });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.deepEqual(asked, []);
+    });
   });
 
   it("a failed test check names no test when the batch's map cannot be read, and keeps its ending: regression test", async () => {
