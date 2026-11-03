@@ -23,7 +23,7 @@ import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import { type Attempt, type Batch, baseChecksOn, latestAttempt, type State } from './fold.ts';
-import { type LensRound, lensRounds } from './lens-rounds.ts';
+import { lensRounds, roundFindings } from './lens-rounds.ts';
 import {
   briefKey,
   currentBrief,
@@ -303,15 +303,6 @@ const tastedLine = (steps: Steps, ready: ReadyRecord): string => {
   const since = fixRounds(steps.batch).filter((round) => round.at > at).length;
   return `- Tasted at ${code(shortSha(commit))}; ${since} fix round${since === 1 ? '' : 's'} since.`;
 };
-
-/**
- * The findings each round of a Taster's step left: a success's from its out doc, a blocked round's
- * as `step.finished` recorded them (ADR 0221).
- */
-const roundFindings = (ran: LensRound['ran']): readonly TastingFinding[] =>
-  ran.outcome.kind === 'succeeded'
-    ? (tastingOf(ran.outcome.output)?.findings ?? [])
-    : (ran.findings?.kept ?? []);
 
 /**
  * What the step each findings route went back to did with each finding (ADR 0191), round by round

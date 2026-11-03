@@ -10,7 +10,7 @@ import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
 import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
-import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
+import { lensRounds, reviewed, withDispositions } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
 import type { Lens, RecipeChoice, StepBrewer } from '../engine/recipe-files.ts';
@@ -632,10 +632,7 @@ const flatLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 /** One round's findings, each with the first disposition at its place not already taken. */
 function roundLines(findings: readonly TastingFinding[], dispositions: readonly Disposition[]) {
   if (findings.length === 0) return ['No findings.'];
-  const left = [...dispositions];
-  return findings.flatMap((finding) => {
-    const at = left.findIndex(({ file, line }) => file === finding.file && line === finding.line);
-    const [disposed] = at < 0 ? [] : left.splice(at, 1);
+  return withDispositions(findings, dispositions).flatMap(({ finding, disposition: disposed }) => {
     const before = finding.introduced ? '' : ', there before the change';
     const said =
       disposed === undefined
