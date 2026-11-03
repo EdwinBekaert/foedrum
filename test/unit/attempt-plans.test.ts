@@ -2052,6 +2052,23 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     );
   });
 
+  it("reads a plan lens step's house yeast at its worktree's commit, not where the batch started, with no diff: regression test", async () => {
+    const calls: string[] = [];
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      houseYeast: { files: [], keptIn: () => 'repo' },
+      git: async (cwd, args) => {
+        calls.push(`${cwd} ${args.join(' ')}`);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    // The batch started at plan#1's commit, 1…1; the Taster's worktree holds e…e.
+    assert.deepEqual(calls, [
+      `${join('/clones', 'acme/api')} ls-tree -z ${'e'.repeat(40)} -- .foedrum/house-yeast/`,
+    ]);
+  });
+
   it("gives a plan lens step's Taster no checks and no change input: regression test", async () => {
     const { prompt } = await planTaste([...amber, inTree]);
     assert.doesNotMatch(prompt, /name="checks"/);
