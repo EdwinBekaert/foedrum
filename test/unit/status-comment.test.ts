@@ -616,6 +616,35 @@ describe('renderStatus', () => {
     );
   });
 
+  it("a failed check step's Path clause gives its failing count", () => {
+    const reading = {
+      result: 'exited',
+      check: 'test',
+      command: 'npm test',
+      exitCode: 1,
+      tail: '',
+      failing: { tests: ['adds', 'prints usage', 'reads a file'], more: 2 },
+    } as const;
+    const reason =
+      'the check "test" (npm test) failed with exit code 1: 5 tests failing: adds, prints usage, reads a file, …';
+    const text = renderStatus(
+      batch({
+        steps: new Map([
+          step('green', { ...failed(1, reason), readings: [reading] }, running(2)),
+        ]),
+        path: [
+          { stepId: 'green', attempt: 1 },
+          { stepId: 'green', attempt: 2 },
+        ],
+      }),
+      ['green'],
+    );
+    assert.equal(
+      pathOf(text),
+      'Path: `green #1` ❌ the check "test" failed, 5 tests failing → `green #2` ▶️',
+    );
+  });
+
   it("a failed attempt whose reason is not its readings' keeps its own clause on the path: regression test", () => {
     const reading = {
       result: 'exited',
@@ -628,7 +657,9 @@ describe('renderStatus', () => {
     const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
     const text = renderStatus(
       batch({
-        steps: new Map([step('green', { ...failed(1, reason), readings: [reading] }, running(2))]),
+        steps: new Map([
+          step('green', { ...failed(1, reason), readings: [reading] }, running(2)),
+        ]),
         path: [
           { stepId: 'green', attempt: 1 },
           { stepId: 'green', attempt: 2 },
