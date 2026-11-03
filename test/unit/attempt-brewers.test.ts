@@ -98,4 +98,41 @@ describe('attemptBrewers (ADR 0310)', () => {
     assert.equal(brewers.guarded(ref, 'testMapOnly'), true);
     assert.equal(brewers.guarded(ref, 'testsUnchanged'), true);
   });
+
+  it('whether an attempt only reads comes from the recipe it was scheduled under: regression test', () => {
+    assert.equal(lookups(switched).reads(ref), true);
+  });
+
+  it("an attempt of a batch that never switched recipes answers by its batch's recipe: regression test", () => {
+    const brewers = lookups([ordered, chosen('second'), scheduled]);
+    assert.equal(brewers.family(ref), 'Sonnet');
+    assert.equal(brewers.resumes(ref), false);
+    assert.equal(brewers.surveys(ref), false);
+    assert.equal(brewers.guarded(ref, 'testMapOnly'), false);
+    assert.equal(brewers.reads(ref), false);
+  });
+
+  it("an attempt that recorded no recipe reads its batch's: regression test", () => {
+    // The step is scheduled before any recipe is chosen, so the attempt records none.
+    const brewers = lookups([ordered, scheduled, chosen('first')]);
+    assert.equal(brewers.family(ref), 'Opus');
+    assert.equal(brewers.resumes(ref), true);
+    assert.equal(brewers.surveys(ref), true);
+    assert.equal(brewers.guarded(ref, 'testsUnchanged'), true);
+    assert.equal(brewers.reads(ref), true);
+  });
+
+  it('an interactive step never resumes, though its brewer does (ADR 0222): regression test', () => {
+    assert.equal(lookups([ordered, chosen('talk'), scheduled]).resumes(ref), false);
+  });
+
+  it('an attempt of a step its recipe does not have answers nothing: regression test', () => {
+    const brewers = lookups([ordered, chosen('first'), scheduled]);
+    const other = { ...ref, stepId: 'taste' };
+    assert.equal(brewers.family(other), undefined);
+    assert.equal(brewers.resumes(other), false);
+    assert.equal(brewers.surveys(other), false);
+    assert.equal(brewers.guarded(other, 'testMapOnly'), false);
+    assert.equal(brewers.reads(other), false);
+  });
 });
