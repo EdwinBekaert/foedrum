@@ -45,13 +45,13 @@ const endedText = (reading: GravityReading): string => {
  */
 export const checksInput = (batch: Batch, commit: string | undefined): ChecksInput | undefined => {
   if (commit === undefined) return undefined;
-  const steps = [...batch.steps.values()].flatMap((step) => {
+  const lines = [...batch.steps.values()].flatMap((step) => {
     const latest = latestAttempt(step);
     if (latest?.phase !== 'finished' || latest.worktree?.commit !== commit) return [];
     const readings = ofTheChange(latest.readings ?? []);
     if (readings.length === 0) return [];
-    return [[`- Step ${step.id}:`, ...readings.map((reading) => `  - ${endedText(reading)}`)]];
+    return [`- Step ${step.id}:`, ...readings.map((reading) => `  - ${endedText(reading)}`)];
   });
-  if (steps.length === 0) return undefined;
-  return { commit, text: steps.flat().join('\n') };
+  if (lines.length === 0) return undefined;
+  return { commit, text: lines.join('\n') };
 };
