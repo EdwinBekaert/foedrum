@@ -22,7 +22,7 @@ The first real run of M2's exit (2026-11-02, Brewery order #14 and its sub-order
   | On tap, no pull request, an approved plan whose sub-orders have not all merged | `foedrum:sub-orders` |
   | On tap otherwise (every pull request ended, every sub-order merged, or none and no approved plan), Cancelled | none |
 
-  Filtering an issue list by `awaiting-` shows everything that is the person's turn.
+  Filtering an issue list by `awaiting-` shows the plans, questions and pull requests that wait on the person. `foedrum:stuck`, and a split order a sub-order keeps open, wait on them too, and their comments say how in their `Next:` line.
 - **`foedrum:on-tap` is retired.** The ledger still parses a revision that left it (`RetiredLaneLabel`, `src/schemas/lane-label.ts`), and every revision takes it off with the lane labels. A batch whose latest revision left it gets no new one while it stays on tap, so an upgrade does not relabel every issue that ended on tap. Its next lane change, such as a pull request sent back to brewing, replaces it.
 - **Every status comment that waits on the person, or hands over, ends its first block with one `Next:` line** (`nextLines`, `src/engine/status-comment.ts`). The first block is the lane line, the sub-order rows, the pause and the usage windows. It comes before everything a cut can drop, so a long comment keeps it:
   - Stuck for review: `Next:` and what to do with the plan (`planNextStep`), as before, then ``Its other option: `recipe`.`` for the lane's options it does not name. There is no separate `Get it moving with …` line.
@@ -31,7 +31,7 @@ The first real run of M2's exit (2026-11-02, Brewery order #14 and its sub-order
   - On tap with open pull requests: `Next: review and merge <each one not merged or closed>.`
   - A split order on tap: `Next: nothing to do; the sub-orders brew (#15, #16), and each pull request comes to you on tap.`, numbered from its sub-order rows, else the sub-issues its plan opened. When a sub-order keeps the order open (cancelled, closed without merging, needs refinement): `Next: see to what keeps the order open (#16).` Once the order is done, there is no `Next:` line.
   - Ordered, Brewing, Conditioning, Cancelled, and On tap with nothing open: no `Next:` line.
-- **The Ordered label goes on before its batch brews.** After it orders and before it routes, an intake pass with an Ordered batch waiting for its route awaits its `ordered` hook (`createIntake`, `src/engine/intake.ts`). `serve` makes it wait for the end of the next driver tick that begins after the call, and that tick applies the effects. So the ledger's first lane label revision is `foedrum:ordered`, and the effects never run beside a drive. A stop releases a waiting pass, and so does a tick that throws.
+- **The Ordered label goes on before its batch brews.** An intake pass that ordered a batch, while an Ordered batch waits for its route, awaits its `ordered` hook after it orders and before it routes (`createIntake`, `src/engine/intake.ts`). `serve` makes it wait for the end of the next driver tick that begins after the call, and that tick applies the effects. So the ledger's first lane label revision is `foedrum:ordered`, and the effects never run beside a drive. A stop releases a waiting pass, and so does a tick that throws. A pass that reaches the hook once serve is stopping goes on at once, since no tick comes.
 
 ## Consequences
 - A person scans the issue list by label and each comment for one word, `Next:`, to know whose turn it is.
