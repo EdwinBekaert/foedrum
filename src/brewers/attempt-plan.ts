@@ -9,7 +9,7 @@ import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
-import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
+import { type Attempt, attemptBefore, type Batch, type State } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
@@ -248,14 +248,17 @@ const succeededIn = (batch: Batch, stepId: string): Attempt | undefined => {
  * Brewery order's folder of checkouts (ADR 0301), whose `checkouts` say where each one is.
  */
 interface BreweryRepositories {
-  repositories: readonly { repo: string; base: string }[];
+  repositories: readonly { repo: string; base: string; description?: string }[];
+  /** Each repository's recorded system map entry, by lower-case name (ADR 0317). */
+  map?: State['systemMap'];
   own: string | undefined;
   checkouts?: readonly { repo: string; path: string }[];
 }
 
 /**
  * The text of an input `from: "repositories"` (ADR 0234): one line per repository, its own marked,
- * or in a folder of checkouts the folder each one is read in (ADR 0301).
+ * or in a folder of checkouts the folder each one is read in (ADR 0301), each followed by its lines
+ * of the system map, held to its size (ADR 0317).
  */
 const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories): string => {
   const line = ({ repo, base }: { repo: string; base: string }): string => {

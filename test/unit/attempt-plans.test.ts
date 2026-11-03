@@ -758,6 +758,158 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  describe('the system map in the repositories input (ADR 0317)', () => {
+    const planning = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'plan.md', schema: 'plan' },
+            inputs: [{ name: 'repositories', from: 'repositories' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(planning.valid, planning.valid ? '' : planning.problems.join('\n'));
+    const tip = 'd'.repeat(40);
+    const earlier = 'c'.repeat(40);
+    const repositories = [
+      { repo: 'acme/web', base: 'origin/main', description: 'the web app; deploys on merge' },
+      { repo: 'acme/api', base: 'origin/main' },
+    ];
+    const manifests: Record<string, Record<string, string>> = {
+      [join('/clones', 'acme/web')]: {
+        'package.json': JSON.stringify({
+          name: 'web',
+          dependencies: { '@acme/api': 'git+https://github.com/acme/api.git#v2.0.0' },
+        }),
+      },
+      [join('/clones', 'acme/api')]: { 'package.json': JSON.stringify({ name: '@acme/api' }) },
+    };
+    /** git in the clones: each base at `tip`, its manifests listed and read; every call noted. */
+    const gitOf = (calls: string[]) => async (cwd: string, args: readonly string[]) => {
+      calls.push(`${cwd} ${args[0]}`);
+      const files = manifests[cwd] ?? {};
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' };
+      if (args[0] === 'ls-tree')
+        return { code: 0, stdout: Object.keys(files).join('\0'), stderr: '' };
+      const path = String(args.at(-1)).slice(`${tip}:`.length);
+      return { code: 0, stdout: files[path] ?? '', stderr: '' };
+    };
+    const mapped = (repo: string, commit: string, name: string): Event => ({
+      type: 'system.mapped',
+      repo,
+      commit,
+      entry: {
+        publishes: [{ name, ecosystem: 'npm' }],
+        dependsOn:
+          name === 'web'
+            ? [
+                {
+                  name: '@acme/api',
+                  ecosystem: 'npm',
+                  via: { kind: 'git', url: 'git+https://github.com/acme/api.git', ref: 'v2.0.0' },
+                },
+              ]
+            : [],
+        modules: [],
+        unreadable: [],
+      },
+    });
+
+    it('the repositories input names what each repository publishes and depends on', async () => {
+      const events = [
+        ...ordered,
+        started,
+        mapped('acme/web', tip, 'web'),
+        mapped('acme/api', tip, '@acme/api'),
+      ];
+      const calls: string[] = [];
+      const recorded: Event[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git: gitOf(calls),
+        recordMap: (event) => recorded.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/main\n {2}the web app; deploys on merge\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by git ref `v2\.0\.0` \(npm\)\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n {2}publishes `@acme\/api` \(npm\)\n<\/untrusted-input-/,
+      );
+      // Both entries are at their base's tip: neither is read again.
+      assert.deepEqual(recorded, []);
+      assert.deepEqual(
+        calls.filter((call) => !call.endsWith('rev-parse')),
+        [],
+      );
+    });
+
+    it("a repository's map is read again when its base moves", async () => {
+      const events: Event[] = [
+        ...ordered,
+        started,
+        mapped('acme/web', earlier, 'old-web'),
+        mapped('acme/api', tip, '@acme/api'),
+      ];
+      const calls: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git: gitOf(calls),
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(events.slice(-1), [mapped('acme/web', tip, 'web')]);
+      assert.match(prompt, /publishes `web` \(npm\)/);
+      assert.doesNotMatch(prompt, /old-web/);
+      // The repository whose base did not move is not read again.
+      assert.deepEqual(
+        calls.filter(
+          (call) => call.startsWith(join('/clones', 'acme/api')) && !call.endsWith('rev-parse'),
+        ),
+        [],
+      );
+    });
+
+    it("a Brewery with no manifests gives today's lines (regression test)", async () => {
+      const events: Event[] = [...ordered, started];
+      const empty = async (_cwd: string, args: readonly string[]) => ({
+        code: 0,
+        stdout: args[0] === 'rev-parse' ? `${tip}\n` : '',
+        stderr: '',
+      });
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories: repositories.map(({ repo, base }) => ({ repo, base })),
+        git: empty,
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/main\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n<\/untrusted-input-/,
+      );
+    });
+
+    it("a repository's description alone shows with no manifest", async () => {
+      const git = async () => ({
+        code: 0,
+        stdout: `${tip}\n`,
+        stderr: '',
+      });
+      const { plans } = setup(undefined, {}, undefined, planning.brewers, { repositories, git });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /\n- acme\/web, base origin\/main\n {2}the web app; deploys on merge\n- acme\/api, base origin\/main: this attempt's/,
+      );
+    });
+  });
+
   it('tells a fresh retry why the attempt before it failed, last, with its inputs (ADR 0248)', async () => {
     const second = { ...ref, attempt: 2 };
     const events: Event[] = [

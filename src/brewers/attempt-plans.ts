@@ -7,6 +7,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
+import type { ReadTestMapAt } from '../checks/test-map.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -22,7 +23,7 @@ import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
-import type { WorktreeRef } from '../schemas/events.ts';
+import type { Event, WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
@@ -97,7 +98,15 @@ export interface AttemptPlansOptions {
    * The Brewery's repositories and the base each attempt starts from (`origin/<base>`): a plan's
    * paths are checked in each once it is done (ADR 0233).
    */
-  repositories?: readonly { repo: string; base: string }[];
+  repositories?: readonly { repo: string; base: string; description?: string }[];
+  /**
+   * Records a repository's system map entry at its base commit (ADR 0317), read when an attempt
+   * whose brewer asks for the repositories is planned and the base moved since the entry recorded.
+   * Without it, the map is neither read nor recorded.
+   */
+  recordMap?: (event: Extract<Event, { type: 'system.mapped' }>) => void;
+  /** A repository's test map at a commit, whose module names the map lists (ADR 0274). */
+  testMapAt?: ReadTestMapAt;
   /**
    * Fetches a repository's clone through its worktree manager, when a plan's check finds no ref of
    * its base there (ADR 0233).
@@ -521,6 +530,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const own = 'repo' in worktree ? worktree : undefined;
     const repositories = {
       repositories: options.repositories ?? [],
+      map: state().systemMap,
       own: own?.repo,
       ...(checkouts === undefined ? {} : { checkouts }),
     };

@@ -91,6 +91,8 @@ function rule(state: State, event: Event): string | undefined {
       return releaseRecorded(state, event.repo, event.version)
         ? `the release ${event.version} of ${event.repo} is already recorded`
         : undefined;
+    case 'system.mapped':
+      return undefined;
     case 'batch.recipe_chosen':
       return lanes(state, event, ['ordered', 'conditioning', 'stuck']);
     case 'step.scheduled':

@@ -15,6 +15,7 @@ import type { AwakeMechanism } from '../platform/keep-awake.ts';
 import { BreweryConfig } from '../schemas/brewery-config.ts';
 import { readJsonc } from '../schemas/read.ts';
 import { columns } from './columns.ts';
+import type { DoctorMapRepository } from './doctor-map.ts';
 import { githubHostname } from './serve-config.ts';
 
 /** The tools doctor looks for on PATH. */
@@ -65,6 +66,8 @@ export interface DoctorFacts {
   restrictsUserns?: boolean | undefined;
   /** How this machine is kept awake while an attempt runs, or why it cannot be (ADR 0195). */
   keepAwake?: AwakeMechanism | undefined;
+  /** Each repository of the Brewery read at its base for the system map (ADR 0317). */
+  systemMap?: readonly DoctorMapRepository[] | undefined;
 }
 
 /** The denylist's state as doctor reports it: its path, never its words or their count. */

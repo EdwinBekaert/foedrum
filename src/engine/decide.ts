@@ -127,6 +127,7 @@ export type RecordedEvent = Extract<
       | 'order.decomposed'
       | 'bottle.opened'
       | 'release.observed'
+      | 'system.mapped'
       | 'pull_request.ended'
       | 'pull_request.base_checked'
       | 'pull_request.pair_checked'

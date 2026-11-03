@@ -93,6 +93,9 @@ export const planFrom = (lib: string | undefined, web: string | undefined): Scri
   };
 };
 
+/** The system map's line for the application's dependency on the library (ADR 0317). */
+export const MAPPED_DEPENDENCY = `depends on \`${PACKAGE}\` from ${LIB} by version \`${VERSION}\``;
+
 /** The tag of the release the prompt's `release` input names, as written (ADR 0291). */
 const TAG = /^- Tag, as written: (\S+)$/m;
 

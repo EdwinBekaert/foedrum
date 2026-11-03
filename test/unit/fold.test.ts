@@ -125,6 +125,7 @@ describe('fold', () => {
       pauses: { orders: new Map() },
       ranks: new Map(),
       usageWindows: {},
+      systemMap: new Map(),
     };
     assert.deepStrictEqual(fold([]), empty);
     assert.deepStrictEqual(emptyState, empty);

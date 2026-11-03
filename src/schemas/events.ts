@@ -6,6 +6,7 @@ import { BlockerKind, MOST_DISPOSITIONS, TastingFinding } from './out-doc.ts';
 import { CheckName, RelativePath } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
+import { SystemMapEntry } from './system-map.ts';
 import { z } from './zod.ts';
 
 const Id = NonEmpty;
@@ -805,6 +806,13 @@ export const Event = z.discriminatedUnion('type', [
     /** The release's web page, and its notes cut to `MAX_RELEASE_NOTES_LENGTH`; a bare tag has neither. */
     url: HttpsUrl.optional(),
     notes: z.string().max(MAX_RELEASE_NOTES_LENGTH).optional(),
+  }),
+  z.strictObject({
+    type: z.literal('system.mapped'),
+    repo: Repo,
+    /** The base commit the manifests were read at (ADR 0317). */
+    commit: CommitSha,
+    entry: SystemMapEntry,
   }),
   z.strictObject({
     type: z.literal('batch.rewound'),

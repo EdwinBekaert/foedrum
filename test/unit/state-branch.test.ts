@@ -142,6 +142,15 @@ describe('logPathOf', () => {
     ],
     'bottle.opened': [bottled, 'events.jsonl'],
     'release.observed': [released, 'events.jsonl'],
+    'system.mapped': [
+      {
+        type: 'system.mapped',
+        repo: 'acme/lib-core',
+        commit: 'a'.repeat(40),
+        entry: { publishes: [], dependsOn: [], modules: [], unreadable: [] },
+      },
+      'events.jsonl',
+    ],
     'pull_request.ended': [
       {
         type: 'pull_request.ended',

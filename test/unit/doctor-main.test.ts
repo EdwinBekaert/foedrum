@@ -49,4 +49,53 @@ describe('doctorFromCheckout', () => {
       ),
     );
   });
+
+  it('reads the system map in each clone through the runner it is given (ADR 0317)', async () => {
+    const brewery = makeTempDir('doctor-main-map');
+    try {
+      const clone = join(brewery.path, 'lib-clone');
+      mkdirSync(clone);
+      const checks = { build: null, typecheck: null, lint: null, format: null, test: null };
+      writeFileSync(
+        join(brewery.path, 'foedrum.jsonc'),
+        JSON.stringify({ brewery: 'acme/brewery', repositories: { 'acme/lib': { checks } } }),
+      );
+      mkdirSync(join(brewery.path, '.foedrum'));
+      writeFileSync(
+        join(brewery.path, '.foedrum', 'local.jsonc'),
+        JSON.stringify({ clones: { 'acme/lib': clone } }),
+      );
+      const tip = 'f'.repeat(40);
+      const exec: ExecProcess = async (file, args, options) => {
+        const answer = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', output: stdout });
+        if (file !== 'git' || options?.cwd !== clone) return answer('1.0.0\n');
+        if (args[0] === 'rev-parse') return answer(`${tip}\n`);
+        if (args[0] === 'ls-tree')
+          return answer(args.includes('--name-only') ? 'package.json\0' : '');
+        return answer(JSON.stringify({ name: '@acme/lib' }));
+      };
+      const facts = await doctorFromCheckout(brewery.path, {
+        exec,
+        resolve: (name) => `/usr/bin/${name}`,
+        denylist: () => ({ kind: 'none', path: '/made-up/denylist.txt' }),
+      });
+      assert.deepEqual(facts.systemMap, [
+        {
+          repo: 'acme/lib',
+          base: 'origin/main',
+          read: {
+            commit: tip,
+            entry: {
+              publishes: [{ name: '@acme/lib', ecosystem: 'npm' }],
+              dependsOn: [],
+              modules: [],
+              unreadable: [],
+            },
+          },
+        },
+      ]);
+    } finally {
+      brewery.remove();
+    }
+  });
 });
