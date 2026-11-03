@@ -675,4 +675,33 @@ describe('mutated, its edges', () => {
       ],
     );
   });
+
+  it('reports live progress through a long run, so the stall watchdog does not fire', async () => {
+    let now = t0.getTime();
+    let release = () => {};
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    let entered = () => {};
+    const running = new Promise<void>((done) => {
+      entered = done;
+    });
+    const runs = async () => {
+      entered();
+      await gate;
+      return ran(baseline);
+    };
+    const { start, wrapped } = setup({
+      runner: brett([boundary]),
+      runs,
+      clock: () => new Date(now),
+    });
+    const attempt = start();
+    await running;
+    // Eleven minutes into the baseline's run, past Brett's ten-minute stall.
+    now += 11 * 60_000;
+    assert.deepStrictEqual(wrapped.progress(ref)?.lastProgressAt, new Date(now));
+    release();
+    await attempt.ended;
+  });
 });

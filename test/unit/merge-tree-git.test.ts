@@ -308,4 +308,34 @@ describe('openCommitTree', () => {
     assert.equal(used, false);
     assert.equal(existsSync(join(root, 'one.tree', 'src', 'gone.mjs')), false);
   });
+
+  it('writes no edit to a file that is not UTF-8, whose other bytes a rewrite would change (ADR 0313)', async () => {
+    const root = nextFolder();
+    // Latin-1 "café" and a line feed: 0xE9 is no UTF-8 on its own.
+    const latin1 = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    const recorded = recordingGit(ok());
+    let file = '';
+    const git: Git = async (cwd, args, options) => {
+      const result = await recorded.git(cwd, args, options);
+      if (args.includes('worktree') && args.includes('add')) {
+        const tree = args.at(-2) ?? '';
+        mkdirSync(join(tree, 'src'), { recursive: true });
+        file = join(tree, 'src', 'add.mjs');
+        writeFileSync(file, latin1);
+      }
+      return result;
+    };
+    let used = false;
+    await assert.rejects(
+      openCommitTree({ git, clone, own: { url, root, id: () => 'one' } })(
+        COMMIT,
+        async () => {
+          used = true;
+        },
+        { edit: { file: 'src/add.mjs', rewrite: (text) => text } },
+      ),
+      { message: '"src/add.mjs" is not UTF-8: a rewrite would change more than its line' },
+    );
+    assert.equal(used, false);
+  });
 });
