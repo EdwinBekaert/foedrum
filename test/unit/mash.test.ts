@@ -622,6 +622,20 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.doesNotMatch(prompts[0] ?? '', /name="route"/);
     });
 
+    it('a plan step a findings route sent back gets the plan it corrects (ADR 0318)', async () => {
+      assert.equal(
+        await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
+        3,
+        lines.join('\n'),
+      );
+      assert.match(
+        prompts[2] ?? '',
+        /source="the plan of step plan#1" name="plan">[^<]*"title": "The export writer"/,
+      );
+      // The first plan had no plan before it, and no route.
+      assert.doesNotMatch(prompts[0] ?? '', /name="plan"/);
+    });
+
     it("a plan's dispositions name their evidence", async () => {
       assert.equal(
         await runBrew(setup, tasting([planned, blocks, replanned, approves]), request),
