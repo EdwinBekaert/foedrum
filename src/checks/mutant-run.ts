@@ -327,6 +327,27 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
     return ended(records);
   };
 
+  /**
+   * `judge`, with a throw (git that cannot start, a test map that cannot be read) recording every
+   * proposed mutant not judged, so the attempt keeps its own end and a blocking step blocks nothing
+   * (ADR 0319): a rejection would end a succeeded attempt blocked by its environment.
+   */
+  const judged = async (
+    start: AttemptStart,
+    end: AttemptEnd,
+    signal: AbortSignal,
+  ): Promise<AttemptEnd> => {
+    try {
+      return await judge(start, end, signal);
+    } catch (error) {
+      if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
+      const proposed = end.ending.kind === 'succeeded' ? (mutantsOf(end.ending.output) ?? []) : [];
+      if (proposed.length === 0) return end;
+      const why = notJudged(`the mutants could not be run: ${messageOf(error)}`);
+      return { ...end, mutants: proposed.map((mutant) => recordOf(mutant, mutant.line, why)) };
+    }
+  };
+
   return {
     start: (attempt: AttemptStart) => {
       const { ref } = attempt;
@@ -335,7 +356,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
       const stop = new AbortController();
       return {
         ended: session.ended
-          .then((end) => judge(attempt, end, stop.signal))
+          .then((end) => judged(attempt, end, stop.signal))
           .finally(() => judging.delete(attemptKey.encode(ref))),
         stop: () => {
           stop.abort();
