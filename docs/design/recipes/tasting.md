@@ -20,7 +20,7 @@ It also says to check the evidence a dismissed or pre-existing finding's `why` n
 The pull request lists the `pre-existing` ones for a person to file ([open the pull request](open-pull-request.md)).
 A findings blocker on a step with no route is Stuck as any other blocker, with its summary only.
 A `lens` or `lenses` on a brewer that is no Taster, a Taster's step with neither, and a lens no folder has fail the load with a line each.
-Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
+Brett proposes mutants as one-line structured edits ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)); the engine's run of them (#798) confirms which ones the tests miss, counting only a test the mutant makes fail ([ADR 0040](../../adr/0040-brett-covers-scripts-and-kills-need-a-failing-test.md)), and these findings are advisory by default.
 
 Lenses live in two folders, by what they review ([ADR 0143](../../adr/0143-lenses-in-two-folders-diff-and-plan.md)): `lenses/diff/` for a diff (code) and `lenses/plan/` for a plan (an order's breakdown, #391), in the Brewery and in `defaults/lenses/`.
 A lens is named by its folder and file name, `diff/security` or `plan/coverage`, so the two folders can hold a lens of the same file name.
