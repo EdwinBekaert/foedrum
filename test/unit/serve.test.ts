@@ -679,6 +679,70 @@ describe('runServe', () => {
       await servedWhileOpusClosed(JSON.stringify({ models: { quick: 'claude-opus-5-5' } }));
       assert.deepStrictEqual(plans, []);
     });
+
+    it('starts an attempt by the family of the recipe it was scheduled under, after its batch moved to an Opus one (ADR 0310, regression test)', async () => {
+      // Recipe imperial brews the same step with a brewer on Opus.
+      const files = serveInputs().files;
+      const result = serveSetup(
+        serveInputs({
+          files: {
+            ...files,
+            local: local({ workRoot: dir.path }),
+            models: JSON.stringify({
+              models: { quick: 'claude-sonnet-5-5', deep: 'claude-opus-5-5' },
+            }),
+            brewery: {
+              recipes: [
+                ...files.brewery.recipes,
+                {
+                  path: 'recipes/imperial.jsonc',
+                  text: recipe.replace('"stout"', '"imperial"').replace('"cellarman"', '"deepman"'),
+                },
+              ],
+              brewers: [
+                ...files.brewery.brewers,
+                {
+                  path: 'brewers/deepman.md',
+                  text: brewer
+                    .replace('"name": "cellarman"', '"name": "deepman"')
+                    .replace('"model": "quick"', '"model": "deep"'),
+                },
+              ],
+            },
+          },
+        }),
+      );
+      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      // brew#1 was scheduled under stout when the batch was routed; a person moves it to imperial
+      // before it starts (ADR 0240).
+      store.withTransaction((tx) => {
+        for (const event of [
+          {
+            type: 'batch.recipe_chosen',
+            batchId: '12-1',
+            recipe: 'imperial',
+            reason: 'a stronger brew',
+            source: 'human',
+            by: 'ann',
+            via: 'terminal',
+          },
+          {
+            type: 'usage.window_closed',
+            limit: 'Opus',
+            resets: '11:55pm',
+            reopensAt: '2026-10-18T00:00:00.000Z',
+            read: true,
+          },
+        ] satisfies Event[]) {
+          tx.append(event);
+        }
+      });
+      assert.equal(await runServe(setup, shell()), 0, lines.join(String.fromCodePoint(0x0a)));
+      assert.deepStrictEqual(
+        plans.map(({ call }) => call.model),
+        ['claude-sonnet-5-5'],
+      );
+    });
   });
 
   it('keeps its plain lines and never touches a terminal its shell holds (ADR 0174)', async () => {
