@@ -958,6 +958,32 @@ describe('createAttemptPlans: plan', () => {
       assert.match(prompt, /\n {2}test map modules: web, admin\n/);
     });
 
+    it('a test map that cannot be read is a line of its own, and keeps the manifests read', async () => {
+      for (const testMapAt of [
+        async () => ({ kind: 'unreadable' as const, reason: 'git could not read it: timed out' }),
+        async () => {
+          throw new Error('the clone is gone');
+        },
+      ]) {
+        const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+        const { plans } = setup(events, {}, undefined, planning.brewers, {
+          repositories,
+          git: gitOf([]),
+          recordMap: (event) => events.push(event),
+          testMapAt,
+        });
+        await plans.plan(start);
+        const [recorded] = events.slice(-1);
+        const entry = recorded?.type === 'system.mapped' ? recorded.entry : undefined;
+        assert.deepEqual(entry?.publishes, [{ name: 'web', ecosystem: 'npm' }]);
+        assert.deepEqual(
+          entry?.unreadable.map(({ path }) => path),
+          ['its test map'],
+        );
+        assert.match(entry?.unreadable[0]?.reason ?? '', /timed out|the clone is gone/);
+      }
+    });
+
     it("a Brewery with no manifests gives today's lines (regression test)", async () => {
       const events: Event[] = [...ordered, started];
       const empty = async (_cwd: string, args: readonly string[]) => ({

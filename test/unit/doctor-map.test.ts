@@ -70,6 +70,37 @@ describe('foedrum doctor: the system map (ADR 0317)', () => {
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /System map/);
   });
 
+  it("says why git could not resolve a clone's base, and reads the other clones when git throws", async () => {
+    const failing = async (at: string, args: readonly string[]) => {
+      if (at === libClone && args[0] === 'rev-parse') {
+        return {
+          code: null,
+          stdout: '',
+          stderr: 'git timed out after 10000 ms',
+          killed: 'timed-out' as const,
+        };
+      }
+      if (at === appClone) throw new Error('git could not start');
+      return git(at, args);
+    };
+    const read = await readDoctorMap({
+      git: failing,
+      home,
+      cwd,
+      readFile: (path) => files[path],
+      exists: (path) => path === libClone || path === appClone,
+    }).then(
+      (systemMap) =>
+        systemMap.map(({ repo, read }) => [repo, 'unread' in read ? read.unread : 'read']),
+      (error: unknown) => [['the map', String(error)]],
+    );
+    assert.deepEqual(read, [
+      ['acme/ladderlib', 'git could not resolve origin/main: git timed out after 10000 ms'],
+      ['acme/ladderapp', 'git could not start'],
+      ['acme/docs', 'it has no clone here yet'],
+    ]);
+  });
+
   it("says why a clone's base or files could not be read (regression test)", async () => {
     const failing = async (at: string, args: readonly string[]) => {
       if (at === libClone && args[0] === 'rev-parse') {
