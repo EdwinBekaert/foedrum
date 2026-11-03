@@ -110,12 +110,13 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
       await testMap(repo, base, signal),
       await testMap(repo, commit, signal),
     ];
+    // Named by where, never by its commit: the event's secret filter leaves a hash out.
     for (const [read, at] of [
-      [before, base],
-      [after, commit],
+      [before, 'where the batch started'],
+      [after, "at the attempt's commit"],
     ] as const) {
       if (read.kind === 'unreadable') {
-        return { why: `the test map of ${repo} at ${at} cannot be read: ${read.reason}` };
+        return { why: `the test map of ${repo} ${at} cannot be read: ${read.reason}` };
       }
     }
     if (after.kind !== 'map' && before.kind !== 'map') return { why: `${repo} has no test map` };
