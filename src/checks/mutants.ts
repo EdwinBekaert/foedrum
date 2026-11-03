@@ -37,9 +37,10 @@ const squash = (code: string): string =>
 
 // The line with its `//` and `/* */` comments blanked and its strings kept: the leftmost of a
 // string and a comment wins, so `"http://x"` is no comment and a quote in a comment no string.
+// Only a string sets the quote group: `comments` has none.
 const stringsOrComments = new RegExp(`${strings.source}|${comments.source}`, 'g');
 const withoutComments = (code: string): string =>
-  code.replace(stringsOrComments, (match) => (/^['"`]/.test(match) ? match : ' '));
+  code.replace(stringsOrComments, (match, quote?: string) => (quote ? match : ' '));
 
 // The strings and the words (identifiers, property names, keywords) in a line of code, outside
 // `//` and `/* */` comments when `stripped`, so a mutant cannot turn commented-out code on; the
