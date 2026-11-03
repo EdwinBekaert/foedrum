@@ -1560,6 +1560,7 @@ describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
         text: recipeText('first', [
           { id: 'review', brewer: 'reviewer' },
           { id: 'brew', brewer: 'quick' },
+          { id: 'gauge', brewer: 'gauger' },
         ]),
       },
       {
@@ -1582,6 +1583,11 @@ describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
       },
       { path: 'brewers/quick.md', text: brewerText('quick', { maxTurns: 5 }) },
       { path: 'brewers/slow.md', text: brewerText('slow', { maxTurns: 50 }) },
+      {
+        // Reads implement, a step only second has.
+        path: 'brewers/gauger.md',
+        text: brewerText('gauger', { inputs: [{ name: 'implemented', from: 'step:implement' }] }),
+      },
       {
         path: 'brewers/implementer.md',
         text: brewerText('implementer', {
@@ -1700,6 +1706,61 @@ describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
     const { plans, reads } = setup(events, {}, undefined, switching.brewers);
     await plans.plan({ ...start, ref: implement });
     assert.deepEqual(reads, [{ file: join(review2Tree, 'tasting.md'), root: review2Tree }]);
+  });
+
+  it("leaves out a step input its attempt's recipe lacks, though the recipe the batch switched to has it: regression test", async () => {
+    // gauge#1 was scheduled under first, which has no implement; second, chosen since, has one
+    // that never ran, so in second's terms the input would need an out doc it has none of.
+    const gauge = { batchId: '12-1', stepId: 'gauge', attempt: 1 };
+    const events: Event[] = [
+      ...reviewed,
+      { type: 'step.scheduled', ...gauge, deadlineAt },
+      startedAt(gauge, worktree),
+      chosen('second'),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    const { prompt } = await plans.plan({ ...start, ref: gauge });
+    assert.match(prompt, /Do the work of the gauger\./);
+    assert.doesNotMatch(prompt, /name="implemented"/);
+    assert.deepEqual(reads, []);
+  });
+
+  it("refuses a step input whose attempt's recipe no longer gives its step a brewer, reading no file under the current recipe's name: regression test", async () => {
+    // The Brewery dropped first after review#1 ran under it.
+    const withoutFirst = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/second.jsonc',
+          text: recipeText('second', [
+            { id: 'review', brewer: 'taster' },
+            { id: 'implement', brewer: 'implementer' },
+          ]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/taster.md',
+          text: brewerText('taster', { output: { doc: 'tasting.md', schema: 'outDoc' } }),
+        },
+        {
+          path: 'brewers/implementer.md',
+          text: brewerText('implementer', { inputs: [{ name: 'review', from: 'step:review' }] }),
+        },
+      ],
+    });
+    assert.ok(withoutFirst.valid, withoutFirst.valid ? '' : withoutFirst.problems.join('\n'));
+    const events: Event[] = [
+      ...reviewed,
+      chosen('second'),
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, withoutFirst.brewers);
+    await assert.rejects(
+      plans.plan({ ...start, ref: implement }),
+      /^Error: the input "review" names step review, which is no brewer's step and has no out doc$/,
+    );
+    assert.deepEqual(reads, []);
   });
 
   it("a route input reads the out doc of the routing attempt's brewer after the batch switched recipes", async () => {
