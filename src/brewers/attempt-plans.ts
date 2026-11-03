@@ -192,10 +192,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
 
   // The out doc of an attempt's brewer in the recipe it was scheduled under, which the batch may
   // have left since (#657); in its batch's recipe for an attempt that recorded none.
-  const outDocOf = (ref: AttemptRef) => {
-    const recipe = attemptRecipeOf(state(), ref);
-    return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId)?.brewer.output.doc;
-  };
+  const outDocOf = (ref: AttemptRef) => brewerOf(ref)?.brewer.output.doc;
 
   /** The text of one input, untrusted. */
   const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
@@ -512,12 +509,12 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // The recipe this attempt brews; an earlier attempt's out doc is named by its own (#786).
     const recipe = attemptRecipeOf(state(), ref) ?? '';
     const stepBrewer = (id: string, attempt?: number) =>
-      attempt === undefined
-        ? brewers.find(recipe, id)
-        : brewers.find(
-            attemptRecipeOf(state(), { batchId: batch.id, stepId: id, attempt }) ?? '',
-            id,
-          );
+      brewers.find(
+        attempt === undefined
+          ? recipe
+          : (attemptRecipeOf(state(), { batchId: batch.id, stepId: id, attempt }) ?? ''),
+        id,
+      );
     // A Brewery order's folder of checkouts is no repository's, and holds each one (ADR 0301).
     const own = 'repo' in worktree ? worktree : undefined;
     const repositories = {

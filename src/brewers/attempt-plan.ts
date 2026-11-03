@@ -230,16 +230,12 @@ export function toolsOf(rules: readonly string[]): string[] {
 const worktreeOf = (ran: Attempt | undefined): string | undefined =>
   ran?.phase === 'finished' ? (ran.worktree?.path ?? ran.session?.worktree) : undefined;
 
-/** The latest attempt of `stepId` in `batch` that succeeded, with the worktree it ran in. */
-const succeededIn = (
-  batch: Batch,
-  stepId: string,
-): { attempt: number; root: string | undefined } | undefined => {
+/** The latest attempt of `stepId` in `batch` that succeeded. */
+const succeededIn = (batch: Batch, stepId: string): Attempt | undefined => {
   const attempts = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].reverse();
-  const done = attempts.find(
+  return attempts.find(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
-  return done === undefined ? undefined : { attempt: done.attempt, root: worktreeOf(done) };
 };
 
 /**
@@ -371,7 +367,7 @@ export function inputsOf(
             `the input "${name}" names step ${step}, which is no brewer's step and has no out doc`,
           );
         }
-        const root = done?.root;
+        const root = worktreeOf(done);
         if (root === undefined) {
           throw new Error(
             `the input "${name}" needs the out doc of step ${step}, which has none yet`,
