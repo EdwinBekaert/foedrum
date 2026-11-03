@@ -2,6 +2,7 @@
 // from the folded state alone, and its edits as revisions in the ledger, `[batchId, "status.<n>"]`,
 // each found by its marker on the Brewery's own comment before it is applied (ADR 0033).
 
+import { shortCommand } from '../checks/gravity.ts';
 import type { IsCommit } from '../formats/secrets.ts';
 import type {
   CoverageListing,
@@ -348,20 +349,15 @@ export const checkOf = (reading: GravityReading): string => {
     : `the check "${reading.check}" (${reading.command})`;
 };
 
-/** The most of a literal command a reading's line shows, so its result always fits after it. */
-const mostCommand = 80;
-
 /**
  * The check a reading's line is of: a named check by its name alone, the setup or a literal
- * command cut to `mostCommand`, so a long command never cuts off how it ended (#779).
+ * command cut by `shortCommand`, so a long command never cuts off how it ended (#779).
  */
 const shortCheckOf = (reading: GravityReading): string => {
   if (reading.result === 'skipped' || reading.check !== undefined) {
     return `the check "${reading.check}"`;
   }
-  const chars = [...reading.command];
-  const command =
-    chars.length <= mostCommand ? reading.command : `${chars.slice(0, mostCommand - 1).join('')}…`;
+  const command = shortCommand(reading.command);
   return reading.setup === true ? `the setup "${command}"` : `the check "${command}"`;
 };
 
