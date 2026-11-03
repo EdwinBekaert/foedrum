@@ -245,6 +245,26 @@ describe("stepReports and the body: Brett's survivors (ADR 0319)", () => {
     );
   });
 
+  it("puts a survivor's texts on one line and leaves out one that looks like a secret, as the other reports (regression test)", () => {
+    const leaky: MutantRecord = {
+      ...survived,
+      original: `const key = '${token}';`,
+      description: 'leaks\n  the   key',
+    };
+    const reports = [
+      { stepId: 'mutants', summary: 'One mutant', assumptions: [], mutants: [leaky] },
+    ];
+    const closes = { repo: 'acme/brewery', issue: 12 };
+    const { body } = pullRequestText({ title: 'Clamp at ten', closes, reports });
+    assert.ok(
+      body.includes(
+        '  survived: src/clamp.ts:3: - [left out: a text of step mutants that looks like a secret] / + return n >= 10 ? 10 : n;: leaks the key',
+      ),
+      body,
+    );
+    assert.doesNotMatch(body, /ghp|A1b2/);
+  });
+
   it('an advisory Brett step with survivors opens no draft when every Taster approved (regression test)', () => {
     assert.ok(mutated !== undefined);
     const approved = { verdict: 'approve' as const, findings: [] };
