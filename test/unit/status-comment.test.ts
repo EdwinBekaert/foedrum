@@ -661,6 +661,21 @@ describe('renderStatus', () => {
     );
   });
 
+  it("a literal command's failing count on the path is cut at a word within 48 characters: regression test", () => {
+    const reading: GravityReading = {
+      result: 'exited',
+      // A ': ' in the command, where a reason's first clause would end.
+      command: 'node --test --test-name-pattern="a: b" test/unit/a-long-file.test.ts',
+      exitCode: 1,
+      tail: '',
+      failing: { tests: ['adds', 'prints usage'], more: 0 },
+    };
+    assert.equal(
+      checkedPath(reading),
+      'Path: `green #1` ❌ the check "node --test --test-name-pattern="a:… → `green #2` ▶️',
+    );
+  });
+
   it("a failed attempt whose reason is not its readings' keeps its own clause on the path: regression test", () => {
     const reading: GravityReading = {
       result: 'exited',
