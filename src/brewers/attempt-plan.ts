@@ -231,12 +231,15 @@ const worktreeOf = (ran: Attempt | undefined): string | undefined =>
   ran?.phase === 'finished' ? (ran.worktree?.path ?? ran.session?.worktree) : undefined;
 
 /** The latest attempt of `stepId` in `batch` that succeeded, with the worktree it ran in. */
-const succeededIn = (batch: Batch, stepId: string): string | undefined => {
+const succeededIn = (
+  batch: Batch,
+  stepId: string,
+): { attempt: number; root: string | undefined } | undefined => {
   const attempts = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].reverse();
   const done = attempts.find(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   );
-  return worktreeOf(done);
+  return done === undefined ? undefined : { attempt: done.attempt, root: worktreeOf(done) };
 };
 
 /**
@@ -274,7 +277,9 @@ const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories)
 /**
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064) or
  * that `recipeHas` says its recipe does not have (#774); throws when a step it names is no
- * brewer's, or has no out doc yet. A lens input's text is in `lenses`, the lenses
+ * brewer's, or has no out doc yet. `stepBrewer` finds a step's brewer in the recipe the attempt
+ * `attempt` of it was scheduled under, the attempt whose out doc an input reads (#786); without
+ * one, in the planned attempt's. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
  * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
  * a sub-order's plan entry input's in `planEntry` (ADR 0290), and the release input's in `release`,
@@ -283,7 +288,7 @@ const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories)
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
   batch: Batch,
-  stepBrewer: (stepId: string) => StepBrewer | undefined,
+  stepBrewer: (stepId: string, attempt?: number) => StepBrewer | undefined,
   worktree: string,
   lenses: ReadonlyMap<string, Lens> = new Map(),
   brewery?: BreweryRepositories,
@@ -343,7 +348,10 @@ export function inputsOf(
           latest === undefined
             ? undefined
             : worktreeOf(batch.steps.get(latest.stepId)?.attempts.get(latest.attempt));
-        const doc = latest === undefined ? undefined : stepBrewer(latest.stepId)?.brewer.output.doc;
+        const doc =
+          latest === undefined
+            ? undefined
+            : stepBrewer(latest.stepId, latest.attempt)?.brewer.output.doc;
         if (latest === undefined || root === undefined || doc === undefined) {
           throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
         }
@@ -355,14 +363,15 @@ export function inputsOf(
       }
       if (from.startsWith('step:')) {
         const step = from.slice('step:'.length);
-        const doc = stepBrewer(step)?.brewer.output.doc;
+        const done = succeededIn(batch, step);
+        const doc = stepBrewer(step, done?.attempt)?.brewer.output.doc;
         if (doc === undefined) {
           // A check, an action or a group: a mistake in the brewer's file, never left out.
           throw new Error(
             `the input "${name}" names step ${step}, which is no brewer's step and has no out doc`,
           );
         }
-        const root = succeededIn(batch, step);
+        const root = done?.root;
         if (root === undefined) {
           throw new Error(
             `the input "${name}" needs the out doc of step ${step}, which has none yet`,
@@ -667,7 +676,8 @@ export interface PlannedRoute {
 
 /**
  * What sent attempt `ref` back, from the latest finished attempt of the step its route came from;
- * none when no route scheduled it (ADR 0128). `outDocOf` names a step's out doc file, and
+ * none when no route scheduled it (ADR 0128). `outDocOf` names the out doc file of an attempt of a
+ * step, in the recipe it was scheduled under (#786), and
  * `mergeOf` reads what the merge at an attempt's start recorded. A fresh retry or answer of a fix
  * whose start merged the base gets what sent that fix back, since its worktree holds the merge too
  * (ADR 0244).
@@ -675,7 +685,7 @@ export interface PlannedRoute {
 export function routeOf(
   batch: Batch,
   ref: AttemptRef,
-  outDocOf: (stepId: string) => string | undefined,
+  outDocOf: (stepId: string, attempt: number) => string | undefined,
   mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
 ): PlannedRoute | undefined {
   const route =
@@ -705,7 +715,7 @@ export function routeOf(
   // A red proof's reason quotes its test run, whose tail alone was filtered (#188).
   const said = findSecrets(reason, () => false).length > 0 ? leftOutReason : reason;
   const text = [`Step ${from} ended: ${said}`, ...readings.flatMap(failedReading)].join('\n\n');
-  const doc = outDocOf(from);
+  const doc = outDocOf(from, routing.attempt);
   // A resumed attempt ran in the worktree of the session it continues (ADR 0117).
   const root = routing.worktree?.path ?? routing.session?.worktree;
   if (why === 'failed' || root === undefined || doc === undefined) return { source, text };
