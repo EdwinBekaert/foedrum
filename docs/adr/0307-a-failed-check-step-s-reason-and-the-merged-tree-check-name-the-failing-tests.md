@@ -17,7 +17,7 @@ A check on an open pull request's merged tree ([ADR 0203](0203-an-open-pull-requ
   The path keeps a failed attempt's first clause within 48 characters ([ADR 0261](0261-the-status-path-says-why-a-failed-attempt-failed-and-what-answered-a-question.md), #656), where names never fit.
   The count is read from the attempt's readings, never parsed from the reason, and only when they settle to the attempt's reason itself: an attempt that failed for another reason after its checks, such as a survey's disagreement ([ADR 0298](0298-the-maltster-s-survey-ends-without-a-session-for-a-fresh-map-and-its-check-sends-a-disagreement-back-once.md)), keeps that reason's clause.
   Without names the path reads as before; a long check is cut at a word as before.
-  The Stuck line and the failed-attempt line show the whole reason, names included.
+  The Stuck line and the failed-attempt line show the reason, names included, within their cut at 200 characters, the count always kept.
   So does the first line of the route input a failed check step sends back (`Step green ended: …`, [ADR 0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md)), before the reading's own `Failing tests:` line: the names come twice there, the reason's few and the reading's ten, rather than one surface wording the reason apart.
 - **The merged-tree check reads the test map at its commits**: `checkTree` takes the merged tree's head and the base's tip beside the tree, and reads the base's map at the tip and the batch's at the head (`testMap.at`, which reads a map kept in the Brewery too), as a check step reads its effective map.
   It reads the reports only when the test check failed, through the same naming as a check step's.
