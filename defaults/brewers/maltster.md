@@ -2,7 +2,7 @@
 {
   "name": "maltster",
   "description": "Proposes the repository's test map from its manifests, when it has none or a stale one; changes nothing else.",
-  "version": 1,
+  "version": 2,
   "model": "builder",
   "effort": "medium",
   "output": { "doc": "survey.md", "schema": "survey" },

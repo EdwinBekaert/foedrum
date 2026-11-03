@@ -5,7 +5,7 @@
 // by a moved head or a later brief, hidden as outdated, `[batch, "brief.<n>.hidden"]` (ADR 0229).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
+import { pullRequestOf } from '../schemas/events.ts';
 import {
   lensFirst,
   placeOf,
@@ -15,6 +15,7 @@ import {
 } from '../schemas/out-doc.ts';
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
+import { checkReadings } from './check-readings.ts';
 import { commentId, effectMarker } from './claim-effects.ts';
 import { cutForComment } from './comment-revisions.ts';
 import { onFindings } from './decide.ts';
@@ -177,17 +178,6 @@ const pairLines = (state: State, batch: Batch): string[] => {
     ({ other, conflicts: files }) =>
       `- Conflicts with the open pull request ${link(other)} in ${files.map(plain).join(', ')}.`,
   );
-};
-
-/** The readings of a check step's latest success, its repository's setup left out (ADR 0163). */
-const checkReadings = (batch: Batch, stepId: string): readonly GravityReading[] | undefined => {
-  const step = batch.steps.get(stepId);
-  const latest = step && latestAttempt(step);
-  if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return undefined;
-  const readings = (latest.readings ?? []).filter(
-    (reading) => reading.result === 'skipped' || reading.setup !== true,
-  );
-  return readings.length === 0 ? undefined : readings;
 };
 
 /** The facts of one batch's steps the brief reads, in its recipe's order. */

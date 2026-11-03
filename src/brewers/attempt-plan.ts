@@ -8,6 +8,7 @@ import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
+import type { ChecksInput } from '../engine/check-readings.ts';
 import { type Attempt, attemptBefore, type Batch } from '../engine/fold.ts';
 import { lensRounds, reviewed } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
@@ -279,7 +280,8 @@ const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories)
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
  * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
  * a sub-order's plan entry input's in `planEntry` (ADR 0290), and the release input's in `release`,
- * left out when the batch waited on no release (ADR 0291).
+ * left out when the batch waited on no release (ADR 0291), and the checks input's in `checks`,
+ * left out when no check ran on the commit the attempt starts at (ADR 0308).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -293,6 +295,7 @@ export function inputsOf(
   planEntry?: string,
   release?: ReleaseInput,
   recipeHas: (stepId: string) => boolean = () => true,
+  checks?: ChecksInput,
 ): PlannedInput[] {
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
@@ -303,6 +306,7 @@ export function inputsOf(
     (from === 'plan' && !chosen) ||
     (from === 'plan-entry' && batch.plan === undefined) ||
     (from === 'release' && release === undefined) ||
+    (from === 'checks' && checks === undefined) ||
     (from.startsWith('step:') && stepLeftOut(from.slice('step:'.length)));
   return inputs
     .filter(({ from }) => !skipped(from))
@@ -337,6 +341,10 @@ export function inputsOf(
       if (from === 'release' && release !== undefined) {
         const source = { kind: 'release', issue: batch.issue, releases: release.releases } as const;
         return { name, source, read: { kind: 'text', text: release.text } };
+      }
+      if (from === 'checks' && checks !== undefined) {
+        const source = { kind: 'checks', commit: checks.commit } as const;
+        return { name, source, read: { kind: 'text', text: checks.text } };
       }
       if (from === 'plan') {
         const latest = latestPlan(batch);
@@ -1031,6 +1039,7 @@ function example(status: string, ownKey?: string): string[] {
  * The out doc contract every prompt ends its instructions with (brewers-and-recipes §2): one
  * example per status, so a brewer that copies one as it is writes a valid out doc (#195). A brewer
  * that commits is told to commit before it writes the out doc, and never the out doc (ADR 0074).
+ * Every brewer claims only what its session did or read (ADR 0308).
  * Its shell commands and the push rule are in the system prompt (`attemptSystemPrompt`, ADR 0183).
  */
 export function outDocContract(file: string, commits = false): string {
@@ -1055,6 +1064,8 @@ export function outDocContract(file: string, commits = false): string {
     'You could not finish:',
     ...example('failed'),
     '',
+    'An assumption or a risk states only what you did or read: "I did not check X" is',
+    'fine, but "X could not be checked" needs the attempt that failed.',
     'Prefer deciding and recording an assumption over asking. Ask only when a wrong',
     'guess would likely waste this run. Never ask questions any other way.',
     ...(commits
