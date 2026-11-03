@@ -4,7 +4,9 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { checksInput } from '../../src/engine/check-readings.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { Event, GravityReading } from '../../src/schemas/events.ts';
 
@@ -101,5 +103,23 @@ describe('checksInput (ADR 0308)', () => {
         '  - the check "lint" (npm run lint) passed',
       ].join('\n'),
     );
+  });
+
+  it("reads the base merge of a step's latest attempt, not of an earlier one (regression test)", () => {
+    /** The merge of the base attempt `attempt` of green made at its start, as `merged`. */
+    const merge = (attempt: number, merged: string): Event => ({
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'green', attempt })),
+      result: { base: 'a'.repeat(40), merged },
+    });
+    const [first, second] = ['d'.repeat(40), 'e'.repeat(40)];
+    const events = [
+      ...run('green', 1, 'b'.repeat(40), [failed]),
+      merge(1, first),
+      ...run('green', 2, 'f'.repeat(40), [passed]),
+      merge(2, second),
+    ];
+    assert.match(inputOf(events, second)?.text ?? '', /passed/);
+    assert.equal(inputOf(events, first), undefined);
   });
 });
