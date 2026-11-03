@@ -6,7 +6,7 @@ import { z } from './zod.ts';
 
 /** The longest name, version, URL or path an entry keeps. */
 export const MAX_MAP_NAME_LENGTH = 120;
-/** The most dependencies, packages, modules or unread manifests an entry keeps of each. */
+/** The most manifests, dependencies, packages, modules or unread manifests an entry keeps of each. */
 export const MAX_MAP_ITEMS = 200;
 
 const Name = z
@@ -24,6 +24,11 @@ export const MapDependencyVia = z.discriminatedUnion('kind', [
 ]);
 
 export const SystemMapEntry = z.strictObject({
+  /** Each manifest a reader matched, with its reader's ecosystem: the repository's languages. */
+  manifests: z
+    .array(z.strictObject({ path: Name, ecosystem: Ecosystem }))
+    .max(MAX_MAP_ITEMS)
+    .optional(),
   publishes: z.array(z.strictObject({ name: Name, ecosystem: Ecosystem })).max(MAX_MAP_ITEMS),
   dependsOn: z
     .array(z.strictObject({ name: Name, ecosystem: Ecosystem, via: MapDependencyVia }))

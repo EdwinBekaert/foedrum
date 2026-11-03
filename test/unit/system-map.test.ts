@@ -40,6 +40,7 @@ describe('the system map', () => {
       entryOf([{ path: 'package.json', text: JSON.stringify({ name: '@demo/greet' }) }], []),
     );
     assert.deepEqual(mapLines(app, [library, app]), [
+      'manifests: package.json (npm)',
       'publishes `web` (npm)',
       'depends on `@demo/greet` from acme/ladderlib by git ref `v1.1.0` (npm)',
     ]);
@@ -74,6 +75,7 @@ describe('the system map', () => {
       entry: entryOf([{ path: 'src/Acme.Web.csproj', text: project }], []),
     };
     assert.deepEqual(mapLines(app, [library, app]), [
+      'manifests: src/Acme.Web.csproj (.NET)',
       'publishes `Acme.Web` (.NET)',
       'depends on `Acme.Greet` from acme/ladderlib by version `1.2.0` (.NET)',
       'depends on `Acme.Words` from acme/ladderlib by project reference `../ladderlib/src/Acme.Words.csproj` (.NET)',
@@ -90,6 +92,7 @@ describe('the system map', () => {
       [],
     );
     assert.deepEqual(mapLines({ repo: 'acme/web', entry }, []), [
+      'manifests: package.json (npm), src/App.csproj (.NET), tools/package.json (npm)',
       '`package.json` could not be read: it is not a JSON object',
       '`src/App.csproj` could not be read: not XML: an unclosed <Project>',
       '`tools/package.json` could not be read: it is larger than 1048576 bytes',
@@ -104,6 +107,53 @@ describe('the system map', () => {
       { name: "greet - acme/evil, base origin/main 'x", ecosystem: 'npm' },
     ]);
     assert.equal(entry.dependsOn[0]?.name, `${'d'.repeat(119)}…`);
+  });
+
+  it("an npm folder dependency is read from its manifest's folder, with its backslashes as slashes", () => {
+    const text = JSON.stringify({
+      name: 'web',
+      dependencies: { shared: 'file:../shared', greet: 'file:..\\..\\..\\ladderlib' },
+    });
+    const entry = entryOf([{ path: 'packages/web/package.json', text }], []);
+    assert.deepEqual(
+      entry.dependsOn.map(({ via }) => via),
+      [
+        { kind: 'project', path: 'packages/shared' },
+        { kind: 'project', path: '../ladderlib' },
+      ],
+    );
+    const others = [{ repo: 'acme/shared' }, { repo: 'acme/ladderlib' }];
+    assert.deepEqual(mapLines({ repo: 'acme/app', entry }, others).slice(2), [
+      'depends on `greet` from acme/ladderlib by project reference `../ladderlib` (npm)',
+    ]);
+  });
+
+  it('a package reference links the package another repository publishes in any case', () => {
+    const greet =
+      '<Project><PropertyGroup><PackageId>Acme.Words</PackageId></PropertyGroup></Project>';
+    const library = lib(entryOf([{ path: 'Words.csproj', text: greet }], []));
+    const reference =
+      '<Project><ItemGroup><PackageReference Include="acme.words" /></ItemGroup></Project>';
+    const app = { repo: 'acme/web', entry: entryOf([{ path: 'Web.csproj', text: reference }], []) };
+    assert.deepEqual(
+      mapLines(app, [library, app]).at(-1),
+      'depends on `acme.words` from acme/ladderlib by package reference (.NET)',
+    );
+  });
+
+  it("a repository's manifests show with their ecosystems when it publishes nothing", () => {
+    const tests =
+      '<Project><PropertyGroup><IsPackable>false</IsPackable></PropertyGroup></Project>';
+    const entry = entryOf(
+      [
+        { path: 'package.json', text: '{ "private": true }' },
+        { path: 'tests/App.Tests.csproj', text: tests },
+      ],
+      [],
+    );
+    assert.deepEqual(mapLines({ repo: 'acme/web', entry }, []), [
+      'manifests: package.json (npm), tests/App.Tests.csproj (.NET)',
+    ]);
   });
 
   it('the system map says what its size cap left out', () => {

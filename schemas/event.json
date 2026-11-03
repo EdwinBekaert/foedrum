@@ -2328,6 +2328,32 @@
         "entry": {
           "type": "object",
           "properties": {
+            "manifests": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$"
+                  },
+                  "ecosystem": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$"
+                  }
+                },
+                "required": [
+                  "path",
+                  "ecosystem"
+                ],
+                "additionalProperties": false
+              }
+            },
             "publishes": {
               "maxItems": 200,
               "type": "array",

@@ -86,6 +86,7 @@ describe('doctorFromCheckout', () => {
           read: {
             commit: tip,
             entry: {
+              manifests: [{ path: 'package.json', ecosystem: 'npm' }],
               publishes: [{ name: '@acme/lib', ecosystem: 'npm' }],
               dependsOn: [],
               modules: [],

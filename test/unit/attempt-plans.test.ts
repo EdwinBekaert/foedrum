@@ -808,6 +808,7 @@ describe('createAttemptPlans: plan', () => {
       repo,
       commit,
       entry: {
+        manifests: [{ path: 'package.json', ecosystem: 'npm' }],
         publishes: [{ name, ecosystem: 'npm' }],
         dependsOn:
           name === 'web'
@@ -841,7 +842,7 @@ describe('createAttemptPlans: plan', () => {
       const { prompt } = await plans.plan(start);
       assert.match(
         prompt,
-        /name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/main\n {2}the web app; deploys on merge\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by git ref `v2\.0\.0` \(npm\)\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n {2}publishes `@acme\/api` \(npm\)\n<\/untrusted-input-/,
+        /name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/main\n {2}the web app; deploys on merge\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by git ref `v2\.0\.0` \(npm\)\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n {2}manifests: package\.json \(npm\)\n {2}publishes `@acme\/api` \(npm\)\n<\/untrusted-input-/,
       );
       // Both entries are at their base's tip: neither is read again.
       assert.deepEqual(recorded, []);
@@ -875,6 +876,28 @@ describe('createAttemptPlans: plan', () => {
         ),
         [],
       );
+    });
+
+    it('a map git timed out on is not recorded, so the next plan reads it again', async () => {
+      const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+      const calls: string[] = [];
+      let timedOut = true;
+      const listing = gitOf(calls);
+      const git = async (cwd: string, args: readonly string[]) =>
+        timedOut && args[0] === 'ls-tree'
+          ? { code: null, stdout: '', stderr: '', killed: 'timed-out' as const }
+          : listing(cwd, args);
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git,
+        recordMap: (event) => events.push(event),
+      });
+      await plans.plan(start);
+      assert.equal(events.filter(({ type }) => type === 'system.mapped').length, 1);
+      timedOut = false;
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(events.slice(-1), [mapped('acme/web', tip, 'web')]);
+      assert.match(prompt, /publishes `web` \(npm\)/);
     });
 
     it("a Brewery with no manifests gives today's lines (regression test)", async () => {
@@ -2233,7 +2256,7 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     );
     assert.match(
       prompt,
-      /name="repositories">\n[^<]*- acme\/web, base origin\/trunk\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by version `2\.0\.0` \(npm\)\n<\/untrusted-input-/,
+      /name="repositories">\n[^<]*- acme\/web, base origin\/trunk\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by version `2\.0\.0` \(npm\)\n<\/untrusted-input-/,
     );
   });
 
