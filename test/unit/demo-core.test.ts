@@ -193,10 +193,11 @@ describe('the demo Brewery', () => {
     for (const child of ['correctness', 'security', 'test-design']) {
       assert.equal(ready.setup.brewers.find('nip-parallel', child)?.brewer.name, 'taster', child);
     }
-    // Nip in Foedrum's defaults keeps its own group of two lenses (ADR 0197).
+    // Nip in Foedrum's defaults keeps its own group of three lenses (ADR 0197, ADR 0306).
     assert.deepStrictEqual(ready.setup.recipes.find('nip')?.children('taste'), [
       'correctness',
       'acceptance',
+      'security',
     ]);
   });
 

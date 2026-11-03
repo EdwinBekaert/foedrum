@@ -1,6 +1,6 @@
 // node scripts/tasting-compare.ts [--runs <n>] [--dry-run] (#567, ADR 0224): tastes the seeded
 // change of test/fixtures/tasting-compare 3 times in each of three setups, the seven default diff
-// lenses apart, the seven together and Nip's two together, and prints one table of the planted
+// lenses apart, the seven together and Nip's three together, and prints one table of the planted
 // defects found, the other findings, the tokens and the time. Each run brews one order with
 // foedrum brew's own runBrew in a scratch Brewery and target repository under
 // .foedrum/tmp/tasting-compare/<setup>-<run>, on npm run demo's seams (ADR 0097): the fake code

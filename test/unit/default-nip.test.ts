@@ -82,6 +82,7 @@ describe('the default Nip', () => {
       green: [done],
       correctness: [done],
       acceptance: [done],
+      security: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started.slice(0, 3), ['survey', 'survey-check', 'gauge']);
@@ -107,6 +108,7 @@ describe('the default Nip', () => {
           green: [done],
           correctness: [done],
           acceptance: [done],
+          security: [done],
           'open-pull-request': [done],
         }),
         recipes: valid(loadRecipes(files)).recipes,
@@ -123,7 +125,15 @@ describe('the default Nip', () => {
       );
       assert.deepEqual(
         events.flatMap((event) => (event.type === 'step.started' ? [event.stepId] : [])),
-        ['implement', 'fine', 'green', 'correctness', 'acceptance', 'open-pull-request'],
+        [
+          'implement',
+          'fine',
+          'green',
+          'correctness',
+          'acceptance',
+          'security',
+          'open-pull-request',
+        ],
       );
     } finally {
       store.close();
@@ -142,6 +152,7 @@ describe('the default Nip', () => {
       green: [done],
       correctness: [done],
       acceptance: [done],
+      security: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -157,6 +168,7 @@ describe('the default Nip', () => {
       'green',
       'correctness',
       'acceptance',
+      'security',
       'open-pull-request',
     ]);
   });
@@ -173,6 +185,7 @@ describe('the default Nip', () => {
       green: [behave.fail(false), done],
       correctness: [done],
       acceptance: [done],
+      security: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -188,6 +201,7 @@ describe('the default Nip', () => {
       'green',
       'correctness',
       'acceptance',
+      'security',
       'open-pull-request',
     ]);
   });
@@ -213,6 +227,7 @@ describe('the default Nip', () => {
         green: [behave.read([failing]), done],
         correctness: [done],
         acceptance: [done],
+        security: [done],
         'open-pull-request': [done],
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));
@@ -285,6 +300,7 @@ describe('the default Nip', () => {
       green: [done],
       correctness: [done],
       acceptance: [done],
+      security: [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -299,6 +315,7 @@ describe('the default Nip', () => {
       'green',
       'correctness',
       'acceptance',
+      'security',
       'open-pull-request',
     ]);
   });
@@ -352,13 +369,19 @@ describe('the default Nip', () => {
       'green',
       'correctness',
       'acceptance',
+      'security',
       'open-pull-request',
     ]);
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
-    // After green, two Tasters review side by side, through the correctness and acceptance
-    // lenses (ADR 0168, ADR 0197); correctness blocks, acceptance advises (ADR 0264).
-    assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), ['correctness', 'acceptance']);
+    // After green, three Tasters review side by side, through the correctness, acceptance and
+    // security lenses (ADR 0168, ADR 0197, ADR 0306); correctness blocks (ADR 0264), acceptance and
+    // security advise (ADR 0306).
+    assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), [
+      'correctness',
+      'acceptance',
+      'security',
+    ]);
     for (const lens of ['correctness', 'acceptance']) {
       const taste = loaded.brewers.find('nip', lens);
       assert.equal(taste?.brewer.name, 'taster', lens);
@@ -386,6 +409,17 @@ describe('the default Nip', () => {
     assert.equal(nip.routesTo('acceptance', 'findings'), undefined);
   });
 
+  it('tastes through the security lens beside correctness and acceptance, advisory (ADR 0306)', () => {
+    const { brewers, recipes } = valid(loadRecipes(noFiles));
+    const security = brewers.find('nip', 'security');
+    assert.equal(security?.brewer.name, 'taster');
+    assert.deepEqual([...(security.lenses?.keys() ?? [])], ['diff/security']);
+    // Advisory: its findings are listed in the pull request and the status comment, and its
+    // verdict counts toward the draft rule (ADR 0167), but a blocker sends nothing back.
+    assert.equal(security.blocking, false);
+    assert.equal(recipes.find('nip')?.routesTo('security', 'findings'), undefined);
+  });
+
   it('sends a batch whose correctness Taster asks for changes back to Cellarman, then through fine and green again (ADR 0264)', async () => {
     const done = behave.succeed();
     const started = await brewNip({
@@ -398,6 +432,7 @@ describe('the default Nip', () => {
       green: [done, done],
       correctness: [behave.blocked('findings', 'An Ordered sub-order holds nothing'), done],
       acceptance: [done, done],
+      security: [done, done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -410,11 +445,13 @@ describe('the default Nip', () => {
       'green',
       'correctness',
       'acceptance',
+      'security',
       'implement',
       'fine',
       'green',
       'correctness',
       'acceptance',
+      'security',
       'open-pull-request',
     ]);
   });
@@ -432,6 +469,7 @@ describe('the default Nip', () => {
       green: [done, done, done],
       correctness: [changes, changes, changes, done],
       acceptance: [done, done, done, done],
+      security: [done, done, done, done],
       'open-pull-request': [done],
     });
     const started = events.flatMap((event) =>
@@ -475,6 +513,7 @@ describe('the default Nip', () => {
               'green',
               'correctness',
               'acceptance',
+              'security',
               'open-pull-request',
             ].map((id) => [id, [done]]),
           ),
@@ -506,6 +545,7 @@ describe('the default Nip', () => {
         'green',
         'correctness',
         'acceptance',
+        'security',
         'open-pull-request',
       ]);
     } finally {
@@ -582,6 +622,7 @@ describe('the default Cellarman', () => {
         green: [done],
         correctness: [done],
         acceptance: [done],
+        security: [done],
         'open-pull-request': [done],
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));

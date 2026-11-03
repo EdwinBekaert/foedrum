@@ -247,10 +247,10 @@ describe('the setups', () => {
     );
   });
 
-  it("taste together-nip through Nip's two lenses in one step", () => {
+  it("taste together-nip through Nip's three lenses in one step", () => {
     const step = tasteOf('together-nip');
     assert.ok(step !== undefined && 'brewer' in step);
-    assert.deepEqual(step.lenses, ['diff/correctness', 'diff/acceptance']);
+    assert.deepEqual(step.lenses, ['diff/correctness', 'diff/acceptance', 'diff/security']);
   });
 });
 
@@ -459,7 +459,7 @@ describe('scoreRun', () => {
     const only = {
       defects: [
         ...KEY.defects,
-        { ...KEY.defects[0], id: 'sec', lens: 'diff/security', lines: [[20, 20]] },
+        { ...KEY.defects[0], id: 'safe', lens: 'diff/necessity', lines: [[20, 20]] },
       ],
     } as Key;
     const { found, others } = scoreRun(
@@ -514,16 +514,19 @@ describe('summarize', () => {
     );
   });
 
-  it("reads Nip's two apart from the apart runs' correctness and acceptance steps", () => {
+  it("reads Nip's three apart from the apart runs' correctness, acceptance and security steps", () => {
     const nip = summarize([apart(1)], KEY).find(({ setup }) => setup === 'apart-nip');
     assert.equal(nip?.defects, 2);
     assert.deepEqual(nip?.found, [2]);
-    assert.equal(nip?.meanTokens.total, 2840);
-    assert.equal(nip?.meanTurns, 10);
-    // Side by side: the longer of the two attempts. It never ran alone, so it has no wall time.
+    assert.equal(nip?.meanTokens.total, 4260);
+    assert.equal(nip?.meanTurns, 15);
+    // Side by side: the longest of the three attempts. It never ran alone, so it has no wall time.
     assert.equal(nip?.meanTasteMs, 40_000);
     assert.ok(Number.isNaN(nip?.meanWallMs));
-    assert.deepEqual(nip?.others, [[]]);
+    assert.deepEqual(
+      nip?.others[0]?.map(({ finding: { file } }) => file),
+      ['src/z.ts'],
+    );
   });
 
   it('scores the retry of a failed run, and counts the failed one', () => {
