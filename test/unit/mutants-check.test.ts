@@ -25,6 +25,7 @@ const rates = [
   '    if amount > limit:',
   '        return 0.2  # was: return rate',
   '    return 0.1',
+  '    share = amount // limit',
   '',
 ].join('\n');
 const total = [
@@ -38,11 +39,12 @@ const total = [
 const diff = `diff --git a/calc/rates.py b/calc/rates.py
 --- a/calc/rates.py
 +++ b/calc/rates.py
-@@ -1,2 +1,4 @@
+@@ -1,2 +1,5 @@
  def rate(amount, limit):
 +    if amount > limit:
 +        return 0.2  # was: return rate
      return 0.1
++    share = amount // limit
 diff --git a/tests/test_rates.py b/tests/test_rates.py
 new file mode 100644
 --- /dev/null
@@ -185,6 +187,34 @@ describe('mutantCheck: a target repository (ADR 0311)', () => {
     );
     assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
     assert.equal(verdict.line, 3);
+  });
+
+  it('a mutant whose original is on no line of its file is invalid', () => {
+    assert.equal(
+      reasonOf({ original: 'return 0.3', replacement: 'return 0.4' }),
+      'no line of calc/rates.py is the original',
+    );
+  });
+
+  it("a `//` is code where the language's comments are not known", () => {
+    // Python's floor division: stripped as a comment, `limit` would count as added.
+    const verdict = mutantCheck(
+      mutant({
+        line: 5,
+        original: 'share = amount // limit',
+        replacement: 'share = limit // amount',
+      }),
+      change,
+    );
+    assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
+    assert.equal(verdict.line, 5);
+  });
+
+  it('reads the mutants of a done out doc only', () => {
+    const proposed = { ...mutant({}), description: 'The top rate starts at the limit' };
+    const fields = { summary: 'Mutants of the rate change', mutants: [proposed] };
+    assert.deepEqual(mutantsOf({ status: 'done', ...fields }), [proposed]);
+    assert.equal(mutantsOf({ status: 'blocked', blockerKind: 'findings', ...fields }), undefined);
   });
 
   it('an out doc of three mutants gives one edit and two named reasons', () => {
