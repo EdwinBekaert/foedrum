@@ -3,12 +3,16 @@
 // the clone's objects, and reads git's exit code and NUL-separated output.
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { Git, GitOptions, GitResult } from '../../src/workspace/git.ts';
-import { openMergedTree, openMergeTree } from '../../src/workspace/merge-tree-git.ts';
+import {
+  openCommitTree,
+  openMergedTree,
+  openMergeTree,
+} from '../../src/workspace/merge-tree-git.ts';
 import { suiteFolders } from '../helpers/attempt-worktrees.ts';
 
 const HEAD = 'a'.repeat(40);
@@ -243,4 +247,40 @@ describe('openMergedTree', () => {
 
   const open2 = (git: Git) =>
     openMergedTree({ git, clone, own: { url, root: nextFolder(), id: () => 'one' } });
+});
+
+describe('openCommitTree', () => {
+  const COMMIT = '9'.repeat(40);
+
+  it('writes no edit through a link the commit holds, and fails before the run (ADR 0313)', async () => {
+    const root = nextFolder();
+    const outside = nextFolder();
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, 'add.mjs'), 'outside\n');
+    const recorded = recordingGit(ok());
+    // The commit's `src` is a link out of the tree: a junction, which Windows makes without a privilege.
+    const git: Git = async (cwd, args, options) => {
+      const result = await recorded.git(cwd, args, options);
+      if (args.includes('worktree') && args.includes('add')) {
+        const tree = args.at(-2) ?? '';
+        mkdirSync(tree, { recursive: true });
+        symlinkSync(outside, join(tree, 'src'), 'junction');
+      }
+      return result;
+    };
+    let used = false;
+    await assert.rejects(
+      openCommitTree({ git, clone, own: { url, root, id: () => 'one' } })(
+        COMMIT,
+        async () => {
+          used = true;
+        },
+        { edit: { file: 'src/add.mjs', content: 'the mutant\n' } },
+      ),
+      { message: '"src/add.mjs" is no regular file of the scratch tree' },
+    );
+    assert.equal(used, false);
+    assert.equal(readFileSync(join(outside, 'add.mjs'), 'utf8'), 'outside\n');
+    assert.equal(existsSync(join(root, 'one.tree')), false);
+  });
 });
