@@ -14,6 +14,7 @@ import {
   fullSha,
   gitOutput,
   inClone,
+  type OwnGitDir,
   type OwnRemote,
   withOwnGitDir,
 } from './clone-git.ts';
@@ -129,32 +130,47 @@ export const openMergedTree =
           })
         ).trim(),
       );
-      // The clone's tags and remote-tracking refs, so `git describe` or a log of the base reads
-      // what it reads in a check step's worktree.
-      const listed = await gitOutput(
-        inClone(git),
-        clone,
-        ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags', 'refs/remotes'],
-        signal === undefined ? {} : { signal },
-      );
-      const refs = listed
-        .split(/\r?\n/)
-        .filter(isCopiedRef)
-        .map((line) => `${line}\n`);
-      await writeFile(join(dir.path, 'packed-refs'), refs.join(''));
-      // git in the worktree runs without the call's object directory: it borrows the clone's.
-      await mkdir(join(dir.path, 'objects', 'info'), { recursive: true });
-      await writeFile(join(dir.path, 'objects', 'info', 'alternates'), `${dir.objects}\n`);
-      const worktree = dir.path.replace(/\.git$/, '.tree');
-      try {
-        const added = await dir.read(
-          ['worktree', 'add', '--quiet', '--detach', '--end-of-options', worktree, commit],
-          { timeoutMs: CHECKOUT_TIMEOUT_MS },
-        );
-        if (added.code !== 0) throw new Error(`git worktree add failed: ${firstLine(added)}`);
-        return await use(worktree);
-      } finally {
-        await removeTree(worktree);
-      }
+      return checkedOut({ git, clone }, dir, commit, use, signal);
     });
   };
+
+/**
+ * Runs `use` with a worktree of `commit` checked out from `dir`, a git directory of Foedrum's own,
+ * which gets a copy of the clone's tags and remote-tracking refs and borrows its objects. The
+ * worktree goes when `use` ends, also when it fails.
+ */
+const checkedOut = async <T>(
+  { git, clone }: Pick<MergeTreeOptions, 'git' | 'clone'>,
+  dir: OwnGitDir,
+  commit: string,
+  use: (worktree: string) => Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> => {
+  // The clone's tags and remote-tracking refs, so `git describe` or a log of the base reads
+  // what it reads in a check step's worktree.
+  const listed = await gitOutput(
+    inClone(git),
+    clone,
+    ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags', 'refs/remotes'],
+    signal === undefined ? {} : { signal },
+  );
+  const refs = listed
+    .split(/\r?\n/)
+    .filter(isCopiedRef)
+    .map((line) => `${line}\n`);
+  await writeFile(join(dir.path, 'packed-refs'), refs.join(''));
+  // git in the worktree runs without the call's object directory: it borrows the clone's.
+  await mkdir(join(dir.path, 'objects', 'info'), { recursive: true });
+  await writeFile(join(dir.path, 'objects', 'info', 'alternates'), `${dir.objects}\n`);
+  const worktree = dir.path.replace(/\.git$/, '.tree');
+  try {
+    const added = await dir.read(
+      ['worktree', 'add', '--quiet', '--detach', '--end-of-options', worktree, commit],
+      { timeoutMs: CHECKOUT_TIMEOUT_MS },
+    );
+    if (added.code !== 0) throw new Error(`git worktree add failed: ${firstLine(added)}`);
+    return await use(worktree);
+  } finally {
+    await removeTree(worktree);
+  }
+};
