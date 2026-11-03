@@ -10,13 +10,14 @@ import type { TestRun, TestRunEnd } from '../../src/checks/check-runner.ts';
 import { mutated } from '../../src/checks/mutant-run.ts';
 import { mutantCheck } from '../../src/checks/mutants.ts';
 import type { MappedReport } from '../../src/checks/red-proof.ts';
-import type { MapRead } from '../../src/checks/test-map.ts';
+import type { MapRead, ReadTestMapAt } from '../../src/checks/test-map.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import type { AttemptEnd, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { TestResult } from '../../src/formats/test-report.ts';
+import { messageOf } from '../../src/platform/errors.ts';
 import { Event, MAX_MUTANT_TEXT } from '../../src/schemas/events.ts';
 import { type MutantEdit, MutantsOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
@@ -205,6 +206,7 @@ const setup = ({
   checkedOut = code,
   clonedGit = git,
   mapAt = map,
+  testMap = async () => mapAt,
   blocking = false,
 }: {
   runner: BrewerRunner;
@@ -218,6 +220,8 @@ const setup = ({
   clonedGit?: Git;
   /** The test map at every commit. */
   mapAt?: MapRead;
+  /** The test map by commit, `mapAt` at every one unless given. */
+  testMap?: ReadTestMapAt;
   /** Whether the step blocks on a survivor (ADR 0319). */
   blocking?: boolean;
 }) => {
@@ -255,7 +259,7 @@ const setup = ({
     mutates: () => mutates,
     git: clonedGit,
     clone: () => clone,
-    testMap: async () => mapAt,
+    testMap,
     tree: () => tree,
     testRun,
     platform: 'linux',
@@ -588,6 +592,27 @@ describe('mutated, on a blocking step (ADR 0319)', () => {
 });
 
 describe('mutated, its edges', () => {
+  it('a judge that throws records every mutant not judged, and the attempt keeps its end', async () => {
+    const throwing: ReadTestMapAt = async () => {
+      throw new Error('the clone is gone');
+    };
+    for (const blocking of [false, true]) {
+      const { end } = setup({ runner: brett([boundary, subtracts]), testMap: throwing, blocking });
+      // A rejection would make the driver record the attempt blocked by its environment.
+      const ended = await end().catch((error: unknown) => ({ rejected: messageOf(error) }));
+      assert.ok('ending' in ended, JSON.stringify(ended));
+      assert.equal(ended.ending.kind, 'succeeded', `blocking: ${blocking}`);
+      const why = 'the mutants could not be run: the clone is gone';
+      assert.deepStrictEqual(
+        ended.mutants?.map(({ line, verdict }) => [line, verdict]),
+        [
+          [2, { kind: 'notJudged', why }],
+          [1, { kind: 'notJudged', why }],
+        ],
+      );
+    }
+  });
+
   const verdicts = async (options: Parameters<typeof setup>[0]) =>
     (await setup(options).end()).mutants?.map(({ verdict }) => verdict);
   const signaled = {
