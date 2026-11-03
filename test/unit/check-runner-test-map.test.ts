@@ -89,6 +89,11 @@ const junitOf = (...tests: { name: string; file?: string }[]): string =>
         `<testcase name="${name}"${file === undefined ? '' : ` file="${file}" line="3"`}/>`,
     )
     .join('')}</testsuite></testsuites>`;
+/** A JUnit report in which each of `names` failed. */
+const failingOf = (...names: string[]): string =>
+  `<testsuites><testsuite name="all">${names
+    .map((name) => `<testcase name="${name}"><failure message="no"/></testcase>`)
+    .join('')}</testsuite></testsuites>`;
 const tapped: TestMapModule = {
   name: 'tapped',
   code: ['t/src/**'],
@@ -133,6 +138,8 @@ const setup = ({
   refused = {} as Record<string, string>,
   /** null: the test check was killed at its deadline. */
   testExit = 0 as number | null,
+  /** The typecheck check's exit code. */
+  typecheckExit = 0,
   /** Where the map is kept (ADR 0018). */
   keptIn = 'repo' as 'repo' | 'brewery',
   /** The tip map's manifests against the worktree's files. */
@@ -157,7 +164,8 @@ const setup = ({
       const killed = 'timed-out' as const;
       return Promise.resolve({ exitCode: null, stdout: output, stderr: '', output, killed });
     }
-    const exitCode = file === 'npm test' ? testExit : 0;
+    const exitCode =
+      file === 'npm test' ? testExit : file === 'npm run typecheck' ? typecheckExit : 0;
     return Promise.resolve({ exitCode, stdout: output, stderr: '', output });
   };
   const stepChecks: StepChecks = {
@@ -215,7 +223,7 @@ const setup = ({
   });
   const run = () =>
     runner.start({ ref, limits: { outDoc: { file: 'out.md', schema: undefined as never } } }).ended;
-  return { run, asked };
+  return { run, asked, runner };
 };
 
 describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () => {
@@ -299,6 +307,103 @@ describe('createCheckRunner: a module no confirmed line reaches (ADR 0274)', () 
     assert.deepEqual(test?.result === 'exited' ? test.failing : undefined, {
       tests: ['bills a month'],
       more: 0,
+    });
+  });
+
+  it("a failed check step's reason names its failing tests, count first", async () => {
+    const { run } = setup({
+      testExit: 1,
+      texts: { [webReport]: failingOf('bills a month', 'bills a day', 'bills a year', 'bills') },
+    });
+    const end = await run();
+    assert.deepEqual(end.ending, {
+      kind: 'failed',
+      retryable: false,
+      reason:
+        'the check "test" (npm test) failed with exit code 1: 4 tests failing: bills a month, bills a day, bills a year, …',
+    });
+  });
+
+  describe("on an open pull request's merged tree (ADR 0203)", () => {
+    const merged = join('/work', 'acme.api', 'git-dirs', 'one.tree');
+    const mergedReport = join(merged, 'web', 'test-results.xml');
+    const head = 'e'.repeat(40);
+    const live = new AbortController().signal;
+
+    it('a failing check on the merged tree names its failing tests from the test map', async () => {
+      const { runner, asked } = setup({
+        testExit: 1,
+        // The base's map at the base's tip, the batch's at its head.
+        maps: { [tip]: mapOf(py), [head]: mapOf(web) },
+        found: { 'web/test-results.xml': [mergedReport], 'py/report.xml': [] },
+        texts: { [mergedReport]: failingOf('bills a month') },
+      });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      const test = end.readings?.find((reading) => reading.check === 'test');
+      assert.deepEqual(test?.result === 'exited' ? test.failing : undefined, {
+        tests: ['bills a month'],
+        more: 0,
+      });
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'the check "test" (npm test) failed with exit code 1: 1 test failing: bills a month',
+      });
+      // Nothing was cleared: the merged tree's worktree is fresh.
+      assert.deepEqual(asked, [
+        `map of acme/api at ${tip}`,
+        `map of acme/api at ${head}`,
+        `reports py/report.xml in ${merged}`,
+        `reports web/test-results.xml in ${merged}`,
+      ]);
+    });
+
+    it('a merged-tree check with no map names none: regression test', async () => {
+      const { runner } = setup({
+        testExit: 1,
+        maps: {},
+        found: { 'web/test-results.xml': [mergedReport] },
+        texts: { [mergedReport]: failingOf('bills a month') },
+      });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      const test = end.readings?.find((reading) => reading.check === 'test');
+      assert.equal(test?.result === 'exited' && test.failing, undefined);
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the check "test" (npm test) failed with exit code 1',
+      });
+    });
+
+    it('a passing merged-tree check reads no report: regression test', async () => {
+      const { runner, asked } = setup({ maps: { [tip]: mapOf(web), [head]: mapOf(web) } });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['test'], tree, deadlineAt, live, { head, tip });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.deepEqual(asked, []);
+    });
+
+    it('a merged-tree check whose failing check is not the test check reads no map: regression test', async () => {
+      const { runner, asked } = setup({
+        typecheckExit: 2,
+        maps: { [tip]: mapOf(web), [head]: mapOf(web) },
+        found: { 'web/test-results.xml': [mergedReport] },
+        texts: { [mergedReport]: failingOf('bills a month') },
+      });
+      const tree = { repo: 'acme/api', path: merged };
+      const end = await runner.checkTree(['typecheck', 'test'], tree, deadlineAt, live, {
+        head,
+        tip,
+      });
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the check "typecheck" (npm run typecheck) failed with exit code 2',
+      });
+      assert.deepEqual(asked, []);
     });
   });
 

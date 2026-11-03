@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { settleReadings } from '../../src/checks/gravity.ts';
 import { effectMarker } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
@@ -27,7 +28,7 @@ import {
   statusEffects,
 } from '../../src/engine/status-comment.ts';
 import { expiredLeaseReason, lostReason } from '../../src/engine/supervisor.ts';
-import type { StuckReason } from '../../src/schemas/events.ts';
+import type { GravityReading, StuckReason } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -613,6 +614,81 @@ describe('renderStatus', () => {
     assert.equal(
       pathOf(text),
       'Path: `green #1` ❌ the check "test" failed with exit code 1 → `green #2` ▶️',
+    );
+  });
+
+  /**
+   * The path of a check step whose first attempt failed with `reading`, its reason settled from it
+   * as a check step's is (ADR 0307) unless `reason` is given.
+   */
+  const checkedPath = (reading: GravityReading, reason?: string): string => {
+    const settled = settleReadings([reading]);
+    const failed =
+      settled.kind === 'failed' ? settled : assert.fail('the reading settles to a failure');
+    const outcome = reason === undefined ? failed : { ...failed, reason };
+    return pathOf(
+      renderStatus(
+        batch({
+          steps: new Map([
+            step(
+              'green',
+              { phase: 'finished', attempt: 1, deadlineAt: at, outcome, readings: [reading] },
+              running(2),
+            ),
+          ]),
+          path: [
+            { stepId: 'green', attempt: 1 },
+            { stepId: 'green', attempt: 2 },
+          ],
+        }),
+        ['green'],
+      ),
+    );
+  };
+
+  it("a failed check step's Path clause gives its failing count", () => {
+    const reading: GravityReading = {
+      result: 'exited',
+      check: 'test',
+      command: 'npm test',
+      exitCode: 1,
+      tail: '',
+      failing: { tests: ['adds', 'prints usage', 'reads a file'], more: 2 },
+    };
+    assert.equal(
+      checkedPath(reading),
+      'Path: `green #1` ❌ the check "test" failed, 5 tests failing → `green #2` ▶️',
+    );
+  });
+
+  it("a literal command's failing count on the path is cut at a word within 48 characters: regression test", () => {
+    const reading: GravityReading = {
+      result: 'exited',
+      // A ': ' in the command, where a reason's first clause would end.
+      command: 'node --test --test-name-pattern="a: b" test/unit/a-long-file.test.ts',
+      exitCode: 1,
+      tail: '',
+      failing: { tests: ['adds', 'prints usage'], more: 0 },
+    };
+    assert.equal(
+      checkedPath(reading),
+      'Path: `green #1` ❌ the check "node --test --test-name-pattern="a:… → `green #2` ▶️',
+    );
+  });
+
+  it("a failed attempt whose reason is not its readings' keeps its own clause on the path: regression test", () => {
+    const reading: GravityReading = {
+      result: 'exited',
+      check: 'test',
+      command: 'npm test',
+      exitCode: 1,
+      tail: '',
+      failing: { tests: ['adds'], more: 0 },
+    };
+    const reason = 'the test map the survey proposed disagrees with a run of acme/api: x';
+    assert.equal(
+      checkedPath(reading, reason),
+      'Path: `green #1` ❌ the test map the survey proposed disagrees… → `green #2` ▶️',
     );
   });
 

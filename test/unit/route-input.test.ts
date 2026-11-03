@@ -596,6 +596,18 @@ describe('routeOf: a pull request that fails its checks on the merged tree (ADR 
     });
   });
 
+  it('the route input after a failing merged-tree check names the failing tests: regression test', () => {
+    const named: Event = {
+      ...checked(),
+      failed: { ...reading, tail: '', failing: { tests: ['adds', 'prints usage'], more: 2 } },
+    } as Event;
+    const route = planned([...opened, named, sentBack], 'implement', 2);
+    assert.equal(
+      route?.text.split('\n\n')[1],
+      'the check "test" (npm test) exited with code 1. Failing tests: adds, prints usage (and 2 more). It printed nothing; its report names the failing tests above.',
+    );
+  });
+
   it("names the route's tip's check when the same head failed again at another tip", () => {
     const later: Event = {
       ...checked(head, 'f'.repeat(40)),
