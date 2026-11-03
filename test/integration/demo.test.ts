@@ -296,7 +296,7 @@ describe('npm run demo', () => {
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed with exit code 1\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
+      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `open-pull-request #1` ✅/,
     );
     for (const lens of ['security', 'test-design']) {
       assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
