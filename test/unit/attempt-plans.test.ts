@@ -1649,6 +1649,41 @@ describe('createAttemptPlans: a batch that switched recipes (#786)', () => {
     assert.doesNotMatch(prompt, /Do the work of the slow\./);
   });
 
+  it("reads a step input's out doc in the recipe a batch that never switched brews: regression test", async () => {
+    const events: Event[] = [
+      ordered[0] as Event,
+      chosen('second'),
+      { type: 'step.scheduled', ...review, deadlineAt },
+      startedAt(review, reviewTree),
+      { type: 'step.finished', ...review, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'tasting.md'), root: reviewTree }]);
+  });
+
+  it("reads a step input's out doc in the batch's recipe when its attempt recorded none: regression test", async () => {
+    // review#1 was scheduled before any recipe was chosen, so it recorded none.
+    const events: Event[] = [
+      ordered[0] as Event,
+      { type: 'step.scheduled', ...review, deadlineAt },
+      chosen('second'),
+      startedAt(review, reviewTree),
+      { type: 'step.finished', ...review, outcome: { kind: 'succeeded', output: null } },
+      { type: 'step.scheduled', ...implement, deadlineAt },
+      startedAt(implement, worktree),
+    ];
+    assert.equal(
+      fold(events).batches.get('12-1')?.steps.get('review')?.attempts.get(1)?.recipe,
+      undefined,
+    );
+    const { plans, reads } = setup(events, {}, undefined, switching.brewers);
+    await plans.plan({ ...start, ref: implement });
+    assert.deepEqual(reads, [{ file: join(reviewTree, 'tasting.md'), root: reviewTree }]);
+  });
+
   it("a route input reads the out doc of the routing attempt's brewer after the batch switched recipes", async () => {
     const events: Event[] = [
       ...reviewed,
