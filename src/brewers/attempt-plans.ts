@@ -566,8 +566,14 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       );
     // A Brewery order's folder of checkouts is no repository's, and holds each one (ADR 0301).
     const own = 'repo' in worktree ? worktree : undefined;
-    // The system map, read again where a base moved, when the brewer reads the repositories (ADR 0317).
-    if (found.brewer.inputs.some(({ from }) => from === 'repositories')) await refreshMap();
+    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
+    // A step whose lenses review a plan reads the batch's latest plan and the repositories, where
+    // a step of a diff reads the change (ADR 0312).
+    const planLens = stepLenses[0]?.startsWith('plan/') === true;
+    // The system map, read again where a base moved, when the step reads the repositories (ADR 0317).
+    if (planLens || found.brewer.inputs.some(({ from }) => from === 'repositories')) {
+      await refreshMap();
+    }
     const repositories = {
       repositories: options.repositories ?? [],
       map: state().systemMap,
@@ -597,12 +603,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       (id) => brewers.has(recipe, id),
       checks,
     );
-    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
-    // A step whose lenses review a plan reads the batch's latest plan and the repositories, where
-    // a step of a diff reads the change (ADR 0312).
-    const planLens = stepLenses[0]?.startsWith('plan/') === true;
     const inputs: PromptInput[] = [];
     for (const input of [
       ...planned,
