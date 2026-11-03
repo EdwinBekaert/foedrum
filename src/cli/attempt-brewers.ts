@@ -8,7 +8,7 @@ import type { StepBrewers } from '../engine/recipe-files.ts';
 import type { ModelFamily } from '../engine/usage-window.ts';
 import type { BrewerFrontmatter } from '../schemas/brewer.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
-import { SURVEY } from '../schemas/out-doc.ts';
+import { MUTANTS, SURVEY } from '../schemas/out-doc.ts';
 
 export interface AttemptBrewersOptions {
   state: () => State;
@@ -26,6 +26,8 @@ export interface AttemptBrewers {
   resumes(ref: AttemptRef): boolean;
   /** Whether the attempt's brewer writes a survey (ADR 0298). */
   surveys(ref: AttemptRef): boolean;
+  /** Whether the attempt's brewer proposes mutants, which the engine runs (ADR 0313). */
+  mutates(ref: AttemptRef): boolean;
   /** Whether the attempt's brewer has guard `guard`. */
   guarded(ref: AttemptRef, guard: BrewerFrontmatter['guards'][number]): boolean;
 }
@@ -52,6 +54,7 @@ export const attemptBrewers = ({
       return found?.interactive === undefined && found?.brewer.retryMode === 'resume';
     },
     surveys: (ref) => brewerOf(ref)?.brewer.output.schema === SURVEY,
+    mutates: (ref) => brewerOf(ref)?.brewer.output.schema === MUTANTS,
     guarded: (ref, guard) => brewerOf(ref)?.brewer.guards.includes(guard) ?? false,
   };
 };

@@ -2708,6 +2708,148 @@ Plan the order in {order}.
       progress: () => undefined,
     };
 
+    it("the ordered label is applied before the batch's first attempt starts", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 1 });
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'Add it.' },
+          ],
+        },
+      });
+      // The first lane label revision when the runner starts the first attempt, which never ends.
+      const seen: unknown[] = [];
+      const runner: BrewerRunner = {
+        start: (start) => {
+          seen.push(store.findEffect({ batchId: '12-1', effect: 'label.1' }));
+          return hanging.start(start);
+        },
+        progress: () => undefined,
+      };
+      const started = () => seen.length > 0;
+      const ran = await runServe(
+        setup,
+        shell({ fetch: github.fetch, runner: () => runner, ...ticking(started) }),
+      );
+      assert.equal(ran, 0);
+      assert.ok(started(), lines.join('\n'));
+      // Ordered and routed in one intake pass: the ordered label went on between them.
+      assert.ok(
+        lines.includes('foedrum serve: routed batch 12-1 to the recipe stout'),
+        lines.join('\n'),
+      );
+      assert.deepStrictEqual(seen[0], { result: { label: 'foedrum:ordered' } });
+    });
+
+    describe('a pass that waits for a tick (ADR 0316)', () => {
+      const labelled = () =>
+        fakeGitHubApi({
+          login: 'ann',
+          issues: {
+            'acme/brewery': [
+              { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'Add it.' },
+            ],
+          },
+        });
+      /** Until the pass ordered #12, and so waits for a tick; a hang guard, not a measure. */
+      const ordered = async (): Promise<void> => {
+        for (let n = 0; n < 2000 && lane('12-1') === undefined; n++) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        assert.equal(lane('12-1'), 'ordered');
+      };
+
+      it('is let go by a stop, so serve stops: regression test', { timeout: 60_000 }, async () => {
+        store = empty();
+        setup = intakeSetup({ concurrency: 1 });
+        const github = labelled();
+        const ran = await runServe(
+          setup,
+          shell({
+            fetch: github.fetch,
+            runner: () => hanging,
+            // The pass ordered and waits for the next tick, which the stop never starts.
+            wait: async () => {
+              await ordered();
+              controller.abort();
+            },
+          }),
+        );
+        assert.equal(ran, 0);
+        assert.equal(lines.at(-1), 'foedrum serve: stopped');
+        // Let go, the pass routed its batch.
+        assert.equal(lane('12-1'), 'brewing');
+      });
+
+      it('is let go by a tick that stops the engine, so serve ends: regression test', {
+        timeout: 60_000,
+      }, async () => {
+        store = empty();
+        setup = intakeSetup({ concurrency: 1 });
+        const github = labelled();
+        const ran = await runServe(
+          setup,
+          shell({
+            fetch: github.fetch,
+            runner: () => hanging,
+            // The pass begins to wait during this tick, which then throws.
+            stateBranch: () => ({
+              start: async () => ({ decision: 'ready' }),
+              flush: async () => {
+                await ordered();
+                throw new StateBranchStopError('the push was rejected: another engine wrote');
+              },
+            }),
+          }),
+        );
+        assert.equal(ran, 1);
+        assert.ok(
+          lines.includes('foedrum serve: the push was rejected: another engine wrote'),
+          lines.join('\n'),
+        );
+        assert.equal(lock.held, false);
+      });
+
+      it('goes on at once when it reaches the wait after the stop', {
+        timeout: 60_000,
+      }, async () => {
+        store = empty();
+        setup = intakeSetup({ concurrency: 1 });
+        const github = labelled();
+        // The pass's listing of the Brewery's issues answers only once serve is stopping.
+        let answer: () => void = () => {};
+        const stopping = new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+        const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+          if (/^\/repos\/acme\/brewery\/issues$/i.test(new URL(String(input)).pathname)) {
+            await stopping;
+          }
+          return github.fetch(input, init);
+        }) as typeof globalThis.fetch;
+        const ran = await runServe(
+          setup,
+          shell({
+            fetch,
+            runner: () => hanging,
+            // Ends a pass that waits for the tick no stopped serve starts; never reached otherwise.
+            intakeDeadlineMs: 5000,
+            wait: async () => {
+              controller.abort();
+              answer();
+            },
+          }),
+        );
+        assert.equal(ran, 0);
+        assert.ok(!lines.some((line) => /longer than its deadline/.test(line)), lines.join('\n'));
+        assert.equal(lines.at(-1), 'foedrum serve: stopped');
+        // It ordered after the stop and routed without waiting for a tick.
+        assert.equal(lane('12-1'), 'brewing');
+      });
+    });
+
     it('orders and routes a labelled Brewery issue and a claimed target issue, marks the claim and releases it', async () => {
       store = empty();
       setup = intakeSetup({ concurrency: 2 }, target);
@@ -2738,6 +2880,8 @@ Plan the order in {order}.
       });
       // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
       const order = () => github.issue('acme/brewery', 13);
+      const takenOff =
+        /^DELETE \/repos\/acme\/brewery\/issues\/13\/labels\/foedrum%3Aawaiting-merge$/i;
       const done = () => {
         // A person labels the Brewery issue once the driver opened it, between two passes; the
         // driver's lane label may already be on it (#413).
@@ -2752,7 +2896,8 @@ Plan the order in {order}.
           github.refs.size === 0 &&
           github.comments.get('acme/web#7')?.length === 2 &&
           order()?.state === 'closed' &&
-          order()?.labels.includes('foedrum:on-tap') === true
+          // Its pull request merged: nothing waits on the person, so the label came off.
+          github.requests.some((request) => takenOff.test(request))
         );
       };
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
@@ -2788,11 +2933,12 @@ Plan the order in {order}.
         [{ number: 13, title: 'Dark theme', author: 'ann' }],
       );
       assert.match(order()?.body ?? '', /acme\/web#7/);
-      // The Brewery issue shows the claimed batch's lane and its status comment (#413); the
-      // Brewery's #7 and the target issue get neither.
+      // The Brewery issue shows the claimed batch's lane and its status comment (#413), its lane
+      // label off once the pull request merged (#777); the Brewery's #7 and the target issue get
+      // neither.
       assert.deepStrictEqual(
         order()?.labels.filter((label) => label.startsWith('foedrum:')),
-        ['foedrum:on-tap'],
+        [],
       );
       const status = github.comments.get('acme/brewery#13') ?? [];
       assert.equal(status.length, 1, JSON.stringify(status));

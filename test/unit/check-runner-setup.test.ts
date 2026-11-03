@@ -108,7 +108,7 @@ const run = ({
     ref,
     limits: { outDoc: { file: 'out.md', schema: undefined as never } },
   });
-  return { calls, asked, setup: setup.seen, started };
+  return { calls, asked, setup: setup.seen, started, runner };
 };
 
 const environment = (summary: string) => ({ kind: 'blocked', blockerKind: 'environment', summary });
@@ -272,5 +272,18 @@ describe('createCheckRunner: the repository setup (ADR 0140)', () => {
     const end = await started.ended;
     assert.deepEqual(end.ending, { kind: 'cancelled' });
     assert.deepEqual(calls, ['setup npm ci']);
+  });
+
+  it("a scratch tree's test run whose setup failed says so, and runs no test check (ADR 0313, regression test)", async () => {
+    const { calls, runner, started } = run({ script: { exitCode: 1 } });
+    await started.ended;
+    calls.length = 0;
+    const tree = { repo: 'acme/api', path: worktree };
+    const end = await runner.testRun(tree, [], deadlineAt, new AbortController().signal);
+    assert.deepStrictEqual(end, {
+      kind: 'unrun',
+      why: "the repository's setup did not pass: exited",
+    });
+    assert.deepStrictEqual(calls, ['setup npm ci']);
   });
 });

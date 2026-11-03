@@ -20,9 +20,12 @@ import {
   type State,
   type Step,
 } from '../../src/engine/fold.ts';
+import type { SubOrderRow } from '../../src/engine/order-end.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
+  code,
   labelled,
+  planNextStep,
   renderStatus,
   type StatusComments,
   statusEffects,
@@ -819,7 +822,7 @@ describe('renderStatus', () => {
     const at_ = lines.findIndex((line) => line.startsWith('🔔'));
     assert.deepStrictEqual(lines.slice(at_, at_ + 3), [
       '🔔 **Stuck**: `taste` is blocked (findings): the Taster asks for changes: no deadline',
-      'Get it moving with `retry`, `cancel`.',
+      'Next: get it moving with `retry`, `cancel`.',
       '',
     ]);
   });
@@ -856,7 +859,7 @@ describe('renderStatus', () => {
       `- \`taste\`: blocker: ${leftOut('taste')}`,
       '- `taste`: and 4 more',
       'Another round is unlikely to help: plan the order again, or split it.',
-      'Get it moving with `retry`, `cancel`.',
+      'Next: get it moving with `retry`, `cancel`.',
       '',
     ]);
     noToken(lines.join('\n'));
@@ -875,7 +878,7 @@ describe('renderStatus', () => {
     assert.deepStrictEqual(lines.slice(at_ + 1, at_ + 4), [
       'Still open after 1 round: no finding was recorded.',
       'Another round is unlikely to help: plan the order again, or split it.',
-      'Get it moving with `retry`, `cancel`.',
+      'Next: get it moving with `retry`, `cancel`.',
     ]);
   });
 
@@ -2770,7 +2773,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     assert.deepEqual(lines.slice(lane, lane + 3), [
       `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
       'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.',
-      'Get it moving with `retry`, `cancel`.',
+      '',
     ]);
     assert.doesNotMatch(text, /On tap|No pull request/);
   });
@@ -2791,7 +2794,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       }),
     );
     assert.ok(text.split('\n').includes('🍻 **On tap**: plan approved by grace (plugin)'), text);
-    assert.doesNotMatch(text, /Stuck|Next:/);
+    assert.doesNotMatch(text, /Stuck/);
   });
 
   it('names on tap the sub-issues an approved plan opened, once all are (ADR 0285)', () => {
@@ -3033,5 +3036,167 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
       }),
     );
     assert.equal(section(text)[1], '- `plan`: Use \\[x\\](&lt;y&gt;) \\*now\\* &#64;alice.');
+  });
+});
+
+describe('the Next line of a status comment that waits on the person (#777)', () => {
+  const other = 'https://github.com/alice/lib/pull/3';
+  const approval = {
+    stepId: 'plan',
+    attempt: 1,
+    plan: '0123456789abcdef',
+    by: 'grace',
+    via: 'terminal',
+    at,
+  } as const;
+  const render = (
+    rendered: Batch,
+    subOrderPulls: readonly SubOrderRow[] = [],
+    subIssues?: readonly number[],
+  ): string =>
+    renderStatus(
+      rendered,
+      steps,
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      subIssues,
+      subOrderPulls,
+    );
+  /** The last line of the comment's first block, the lane's, which a cut never drops. */
+  const nextOf = (text: string): string | undefined => text.split('\n\n')[1]?.split('\n').at(-1);
+
+  it('an on-tap status comment with a pull request ends with Next: review and merge it', () => {
+    const lane: Lane = { kind: 'on_tap', pullRequests: [pr, other] };
+    assert.equal(nextOf(render(batch({ lane }))), `Next: review and merge <${pr}>, <${other}>.`);
+    // The one that merged is not named; once both ended, nothing waits on the person.
+    const merged = batch({ lane, pullRequestEnds: { [pr]: 'merged' } });
+    assert.equal(nextOf(render(merged)), `Next: review and merge <${other}>.`);
+    const ended = batch({ lane, pullRequestEnds: { [pr]: 'merged', [other]: 'closed' } });
+    assert.doesNotMatch(render(ended), /Next:/);
+  });
+
+  it("a split order's status comment says Next: nothing to do while its sub-orders brew", () => {
+    const split = batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval });
+    const rows: SubOrderRow[] = [
+      { subOrder: 16, repo: 'alice/web', state: 'none', lane: 'brewing' },
+      { subOrder: 15, repo: 'alice/lib', pullRequest: other, state: 'open', lane: 'on_tap' },
+    ];
+    assert.equal(
+      nextOf(render(split, rows)),
+      'Next: nothing to do; the sub-orders brew (#16, #15), and each pull request comes to you on tap.',
+    );
+    // Before the rows are read, the sub-issues the plan opened.
+    assert.equal(
+      nextOf(render(split, [], [8, 9])),
+      'Next: nothing to do; the sub-orders brew (#8, #9), and each pull request comes to you on tap.',
+    );
+    // A sub-order that keeps the order open waits on the person; a done order on nobody.
+    const left: SubOrderRow[] = [
+      { subOrder: 16, repo: 'alice/web', pullRequest: pr, state: 'closed', left: 'cancelled' },
+      { subOrder: 15, repo: 'alice/lib', pullRequest: other, state: 'merged' },
+    ];
+    assert.equal(nextOf(render(split, left)), 'Next: see to what keeps the order open (#16).');
+    const done: SubOrderRow[] = [
+      { subOrder: 16, repo: 'alice/web', pullRequest: pr, state: 'merged' },
+      { subOrder: 15, repo: 'alice/lib', pullRequest: other, state: 'merged' },
+    ];
+    assert.doesNotMatch(render(split, done), /Next:/);
+  });
+
+  it("a question's status comment ends with Next: answer it", () => {
+    const question = (q: string) => ({
+      q,
+      options: ['a', 'b'],
+      recommended: 'a',
+      whyBlocking: 'x',
+    });
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: {
+        kind: 'needs_input',
+        stepId: 'plan',
+        questions: [question('Which port?'), question('Which host?')],
+      },
+      options: ['answer', 'retry', 'cancel'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      'Next: answer the questions above with `foedrum answer 7-1 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
+    );
+  });
+
+  it('a question whose only option is the answer ends with Next: answer it, and nothing more: regression test', () => {
+    const question = { q: 'Which port?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'needs_input', stepId: 'plan', questions: [question] },
+      options: ['answer'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      'Next: answer the questions above with `foedrum answer 7-1 <answer 1>`.',
+    );
+  });
+
+  it("a plan waiting for its review names on its Next line the options the plan's commands leave out", () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+      options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      `Next: ${planNextStep('7-1', code)} Its other option: \`recipe\`.`,
+    );
+  });
+
+  it('names every option the plan commands leave out, in the plural: regression test', () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+      options: ['approve', 'lauter', 'retry', 'recipe', 'skip', 'cancel'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      `Next: ${planNextStep('7-1', code)} Its other options: \`recipe\`, \`skip\`.`,
+    );
+  });
+
+  it('a split order with no sub-order read yet says its sub-orders brew, unnumbered: regression test', () => {
+    const split = batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval });
+    assert.equal(
+      nextOf(render(split)),
+      'Next: nothing to do; the sub-orders brew, and each pull request comes to you on tap.',
+    );
+  });
+
+  it('a batch on tap with no pull request and no approved plan has no Next line: regression test', () => {
+    assert.doesNotMatch(render(batch({ lane: { kind: 'on_tap', pullRequests: [] } })), /Next:/);
+  });
+
+  it('a status comment cut to length keeps its Next line', () => {
+    const many = Array.from({ length: 400 }, (_, i) => `s${i}`);
+    const reason: StuckReason = { kind: 'waiting_for_session', stepId: 's0' };
+    const text = renderStatus(
+      batch({
+        lane: stuck(reason),
+        steps: new Map(many.map((id) => step(id, failed(1, '@'.repeat(300))))),
+      }),
+      many,
+    );
+    assert.match(text, /the rest is cut/);
+    assert.equal(nextOf(text), 'Next: get it moving with `retry`, `cancel`.');
   });
 });

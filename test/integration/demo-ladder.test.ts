@@ -191,4 +191,31 @@ describe('npm run demo -- ladder', () => {
       for (const pattern of patterns) assert.match(part(id), pattern, `step ${id}`);
     }
   });
+
+  it("the ladder shows each issue's label and Next line at the plan review and once a sub-order is on tap (#777)", () => {
+    assert.equal(result.exitCode, 0, result.output);
+    const standing = (issue: number, label: string, next: string): RegExp =>
+      new RegExp(
+        `demo: demo/brewery#${issue}'s labels and next step:\\n +labels: [^\\n]*${label}[^\\n]*\\n +Next: ${next}`,
+      );
+    const { stdout } = result;
+    assert.match(stdout, standing(1, 'foedrum:awaiting-approval', 'read the plan'));
+    assert.match(
+      stdout,
+      standing(
+        1,
+        'foedrum:sub-orders',
+        'nothing to do; the sub-orders brew \\(#2, #3\\), and each pull request comes to you on tap\\.',
+      ),
+    );
+    assert.match(
+      stdout,
+      standing(
+        2,
+        'foedrum:awaiting-merge',
+        'review and merge <https://github\\.com/demo/lib/pull/\\d+>\\.',
+      ),
+    );
+    assert.doesNotMatch(stdout, /foedrum:on-tap/);
+  });
 });

@@ -9,7 +9,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { runGit } from '../../src/workspace/git.ts';
-import { openMergedTree, openMergeTree } from '../../src/workspace/merge-tree-git.ts';
+import {
+  openCommitTree,
+  openMergedTree,
+  openMergeTree,
+} from '../../src/workspace/merge-tree-git.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 
 const git = (cwd: string, args: string[]): string =>
@@ -190,6 +194,65 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
       ],
     );
     assert.deepStrictEqual(read, ['the batch\n', 'main\n']);
+  });
+
+  it("checks a commit out with a mutant's edit over its file, then removes the tree and its git directory, also when the run fails (ADR 0313)", async () => {
+    const commitTree = openCommitTree({
+      git: runGit,
+      clone,
+      own: { url: join(dir.path, 'nowhere.git'), root },
+    });
+    const edit = { file: 'app.txt', rewrite: () => 'the mutant\n' };
+    let seen = '';
+    const read = await commitTree(
+      head,
+      async (worktree) => {
+        seen = worktree;
+        return {
+          app: readFileSync(join(worktree, 'app.txt'), 'utf8'),
+          other: readFileSync(join(worktree, 'other.txt'), 'utf8'),
+          at: git(worktree, ['rev-parse', 'HEAD']),
+        };
+      },
+      { edit },
+    );
+    assert.deepStrictEqual(read, { app: 'the mutant\n', other: 'one\n', at: head });
+    assert.equal(existsSync(seen), false);
+    await assert.rejects(
+      commitTree(head, async (worktree) => {
+        seen = worktree;
+        throw new Error('the run failed');
+      }),
+      /the run failed/,
+    );
+    assert.equal(existsSync(seen), false);
+    assert.equal(existsSync(root) ? readdirSync(root).length : 0, 0);
+    // The commit as it is: the clone's file stays.
+    assert.equal(git(clone, ['show', `${head}:app.txt`]), 'the batch');
+  });
+
+  it("gives a mutant's rewrite the file as git checked it out (ADR 0313, regression test)", async () => {
+    const commitTree = openCommitTree({
+      git: runGit,
+      clone,
+      own: { url: join(dir.path, 'nowhere.git'), root },
+    });
+    const seen: string[] = [];
+    const edit = {
+      file: 'app.txt',
+      rewrite: (text: string) => {
+        seen.push(text);
+        return text.replace('the batch', 'the mutant');
+      },
+    };
+    const read = await commitTree(
+      head,
+      async (worktree) => readFileSync(join(worktree, 'app.txt'), 'utf8'),
+      { edit },
+    );
+    // The commit's text, as the checkout wrote it, and the rewrite of it in the tree.
+    assert.deepStrictEqual(seen, ['the batch\n']);
+    assert.equal(read, 'the mutant\n');
   });
 
   it('leaves no worktree or git directory behind, and moves no ref of the clone', async () => {

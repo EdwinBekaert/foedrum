@@ -10,6 +10,7 @@ import type {
   Event,
   GravityReading,
   HeadCheck,
+  MutantRecord,
   OrderRef,
   PlanOrigin,
   RankPlace,
@@ -147,6 +148,8 @@ export type Attempt =
       findings?: RecordedFindings;
       /** A check step's: the test map it found stale without failing for it (ADR 0282). */
       staleMap?: StaleMap;
+      /** A Brett attempt's mutants, with what the engine's runs found (ADR 0313). */
+      mutants?: readonly MutantRecord[];
     };
 
 export interface Input {
@@ -714,6 +717,7 @@ function apply(state: State, event: Event): State {
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
           ...(event.findings === undefined ? {} : { findings: event.findings }),
           ...(event.staleMap === undefined ? {} : { staleMap: event.staleMap }),
+          ...(event.mutants === undefined ? {} : { mutants: event.mutants }),
         };
       });
       if (event.outcome.kind !== 'succeeded' || ran === undefined) return next;
