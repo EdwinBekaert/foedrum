@@ -711,14 +711,17 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       const last = started.filter((ref) => ref.startsWith('naive#')).length;
       const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
       const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
-      // The last round's finding, open; the dismissal of the first round with its evidence.
-      assert.ok(
-        review.includes(`- ${code('naive')} #${last}: major, open: ${plain(flag.why)}`),
+      // The dismissal of the first round with its evidence, then the last round's finding, open;
+      // the middle round's finding the plan fixed leaves none.
+      assert.equal(
         review,
-      );
-      assert.ok(
-        review.includes(`- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`),
-        review,
+        [
+          '**Review**',
+          '',
+          `- ${code('naive')} #1: major, dismissed: ${plain(guide.why)}`,
+          `  - why: ${plain(evidence)}`,
+          `- ${code('naive')} #${last}: major, open: ${plain(flag.why)}`,
+        ].join('\n'),
       );
     });
   });

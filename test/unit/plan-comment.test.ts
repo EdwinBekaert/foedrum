@@ -225,10 +225,9 @@ describe('renderPlan (ADR 0233)', () => {
       finding: { severity: 'minor', why: `api: note ${n}`, introduced: true },
       left: 'advisory',
     });
-    const notes = [
-      ...Array.from({ length: 12 }, (_, n) => note('naive', n + 1)),
-      note('sizing', 1),
-    ];
+    // sizing's note comes between naive's: the section groups them by step.
+    const naive = Array.from({ length: 12 }, (_, n) => note('naive', n + 1));
+    const notes = [...naive.slice(0, 6), note('sizing', 1), ...naive.slice(6)];
     const lines = reviewOf(reviewed(notes)).split('\n').slice(2);
     assert.deepStrictEqual(lines, [
       ...Array.from(
