@@ -2,13 +2,15 @@
 // attempt's session succeeded, the engine checks each mutant against the batch's change, runs the
 // test check once in a scratch tree of the attempt's commit as the baseline, and once per valid
 // mutant in a fresh scratch tree with the mutant's edit, and records each mutant's verdict on the
-// attempt's end. The attempt succeeds whatever the verdicts.
+// attempt's end. The attempt succeeds whatever the verdicts, unless its step blocks: then a
+// survivor blocks it by findings (ADR 0319).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { mergedBase } from '../engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../engine/brewer-runner.ts';
 import type { State } from '../engine/fold.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
+import { survivorFinding, survivorsOf, survivorText } from '../engine/survivors.ts';
 import type { DiffFile } from '../formats/unified-diff.ts';
 import { messageOf } from '../platform/errors.ts';
 import { foldsCase } from '../platform/paths.ts';
@@ -60,13 +62,36 @@ const notJudged = (why: string): MutantVerdict => ({
   why: keptName(why, MAX_MUTANT_TEXT),
 });
 
-/** A mutant as the event keeps it: its texts on one line, cut, a secret left out. */
+/**
+ * A mutant as the event keeps it: its texts on one line, cut, a secret left out, and a survivor's
+ * edit with it, which the pull request shows (ADR 0319).
+ */
 const recordOf = (mutant: MutantEdit, line: number, verdict: MutantVerdict): MutantRecord => ({
   file: keptName(mutant.file, MAX_MUTANT_TEXT),
   line,
   description: keptName(mutant.description, MAX_MUTANT_TEXT),
+  ...(verdict.kind === 'survived'
+    ? {
+        original: keptName(mutant.original, MAX_MUTANT_TEXT),
+        replacement: keptName(mutant.replacement, MAX_MUTANT_TEXT),
+      }
+    : {}),
   verdict,
 });
+
+/**
+ * `end` of a blocking step's attempt that succeeded (ADR 0319): blocked by findings when a mutant survived, each
+ * survivor a finding its findings route sends back to the fix step, as a blocking Taster's are
+ * (ADR 0161, ADR 0264); else as it was.
+ */
+const blockedBySurvivors = (end: AttemptEnd): AttemptEnd => {
+  const survivors = survivorsOf(end.mutants);
+  if (survivors.length === 0) return end;
+  const which = survivors.map((survivor) => survivorText(survivor)).join('; ');
+  const summary = `the tests let ${survivors.length === 1 ? 'a mutant' : `${survivors.length} mutants`} survive: ${which}`;
+  const findings = survivors.map(survivorFinding);
+  return { ...end, ending: { kind: 'blocked', blockerKind: 'findings', summary, findings } };
+};
 
 /** Why git failed: its last line on stderr, or how it ended. */
 const gitFailed = (stderr: string, code: number | null): string =>
@@ -148,7 +173,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
 
   /** `end` with each mutant's verdict, or as it was for an attempt that runs none. */
   const judge = async (
-    ref: AttemptRef,
+    { ref, limits }: AttemptStart,
     end: AttemptEnd,
     signal: AbortSignal,
   ): Promise<AttemptEnd> => {
@@ -165,8 +190,11 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
     const { repo, commit } = worktree;
     const lastEnd = Date.parse(attempt.deadlineAt) - DEADLINE_MARGIN_MS;
     judging.add(attemptKey.encode(ref));
-    const ended = (verdicts: readonly MutantRecord[]): AttemptEnd =>
-      signal.aborted ? { ...end, ending: { kind: 'cancelled' } } : { ...end, mutants: verdicts };
+    const ended = (verdicts: readonly MutantRecord[]): AttemptEnd => {
+      if (signal.aborted) return { ...end, ending: { kind: 'cancelled' } };
+      const judged = { ...end, mutants: verdicts };
+      return limits.blocking === true ? blockedBySurvivors(judged) : judged;
+    };
 
     const change = await changeOf(ref.batchId, repo, commit, proposed, signal);
     if ('why' in change) {
@@ -307,7 +335,7 @@ export function mutated(options: MutantRunOptions): BrewerRunner {
       const stop = new AbortController();
       return {
         ended: session.ended
-          .then((end) => judge(ref, end, stop.signal))
+          .then((end) => judge(attempt, end, stop.signal))
           .finally(() => judging.delete(attemptKey.encode(ref))),
         stop: () => {
           stop.abort();

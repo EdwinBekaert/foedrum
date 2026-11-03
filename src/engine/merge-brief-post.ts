@@ -5,7 +5,7 @@
 // by a moved head or a later brief, hidden as outdated, `[batch, "brief.<n>.hidden"]` (ADR 0229).
 
 import type { IsCommit } from '../formats/secrets.ts';
-import { pullRequestOf } from '../schemas/events.ts';
+import { type MutantRecord, pullRequestOf } from '../schemas/events.ts';
 import {
   lensFirst,
   placeOf,
@@ -47,6 +47,7 @@ import {
   sensitiveLine,
   shortSha,
 } from './status-comment.ts';
+import { survivorsOf, survivorText } from './survivors.ts';
 
 /** The pull request's comments and title on the code host, as the Brewery's own identity has them. */
 export interface MergeBriefHost {
@@ -83,12 +84,18 @@ const mostDispositions = 30;
 /** A text a brewer wrote at `stepId` as one inert line (ADR 0088, ADR 0184). */
 type Told = (text: string, stepId: string) => string;
 
-/** The output of the latest attempt of `stepId` when it finished and succeeded. */
-const succeededOutput = (batch: Batch, stepId: string): { output: unknown } | undefined => {
+/**
+ * The output of the latest attempt of `stepId` when it finished and succeeded, with the mutants
+ * the engine judged when it was Brett's (ADR 0313).
+ */
+const succeededOutput = (
+  batch: Batch,
+  stepId: string,
+): { output: unknown; mutants: readonly MutantRecord[] } | undefined => {
   const step = batch.steps.get(stepId);
   const latest = step && latestAttempt(step);
   return latest?.phase === 'finished' && latest.outcome.kind === 'succeeded'
-    ? { output: latest.outcome.output }
+    ? { output: latest.outcome.output, mutants: latest.mutants ?? [] }
     : undefined;
 };
 
@@ -376,6 +383,18 @@ const riskLines = (steps: Steps, told: Told): string[] =>
     ),
   );
 
+/**
+ * Each confirmed survivor of a Brett step whose latest attempt succeeded (ADR 0319): a gap in the
+ * change's tests that the merge leaves.
+ */
+const survivorLines = (steps: Steps, told: Told): string[] =>
+  steps.ids.flatMap((stepId) =>
+    survivorsOf(succeededOutput(steps.batch, stepId)?.mutants).map(
+      (survivor) =>
+        `- ${code(stepId)}: survived: ${survivorText(survivor, (text) => told(text, stepId))}`,
+    ),
+  );
+
 /** The brief after its title line, for `ready`, the record that makes `batch` ready. */
 const briefRest = (
   state: State,
@@ -407,7 +426,7 @@ const briefRest = (
     ...openLines(steps, told),
     ...skippedOpenLines(steps, told),
   ];
-  const risks = riskLines(steps, told);
+  const risks = [...riskLines(steps, told), ...survivorLines(steps, told)];
   const sections = [
     [`Foedrum · batch ${code(batch.id)} · ${link(ready.pullRequest)}`],
     [
