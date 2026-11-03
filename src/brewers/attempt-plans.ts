@@ -1,5 +1,5 @@
 // The attempt plans' shell (#148, ADR 0059): for an attempt the driver started, it finds the brewer
-// of its step in the recipe the attempt was scheduled under (#786), reads the brewer's inputs and makes the settings file's
+// of its step in the recipe the attempt was scheduled under (ADR 0309), reads the brewer's inputs and makes the settings file's
 // folder, then plans the attempt through attempt-plan.ts, which decides, in the session the driver
 // recorded (ADR 0116).
 
@@ -134,7 +134,7 @@ export interface AttemptPlansOptions {
 export interface AttemptPlans {
   /** The plan of an attempt the driver started; rejects when it cannot be made. */
   plan(attempt: AttemptStart): Promise<ClaudeAttemptPlan>;
-  /** The limits of an attempt, from the brewer of its step in the recipe it was scheduled under (#786). */
+  /** The limits of an attempt, from the brewer of its step in the recipe it was scheduled under (ADR 0309). */
   limits(ref: AttemptRef): AttemptLimits;
   /**
    * The out doc of the brewer of an attempt's step in the recipe it was scheduled under; undefined
@@ -184,7 +184,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   const { state, brewers, workRoot, platform = process.platform, files = realFiles } = options;
 
   // The brewer of an attempt's step in the recipe it was scheduled under, which the batch may have
-  // left since (#786); in its batch's recipe for an attempt that recorded none, undefined without one.
+  // left since (ADR 0309); in its batch's recipe for an attempt that recorded none, undefined without one.
   const brewerOf = (ref: AttemptRef) => {
     const recipe = attemptRecipeOf(state(), ref);
     return recipe === undefined ? undefined : brewers.find(recipe, ref.stepId);
@@ -506,7 +506,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     laterRound?: LaterRound;
     earlierFindings?: true;
   }> => {
-    // The recipe this attempt brews; an earlier attempt's out doc is named by its own (#786).
+    // The recipe this attempt brews; an earlier attempt's out doc is named by its own (ADR 0309).
     const recipe = attemptRecipeOf(state(), ref) ?? '';
     const stepBrewer = (id: string, attempt?: number) =>
       brewers.find(

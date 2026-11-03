@@ -274,7 +274,7 @@ const repositoriesText = ({ repositories, own, checkouts }: BreweryRepositories)
  * Where each of `inputs` is read from, leaving out those of a step the batch skipped (ADR 0064) or
  * that `recipeHas` says its recipe does not have (#774); throws when a step it names is no
  * brewer's, or has no out doc yet. `stepBrewer` finds a step's brewer in the recipe the attempt
- * `attempt` of it was scheduled under, the attempt whose out doc an input reads (#786); without
+ * `attempt` of it was scheduled under, the attempt whose out doc an input reads (ADR 0309); without
  * one, in the planned attempt's. A lens input's text is in `lenses`, the lenses
  * the loader found for the brewer (ADR 0098); a repositories input's in `brewery` (ADR 0234), and
  * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
@@ -673,7 +673,7 @@ export interface PlannedRoute {
 /**
  * What sent attempt `ref` back, from the latest finished attempt of the step its route came from;
  * none when no route scheduled it (ADR 0128). `outDocOf` names the out doc file of an attempt of a
- * step, in the recipe it was scheduled under (#786), and
+ * step, in the recipe it was scheduled under (ADR 0309), and
  * `mergeOf` reads what the merge at an attempt's start recorded. A fresh retry or answer of a fix
  * whose start merged the base gets what sent that fix back, since its worktree holds the merge too
  * (ADR 0244).
