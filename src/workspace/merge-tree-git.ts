@@ -174,3 +174,29 @@ const checkedOut = async <T>(
     await removeTree(worktree);
   }
 };
+
+/** A file a scratch tree gets in place of the commit's: a mutant's (ADR 0313). */
+export interface TreeEdit {
+  /** A plain relative path, with forward slashes. */
+  file: string;
+  content: string;
+}
+
+/**
+ * A worktree of `commit`, with `edit` written over its file, for `use`, removed after (ADR 0313).
+ */
+export type CommitTree = <T>(
+  commit: string,
+  use: (worktree: string) => Promise<T>,
+  options?: { signal?: AbortSignal; edit?: TreeEdit },
+) => Promise<T>;
+
+/**
+ * Runs `use` with a scratch worktree of `commit` (ADR 0313), checked out from a git directory of
+ * Foedrum's own as the merged tree is (ADR 0203). Both go when `use` ends, also when it fails.
+ */
+export const openCommitTree =
+  (_options: MergeTreeOptions): CommitTree =>
+  () => {
+    throw new Error('not implemented');
+  };

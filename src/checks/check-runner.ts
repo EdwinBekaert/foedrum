@@ -311,8 +311,25 @@ export interface MergedCommits {
 /** Where a tree is: its repository and its folder. */
 export type TreeIn = Pick<WorktreeRef, 'repo' | 'path'>;
 
-/** The check runner, and the checks of a tree it runs a check step's through. */
-export type CheckRunner = BrewerRunner & { checkTree: CheckTree };
+/**
+ * The repository's test check run in a scratch tree, its setup first, and the test reports the
+ * modules wrote where the test map says (ADR 0313); or why it did not run or its reports cannot be
+ * read.
+ */
+export type TestRun = (
+  tree: TreeIn,
+  modules: readonly EffectiveModule[],
+  deadlineAt: string,
+  signal: AbortSignal,
+) => Promise<TestRunEnd>;
+
+/** What a test run read: the test check's reading and each module's reports, or why none. */
+export type TestRunEnd =
+  | { kind: 'ran'; reading: GravityReading; reports: readonly MappedReport[] }
+  | { kind: 'unrun'; why: string };
+
+/** The check runner, the checks of a tree it runs a check step's through, and a tree's tests. */
+export type CheckRunner = BrewerRunner & { checkTree: CheckTree; testRun: TestRun };
 
 export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
   const { state, checks, exec, git, clone, clock, platform = process.platform } = options;
@@ -1220,5 +1237,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     },
     progress: (ref) => running.get(attemptKey.encode(ref)),
     checkTree,
+    testRun: () => {
+      throw new Error('not implemented');
+    },
   };
 }

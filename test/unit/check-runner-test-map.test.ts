@@ -1199,3 +1199,64 @@ describe('createCheckRunner: a stale test map (ADR 0274, ADR 0282)', () => {
     assert.ok(!text.includes('acme/web is stale'), text);
   });
 });
+
+describe("createCheckRunner's testRun: a scratch tree's tests (ADR 0313)", () => {
+  it("a test run clears the map's reports, runs the test check, and reads each module's reports", async () => {
+    const scratch = { repo: 'acme/api', path: worktree };
+    const { runner, asked } = setup({
+      found: {
+        't/report.tap': [tapReport],
+        'web/test-results.xml': [webReport],
+      },
+      texts: {
+        [tapReport]: 'TAP version 13\nok 1 - adds\nnot ok 2 - subtracts\n1..2\n',
+        [webReport]: junitOf({ name: 'renders' }),
+      },
+      testExit: 1,
+    });
+    const modules = [
+      { module: tapped, added: false },
+      { module: web, added: false },
+    ];
+    const end = await runner.testRun(scratch, modules, deadlineAt, new AbortController().signal);
+    assert.equal(end.kind, 'ran');
+    const { reading, reports } = end.kind === 'ran' ? end : assert.fail();
+    assert.equal(reading.result, 'exited');
+    assert.equal(reading.result === 'exited' ? reading.exitCode : undefined, 1);
+    assert.deepStrictEqual(
+      reports.map(({ module, tests }) => [module, tests.map(({ name, result }) => [name, result])]),
+      [
+        [
+          'tapped',
+          [
+            ['adds', 'passed'],
+            ['subtracts', 'failed'],
+          ],
+        ],
+        ['web', [['renders', 'passed']]],
+      ],
+    );
+    // A report the commit holds must never stand for the run's: cleared first.
+    assert.ok(asked.includes(`clear ${tapReport}`), asked.join('\n'));
+    assert.ok(asked.includes(`clear ${webReport}`), asked.join('\n'));
+  });
+
+  it('a test run whose module cannot be read says why', async () => {
+    const scratch = { repo: 'acme/api', path: worktree };
+    const { runner } = setup({
+      found: { 't/report.tap': [tapReport] },
+      texts: { [tapReport]: '<not tap>' },
+    });
+    const end = await runner.testRun(
+      scratch,
+      [{ module: tapped, added: false }],
+      deadlineAt,
+      new AbortController().signal,
+    );
+    assert.equal(end.kind, 'unrun');
+    assert.match(
+      end.kind === 'unrun' ? end.why : '',
+      /the test report t\/report\.tap of module "tapped"/,
+    );
+  });
+});
