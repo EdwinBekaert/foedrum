@@ -4,7 +4,6 @@
 // claim effects, the attempt plans, the check runner and the guards, and the driver with the real
 // runner. Each caller says which batches its driver takes.
 
-import { familyOfBrewer } from '../brewers/attempt-plan.ts';
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
@@ -55,8 +54,8 @@ import { githubStatusComments } from '../github/status-comments.ts';
 import { githubSubIssues } from '../github/sub-issues.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { AwakeHold } from '../platform/keep-awake.ts';
-import { SURVEY } from '../schemas/out-doc.ts';
 import { worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
+import { attemptBrewers } from './attempt-brewers.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
 
@@ -368,17 +367,17 @@ export const wireDriver = async (
     env: setup.brewerEnv,
     clock,
   });
+  // What the batch's recipe schedules next, a check or a red proof, is the batch's (ADR 0309).
   const recipeOf = (batchId: string) => state().batches.get(batchId)?.recipe?.name;
-  const brewerOf = (batchId: string, stepId: string) =>
-    setup.brewers.find(recipeOf(batchId) ?? '', stepId)?.brewer;
-  const guardsOf = (batchId: string, stepId: string) => brewerOf(batchId, stepId)?.guards ?? [];
+  // An attempt's brewer is the one of the recipe it was scheduled under, as its plan's (ADR 0310).
+  const attempts = attemptBrewers({ state, brewers: setup.brewers, models: setup.models });
   // A survey needs no session for a fresh map, or one the Brewery keeps; the Maltster's commits
   // change the test map only (ADR 0298).
   const surveying = surveyed({
     runner: shell.runner(setup.claude, plans.plan),
     state,
-    surveys: ({ batchId, stepId }) => brewerOf(batchId, stepId)?.output.schema === SURVEY,
-    mapOnly: ({ batchId, stepId }) => guardsOf(batchId, stepId).includes('testMapOnly'),
+    surveys: attempts.surveys,
+    mapOnly: (ref) => attempts.guarded(ref, 'testMapOnly'),
     testMap: mapAt,
     keptIn: mapKeptIn,
     git: shell.git,
@@ -389,9 +388,10 @@ export const wireDriver = async (
   const brewer = guardTests({
     runner: surveying,
     state,
-    protects: ({ batchId, stepId }) =>
-      guardsOf(batchId, stepId).includes('testsUnchanged')
-        ? setup.checks.redProof(recipeOf(batchId) ?? '')?.of
+    // The attempt's brewer has the guard; the batch's recipe says which step's tests it proves red.
+    protects: (ref) =>
+      attempts.guarded(ref, 'testsUnchanged')
+        ? setup.checks.redProof(recipeOf(ref.batchId) ?? '')?.of
         : undefined,
     git: shell.git,
     clone,
@@ -470,26 +470,13 @@ export const wireDriver = async (
     brews: (ref) => !isCheck(ref),
     // A brewer that only reads plans a Brewery order in a checkout of every repository, in the
     // recipe its attempt was scheduled under (ADR 0301).
-    reads: ({ batchId, stepId, attempt }) => {
-      const batch = state().batches.get(batchId);
-      const scheduled = batch?.steps.get(stepId)?.attempts.get(attempt)?.recipe;
-      const recipe = scheduled ?? batch?.recipe?.name ?? '';
-      return setup.brewers.find(recipe, stepId)?.brewer.access === 'read';
-    },
+    reads: attempts.reads,
     // The family of the model the brewer runs on, a blind-tasting swap included, says which
     // closed usage window holds it (ADR 0215).
-    family: ({ batchId, stepId }) => {
-      const stepBrewer = brewerOf(batchId, stepId);
-      return stepBrewer && familyOfBrewer(setup.models, stepBrewer);
-    },
+    family: attempts.family,
     // A retry or an answer continues the session of a brewer that resumes (ADR 0117, ADR 0118),
     // but an interactive step's: its session opens anew, with the whole prompt (ADR 0222).
-    resumes:
-      resumes ??
-      (({ batchId, stepId }) => {
-        const stepBrewer = setup.brewers.find(recipeOf(batchId) ?? '', stepId);
-        return stepBrewer?.interactive === undefined && stepBrewer?.brewer.retryMode === 'resume';
-      }),
+    resumes: resumes ?? attempts.resumes,
     alsoCleans: [attemptSettingsCleaner(setup.workRoot)],
     effects,
     actions,

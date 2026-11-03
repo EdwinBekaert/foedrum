@@ -20,7 +20,7 @@ flowchart LR
 - A limit while its scope's window is closed moves that reopen only when its own is later; a limit of another scope closes its own window beside it; a limit after the reopen closes the window again.
 - The closed windows are `State.usageWindows`, one per scope.
   A `usage.window_closed` logged before ADR 0215 folds by its limit too, and a `usage.window_opened` without a `scope` opens every closed window.
-- A brewer attempt's family is read from its model as the attempt runs it, a blind-tasting swap included (`familyOfBrewer`, `src/brewers/attempt-plan.ts`): Opus when a word of the model id or family is `opus`, Sonnet when one is `sonnet` (`familyOf`).
+- A brewer attempt's family is read from its model as the attempt runs it, a blind-tasting swap included, by the brewer of its step in the recipe the attempt was scheduled under, which the batch may have left since ([ADR 0310](../../adr/0310-the-driver-wiring-finds-an-attempt-s-brewer-in-the-recipe-it-was-scheduled-under.md); `familyOfBrewer`, `src/brewers/attempt-plan.ts`): Opus when a word of the model id or family is `opus`, Sonnet when one is `sonnet` (`familyOf`).
   A model of another family, with both words, or a brewer whose alias has no model cannot be told, and every closed window holds it.
 - While the `all` window or the window of its family is closed, the driver starts no scheduled attempt that runs a brewer (`brews`, `family`), and starts check steps and action steps as before; a running attempt is not stopped.
 - No scheduled attempt that has not started expires while any window is closed, whatever its step or family: the supervisor issues no `expire` for it and `decide` refuses one.

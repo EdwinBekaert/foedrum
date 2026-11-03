@@ -26,6 +26,8 @@ export type InputSource =
   | { kind: 'plan-entry'; origin: PlanOrigin }
   /** The releases a sub-order waited for, each tag as written (ADR 0291). */
   | { kind: 'release'; issue: number; releases: readonly { repo: string; version: string }[] }
+  /** The checks that ran on the commit an attempt starts at, how each ended (ADR 0308). */
+  | { kind: 'checks'; commit: string }
   /** The Brewery's recipes a step that chooses the recipe may offer (ADR 0232). */
   | { kind: 'recipes' }
   /** A human's answers to the questions a step asked (ADR 0006: the in-doc of a fresh attempt). */
@@ -102,6 +104,8 @@ function describeSource(source: InputSource): string {
       const released = source.releases.map(({ repo, version }) => `${repo} ${version}`);
       return `the releases sub-order #${source.issue} waited for: ${released.join(', ')}`;
     }
+    case 'checks':
+      return `the checks that ran on commit ${source.commit}`;
     case 'recipes':
       return "the Brewery's recipes to offer";
     case 'change':

@@ -30,6 +30,8 @@ You could not finish:
 { "status": "failed", "summary": "<one line>", "assumptions": ["<decided without asking>"] }
 ---
 
+An assumption or a risk states only what you did or read: "I did not check X" is
+fine, but "X could not be checked" needs the attempt that failed.
 Prefer deciding and recording an assumption over asking. Ask only when a wrong
 guess would likely waste this run. Never ask questions any other way.
 ```
@@ -45,7 +47,8 @@ The attempt's shell commands and the rule not to push are not in the contract: t
 
 One example per status, because the schema is strict: a brewer that copies the example for its status as it is writes a valid out doc, and one that fills in every key of a single template did not (#195).
 The blocked example says `findings`, the one kind that can give the work another chance: another round inside a loop, else the step's `onBlocked` route, else Stuck (the table below), bounded by `maxRounds`.
-The contract stays around 300 tokens (ADR 0005): a unit test holds it to 1,200 characters, and to 1,400 with the lines about committing.
+The contract stays around 350 tokens (ADR 0005, [ADR 0308](../../adr/0308-a-taster-reads-the-checks-that-ran-on-its-head-and-an-out-doc-claims-only-what-its-session-did.md)): a unit test holds it to 1,400 characters, and to 1,600 with the lines about committing.
+Its rule on claims keeps every brewer's assumptions and risks to what its session did or read ([ADR 0308](../../adr/0308-a-taster-reads-the-checks-that-ran-on-its-head-and-an-out-doc-claims-only-what-its-session-did.md)).
 Brewer-specific fields (for example a review verdict) are added by the brewer's own schema.
 A brewer whose `output.schema` is `plan` writes a plan's sub-orders, checked against its repositories after a `done` ([work breakdown](../intake/work-breakdown.md), [ADR 0233](../../adr/0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md)).
 A brewer whose `output.schema` is `recipeChoice` ends `needs_input` with one question whose options are among the recipes its step may offer, which the engine fills its `"from": "recipes"` input with; a `done`, a second question or another option fails the attempt retryably ([ADR 0232](../../adr/0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md)).

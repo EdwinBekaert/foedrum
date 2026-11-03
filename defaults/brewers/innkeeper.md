@@ -2,7 +2,7 @@
 {
   "name": "innkeeper",
   "description": "Reads an order and asks which of the Brewery's recipes brews it, with a suggestion and the reason; read-only.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "low",
   "inputs": [
