@@ -3161,6 +3161,31 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
   });
 
+  it('names every option the plan commands leave out, in the plural: regression test', () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+      options: ['approve', 'lauter', 'retry', 'recipe', 'skip', 'cancel'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      `Next: ${planNextStep('7-1', code)} Its other options: \`recipe\`, \`skip\`.`,
+    );
+  });
+
+  it('a split order with no sub-order read yet says its sub-orders brew, unnumbered: regression test', () => {
+    const split = batch({ lane: { kind: 'on_tap', pullRequests: [] }, approval });
+    assert.equal(
+      nextOf(render(split)),
+      'Next: nothing to do; the sub-orders brew, and each pull request comes to you on tap.',
+    );
+  });
+
+  it('a batch on tap with no pull request and no approved plan has no Next line: regression test', () => {
+    assert.doesNotMatch(render(batch({ lane: { kind: 'on_tap', pullRequests: [] } })), /Next:/);
+  });
+
   it('a status comment cut to length keeps its Next line', () => {
     const many = Array.from({ length: 400 }, (_, i) => `s${i}`);
     const reason: StuckReason = { kind: 'waiting_for_session', stepId: 's0' };

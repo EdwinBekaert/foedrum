@@ -7,15 +7,18 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import type { Batch, Lane } from '../../src/engine/fold.ts';
+import { type Batch, fold, type Lane } from '../../src/engine/fold.ts';
 import {
   type LaneLabelHost,
   laneLabel,
   laneLabelEffects,
   laneLabels,
 } from '../../src/engine/lane-labels.ts';
+import { pullRequestKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { Event } from '../../src/schemas/events.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -429,5 +432,106 @@ describe('laneLabelEffects', () => {
       assert.deepEqual(labels.of(brewery, 20), ['foedrum:ordered']);
       untouched();
     });
+  });
+});
+
+describe('the lane label of a split order, through its effects (ADR 0293, ADR 0316)', () => {
+  const routeBy = '2026-11-01T13:00:00.000Z';
+  const lib = 'https://github.com/acme/lib/pull/8';
+  const web = 'https://github.com/acme/web/pull/31';
+  const subOrder = (id: string, repo: string) => ({
+    id,
+    title: `Build ${id}`,
+    repo,
+    size: { lines: 200, mechanism: 'one module' },
+    doneWhen: 'its test passes',
+    touches: [{ path: 'src/index.ts' }],
+    dependencies: [],
+    recipe: 'tdd',
+    why: 'a test can pin it',
+    ready: true,
+  });
+  /** Order #1, planned by 1-1, approved and split into #2 in acme/lib and #3 in acme/web. */
+  const split: Event[] = [
+    { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
+    {
+      type: 'batch.recipe_chosen',
+      batchId: '1-1',
+      recipe: 'mash',
+      reason: 'label',
+      source: 'label',
+    },
+    { type: 'step.scheduled', batchId: '1-1', stepId: 'plan', attempt: 1, deadlineAt: routeBy },
+    { type: 'step.started', batchId: '1-1', stepId: 'plan', attempt: 1 },
+    {
+      type: 'step.finished',
+      batchId: '1-1',
+      stepId: 'plan',
+      attempt: 1,
+      outcome: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'A plan',
+          assumptions: [],
+          subOrders: [subOrder('lib', 'acme/lib'), subOrder('web', 'acme/web')],
+        },
+      },
+    },
+    {
+      type: 'order.decomposed',
+      batchId: '1-1',
+      subOrders: [
+        { issue: 2, repo: 'acme/lib', entry: 'lib' },
+        { issue: 3, repo: 'acme/web', entry: 'web' },
+      ],
+      dependencies: [],
+      plan: { stepId: 'plan', attempt: 1 },
+    },
+    {
+      type: 'batch.approved',
+      batchId: '1-1',
+      stepId: 'plan',
+      attempt: 1,
+      plan: '0123456789abcdef',
+      by: 'grace',
+      via: 'terminal',
+      at,
+    },
+    { type: 'batch.on_tap', batchId: '1-1', pullRequests: [] },
+    // Its label so far, as a driver left it.
+    {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: '1-1', effect: 'label.1' }),
+      result: { label: 'foedrum:sub-orders' },
+    },
+  ];
+  /** Sub-order `issue`'s batch on tap with `url`, and the pull request merged. */
+  const merged = (issue: number, url: string): Event[] => [
+    {
+      type: 'batch.ordered',
+      batchId: `${issue}-1`,
+      order: { issue },
+      parentBatchId: '1-1',
+      routeBy,
+    },
+    { type: 'effect.applied', key: effectKey.encode(pullRequestKey(`${issue}-1`)), result: url },
+    { type: 'batch.on_tap', batchId: `${issue}-1`, pullRequests: [url] },
+    { type: 'pull_request.ended', batchId: `${issue}-1`, pullRequest: url, state: 'merged' },
+  ];
+  /** The label the next revision of 1-1 leaves, or none due. */
+  const next = async (events: readonly Event[]) => {
+    const labels = fakeLabels();
+    const effects = laneLabelEffects({ brewery: 'alice/brewery', host: labels.host });
+    const [key] = effects.due(fold(events), '1-1');
+    return key === undefined ? undefined : effects.target.apply(effectKey.encode(key));
+  };
+
+  it('takes foedrum:sub-orders off once every sub-order merged: regression test', async () => {
+    assert.deepEqual(await next([...split, ...merged(2, lib), ...merged(3, web)]), { label: null });
+  });
+
+  it('keeps foedrum:sub-orders while a sub-order has not merged: regression test', async () => {
+    assert.equal(await next([...split, ...merged(2, lib)]), undefined);
   });
 });
