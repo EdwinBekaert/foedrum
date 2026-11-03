@@ -375,8 +375,8 @@ describe('the default Nip', () => {
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
     // After green, three Tasters review side by side, through the correctness, acceptance and
-    // security lenses (ADR 0168, ADR 0197, ADR 0306); correctness blocks, acceptance advises
-    // (ADR 0264).
+    // security lenses (ADR 0168, ADR 0197, ADR 0306); correctness blocks (ADR 0264), acceptance and
+    // security advise (ADR 0306).
     assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), [
       'correctness',
       'acceptance',
