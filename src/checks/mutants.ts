@@ -40,8 +40,8 @@ const squash = (code: string): string =>
 // boolean literals count as literals, which a mutant may change.
 const names = (code: string, stripped: boolean): Set<string> => {
   const quoted = code.match(strings) ?? [];
-  const uncommented = stripped ? code.replace(strings, ' ').replace(comments, ' ') : code;
-  const rest = uncommented.replace(strings, ' ').replace(numbers, ' ');
+  const unquoted = code.replace(strings, ' ');
+  const rest = (stripped ? unquoted.replace(comments, ' ') : unquoted).replace(numbers, ' ');
   const bare = (rest.match(words) ?? []).filter((word) => word !== 'true' && word !== 'false');
   return new Set([...quoted, ...bare]);
 };
