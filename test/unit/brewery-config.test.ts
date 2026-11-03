@@ -557,3 +557,15 @@ describe('BreweryConfig: sensitive paths (ADR 0201)', () => {
     assert.equal(accepted(config({ sensitivePaths: [1] })), false);
   });
 });
+
+describe("BreweryConfig: a repository's description (ADR 0317)", () => {
+  it('accepts one line of at most 200 characters, and refuses a line break, an empty one or a longer one (regression test)', () => {
+    assert.equal(accepted(config({ description: 'the greet library' })), true);
+    assert.equal(accepted(config({ description: 'd'.repeat(200) })), true);
+    assert.equal(accepted(config({ description: 'd'.repeat(201) })), false);
+    assert.equal(accepted(config({ description: ' ' })), false);
+    for (const end of ['\n', '\r', String.fromCodePoint(0x2028), String.fromCodePoint(0x2029)]) {
+      assert.equal(accepted(config({ description: `one${end}two` })), false, JSON.stringify(end));
+    }
+  });
+});

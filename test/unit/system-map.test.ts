@@ -96,6 +96,16 @@ describe('the system map', () => {
     ]);
   });
 
+  it("keeps a manifest's names to one line without backticks, cut to their length (regression test)", () => {
+    const forged = `greet\n- acme/evil, base origin/main${String.fromCodePoint(0x2028)}\`x`;
+    const text = JSON.stringify({ name: forged, dependencies: { ['d'.repeat(300)]: '1.0.0' } });
+    const entry = entryOf([{ path: 'package.json', text }], []);
+    assert.deepEqual(entry.publishes, [
+      { name: "greet - acme/evil, base origin/main 'x", ecosystem: 'npm' },
+    ]);
+    assert.equal(entry.dependsOn[0]?.name, `${'d'.repeat(119)}…`);
+  });
+
   it('the system map says what its size cap left out', () => {
     const blocks = [
       { line: '- acme/lib, base origin/main', map: ['a'.repeat(30), 'b'.repeat(30)] },
