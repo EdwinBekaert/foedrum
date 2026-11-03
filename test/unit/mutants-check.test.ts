@@ -217,6 +217,15 @@ describe('mutantCheck: a target repository (ADR 0311)', () => {
     assert.equal(verdict.line, 5);
   });
 
+  it("dropping a `//` and what follows is a change where the language's comments are not known", () => {
+    const verdict = mutantCheck(
+      mutant({ line: 5, original: 'share = amount // limit', replacement: 'share = amount' }),
+      change,
+    );
+    assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
+    assert.equal(verdict.line, 5);
+  });
+
   it('strips the comments of a file whose extension is in capitals', () => {
     assert.equal(
       reasonOf({

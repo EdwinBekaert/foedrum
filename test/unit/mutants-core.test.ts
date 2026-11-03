@@ -221,6 +221,16 @@ describe('parseMutant allowlist edge cases', () => {
     );
   });
 
+  it('a comment marker inside a string is no comment when a replacement is compared', () => {
+    const edit = { original: 'const a = "//" + b;', replacement: 'const a = "//" - b;' };
+    assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
+  });
+
+  it('a string edit is a change when a replacement is compared', () => {
+    const edit = { original: 'log("a", "b"); // a', replacement: 'log("b", "b"); // a' };
+    assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
+  });
+
   it('rejects a replacement with a JavaScript line separator', () => {
     assert.match(reasonOf(mutant({ replacement: 'a; b;' })), /one line/);
   });
