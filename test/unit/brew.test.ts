@@ -728,9 +728,9 @@ describe('runBrew', () => {
     assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
     assert.deepStrictEqual(api.issue('acme/brewery', 12)?.labels, [
       'recipe:stout',
-      'foedrum:on-tap',
+      'foedrum:awaiting-merge',
     ]);
-    assert.ok(api.labels.get('acme/brewery')?.has('foedrum:on-tap'));
+    assert.ok(api.labels.get('acme/brewery')?.has('foedrum:awaiting-merge'));
   });
 
   it('prints the link to the status comment once it is made (#406)', async () => {

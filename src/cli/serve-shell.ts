@@ -32,7 +32,7 @@ import { openWorktreeMerge } from '../workspace/base-merge-git.ts';
 import { openBranchPush } from '../workspace/branch-push-git.ts';
 import type { OwnRemote } from '../workspace/clone-git.ts';
 import type { Git } from '../workspace/git.ts';
-import { openMergedTree, openMergeTree } from '../workspace/merge-tree-git.ts';
+import { openCommitTree, openMergedTree, openMergeTree } from '../workspace/merge-tree-git.ts';
 import type { ServeShell } from './serve.ts';
 import type { ServeSetup } from './serve-config.ts';
 
@@ -163,6 +163,13 @@ export const serveShell = (setup: ServeSetup, options: ServeShellOptions): Serve
     // A worktree of the merged tree from such a directory, for the checks on it (ADR 0203).
     mergedTree: (repository) =>
       openMergedTree({
+        git,
+        clone: worktreeClonePath(workRoot, repository),
+        own: ownRemote(workRoot, repository.repo),
+      }),
+    // A scratch worktree of a commit from such a directory, for Brett's mutants (ADR 0313).
+    commitTree: (repository) =>
+      openCommitTree({
         git,
         clone: worktreeClonePath(workRoot, repository),
         own: ownRemote(workRoot, repository.repo),

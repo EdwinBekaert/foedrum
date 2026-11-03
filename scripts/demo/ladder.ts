@@ -372,6 +372,20 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
   const read = async (path: string): Promise<unknown> =>
     (await (await host()).fetch(`https://api.github.com/repos/${path}`)).json();
   const comments = async (issue: number) => (await host()).comments(BREWERY, issue);
+  /** Issue `number`'s labels and its status comment's `Next:` line: what the person does (ADR 0316). */
+  const standing = async (number: number): Promise<void> => {
+    const { labels } = (await read(`${BREWERY}/issues/${number}`)) as {
+      labels: { name: string }[];
+    };
+    const status = (await comments(number)).filter(({ body }) => !body.includes(PLAN_HEADING));
+    const next = status.flatMap(({ body }) =>
+      commentMarkdown(body)
+        .split('\n')
+        .filter((line) => line.startsWith('Next:')),
+    );
+    say(`demo: ${BREWERY}#${number}'s labels and next step:`);
+    indented([`labels: ${labels.map(({ name }) => name).join(', ')}`, ...next]);
+  };
   const pullOn = async (repo: string) => (await host()).pulls().find((pull) => pull.repo === repo);
   const orderState = async (): Promise<string | undefined> =>
     ((await read(`${BREWERY}/issues/${LADDER_ORDER.number}`)) as { state?: string }).state;
@@ -425,6 +439,7 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
       );
       indented(commentMarkdown(comment.body).split('\n'));
     }
+    await standing(LADDER_ORDER.number);
 
     await next();
     await foedrum(['approve', PLANNED]);
@@ -449,6 +464,9 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
         `blocked by: ${blockedBy.map(({ number }) => `#${number}`).join(', ') || 'none'}`,
       ]);
     }
+    // The order hands over to its sub-orders; the first one's pull request waits for a merge.
+    await standing(LADDER_ORDER.number);
+    for (const issue of subIssues) await standing(issue.number);
 
     await next();
     indented(outputLines(lib));

@@ -12,6 +12,7 @@ import {
   MOST_FAILED_CHECKS,
   MOST_OPEN_FINDINGS,
   MOST_RECORDED_FINDINGS,
+  type MutantRecord,
   type OrderRef,
   type PlanOrigin,
   type RankPlace,
@@ -163,6 +164,8 @@ export type EngineCommand =
       staleMap?: StaleMap;
       /** What a check step's uncovered-line check did not measure (ADR 0274). */
       coverage?: CoverageListing;
+      /** A Brett attempt's mutants, with what the engine's runs found (ADR 0313). */
+      mutants?: readonly MutantRecord[];
       /** What claude reported in its init event, when it came (ADR 0116). */
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
@@ -642,6 +645,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     readings,
     staleMap,
     coverage,
+    mutants,
     claude,
     receipt,
     houseYeast,
@@ -678,6 +682,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(readings === undefined ? {} : { readings: [...readings] }),
     ...(staleMap === undefined ? {} : { staleMap }),
     ...(coverage === undefined ? {} : { coverage }),
+    ...(mutants === undefined || mutants.length === 0 ? {} : { mutants: [...mutants] }),
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),

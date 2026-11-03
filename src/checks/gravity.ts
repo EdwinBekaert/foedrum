@@ -117,14 +117,15 @@ type Failing = NonNullable<Exited['failing']>;
 
 /**
  * A failing test's name as a reading keeps it: on one line, left out when it looks like a secret,
- * since a brewer may have written it, and cut to `MAX_TEST_NAME_LENGTH`, never half a character.
+ * since a brewer may have written it, and cut to `max`, never half a character. A mutant's texts
+ * are kept the same way (ADR 0313).
  */
-const keptName = (name: string): string => {
+export const keptName = (name: string, max = MAX_TEST_NAME_LENGTH): string => {
   const line = name.replace(/\s+/g, ' ').trim();
   if (findSecrets(line, () => false).length > 0)
     return '[left out: a name that looks like a secret]';
-  if (line.length <= MAX_TEST_NAME_LENGTH) return line;
-  const kept = line.slice(0, MAX_TEST_NAME_LENGTH - 1);
+  if (line.length <= max) return line;
+  const kept = line.slice(0, max - 1);
   // The first half of a surrogate pair whose second half was cut off.
   const last = kept.charCodeAt(kept.length - 1);
   return `${last >= 0xd800 && last <= 0xdbff ? kept.slice(0, -1) : kept}…`;

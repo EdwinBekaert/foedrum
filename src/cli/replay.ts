@@ -3,6 +3,7 @@
 import type { StoredEvent } from '../engine/event-store.ts';
 import type { Attempt, Batch, Pause } from '../engine/fold.ts';
 import { plainReason } from '../engine/supervisor.ts';
+import type { MutantVerdict } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { columns } from './columns.ts';
 import { describeLane, issueOf, pauseLine } from './status.ts';
@@ -20,6 +21,25 @@ const outcomeOf = (outcome: StepOutcome): string => {
     default: {
       const unhandled: never = outcome;
       throw new Error(`Unhandled outcome ${JSON.stringify(unhandled)}`);
+    }
+  }
+};
+
+const verdictOf = (verdict: MutantVerdict): string => {
+  switch (verdict.kind) {
+    case 'killed':
+      return `killed by ${verdict.by}`;
+    case 'survived':
+      return 'survived';
+    case 'timedOut':
+      return 'timed out, so killed';
+    case 'invalid':
+      return `invalid, ${verdict.reason}`;
+    case 'notJudged':
+      return `not judged, ${verdict.why}`;
+    default: {
+      const unhandled: never = verdict;
+      throw new Error(`Unhandled verdict ${JSON.stringify(unhandled)}`);
     }
   }
 };
@@ -95,6 +115,18 @@ export const formatReplay = (
       ),
     );
   }
+  // Each Brett attempt's mutants and what the engine's runs found (ADR 0313).
+  const mutants = [...batch.steps.values()].flatMap((step) =>
+    [...step.attempts.values()].flatMap((attempt) =>
+      attempt.phase === 'finished'
+        ? (attempt.mutants ?? []).map(
+            ({ file, line, description, verdict }) =>
+              `    ${file}:${line} ${description}: ${verdictOf(verdict)} (${step.id}#${attempt.attempt})`,
+          )
+        : [],
+    ),
+  );
+  if (mutants.length > 0) lines.push('  mutants', ...mutants);
   if (batch.rewinds.length > 0) {
     lines.push(
       '  rewinds',

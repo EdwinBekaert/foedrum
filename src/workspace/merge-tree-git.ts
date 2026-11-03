@@ -4,9 +4,11 @@
 // runs only through the injected `Git`, so unit tests pass a fake one (ADR 0021). The checks on
 // the merged tree get a worktree of it from such a directory (ADR 0203).
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MergeTreeResult } from '../engine/base-check.ts';
+import { pathInside } from '../platform/paths.ts';
+import { realPath } from '../platform/real-path.ts';
 import { removeTree } from '../platform/remove.ts';
 import { isCommitSha } from '../schemas/store.ts';
 import {
@@ -14,6 +16,7 @@ import {
   fullSha,
   gitOutput,
   inClone,
+  type OwnGitDir,
   type OwnRemote,
   withOwnGitDir,
 } from './clone-git.ts';
@@ -129,32 +132,117 @@ export const openMergedTree =
           })
         ).trim(),
       );
-      // The clone's tags and remote-tracking refs, so `git describe` or a log of the base reads
-      // what it reads in a check step's worktree.
-      const listed = await gitOutput(
-        inClone(git),
-        clone,
-        ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags', 'refs/remotes'],
-        signal === undefined ? {} : { signal },
-      );
-      const refs = listed
-        .split(/\r?\n/)
-        .filter(isCopiedRef)
-        .map((line) => `${line}\n`);
-      await writeFile(join(dir.path, 'packed-refs'), refs.join(''));
-      // git in the worktree runs without the call's object directory: it borrows the clone's.
-      await mkdir(join(dir.path, 'objects', 'info'), { recursive: true });
-      await writeFile(join(dir.path, 'objects', 'info', 'alternates'), `${dir.objects}\n`);
-      const worktree = dir.path.replace(/\.git$/, '.tree');
-      try {
-        const added = await dir.read(
-          ['worktree', 'add', '--quiet', '--detach', '--end-of-options', worktree, commit],
-          { timeoutMs: CHECKOUT_TIMEOUT_MS },
-        );
-        if (added.code !== 0) throw new Error(`git worktree add failed: ${firstLine(added)}`);
-        return await use(worktree);
-      } finally {
-        await removeTree(worktree);
-      }
+      return checkedOut({ git, clone }, dir, commit, use, signal);
     });
+  };
+
+/**
+ * Runs `use` with a worktree of `commit` checked out from `dir`, a git directory of Foedrum's own,
+ * which gets a copy of the clone's tags and remote-tracking refs and borrows its objects. The
+ * worktree goes when `use` ends, also when it fails.
+ */
+const checkedOut = async <T>(
+  { git, clone }: Pick<MergeTreeOptions, 'git' | 'clone'>,
+  dir: OwnGitDir,
+  commit: string,
+  use: (worktree: string) => Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> => {
+  // The clone's tags and remote-tracking refs, so `git describe` or a log of the base reads
+  // what it reads in a check step's worktree.
+  const listed = await gitOutput(
+    inClone(git),
+    clone,
+    ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags', 'refs/remotes'],
+    signal === undefined ? {} : { signal },
+  );
+  const refs = listed
+    .split(/\r?\n/)
+    .filter(isCopiedRef)
+    .map((line) => `${line}\n`);
+  await writeFile(join(dir.path, 'packed-refs'), refs.join(''));
+  // git in the worktree runs without the call's object directory: it borrows the clone's.
+  await mkdir(join(dir.path, 'objects', 'info'), { recursive: true });
+  await writeFile(join(dir.path, 'objects', 'info', 'alternates'), `${dir.objects}\n`);
+  const worktree = dir.path.replace(/\.git$/, '.tree');
+  try {
+    const added = await dir.read(
+      ['worktree', 'add', '--quiet', '--detach', '--end-of-options', worktree, commit],
+      { timeoutMs: CHECKOUT_TIMEOUT_MS },
+    );
+    if (added.code !== 0) throw new Error(`git worktree add failed: ${firstLine(added)}`);
+    return await use(worktree);
+  } finally {
+    await removeTree(worktree);
+  }
+};
+
+/** A file of a scratch tree rewritten after its checkout: a mutant's (ADR 0313). */
+export interface TreeEdit {
+  /** A plain relative path, with forward slashes. */
+  file: string;
+  /** The file's new text from its text as git checked it out; throws when it cannot be made. */
+  rewrite: (checkedOut: string) => string;
+}
+
+/**
+ * A worktree of `commit`, with `edit` written over its file, for `use`, removed after (ADR 0313).
+ */
+export type CommitTree = <T>(
+  commit: string,
+  use: (worktree: string) => Promise<T>,
+  options?: { signal?: AbortSignal; edit?: TreeEdit },
+) => Promise<T>;
+
+/**
+ * Runs `use` with a scratch worktree of `commit` (ADR 0313), checked out from a git directory of
+ * Foedrum's own as the merged tree is (ADR 0203). Both go when `use` ends, also when it fails.
+ */
+export const openCommitTree =
+  ({ git, clone, own }: MergeTreeOptions): CommitTree =>
+  async <T>(
+    commit: string,
+    use: (worktree: string) => Promise<T>,
+    options: { signal?: AbortSignal; edit?: TreeEdit } = {},
+  ): Promise<T> => {
+    const { signal, edit } = options;
+    const sha = fullSha(commit);
+    if (own === undefined) {
+      throw new Error(`The scratch tree in ${clone} names no URL to reach the remote by`);
+    }
+    return withOwnGitDir(git, clone, own, signal, (dir) =>
+      checkedOut(
+        { git, clone },
+        dir,
+        sha,
+        async (worktree) => {
+          if (edit !== undefined) {
+            // A plain relative path the mutant check accepted. A link the commit holds, there or on
+            // the way, could lead the write out of the tree: only a regular file inside it is edited.
+            const file = join(worktree, ...edit.file.split('/'));
+            const found = await lstat(file).catch(() => undefined);
+            if (
+              found?.isFile() !== true ||
+              pathInside(realPath(worktree), realPath(file)) === undefined
+            ) {
+              throw new Error(
+                `${JSON.stringify(edit.file)} is no regular file of the scratch tree`,
+              );
+            }
+            // Read strictly: a lossy decode would rewrite every byte that is not UTF-8.
+            let text: string;
+            try {
+              text = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(file));
+            } catch {
+              throw new Error(
+                `${JSON.stringify(edit.file)} is not UTF-8: a rewrite would change more than its line`,
+              );
+            }
+            await writeFile(file, edit.rewrite(text));
+          }
+          return use(worktree);
+        },
+        signal,
+      ),
+    );
   };

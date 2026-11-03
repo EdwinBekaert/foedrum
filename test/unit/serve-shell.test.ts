@@ -12,6 +12,7 @@ import { listenWhileServing, serveShell } from '../../src/cli/serve-shell.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import { worktreeClonePath } from '../../src/workspace/attempt-worktrees-git.ts';
 import { fakeGit, suiteFolders } from '../helpers/attempt-worktrees.ts';
 import { clone, local, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -385,6 +386,20 @@ describe('serveShell', () => {
     listening.listen('SIGHUP', handler);
     listening.stop();
     assert.deepStrictEqual(calls, ['on SIGINT', 'on SIGHUP', 'off SIGINT', 'off SIGHUP']);
+  });
+
+  it("opens a Brett attempt's scratch tree from the repository's clone (ADR 0313, regression test)", async () => {
+    const calls: string[][] = [];
+    const git = async (cwd: string, args: readonly string[]) => {
+      calls.push([cwd, ...args]);
+      return { code: 128, stdout: '', stderr: 'fatal: not a git repository\n' };
+    };
+    const shell = serveShell(setup, { root: 'brewery', git, out: () => {}, listen: () => {} });
+    const tree = shell.commitTree?.(web()) ?? assert.fail('the shell opens no scratch tree');
+    await assert.rejects(tree('c'.repeat(40), async () => undefined));
+    const [first] = calls;
+    assert.equal(first?.[0], worktreeClonePath(workRoot, web()));
+    assert.ok(first?.includes('--git-common-dir'), JSON.stringify(first));
   });
 
   it('borrows nothing for a managed repository without a clone of the user', async () => {

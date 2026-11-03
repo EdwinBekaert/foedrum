@@ -7,6 +7,7 @@
 import { createAttemptPlans } from '../brewers/attempt-plans.ts';
 import { attemptSettingsCleaner } from '../brewers/attempt-settings-cleanup.ts';
 import { type CheckTree, createCheckRunner } from '../checks/check-runner.ts';
+import { mutated } from '../checks/mutant-run.ts';
 import { needsTestMap } from '../checks/red-proof.ts';
 import { surveyed } from '../checks/survey.ts';
 import { addedUnmeasured, refusalCommit, sensitivePathsOf, testMaps } from '../checks/test-map.ts';
@@ -394,7 +395,7 @@ export const wireDriver = async (
     clock,
   });
   // The brewer of a step with the testsUnchanged guard keeps the red proof's tests (ADR 0078, ADR 0274).
-  const brewer = guardTests({
+  const guarded = guardTests({
     runner: surveying,
     state,
     // The attempt's brewer has the guard; the batch's recipe says which step's tests it proves red.
@@ -408,6 +409,22 @@ export const wireDriver = async (
     testMap: mapAt,
     clock,
   });
+  // A Brett attempt's mutants run in scratch trees once its session ends (ADR 0313).
+  const { commitTree } = shell;
+  const brewer =
+    commitTree === undefined
+      ? guarded
+      : mutated({
+          runner: guarded,
+          state,
+          mutates: attempts.mutates,
+          git: shell.git,
+          clone,
+          testMap: mapAt,
+          tree: (repo) => commitTree(repositoryCalled(repo)),
+          testRun: checks.testRun,
+          clock,
+        });
   const isCheck = ({ batchId, stepId }: AttemptRef) => {
     const recipe = recipeOf(batchId);
     return recipe !== undefined && setup.checks.find(recipe, stepId) !== undefined;

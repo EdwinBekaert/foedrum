@@ -133,6 +133,12 @@ export interface IntakeOptions {
    * records once it holds the blockers' merges (ADR 0223); none by default.
    */
   releases?: ReleaseReader;
+  /**
+   * What a pass awaits after it ordered a batch and before it routes, while an Ordered batch waits
+   * for its route: the driver's effects, so the issue shows the Ordered lane before its batch brews in the
+   * same pass (ADR 0316). Nothing by default.
+   */
+  ordered?: () => Promise<void>;
 }
 
 /** No recipe's concurrency and no open-order limit: only the Brewery's free capacity holds. */
@@ -339,10 +345,10 @@ export const createIntake = (options: IntakeOptions): Intake => {
     breweryIssues: readonly TargetIssue[],
     free: number,
     signal: AbortSignal,
-  ): Promise<void> => {
+  ): Promise<number> => {
     const listings: Listing[] = [];
     for (const repository of repositories) {
-      if (signal.aborted) return;
+      if (signal.aborted) return 0;
       const { repo, filter } = repository;
       try {
         listings.push({ repository, issues: await tracker.issues(repo, filter, signal) });
@@ -412,7 +418,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
       switch (outcome.kind) {
         case 'won':
         case 'ours': {
-          if (signal.aborted) return;
+          if (signal.aborted) return ordered;
           const batchId = targetBatchId(log.state(), alias, order.issue);
           if (issue({ kind: 'order', batchId, order: { issue: order.issue, repo } })) {
             ordered++;
@@ -428,6 +434,7 @@ export const createIntake = (options: IntakeOptions): Intake => {
           outcome satisfies never;
       }
     }
+    return ordered;
   };
 
   // The issues reported as held, with the reason: each once, not at every poll (ADR 0217).
@@ -522,7 +529,11 @@ export const createIntake = (options: IntakeOptions): Intake => {
       }
     }
     // One queue across the Brewery and every repository, in rank order (ADR 0208).
-    if (free > 0 && !signal.aborted) await orderQueue(listed, free, signal);
+    const ordered = free > 0 && !signal.aborted ? await orderQueue(listed, free, signal) : 0;
+    // What this pass ordered shows its Ordered lane before it is routed (ADR 0316).
+    if (options.ordered !== undefined && !signal.aborted && ordered > 0 && awaitsRouting()) {
+      await options.ordered();
+    }
     // A pass given up at its deadline routes nothing.
     if (!signal.aborted) route(listed);
   };
