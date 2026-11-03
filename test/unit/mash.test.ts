@@ -283,6 +283,33 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.deepStrictEqual(models, ['opus']);
   });
 
+  it("records each repository's system map through the driver's log, and the Brewmaster reads it (ADR 0317): regression test", async () => {
+    const base = 'c'.repeat(40);
+    const mapping: ServeShell = {
+      ...shell([planned]),
+      git: async (_cwd, args) => {
+        const stdout =
+          args[0] === 'rev-parse'
+            ? `${base}\n`
+            : args[0] === 'ls-tree'
+              ? args.includes('--name-only')
+                ? 'package.json\0'
+                : ''
+              : JSON.stringify({ name: '@acme/web' });
+        return { code: 0, stdout, stderr: '' };
+      },
+    };
+    assert.equal(await runBrew(setup, mapping, request), 3, lines.join('\n'));
+    const mapped = store
+      .eventsAfter(0)
+      .flatMap(({ event }) => (event.type === 'system.mapped' ? [event] : []));
+    assert.deepStrictEqual(
+      mapped.map(({ repo, commit, entry }) => [repo, commit, entry.publishes]),
+      [['acme/web', base, [{ name: '@acme/web', ecosystem: 'npm' }]]],
+    );
+    assert.match(prompts[0] ?? '', /\n {2}publishes `@acme\/web` \(npm\)\n/);
+  });
+
   it('retries a plan missing a field in the same session, told which field', async () => {
     const [first, ...rest] = subOrders;
     const { doneWhen: _, ...missing } = first ?? assert.fail();

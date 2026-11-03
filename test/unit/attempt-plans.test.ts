@@ -900,6 +900,64 @@ describe('createAttemptPlans: plan', () => {
       assert.match(prompt, /publishes `web` \(npm\)/);
     });
 
+    it('a base git cannot list is recorded with why, and its line says so (regression test)', async () => {
+      const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+      const listing = gitOf([]);
+      const git = async (cwd: string, args: readonly string[]) =>
+        args[0] === 'ls-tree'
+          ? { code: 128, stdout: '', stderr: 'fatal: not a tree object\n' }
+          : listing(cwd, args);
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git,
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      const [recorded] = events.slice(-1);
+      assert.deepEqual(recorded?.type === 'system.mapped' ? recorded.entry.unreadable : [], [
+        { path: 'its files', reason: `git could not list ${tip}: fatal: not a tree object` },
+      ]);
+      assert.match(
+        prompt,
+        /\n {2}`its files` could not be read: git could not list d{40}: fatal: not a tree object\n/,
+      );
+    });
+
+    it("the test map's modules at the base are recorded and listed (regression test)", async () => {
+      const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+      const module = (name: string) => ({
+        name,
+        code: [`${name}/src/**`],
+        tests: { paths: [`${name}/test/**`] },
+        testReport: { format: 'junit' as const, path: `${name}/results.xml` },
+        coverage: { format: 'lcov' as const, path: `${name}/lcov.info` },
+      });
+      const asked: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git: gitOf([]),
+        recordMap: (event) => events.push(event),
+        testMapAt: async (repo, commit) => {
+          asked.push(`${repo} ${commit}`);
+          return {
+            kind: 'map',
+            map: {
+              derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+              modules: [module('web'), module('admin')],
+            },
+          };
+        },
+      });
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(asked, [`acme/web ${tip}`]);
+      const [recorded] = events.slice(-1);
+      assert.deepEqual(recorded?.type === 'system.mapped' ? recorded.entry.modules : [], [
+        'web',
+        'admin',
+      ]);
+      assert.match(prompt, /\n {2}test map modules: web, admin\n/);
+    });
+
     it("a Brewery with no manifests gives today's lines (regression test)", async () => {
       const events: Event[] = [...ordered, started];
       const empty = async (_cwd: string, args: readonly string[]) => ({

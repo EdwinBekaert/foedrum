@@ -69,4 +69,31 @@ describe('foedrum doctor: the system map (ADR 0317)', () => {
     );
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /System map/);
   });
+
+  it("says why a clone's base or files could not be read (regression test)", async () => {
+    const failing = async (at: string, args: readonly string[]) => {
+      if (at === libClone && args[0] === 'rev-parse') {
+        return { code: 128, stdout: '', stderr: 'fatal: Needed a single revision\n' };
+      }
+      if (at === appClone && args[0] === 'ls-tree') {
+        return { code: 128, stdout: '', stderr: 'fatal: not a tree object\n' };
+      }
+      return git(at, args);
+    };
+    const systemMap = await readDoctorMap({
+      git: failing,
+      home,
+      cwd,
+      readFile: (path) => files[path],
+      exists: (path) => path === libClone || path === appClone,
+    });
+    assert.deepEqual(
+      systemMap.map(({ repo, read }) => [repo, 'unread' in read ? read.unread : 'read']),
+      [
+        ['acme/ladderlib', 'its clone has no origin/main'],
+        ['acme/ladderapp', `git could not list ${tip}: fatal: not a tree object`],
+        ['acme/docs', 'it has no clone here yet'],
+      ],
+    );
+  });
 });

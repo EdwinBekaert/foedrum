@@ -8,6 +8,7 @@ import {
   entryOf,
   type MappedRepository,
   mapLines,
+  mapName,
 } from '../../src/engine/system-map.ts';
 import { dotnetManifest } from '../../src/formats/dotnet-manifest.ts';
 import { npmManifest } from '../../src/formats/npm-manifest.ts';
@@ -96,6 +97,55 @@ describe('the system map', () => {
       '`package.json` could not be read: it is not a JSON object',
       '`src/App.csproj` could not be read: not XML: an unclosed <Project>',
       '`tools/package.json` could not be read: it is larger than 1048576 bytes',
+    ]);
+  });
+
+  it('makes each line break and control character of a name a space (regression test)', () => {
+    for (const code of [0x0d, 0x09, 0x1b, 0x2028, 0x2029]) {
+      const end = String.fromCodePoint(code);
+      assert.equal(mapName(`one${end}two`), 'one two', code.toString(16));
+    }
+  });
+
+  it("reads a solution's projects outside the repository only (regression test)", () => {
+    const solution = [
+      'Project("{FAE04EC0}") = "App", "src\\App\\App.csproj", "{1}"',
+      'Project("{FAE04EC0}") = "Words", "..\\ladderlib\\src\\Words.csproj", "{2}"',
+      'Project("{2150E333}") = "Docs", "..\\docs", "{3}"',
+    ].join('\r\n');
+    assert.deepEqual(dotnetManifest.read('App.sln', solution), {
+      kind: 'read',
+      publishes: [],
+      dependsOn: [
+        { name: 'Words', via: { kind: 'project', path: '../ladderlib/src/Words.csproj' } },
+      ],
+    });
+  });
+
+  it('reads no manifest in an installed or built folder (regression test)', () => {
+    for (const path of ['node_modules/x/package.json', 'src/Bin/A.csproj', 'obj/A.csproj']) {
+      assert.equal(npmManifest.matches(path) || dotnetManifest.matches(path), false, path);
+    }
+    assert.equal(npmManifest.matches('tools/package.json'), true);
+    assert.equal(dotnetManifest.matches('src/App.fsproj'), true);
+  });
+
+  it('links a git URL without a ref, and a package only in its own ecosystem (regression test)', () => {
+    const library = lib(
+      entryOf(
+        [
+          { path: 'package.json', text: JSON.stringify({ name: 'Words' }) },
+          { path: 'Greet.csproj', text: '<Project><PropertyGroup /></Project>' },
+        ],
+        [],
+      ),
+    );
+    const text = JSON.stringify({
+      dependencies: { greet: 'github:acme/ladderlib', Greet: '1.0.0' },
+    });
+    const app = { repo: 'acme/web', entry: entryOf([{ path: 'package.json', text }], []) };
+    assert.deepEqual(mapLines(app, [library, app]).slice(1), [
+      'depends on `greet` from acme/ladderlib by git URL `github:acme/ladderlib` (npm)',
     ]);
   });
 
