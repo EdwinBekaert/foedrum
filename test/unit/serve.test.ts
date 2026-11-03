@@ -2708,6 +2708,41 @@ Plan the order in {order}.
       progress: () => undefined,
     };
 
+    it("the ordered label is applied before the batch's first attempt starts", async () => {
+      store = empty();
+      setup = intakeSetup({ concurrency: 1 });
+      const github = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/brewery': [
+            { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'Add it.' },
+          ],
+        },
+      });
+      // The first lane label revision when the runner starts the first attempt, which never ends.
+      const seen: unknown[] = [];
+      const runner: BrewerRunner = {
+        start: (start) => {
+          seen.push(store.findEffect({ batchId: '12-1', effect: 'label.1' }));
+          return hanging.start(start);
+        },
+        progress: () => undefined,
+      };
+      const started = () => seen.length > 0;
+      const ran = await runServe(
+        setup,
+        shell({ fetch: github.fetch, runner: () => runner, ...ticking(started) }),
+      );
+      assert.equal(ran, 0);
+      assert.ok(started(), lines.join('\n'));
+      // Ordered and routed in one intake pass: the ordered label went on between them.
+      assert.ok(
+        lines.includes('foedrum serve: routed batch 12-1 to the recipe stout'),
+        lines.join('\n'),
+      );
+      assert.deepStrictEqual(seen[0], { result: { label: 'foedrum:ordered' } });
+    });
+
     it('orders and routes a labelled Brewery issue and a claimed target issue, marks the claim and releases it', async () => {
       store = empty();
       setup = intakeSetup({ concurrency: 2 }, target);
@@ -2738,6 +2773,8 @@ Plan the order in {order}.
       });
       // The Brewery issue that is the order of acme/web#7, after the Brewery's own #12 (ADR 0144).
       const order = () => github.issue('acme/brewery', 13);
+      const takenOff =
+        /^DELETE \/repos\/acme\/brewery\/issues\/13\/labels\/foedrum%3Aawaiting-merge$/i;
       const done = () => {
         // A person labels the Brewery issue once the driver opened it, between two passes; the
         // driver's lane label may already be on it (#413).
@@ -2752,7 +2789,8 @@ Plan the order in {order}.
           github.refs.size === 0 &&
           github.comments.get('acme/web#7')?.length === 2 &&
           order()?.state === 'closed' &&
-          order()?.labels.includes('foedrum:on-tap') === true
+          // Its pull request merged: nothing waits on the person, so the label came off.
+          github.requests.some((request) => takenOff.test(request))
         );
       };
       assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
@@ -2788,11 +2826,12 @@ Plan the order in {order}.
         [{ number: 13, title: 'Dark theme', author: 'ann' }],
       );
       assert.match(order()?.body ?? '', /acme\/web#7/);
-      // The Brewery issue shows the claimed batch's lane and its status comment (#413); the
-      // Brewery's #7 and the target issue get neither.
+      // The Brewery issue shows the claimed batch's lane and its status comment (#413), its lane
+      // label off once the pull request merged (#777); the Brewery's #7 and the target issue get
+      // neither.
       assert.deepStrictEqual(
         order()?.labels.filter((label) => label.startsWith('foedrum:')),
-        ['foedrum:on-tap'],
+        [],
       );
       const status = github.comments.get('acme/brewery#13') ?? [];
       assert.equal(status.length, 1, JSON.stringify(status));

@@ -77,6 +77,15 @@ const stuck = (reason: Extract<Lane, { kind: 'stuck' }>['reason']): Lane => ({
   options: ['retry', 'cancel'],
   remindAt: at,
 });
+const approval = {
+  stepId: 'plan',
+  attempt: 1,
+  plan: '0123456789abcdef',
+  by: 'grace',
+  via: 'terminal',
+  at,
+} as const;
+
 describe('laneLabel', () => {
   it('names one label for each lane, and none for a cancelled batch', () => {
     const lanes: [Lane, string | undefined][] = [
@@ -95,7 +104,7 @@ describe('laneLabel', () => {
         },
         'foedrum:stuck',
       ],
-      [{ kind: 'on_tap', pullRequests: [pr] }, 'foedrum:on-tap'],
+      [{ kind: 'on_tap', pullRequests: [pr] }, 'foedrum:awaiting-merge'],
       [{ kind: 'cancelled', by: 'alice', via: 'terminal' }, undefined],
     ];
     for (const [lane, label] of lanes) assert.equal(laneLabel(batch(lane)), label, lane.kind);
@@ -105,10 +114,29 @@ describe('laneLabel', () => {
         'foedrum:ordered',
         'foedrum:brewing',
         'foedrum:conditioning',
+        'foedrum:awaiting-approval',
+        'foedrum:awaiting-answer',
         'foedrum:stuck',
-        'foedrum:on-tap',
+        'foedrum:awaiting-merge',
+        'foedrum:sub-orders',
       ],
     );
+  });
+
+  it('a plan waiting for its review labels its issue foedrum:awaiting-approval', () => {
+    const review = stuck({ kind: 'plan_review', stepId: 'plan', attempt: 1 });
+    assert.equal(laneLabel(batch(review)), 'foedrum:awaiting-approval');
+  });
+
+  it('a question a brewer asked labels its issue foedrum:awaiting-answer', () => {
+    const question = {
+      q: 'Which flag?',
+      options: ['a', 'b'],
+      recommended: 'a',
+      whyBlocking: 'Both work.',
+    };
+    const asked = stuck({ kind: 'needs_input', stepId: 'plan', questions: [question] });
+    assert.equal(laneLabel(batch(asked)), 'foedrum:awaiting-answer');
   });
 
   it('a batch Stuck for another reason keeps foedrum:stuck', () => {
@@ -120,6 +148,30 @@ describe('laneLabel', () => {
     for (const reason of reasons) {
       assert.equal(laneLabel(batch(stuck(reason))), 'foedrum:stuck', reason.kind);
     }
+  });
+
+  it('a batch on tap with an open pull request labels its issue foedrum:awaiting-merge', () => {
+    const other = 'https://github.com/alice/lib/pull/3';
+    const lane: Lane = { kind: 'on_tap', pullRequests: [pr, other] };
+    assert.equal(laneLabel(batch(lane)), 'foedrum:awaiting-merge');
+    // One of its two merged: the other still waits for the person.
+    const one = batch(lane, { pullRequestEnds: { [pr]: 'merged' } });
+    assert.equal(laneLabel(one), 'foedrum:awaiting-merge');
+  });
+
+  it('a batch on tap whose pull requests all ended has no lane label', () => {
+    const lane: Lane = { kind: 'on_tap', pullRequests: [pr] };
+    assert.equal(laneLabel(batch(lane, { pullRequestEnds: { [pr]: 'merged' } })), undefined);
+    assert.equal(laneLabel(batch(lane, { pullRequestEnds: { [pr]: 'closed' } })), undefined);
+  });
+
+  it('a split order on tap labels its issue foedrum:sub-orders', () => {
+    const approved = batch({ kind: 'on_tap', pullRequests: [] }, { approval });
+    assert.equal(laneLabel(approved), 'foedrum:sub-orders');
+  });
+
+  it('a batch on tap with no pull request and no approved plan has no lane label', () => {
+    assert.equal(laneLabel(batch({ kind: 'on_tap', pullRequests: [] })), undefined);
   });
 });
 
@@ -196,7 +248,7 @@ describe('laneLabelEffects', () => {
     assert.deepEqual(revision(2), { result: { label: 'foedrum:brewing' } });
     finish();
     await driver.tick();
-    assert.deepEqual(labels.of(brewery, 7), ['recipe:nip', 'foedrum:on-tap']);
+    assert.deepEqual(labels.of(brewery, 7), ['recipe:nip', 'foedrum:awaiting-merge']);
     assert.deepEqual(driver.held(), [], 'the batch is let go once its label shows it on tap');
   });
 
@@ -334,7 +386,7 @@ describe('laneLabelEffects', () => {
       assert.deepEqual(labels.of(brewery, 20), ['foedrum:brewing']);
       issue({ kind: 'finish', batchId: 'web-3', stepId: 'plan', attempt: 1, ending: succeeded });
       await driver.tick();
-      assert.deepEqual(labels.of(brewery, 20), ['foedrum:on-tap']);
+      assert.deepEqual(labels.of(brewery, 20), ['foedrum:awaiting-merge']);
       untouched();
       assert.deepEqual(notices, []);
     });
