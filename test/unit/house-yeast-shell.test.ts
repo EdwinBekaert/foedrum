@@ -401,21 +401,25 @@ describe('node scripts/house-yeast.ts recurring', () => {
     assert.match(result.out, /^waits: 1 of 1 review since 2026-10-25, 1 of 1 since 2026-10-25$/m);
   });
 
-  it('leaves out a retired rule and refuses a --min or --since it cannot read', () => {
-    const retired = {
-      [`${dir}/old.md`]: formatRule(
-        {
-          id: 'old',
-          scope: {},
-          kind: 'semantic',
-          source: 's',
-          created: '2026-10-20',
-          status: 'retired',
-        },
-        'A rule.',
-      ),
-    };
+  const retired = {
+    [`${dir}/old.md`]: formatRule(
+      {
+        id: 'old',
+        scope: {},
+        kind: 'semantic',
+        source: 's',
+        created: '2026-10-20',
+        status: 'retired',
+      },
+      'A rule.',
+    ),
+  };
+
+  it('leaves out a retired rule', () => {
     assert.equal(runWith(['recurring', dir, 'store.jsonl'], retired).out, 'no adopted rules\n');
+  });
+
+  it('refuses a --min or --since it cannot read', () => {
     for (const flag of [['--min', '0'], ['--since', '30-10-2026'], ['--min']]) {
       const result = runWith(['recurring', dir, 'store.jsonl', ...flag], retired);
       assert.equal(result.code, 2, flag.join(' '));
