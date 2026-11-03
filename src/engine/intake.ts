@@ -133,6 +133,12 @@ export interface IntakeOptions {
    * records once it holds the blockers' merges (ADR 0223); none by default.
    */
   releases?: ReleaseReader;
+  /**
+   * What a pass awaits after it ordered and before it routes, while an Ordered batch waits for its
+   * route: the driver's effects, so the issue shows the Ordered lane before its batch brews in the
+   * same pass (ADR 0316). Nothing by default.
+   */
+  ordered?: () => Promise<void>;
 }
 
 /** No recipe's concurrency and no open-order limit: only the Brewery's free capacity holds. */
@@ -523,6 +529,9 @@ export const createIntake = (options: IntakeOptions): Intake => {
     }
     // One queue across the Brewery and every repository, in rank order (ADR 0208).
     if (free > 0 && !signal.aborted) await orderQueue(listed, free, signal);
+    if (options.ordered !== undefined && !signal.aborted && awaitsRouting()) {
+      await options.ordered();
+    }
     // A pass given up at its deadline routes nothing.
     if (!signal.aborted) route(listed);
   };

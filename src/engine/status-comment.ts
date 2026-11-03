@@ -517,7 +517,7 @@ const orderEndLines = (rows: readonly SubOrderRow[]): string[] => {
   return [`Keeps the order open: ${named.join(', ')}`];
 };
 
-/** The lane, and for Stuck what gets it moving; never a reminder's time, which changes alone. */
+/** The lane, and for Stuck why; never a reminder's time, which changes alone. */
 const laneText = (
   batch: Batch,
   told: Told,
@@ -533,7 +533,7 @@ const laneText = (
     case 'conditioning':
       return [`⏳ **Conditioning**: waiting for ${waitText(lane.on)}`];
     case 'stuck': {
-      const { reason, options } = lane;
+      const { reason } = lane;
       const asked = reason.kind === 'needs_input' ? reason.questions : [];
       const tell = (text: string): string =>
         told(text, reason.kind === 'needs_input' ? reason.stepId : '');
@@ -549,12 +549,9 @@ const laneText = (
       return [
         `🔔 **Stuck**: ${stuckText(reason, told, batch, planComment)}`,
         ...questions,
-        // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
-        ...(reason.kind === 'plan_review' ? [`Next: ${planNextStep(batch.id, code)}`] : []),
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
           : []),
-        `Get it moving with ${options.map(code).join(', ')}.`,
       ];
     }
     case 'on_tap': {
@@ -572,6 +569,59 @@ const laneText = (
     default:
       return lane satisfies never;
   }
+};
+
+/**
+ * What the person does next, while the batch waits on them or hands its work over (ADR 0316): the
+ * last line of the comment's first block, which a cut never drops. None while nothing waits on
+ * them: the batch brews, or its pull requests and its order ended.
+ */
+const nextLines = (
+  batch: Batch,
+  subIssues: readonly number[] | undefined,
+  rows: readonly SubOrderRow[],
+): string[] => {
+  const { lane } = batch;
+  if (lane.kind === 'stuck') {
+    const { reason, options } = lane;
+    const moving = (shown: readonly string[]): string =>
+      `get it moving with ${shown.map(code).join(', ')}`;
+    switch (reason.kind) {
+      // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
+      case 'plan_review':
+        return [`Next: ${planNextStep(batch.id, code)}`];
+      case 'needs_input': {
+        const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
+        const others = options.filter((option) => option !== 'answer');
+        const or = others.length === 0 ? '' : `, or ${moving(others)}`;
+        return [
+          `Next: answer the questions above with ${code(`foedrum answer ${batch.id} ${answers}`)}${or}.`,
+        ];
+      }
+      default:
+        return [`Next: ${moving(options)}.`];
+    }
+  }
+  if (lane.kind !== 'on_tap') return [];
+  const open = lane.pullRequests.filter((url) => batch.pullRequestEnds?.[url] === undefined);
+  if (open.length > 0) return [`Next: review and merge ${open.map(link).join(', ')}.`];
+  // A split order hands its work to its sub-orders (ADR 0293).
+  if (lane.pullRequests.length > 0 || (batch.approval === undefined && rows.length === 0)) {
+    return [];
+  }
+  const end = orderEnd(rows);
+  if (end?.kind === 'done') return [];
+  if (end !== undefined && end.left.length > 0) {
+    return [
+      `Next: see to what keeps the order open (${end.left.map(({ subOrder }) => `#${subOrder}`).join(', ')}).`,
+    ];
+  }
+  const numbers = rows.length > 0 ? rows.map(({ subOrder }) => subOrder) : (subIssues ?? []);
+  const named =
+    numbers.length === 0 ? '' : ` (${numbers.map((number) => `#${number}`).join(', ')})`;
+  return [
+    `Next: nothing to do; the sub-orders brew${named}, and each pull request comes to you on tap.`,
+  ];
 };
 
 /**
@@ -1140,6 +1190,7 @@ export const renderStatus = (
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
+      ...nextLines(batch, subIssues, subOrderPulls),
     ],
     [
       recipeText(batch.recipe),

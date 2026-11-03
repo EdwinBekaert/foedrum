@@ -1,10 +1,10 @@
-// The lane label of a batch of a Brewery issue (#406, ADR 0154): one `foedrum:<lane>` label at a
-// time on its issue, or on the Brewery issue that is a claimed batch's order (ADR 0155), set
+// The lane label of a batch of a Brewery issue (#406, ADR 0154): one `foedrum:<…>` label at a
+// time on its issue, naming the person's action while the batch waits on them (ADR 0316), or on the Brewery issue that is a claimed batch's order (ADR 0155), set
 // through the ledger as the driver's effects, `[batchId, "label.<n>"]`, as the status comment's
 // revisions are (ADR 0072): due when the lane's label is not the one the latest revision left,
 // found on the issue before it is applied (ADR 0033).
 
-import { LaneLabelName, LaneLabelRevision } from '../schemas/lane-label.ts';
+import { LaneLabelName, LaneLabelRevision, RetiredLaneLabel } from '../schemas/lane-label.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
 import type { IssueMarks } from './claim-effects.ts';
 import { breweryIssueOf, latestOf } from './claim-orders.ts';
@@ -16,13 +16,20 @@ import { same } from './issue-claims.ts';
 /** The labels of the lanes, in the order a batch moves through them. */
 export const laneLabels = LaneLabelName.options;
 
+/** Every label a revision takes off: the lanes', and those an older Foedrum set (ADR 0316). */
+const anyLaneLabel: readonly string[] = [...laneLabels, ...RetiredLaneLabel.options];
+
 /** The labels of an issue on the code host, as the Brewery's own identity sets them. */
 export interface LaneLabelHost extends Pick<IssueMarks, 'labels' | 'addLabel' | 'removeLabel'> {
   /** Makes the label in the repository; nothing when it is there already. */
   createLabel(repo: string, label: string, signal?: AbortSignal): Promise<void>;
 }
 
-/** The label of `batch`'s lane; none for a cancelled batch. */
+/**
+ * The label of `batch`'s lane: the person's action while it waits on them (ADR 0316). None for a
+ * cancelled batch, nor for one on tap that waits on nobody: its pull requests ended, or it has
+ * none and no approved plan.
+ */
 export const laneLabel = (batch: Batch): LaneLabelName | undefined => {
   const { lane } = batch;
   switch (lane.kind) {
@@ -33,9 +40,23 @@ export const laneLabel = (batch: Batch): LaneLabelName | undefined => {
     case 'conditioning':
       return 'foedrum:conditioning';
     case 'stuck':
-      return 'foedrum:stuck';
-    case 'on_tap':
-      return 'foedrum:on-tap';
+      switch (lane.reason.kind) {
+        case 'plan_review':
+          return 'foedrum:awaiting-approval';
+        case 'needs_input':
+          return 'foedrum:awaiting-answer';
+        default:
+          return 'foedrum:stuck';
+      }
+    case 'on_tap': {
+      if (lane.pullRequests.some((url) => batch.pullRequestEnds?.[url] === undefined)) {
+        return 'foedrum:awaiting-merge';
+      }
+      // A plan a person approved: its sub-orders brew (ADR 0281, ADR 0285).
+      return lane.pullRequests.length === 0 && batch.approval !== undefined
+        ? 'foedrum:sub-orders'
+        : undefined;
+    }
     case 'cancelled':
       return undefined;
     default:
@@ -79,7 +100,7 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
     on.some((name) => same(name, label));
   // The lane labels on the issue that are not `label`: the ones to take off.
   const others = (on: readonly string[], label: LaneLabelName | null): string[] =>
-    on.filter((name) => has(laneLabels, name) && (label === null || !same(name, label)));
+    on.filter((name) => has(anyLaneLabel, name) && (label === null || !same(name, label)));
   return {
     due: (state, batchId) => {
       const batch = state.batches.get(batchId);
@@ -98,6 +119,9 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
       const label = laneLabel(batch) ?? null;
       // Nothing to show, or shown already; a batch cancelled before its first label has none.
       if (previous === undefined ? label === null : previous.label === label) return [];
+      // An older Foedrum's on-tap label stays until the lane changes: no upgrade rewrites every
+      // issue that ended on tap (ADR 0316).
+      if (previous?.label === 'foedrum:on-tap' && batch.lane.kind === 'on_tap') return [];
       const key = revisionKey(batchId, revision);
       dues.set(effectKey.encode(key), { issue, label });
       return [key];
