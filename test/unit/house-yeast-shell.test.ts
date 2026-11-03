@@ -351,4 +351,55 @@ describe('node scripts/house-yeast.ts recurring', () => {
         '\nnever recorded as a lesson:\n  renamed\n',
     );
   });
+
+  it('prints no rules for an empty store and no rules folder', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl'], {});
+    assert.equal(result.code, 0, result.err);
+    assert.equal(result.out, 'no adopted rules\n');
+  });
+
+  it('names an invalid candidate line and skips it, as list does', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl'], {
+      ...ruleFile('waits', '2026-10-20'),
+      'store.jsonl': `bad\n${seen('waits', '1-a', '2026-10-21')}\n`,
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^invalid line 1: /);
+    assert.match(result.out, /^waits: 1 of 1 review since 2026-10-20, 0 of 0 since 2026-10-30$/m);
+  });
+
+  it('exits 1 without a report when the store exists but cannot be read', () => {
+    const result = runWith(
+      ['recurring', dir, 'store.jsonl'],
+      { ...ruleFile('waits', '2026-10-20'), 'store.jsonl': '' },
+      ['store.jsonl'],
+    );
+    assert.equal(result.code, 1);
+    assert.equal(
+      result.out,
+      "cannot read the candidates: EACCES: permission denied, open 'store.jsonl'\n",
+    );
+  });
+
+  it('leaves out a retired rule and refuses a --min or --since it cannot read', () => {
+    const retired = {
+      [`${dir}/old.md`]: formatRule(
+        {
+          id: 'old',
+          scope: {},
+          kind: 'semantic',
+          source: 's',
+          created: '2026-10-20',
+          status: 'retired',
+        },
+        'A rule.',
+      ),
+    };
+    assert.equal(runWith(['recurring', dir, 'store.jsonl'], retired).out, 'no adopted rules\n');
+    for (const flag of [['--min', '0'], ['--since', '30-10-2026'], ['--min']]) {
+      const result = runWith(['recurring', dir, 'store.jsonl', ...flag], retired);
+      assert.equal(result.code, 2, flag.join(' '));
+      assert.match(result.err, /^usage:/);
+    }
+  });
 });
