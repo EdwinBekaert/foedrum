@@ -33,7 +33,7 @@ import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { mutantCounts, survivorsOf, survivorText } from './survivors.ts';
+import { mutantLines } from './survivors.ts';
 
 /**
  * The effect that pushes the batch's task tree to its bottle branch in `round` of its pull request:
@@ -1014,10 +1014,7 @@ export const pullRequestText = ({
             ...(tasting.riskLeft ?? []).map((risk) => `  risk left: ${flat(risk, stepId)}`),
           ]),
       // Brett's survivors, each with its edit, and what became of the rest (ADR 0319).
-      ...survivorsOf(mutants).map(
-        (survivor) => `  survived: ${survivorText(survivor, (text) => flat(text, stepId))}`,
-      ),
-      ...(mutants.length === 0 ? [] : [`  ${mutantCounts(mutants)}`]),
+      ...mutantLines(mutants, (text) => flat(text, stepId)).map((line) => `  ${line}`),
     ],
   );
   // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model

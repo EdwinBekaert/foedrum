@@ -52,7 +52,7 @@ import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
-import { mutantCounts, survivorsOf, survivorText } from './survivors.ts';
+import { mutantLines } from './survivors.ts';
 import { usageWindowsText } from './usage-window.ts';
 
 /**
@@ -1025,17 +1025,11 @@ const findingLines = (batch: Batch, stepIds: readonly string[], told: Told): str
  * survivors end its attempt blocked, as a Taster's findings do.
  */
 const survivorLines = (batch: Batch, stepIds: readonly string[], told: Told): string[] =>
-  stepIds.flatMap((stepId) => {
-    const mutants = latestSucceededAttempt(batch, stepId)?.mutants ?? [];
-    if (mutants.length === 0) return [];
-    const tell = (text: string) => told(text, stepId);
-    return [
-      ...survivorsOf(mutants).map(
-        (survivor) => `- ${code(stepId)}: survived: ${survivorText(survivor, tell)}`,
-      ),
-      `- ${code(stepId)}: ${mutantCounts(mutants)}`,
-    ];
-  });
+  stepIds.flatMap((stepId) =>
+    mutantLines(latestSucceededAttempt(batch, stepId)?.mutants ?? [], (text) =>
+      told(text, stepId),
+    ).map((line) => `- ${code(stepId)}: ${line}`),
+  );
 
 /** How many items of one Taster's risk left the comment shows. */
 const mostRisksLeft = 5;

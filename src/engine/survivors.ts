@@ -34,13 +34,25 @@ const verdictWords: Readonly<Record<MutantVerdict['kind'], string>> = {
 };
 
 /** How many mutants there were, and had each verdict, those none had left out: `2 mutants: 1 survived, 1 killed`. */
-export const mutantCounts = (mutants: readonly MutantRecord[]): string => {
+const mutantCounts = (mutants: readonly MutantRecord[]): string => {
   const counts = Object.entries(verdictWords).flatMap(([kind, words]) => {
     const count = mutants.filter(({ verdict }) => verdict.kind === kind).length;
     return count === 0 ? [] : [`${count} ${words}`];
   });
   return `${mutants.length} mutant${mutants.length === 1 ? '' : 's'}: ${counts.join(', ')}`;
 };
+
+/**
+ * A step's mutants as report lines: each survivor with its edit, then the count by verdict; none
+ * for a step without mutants.
+ */
+export const mutantLines = (mutants: readonly MutantRecord[], told: Told): string[] =>
+  mutants.length === 0
+    ? []
+    : [
+        ...survivorsOf(mutants).map((survivor) => `survived: ${survivorText(survivor, told)}`),
+        mutantCounts(mutants),
+      ];
 
 /**
  * A survivor as a blocking Brett step's finding (ADR 0319): on a line the change added, so
