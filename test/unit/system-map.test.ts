@@ -7,11 +7,13 @@ import {
   cappedMap,
   entryOf,
   type MappedRepository,
+  manifestsAt,
   mapLines,
   mapName,
 } from '../../src/engine/system-map.ts';
 import { dotnetManifest } from '../../src/formats/dotnet-manifest.ts';
 import { npmManifest } from '../../src/formats/npm-manifest.ts';
+import type { GitResult } from '../../src/workspace/git.ts';
 
 const lib = (entry: MappedRepository['entry']): MappedRepository => ({
   repo: 'acme/ladderlib',
@@ -218,5 +220,96 @@ describe('the system map', () => {
       '(2 lines of the system map left out, 66 characters: foedrum doctor shows it whole)',
     ]);
     assert.deepEqual(cappedMap(blocks, 200).at(-1), `  ${'c'.repeat(30)}`);
+  });
+
+  it('keeps no map line after the cut, even one that would fit (regression test)', () => {
+    const blocks = [
+      { line: '- acme/lib, base origin/main', map: ['a'.repeat(30), 'b'.repeat(30)] },
+      { line: '- acme/web, base origin/main', map: ['c'] },
+    ];
+    assert.deepEqual(cappedMap(blocks, 40), [
+      '- acme/lib, base origin/main',
+      `  ${'a'.repeat(30)}`,
+      '- acme/web, base origin/main',
+      '(2 lines of the system map left out, 37 characters: foedrum doctor shows it whole)',
+    ]);
+  });
+
+  it('keeps 200 items of a list and counts the rest with the manifests left out (regression test)', () => {
+    const dependencies = Object.fromEntries(
+      Array.from({ length: 201 }, (_, at) => [`d${at}`, '1.0.0']),
+    );
+    const text = JSON.stringify({ name: 'web', dependencies });
+    const entry = entryOf([{ path: 'package.json', text }], [], 3);
+    assert.equal(entry.dependsOn.length, 200);
+    assert.equal(entry.left, 4);
+    assert.equal(
+      mapLines({ repo: 'acme/web', entry }, []).at(-1),
+      '4 more manifests or entries left out',
+    );
+  });
+
+  it('reads at most 64 manifests, and says why git cut a read short or past its size (regression test)', async () => {
+    const commit = 'a'.repeat(40);
+    const listed = Array.from({ length: 65 }, (_, at) => `p${at}/package.json`).join('\0');
+    const answer =
+      (reads: Record<string, GitResult>) => async (_cwd: string, args: readonly string[]) =>
+        args[0] === 'ls-tree'
+          ? { code: 0, stdout: listed, stderr: '' }
+          : (reads[String(args.at(-1)).slice(`${commit}:`.length)] ?? {
+              code: 0,
+              stdout: '{}',
+              stderr: '',
+            });
+    const all = await manifestsAt(answer({}))('/clone', commit);
+    assert.deepEqual('files' in all ? [all.files.length, all.left] : all, [64, 1]);
+    const large = await manifestsAt(
+      answer({
+        'p0/package.json': { code: null, stdout: '', stderr: '', killed: 'too-much-output' },
+      }),
+    )('/clone', commit);
+    assert.deepEqual('files' in large ? large.files[0] : large, {
+      path: 'p0/package.json',
+      unread: 'it is larger than 1048576 bytes',
+    });
+    const late = await manifestsAt(
+      answer({
+        'p1/package.json': { code: null, stdout: '', stderr: 'git timed out', killed: 'timed-out' },
+      }),
+    )('/clone', commit);
+    assert.deepEqual(late, { again: 'git did not read p1/package.json: git timed out' });
+  });
+
+  it('reads each git form of an npm dependency, a BOM, and refuses a field that is no object (regression test)', () => {
+    const vias = (dependencies: Record<string, string>) => {
+      const read = npmManifest.read('package.json', JSON.stringify({ dependencies }));
+      return read.kind === 'read' ? read.dependsOn.map(({ via }) => via) : read;
+    };
+    assert.deepEqual(
+      vias({
+        a: 'acme/ladderlib#v1',
+        b: 'gitlab:acme/x',
+        c: 'git://host/acme/x.git',
+        d: 'bitbucket:acme/y',
+        e: '^1.2.0',
+      }),
+      [
+        { kind: 'git', url: 'acme/ladderlib', ref: 'v1' },
+        { kind: 'git', url: 'gitlab:acme/x' },
+        { kind: 'git', url: 'git://host/acme/x.git' },
+        { kind: 'git', url: 'bitbucket:acme/y' },
+        { kind: 'package', version: '^1.2.0' },
+      ],
+    );
+    const bom = `${String.fromCodePoint(0xfeff)}${JSON.stringify({ name: 'web' })}`;
+    assert.deepEqual(npmManifest.read('package.json', bom), {
+      kind: 'read',
+      publishes: ['web'],
+      dependsOn: [],
+    });
+    assert.deepEqual(npmManifest.read('package.json', JSON.stringify({ dependencies: [] })), {
+      kind: 'unreadable',
+      reason: 'its dependencies is not an object',
+    });
   });
 });

@@ -984,6 +984,35 @@ describe('createAttemptPlans: plan', () => {
       }
     });
 
+    it("finds a repository's recorded map whatever the case of its name in foedrum.jsonc (regression test)", async () => {
+      const events: Event[] = [
+        ...ordered,
+        started,
+        mapped('acme/web', tip, 'web'),
+        mapped('acme/api', tip, '@acme/api'),
+      ];
+      const calls: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories: [
+          { repo: 'Acme/Web', base: 'origin/main' },
+          { repo: 'acme/api', base: 'origin/main' },
+        ],
+        clone: (repo) => join('/clones', repo.toLowerCase()),
+        git: gitOf(calls),
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /\n- Acme\/Web, base origin\/main\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n/,
+      );
+      assert.equal(events.filter(({ type }) => type === 'system.mapped').length, 2);
+      assert.deepEqual(
+        calls.filter((call) => !call.endsWith('rev-parse')),
+        [],
+      );
+    });
+
     it("a Brewery with no manifests gives today's lines (regression test)", async () => {
       const events: Event[] = [...ordered, started];
       const empty = async (_cwd: string, args: readonly string[]) => ({
