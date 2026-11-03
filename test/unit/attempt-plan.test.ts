@@ -1141,7 +1141,7 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     }
   });
 
-  it('stays around the 300 tokens ADR 0005 gives it, with the rule on claims (ADR 0308): at most 1,400 characters', () => {
+  it('stays around the 350 tokens ADR 0005 and ADR 0308 give it: at most 1,400 characters', () => {
     assert.ok(outDocContract('brew.md').length <= 1400, `${outDocContract('brew.md').length}`);
   });
 
