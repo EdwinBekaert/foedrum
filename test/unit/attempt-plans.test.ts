@@ -2052,6 +2052,39 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     );
   });
 
+  it("gives a step of plan lenses together the batch's latest plan and the repositories: regression test", async () => {
+    const together = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'plan', brewer: 'brewmaster' },
+              { id: 'taste', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      lenses: [
+        { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+        { path: 'lenses/plan/sizing.md', text: 'Weigh each sub-order.\n' },
+      ],
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', together.brewers, {
+      repositories,
+    });
+    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.match(
+      prompt,
+      /source="the plan of step plan#2" name="plan">\n# The plan planned again\n/,
+    );
+    assert.match(prompt, /source="the Brewery's repositories" name="repositories">/);
+  });
+
   it("reads a plan lens step's house yeast at its worktree's commit, not where the batch started, with no diff: regression test", async () => {
     const calls: string[] = [];
     const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', tasting.brewers, {
