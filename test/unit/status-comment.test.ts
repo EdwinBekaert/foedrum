@@ -23,7 +23,9 @@ import {
 import type { SubOrderRow } from '../../src/engine/order-end.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
+  code,
   labelled,
+  planNextStep,
   renderStatus,
   type StatusComments,
   statusEffects,
@@ -3143,6 +3145,19 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     assert.equal(
       nextOf(render(batch({ lane }))),
       'Next: answer the questions above with `foedrum answer 7-1 <answer 1>`.',
+    );
+  });
+
+  it("a plan waiting for its review names on its Next line the options the plan's commands leave out", () => {
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'plan_review', stepId: 'plan', attempt: 1 },
+      options: ['approve', 'lauter', 'retry', 'recipe', 'cancel'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      `Next: ${planNextStep('7-1', code)} Its other option: \`recipe\`.`,
     );
   });
 

@@ -173,6 +173,19 @@ describe('laneLabel', () => {
   it('a batch on tap with no pull request and no approved plan has no lane label', () => {
     assert.equal(laneLabel(batch({ kind: 'on_tap', pullRequests: [] })), undefined);
   });
+
+  it('a split order whose sub-orders all merged has no lane label', () => {
+    const approved = batch({ kind: 'on_tap', pullRequests: [] }, { approval });
+    const other = 'https://github.com/alice/lib/pull/3';
+    const merged = [
+      { subOrder: 16, repo: 'alice/web', pullRequest: pr, state: 'merged' },
+      { subOrder: 15, repo: 'alice/lib', pullRequest: other, state: 'merged' },
+    ] as const;
+    assert.equal(laneLabel(approved, merged), undefined);
+    // One still open: the sub-orders brew on.
+    const open = [merged[0], { ...merged[1], state: 'open' }] as const;
+    assert.equal(laneLabel(approved, open), 'foedrum:sub-orders');
+  });
 });
 
 describe('laneLabelEffects', () => {
