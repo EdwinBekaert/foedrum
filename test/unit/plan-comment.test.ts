@@ -18,6 +18,7 @@ import {
   planEntryText,
   type ReviewNote,
   renderPlan,
+  reviewNotes,
 } from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { StatusComments } from '../../src/engine/status-comment.ts';
@@ -996,5 +997,70 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     const link = `\n\nFull plan: [7-1/plan-2.md](<${stateBranchUrl}/batches/7-1/plan-2.md>)\n\n`;
     assert.ok(only().body.includes(link), only().body);
+  });
+});
+
+describe('reviewNotes (ADR 0318)', () => {
+  const deadlineAt = '2026-10-31T10:00:00.000Z';
+  /** One attempt of `stepId` that succeeded with `output`. */
+  const ran = (stepId: string, attempt: number, output: object): Event[] => [
+    { type: 'step.scheduled', batchId: '7-1', stepId, attempt, deadlineAt },
+    {
+      type: 'step.started',
+      batchId: '7-1',
+      stepId,
+      attempt,
+      worktree: {
+        repo: 'alice/brewery',
+        path: `/work/${stepId}-${attempt}`,
+        branch: `foedrum/7-1/${stepId}/${attempt}`,
+        commit: 'c'.repeat(40),
+      },
+    },
+    {
+      type: 'step.finished',
+      batchId: '7-1',
+      stepId,
+      attempt,
+      outcome: { kind: 'succeeded', output: JSON.parse(JSON.stringify(output)) },
+    },
+  ];
+  const plan = { status: 'done', summary: 'A plan', assumptions: [], subOrders: [subOrder('api')] };
+  /** A Taster's approval with one finding about `api`. */
+  const approves = (why: string) => ({
+    status: 'done',
+    summary: 'Each entry reads alone',
+    verdict: 'approve',
+    findings: [{ severity: 'minor', why: `api: ${why}`, introduced: true }],
+  });
+
+  it("lists each step's latest round after the latest plan, in the order the steps ran, and none before it: regression test", () => {
+    const batch = fold([
+      { type: 'batch.ordered', batchId: '7-1', order: { issue: 7 }, routeBy: deadlineAt },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '7-1',
+        recipe: 'mash',
+        reason: 'label',
+        source: 'label',
+      },
+      ...ran('plan', 1, plan),
+      ...ran('naive', 1, approves('reviewed the first plan')),
+      ...ran('plan', 2, plan),
+      // sizing runs before naive's second round, though naive ran first before the plan.
+      ...ran('sizing', 1, approves('sized the second plan')),
+      ...ran('naive', 2, approves('read the second plan')),
+    ]).batches.get('7-1');
+    assert.ok(batch !== undefined);
+    const notes = reviewNotes(batch, 'plan', 2);
+    assert.deepStrictEqual(
+      notes?.map(
+        ({ stepId, attempt, finding, left }) => `${stepId}#${attempt} ${left}: ${finding.why}`,
+      ),
+      [
+        'sizing#1 advisory: api: sized the second plan',
+        'naive#2 advisory: api: read the second plan',
+      ],
+    );
   });
 });

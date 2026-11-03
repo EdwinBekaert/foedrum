@@ -2125,4 +2125,23 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     assert.match(prompt, /name="repositories"/);
     assert.doesNotMatch(prompt, /name="plan"/);
   });
+
+  it('leaves the plan input out of a plan attempt a failed check routed back, as a findings route does not (ADR 0318): regression test', async () => {
+    const plan3 = { batchId: '12-1', stepId: 'plan', attempt: 3 };
+    const scheduled = (why: 'failed' | 'findings'): Event[] => [
+      ...amber.slice(0, -1),
+      { type: 'step.scheduled', ...plan3, deadlineAt, route: { from: 'taste', why } },
+      { ...inTree, ...plan3 },
+    ];
+    const promptOf = async (why: 'failed' | 'findings') => {
+      const { plans } = setup(scheduled(why), planDocs, 'Export the batches.', tasting.brewers, {
+        repositories,
+        models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+        git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
+      });
+      return (await plans.plan({ ref: plan3, limits: plans.limits(plan3) })).prompt;
+    };
+    assert.match(await promptOf('findings'), /source="the plan of step plan#2" name="plan">/);
+    assert.doesNotMatch(await promptOf('failed'), /name="plan"/);
+  });
 });

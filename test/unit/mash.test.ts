@@ -724,6 +724,38 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         ].join('\n'),
       );
     });
+
+    it('lists a finding the plan left as there before, and none it fixed or left without a disposition: regression test (ADR 0318)', async () => {
+      const third = { severity: 'major', why: 'cli: its flags are open', introduced: true };
+      const three = behave.succeedWith(
+        { verdict: 'changes', findings: [flag, guide, third] },
+        'Three entries leave a guess',
+      );
+      const before = 'docs/export.md has no guide at the base';
+      // The first finding fixed, the second there before, the third with no disposition.
+      const partly = behave.succeedWith(
+        {
+          subOrders,
+          alternatives,
+          dispositions: [{ disposition: 'fixed' }, { disposition: 'pre-existing', why: before }],
+        },
+        'Planned again',
+      );
+      const script = [planned, three, partly, approves];
+      assert.equal(await runBrew(setup, tasting(script), request), 3, lines.join('\n'));
+      const shown = planComment() ?? assert.fail(JSON.stringify(comments()));
+      const review = shown.slice(shown.indexOf('**Review**'), shown.indexOf('**Gate**')).trim();
+      assert.equal(
+        review,
+        [
+          '**Review**',
+          '',
+          `- ${code('naive')} #1: major, pre-existing: ${plain(guide.why)}`,
+          `  - why: ${plain(before)}`,
+          `- ${code('naive')} #2: minor, advisory: ${plain(advisory.why)}`,
+        ].join('\n'),
+      );
+    });
   });
 
   describe('foedrum lauter: the plan corrected in a session at gate 1 (ADR 0286, #589)', () => {
