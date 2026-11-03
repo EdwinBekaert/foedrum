@@ -608,6 +608,22 @@ describe('createIntake', () => {
       ]);
     });
 
+    it('awaits its ordered hook between ordering and routing, only while an Ordered batch waits for its route (ADR 0316)', async () => {
+      // The lanes as the hook sees them.
+      const seen: string[][] = [];
+      const ordered = async (): Promise<void> => {
+        seen.push(lanes());
+      };
+      const { tracker } = fakeTracker({ [brewery]: [labelled(12)], [web]: [], [api]: [] });
+      const pass = breweryIntake(tracker, { ordered });
+      await pass.poll();
+      assert.deepStrictEqual(seen, [['12-1 ordered']]);
+      assert.deepStrictEqual(lanes(), ['12-1 brewing']);
+      // Nothing waits for its route in the next pass: it does not wait for a tick.
+      await pass.poll();
+      assert.deepStrictEqual(seen, [['12-1 ordered']]);
+    });
+
     it('orders only open issues an allow-listed user opened with a recipe label, never twice', async () => {
       accept({ kind: 'order', batchId: '5-1', order: { issue: 5 } });
       accept({ kind: 'cancel', batchId: '5-1', by: 'alice', via: 'terminal' });

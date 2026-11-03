@@ -2743,6 +2743,76 @@ Plan the order in {order}.
       assert.deepStrictEqual(seen[0], { result: { label: 'foedrum:ordered' } });
     });
 
+    describe('a pass that waits for a tick (ADR 0316)', () => {
+      const labelled = () =>
+        fakeGitHubApi({
+          login: 'ann',
+          issues: {
+            'acme/brewery': [
+              { number: 12, labels: ['recipe:stout'], author: 'ann', body: 'Add it.' },
+            ],
+          },
+        });
+      /** Until the pass ordered #12, and so waits for a tick; a hang guard, not a measure. */
+      const ordered = async (): Promise<void> => {
+        for (let n = 0; n < 2000 && lane('12-1') === undefined; n++) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        assert.equal(lane('12-1'), 'ordered');
+      };
+
+      it('is let go by a stop, so serve stops: regression test', { timeout: 60_000 }, async () => {
+        store = empty();
+        setup = intakeSetup({ concurrency: 1 });
+        const github = labelled();
+        const ran = await runServe(
+          setup,
+          shell({
+            fetch: github.fetch,
+            runner: () => hanging,
+            // The pass ordered and waits for the next tick, which the stop never starts.
+            wait: async () => {
+              await ordered();
+              controller.abort();
+            },
+          }),
+        );
+        assert.equal(ran, 0);
+        assert.equal(lines.at(-1), 'foedrum serve: stopped');
+        // Let go, the pass routed its batch.
+        assert.equal(lane('12-1'), 'brewing');
+      });
+
+      it('is let go by a tick that stops the engine, so serve ends: regression test', {
+        timeout: 60_000,
+      }, async () => {
+        store = empty();
+        setup = intakeSetup({ concurrency: 1 });
+        const github = labelled();
+        const ran = await runServe(
+          setup,
+          shell({
+            fetch: github.fetch,
+            runner: () => hanging,
+            // The pass begins to wait during this tick, which then throws.
+            stateBranch: () => ({
+              start: async () => ({ decision: 'ready' }),
+              flush: async () => {
+                await ordered();
+                throw new StateBranchStopError('the push was rejected: another engine wrote');
+              },
+            }),
+          }),
+        );
+        assert.equal(ran, 1);
+        assert.ok(
+          lines.includes('foedrum serve: the push was rejected: another engine wrote'),
+          lines.join('\n'),
+        );
+        assert.equal(lock.held, false);
+      });
+    });
+
     it('orders and routes a labelled Brewery issue and a claimed target issue, marks the claim and releases it', async () => {
       store = empty();
       setup = intakeSetup({ concurrency: 2 }, target);

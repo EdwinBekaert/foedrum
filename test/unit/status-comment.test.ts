@@ -3132,6 +3132,20 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     );
   });
 
+  it('a question whose only option is the answer ends with Next: answer it, and nothing more: regression test', () => {
+    const question = { q: 'Which port?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+    const lane: Lane = {
+      kind: 'stuck',
+      reason: { kind: 'needs_input', stepId: 'plan', questions: [question] },
+      options: ['answer'],
+      remindAt: at,
+    };
+    assert.equal(
+      nextOf(render(batch({ lane }))),
+      'Next: answer the questions above with `foedrum answer 7-1 <answer 1>`.',
+    );
+  });
+
   it('a status comment cut to length keeps its Next line', () => {
     const many = Array.from({ length: 400 }, (_, i) => `s${i}`);
     const reason: StuckReason = { kind: 'waiting_for_session', stepId: 's0' };
