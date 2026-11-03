@@ -24,7 +24,8 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
       "testMap": "repo",                                         // or "brewery" (ADR 0274)
       "alias": "billing",                                        // batches billing-<issue>
       "intake": { "labels": ["foedrum"] },                      // claim and brew its labelled issues
-      "sensitivePaths": [".github/workflows/**", "src/Auth/**"]  // named when a batch touches them (ADR 0201)
+      "sensitivePaths": [".github/workflows/**", "src/Auth/**"], // named when a batch touches them (ADR 0201)
+      "description": "the billing service; deploys on every merge" // one line the system map shows (ADR 0317)
     }
   }
 }
@@ -76,6 +77,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
   The status comment then names the first 10 in one line after its steps, `Touches sensitive paths: …`, with a count of the rest, in every lane from then on.
   It is a fact for the person who merges, never an approval or a block: tasting does not change.
   The repository's test map, `.foedrum/test-map.jsonc`, is matched as though it were listed, unless the Brewery keeps the map; the line after names each module its map adds with `coverage: none` ([the test map](../checks/test-map.md)).
+- `description` is one line of at most 200 characters on what the repository is for; the [system map](../intake/system-map.md) shows it to the planners and `foedrum doctor` ([ADR 0317](../../adr/0317-the-planners-read-a-system-map-computed-from-each-repository-s-manifests-with-no-model.md)).
 - `testMap` (`"repo"`, the default, or `"brewery"`) says where the repository's [test map](../checks/test-map.md) is kept: its own `.foedrum/test-map.jsonc`, or the Brewery's `test-maps/<owner>/<name>.jsonc` ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
   A map the repository keeps that a batch left stale sends the batch back to update it; a stale map the Brewery keeps is only named in the status comment, `The Brewery's test map of <repository> is stale: …` ([ADR 0282](../../adr/0282-a-stale-test-map-sends-back-the-change-that-made-it-and-the-maltster-surveys-a-new-one.md)).
 - At the top level, `concurrency` (1 to 20, default 1) is how many batches may be Ordered or Brewing at once ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)), and `openOrders` (1 to 20, default 3) how many orders may be in progress at once ([limits](../intake/limits.md)).

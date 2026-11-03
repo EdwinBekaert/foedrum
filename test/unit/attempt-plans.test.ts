@@ -759,6 +759,297 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  describe('the system map in the repositories input (ADR 0317)', () => {
+    const planning = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'plan.md', schema: 'plan' },
+            inputs: [{ name: 'repositories', from: 'repositories' }],
+          }),
+        },
+      ],
+    });
+    assert.ok(planning.valid, planning.valid ? '' : planning.problems.join('\n'));
+    const tip = 'd'.repeat(40);
+    const earlier = 'c'.repeat(40);
+    const repositories = [
+      { repo: 'acme/web', base: 'origin/main', description: 'the web app; deploys on merge' },
+      { repo: 'acme/api', base: 'origin/main' },
+    ];
+    const manifests: Record<string, Record<string, string>> = {
+      [join('/clones', 'acme/web')]: {
+        'package.json': JSON.stringify({
+          name: 'web',
+          dependencies: { '@acme/api': 'git+https://github.com/acme/api.git#v2.0.0' },
+        }),
+      },
+      [join('/clones', 'acme/api')]: { 'package.json': JSON.stringify({ name: '@acme/api' }) },
+    };
+    /** git in the clones: each base at `tip`, its manifests listed and read; every call noted. */
+    const gitOf = (calls: string[]) => async (cwd: string, args: readonly string[]) => {
+      calls.push(`${cwd} ${args[0]}`);
+      const files = manifests[cwd] ?? {};
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' };
+      if (args[0] === 'ls-tree')
+        return { code: 0, stdout: Object.keys(files).join('\0'), stderr: '' };
+      const path = String(args.at(-1)).slice(`${tip}:`.length);
+      return { code: 0, stdout: files[path] ?? '', stderr: '' };
+    };
+    const mapped = (repo: string, commit: string, name: string): Event => ({
+      type: 'system.mapped',
+      repo,
+      commit,
+      entry: {
+        manifests: [{ path: 'package.json', ecosystem: 'npm' }],
+        publishes: [{ name, ecosystem: 'npm' }],
+        dependsOn:
+          name === 'web'
+            ? [
+                {
+                  name: '@acme/api',
+                  ecosystem: 'npm',
+                  via: { kind: 'git', url: 'git+https://github.com/acme/api.git', ref: 'v2.0.0' },
+                },
+              ]
+            : [],
+        modules: [],
+        unreadable: [],
+      },
+    });
+
+    it('the repositories input names what each repository publishes and depends on', async () => {
+      const events = [
+        ...ordered,
+        started,
+        mapped('acme/web', tip, 'web'),
+        mapped('acme/api', tip, '@acme/api'),
+      ];
+      const calls: string[] = [];
+      const recorded: Event[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git: gitOf(calls),
+        recordMap: (event) => recorded.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/main\n {2}the web app; deploys on merge\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by git ref `v2\.0\.0` \(npm\)\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n {2}manifests: package\.json \(npm\)\n {2}publishes `@acme\/api` \(npm\)\n<\/untrusted-input-/,
+      );
+      // Both entries are at their base's tip: neither is read again.
+      assert.deepEqual(recorded, []);
+      assert.deepEqual(
+        calls.filter((call) => !call.endsWith('rev-parse')),
+        [],
+      );
+    });
+
+    it("a repository's map is read again when its base moves", async () => {
+      const events: Event[] = [
+        ...ordered,
+        started,
+        mapped('acme/web', earlier, 'old-web'),
+        mapped('acme/api', tip, '@acme/api'),
+      ];
+      const calls: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git: gitOf(calls),
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(events.slice(-1), [mapped('acme/web', tip, 'web')]);
+      assert.match(prompt, /publishes `web` \(npm\)/);
+      assert.doesNotMatch(prompt, /old-web/);
+      // The repository whose base did not move is not read again.
+      assert.deepEqual(
+        calls.filter(
+          (call) => call.startsWith(join('/clones', 'acme/api')) && !call.endsWith('rev-parse'),
+        ),
+        [],
+      );
+    });
+
+    it('a map git timed out on is not recorded, so the next plan reads it again', async () => {
+      const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+      const calls: string[] = [];
+      let timedOut = true;
+      const listing = gitOf(calls);
+      const git = async (cwd: string, args: readonly string[]) =>
+        timedOut && args[0] === 'ls-tree'
+          ? { code: null, stdout: '', stderr: '', killed: 'timed-out' as const }
+          : listing(cwd, args);
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git,
+        recordMap: (event) => events.push(event),
+      });
+      await plans.plan(start);
+      assert.equal(events.filter(({ type }) => type === 'system.mapped').length, 1);
+      timedOut = false;
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(events.slice(-1), [mapped('acme/web', tip, 'web')]);
+      assert.match(prompt, /publishes `web` \(npm\)/);
+    });
+
+    it('a base git failed to list once is not recorded, says why, and the next plan maps it', async () => {
+      const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+      const listing = gitOf([]);
+      let failing = true;
+      const git = async (cwd: string, args: readonly string[]) =>
+        failing && args[0] === 'ls-tree'
+          ? { code: 128, stdout: '', stderr: 'fatal: Unable to create index.lock\n' }
+          : listing(cwd, args);
+      const unread: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git,
+        recordMap: (event) => events.push(event),
+        mapUnread: (repo, reason) => unread.push(`${repo}: ${reason}`),
+      });
+      await plans.plan(start);
+      assert.equal(events.filter(({ type }) => type === 'system.mapped').length, 1);
+      assert.deepEqual(unread, [
+        `acme/web: git could not list ${tip}: fatal: Unable to create index.lock`,
+      ]);
+      failing = false;
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(events.slice(-1), [mapped('acme/web', tip, 'web')]);
+      assert.match(prompt, /publishes `web` \(npm\)/);
+    });
+
+    it("the test map's modules at the base are recorded and listed (regression test)", async () => {
+      const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+      const module = (name: string) => ({
+        name,
+        code: [`${name}/src/**`],
+        tests: { paths: [`${name}/test/**`] },
+        testReport: { format: 'junit' as const, path: `${name}/results.xml` },
+        coverage: { format: 'lcov' as const, path: `${name}/lcov.info` },
+      });
+      const asked: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories,
+        git: gitOf([]),
+        recordMap: (event) => events.push(event),
+        testMapAt: async (repo, commit) => {
+          asked.push(`${repo} ${commit}`);
+          return {
+            kind: 'map',
+            map: {
+              derivedFrom: { globs: ['**/package.json'], paths: ['package.json'] },
+              modules: [module('web'), module('admin')],
+            },
+          };
+        },
+      });
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(asked, [`acme/web ${tip}`]);
+      const [recorded] = events.slice(-1);
+      assert.deepEqual(recorded?.type === 'system.mapped' ? recorded.entry.modules : [], [
+        'web',
+        'admin',
+      ]);
+      assert.match(prompt, /\n {2}test map modules: web, admin\n/);
+    });
+
+    it('a test map that cannot be read is a line of its own, and keeps the manifests read', async () => {
+      for (const testMapAt of [
+        async () => ({ kind: 'unreadable' as const, reason: 'git could not read it: timed out' }),
+        async () => {
+          throw new Error('the clone is gone');
+        },
+      ]) {
+        const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
+        const { plans } = setup(events, {}, undefined, planning.brewers, {
+          repositories,
+          git: gitOf([]),
+          recordMap: (event) => events.push(event),
+          testMapAt,
+        });
+        await plans.plan(start);
+        const [recorded] = events.slice(-1);
+        const entry = recorded?.type === 'system.mapped' ? recorded.entry : undefined;
+        assert.deepEqual(entry?.publishes, [{ name: 'web', ecosystem: 'npm' }]);
+        assert.deepEqual(
+          entry?.unreadable.map(({ path }) => path),
+          ['its test map'],
+        );
+        assert.match(entry?.unreadable[0]?.reason ?? '', /timed out|the clone is gone/);
+      }
+    });
+
+    it("finds a repository's recorded map whatever the case of its name in foedrum.jsonc (regression test)", async () => {
+      const events: Event[] = [
+        ...ordered,
+        started,
+        mapped('acme/web', tip, 'web'),
+        mapped('acme/api', tip, '@acme/api'),
+      ];
+      const calls: string[] = [];
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories: [
+          { repo: 'Acme/Web', base: 'origin/main' },
+          { repo: 'acme/api', base: 'origin/main' },
+        ],
+        clone: (repo) => join('/clones', repo.toLowerCase()),
+        git: gitOf(calls),
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /\n- Acme\/Web, base origin\/main\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n/,
+      );
+      assert.equal(events.filter(({ type }) => type === 'system.mapped').length, 2);
+      assert.deepEqual(
+        calls.filter((call) => !call.endsWith('rev-parse')),
+        [],
+      );
+    });
+
+    it("a Brewery with no manifests gives today's lines (regression test)", async () => {
+      const events: Event[] = [...ordered, started];
+      const empty = async (_cwd: string, args: readonly string[]) => ({
+        code: 0,
+        stdout: args[0] === 'rev-parse' ? `${tip}\n` : '',
+        stderr: '',
+      });
+      const { plans } = setup(events, {}, undefined, planning.brewers, {
+        repositories: repositories.map(({ repo, base }) => ({ repo, base })),
+        git: empty,
+        recordMap: (event) => events.push(event),
+      });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="repositories">\nThe Brewery's repositories, each with the base its work starts from:\n- acme\/web, base origin\/main\n- acme\/api, base origin\/main: this attempt's repository, the one in your worktree\n<\/untrusted-input-/,
+      );
+    });
+
+    it("a repository's description alone shows with no manifest", async () => {
+      const git = async () => ({
+        code: 0,
+        stdout: `${tip}\n`,
+        stderr: '',
+      });
+      const { plans } = setup(undefined, {}, undefined, planning.brewers, { repositories, git });
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /\n- acme\/web, base origin\/main\n {2}the web app; deploys on merge\n- acme\/api, base origin\/main: this attempt's/,
+      );
+    });
+  });
+
   it('tells a fresh retry why the attempt before it failed, last, with its inputs (ADR 0248)', async () => {
     const second = { ...ref, attempt: 2 };
     const events: Event[] = [
@@ -2049,6 +2340,39 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     assert.match(
       prompt,
       /source="the Brewery's repositories" name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/api, base origin\/main: read it in api\/\n- acme\/web, base origin\/trunk: read it in acme\.web\/\n<\/untrusted-input-/,
+    );
+  });
+
+  it("a plan lens step's Taster reads the system map, read again where a base moved (ADR 0317)", async () => {
+    const tip = 'd'.repeat(40);
+    const manifests: Record<string, string> = {
+      [join('/clones', 'acme/api')]: JSON.stringify({ name: '@acme/api' }),
+      [join('/clones', 'acme/web')]: JSON.stringify({
+        name: 'web',
+        dependencies: { '@acme/api': '2.0.0' },
+      }),
+    };
+    const git = async (cwd: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' };
+      if (args[0] === 'ls-tree') return { code: 0, stdout: 'package.json\0', stderr: '' };
+      return { code: 0, stdout: manifests[cwd] ?? '', stderr: '' };
+    };
+    const events: Event[] = [...amber, inTree];
+    const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      git,
+      recordMap: (event) => events.push(event),
+    });
+    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.deepEqual(
+      events
+        .filter(({ type }) => type === 'system.mapped')
+        .map((event) => 'repo' in event && event.repo),
+      ['acme/api', 'acme/web'],
+    );
+    assert.match(
+      prompt,
+      /name="repositories">\n[^<]*- acme\/web, base origin\/trunk\n {2}manifests: package\.json \(npm\)\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by version `2\.0\.0` \(npm\)\n<\/untrusted-input-/,
     );
   });
 

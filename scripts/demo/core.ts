@@ -271,6 +271,7 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'batch.waiting':
       case 'bottle.opened':
       case 'release.observed':
+      case 'system.mapped':
       case 'batch.taken_over':
       case 'pull_request.ended':
       case 'pull_request.base_checked':

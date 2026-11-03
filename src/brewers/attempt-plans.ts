@@ -7,6 +7,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { checksEnv, setupRunOf } from '../checks/setup.ts';
 import { stepTests } from '../checks/step-commits.ts';
+import type { ReadTestMapAt } from '../checks/test-map.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
 import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts';
 import type { Env } from '../engine/brewer-env.ts';
@@ -18,11 +19,12 @@ import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
+import { entryOf, type MapModules, manifestsAt, modulesOf } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
-import type { WorktreeRef } from '../schemas/events.ts';
+import type { Event, WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
@@ -98,7 +100,18 @@ export interface AttemptPlansOptions {
    * The Brewery's repositories and the base each attempt starts from (`origin/<base>`): a plan's
    * paths are checked in each once it is done (ADR 0233).
    */
-  repositories?: readonly { repo: string; base: string }[];
+  repositories?: readonly { repo: string; base: string; description?: string }[];
+  /**
+   * Records a repository's system map entry at its base commit (ADR 0317), read when an attempt
+   * that reads the repositories (its brewer names them, or its lenses review a plan, ADR 0312) is
+   * planned and the base moved since the entry recorded.
+   * Without it, the map is neither read nor recorded.
+   */
+  recordMap?: (event: Extract<Event, { type: 'system.mapped' }>) => void;
+  /** Says why a repository's map was not read, so none was recorded and the next attempt tries it. */
+  mapUnread?: (repo: string, reason: string) => void;
+  /** A repository's test map at a commit, whose module names the map lists (ADR 0274). */
+  testMapAt?: ReadTestMapAt;
   /**
    * Fetches a repository's clone through its worktree manager, when a plan's check finds no ref of
    * its base there (ADR 0233).
@@ -291,6 +304,41 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         }
       }),
     );
+
+  /**
+   * Reads the system map again of each repository whose base commit is not the one its entry was
+   * read at, and records it (ADR 0317). A base git cannot list, or was stopped or timed out on, is
+   * recorded as nothing: `mapUnread` says why, and the next attempt that reads the map tries again.
+   */
+  const refreshMap = async (): Promise<void> => {
+    const { git, recordMap } = options;
+    if (git === undefined || recordMap === undefined) return;
+    const read = manifestsAt(git);
+    for (const at of await planRepositories(undefined)) {
+      if (!('commit' in at) || state().systemMap.get(at.repo.toLowerCase())?.commit === at.commit) {
+        continue;
+      }
+      let manifests: Awaited<ReturnType<typeof read>>;
+      try {
+        manifests = await read(at.clone, at.commit);
+      } catch (error) {
+        manifests = { again: messageOf(error) };
+      }
+      if ('again' in manifests) {
+        options.mapUnread?.(at.repo, manifests.again);
+        continue;
+      }
+      // A test map that cannot be read is a line of the entry, beside the manifests read.
+      let modules: MapModules;
+      try {
+        modules = modulesOf(await options.testMapAt?.(at.repo, at.commit));
+      } catch (error) {
+        modules = { unread: messageOf(error) };
+      }
+      const entry = entryOf(manifests.files, modules, manifests.left);
+      recordMap({ type: 'system.mapped', repo: at.repo, commit: at.commit, entry });
+    }
+  };
 
   /**
    * The change a Taster that reviews a diff is given (ADR 0161): the commits from `since` to `head`,
@@ -524,8 +572,17 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       );
     // A Brewery order's folder of checkouts is no repository's, and holds each one (ADR 0301).
     const own = 'repo' in worktree ? worktree : undefined;
+    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
+    // A step whose lenses review a plan reads the batch's latest plan and the repositories, where
+    // a step of a diff reads the change (ADR 0312).
+    const planLens = stepLenses[0]?.startsWith('plan/') === true;
+    // The system map, read again where a base moved, when the step reads the repositories (ADR 0317).
+    if (planLens || found.brewer.inputs.some(({ from }) => from === 'repositories')) {
+      await refreshMap();
+    }
     const repositories = {
       repositories: options.repositories ?? [],
+      map: state().systemMap,
       own: own?.repo,
       ...(checkouts === undefined ? {} : { checkouts }),
     };
@@ -552,12 +609,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       (id) => brewers.has(recipe, id),
       checks,
     );
-    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
-    // A step whose lenses review a plan reads the batch's latest plan and the repositories, where
-    // a step of a diff reads the change (ADR 0312).
-    const planLens = stepLenses[0]?.startsWith('plan/') === true;
     const inputs: PromptInput[] = [];
     for (const input of [
       ...planned,

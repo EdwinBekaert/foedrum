@@ -448,6 +448,23 @@ describe('admit lane rules (ADR 0025)', () => {
     assert.equal(admit(fold([release]), [{ ...release, version: 'v2.5.0' }]).kind, 'accepted');
     assert.equal(admit(fold([release]), [{ ...release, repo: 'acme/web' }]).kind, 'accepted');
   });
+
+  it("refuses a repository's system map at the base commit its latest one was read at, in any case (ADR 0317)", () => {
+    const entry = { publishes: [], dependsOn: [], modules: [], unreadable: [] };
+    const at = (commit: string, repo = 'acme/lib-core'): Event => ({
+      type: 'system.mapped',
+      repo,
+      commit,
+      entry,
+    });
+    const first = at('a'.repeat(40));
+    refused([first], at('a'.repeat(40), 'Acme/Lib-Core'), /map of Acme\/Lib-Core at a{40}/);
+    assert.equal(admit(fold([first]), [at('b'.repeat(40))]).kind, 'accepted');
+    assert.equal(admit(fold([first]), [at('a'.repeat(40), 'acme/web')]).kind, 'accepted');
+    // The latest commit counts: a base moved back to an earlier commit is read again.
+    const moved = at('b'.repeat(40));
+    assert.equal(admit(fold([first, moved]), [first]).kind, 'accepted');
+  });
 });
 
 describe('admit records the end of a pull request the batch opened or waits for (#103)', () => {

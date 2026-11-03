@@ -40,6 +40,7 @@ export const batchOf = (event: Event): string | undefined => {
       return effectKey.decode(event.key).batchId;
     case 'bottle.opened':
     case 'release.observed':
+    case 'system.mapped':
     case 'order.paused':
     case 'order.continued':
     case 'order.ranked':

@@ -309,6 +309,7 @@ export const openSqliteEventStore = (
       case 'order.decomposed':
       case 'bottle.opened':
       case 'release.observed':
+      case 'system.mapped':
       case 'batch.rewound':
       case 'batch.taken_over':
       case 'pull_request.ended':

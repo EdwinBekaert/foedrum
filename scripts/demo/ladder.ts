@@ -155,7 +155,11 @@ export const ladderBreweryFiles = (): Record<string, string> => ({
     brewery: BREWERY,
     users: [USER],
     repositories: {
-      [LIB]: { alias: ALIASES[LIB], checks: NO_CHECKS },
+      [LIB]: {
+        alias: ALIASES[LIB],
+        checks: NO_CHECKS,
+        description: 'the greet library; its CI releases it on every merge',
+      },
       [WEB]: { alias: ALIASES[WEB], checks: NO_CHECKS },
     },
   }),

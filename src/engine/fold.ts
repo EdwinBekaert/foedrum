@@ -29,6 +29,7 @@ import type {
   WorktreeRef,
 } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
+import type { SystemMapEntry } from '../schemas/system-map.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import { effectKey } from './effect-key.ts';
 import { ranIn } from './session-resume.ts';
@@ -498,6 +499,8 @@ export interface State {
   ranks: ReadonlyMap<string, Rank>;
   /** The usage windows closed now, by scope: no brewer attempt they hold starts (ADR 0206, ADR 0215). */
   usageWindows: UsageWindows;
+  /** Each repository's latest system map entry, by lower-case `owner/name`, and its base commit (ADR 0317). */
+  systemMap: ReadonlyMap<string, { commit: string; entry: SystemMapEntry }>;
 }
 
 export const emptyState: State = {
@@ -511,6 +514,7 @@ export const emptyState: State = {
   pauses: { orders: new Map() },
   ranks: new Map(),
   usageWindows: {},
+  systemMap: new Map(),
 };
 
 /** The key of an order's pause: its repository in lower case (GitHub's are case-insensitive), and its issue. */
@@ -878,6 +882,10 @@ function apply(state: State, event: Event): State {
         seq: nextPosition(state),
       };
       return { ...state, releases: [...state.releases, release] };
+    }
+    case 'system.mapped': {
+      const { repo, commit, entry } = event;
+      return { ...state, systemMap: put(state.systemMap, repo.toLowerCase(), { commit, entry }) };
     }
     case 'batch.rewound': {
       const { batchId, toStepId, by, via, shas } = event;
