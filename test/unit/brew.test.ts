@@ -1945,7 +1945,7 @@ describe('runBrew', () => {
       assert.equal(log().state().batches.size, 0);
       assert.equal(
         lines.at(-1),
-        'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it (decoction comes with #587)',
+        'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it (decoction comes with #802)',
       );
     });
 
@@ -1954,7 +1954,7 @@ describe('runBrew', () => {
       [
         'with no recipe to offer',
         { only: 'none' },
-        'the Brewery has no recipe to offer but mash-in (decoction comes with #587)',
+        'the Brewery has no recipe to offer but mash-in (decoction comes with #802)',
       ],
     ];
     for (const [what, fields, line] of refusals) {

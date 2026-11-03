@@ -55,6 +55,7 @@ import {
   outDocCopyOf,
   type PlannedInput,
   planAttempt,
+  planLensInputs,
   type RegressionTests,
   type Resumed,
   retryInputOf,
@@ -445,17 +446,21 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     if (since === undefined) return pickRules(fromBrewery, { files: [], ...lens });
     const why = `the house-yeast rules of ${repo} were not read`;
     const read = gitIn(repo, why);
-    const changed = await read([
-      '-c',
-      'core.quotePath=false',
-      'diff',
-      '--name-status',
-      '-z',
-      '--no-color',
-      '--no-ext-diff',
-      since,
-      head,
-    ]);
+    // A Taster of a plan reads no change, at the commit its worktree holds (ADR 0312).
+    const changed =
+      since === head
+        ? ''
+        : await read([
+            '-c',
+            'core.quotePath=false',
+            'diff',
+            '--name-status',
+            '-z',
+            '--no-color',
+            '--no-ext-diff',
+            since,
+            head,
+          ]);
     const repository =
       keptIn === 'brewery' ? fromBrewery.repository : await rulesAt(read, why, since);
     const change = { files: changedFilesZ(changed), ...lens };
@@ -547,8 +552,17 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       (id) => brewers.has(recipe, id),
       checks,
     );
+    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
+    // A step's lenses together share one folder (ADR 0143, ADR 0220).
+    const diffLens = stepLenses[0]?.startsWith('diff/') === true;
+    // A step whose lenses review a plan reads the batch's latest plan and the repositories, where
+    // a step of a diff reads the change (ADR 0312).
+    const planLens = stepLenses[0]?.startsWith('plan/') === true;
     const inputs: PromptInput[] = [];
-    for (const input of planned) {
+    for (const input of [
+      ...planned,
+      ...(planLens ? planLensInputs(batch, stepBrewer, repositories) : []),
+    ]) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
@@ -556,9 +570,6 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // does (ADR 0166, ADR 0311).
     const merged = mergedBase(state(), batch.id);
     const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
-    const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
-    // A step's lenses together share one folder (ADR 0143, ADR 0220).
-    const diffLens = stepLenses[0]?.startsWith('diff/') === true;
     const since =
       diffLens || found.brewer.output.schema === FINING || found.brewer.output.schema === MUTANTS
         ? start
@@ -586,7 +597,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const { houseYeast } = options;
     const rules =
       found.brewer.houseYeast && houseYeast !== undefined && own !== undefined
-        ? await houseYeastFor(own.repo, start, own.commit, stepLenses, houseYeast)
+        ? await houseYeastFor(
+            own.repo,
+            planLens ? own.commit : start,
+            own.commit,
+            stepLenses,
+            houseYeast,
+          )
         : undefined;
     if (rules !== undefined) inputs.push(...rules.inputs);
     const answers = answersOf(batch, ref.stepId);
