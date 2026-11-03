@@ -436,8 +436,9 @@ const MutantText = NonEmpty.max(MAX_MUTANT_TEXT);
 
 /**
  * What the engine found of one of Brett's mutants (ADR 0040, ADR 0313): killed by the first test
- * that passed at the baseline and failed against it, survived, timed out (killed), invalid by the
- * mutant check's reason, or not judged, with why.
+ * the mutant makes fail (it fails more often or passes less often than at the baseline, or no
+ * longer reports), survived, timed out (killed), invalid by the mutant check's reason, or not
+ * judged, with why, as a mutant that broke the build is.
  */
 export const MutantVerdict = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('killed'), by: NonEmpty.max(MAX_TEST_NAME_LENGTH) }),
