@@ -238,6 +238,14 @@ describe('parseMutant allowlist edge cases', () => {
     assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
   });
 
+  it('an escaped slash before a slash is no comment when a replacement is compared', () => {
+    const edit = {
+      original: String.raw`if (url.replace(/^https?:\/\//, '') === host) return 1;`,
+      replacement: String.raw`if (url.replace(/^https?:\/\//, '') !== host) return 1;`,
+    };
+    assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
+  });
+
   it('a string edit is a change when a replacement is compared', () => {
     const edit = { original: 'log("a", "b"); // a', replacement: 'log("b", "b"); // a' };
     assert.deepEqual(parseMutant(mutant(edit)), { ok: true, mutant: mutant(edit) });
