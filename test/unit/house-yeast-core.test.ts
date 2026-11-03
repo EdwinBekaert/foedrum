@@ -9,6 +9,7 @@ import {
   type Rule,
   readCandidates,
   readRules,
+  recurringRules,
   renderRules,
   selectRules,
 } from '../../scripts/house-yeast/core.ts';
@@ -279,5 +280,50 @@ describe('proposeRule', () => {
       ids(selectRules(read.rules, { files: [file], lens: 'correctness' }).selected);
     assert.deepEqual(select('src/cli/serve.ts'), ['deadline-on-every-wait']);
     assert.deepEqual(select('docs/glossary.md'), []);
+  });
+});
+
+describe('recurringRules', () => {
+  const adopted = (id: string, created: string) => rule(id, {}, 'b', created).rule;
+  const seen = (lesson: string, review: string, on: string) => ({
+    lesson,
+    review,
+    source: `${review}#discussion_r1`,
+    seen: on,
+    kind: 'semantic' as const,
+    scope: {},
+    rule: 'r',
+  });
+
+  it("counts the reviews that recorded a rule's lesson after its adoption", () => {
+    const counted = recurringRules(
+      [adopted('waits', '2026-10-20'), adopted('globs', '2026-10-24')],
+      [
+        seen('waits', '3-b', '2026-10-25'),
+        seen('globs', '4-c', '2026-10-26'),
+        seen('waits', '1-early', '2026-10-19'),
+        seen('waits', '2-a', '2026-10-21'),
+        seen('globs', '3-b', '2026-10-25'),
+        seen('waits', '2-a', '2026-10-22'),
+        seen('other', '5-d', '2026-10-27'),
+      ],
+      '2026-10-25',
+    );
+    assert.deepEqual(counted.unnamed, []);
+    assert.deepEqual(counted.counted, [
+      { id: 'globs', created: '2026-10-24', reviews: 2, of: 3, sinceReviews: 1, sinceOf: 2 },
+      { id: 'waits', created: '2026-10-20', reviews: 2, of: 4, sinceReviews: 0, sinceOf: 2 },
+    ]);
+  });
+
+  it('leaves out a review recorded on the day the rule was adopted', () => {
+    const counted = recurringRules(
+      [adopted('waits', '2026-10-20')],
+      [seen('waits', '1-adopting', '2026-10-20'), seen('waits', '2-later', '2026-10-21')],
+      '2026-10-01',
+    );
+    assert.deepEqual(counted.counted, [
+      { id: 'waits', created: '2026-10-20', reviews: 1, of: 1, sinceReviews: 1, sinceOf: 1 },
+    ]);
   });
 });

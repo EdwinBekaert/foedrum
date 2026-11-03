@@ -90,6 +90,36 @@ export const proposeRule = (
   };
 };
 
+/** The reviews after which an adopted rule is listed as a candidate for a lint or script check (#685). */
+export const minReviews = 10;
+
+/** The day Foedrum's own sessions started loading the rules (#677), the report's second column. */
+export const defaultSince = '2026-10-30';
+
+export interface Recurrence {
+  id: string;
+  created: string;
+  /** The reviews that recorded the rule's lesson after the day it was adopted… */
+  reviews: number;
+  /** …of all the reviews recorded after that day. */
+  of: number;
+  /** The same, after the later of that day and the given date. */
+  sinceReviews: number;
+  sinceOf: number;
+}
+
+/**
+ * How often reviews recorded each adopted rule's lesson again (#685), most recorded first; a rule
+ * whose id no candidate ever named is `unnamed`, so a renamed lesson never reads as a rule that works.
+ */
+export const recurringRules = (
+  _rules: readonly HouseYeastRule[],
+  _candidates: readonly HouseYeastCandidate[],
+  _since: string,
+): { counted: Recurrence[]; unnamed: string[] } => {
+  throw new Error('not implemented');
+};
+
 /** The text of `.foedrum/house-yeast/<id>.md`: JSON frontmatter, then the rule. */
 export const formatRule = (rule: HouseYeastRule, body: string): string =>
   `---\n${JSON.stringify(rule, null, 2)}\n---\n${body.trim()}\n`;

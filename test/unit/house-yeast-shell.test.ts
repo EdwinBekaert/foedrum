@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { formatRule, minReviews } from '../../scripts/house-yeast/core.ts';
 import { sessionRuleFiles } from '../../scripts/house-yeast/session-rules.ts';
 import { run } from '../../scripts/house-yeast.ts';
 
@@ -302,5 +303,52 @@ describe('node scripts/house-yeast.ts', () => {
       assert.equal(result.code, 2, args.join(' '));
       assert.match(result.err, /^usage:/);
     }
+  });
+});
+
+describe('node scripts/house-yeast.ts recurring', () => {
+  const dir = 'base/.foedrum/house-yeast';
+  const ruleFile = (id: string, created: string) => ({
+    [`${dir}/${id}.md`]: formatRule(
+      { id, scope: {}, kind: 'semantic', source: 's', created, status: 'active' },
+      'A rule.',
+    ),
+  });
+  const seen = (lesson: string, review: string, on: string) =>
+    candidate(review, { lesson, seen: on });
+
+  it('lists the rules seen again in at least N reviews as candidates for a check', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl', '--min', '2'], {
+      ...ruleFile('often', '2026-10-20'),
+      ...ruleFile('once', '2026-10-20'),
+      'store.jsonl': [
+        seen('once', '1-a', '2026-10-21'),
+        seen('often', '1-a', '2026-10-21'),
+        seen('often', '2-b', '2026-10-22'),
+      ].join('\n'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^candidates for a check \(in 2 reviews or more\):\n {2}often\n$/m);
+    assert.doesNotMatch(result.out, /^ {2}once$/m);
+  });
+
+  it("recurring prints each rule's count since adoption and since the given date", () => {
+    const result = runWith(['recurring', dir, 'store.jsonl', '--since', '2026-10-22'], {
+      ...ruleFile('waits', '2026-10-20'),
+      ...ruleFile('renamed', '2026-10-20'),
+      'store.jsonl': [
+        seen('waits', '1-a', '2026-10-21'),
+        seen('other', '2-b', '2026-10-22'),
+        seen('waits', '3-c', '2026-10-23'),
+        seen('other', '4-d', '2026-10-24'),
+      ].join('\n'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.equal(
+      result.out,
+      'waits: 2 of 4 reviews since 2026-10-20, 1 of 2 since 2026-10-22\n' +
+        `\ncandidates for a check (in ${minReviews} reviews or more): none\n` +
+        '\nnever recorded as a lesson:\n  renamed\n',
+    );
   });
 });
