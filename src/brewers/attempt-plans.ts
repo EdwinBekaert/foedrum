@@ -15,6 +15,7 @@ import { attemptRecipeOf, type Batch, type State } from '../engine/fold.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
+import { checksInput } from '../engine/check-readings.ts';
 import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
 import { sameRepo } from '../engine/task-tree.ts';
@@ -523,6 +524,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // The releases a sub-order waited for, from the recorded releases when its brewer asks (ADR 0291).
     const asksRelease = found.brewer.inputs.some(({ from }) => from === 'release');
     const release = asksRelease ? releaseInput(state(), batch) : undefined;
+    // The checks that ran on the commit the attempt starts at, when its brewer asks (ADR 0308).
+    const asksChecks = found.brewer.inputs.some(({ from }) => from === 'checks');
+    const checks = asksChecks ? checksInput(batch, own?.commit) : undefined;
     const planned = inputsOf(
       found.brewer.inputs,
       batch,
@@ -535,6 +539,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       entry,
       release,
       (id) => brewers.has(recipe, id),
+      checks,
     );
     const inputs: PromptInput[] = [];
     for (const input of planned) {

@@ -2,7 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 7,
+  "version": 8,
   "model": "builder",
   "effort": "high",
   "inputs": [

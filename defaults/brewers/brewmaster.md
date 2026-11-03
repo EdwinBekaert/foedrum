@@ -2,7 +2,7 @@
 {
   "name": "brewmaster",
   "description": "Reads the order and the repositories it reaches, and breaks the order into sub-orders, one repository each, with the recipe each should run with; read-only.",
-  "version": 2,
+  "version": 3,
   "model": "planner",
   "effort": "high",
   "inputs": [
