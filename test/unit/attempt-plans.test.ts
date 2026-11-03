@@ -2204,6 +2204,39 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     );
   });
 
+  it("a plan lens step's Taster reads the system map, read again where a base moved (ADR 0317)", async () => {
+    const tip = 'd'.repeat(40);
+    const manifests: Record<string, string> = {
+      [join('/clones', 'acme/api')]: JSON.stringify({ name: '@acme/api' }),
+      [join('/clones', 'acme/web')]: JSON.stringify({
+        name: 'web',
+        dependencies: { '@acme/api': '2.0.0' },
+      }),
+    };
+    const git = async (cwd: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' };
+      if (args[0] === 'ls-tree') return { code: 0, stdout: 'package.json\0', stderr: '' };
+      return { code: 0, stdout: manifests[cwd] ?? '', stderr: '' };
+    };
+    const events: Event[] = [...amber, inTree];
+    const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      git,
+      recordMap: (event) => events.push(event),
+    });
+    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    assert.deepEqual(
+      events
+        .filter(({ type }) => type === 'system.mapped')
+        .map((event) => 'repo' in event && event.repo),
+      ['acme/api', 'acme/web'],
+    );
+    assert.match(
+      prompt,
+      /name="repositories">\n[^<]*- acme\/web, base origin\/trunk\n {2}publishes `web` \(npm\)\n {2}depends on `@acme\/api` from acme\/api by version `2\.0\.0` \(npm\)\n<\/untrusted-input-/,
+    );
+  });
+
   it("gives a step of plan lenses together the batch's latest plan and the repositories: regression test", async () => {
     const together = loadRecipes({
       ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
