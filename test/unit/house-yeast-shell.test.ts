@@ -381,6 +381,26 @@ describe('node scripts/house-yeast.ts recurring', () => {
     );
   });
 
+  it('exits 1 without a report when the rules folder exists but cannot be read', () => {
+    const result = runWith(
+      ['recurring', dir, 'store.jsonl'],
+      { ...ruleFile('waits', '2026-10-20'), 'store.jsonl': seen('waits', '1-a', '2026-10-21') },
+      [dir],
+    );
+    assert.equal(result.code, 1);
+    assert.match(result.out, /^cannot read the rules: EACCES/);
+    assert.doesNotMatch(result.out, /^waits:/m);
+  });
+
+  it('dates the second count from the adoption day when the rule is newer than --since', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl', '--since', '2026-10-22'], {
+      ...ruleFile('waits', '2026-10-25'),
+      'store.jsonl': seen('waits', '1-a', '2026-10-26'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^waits: 1 of 1 review since 2026-10-25, 1 of 1 since 2026-10-25$/m);
+  });
+
   it('leaves out a retired rule and refuses a --min or --since it cannot read', () => {
     const retired = {
       [`${dir}/old.md`]: formatRule(

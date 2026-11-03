@@ -316,6 +316,25 @@ describe('recurringRules', () => {
     ]);
   });
 
+  it('lists the most recorded rule first, whatever its id', () => {
+    const counted = recurringRules(
+      [adopted('alpha', '2026-10-20'), adopted('zeta', '2026-10-20')],
+      [
+        seen('zeta', '1-a', '2026-10-21'),
+        seen('alpha', '2-b', '2026-10-22'),
+        seen('zeta', '3-c', '2026-10-23'),
+      ],
+      '2026-10-01',
+    );
+    assert.deepEqual(
+      counted.counted.map(({ id, reviews }) => [id, reviews]),
+      [
+        ['zeta', 2],
+        ['alpha', 1],
+      ],
+    );
+  });
+
   it('leaves out a review recorded on the day the rule was adopted', () => {
     const counted = recurringRules(
       [adopted('waits', '2026-10-20')],
