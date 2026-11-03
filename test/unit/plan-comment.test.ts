@@ -1063,4 +1063,21 @@ describe('reviewNotes (ADR 0318)', () => {
       ],
     );
   });
+
+  it('gives no notes, not none yet, when a step reviewed the latest plan and found nothing: regression test', () => {
+    const batch = fold([
+      { type: 'batch.ordered', batchId: '7-1', order: { issue: 7 }, routeBy: deadlineAt },
+      {
+        type: 'batch.recipe_chosen',
+        batchId: '7-1',
+        recipe: 'mash',
+        reason: 'label',
+        source: 'label',
+      },
+      ...ran('plan', 1, plan),
+      ...ran('naive', 1, { ...approves('unused'), findings: [] }),
+    ]).batches.get('7-1');
+    assert.ok(batch !== undefined);
+    assert.deepStrictEqual(reviewNotes(batch, 'plan', 1), []);
+  });
 });
