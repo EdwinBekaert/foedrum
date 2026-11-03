@@ -37,8 +37,9 @@ const squash = (code: string): string =>
 
 // The line with its `//` and `/* */` comments blanked and its strings kept: the leftmost of a
 // string and a comment wins, so `"http://x"` is no comment and a quote in a comment no string.
-// Only a string sets the quote group: `comments` has none.
-const stringsOrComments = new RegExp(`${strings.source}|${comments.source}`, 'g');
+// Only a string sets the quote group. A slash after a backslash is an escaped one, as at the end
+// of a regular expression literal (`/^https?:\/\//`), never a comment's.
+const stringsOrComments = new RegExp(`${strings.source}|(?<!\\\\)(?:${comments.source})`, 'g');
 const withoutComments = (code: string): string =>
   code.replace(stringsOrComments, (match, quote?: string) => (quote ? match : ' '));
 

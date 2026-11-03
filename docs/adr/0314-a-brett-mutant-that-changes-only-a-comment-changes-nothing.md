@@ -12,6 +12,7 @@ The word rule already strips `//` and `/* */` comments where they are known, the
 ## Decision
 - **Where comments are known, the changes-nothing comparison leaves them out.** Both lines lose their `//` and one-line `/* */` comments, each blanked to a space, before their whitespace is dropped and they are compared; the reason stays "the replacement changes nothing".
 - **Strings are kept.** One pass finds strings and comments together, the leftmost first: a comment marker inside a string (`"http://x"`) is the string's, and a quote inside a comment opens no string. A changed string is still a change, even one the original already holds elsewhere on the line.
+  A `//` or `/*` right after a backslash is no comment either: it is an escaped slash, as at the end of a regular expression literal (`/^https?:\/\//`), so an operator changed after one is still a change.
 - **Elsewhere nothing changes.** In a language whose comments are not known, a comment counts as the line's text, as ADR 0311 says: dropping a Python line's `// limit` is a change, since there `//` is an operator.
 - **A line that is only a comment** is a line a change can add in a code area; deleting it, or rewording it, changes nothing where comments are known.
 
