@@ -669,6 +669,19 @@
             "items": {
               "type": "string"
             }
+          },
+          "description": {
+            "description": "What the repository is for, in one line, which the system map shows the planners and foedrum doctor (ADR 0317)",
+            "type": "string",
+            "maxLength": 200,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$"
+              }
+            ]
           }
         },
         "required": [

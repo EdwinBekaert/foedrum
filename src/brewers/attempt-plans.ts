@@ -19,6 +19,7 @@ import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
+import { entryOf, manifestsAt, mapName } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -36,6 +37,7 @@ import {
 } from '../schemas/out-doc.ts';
 import { PLAN } from '../schemas/plan.ts';
 import { parseRule } from '../schemas/primitives.ts';
+import type { SystemMapEntry } from '../schemas/system-map.ts';
 import { attemptBranch } from '../workspace/attempt-worktrees.ts';
 import { inClone } from '../workspace/clone-git.ts';
 import type { Git, GitOptions } from '../workspace/git.ts';
@@ -301,6 +303,37 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     );
 
   /**
+   * Reads the system map again of each repository whose base commit is not the one its entry was
+   * read at, and records it (ADR 0317): a base git cannot list is recorded with why, never left out.
+   */
+  const refreshMap = async (): Promise<void> => {
+    const { git, recordMap } = options;
+    if (git === undefined || recordMap === undefined) return;
+    const read = manifestsAt(git);
+    for (const at of await planRepositories(undefined)) {
+      if (!('commit' in at) || state().systemMap.get(at.repo.toLowerCase())?.commit === at.commit) {
+        continue;
+      }
+      let entry: SystemMapEntry;
+      try {
+        const { files, left } = await read(at.clone, at.commit);
+        const map = await options.testMapAt?.(at.repo, at.commit);
+        const modules = map?.kind === 'map' ? map.map.modules.map(({ name }) => name) : [];
+        entry = entryOf(files, modules, left);
+      } catch (error) {
+        const reason = mapName(messageOf(error)) || 'git failed';
+        entry = {
+          publishes: [],
+          dependsOn: [],
+          modules: [],
+          unreadable: [{ path: 'its files', reason }],
+        };
+      }
+      recordMap({ type: 'system.mapped', repo: at.repo, commit: at.commit, entry });
+    }
+  };
+
+  /**
    * The change a Taster that reviews a diff is given (ADR 0161): the commits from `since` to `head`,
    * the commit its worktree started at, and their diff. Read in the repository's clone, never by
    * discovery in the worktree, with no hook, external diff or textconv a brewer could have planted
@@ -528,6 +561,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       );
     // A Brewery order's folder of checkouts is no repository's, and holds each one (ADR 0301).
     const own = 'repo' in worktree ? worktree : undefined;
+    // The system map, read again where a base moved, when the brewer reads the repositories (ADR 0317).
+    if (found.brewer.inputs.some(({ from }) => from === 'repositories')) await refreshMap();
     const repositories = {
       repositories: options.repositories ?? [],
       map: state().systemMap,

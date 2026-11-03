@@ -320,6 +320,7 @@ export const wireDriver = async (
     keptIn: mapKeptIn,
     brewery: (repo) => repositoryNamed(repo)?.testMap?.text,
   });
+  const mapLog = createCommandLog({ store, recipes: setup.recipes });
   const plans = createAttemptPlans({
     state,
     brewers: setup.brewers,
@@ -344,6 +345,13 @@ export const wireDriver = async (
     orderText: githubOrderText(reads, setup.brewery),
     // A Taster's change is read by the engine, so the Taster runs no git (ADR 0161).
     git: shell.git,
+    // The system map is recorded where a base moved, its modules from the test map (ADR 0317).
+    recordMap: (event) => {
+      const decision = mapLog.issue({ kind: 'record', event }, clock());
+      if (decision.kind !== 'accepted')
+        say(`the system map of ${event.repo} was not recorded: ${decision.reason}`);
+    },
+    testMapAt: mapAt,
     // A brewer that asks for house yeast gets the rules that match its change (ADR 0169).
     houseYeast: {
       files: setup.houseYeast ?? [],

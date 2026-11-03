@@ -2,8 +2,15 @@
 // `origin/<base>` with the readers the planners' map is recorded with, so a person sees what they
 // read, and at which commit.
 
+import { join } from 'node:path';
+import { breweryMapPath, testMaps } from '../checks/test-map.ts';
+import { entryOf, manifestsAt } from '../engine/system-map.ts';
+import { messageOf } from '../platform/errors.ts';
+import { BreweryConfig } from '../schemas/brewery-config.ts';
+import { readJsonc } from '../schemas/read.ts';
 import type { SystemMapEntry } from '../schemas/system-map.ts';
 import type { Git } from '../workspace/git.ts';
+import { attemptClone } from './serve-config.ts';
 
 /** A repository of the map as doctor read it: its entry at a commit, or why it could not. */
 export interface DoctorMapRepository {
@@ -23,6 +30,55 @@ export interface DoctorMapSources {
   exists: (path: string) => boolean;
 }
 
-export const readDoctorMap = async (_sources: DoctorMapSources): Promise<DoctorMapRepository[]> => {
-  throw new Error('not implemented');
+/** Each repository of the Brewery's foedrum.jsonc, read at its base; none without a readable one. */
+export const readDoctorMap = async (sources: DoctorMapSources): Promise<DoctorMapRepository[]> => {
+  const { git, home, cwd, readFile, exists } = sources;
+  const files = {
+    config: readFile(join(cwd, 'foedrum.jsonc')),
+    local: readFile(join(cwd, '.foedrum', 'local.jsonc')),
+  };
+  if (files.config === undefined) return [];
+  const read = readJsonc(files.config, BreweryConfig);
+  if (!read.valid) return [];
+  const repositories = Object.entries(read.value.repositories);
+  const clones = new Map(repositories.map(([repo]) => [repo, attemptClone(files, home, repo)]));
+  const mapAt = testMaps({
+    git,
+    clone: (repo) => clones.get(repo) ?? cwd,
+    keptIn: (repo) => (read.value.repositories[repo]?.testMap === 'brewery' ? 'brewery' : 'repo'),
+    brewery: (repo) => readFile(join(cwd, breweryMapPath(repo))),
+  });
+  return Promise.all(
+    repositories.map(async ([repo, repository]): Promise<DoctorMapRepository> => {
+      const base = `origin/${repository.base ?? 'main'}`;
+      const named = {
+        repo,
+        base,
+        ...(repository.description === undefined ? {} : { description: repository.description }),
+      };
+      const clone = clones.get(repo);
+      if (clone === undefined || !exists(clone)) {
+        return { ...named, read: { unread: 'it has no clone here yet' } };
+      }
+      const resolved = await git(
+        clone,
+        ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`],
+        {
+          timeoutMs: 10_000,
+        },
+      );
+      const commit = resolved.stdout.trim();
+      if (resolved.code !== 0 || commit === '') {
+        return { ...named, read: { unread: `its clone has no ${base}` } };
+      }
+      try {
+        const { files: manifests, left } = await manifestsAt(git)(clone, commit);
+        const map = await mapAt(repo, commit);
+        const modules = map.kind === 'map' ? map.map.modules.map(({ name }) => name) : [];
+        return { ...named, read: { commit, entry: entryOf(manifests, modules, left) } };
+      } catch (error) {
+        return { ...named, read: { unread: messageOf(error) } };
+      }
+    }),
+  );
 };

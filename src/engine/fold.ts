@@ -879,8 +879,10 @@ function apply(state: State, event: Event): State {
       };
       return { ...state, releases: [...state.releases, release] };
     }
-    case 'system.mapped':
-      throw new Error('not implemented');
+    case 'system.mapped': {
+      const { repo, commit, entry } = event;
+      return { ...state, systemMap: put(state.systemMap, repo.toLowerCase(), { commit, entry }) };
+    }
     case 'batch.rewound': {
       const { batchId, toStepId, by, via, shas } = event;
       return updateBatch(state, batchId, (batch) => {

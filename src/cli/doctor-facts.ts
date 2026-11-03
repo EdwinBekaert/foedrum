@@ -18,6 +18,7 @@ import {
   type ToolName,
   type ToolRun,
 } from './doctor.ts';
+import type { DoctorMapRepository } from './doctor-map.ts';
 
 // How each tool reports its version; socat has no --version.
 const VERSION_ARGS: Readonly<Record<ToolName, readonly string[]>> = {
@@ -66,6 +67,8 @@ export interface DoctorShell {
   exists?: (path: string) => boolean;
   /** On Linux, whether AppArmor restricts unprivileged user namespaces; undefined when unknown. */
   restrictsUserns?: () => boolean | undefined;
+  /** Each repository of the Brewery read at its base for the system map (`readDoctorMap`, ADR 0317). */
+  systemMap?: () => Promise<DoctorMapRepository[]>;
 }
 
 // The list's state without its text: doctor never prints a word of it (ADR 0114).
@@ -148,6 +151,7 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
       ).map(ask),
     ]);
   const [login, credentials] = await asking;
+  const systemMap = await shell.systemMap?.();
   const restrictsUserns = shell.restrictsUserns?.();
   return {
     platform: shell.platform,
@@ -168,5 +172,6 @@ export const gatherDoctorFacts = async (shell: DoctorShell): Promise<DoctorFacts
     ...(configUnreadable === undefined ? {} : { configUnreadable }),
     ...(shell.readBrewery === undefined ? {} : { brewery: shell.readBrewery() }),
     ...(shell.denylist === undefined ? {} : { denylist: denylistFact(shell.denylist()) }),
+    ...(systemMap === undefined ? {} : { systemMap }),
   };
 };

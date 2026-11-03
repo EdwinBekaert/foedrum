@@ -133,6 +133,10 @@ export const turnOf = (
   prompt: string,
 ): Scripted => {
   if (stepId === 'plan') {
+    // The system map names the link the plan rests on before any manifest is opened (ADR 0317).
+    if (!prompt.includes(MAPPED_DEPENDENCY)) {
+      throw new Error(`the Brewmaster's repositories input maps no dependency of ${WEB} on ${LIB}`);
+    }
     return planFrom(
       read(join(ALIASES[LIB], 'package.json')),
       read(join(ALIASES[WEB], 'package.json')),

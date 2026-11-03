@@ -113,6 +113,14 @@ export const SensitivePath = z
 const RepositorySetup = z.strictObject({ command: Command, timeout: Duration });
 export type RepositorySetup = z.infer<typeof RepositorySetup>;
 
+/** The longest description of a repository. */
+export const MAX_DESCRIPTION_LENGTH = 200;
+const RepositoryDescription = z
+  .string()
+  .regex(/\S/, 'Must not be empty')
+  .max(MAX_DESCRIPTION_LENGTH)
+  .regex(/^[^\p{Cc}\p{Zl}\p{Zp}]*$/u, 'Must be one line');
+
 const RepositoryConfig = z
   .strictObject({
     checks: Checks,
@@ -150,6 +158,9 @@ const RepositoryConfig = z
       .describe(
         "Path globs whose files a batch's status comment names when its change touches them; never an approval or a block (ADR 0201)",
       ),
+    description: RepositoryDescription.optional().describe(
+      'What the repository is for, in one line, which the system map shows the planners and foedrum doctor (ADR 0317)',
+    ),
   })
   .refine((repository) => repository.intake === undefined || repository.alias !== undefined, {
     message: 'An intake needs an alias, for the batch ids of the issues it claims',

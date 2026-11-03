@@ -90,6 +90,8 @@ export interface ServeRepository {
   testMap?: { text?: string };
   /** The path globs a batch's pull request names when its change touches them (ADR 0201). */
   sensitivePaths?: readonly string[];
+  /** What it is for, in a line, which the system map shows the planners (ADR 0317). */
+  description?: string;
 }
 
 /**
@@ -340,6 +342,7 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         ...(repository.sensitivePaths === undefined
           ? {}
           : { sensitivePaths: repository.sensitivePaths }),
+        ...(repository.description === undefined ? {} : { description: repository.description }),
       };
     },
   );
