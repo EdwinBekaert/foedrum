@@ -1141,8 +1141,16 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     }
   });
 
-  it('stays around the 300 tokens ADR 0005 gives it: at most 1,200 characters', () => {
-    assert.ok(outDocContract('brew.md').length <= 1200, `${outDocContract('brew.md').length}`);
+  it('stays around the 300 tokens ADR 0005 gives it, with the rule on claims (ADR 0308): at most 1,400 characters', () => {
+    assert.ok(outDocContract('brew.md').length <= 1400, `${outDocContract('brew.md').length}`);
+  });
+
+  it('the out doc contract tells a brewer to claim only what it did or read', () => {
+    const contract = outDocContract('brew.md');
+    assert.match(
+      contract,
+      /An assumption or a risk states only what you did or read: "I did not check X" is\nfine, but "X could not be checked" needs the attempt that failed\./,
+    );
   });
 
   it('tells a brewer that commits to commit before the out doc, and never the out doc (ADR 0074)', () => {
@@ -1153,7 +1161,7 @@ describe('outDocContract (brewers-and-recipes §2)', () => {
     );
     assert.equal(contract.replace(/\nCommit [\s\S]* commit\./, ''), outDocContract('brew.md'));
     assert.doesNotMatch(outDocContract('brew.md'), /git commit/);
-    assert.ok(contract.length <= 1400, `${contract.length}`);
+    assert.ok(contract.length <= 1600, `${contract.length}`);
   });
 
   // Every `---` … `---` block of the contract, as the out doc a brewer that copies it writes (#195).
@@ -1476,7 +1484,7 @@ describe('planAttempt', () => {
       });
       const contract = prompt.slice('Brew the plan in {malt}.\n\n'.length);
       assert.match(contract, /Commit your changes/);
-      assert.ok(contract.length <= 1400, `${contract.length}`);
+      assert.ok(contract.length <= 1600, `${contract.length}`);
     });
 
     it('writes settings the attempt settings schema accepts, with the git rules in them', () => {

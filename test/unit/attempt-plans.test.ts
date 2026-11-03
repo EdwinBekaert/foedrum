@@ -592,6 +592,113 @@ describe('createAttemptPlans: plan', () => {
     });
   });
 
+  describe('the checks that ran on the commit a step starts at (ADR 0308)', () => {
+    const tasting = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'taster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/taster.md',
+          text: brewerText('taster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            inputs: [
+              { name: 'order', from: 'order' },
+              { name: 'checks', from: 'checks' },
+            ],
+          }),
+        },
+      ],
+    });
+    const deadlineAt = '2026-10-17T13:00:00.000Z';
+    const head = 'c'.repeat(40);
+    const before = 'b'.repeat(40);
+    type CheckEnding = Pick<Extract<Event, { type: 'step.finished' }>, 'outcome' | 'readings'>;
+    /** Attempt `attempt` of the check step `green`, started at `commit`, ended as `ending` says. */
+    const green = (attempt: number, commit: string, ending: CheckEnding): Event[] => {
+      const run = { batchId: '12-1', stepId: 'green', attempt };
+      return [
+        { type: 'step.scheduled', ...run, deadlineAt },
+        {
+          type: 'step.started',
+          ...run,
+          worktree: {
+            repo: 'acme/api',
+            path: join('/work', `green-${attempt}`),
+            branch: `foedrum/12-1/green/${attempt}`,
+            commit,
+          },
+        },
+        { type: 'step.finished', ...run, ...ending },
+      ];
+    };
+    const passing: CheckEnding = {
+      outcome: { kind: 'succeeded', output: null },
+      readings: [
+        { result: 'exited', setup: true, command: 'npm ci', exitCode: 0, tail: '' },
+        { result: 'exited', check: 'test', command: 'npm test', exitCode: 0, tail: '' },
+        { result: 'skipped', check: 'format' },
+      ],
+    };
+    const failing: CheckEnding = {
+      outcome: { kind: 'failed', retryable: false, reason: 'the check "test" failed' },
+      readings: [
+        {
+          result: 'exited',
+          check: 'test',
+          command: 'npm test',
+          exitCode: 1,
+          tail: '',
+          failing: { tests: ['prints --json'], more: 0 },
+        },
+      ],
+    };
+    const tasted = (...checks: Event[][]): Event[] => [...ordered, ...checks.flat(), started];
+
+    it("a taster's checks input names each check that passed on the head it reviews", async () => {
+      assert.ok(tasting.valid);
+      const { plans } = setup(tasted(green(1, head, passing)), {}, undefined, tasting.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /<untrusted-input-([0-9a-f]+) source="the checks that ran on commit c{40}" name="checks">\n- Step green:\n {2}- the check "test" \(npm test\) passed\n {2}- the check "format" was not run: the repository does not have it\n<\/untrusted-input-\1>/,
+      );
+      // The setup readings are the run's, not the change's checks (ADR 0163).
+      assert.doesNotMatch(prompt, /npm ci/);
+    });
+
+    it("a failed check in a taster's checks input names its failing tests", async () => {
+      assert.ok(tasting.valid);
+      const { plans } = setup(tasted(green(1, head, failing)), {}, undefined, tasting.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, /name="checks">\n- Step green:\n {2}- [^\n]*prints --json\n<\//);
+    });
+
+    it('a taster with no check on its head gets no checks input', async () => {
+      assert.ok(tasting.valid);
+      const { plans } = setup(tasted(green(1, before, passing)), {}, undefined, tasting.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, /name="order">\nAdd a --json flag\.\n/);
+      assert.doesNotMatch(prompt, /name="checks"|npm test/);
+    });
+
+    it("a taster's checks input after a fix holds only the check that passed on the new head", async () => {
+      assert.ok(tasting.valid);
+      const events = tasted(green(1, before, failing), green(2, head, passing));
+      const { plans } = setup(events, {}, undefined, tasting.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /name="checks">\n- Step green:\n {2}- the check "test" \(npm test\) passed\n/,
+      );
+      assert.doesNotMatch(prompt, /prints --json/);
+    });
+  });
+
   it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
     const planning = loadRecipes({
       recipes: [
