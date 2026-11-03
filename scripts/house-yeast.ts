@@ -1,4 +1,4 @@
-// `node scripts/house-yeast.ts select|list|record …`: the house-yeast rules of /brew-review
+// `node scripts/house-yeast.ts select|list|recurring|record …`: the house-yeast rules of /brew-review
 // (issue #32, ADR 0122). house-yeast/core.ts decides; this file reads and writes the files.
 
 import {
@@ -14,10 +14,14 @@ import { dirname, posix } from 'node:path';
 import {
   changedFiles,
   defaultBudget,
+  defaultSince,
   formatRule,
+  minReviews,
   proposeRule,
+  type Rule,
   readCandidates,
   readRules,
+  recurringRules,
   renderRules,
   selectRules,
   unscoped,
@@ -38,6 +42,7 @@ export interface RunDeps {
 const usage = `usage:
   node scripts/house-yeast.ts select <rules-dir> <files.txt> <lens> <out.md> [--budget <tokens>]
   node scripts/house-yeast.ts list <candidates.jsonl>
+  node scripts/house-yeast.ts recurring <rules-dir> <candidates.jsonl> [--min <n>] [--since <date>]
   node scripts/house-yeast.ts record <candidates.jsonl> <candidate.json> <rules-dir> [--asked]
 `;
 
@@ -59,6 +64,29 @@ const readStore = (deps: RunDeps, store: string): string | undefined => {
   }
 };
 
+// The rules of a folder, none when it does not exist yet; undefined, with the reason printed, when
+// it exists but cannot be read. An invalid rule file is named and left out.
+const readRuleDir = (deps: RunDeps, dir: string): Rule[] | undefined => {
+  let names: string[] = [];
+  try {
+    names = deps
+      .readDir(dir)
+      .filter((name) => name.endsWith('.md'))
+      .sort();
+  } catch (error) {
+    // No rules folder at the base: no rules yet. Any other error is not "no rules".
+    if (!missing(error)) {
+      deps.out(`cannot read the rules: ${firstLine(error)}\n`);
+      return undefined;
+    }
+  }
+  const { rules, invalid } = readRules(
+    names.map((name) => posix.join(dir, name)).map((path) => ({ path, text: deps.readFile(path) })),
+  );
+  for (const { path, reason } of invalid) deps.out(`invalid ${path}: ${reason}\n`);
+  return rules;
+};
+
 const select = (
   [dir, filesTxt, lens, outFile]: string[],
   budget: number,
@@ -75,23 +103,8 @@ const select = (
     deps.out(`cannot read the changed files: ${firstLine(error)}\n`);
     return 1;
   }
-  let names: string[] = [];
-  try {
-    names = deps
-      .readDir(dir)
-      .filter((name) => name.endsWith('.md'))
-      .sort();
-  } catch (error) {
-    // No rules folder at the base: no rules yet. Any other error is not "no rules".
-    if (!missing(error)) {
-      deps.out(`cannot read the rules: ${firstLine(error)}\n`);
-      return 1;
-    }
-  }
-  const { rules, invalid } = readRules(
-    names.map((name) => posix.join(dir, name)).map((path) => ({ path, text: deps.readFile(path) })),
-  );
-  for (const { path, reason } of invalid) deps.out(`invalid ${path}: ${reason}\n`);
+  const rules = readRuleDir(deps, dir);
+  if (rules === undefined) return 1;
   const selection = selectRules(rules, { files: changedFiles(nameStatus), lens }, budget);
   for (const { rule, tokens } of selection.selected) {
     const promotion = rule.rule.kind === 'structural' ? ', promotion candidate' : '';
@@ -125,6 +138,40 @@ const list = ([store]: string[], deps: RunDeps): number => {
     if (newest === undefined) continue;
     const reviews = plural(new Set(seen.map((candidate) => candidate.review)).size, 'review');
     deps.out(`${lesson} (${newest.kind}, ${reviews}): ${newest.rule.replace(/\s+/g, ' ')}\n`);
+  }
+  return 0;
+};
+
+const recurring = ([dir, store]: string[], min: number, since: string, deps: RunDeps): number => {
+  if (dir === undefined || store === undefined) {
+    deps.err(usage);
+    return 2;
+  }
+  const rules = readRuleDir(deps, dir);
+  if (rules === undefined) return 1;
+  const text = readStore(deps, store);
+  if (text === undefined) return 1;
+  const { candidates, invalid } = readCandidates(text);
+  for (const line of invalid) deps.out(`invalid ${line}\n`);
+  const adopted = rules.map(({ rule }) => rule).filter(({ status }) => status === 'active');
+  if (adopted.length === 0) {
+    deps.out('no adopted rules\n');
+    return 0;
+  }
+  const { counted, unnamed } = recurringRules(adopted, candidates, since);
+  for (const r of counted) {
+    deps.out(
+      `${r.id}: ${r.reviews} of ${plural(r.of, 'review')} since ${r.created}, ` +
+        `${r.sinceReviews} of ${r.sinceOf} since ${r.created > since ? r.created : since}\n`,
+    );
+  }
+  const often = counted.filter(({ reviews }) => reviews >= min).map(({ id }) => `  ${id}\n`);
+  deps.out(
+    `\ncandidates for a check (in ${min} reviews or more):` +
+      (often.length === 0 ? ' none\n' : `\n${often.join('')}`),
+  );
+  if (unnamed.length > 0) {
+    deps.out(`\nnever recorded as a lesson:\n${unnamed.map((id) => `  ${id}\n`).join('')}`);
   }
   return 0;
 };
@@ -212,16 +259,25 @@ export const run = (args: string[], deps: RunDeps): number => {
   const positional: string[] = [];
   let budget = defaultBudget;
   let asked = false;
+  let min = minReviews;
+  let since = defaultSince;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--asked') asked = true;
-    else if (arg === '--budget') {
+    else if (arg === '--budget' || arg === '--min') {
       const value = args[++i] ?? '';
       if (!/^[1-9][0-9]*$/.test(value)) {
         deps.err(usage);
         return 2;
       }
-      budget = Number(value);
+      if (arg === '--budget') budget = Number(value);
+      else min = Number(value);
+    } else if (arg === '--since') {
+      since = args[++i] ?? '';
+      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(since)) {
+        deps.err(usage);
+        return 2;
+      }
     } else positional.push(arg);
   }
   const [command, ...rest] = positional;
@@ -230,6 +286,8 @@ export const run = (args: string[], deps: RunDeps): number => {
       return select(rest, budget, deps);
     case 'list':
       return list(rest, deps);
+    case 'recurring':
+      return recurring(rest, min, since, deps);
     case 'record':
       return record(rest, asked, deps);
     default:

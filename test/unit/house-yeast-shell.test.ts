@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { formatRule, minReviews } from '../../scripts/house-yeast/core.ts';
 import { sessionRuleFiles } from '../../scripts/house-yeast/session-rules.ts';
 import { run } from '../../scripts/house-yeast.ts';
 
@@ -300,6 +301,146 @@ describe('node scripts/house-yeast.ts', () => {
     for (const args of [[], ['forget'], ['record', 'store.jsonl']]) {
       const result = runWith(args, {});
       assert.equal(result.code, 2, args.join(' '));
+      assert.match(result.err, /^usage:/);
+    }
+  });
+});
+
+describe('node scripts/house-yeast.ts recurring', () => {
+  const dir = 'base/.foedrum/house-yeast';
+  const ruleFile = (id: string, created: string) => ({
+    [`${dir}/${id}.md`]: formatRule(
+      { id, scope: {}, kind: 'semantic', source: 's', created, status: 'active' },
+      'A rule.',
+    ),
+  });
+  const seen = (lesson: string, review: string, on: string) =>
+    candidate(review, { lesson, seen: on });
+
+  it('lists the rules seen again in at least N reviews as candidates for a check', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl', '--min', '2'], {
+      ...ruleFile('often', '2026-10-20'),
+      ...ruleFile('once', '2026-10-20'),
+      'store.jsonl': [
+        seen('once', '1-a', '2026-10-21'),
+        seen('often', '1-a', '2026-10-21'),
+        seen('often', '2-b', '2026-10-22'),
+      ].join('\n'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^candidates for a check \(in 2 reviews or more\):\n {2}often\n$/m);
+    assert.doesNotMatch(result.out, /^ {2}once$/m);
+  });
+
+  it("recurring prints each rule's count since adoption and since the given date", () => {
+    const result = runWith(['recurring', dir, 'store.jsonl', '--since', '2026-10-22'], {
+      ...ruleFile('waits', '2026-10-20'),
+      ...ruleFile('renamed', '2026-10-20'),
+      'store.jsonl': [
+        seen('waits', '1-a', '2026-10-21'),
+        seen('other', '2-b', '2026-10-22'),
+        seen('waits', '3-c', '2026-10-23'),
+        seen('other', '4-d', '2026-10-24'),
+      ].join('\n'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.equal(
+      result.out,
+      'waits: 2 of 4 reviews since 2026-10-20, 1 of 2 since 2026-10-22\n' +
+        `\ncandidates for a check (in ${minReviews} reviews or more): none\n` +
+        '\nnever recorded as a lesson:\n  renamed\n',
+    );
+  });
+
+  it('prints no rules for an empty store and no rules folder', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl'], {});
+    assert.equal(result.code, 0, result.err);
+    assert.equal(result.out, 'no adopted rules\n');
+  });
+
+  it('names an invalid candidate line and skips it, as list does', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl'], {
+      ...ruleFile('waits', '2026-10-20'),
+      'store.jsonl': `bad\n${seen('waits', '1-a', '2026-10-21')}\n`,
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^invalid line 1: /);
+    assert.match(result.out, /^waits: 1 of 1 review since 2026-10-20, 0 of 0 since 2026-10-30$/m);
+  });
+
+  it('exits 1 without a report when the store exists but cannot be read', () => {
+    const result = runWith(
+      ['recurring', dir, 'store.jsonl'],
+      { ...ruleFile('waits', '2026-10-20'), 'store.jsonl': '' },
+      ['store.jsonl'],
+    );
+    assert.equal(result.code, 1);
+    assert.equal(
+      result.out,
+      "cannot read the candidates: EACCES: permission denied, open 'store.jsonl'\n",
+    );
+  });
+
+  it('exits 1 without a report when the rules folder exists but cannot be read', () => {
+    const result = runWith(
+      ['recurring', dir, 'store.jsonl'],
+      { ...ruleFile('waits', '2026-10-20'), 'store.jsonl': seen('waits', '1-a', '2026-10-21') },
+      [dir],
+    );
+    assert.equal(result.code, 1);
+    assert.match(result.out, /^cannot read the rules: EACCES/);
+    assert.doesNotMatch(result.out, /^waits:/m);
+  });
+
+  it('dates the second count from the adoption day when the rule is newer than --since', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl', '--since', '2026-10-22'], {
+      ...ruleFile('waits', '2026-10-25'),
+      'store.jsonl': seen('waits', '1-a', '2026-10-26'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^waits: 1 of 1 review since 2026-10-25, 1 of 1 since 2026-10-25$/m);
+  });
+
+  const retired = {
+    [`${dir}/old.md`]: formatRule(
+      {
+        id: 'old',
+        scope: {},
+        kind: 'semantic',
+        source: 's',
+        created: '2026-10-20',
+        status: 'retired',
+      },
+      'A rule.',
+    ),
+  };
+
+  it('prints the usage and exits 2 without the rules folder or the store', () => {
+    for (const args of [['recurring'], ['recurring', dir]]) {
+      const result = runWith(args, retired);
+      assert.equal(result.code, 2, args.join(' '));
+      assert.match(result.err, /^usage:/);
+    }
+  });
+
+  it('prints no "never recorded" heading when every rule was recorded', () => {
+    const result = runWith(['recurring', dir, 'store.jsonl'], {
+      ...ruleFile('waits', '2026-10-20'),
+      'store.jsonl': seen('waits', '1-a', '2026-10-21'),
+    });
+    assert.equal(result.code, 0, result.err);
+    assert.match(result.out, /^waits: /);
+    assert.doesNotMatch(result.out, /never recorded/);
+  });
+
+  it('leaves out a retired rule', () => {
+    assert.equal(runWith(['recurring', dir, 'store.jsonl'], retired).out, 'no adopted rules\n');
+  });
+
+  it('refuses a --min or --since it cannot read', () => {
+    for (const flag of [['--min', '0'], ['--since', '30-10-2026'], ['--min'], ['--since']]) {
+      const result = runWith(['recurring', dir, 'store.jsonl', ...flag], retired);
+      assert.equal(result.code, 2, flag.join(' '));
       assert.match(result.err, /^usage:/);
     }
   });
