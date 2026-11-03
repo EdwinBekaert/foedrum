@@ -12,7 +12,7 @@ export type CitationCheck = { ok: true; citation?: Citation } | { ok: false; rea
 
 // A relative path with forward slashes, with no empty, `.` or `..` segment, and no backslash,
 // drive colon, control character or line separator. The same check as in
-// scripts/mutants/core.ts, copied on purpose: this file imports nothing, so the review skill can
+// src/checks/mutants.ts, copied on purpose: this file imports nothing, so the review skill can
 // take it from a pull request and the mutant checker from its base without the two matching.
 const isPlainPath = (file: string): boolean =>
   file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&

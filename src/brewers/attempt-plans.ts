@@ -27,6 +27,7 @@ import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
   FINING,
+  MUTANTS,
   OutDocFrontmatter,
   readOutDoc,
   TASTING,
@@ -551,13 +552,17 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
-    // A Finer simplifies the change, so it reads it as a Taster of a diff does (ADR 0166).
+    // A Finer simplifies the change, and Brett mutates it, so each reads it as a Taster of a diff
+    // does (ADR 0166, ADR 0311).
     const merged = mergedBase(state(), batch.id);
     const start = own === undefined ? undefined : (merged ?? changeStart(batch, own.repo));
     const stepLenses = found.together ?? (found.lens === undefined ? [] : [found.lens]);
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
-    const since = diffLens || found.brewer.output.schema === FINING ? start : undefined;
+    const since =
+      diffLens || found.brewer.output.schema === FINING || found.brewer.output.schema === MUTANTS
+        ? start
+        : undefined;
     let laterRound: LaterRound | undefined;
     if (since !== undefined && own !== undefined) {
       // The regression tests the batch's steps named, for the test-design lens (ADR 0170).

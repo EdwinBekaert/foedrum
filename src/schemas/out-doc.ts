@@ -394,3 +394,39 @@ export const surveyOf = (output: unknown): SurveyReport | undefined => {
   if (!read.success || read.data.status !== 'done' || read.data.map === undefined) return undefined;
   return { map: read.data.map, stale: read.data.stale ?? [] };
 };
+
+/** The name of Brett's out doc schema (`output.schema`, ADR 0311): the default Brett's. */
+export const MUTANTS = 'mutants';
+
+/** The most mutants one out doc proposes, and the longest file, line and description of one (ADR 0311). */
+export const MOST_MUTANTS = 5;
+export const MAX_MUTANT_FILE = 1_000;
+export const MAX_MUTANT_LINE = 2_000;
+export const MAX_MUTANT_DESCRIPTION = 1_000;
+
+/**
+ * One mutant as Brett proposes it (ADR 0034): the line at HEAD it replaces, by its number and
+ * its whole text, the one line that replaces it (empty to delete it), and the bug it plants.
+ */
+export const MutantEdit = z.strictObject({
+  file: lineOf(MAX_MUTANT_FILE),
+  line: z.int().positive(),
+  original: lineOf(MAX_MUTANT_LINE),
+  replacement: z.string().max(MAX_MUTANT_LINE),
+  description: lineOf(MAX_MUTANT_DESCRIPTION),
+});
+export type MutantEdit = z.infer<typeof MutantEdit>;
+
+/**
+ * The out doc of a brewer whose schema is `mutants`: the contract's, with the mutants it proposes.
+ * A done with none is valid: there was nothing worth mutating, which its body says (ADR 0311).
+ */
+export const MutantsOutDoc = outDocFrontmatter({
+  mutants: z.array(MutantEdit).max(MOST_MUTANTS).default([]),
+});
+
+/** The mutants of an attempt's `output` when Brett wrote it and was done; else undefined. */
+export const mutantsOf = (output: unknown): readonly MutantEdit[] | undefined => {
+  const read = MutantsOutDoc.safeParse(output);
+  return read.success && read.data.status === 'done' ? read.data.mutants : undefined;
+};
