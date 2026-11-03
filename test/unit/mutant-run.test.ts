@@ -250,6 +250,45 @@ const byEdit =
     return ran(found === undefined ? baseline : found[1]);
   };
 
+describe('mutated', () => {
+  it('a brewer that writes no mutants out doc runs as today (regression test)', async () => {
+    const end: AttemptEnd = {
+      ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+    };
+    const { end: ended, opened } = setup({ runner: brett([], end), mutates: false });
+    assert.deepStrictEqual(await ended(), end);
+    assert.deepStrictEqual(opened, []);
+  });
+
+  it('a Brett attempt that failed or asked runs no mutant (regression test)', async () => {
+    const endings: AttemptEnd['ending'][] = [
+      { kind: 'failed', retryable: true, reason: 'the session ended early' },
+      {
+        kind: 'needs_input',
+        questions: [
+          { q: 'Which file?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'Two changes' },
+        ],
+      },
+    ];
+    for (const ending of endings) {
+      const end: AttemptEnd = { ending };
+      const { end: ended, opened } = setup({ runner: brett([subtracts], end) });
+      assert.deepStrictEqual(await ended(), end);
+      assert.deepStrictEqual(opened, []);
+    }
+  });
+
+  it('a store without mutants folds as today (regression test)', () => {
+    const state = fold([
+      ...eventsOf(),
+      { type: 'step.finished', ...ref, outcome: { kind: 'succeeded', output: null } },
+    ]);
+    const attempt = state.batches.get('12-1')?.steps.get('brett')?.attempts.get(1);
+    assert.equal(attempt?.phase, 'finished');
+    assert.equal(attempt !== undefined && 'mutants' in attempt, false);
+  });
+});
+
 describe('mutated, judging mutants', () => {
   it('a mutant the tests catch is killed by the first test that fails against it', async () => {
     const runs = byEdit(
