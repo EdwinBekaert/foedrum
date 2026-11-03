@@ -15,7 +15,7 @@ After a recipe change that file name belongs to the new recipe's brewer, which n
 - **An earlier attempt's out doc is named by the brewer of the recipe that attempt was scheduled under**: for a `step:<id>` input, the step's latest succeeded attempt, whose worktree it reads; for the `plan` input, the attempt that wrote the batch's latest plan; for a route, the attempt that sent the step back.
 - **Whether the recipe has a step (`StepBrewers.has`, ADR 0305) asks the planned attempt's recipe**, since an input is left out by the recipe this attempt brews; so does the brewer lookup of a `step:` input whose step has no succeeded attempt yet, which still tells a step of no brewer from one with no out doc yet.
 - Each falls back to the batch's recipe for an attempt that recorded none, as `attemptRecipeOf` does.
-- Only the attempt plans change here; the engine's own lookups of a step in the batch's recipe, which decide what the batch schedules next, stay as they are.
+- Only the attempt plans change here; the engine's own lookups of a step in the batch's recipe, which decide what the batch schedules next, stay as they are, and so do the driver wiring's `family` and `resumes`, which still find an attempt's brewer in the batch's recipe.
 - When the recipe an earlier attempt ran under no longer gives its step a brewer (the Brewery removed or changed that recipe), the input fails as a step of no brewer does; it is never read under the current recipe's file name, which that attempt did not write.
 
 ## Consequences
