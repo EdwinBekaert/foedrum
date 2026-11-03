@@ -4,7 +4,6 @@
 // baseline did not have. A test that fails in both runs does not. The review's own runs judge the
 // same way (scripts/mutant-verdict/core.ts), from node's runner instead of the test map's reports.
 
-import type { ReportedTest } from '../formats/test-report.ts';
 import type { MappedReport } from './red-proof.ts';
 
 /** What one mutant's run says, before a timeout or an invalid mutant is told apart. */
@@ -14,28 +13,25 @@ export type RunVerdict =
   | { kind: 'notJudged'; why: string };
 
 interface Count {
-  name: string;
   passed: number;
   failed: number;
 }
 
 /**
- * A test by its name: a location may be an absolute path, which differs between scratch trees, so
- * tests that share a name are counted together.
+ * How many times each leaf test of `module` passed and failed, by name, in report order. A location
+ * may be an absolute path, which differs between scratch trees, so tests that share a name are
+ * counted together.
  */
-const keyOf = (test: ReportedTest): string => test.name;
-
-/** How many times each leaf test of `module` passed and failed, by key, in report order. */
 const tally = (reports: readonly MappedReport[], module: string): Map<string, Count> => {
   const counts = new Map<string, Count>();
   for (const report of reports) {
     if (report.module !== module) continue;
     for (const test of report.tests) {
       if (!test.leaf) continue;
-      const count = counts.get(keyOf(test)) ?? { name: test.name, passed: 0, failed: 0 };
+      const count = counts.get(test.name) ?? { passed: 0, failed: 0 };
       if (test.result === 'passed') count.passed += 1;
       if (test.result === 'failed') count.failed += 1;
-      counts.set(keyOf(test), count);
+      counts.set(test.name, count);
     }
   }
   return counts;
@@ -56,14 +52,14 @@ export const judgeRun = (
   }
   const after = tally(run, module);
   // The first test of the run that fails more often, or passes less often, than at the baseline.
-  for (const [key, { name, passed, failed }] of after) {
-    const was = before.get(key);
+  for (const [name, { passed, failed }] of after) {
+    const was = before.get(name);
     if (failed > (was?.failed ?? 0) || passed < (was?.passed ?? 0))
       return { kind: 'killed', by: name };
   }
   // Then a test that passed at the baseline and no longer reports: its file failed to load.
-  for (const [key, { name, passed }] of before) {
-    if (passed > 0 && !after.has(key)) return { kind: 'killed', by: name };
+  for (const [name, { passed }] of before) {
+    if (passed > 0 && !after.has(name)) return { kind: 'killed', by: name };
   }
   return { kind: 'survived' };
 };
