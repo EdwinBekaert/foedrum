@@ -343,7 +343,7 @@ export function inputsOf(
   lenses: ReadonlyMap<string, Lens> = new Map(),
   brewery?: BreweryRepositories,
   choices: readonly RecipeChoice[] = [],
-  chosen = false,
+  corrects = false,
   planEntry?: string,
   release?: ReleaseInput,
   recipeHas: (stepId: string) => boolean = () => true,
@@ -352,10 +352,11 @@ export function inputsOf(
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
     (batch.skipped?.has(step) ?? false) || !recipeHas(step);
-  // A plan input is a chosen step's, which corrects the plan (ADR 0286): left out elsewhere. A
+  // A plan input is for a step that corrects the plan: one a person chose (ADR 0286), or one a
+  // findings route sent back (ADR 0318); left out elsewhere. A
   // plan entry input is a sub-order's (ADR 0290): left out of a batch that is none.
   const skipped = (from: string): boolean =>
-    (from === 'plan' && !chosen) ||
+    (from === 'plan' && !corrects) ||
     (from === 'plan-entry' && batch.plan === undefined) ||
     (from === 'release' && release === undefined) ||
     (from === 'checks' && checks === undefined) ||
