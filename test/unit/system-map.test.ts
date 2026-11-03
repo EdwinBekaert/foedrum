@@ -222,6 +222,29 @@ describe('the system map', () => {
     assert.deepEqual(cappedMap(blocks, 200).at(-1), `  ${'c'.repeat(30)}`);
   });
 
+  it('keeps a map line that fills the cap exactly (regression test)', () => {
+    // Two spaces of indent, the line and its line break: 40 characters.
+    const blocks = [{ line: '- acme/lib, base origin/main', map: ['a'.repeat(37)] }];
+    assert.deepEqual(cappedMap(blocks, 40), [
+      '- acme/lib, base origin/main',
+      `  ${'a'.repeat(37)}`,
+    ]);
+    assert.deepEqual(cappedMap(blocks, 39), [
+      '- acme/lib, base origin/main',
+      '(1 lines of the system map left out, 40 characters: foedrum doctor shows it whole)',
+    ]);
+  });
+
+  it('links no folder inside the repository to a repository named like its first folder (regression test)', () => {
+    const text = JSON.stringify({ name: 'app', dependencies: { shared: 'file:packages/shared' } });
+    const entry = entryOf([{ path: 'package.json', text }], []);
+    assert.deepEqual(entry.dependsOn[0]?.via, { kind: 'project', path: 'packages/shared' });
+    assert.deepEqual(
+      mapLines({ repo: 'acme/app', entry }, [{ repo: 'acme/packages' }]).slice(2),
+      [],
+    );
+  });
+
   it('keeps no map line after the cut, even one that would fit (regression test)', () => {
     const blocks = [
       { line: '- acme/lib, base origin/main', map: ['a'.repeat(30), 'b'.repeat(30)] },
