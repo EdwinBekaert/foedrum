@@ -697,6 +697,13 @@ describe('createAttemptPlans: plan', () => {
       );
       assert.doesNotMatch(prompt, /prints --json/);
     });
+
+    it('gives a brewer that asks for no checks the same inputs as before, with a check on its head (regression)', async () => {
+      const { plans } = setup(tasted(green(1, head, passing)));
+      const { prompt } = await plans.plan(start);
+      assert.match(prompt, /name="guide">\n# Guide\n/);
+      assert.doesNotMatch(prompt, /name="checks"|npm test/);
+    });
   });
 
   it("gives an input from repositories the Brewery's repositories with their bases, its own marked (ADR 0234)", async () => {
