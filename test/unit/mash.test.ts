@@ -453,8 +453,24 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
         { verdict: 'changes', findings: [finding] },
         'Read each sub-order alone',
       );
-      assert.equal(await runBrew(setup, shell([planned, tasted]), request), 3, lines.join('\n'));
+      const gits: string[] = [];
+      const tasting: ServeShell = {
+        ...shell([planned, tasted]),
+        // The Taster's house yeast is read at the commit it reviews (ADR 0169): the clone has none.
+        git: (_cwd, args) => {
+          gits.push(args.join(' '));
+          return args[0] === 'ls-tree'
+            ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+            : Promise.reject(new Error(`no git ${args[0]} runs here`));
+        },
+      };
+      assert.equal(await runBrew(setup, tasting, request), 3, lines.join('\n'));
       assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
+      // Its house yeast, and no change: no diff is read for a plan.
+      assert.deepStrictEqual(
+        gits.map((call) => call.split(' ')[0]),
+        ['ls-tree'],
+      );
       // The Taster read the plan, and no change.
       assert.match(
         prompts[1] ?? '',

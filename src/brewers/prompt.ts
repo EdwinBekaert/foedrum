@@ -89,7 +89,7 @@ function describeSource(source: InputSource): string {
     case 'out-doc':
       return `out doc of step ${source.step}`;
     case 'plan':
-      throw new Error('not implemented');
+      return `the plan of step ${source.step}#${source.attempt}`;
     case 'file':
       return `file ${source.path}`;
     case 'house-yeast':
