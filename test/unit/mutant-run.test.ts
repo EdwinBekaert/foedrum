@@ -18,7 +18,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { TestResult } from '../../src/formats/test-report.ts';
 import { Event, MAX_MUTANT_TEXT } from '../../src/schemas/events.ts';
-import type { MutantEdit } from '../../src/schemas/out-doc.ts';
+import { type MutantEdit, MutantsOutDoc } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
 
@@ -205,6 +205,7 @@ const setup = ({
   checkedOut = code,
   clonedGit = git,
   mapAt = map,
+  blocking = false,
 }: {
   runner: BrewerRunner;
   mutates?: boolean;
@@ -217,6 +218,8 @@ const setup = ({
   clonedGit?: Git;
   /** The test map at every commit. */
   mapAt?: MapRead;
+  /** Whether the step blocks. */
+  blocking?: boolean;
 }) => {
   const opened: { commit: string; edit?: Edited; path: string }[] = [];
   const removed: string[] = [];
@@ -258,7 +261,8 @@ const setup = ({
     platform: 'linux',
     clock,
   });
-  const start = () => wrapped.start({ ref, prompt: 'Mutate' } as never);
+  const limits = { outDoc: { file: 'mutants.md', schema: MutantsOutDoc }, blocking };
+  const start = () => wrapped.start({ ref, limits });
   const end = () => start().ended;
   return { end, start, wrapped, opened, removed, runDeadlines };
 };

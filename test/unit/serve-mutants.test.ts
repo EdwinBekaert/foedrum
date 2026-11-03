@@ -16,6 +16,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { ExecProcess } from '../../src/platform/processes.ts';
+import type { MutantEdit } from '../../src/schemas/out-doc.ts';
 import type { Git } from '../../src/workspace/git.ts';
 import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
@@ -70,7 +71,7 @@ const diff = [
 ].join('\n');
 
 // Three mutants: one the tests catch, one on a branch no test reaches, one that adds a name.
-const mutants = [
+const mutants: MutantEdit[] = [
   {
     file: 'src/add.mjs',
     line: 1,
@@ -105,7 +106,11 @@ describe('runServe: a Brett step (ADR 0313)', () => {
   });
   afterEach(() => dir.remove());
 
-  it("a Brett attempt's step.finished records its mutants' verdicts and replay prints them", async () => {
+  /**
+   * Batch 12-1 brewed by runServe with `recipe` until it is on tap, Brett proposing
+   * `proposed(attempt)`: its events, its folded batch, and how many scratch trees ran.
+   */
+  const brew = async (recipe: string, proposed: (attempt: number) => MutantEdit[]) => {
     const files = serveInputs().files;
     const result = serveSetup(
       serveInputs({
@@ -115,7 +120,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
           local: local({ workRoot: dir.path }),
           brewery: {
             ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
-            recipes: [{ path: 'recipes/tasting.jsonc', text: tasting }],
+            recipes: [{ path: 'recipes/tasting.jsonc', text: recipe }],
             brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
           },
           testMaps: [{ path: 'test-maps/acme/web.jsonc', text: map }],
@@ -140,7 +145,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
     });
     const controller = new AbortController();
     let ticks = 0;
-    // The cellarman brews; Brett proposes the three mutants.
+    // The cellarman brews; Brett proposes its attempt's mutants.
     const runner: BrewerRunner = {
       start: ({ ref }) => ({
         ended: Promise.resolve({
@@ -148,7 +153,7 @@ describe('runServe: a Brett step (ADR 0313)', () => {
             kind: 'succeeded',
             output:
               ref.stepId === 'brett'
-                ? { status: 'done', summary: 'Three mutants', mutants }
+                ? { status: 'done', summary: 'Mutants', mutants: proposed(ref.attempt) }
                 : { status: 'done', summary: 'Brewed', assumptions: [] },
           },
         }),
@@ -230,6 +235,13 @@ describe('runServe: a Brett step (ADR 0313)', () => {
     };
     assert.equal(await runServe(setup, shell), 0);
     const events = store.eventsAfter(0);
+    const batch = createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1');
+    assert.ok(batch !== undefined);
+    return { events, batch, trees };
+  };
+
+  it("a Brett attempt's step.finished records its mutants' verdicts and replay prints them", async () => {
+    const { events, batch, trees } = await brew(tasting, () => mutants);
     const finished = events.flatMap(({ event }) =>
       event.type === 'step.finished' && event.stepId === 'brett' ? [event] : [],
     );
@@ -256,8 +268,6 @@ describe('runServe: a Brett step (ADR 0313)', () => {
     ]);
     // The baseline and the two valid mutants each ran in a tree of their own.
     assert.equal(trees, 3);
-    const batch = createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1');
-    assert.ok(batch !== undefined);
     const replay = formatReplay(
       batch,
       events.filter(({ event }) => 'batchId' in event && event.batchId === '12-1'),
