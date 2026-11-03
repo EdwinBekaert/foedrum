@@ -686,6 +686,26 @@ describe('createAttemptPlans: plan', () => {
       assert.doesNotMatch(prompt, /name="checks"|npm test/);
     });
 
+    it("a taster's checks input names the checks of a step that merged the base into the head it reviews (ADR 0164)", async () => {
+      assert.ok(tasting.valid);
+      // green started at `before` and merged the base as `head`, the commit its checks read.
+      const merged: Event = {
+        type: 'effect.applied',
+        key: effectKey.encode(baseMergeKey({ batchId: '12-1', stepId: 'green', attempt: 1 })),
+        result: { base: 'a'.repeat(40), merged: head },
+      };
+      const events = tasted(
+        [...green(1, before, passing).slice(0, 2), merged],
+        green(1, before, passing).slice(2),
+      );
+      const { plans } = setup(events, {}, undefined, tasting.brewers);
+      const { prompt } = await plans.plan(start);
+      assert.match(
+        prompt,
+        /source="the checks that ran on commit c{40}" name="checks">\n- Step green:\n {2}- the check "test" \(npm test\) passed\n/,
+      );
+    });
+
     it("a taster's checks input after a fix holds only the check that passed on the new head", async () => {
       assert.ok(tasting.valid);
       const events = tasted(green(1, before, failing), green(2, head, passing));
