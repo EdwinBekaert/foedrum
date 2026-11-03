@@ -193,6 +193,23 @@ describe('the system map', () => {
     );
   });
 
+  it('a .NET project without a PackageId publishes only when it says it is packable', () => {
+    const project = (properties: string) =>
+      `<Project><PropertyGroup>${properties}</PropertyGroup></Project>`;
+    const publishes = (path: string, properties: string) => {
+      const read = dotnetManifest.read(path, project(properties));
+      return read.kind === 'read' ? read.publishes : read;
+    };
+    assert.deepEqual(publishes('tests/Foo.Tests.csproj', ''), []);
+    assert.deepEqual(publishes('src/App.csproj', '<OutputType>Exe</OutputType>'), []);
+    assert.deepEqual(publishes('src/Words.csproj', '<IsPackable>true</IsPackable>'), ['Words']);
+    assert.deepEqual(
+      publishes('src/Greet.csproj', '<GeneratePackageOnBuild>True</GeneratePackageOnBuild>'),
+      ['Greet'],
+    );
+    assert.deepEqual(publishes('src/Lib.csproj', '<PackageId>Acme.Lib</PackageId>'), ['Acme.Lib']);
+  });
+
   it("a repository's manifests show with their ecosystems when it publishes nothing", () => {
     const tests =
       '<Project><PropertyGroup><IsPackable>false</IsPackable></PropertyGroup></Project>';

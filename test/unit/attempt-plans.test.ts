@@ -900,27 +900,30 @@ describe('createAttemptPlans: plan', () => {
       assert.match(prompt, /publishes `web` \(npm\)/);
     });
 
-    it('a base git cannot list is recorded with why, and its line says so (regression test)', async () => {
+    it('a base git failed to list once is not recorded, says why, and the next plan maps it', async () => {
       const events: Event[] = [...ordered, started, mapped('acme/api', tip, '@acme/api')];
       const listing = gitOf([]);
+      let failing = true;
       const git = async (cwd: string, args: readonly string[]) =>
-        args[0] === 'ls-tree'
-          ? { code: 128, stdout: '', stderr: 'fatal: not a tree object\n' }
+        failing && args[0] === 'ls-tree'
+          ? { code: 128, stdout: '', stderr: 'fatal: Unable to create index.lock\n' }
           : listing(cwd, args);
+      const unread: string[] = [];
       const { plans } = setup(events, {}, undefined, planning.brewers, {
         repositories,
         git,
         recordMap: (event) => events.push(event),
+        mapUnread: (repo, reason) => unread.push(`${repo}: ${reason}`),
       });
-      const { prompt } = await plans.plan(start);
-      const [recorded] = events.slice(-1);
-      assert.deepEqual(recorded?.type === 'system.mapped' ? recorded.entry.unreadable : [], [
-        { path: 'its files', reason: `git could not list ${tip}: fatal: not a tree object` },
+      await plans.plan(start);
+      assert.equal(events.filter(({ type }) => type === 'system.mapped').length, 1);
+      assert.deepEqual(unread, [
+        `acme/web: git could not list ${tip}: fatal: Unable to create index.lock`,
       ]);
-      assert.match(
-        prompt,
-        /\n {2}`its files` could not be read: git could not list d{40}: fatal: not a tree object\n/,
-      );
+      failing = false;
+      const { prompt } = await plans.plan(start);
+      assert.deepEqual(events.slice(-1), [mapped('acme/web', tip, 'web')]);
+      assert.match(prompt, /publishes `web` \(npm\)/);
     });
 
     it("the test map's modules at the base are recorded and listed (regression test)", async () => {

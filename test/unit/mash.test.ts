@@ -310,6 +310,31 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     assert.match(prompts[0] ?? '', /\n {2}publishes `@acme\/web` \(npm\)\n/);
   });
 
+  it("says why a repository's system map was not read, and records none (ADR 0317)", async () => {
+    const failing: ServeShell = {
+      ...shell([planned]),
+      git: async (_cwd, args) =>
+        args[0] === 'rev-parse'
+          ? { code: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' }
+          : args[0] === 'ls-tree' && args.includes('--name-only')
+            ? { code: 128, stdout: '', stderr: 'fatal: Unable to create index.lock\n' }
+            : { code: 0, stdout: '', stderr: '' },
+    };
+    assert.equal(await runBrew(setup, failing, request), 3, lines.join('\n'));
+    assert.ok(
+      lines.some((line) =>
+        line.includes(
+          `the system map of acme/web was not read: git could not list ${'c'.repeat(40)}: fatal: Unable to create index.lock`,
+        ),
+      ),
+      lines.join('\n'),
+    );
+    assert.deepStrictEqual(
+      store.eventsAfter(0).filter(({ event }) => event.type === 'system.mapped'),
+      [],
+    );
+  });
+
   it('retries a plan missing a field in the same session, told which field', async () => {
     const [first, ...rest] = subOrders;
     const { doneWhen: _, ...missing } = first ?? assert.fail();

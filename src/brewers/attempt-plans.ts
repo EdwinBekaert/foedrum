@@ -109,6 +109,8 @@ export interface AttemptPlansOptions {
    * Without it, the map is neither read nor recorded.
    */
   recordMap?: (event: Extract<Event, { type: 'system.mapped' }>) => void;
+  /** Says why a repository's map was not read, so none was recorded and the next attempt tries it. */
+  mapUnread?: (repo: string, reason: string) => void;
   /** A repository's test map at a commit, whose module names the map lists (ADR 0274). */
   testMapAt?: ReadTestMapAt;
   /**
