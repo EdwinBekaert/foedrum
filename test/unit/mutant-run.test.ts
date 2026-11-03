@@ -545,6 +545,19 @@ describe('mutated, judging mutants', () => {
   });
 });
 
+describe('mutated, on a blocking step (ADR 0319)', () => {
+  it('a blocking Brett step whose mutants the tests all kill succeeds (regression test)', async () => {
+    const runs = byEdit(new Map([['a - b', { ...baseline, 'adds two numbers': 'failed' }]]));
+    const { end } = setup({ runner: brett([subtracts]), runs, blocking: true });
+    const ended = await end();
+    assert.equal(ended.ending.kind, 'succeeded');
+    assert.deepStrictEqual(
+      ended.mutants?.map(({ verdict }) => verdict),
+      [{ kind: 'killed', by: 'adds two numbers' }],
+    );
+  });
+});
+
 describe('mutated, its edges', () => {
   const verdicts = async (options: Parameters<typeof setup>[0]) =>
     (await setup(options).end()).mutants?.map(({ verdict }) => verdict);
