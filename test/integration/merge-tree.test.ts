@@ -231,6 +231,30 @@ describe('openMergedTree, with real git (ADR 0203)', () => {
     assert.equal(git(clone, ['show', `${head}:app.txt`]), 'the batch');
   });
 
+  it("gives a mutant's rewrite the file as git checked it out (ADR 0313, regression test)", async () => {
+    const commitTree = openCommitTree({
+      git: runGit,
+      clone,
+      own: { url: join(dir.path, 'nowhere.git'), root },
+    });
+    const seen: string[] = [];
+    const edit = {
+      file: 'app.txt',
+      rewrite: (text: string) => {
+        seen.push(text);
+        return text.replace('the batch', 'the mutant');
+      },
+    };
+    const read = await commitTree(
+      head,
+      async (worktree) => readFileSync(join(worktree, 'app.txt'), 'utf8'),
+      { edit },
+    );
+    // The commit's text, as the checkout wrote it, and the rewrite of it in the tree.
+    assert.deepStrictEqual(seen, ['the batch\n']);
+    assert.equal(read, 'the mutant\n');
+  });
+
   it('leaves no worktree or git directory behind, and moves no ref of the clone', async () => {
     const refs = git(clone, ['for-each-ref']);
     await mergedTree()(head, tip, async () => undefined);

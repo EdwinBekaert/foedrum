@@ -60,4 +60,9 @@ describe('judgeRun', () => {
       },
     );
   });
+
+  it('a failing test the baseline never reported kills the mutant (regression test)', () => {
+    const run = [report('api', ['adds', 'passed'], ['clamps', 'passed'], ['new', 'failed'])];
+    assert.deepStrictEqual(judgeRun(baseline, run, 'api', true), { kind: 'killed', by: 'new' });
+  });
 });

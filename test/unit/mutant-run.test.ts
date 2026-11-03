@@ -12,10 +12,12 @@ import { mutantCheck } from '../../src/checks/mutants.ts';
 import type { MappedReport } from '../../src/checks/red-proof.ts';
 import type { MapRead } from '../../src/checks/test-map.ts';
 import type { AttemptRef } from '../../src/engine/attempt-key.ts';
+import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import type { AttemptEnd, BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import type { TestResult } from '../../src/formats/test-report.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import { Event, MAX_MUTANT_TEXT } from '../../src/schemas/events.ts';
 import type { MutantEdit } from '../../src/schemas/out-doc.ts';
 import type { Git, GitResult } from '../../src/workspace/git.ts';
 import type { CommitTree } from '../../src/workspace/merge-tree-git.ts';
@@ -703,5 +705,58 @@ describe('mutated, its edges', () => {
     assert.deepStrictEqual(wrapped.progress(ref)?.lastProgressAt, new Date(now));
     release();
     await attempt.ended;
+  });
+});
+
+describe('mutated, round two', () => {
+  it('reads the change from the base the batch merged, not its start (ADR 0164, regression test)', async () => {
+    const moved = 'd'.repeat(40);
+    const merged: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode(baseMergeKey(ref)),
+      result: { base: moved, merged: 'e'.repeat(40) },
+    };
+    // Only the merged base's diff is the change: one from the start would be refused.
+    const fromMoved: Git = async (cwd, args, options) =>
+      args.includes('diff') && !args.includes(moved)
+        ? { code: 128, stdout: '', stderr: 'fatal: the start\n' }
+        : git(
+            cwd,
+            args.map((arg) => (arg === moved ? base : arg)),
+            options,
+          );
+    const { end } = setup({
+      runner: brett([boundary]),
+      events: [...eventsOf(), merged],
+      clonedGit: fromMoved,
+    });
+    assert.deepStrictEqual(
+      (await end()).mutants?.map(({ verdict }) => verdict),
+      [{ kind: 'survived' }],
+    );
+  });
+
+  it("cuts a mutant's description, leaves a secret out, and the event holds the record (regression test)", async () => {
+    const long = { ...boundary, description: 'x'.repeat(600) };
+    const secret = { ...subtracts, description: `ghp_${'A1b2'.repeat(9)}` };
+    const ended = await setup({ runner: brett([long, secret]) }).end();
+    const [first, second] = ended.mutants ?? [];
+    assert.equal(first?.description.length, MAX_MUTANT_TEXT);
+    assert.ok(first?.description.endsWith('…'));
+    assert.equal(second?.description, '[left out: a name that looks like a secret]');
+    const finished = Event.safeParse({
+      type: 'step.finished',
+      ...ref,
+      outcome: { kind: 'succeeded', output: null },
+      mutants: ended.mutants,
+    });
+    assert.equal(finished.success, true, JSON.stringify(finished.error?.issues));
+  });
+
+  it('runs no mutant of a brewer that does not mutate, even when its output holds mutants (regression test)', async () => {
+    const { end, opened } = setup({ runner: brett([boundary]), mutates: false });
+    const ended = await end();
+    assert.equal(ended.mutants, undefined);
+    assert.deepStrictEqual(opened, []);
   });
 });
