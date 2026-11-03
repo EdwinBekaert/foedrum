@@ -10,7 +10,7 @@ import type { IssueMarks } from './claim-effects.ts';
 import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
-import type { Lane } from './fold.ts';
+import type { Batch } from './fold.ts';
 import { same } from './issue-claims.ts';
 
 /** The labels of the lanes, in the order a batch moves through them. */
@@ -22,8 +22,9 @@ export interface LaneLabelHost extends Pick<IssueMarks, 'labels' | 'addLabel' | 
   createLabel(repo: string, label: string, signal?: AbortSignal): Promise<void>;
 }
 
-/** The label of `lane`; none for a cancelled batch. */
-export const laneLabel = (lane: Lane): LaneLabelName | undefined => {
+/** The label of `batch`'s lane; none for a cancelled batch. */
+export const laneLabel = (batch: Batch): LaneLabelName | undefined => {
+  const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
       return 'foedrum:ordered';
@@ -94,7 +95,7 @@ export const laneLabelEffects = (options: LaneLabelEffectsOptions): DriverEffect
       );
       const revision = revisions.length + 1;
       const previous = revisions.at(-1);
-      const label = laneLabel(batch.lane) ?? null;
+      const label = laneLabel(batch) ?? null;
       // Nothing to show, or shown already; a batch cancelled before its first label has none.
       if (previous === undefined ? label === null : previous.label === label) return [];
       const key = revisionKey(batchId, revision);

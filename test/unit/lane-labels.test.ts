@@ -8,7 +8,7 @@ import { type CommandLog, createCommandLog } from '../../src/engine/command-log.
 import type { Ending } from '../../src/engine/decide.ts';
 import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
-import type { Lane } from '../../src/engine/fold.ts';
+import type { Batch, Lane } from '../../src/engine/fold.ts';
 import {
   type LaneLabelHost,
   laneLabel,
@@ -83,7 +83,14 @@ describe('laneLabel', () => {
       [{ kind: 'on_tap', pullRequests: [pr] }, 'foedrum:on-tap'],
       [{ kind: 'cancelled', by: 'alice', via: 'terminal' }, undefined],
     ];
-    for (const [lane, label] of lanes) assert.equal(laneLabel(lane), label, lane.kind);
+    const batch = (lane: Lane): Batch => ({
+      id: '7-1',
+      issue: 7,
+      lane,
+      steps: new Map(),
+      rewinds: [],
+    });
+    for (const [lane, label] of lanes) assert.equal(laneLabel(batch(lane)), label, lane.kind);
     assert.deepEqual(
       [...laneLabels],
       [
