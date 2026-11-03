@@ -2051,4 +2051,28 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
       /source="the Brewery's repositories" name="repositories">\nThe Brewery's repositories, each checked out read-only at its base in a folder of your working directory, none of them this attempt's own:\n- acme\/api, base origin\/main: read it in api\/\n- acme\/web, base origin\/trunk: read it in acme\.web\/\n<\/untrusted-input-/,
     );
   });
+
+  it("gives a plan lens step's Taster no checks and no change input: regression test", async () => {
+    const { prompt } = await planTaste([...amber, inTree]);
+    assert.doesNotMatch(prompt, /name="checks"/);
+    assert.doesNotMatch(prompt, /name="change"/);
+    assert.doesNotMatch(prompt, /name="roundChange"/);
+  });
+
+  it("leaves the Brewmaster's own plan input out of a plan attempt no choice scheduled, though the batch has a plan: regression test", async () => {
+    const plan3 = { batchId: '12-1', stepId: 'plan', attempt: 3 };
+    const events: Event[] = [
+      ...amber.slice(0, -1),
+      { type: 'step.scheduled', ...plan3, deadlineAt },
+      { ...inTree, ...plan3 },
+    ];
+    const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+      git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
+    });
+    const { prompt } = await plans.plan({ ref: plan3, limits: plans.limits(plan3) });
+    assert.match(prompt, /name="repositories"/);
+    assert.doesNotMatch(prompt, /name="plan"/);
+  });
 });
