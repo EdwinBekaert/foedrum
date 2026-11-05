@@ -14,7 +14,7 @@ ADR 0250 has each command report a tick that throws as `tick_failed` and run the
   A throw outside any one effect is reported as the notice `batch_effects_failed`, naming the batch, and the pass goes on to the next batch.
   A throw while applying one effect stays `effect_failed`.
 - The `try` takes all of that pass: reading what is due, renewing the leases, ending the action attempts and recording what the effects call for. A fault of the store there is reported against the batch being visited, and the tick's own uses of the store, which have no such guard, report it as `tick_failed`.
-- The batch is unchanged: nothing is recorded, and the next pass tries it again, so a reading that recovers applies its effects then.
+- The throw itself records nothing. What the pass recorded before it stays, an effect it applied among them, and the next pass goes on from there, so a reading that recovers applies the batch's other effects then.
 - The tick lets go of an ended batch only once it has no effect due. One whose due effects cannot be read counts as not finished: it stays held, and the other ended batches are let go. A batch on tap counts as ended, so this is the case #867 reported. The pass over its effects has already said why.
 - A `StateBranchStopError` still stops the engine through `tick()`, as ADR 0250 says: it comes from the state branch's start and the supervisor's flush, and neither runs in this pass.
 - This amends ADR 0250 for that pass only. A throw elsewhere in the tick, in the supervisor or the drive, still rejects the tick and is reported as `tick_failed`, without naming a batch.

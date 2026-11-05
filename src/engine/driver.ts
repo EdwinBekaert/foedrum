@@ -103,7 +103,8 @@ export type DriverNotice =
   | { kind: 'effect_failed'; key: EffectKey; error: unknown }
   /**
    * A pass over a batch's effects threw, reading them or finishing what they call for, outside any
-   * one effect: the batch is unchanged and tried again next pass, and the others go on (ADR 0327).
+   * one effect: what the pass already recorded stays, the next pass goes on from there, and the
+   * others go on (ADR 0327).
    */
   | { kind: 'batch_effects_failed'; batchId: string; error: unknown }
   /**
