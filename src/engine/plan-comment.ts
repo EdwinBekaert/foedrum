@@ -59,8 +59,8 @@ const row = (subOrder: PlannedSubOrder, told: Told): string => {
 };
 
 /**
- * A sub-order's section (#658): what it builds, when it is done, why its recipe, why it is not
- * ready, the `more` lines its caller adds, and its touched paths folded away, since a list of
+ * A sub-order's section (#658): what it builds, when it is done, why its recipe, its security mark
+ * (ADR 0322), why it is not ready, the `more` lines its caller adds, and its touched paths folded away, since a list of
  * twenty paths is read only on demand.
  */
 const section = (subOrder: PlannedSubOrder, told: Told, more: readonly string[] = []): string[] => {
@@ -78,6 +78,9 @@ const section = (subOrder: PlannedSubOrder, told: Told, more: readonly string[] 
     `- Builds in ${plain(repo)}: ${plain(told(size.mechanism))}, about ${size.lines} lines`,
     `- Done when: ${plain(told(doneWhen))}`,
     `- Recipe ${code(told(recipe))}: ${plain(told(why))}${off}`,
+    ...(subOrder.securityMark === undefined
+      ? []
+      : [`- Security: ${plain(told(subOrder.securityMark))}`]),
     ...(subOrder.ready ? [] : [`- Not ready: ${plain(told(subOrder.refinement ?? ''))}`]),
     ...more,
     '',
