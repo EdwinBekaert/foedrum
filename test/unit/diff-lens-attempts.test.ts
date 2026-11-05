@@ -16,7 +16,13 @@ import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer
 
 const done = behave.succeed();
 const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
-const asksChanges = behave.blocked('findings', 'An Ordered sub-order holds nothing');
+const asksChanges = behave.succeedWith(
+  {
+    verdict: 'changes',
+    findings: [{ severity: 'major', why: 'An Ordered sub-order holds nothing', introduced: true }],
+  },
+  'Changes asked for',
+);
 const fails = behave.fail(true);
 
 /** The events of an order of issue 1 brewed with the default `recipe`, as the scripts play it. */
@@ -32,11 +38,14 @@ const brew = async (
       store,
       runner: fakeBrewerRunner(scripts),
       recipes: loaded.recipes,
-      // A Taster's out doc is read with its verdict; every other step plays a plain one.
-      limits: (stepId) =>
-        loaded.brewers.find(recipe, stepId)?.brewer.output.schema === 'tasting'
-          ? { outDoc: { file: 'out.md', schema: TastingOutDoc } }
-          : defaultLimits,
+      // A Taster's out doc is read with its verdict, which on a blocking step blocks by findings;
+      // every other step plays a plain one.
+      limits: (stepId) => {
+        const step = loaded.brewers.find(recipe, stepId);
+        if (step?.brewer.output.schema !== 'tasting') return defaultLimits;
+        const outDoc = { file: 'out.md', schema: TastingOutDoc };
+        return step.blocking === true ? { outDoc, blocking: true } : { outDoc };
+      },
       clock: () => new Date('2026-11-05T12:00:00.000Z'),
     });
     assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
