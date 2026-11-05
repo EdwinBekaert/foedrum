@@ -20,7 +20,7 @@ import { mergedCheckStep } from '../../src/engine/merged-checks.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { HeadCheck } from '../../src/schemas/events.ts';
+import type { GravityReading, HeadCheck } from '../../src/schemas/events.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import type { PushResult } from '../../src/schemas/store.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
@@ -126,14 +126,22 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
       kind: 'record',
       event: { type: 'effect.applied', key: effectKey.encode(key), result },
     });
-  /** The scheduled attempt of `stepId`, started and ended with `ending`. */
-  const run = (stepId: string, ending: Ending): void => {
+  /** The scheduled attempt of `stepId`, started (at `commit`) and ended with `ending`. */
+  const run = (
+    stepId: string,
+    ending: Ending,
+    { readings, commit }: { readings?: GravityReading[]; commit?: string } = {},
+  ): void => {
     const attempts = log.state().batches.get(batchId)?.steps.get(stepId)?.attempts;
     const attempt = Math.max(...(attempts?.keys() ?? []));
     assert.equal(attempts?.get(attempt)?.phase, 'scheduled', `${stepId} is scheduled`);
     const ref = { batchId, stepId, attempt };
-    accept({ kind: 'record', event: { type: 'step.started', ...ref } });
-    accept({ kind: 'finish', ...ref, ending });
+    const worktree =
+      commit === undefined
+        ? {}
+        : { worktree: { repo: 'acme/web', path: `/w/${stepId}`, branch: stepId, commit } };
+    accept({ kind: 'record', event: { type: 'step.started', ...ref, ...worktree } });
+    accept({ kind: 'finish', ...ref, ending, ...(readings === undefined ? {} : { readings }) });
   };
   /** The batch routed to mash-in, the Innkeeper's question answered with `recipe`. */
   const mashed = (recipe = 'porter'): void => {
@@ -237,6 +245,83 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
     return comments[0]?.body ?? '';
   };
+
+  /** The brief of a batch that `first` brewed under `reviewed`, then moved to `tasted`. */
+  const briefAfterMove = async (first: () => void): Promise<string> => {
+    accept({ kind: 'order', batchId, order: { issue: 7 } });
+    accept({ kind: 'route', batchId, recipe: 'reviewed', reason: 'label', source: 'label' });
+    first();
+    const { lane } = log.state().batches.get(batchId) ?? {};
+    if (lane?.kind !== 'stuck') run('ask', { kind: 'needs_input', questions: [which] });
+    accept({
+      kind: 'recipe',
+      batchId,
+      recipe: 'tasted',
+      reason: 'a person chose',
+      by: 'ann',
+      via: 'terminal',
+    });
+    run('implement', done);
+    run('new-taster', tasted('the cut was not run'));
+    opened();
+    return briefBody();
+  };
+  const heldBack = {
+    severity: 'major',
+    why: 'Breaks the plan',
+    introduced: true,
+    file: 'plan.md',
+  } as const;
+
+  it('never says a skip left open a Taster an earlier recipe blocked, when no one skipped it', async () => {
+    const body = await briefAfterMove(() =>
+      run('old-taster', {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'A change is asked',
+        findings: [heldBack],
+      }),
+    );
+    assert.match(body, /- `new-taster`: the cut was not run/);
+    assert.doesNotMatch(body, /left open by a skip/);
+    assert.doesNotMatch(body, /Breaks the plan/);
+  });
+
+  it("leaves out the findings an earlier recipe's Taster left open", async () => {
+    const body = await briefAfterMove(() =>
+      run('old-taster', {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Tasted',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [{ ...heldBack, severity: 'minor' }],
+        },
+      }),
+    );
+    assert.match(body, /\*\*Findings\*\*\nNo finding was recorded\./);
+  });
+
+  it("leaves out an earlier recipe's check step from the evidence on this head", async () => {
+    const body = await briefAfterMove(() =>
+      run('old-taster', done, { readings: [{ result: 'skipped', check: 'lint' }] }),
+    );
+    assert.match(body, /\*\*Evidence on /);
+    assert.doesNotMatch(body, /old-taster/);
+  });
+
+  it("leaves out what an earlier recipe's survey proposed", async () => {
+    const body = await briefAfterMove(() =>
+      run(
+        'old-taster',
+        { kind: 'succeeded', output: { status: 'done', summary: 'P', map: 'new' } },
+        { commit: head },
+      ),
+    );
+    assert.match(body, /\*\*Evidence on /);
+    assert.doesNotMatch(body, /The test map of/);
+  });
 
   it("shows the risk the current recipe's Taster left, never an earlier recipe's", async () => {
     movedOff('reviewed', () => run('old-taster', tasted('the plan may be too big')), 'tasted');
