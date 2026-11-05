@@ -61,14 +61,18 @@ export const fakeScreen = (width: number | 'unknown') => {
         assert.ok(batchTime, `the batch's time leads ${JSON.stringify(text)}`);
         return text.slice(2 + batchTime[0].length);
       }),
-    /** The batch's time on each live line drawn. */
+    /** The batch's time, without its words, on each live line drawn. */
     batchTimes: (): string[] =>
       rewrites().map((text) => BATCH_TIME.exec(text.slice(2))?.[1] ?? `none in ${text}`),
   };
 };
 
-/** The batch's time that leads a live line after its spinner, with the ` / ` after it. */
-const BATCH_TIME = /^((?:\d+m )?\d+s) \/ /;
+/**
+ * The batch's time that leads a live line after its spinner, with the words that say what it
+ * measures and the ` / ` after it (ADR 0326): `ordered 5m 3s ago`, or `brew started 3s ago` for a
+ * batch with no recorded order time.
+ */
+const BATCH_TIME = /^(?:ordered|brew started) ((?:\d+m )?\d+s) ago \/ /;
 
 /** The line without its elapsed time, which depends on when each redraw came. */
 export const withoutTime = (text: string): string => text.replace(/ \/ (\d+m )?\d+s(?= \/|$)/, '');
