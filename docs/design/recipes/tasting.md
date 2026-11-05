@@ -62,6 +62,7 @@ It is one step, with one attempt at a time, one lease, deadline, out doc and sta
 Its effort, turns and stall limit are its brewer's, and its model too unless the step names one; a recipe that wants one lens on another model runs it apart, on a step of its own that names another alias ([ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)).
 Its Taster gets the change once, and the lenses as its one input `lens`: every lens file in the step's order, under a source that names each lens and its file.
 The engine adds a fixed text, only on such a step: review through each lens in turn, give every finding the `lens` it was found through, read a lens file's "stay inside this one" as "report under this lens only what it asks", and start each `riskLeft` item with its lens; a one-lens prompt stays as it is.
+On plan lenses that text says to review the plan, and its example finding has no `file` or `line` and a `why` that starts with the sub-order's id ([ADR 0323](../../adr/0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md)).
 Its house yeast is the rules each of its lenses would get apart, each once, in the order of its lenses.
 Each finding of its out doc names one of the step's lenses, or the out doc is invalid and the attempt fails, as on any schema error; on a one-lens step a finding may leave its lens out, and one that names a lens names the step's.
 A finding without a `lens` is its step's lens's: `lensOfFinding` gives that to a reader that counts by lens (#561).
@@ -70,6 +71,7 @@ A findings route from it carries its whole out doc, every lens's findings at onc
 Its findings show their lens before their severity (`diff/security, major in src/a.ts:3`) in a later round's `earlierFindings`, the status comment, the pull request body and the Stuck reason.
 The status comment shows ten findings per lens when every finding of the step names one, and ten per step otherwise.
 The default recipes run their lenses apart: together was measured on a seeded change and fell short of the rule that picks it ([ADR 0224](../../adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)).
+`node scripts/tasting-compare.ts --plan` measures the plan lenses the same way on a seeded plan, by the same rule; no numbers exist until the maintainer runs it after the merge ([ADR 0323](../../adr/0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md)).
 
 **Brett's mutants are one-line edits, checked against the change.** Brett ([`defaults/brewers/brett.md`](../../../defaults/brewers/brett.md)) proposes a few mutants in a `mutants` out doc, at most 5, each as a one-line structured edit (`file`, `line`, `original`, `replacement`, `description`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 A brewer whose out doc schema is `mutants` gets the input `change`, as a Finer and a Taster that reviews a diff do.
