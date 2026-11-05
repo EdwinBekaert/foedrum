@@ -451,7 +451,7 @@ const planDue = (
     changed,
     opened,
     reviewNotes(batch, stepId, attempt),
-    lane.kind === 'stuck' ? lane.options : [],
+    review ? lane.options : [],
   );
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;
