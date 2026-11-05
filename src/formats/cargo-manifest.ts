@@ -35,6 +35,7 @@ const SOURCE_KEYS: ReadonlySet<string> = new Set([
 const OTHER_KEYS: ReadonlySet<string> = new Set([
   'artifact',
   'base',
+  'builtin',
   'default-features',
   'default_features',
   'features',
