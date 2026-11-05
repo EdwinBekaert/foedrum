@@ -1,0 +1,43 @@
+# 0321. `mash` and `decoction` review a plan through the plan lenses, apart
+
+Date: 2026-11-05 · Status: Accepted · Amends [0143](0143-lenses-in-two-folders-diff-and-plan.md) (the six plan lenses it left to #391), [0220](0220-a-taster-s-step-can-run-several-lenses-together.md) (a step's model need not be its brewer's), [0234](0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md) (`mash`'s steps, and how the coverage and security lenses name `planner`), [0283](0283-npm-run-demo-mashes-a-third-order-to-a-plan-waiting-for-its-review.md) and [0294](0294-npm-run-demo-ladder-walks-an-order-across-two-repositories.md) (the demos' mash attempts), [0285](0285-an-approved-plan-becomes-brewery-sub-issues-through-the-ledger.md) (one more recipe a sub-order may not name), [0312](0312-a-taster-on-a-plan-lens-step-reads-the-batch-s-latest-plan-and-ties-each-finding-to-a-sub-order.md) (what a plan lens step reads, and that no default recipe runs it) and [0318](0318-a-plan-lens-s-findings-go-back-to-the-plan-step-and-the-plan-comment-lists-the-review-notes-left.md) (`mash`'s route, which it left to #802)
+
+## Context
+Since ADR 0312 a Taster can review a plan, and since ADR 0318 a blocking plan lens step can send it back to the Brewmaster.
+But one plan lens ships, `mash` runs none, and `decoction`, which the Innkeeper's prompt already names, does not exist.
+Decided with the maintainer on 2026-11-03: the plan lenses taste apart, coverage and sizing block, and the others advise.
+
+Three facts shaped the rest.
+A step has no model of its own: it is its brewer's frontmatter alias, and #802 puts two lenses on `planner`.
+A Taster has no list of the Brewery's recipes, and the default recipes are in no repository it can read, so a lens could not judge a sub-order's recipe.
+`PLANNING_RECIPES` names the recipes that only plan, by name: a sub-order refuses them (ADR 0285), and `foedrum status <order>` counts their tokens as planning (ADR 0295).
+
+## Decision
+- **Six more lenses**, each a file of `defaults/lenses/plan/` that stays inside its one question: coverage, sizing, order and overlap, testability, recipe fit and security. What each reports is in its file.
+- **What the security lens judges** (decided with the maintainer, 2026-11-05). It asks of every sub-order, from what it will add, whether it lets outside input reach something that acts on it: a command, a model, a file path, secrets or a new dependency, a short fixed list in the lens. It also reads `.foedrum/trust-boundaries.md` in each repository a sub-order builds in, when it has one: a file a person writes, optional, which adds what is known about that repository and never limits the question, since a boundary the plan introduces is not in it yet, so not listed there never means safe. No default page ships, and Foedrum's own `docs/trust-boundaries.md` is not what it reads. It reports findings only; the mark that reaches a sub-order is #803.
+- **`mash`** is `plan`, a `parallel` group `taste` of `coverage`, `sizing` and `naive-reader`, then `lauter` as before.
+- **`decoction`** has the same shape with all seven in its group, and a `lauter` step of its own, so a person can correct its plan as they can `mash`'s. Its description says it is for a large order, and the Innkeeper offers it from the `recipes` input (ADR 0232) with no change. `foedrum mash`'s refusal stops saying that it comes later.
+- **Apart, by ADR 0224's rule.** One Taster per lens, as that record's numbers chose for seven lenses: together saved 69 % of the tokens but found 6.3 planted defects to apart's 7, more than half a defect fewer. Those numbers are of diff lenses on a seeded change; #804 measures plan lenses, apart against together.
+- **Coverage and sizing block**, each with `onBlocked: { findings: { goto: "plan", maxRounds: 2 } }`: a wrong or oversized cut wastes every sub-order built from it. The others advise, with no route, as Nip's advisory children do. Every finding shows at gate 1 either way (ADR 0318).
+- **A route's rounds are its own.** A route counts the attempts of its `goto` it scheduled itself (ADR 0064), so coverage and sizing each send the plan back twice: four routes and five plans at most in `mash` and in `decoction`, not three plans. Each round runs the whole group again. When both block in one round, the group sends the batch back along the first in the recipe's order (ADR 0168), so sizing's findings wait a round, and sizing raises them again on the corrected plan if they still hold. No engine rule changes.
+- **A brewer step may name a `model`**, an alias of `models.jsonc`. The load puts it on the step's copy of the brewer, so everything that reads an attempt's model reads it with no change: `modelOf`, `familyOfBrewer` and so the usage window that holds the attempt (ADR 0215), and `foedrum resume`. A blind-tasting swap names a brewer and still wins, so it moves every step of that brewer, those that name a model too. An alias with no model refuses the setup with a line naming the step, as a brewer's alias does.
+- **Coverage and security run on `planner`, the others on the Taster's `builder`** (ADR 0234 named the two).
+- **A plan lens step also gets the recipes a sub-order may name**, as the input `recipes`, after `plan` and `repositories`: the same list the Brewmaster's input holds. Taster version 7 names it. A diff lens step gets nothing new.
+- **`decoction` is a planning recipe**: `PLANNING_RECIPES` holds it, so a sub-order may not name it, and `foedrum status <order>` counts it as planning.
+
+## Consequences
+- Every `mash` costs three more Taster attempts per round, one of them on `planner`, and every `decoction` seven, two of them on `planner`. Tokens go up by what a Taster reads: the order, the plan and the code it opens.
+- An Opus limit now holds a `mash` batch's `coverage` beside its `plan`, while `sizing` and `naive-reader` go on (ADR 0215); the group ends when the limit reopens.
+- A person who wants one budget of two rounds for the whole group cannot say so in a recipe; if #804's runs show the fifth plan is reached, that is a change of its own.
+- A `lauter` plan is not tasted again: the batch waits for a review of the session's plan (ADR 0286), as before.
+- `npm run demo`'s third order and `npm run demo -- ladder`'s order run three scripted Tasters more, and their paths and plan comments show them.
+- A Brewery that keeps its own `recipes/mash.jsonc` keeps its steps: no lens runs until it names one.
+
+## Alternatives considered
+- **A second default Taster brewer on `planner`.** It would repeat the Taster's prompt, and the two would drift; a Brewery that replaces `taster.md` would have to replace both.
+- **`"from": "recipes"` in `taster.md`.** Every diff Taster would read a list it has no use for, which ADR 0224 counts in tokens.
+- **The security lens judges a sub-order only against a page of boundaries.** A plan's new boundary is on no page yet, and no default page could list a Brewery's repositories; the question comes first, and the file only adds to it.
+- **The recipes only on a `plan/recipe-fit` step.** A rule about one lens's name in the engine, which decides what a step reads from its folder (ADR 0312); the list is a few lines.
+- **All seven lenses together in `decoction`.** ADR 0224's rule chose apart for seven; #804 measures it on plans.
+- **One budget of rounds across a group's routes.** An engine rule for a worst case no run has shown yet.
+- **A group that sends back the findings of every blocking child at once.** ADR 0168's rule routes one child's out doc, the route input names one step, and a second round reads the rest anyway.

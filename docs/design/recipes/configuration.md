@@ -83,7 +83,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 - At the top level, `concurrency` (1 to 20, default 1) is how many batches may be Ordered or Brewing at once ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)), and `openOrders` (1 to 20, default 3) how many orders may be in progress at once ([limits](../intake/limits.md)).
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 
-**`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:
+**`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers and brewer steps name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:
 
 ```jsonc
 {

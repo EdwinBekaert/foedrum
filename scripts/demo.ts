@@ -6,7 +6,7 @@
 // mid-attempt and started again, until the batch is on tap with one pull request and one status
 // comment; then a second order brewed by `foedrum brew` instead of the Cellar, and `foedrum
 // resume`'s line for the Cellarman's attempt; then a third order mashed: the Innkeeper's question,
-// its answer, and the Brewmaster's plan waiting for its review (ADR 0232, ADR 0275). No gh, no
+// its answer, and the Brewmaster's plan, tasted and waiting for its review (ADR 0232, ADR 0275). No gh, no
 // GitHub, no claude, no network.
 // It walks through it in steps (scripts/demo/walkthrough.ts), each with what to look for, and
 // waits for Enter between them on a terminal; `--no-pause` goes straight through. `--in <folder>`

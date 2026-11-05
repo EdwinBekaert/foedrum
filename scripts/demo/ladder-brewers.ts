@@ -1,7 +1,8 @@
 // npm run demo -- ladder's brewers (ADR 0294): the Brewmaster that plans the order from the folder of
-// checkouts it runs in (ADR 0301), and the Cellarman of each sub-order, in serve's runner seam, so
-// each attempt reads and commits in its own worktree and no model is asked. Each one decides from
-// what it reads, never from a fixed answer: the Brewmaster from the two manifests, the Cellarman
+// checkouts it runs in (ADR 0301), the three Tasters of that plan (ADR 0321), and the Cellarman of
+// each sub-order, in serve's runner seam, so each attempt reads and commits in its own worktree and
+// no model is asked. The Tasters approve; the others decide from
+// what they read, never from a fixed answer: the Brewmaster from the two manifests, the Cellarman
 // from its worktree's manifest, and the second sub-order's Cellarman bumps the library to the tag
 // its prompt's `release` input names (ADR 0291).
 
