@@ -110,6 +110,24 @@ const nipSentBack = (): Record<string, readonly Behaviour[]> => ({
   correctness: [asksChanges, approves],
 });
 
+const ok: StepOutcome = { kind: 'succeeded', output: null };
+const failed: StepOutcome = { kind: 'failed', retryable: true, reason: 'the attempt was lost' };
+
+/** A batch whose `stepId` ended each attempt in turn with `outcomes`. */
+const batchWith = (stepId: string, outcomes: readonly StepOutcome[]) => {
+  const at = '2026-11-05T13:00:00.000Z';
+  const events = outcomes.flatMap((outcome, i): Event[] => {
+    const ref = { batchId: 'b1', stepId, attempt: i + 1 };
+    return [
+      { type: 'step.scheduled', ...ref, deadlineAt: at },
+      { type: 'step.started', ...ref },
+      { type: 'step.finished', ...ref, outcome },
+    ];
+  });
+  const ordered: Event = { type: 'batch.ordered', batchId: 'b1', order: { issue: 1 }, routeBy: at };
+  return fold([ordered, ...events]).batches.get('b1') ?? assert.fail('no batch b1');
+};
+
 const brewmasterLimit = (): number =>
   loaded.brewers.find('mash', 'plan')?.brewer.maxAttempts ?? assert.fail('no step plan in mash');
 
@@ -237,28 +255,29 @@ describe('a brewer step counts its attempts since its latest that delivered (ADR
   it('a chosen step counts as before, since its latest success: regression test', () => {
     const limit = brewmasterLimit();
     const mash = loaded.recipes.find('mash') ?? assert.fail('no recipe mash');
-    const batchWith = (outcomes: readonly StepOutcome[]) => {
-      const events = outcomes.flatMap((outcome, i): Event[] => {
-        const ref = { batchId: 'b1', stepId: 'lauter', attempt: i + 1 };
-        return [
-          { type: 'step.scheduled', ...ref, deadlineAt: '2026-11-05T13:00:00.000Z' },
-          { type: 'step.started', ...ref },
-          { type: 'step.finished', ...ref, outcome },
-        ];
-      });
-      const ordered: Event = {
-        type: 'batch.ordered',
-        batchId: 'b1',
-        order: { issue: 1 },
-        routeBy: '2026-11-05T13:00:00.000Z',
-      };
-      return fold([ordered, ...events]).batches.get('b1') ?? assert.fail('no batch b1');
-    };
-    const ok: StepOutcome = { kind: 'succeeded', output: null };
-    const failed: StepOutcome = { kind: 'failed', retryable: true, reason: 'the plan is invalid' };
     const failures = (count: number) => Array.from({ length: count }, () => failed);
-    assert.equal(mash.mayRetry(batchWith([ok, ok, ...failures(limit - 1)]), 'lauter'), true);
-    assert.equal(mash.mayRetry(batchWith([ok, ok, ...failures(limit)]), 'lauter'), false);
+    const again = (count: number) => batchWith('lauter', [ok, ok, ...failures(count)]);
+    assert.equal(mash.mayRetry(again(limit - 1), 'lauter'), true);
+    assert.equal(mash.mayRetry(again(limit), 'lauter'), false);
+  });
+
+  it('a block on the environment closes no round, so a retry of it counts it: regression test', async () => {
+    const events = await brew(
+      'nip',
+      {
+        ...nip(1),
+        implement: [behave.blocked('environment', 'No checkout'), fails, done],
+      },
+      1,
+    );
+    assert.equal(times(events, 'implement'), 2, started(events).join(', '));
+    assertExhausted(events, 'implement', 2);
+  });
+
+  it("the openPullRequest action's stuck number is the attempts of its round: regression test", () => {
+    const recipe = loaded.recipes.find('nip') ?? assert.fail('no recipe nip');
+    const open = 'open-pull-request';
+    assert.equal(recipe.roundAttempts(batchWith(open, [ok, failed, failed, failed]), open), 3);
   });
 });
 
