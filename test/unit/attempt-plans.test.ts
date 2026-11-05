@@ -2409,6 +2409,42 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     assert.match(prompt, /source="the Brewery's repositories" name="repositories">/);
   });
 
+  it('tells a step of plan lenses together to review the plan and tie each finding to a sub-order (ADR 0323)', async () => {
+    const together = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        {
+          path: 'recipes/amber.jsonc',
+          text: recipeText(
+            'amber',
+            [
+              { id: 'plan', brewer: 'brewmaster' },
+              { id: 'taste', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+            ],
+            { testFirst: false },
+          ),
+        },
+      ],
+      lenses: [
+        { path: 'lenses/plan/naive-reader.md', text: 'Read each sub-order alone.\n' },
+        { path: 'lenses/plan/sizing.md', text: 'Weigh each sub-order.\n' },
+      ],
+    });
+    assert.ok(together.valid, together.valid ? '' : together.problems.join('\n'));
+    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', together.brewers, {
+      repositories,
+    });
+    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    const text = prompt.slice(prompt.indexOf('## Several lenses together'));
+    assert.match(text, /- Review the plan through each lens in turn\./);
+    assert.doesNotMatch(text, /Review the change/);
+    assert.match(
+      text,
+      /\{ "lens": "plan\/naive-reader", "severity": …, "why": "<the sub-order's id>: …", "introduced": … \}/,
+    );
+    assert.doesNotMatch(text.slice(0, text.indexOf('When you finish')), /"file": …/);
+  });
+
   it("reads a plan lens step's house yeast at its worktree's commit, not where the batch started, with no diff: regression test", async () => {
     const calls: string[] = [];
     const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', tasting.brewers, {

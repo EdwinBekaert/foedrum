@@ -1,0 +1,12 @@
+// The seeded plan's second recipe that builds (ADR 0323): recipe fit has nothing to judge while a
+// Brewery has one, so the plan's rename entry names this one, and its readme entry fits it.
+{
+  "name": "prose",
+  "description": "A page of prose and no code: writes it and opens the pull request, with no test and no lens",
+  "testFirst": false,
+  "steps": [
+    { "id": "gauge", "brewer": "gauger", "when": "recipe.testFirst" },
+    { "id": "implement", "brewer": "cellarman" },
+    { "action": "openPullRequest" }
+  ]
+}
