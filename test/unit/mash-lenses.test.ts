@@ -403,8 +403,16 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       why: 'schema: its entry could name the test file',
       introduced: true,
     };
+    const corrected = behave.succeedWith(
+      {
+        subOrders: [subOrder('schema'), subOrder('guide')],
+        alternatives,
+        dispositions: [{ disposition: 'dismissed', why: evidence }],
+      },
+      'Planned again',
+    );
     const script = {
-      plan: [planned, replanned(evidence)],
+      plan: [planned, corrected],
       coverage: [asksChanges(guide), approves],
       sizing: [approves, approves],
       'naive-reader': [
@@ -419,6 +427,9 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       ['coverage', 'naive-reader', 'plan', 'sizing'].flatMap((step) => [`${step}#1`, `${step}#2`]),
     );
     assert.equal(started[0], 'plan#1');
+    assert.ok(started.indexOf('plan#2') < started.indexOf('coverage#2'), started.join(' '));
+    assert.ok(prompts.get('coverage#2')?.includes('The guide'), 'coverage#2 reads the new plan');
+    assert.ok(!prompts.get('coverage#1')?.includes('The guide'), 'coverage#1 reads the first');
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 2 });
     assert.equal(
       review(),
@@ -455,11 +466,18 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     const script = {
       plan: [planned, replanned(), replanned(), replanned(), replanned()],
       coverage: [asksChanges(guide), asksChanges(guide), approves, approves, approves],
-      sizing: [approves, approves, asksChanges(big), asksChanges(big), approves],
+      sizing: [approves, approves, asksChanges(big), asksChanges(big), asksChanges(big)],
       'naive-reader': [approves, approves, approves, approves, approves],
     };
     assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
-    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 5 });
+    // Sizing asks a third time on the fifth plan, and its route has no round left.
+    assert.ok(started.includes('plan#5'), started.join(' '));
+    assert.ok(!started.includes('plan#6'), started.join(' '));
+    assert.equal(stuckReason().kind, 'blocked');
+    assert.ok(
+      review().includes(`- ${code('sizing')} #5: major, open: ${plain(big.why)}`),
+      review(),
+    );
   });
 
   it("a plan lens step's later round gets a retry of its own after a failed attempt", async () => {
@@ -551,6 +569,24 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       'sizing#2',
     ]);
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 2 });
+  });
+
+  it("after a person's retry, a lens that used both its rounds and blocks the new plan leaves the batch Stuck: regression test", async () => {
+    const script = {
+      plan: [planned, replanned(), replanned(), planned],
+      coverage: [asksChanges(guide), asksChanges(guide), approves, asksChanges(guide)],
+      sizing: [approves, approves, approves, approves],
+      'naive-reader': [approves, approves, approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 3 });
+    const at = new Date('2026-11-05T12:00:00.000Z');
+    const retried = log().issue({ kind: 'retry', batchId: '12-1', by: 'ann', via: 'terminal' }, at);
+    assert.equal(retried.kind, 'accepted', JSON.stringify(retried));
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.ok(started.includes('coverage#4'), started.join(' '));
+    assert.ok(!started.includes('plan#5'), started.join(' '));
+    assert.equal(stuckReason().kind, 'blocked');
   });
 
   it('decoction runs its seven lenses after the plan, and the plan waits for its review', async () => {

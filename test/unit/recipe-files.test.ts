@@ -1960,7 +1960,7 @@ describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () =
 
 describe('loadRecipes: a plan step counts its attempts since its latest plan (ADR 0289, #731)', () => {
   /** Batch 12-1 whose step `stepId` ended each attempt as `outcomes` say, in order. */
-  const ended = (stepId: string, outcomes: readonly ('ok' | 'failed')[]): Batch => ({
+  const ended = (stepId: string, outcomes: readonly ('ok' | 'reviewed' | 'failed')[]): Batch => ({
     ...batch({}),
     steps: new Map([
       [
@@ -1976,9 +1976,12 @@ describe('loadRecipes: a plan step counts its attempts since its latest plan (AD
                 attempt: i + 1,
                 deadlineAt: D,
                 outcome:
-                  outcome === 'ok'
-                    ? { kind: 'succeeded', output: null }
-                    : { kind: 'failed', retryable: true, reason: 'the plan is invalid' },
+                  outcome === 'failed'
+                    ? { kind: 'failed', retryable: true, reason: 'the plan is invalid' }
+                    : {
+                        kind: 'succeeded',
+                        output: outcome === 'ok' ? null : { verdict: 'approve' },
+                      },
               },
             ]),
           ),
@@ -2023,6 +2026,61 @@ describe('loadRecipes: a plan step counts its attempts since its latest plan (AD
     const recipe = mash([{ id: 'plan', brewer: 'planner' }, lauter]);
     assert.equal(recipe.mayRetry(ended('fix', ['ok', 'ok', 'failed']), 'fix'), true);
     assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed']), 'fix'), false);
+  });
+
+  describe('a lens step (ADR 0321)', () => {
+    const tasting = (step: Record<string, unknown>, id = 'taste') => {
+      const committing = 'diff' in step;
+      const { diff: _diff, ...fields } = step;
+      const steps = [
+        committing ? { id: 'build', brewer: 'coder' } : { id: 'plan', brewer: 'planner' },
+        { id, brewer: 'taster', ...fields },
+        ...(committing ? [{ action: 'openPullRequest' }] : []),
+      ];
+      const result = loadRecipes({
+        recipes: [recipe('kettle', steps, { testFirst: false })],
+        brewers: [
+          brewer('planner', { output: { doc: 'plan.md', schema: 'plan' } }),
+          brewer('coder', { produces: 'commits', access: 'write', git: { commit: true } }),
+          brewer('taster', { output: { doc: 'taste.md', schema: 'tasting' } }),
+        ],
+        lenses: [
+          { path: 'lenses/plan/a.md', text: 'A.\n' },
+          { path: 'lenses/plan/b.md', text: 'B.\n' },
+          { path: 'lenses/diff/a.md', text: 'A.\n' },
+        ],
+      });
+      assert.ok(result.valid, result.valid ? '' : result.problems.join('\n'));
+      return result.recipes.find('kettle') ?? assert.fail('no recipe kettle');
+    };
+
+    it('that reviews a plan counts its attempts since its latest review: regression test', () => {
+      const lens = tasting({ lens: 'plan/a' });
+      assert.equal(
+        lens.mayRetry(ended('taste', ['reviewed', 'reviewed', 'failed']), 'taste'),
+        true,
+      );
+      assert.equal(lens.mayRetry(ended('taste', ['reviewed', 'failed', 'failed']), 'taste'), false);
+    });
+
+    it('that reviews a plan gives up when it fails from its first attempt: regression test', () => {
+      const lens = tasting({ lens: 'plan/a' });
+      assert.equal(lens.mayRetry(ended('taste', ['failed']), 'taste'), true);
+      assert.equal(lens.mayRetry(ended('taste', ['failed', 'failed']), 'taste'), false);
+    });
+
+    it('of several plan lenses together counts as one lens does: regression test', () => {
+      const lens = tasting({ lenses: ['plan/a', 'plan/b'] });
+      assert.equal(
+        lens.mayRetry(ended('taste', ['reviewed', 'reviewed', 'failed']), 'taste'),
+        true,
+      );
+    });
+
+    it('that reviews a diff still counts over the batch: regression test', () => {
+      const lens = tasting({ lens: 'diff/a', diff: true });
+      assert.equal(lens.mayRetry(ended('taste', ['reviewed', 'failed']), 'taste'), false);
+    });
   });
 });
 
