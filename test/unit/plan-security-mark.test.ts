@@ -159,3 +159,85 @@ describe('a sub-order without a security mark (ADR 0322)', () => {
     assert.doesNotMatch(prompt, /- Security:/);
   });
 });
+
+describe("a sub-order's security mark (ADR 0322)", () => {
+  it("a sub-order's security mark is read from a plan, and a plan without it reads as before", () => {
+    const marked = subOrder('writer', { securityMark });
+    const report = planOf(done(marked, subOrder('reader')));
+    assert.deepEqual(report?.subOrders, [marked, subOrder('reader')]);
+  });
+
+  it('a plan that turns test-first off for a marked sub-order is refused, naming both', () => {
+    const off = { testFirst: false, testFirstOff: 'prose only' };
+    const read = readOutDoc(
+      `---\n${JSON.stringify(done(subOrder('writer', { securityMark, ...off })))}\n---\n# Plan\n`,
+      PlanOutDoc,
+    );
+    assert.equal(read.valid, false);
+    const reason = read.valid ? '' : read.reason;
+    assert.match(reason, /securityMark/);
+    assert.match(reason, /testFirst/);
+  });
+
+  it("a marked sub-order's plan entry shows its mark, escaped as the entry's other text", () => {
+    const hostile = 'the @team <b>title</b> reaches [a path](x) `rm`';
+    const plan = done(subOrder('writer', { securityMark: hostile, doneWhen: hostile }));
+    const report = planOf(plan);
+    assert.ok(report, 'a plan with a mark reads');
+    const entry = planEntryText(fold(planned(plan)), origin);
+    const comment = renderPlan('7-1', 'plan', report);
+    for (const text of [entry, comment]) {
+      const shown = /\n- Done when: (.*)\n/.exec(text)?.[1];
+      assert.ok(shown);
+      assert.ok(!shown.includes('@team'));
+      assert.ok(text.includes(`\n- Recipe \`nip\`: a test pins it\n- Security: ${shown}\n`), text);
+    }
+  });
+
+  it('a secret in a mark is left out of the plan entry', () => {
+    // Built at run time, so no scanner takes this file for one that holds a token.
+    const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const plan = done(subOrder('writer', { securityMark: `it reads ${token}` }));
+    const entry = planEntryText(fold(planned(plan)), origin);
+    assert.ok(!entry.includes(token));
+    assert.match(
+      entry,
+      /- Security: \\\[left out: a text of step plan that looks like a secret\\\]/,
+    );
+  });
+
+  it("a marked sub-order's Taster prompt shows the mark in its planEntry input", async () => {
+    const prompt = await promptOf('security', done(subOrder('writer', { securityMark })));
+    assert.match(
+      prompt,
+      /name="planEntry">\n#### `writer`: Build writer\n[\s\S]*- Security: the issue's title reaches the file path the writer saves to\n[\s\S]*<\/untrusted-input-/,
+    );
+  });
+
+  it('the diff security lens says to check what the mark in its plan entry names', async () => {
+    const prompt = await promptOf('security', done(subOrder('writer')));
+    assert.match(prompt, /`Security` line[\s\S]*Check what the mark names first/);
+    assert.match(prompt, /no such line[^\n]*never means/);
+  });
+
+  it("the Gauger's prompt says to pin the mark in a test", () => {
+    assert.match(instructionsOf('gauge'), /`Security` line[^\n]*pin what the mark names in a test/);
+  });
+
+  it("the Cellarman's prompt says to hold what the mark names in its code", () => {
+    assert.match(instructionsOf('implement'), /`Security` line[^\n]*hold what the mark names/);
+  });
+
+  it("the Brewmaster's prompt marks a sub-order by the plan lens's list", () => {
+    const bullet = /^- \*\*A security mark\.\*\*.*$/m.exec(instructionsOf('plan', 'mash'))?.[0];
+    assert.ok(bullet);
+    for (const item of ['command', 'model', 'file path', 'token', 'dependency', '`securityMark`']) {
+      assert.ok(bullet.includes(item), item);
+    }
+  });
+
+  it('the plan security lens says when a sub-order that lets input in has no mark', () => {
+    const lens = readFileSync(join(FOEDRUM_DEFAULTS, 'lenses', 'plan', 'security.md'), 'utf8');
+    assert.match(lens, /no `securityMark`/);
+  });
+});
