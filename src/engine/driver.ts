@@ -1126,7 +1126,6 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
   // and passes of this driver run one after another (ADR 0033).
   const applyBatch = async (batchId: string): Promise<void> => {
-    let stopped = false;
     // The next effect due from the state as the one before it left it: an effect may change
     // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
     // once a pass.
@@ -1139,22 +1138,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       const { key, target } = next;
       tried.add(effectKey.encode(key));
       heartbeat();
-      if (!claim(batchId) || awaitsTakeover(batchId)) {
-        stopped = true;
-        break;
-      }
+      if (!claim(batchId) || awaitsTakeover(batchId)) return;
       try {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
       } catch (error) {
         report({ kind: 'effect_failed', key, error });
-        stopped = true;
-        break;
+        return;
       }
     }
-    if (!stopped) {
-      finishActions(batchId);
-      recordAfter(batchId);
-    }
+    finishActions(batchId);
+    recordAfter(batchId);
   };
   const applyPass = async (): Promise<void> => {
     if (effects === undefined && actions === undefined) return;
