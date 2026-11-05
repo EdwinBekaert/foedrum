@@ -40,9 +40,28 @@ const porter = recipeText(
   ],
   { testFirst: false },
 );
+// A Taster before its batch moved on: of a plan, since no step before it commits.
+const earlierTaster = { brewer: 'taster', lens: 'plan/naive-reader' };
+const ask = { id: 'ask', brewer: 'cellarman' };
+const open = { id: 'open', action: 'openPullRequest' };
+const diffTaster = (id: string) => ({ id, brewer: 'taster', lens: 'diff/correctness' });
+const building = (name: string, steps: readonly unknown[]) => ({
+  path: `recipes/${name}.jsonc`,
+  text: recipeText(name, steps, { testFirst: false }),
+});
 const loaded = loadRecipes({
   ...readBreweryFiles(join(import.meta.dirname, '..', '..', 'no-brewery')),
-  recipes: [{ path: 'recipes/porter.jsonc', text: porter }],
+  recipes: [
+    { path: 'recipes/porter.jsonc', text: porter },
+    building('reviewed', [{ id: 'old-taster', ...earlierTaster }, ask, open]),
+    building('tasted', [{ id: 'implement', brewer: 'cellarman' }, diffTaster('new-taster'), open]),
+    building('plain-taste', [{ id: 'taste', ...earlierTaster }, ask, open]),
+    building('group-taste', [
+      { id: 'implement', brewer: 'cellarman' },
+      { id: 'taste', parallel: [diffTaster('one'), diffTaster('two')] },
+      open,
+    ]),
+  ],
 });
 if (!loaded.valid) throw new Error(loaded.problems.join('\n'));
 const { recipes } = loaded;
@@ -57,6 +76,17 @@ const done: Ending = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Done', assumptions: [] },
 };
+const tasted = (risk: string): Ending => ({
+  kind: 'succeeded',
+  output: {
+    status: 'done',
+    summary: 'Tasted',
+    assumptions: [],
+    verdict: 'approve',
+    findings: [],
+    riskLeft: [risk],
+  },
+});
 const passed = (name: string): HeadCheck => ({ name, kind: 'check_run', conclusion: 'success' });
 
 /** A code host of one pull request that keeps the comments made on it. */
@@ -118,9 +148,28 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
       answers: [{ q: which.q, answer: recipe }],
     });
   };
+  /** The batch brewed under `recipe` through `first`, then a question, and moved to `chosen`. */
+  const movedOff = (recipe: string, first: () => void, chosen: string): void => {
+    accept({ kind: 'order', batchId, order: { issue: 7 } });
+    accept({ kind: 'route', batchId, recipe, reason: 'label', source: 'label' });
+    first();
+    run('ask', { kind: 'needs_input', questions: [which] });
+    accept({
+      kind: 'recipe',
+      batchId,
+      recipe: chosen,
+      reason: 'a person chose',
+      by: 'ann',
+      via: 'terminal',
+    });
+  };
   /** Porter's steps of the batch routed to it, to On tap: its pull request opened on `head`. */
   const porterToOpen = (): void => {
     run('implement', done);
+    opened();
+  };
+  /** The pull request's action of a batch whose last other step ended: On tap, on `head`. */
+  const opened = (): void => {
     const pushed: PushResult = { branch: 'foedrum/web-7/acme.web', commit: head, from: 'start' };
     const attempt = 1;
     accept({ kind: 'record', event: { type: 'step.started', batchId, stepId: 'open', attempt } });
@@ -179,6 +228,44 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.match(comment.body, /\*\*Ready to merge\.\*\*/);
     assert.match(comment.body, /- ✅ ci\/build \(success\)/);
     assert.doesNotMatch(comment.body, /`innkeep`: (not run|did not pass)/);
+  });
+
+  /** The body of the brief posted for the batch, every check on its head finished. */
+  const briefBody = async (): Promise<string> => {
+    checksFinished();
+    const { host, comments } = fakeHost();
+    assert.deepStrictEqual(await post(effectsOf(host)), ['brief.1']);
+    return comments[0]?.body ?? '';
+  };
+
+  it("shows the risk the current recipe's Taster left, never an earlier recipe's", async () => {
+    movedOff('reviewed', () => run('old-taster', tasted('the plan may be too big')), 'tasted');
+    run('implement', done);
+    run('new-taster', tasted('the cut was not run'));
+    opened();
+    const body = await briefBody();
+    assert.match(body, /- `new-taster`: the cut was not run/);
+    assert.doesNotMatch(body, /the plan may be too big/);
+  });
+
+  it("says no Taster tasted a change only an earlier recipe's Taster read", async () => {
+    movedOff('reviewed', () => run('old-taster', tasted('the plan may be too big')), 'porter');
+    porterToOpen();
+    const body = await briefBody();
+    assert.match(body, /- No Taster tasted this change\./);
+    assert.match(body, /\*\*Risk left\*\*\nNone recorded\./);
+  });
+
+  it('posts the brief of a batch that ran a plain step named as a group of its current recipe', async () => {
+    movedOff('plain-taste', () => run('taste', tasted('the plan may be too big')), 'group-taste');
+    run('implement', done);
+    run('one', tasted('the first risk'));
+    run('two', tasted('the second risk'));
+    opened();
+    const body = await briefBody();
+    assert.doesNotMatch(body, /`taste`/);
+    assert.doesNotMatch(body, /the plan may be too big/);
+    assert.match(body, /- `one`: the first risk\n- `two`: the second risk/);
   });
 
   it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
