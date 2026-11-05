@@ -563,9 +563,11 @@ describe('runServe', () => {
     return { code, briefComments };
   };
 
-  /** A line that says a batch's reading threw: the tick's, or the notice of a pass that went on. */
+  /** A line that says a batch's effects threw: the tick's, a pass's that went on, or one effect's. */
   const failedRead = (line: string): boolean =>
-    line.includes('a tick failed') || line.includes('the other batches go on');
+    line.includes('a tick failed') ||
+    line.includes('the other batches go on') ||
+    /^foedrum serve: the effect .+ failed: /.test(line);
 
   it('ticks with no error for a batch mashed to a building recipe that is on tap with finished checks (#867)', async () => {
     const { code, briefComments } = await brewMashed();
