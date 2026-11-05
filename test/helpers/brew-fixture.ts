@@ -95,12 +95,10 @@ export const brewFixture = (): BrewFixture => {
   });
   afterEach(() => f.dir.remove());
 
-  const log = () => createCommandLog({ store: f.store, recipes: f.setup.recipes });
-  /** The live lease of batch 12-1. */
-  const leaseOf = () => f.store.batchLeases(t0).find(({ batchId }) => batchId === '12-1');
+  f.log = () => createCommandLog({ store: f.store, recipes: f.setup.recipes });
+  f.leaseOf = () => f.store.batchLeases(t0).find(({ batchId }) => batchId === '12-1');
 
-  /** serve's shell with fakes, ticking until brew stops, or failing after 20 ticks. */
-  const shell = (brew: Behaviour, overrides: Partial<ServeShell> = {}): ServeShell => {
+  f.shell = (brew: Behaviour, overrides: Partial<ServeShell> = {}): ServeShell => {
     let ticks = 0;
     const runner = fakeBrewerRunner((attempt) => {
       f.started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
@@ -148,8 +146,5 @@ export const brewFixture = (): BrewFixture => {
     };
   };
 
-  f.log = log;
-  f.leaseOf = leaseOf;
-  f.shell = shell;
   return f;
 };

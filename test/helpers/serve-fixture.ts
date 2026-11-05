@@ -57,8 +57,7 @@ export const serveFixture = (): ServeFixture => {
     );
     assert.equal(result.kind, 'ready');
     f.setup = result.kind === 'ready' ? result.setup : assert.fail();
-    f.store = openSqliteEventStore(':memory:');
-    const inner = f.store;
+    const inner = openSqliteEventStore(':memory:');
     f.closed = 0;
     f.store = {
       ...inner,
@@ -118,7 +117,7 @@ export const serveFixture = (): ServeFixture => {
   };
 
   // GitHub through a fake gh over a fake fetch (ADR 0073).
-  const shell = ({
+  f.shell = ({
     fetch = f.api.fetch,
     ...overrides
   }: Partial<ServeShell> & { fetch?: typeof globalThis.fetch } = {}): ServeShell => ({
@@ -183,13 +182,11 @@ export const serveFixture = (): ServeFixture => {
     ...overrides,
   });
 
-  const types = () =>
+  f.types = () =>
     f.store
       .eventsAfter(0)
       .map(({ event }) => event.type)
       .filter((type) => type !== 'effect.applied');
 
-  f.shell = shell;
-  f.types = types;
   return f;
 };
