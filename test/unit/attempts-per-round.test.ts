@@ -279,6 +279,13 @@ describe('a brewer step counts its attempts since its latest that delivered (ADR
     const open = 'open-pull-request';
     assert.equal(recipe.roundAttempts(batchWith(open, [ok, failed, failed, failed]), open), 3);
   });
+
+  it("a check's stuck number holds its empty reads and the failed reading that ended them: regression test", () => {
+    const recipe = loaded.recipes.find('nip') ?? assert.fail('no recipe nip');
+    const readFailed: StepOutcome = { kind: 'failed', retryable: false, reason: 'exit code 1' };
+    const ended = batchWith('green', [ok, failed, failed, readFailed]);
+    assert.equal(recipe.roundAttempts(ended, 'green'), 3);
+  });
 });
 
 describe('a check step counts its empty reads since its latest reading (ADR 0325)', () => {

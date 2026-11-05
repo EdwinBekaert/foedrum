@@ -326,6 +326,21 @@ describe('routeOf', () => {
     assert.match(route?.text ?? '', /Wrong slug/);
   });
 
+  it('gives a second fresh retry in the round what sent it back too: regression test', () => {
+    const route = planned(
+      [
+        ...blockedGauge,
+        { type: 'step.scheduled', ...third, deadlineAt, retry: true },
+        { type: 'step.started', ...third, worktree: worktreeOf('gauge-3') },
+        { type: 'step.finished', ...third, ...failedOnce },
+        { type: 'step.scheduled', ...third, attempt: 4, deadlineAt, retry: true },
+      ],
+      'gauge',
+      4,
+    );
+    assert.match(route?.text ?? '', /Wrong slug/);
+  });
+
   it('gives an attempt nothing that neither a route nor a retry of one scheduled: regression test', () => {
     const route = planned(
       [...blockedGauge, { type: 'step.scheduled', ...third, deadlineAt }],
