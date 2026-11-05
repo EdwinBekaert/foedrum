@@ -25,7 +25,7 @@ The two new readers have the shape of the first two: no change to the core beyon
   Broken TOML, a dependency that is neither a string nor a table, a `name` or a source key that is not a string, and a key of a dependency outside the keys Cargo's schema names (`TomlDetailedDependency` and `TomlInheritedDependency` in `cargo-util-schemas`, as read on 2026-11-05) make the manifest unreadable, with a reason that names the dependency and the key.
 - **`go-manifest.ts` reads each `go.mod`, line by line.**
   `module` is what it publishes, and `require` and `replace`, on one line or in a block, are its dependencies; other directives are ignored.
-  No `module` line, a malformed `require` or `replace` and an unclosed block make it unreadable.
+  No `module` line, a malformed `module`, `require` or `replace`, a quote that does not close on any line and an unclosed block make it unreadable.
 - **A `replace` says where a required module really comes from.**
   It takes the place of the `require` it names: the one of the same version, else one that names no version; one of another version does not apply.
   One whose module no `require` names is still kept, since the manifest declares the link.
@@ -41,6 +41,8 @@ The two new readers have the shape of the first two: no change to the core beyon
 
 ## Consequences
 - A Brewery with Rust or Go repositories gives its planners the same lines as npm and .NET ones, and a Brewery with neither gives the text it gave before.
+- A repository already mapped when this reader arrives keeps its entry, with no Cargo or Go lines, until its base moves: ADR 0317 reads a repository again only then, and the record refuses a second entry at one commit.
+  So a link to such a library shows only after that library's next merge, and `foedrum doctor`, which reads the clones as they are now, may show it first.
 - A key Cargo adds to a dependency after that read makes that manifest unreadable until the list is extended, losing its links for a while; the line names the key, so a person can see why.
   It is the price of a reader that never drops a source it does not know, and it is one line to fix.
 - `require github.com/acme/lib/v2` shows no link once `acme/lib`'s `go.mod` at its base says `/v3`, because a required module links only by the name published.
