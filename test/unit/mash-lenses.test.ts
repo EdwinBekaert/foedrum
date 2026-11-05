@@ -104,7 +104,7 @@ describe('the default recipes that plan (ADR 0321)', () => {
       'order-and-overlap': 'touch the same files',
       testability: 'a test or a run can show',
       'recipe-fit': 'the recipe each sub-order names',
-      security: 'trust boundary',
+      security: 'lets outside input reach something that acts on it',
     };
     const { lenses } = defaults().catalog;
     const plan = lenses.filter(({ name }) => name.startsWith('plan/'));
@@ -123,6 +123,15 @@ describe('the default recipes that plan (ADR 0321)', () => {
       assert.ok(opening?.includes('stay inside this one'), name);
       assert.match(text, /^## Do not$/m, name);
     }
+  });
+
+  it("the security plan lens adds a repository's own trust boundaries to its question and never limits it", () => {
+    const lens = defaults().catalog.lenses.find(({ name }) => name === 'plan/security');
+    const text = lens?.text ?? assert.fail('no plan/security');
+    assert.match(text, /`\.foedrum\/trust-boundaries\.md`/);
+    assert.match(text, /not listed there never means safe/i);
+    // Foedrum's own page ships to no Brewery.
+    assert.doesNotMatch(text, /docs\/trust-boundaries/);
   });
 
   it('gives a plan lens step the recipes a sub-order may name, and a diff lens step none', () => {
