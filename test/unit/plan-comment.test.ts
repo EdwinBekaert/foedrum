@@ -776,7 +776,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.equal(
       only().body,
-      `${renderPlan('7-1', 'plan', three, undefined, undefined, true)}\n\n${marker(1)}`,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, ['recipe'])}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
   });
