@@ -1,14 +1,15 @@
 // npm's manifest for the system map (ADR 0317): `package.json`'s name is the package a repository
 // publishes, and each dependency field's entries what it depends on, a git URL or a folder included.
 
-import { posix } from 'node:path';
 import { parseJson } from './json.ts';
 import {
   type DependencyVia,
   fileName,
+  fromRoot,
   inBuiltFolder,
   type ManifestDependency,
   type ManifestReader,
+  withoutBom,
 } from './manifest-reader.ts';
 
 const FIELDS = [
@@ -34,13 +35,10 @@ const viaOf = (path: string, spec: string): DependencyVia => {
     return { kind: 'git', url: spec.slice(0, hash), ...(ref === '' ? {} : { ref }) };
   }
   if (spec.startsWith('file:')) {
-    const folder = spec.slice('file:'.length).replaceAll('\\', '/');
-    return { kind: 'project', path: posix.normalize(posix.join(posix.dirname(path), folder)) };
+    return { kind: 'project', path: fromRoot(path, spec.slice('file:'.length)) };
   }
   return { kind: 'package', version: spec };
 };
-
-const BOM = String.fromCodePoint(0xfeff);
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -49,7 +47,7 @@ export const npmManifest: ManifestReader = {
   ecosystem: 'npm',
   matches: (path) => fileName(path) === 'package.json' && !inBuiltFolder(path),
   read: (path, text) => {
-    const manifest = parseJson(text.startsWith(BOM) ? text.slice(1) : text);
+    const manifest = parseJson(withoutBom(text));
     if (!isObject(manifest)) return { kind: 'unreadable', reason: 'it is not a JSON object' };
     const publishes = typeof manifest.name === 'string' ? [manifest.name] : [];
     const dependsOn: ManifestDependency[] = [];

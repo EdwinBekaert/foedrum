@@ -112,16 +112,19 @@ export const bumped = (manifest: string, prompt: string): string => {
   return manifest.replace(pinned, `"${PACKAGE}": "${version}"`);
 };
 
-/** The `release` input's lines in the prompt, between its tags; none without one. */
-export const releaseLines = (prompt: string): string[] => {
+/** The lines of the input `name` in the prompt, between its tags; none without one. */
+export const inputLines = (prompt: string, name: string): string[] => {
   const lines = prompt.split(/\r?\n/);
-  const opening = /^<(untrusted-input-\w+) source="[^"]*" name="release">$/;
+  const opening = new RegExp(`^<(untrusted-input-\\w+) source="[^"]*" name="${name}">$`);
   const open = lines.findIndex((line) => opening.test(line));
   if (open === -1) return [];
   const [, tag = ''] = opening.exec(lines[open] ?? '') ?? [];
   const close = lines.indexOf(`</${tag}>`, open);
   return lines.slice(open + 1, close === -1 ? undefined : close);
 };
+
+/** The `release` input's lines in the prompt; none without one. */
+export const releaseLines = (prompt: string): string[] => inputLines(prompt, 'release');
 
 /**
  * What an attempt commits, from what it reads: the plan from the folder of checkouts, the

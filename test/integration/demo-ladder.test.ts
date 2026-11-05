@@ -192,6 +192,15 @@ describe('npm run demo -- ladder', () => {
     }
   });
 
+  it('the ladder demo prints the system map the Brewmaster reads', () => {
+    assert.equal(result.exitCode, 0, result.output);
+    const at = (index: number) => result.stdout.indexOf(headingOf(index, LADDER_STEPS));
+    assert.match(
+      result.stdout.slice(at(0), at(1)),
+      /demo: the Brewmaster of batch 1-1 reads the system map, as \{repositories\}:\n.*?\n +publishes `@demo\/greet` \(npm\)\n.*?\n +depends on `@demo\/greet` from demo\/lib by version `1\.3\.0` \(npm\)\n/s,
+    );
+  });
+
   it("the ladder shows each issue's label and Next line at the plan review and once a sub-order is on tap (#777)", () => {
     assert.equal(result.exitCode, 0, result.output);
     const standing = (issue: number, label: string, next: string): RegExp =>

@@ -10,11 +10,14 @@ Foedrum computes it from manifests, with git and no model, and never writes it i
   The core (`src/engine/system-map.ts`) walks the list `READERS` and knows no ecosystem.
   - npm (`npm-manifest.ts`): `package.json`'s `name`, and each entry of `dependencies`, `devDependencies`, `peerDependencies` and `optionalDependencies` as a version, a git URL with the ref after its `#`, or a `file:` folder, read from the manifest's own folder with `/` between its folders.
   - .NET (`dotnet-manifest.ts`): a `.csproj`, `.fsproj` or `.vbproj` file's `PackageId` (else its file name when `IsPackable` or `GeneratePackageOnBuild` is true), its `PackageReference`s and its `ProjectReference`s, and a `.sln` file's projects outside the repository.
-  - Manifests under `node_modules`, `bin` and `obj` are not read.
+  - Cargo (`cargo-manifest.ts`, [ADR 0320](../../adr/0320-the-system-map-reads-cargo-and-go-manifests.md)): `Cargo.toml`'s `[package] name`, and each entry of `dependencies`, `dev-dependencies` and `build-dependencies`, also under `[target.<cfg>]`, and of `[workspace.dependencies]`, Cargo's older spellings among them, as a git URL with its `tag`, `rev` or `branch` as the ref, a `path` from the manifest's folder, or a version; `package =` gives its real name, and a `workspace = true` entry gives none, since the workspace's own entry gives the link.
+    Each workspace member is read from its own `Cargo.toml`.
+  - Go (`go-manifest.ts`, ADR 0320): `go.mod`'s `module`, and each `require` as a version, or as its `replace`: another module with its version, a git URL cut to its first three segments, or a folder from the manifest's folder; a `replace` no `require` names is kept as a dependency too.
+  - npm and .NET don't read manifests under `node_modules`, `bin` and `obj`; Cargo doesn't read under `node_modules`, `vendor` or deeper than directly in a `target` folder; Go doesn't read under `node_modules`, `vendor` or `testdata`.
 - The repository's test map at the same commit, for its module names ([test map](../checks/test-map.md)).
 
 Every name, version, URL and path is untrusted repository text: it is cut to one line of at most 120 characters, its control characters and line breaks made spaces and a backtick a quote, and each list to 200 items with the rest counted.
-A manifest that cannot be parsed, or that git cannot read, is kept as a line saying why.
+A manifest that cannot be parsed, or that git cannot read, is kept as a line saying why; for Cargo that includes a key of a dependency outside the keys Cargo's schema names, which the line names.
 
 ## Where it is kept, and when it is read again
 

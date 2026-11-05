@@ -320,6 +320,60 @@ describe('the system map', () => {
     assert.deepEqual(late, { again: 'git did not read p1/package.json: git timed out' });
   });
 
+  it('an npm and a .NET repository map as before (regression test)', () => {
+    const library = lib(
+      entryOf(
+        [
+          { path: 'package.json', text: JSON.stringify({ name: '@demo/greet' }) },
+          {
+            path: 'Words.csproj',
+            text: '<Project><PropertyGroup><PackageId>Acme.Words</PackageId></PropertyGroup></Project>',
+          },
+        ],
+        [],
+      ),
+    );
+    const manifest = JSON.stringify({ name: 'web', dependencies: { '@demo/greet': '1.0.0' } });
+    const project =
+      '<Project><ItemGroup><PackageReference Include="Acme.Words" Version="2.0.0" /></ItemGroup></Project>';
+    const app = {
+      repo: 'acme/web',
+      entry: entryOf(
+        [
+          { path: 'package.json', text: manifest },
+          { path: 'Web.csproj', text: project },
+        ],
+        ['core'],
+      ),
+    };
+    assert.deepEqual(mapLines(app, [library, app]), [
+      'manifests: package.json (npm), Web.csproj (.NET)',
+      'publishes `web` (npm)',
+      'depends on `@demo/greet` from acme/ladderlib by version `1.0.0` (npm)',
+      'depends on `Acme.Words` from acme/ladderlib by version `2.0.0` (.NET)',
+      'test map modules: core',
+    ]);
+  });
+
+  it('a Brewery with no Cargo or Go files has the same text as before (regression test)', async () => {
+    const commit = 'a'.repeat(40);
+    const read = await manifestsAt(async (_cwd, args) =>
+      args[0] === 'ls-tree'
+        ? { code: 0, stdout: 'README.md\0src/main.ts\0', stderr: '' }
+        : { code: 1, stdout: '', stderr: 'read nothing' },
+    )('/clone', commit);
+    assert.deepEqual(read, { files: [], left: 0 });
+    const repository = {
+      repo: 'acme/web',
+      description: 'the web application',
+      entry: entryOf([], []),
+    };
+    assert.deepEqual(
+      cappedMap([{ line: '- acme/web, base main', map: mapLines(repository, [repository]) }]),
+      ['- acme/web, base main', '  the web application'],
+    );
+  });
+
   it('reads each git form of an npm dependency, a BOM, and refuses a field that is no object (regression test)', () => {
     const vias = (dependencies: Record<string, string>) => {
       const read = npmManifest.read('package.json', JSON.stringify({ dependencies }));

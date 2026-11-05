@@ -4,7 +4,8 @@
 // condition read from its store (`ladderLifeEnd`), on the first tick after it with no new event, so
 // the effects of the last change are applied first. scripts/demo/ladder.ts starts it, through
 // scripts/demo.ts: `node scripts/demo/ladder-cellar.ts <scratch> plan|lib|web|close`. It shows
-// `foedrum status` whenever the store has changed, and the release input an attempt was told.
+// `foedrum status` whenever the store has changed, the system map the Brewmaster read, and the
+// release input an attempt was told.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,7 +21,7 @@ import { runGit } from '../../src/workspace/git.ts';
 import { codeHost, fileJournal } from './code-host.ts';
 import { DIAGNOSIS } from './core.ts';
 import { LADDER_HOST, type LadderLife, ladderLifeEnd, ladderTick, TOLD_LINE } from './ladder.ts';
-import { ladderBrewers, releaseLines } from './ladder-brewers.ts';
+import { inputLines, ladderBrewers, releaseLines } from './ladder-brewers.ts';
 import { STATUS_LINE } from './walkthrough.ts';
 
 /** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
@@ -108,6 +109,13 @@ const shell: ServeShell = {
         writeFileSync(path, text);
       },
       brewed: (ref, prompt) => {
+        const map = ref.stepId === 'plan' ? inputLines(prompt, 'repositories') : [];
+        if (map.length > 0) {
+          out(
+            `demo: the Brewmaster of batch ${ref.batchId} reads the system map, as {repositories}:`,
+          );
+          for (const line of map) out(line === '' ? '' : `  ${line}`);
+        }
         const told = releaseLines(prompt);
         if (told.length === 0) return;
         out(`${TOLD_LINE} batch ${ref.batchId} is told the release it waited for, as {release}:`);
