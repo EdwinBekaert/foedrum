@@ -13,7 +13,7 @@ ADR 0179 leads `foedrum brew`'s live line with the batch's time as a bare number
 - `foedrum status --watch`'s board is not changed.
 
 ## Consequences
-- The line is 12 or 18 columns longer before its first attempt; on a narrow terminal the attempts' last parts are cut sooner.
+- The line is 12 or 17 columns longer before its first attempt; on a narrow terminal the attempts' last parts are cut sooner.
 - No migration: the words are drawn, not recorded.
 
 ## Alternatives considered
