@@ -351,8 +351,8 @@ export const scoreAttempts = <Planted extends { id: string; lens: string }>(
 };
 
 /** Scores a run against the defects of its setup's lenses; every other finding is listed. */
-export const scoreRun = (record: RunRecord, key: Key, lenses = SETUPS[record.setup].lenses) =>
-  scoreAttempts(record.attempts, defectsOf(key, lenses), onDefect);
+export const scoreRun = (record: RunRecord, key: Key) =>
+  scoreAttempts(record.attempts, defectsOf(key, SETUPS[record.setup].lenses), onDefect);
 
 /** A setup as the table shows it: the three that run, and Nip's three apart read from apart-7. */
 export type Shown = SetupName | 'apart-nip';
@@ -475,6 +475,15 @@ export const runsOfSetup = <Setup extends string>(
   return { scored, failed };
 };
 
+/** `scored` as the steps of `lenses` alone, which never ran on their own, so have no wall time. */
+export const runsReadFrom = (scored: readonly Scored[], lenses: readonly string[]): Scored[] => {
+  const steps = new Set(lenses.map(stepIdOf));
+  return scored.map(({ attempts }) => ({
+    attempts: attempts.filter(({ stepId }) => steps.has(stepId)),
+    wallMs: Number.NaN,
+  }));
+};
+
 /**
  * Each shown setup over its runs. Nip's three apart are apart-7's correctness, acceptance and
  * security attempts, side by side: their tasting time is the longest of the three, and they have no
@@ -485,16 +494,7 @@ export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary
     const read = setup === 'apart-nip';
     const { scored, failed } = runsOfSetup(records, read ? 'apart-7' : setup, runFailure);
     const planted = defectsOf(key, read ? NIP : SETUPS[setup].lenses);
-    const nipSteps = new Set(NIP.map(stepIdOf));
-    const runs = scored.map(({ attempts, wallMs }) =>
-      read
-        ? {
-            attempts: attempts.filter(({ stepId }) => nipSteps.has(stepId)),
-            // Its three steps never ran on their own, so it has no wall time of its own.
-            wallMs: Number.NaN,
-          }
-        : { attempts, wallMs },
-    );
+    const runs: readonly Scored[] = read ? runsReadFrom(scored, NIP) : scored;
     const scores = runs.map(({ attempts }) => scoreAttempts(attempts, planted, onDefect));
     return summaryOf(setup, planted, runs, scores, failed);
   });
@@ -570,7 +570,7 @@ const thousands = (value: number): string =>
 const seconds = (ms: number): string => (Number.isNaN(ms) ? '-' : `${round(ms / 1000, 0)} s`);
 
 /** What a mode's one table names: its planted word and rows, its choices, and a setup that is only read. */
-export interface TableParts {
+interface TableParts {
   planted: string;
   rows: readonly { id: string; lens: string }[];
   choices: readonly string[];

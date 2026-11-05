@@ -180,7 +180,6 @@ const planMode = (): Mode<PlanSetupName> => {
 
 /** Brews every run of `mode` that has no record yet, and prints its one table. */
 const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> => {
-  const { setups } = mode;
   const folder = join(
     root,
     '.foedrum',
@@ -332,7 +331,7 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
 
   mkdirSync(folder, { recursive: true });
   say(
-    `tasting-compare: ${runs} runs of ${setups.join(', ')} in ${folder}${dryRun ? ', the Tasters scripted' : ', the Tasters on the real claude'}`,
+    `tasting-compare: ${runs} runs of ${mode.setups.join(', ')} in ${folder}${dryRun ? ', the Tasters scripted' : ', the Tasters on the real claude'}`,
   );
   for (
     let next = mode.next(readRecords(), runs);

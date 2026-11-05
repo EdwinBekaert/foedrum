@@ -15,6 +15,8 @@ import {
   type RunScore,
   recordIn,
   runsOfSetup,
+  runsReadFrom,
+  type Scored,
   type SetupSummary,
   saidChoice,
   scoreAttempts,
@@ -52,7 +54,7 @@ const SETUP_NAMES = Object.keys(PLAN_SETUPS) as PlanSetupName[];
 export type PlanRunRecord = RunRecord<PlanSetupName>;
 
 /** A setup as the table shows it: the three that run, and `mash`'s three apart read from the seven. */
-export type PlanShown = PlanSetupName | 'plan-apart-mash';
+type PlanShown = PlanSetupName | 'plan-apart-mash';
 const READ: PlanShown = 'plan-apart-mash';
 const SHOWN: readonly PlanShown[] = ['plan-apart-7', 'plan-together-7', READ, 'plan-together-mash'];
 
@@ -96,14 +98,14 @@ export const planRecipeText = (setup: PlanSetupName): string => {
 };
 
 /** One planted mistake: its lens, the sub-orders at fault, the field it is in, and what it is. */
-export interface Mistake {
+interface Mistake {
   id: string;
   lens: string;
   subOrders: readonly string[];
   field: string;
   what: string;
 }
-export interface PlanKey {
+interface PlanKey {
   mistakes: readonly Mistake[];
 }
 
@@ -171,22 +173,13 @@ export const summarizePlan = (
   key: PlanKey,
 ): SetupSummary<PlanShown>[] =>
   SHOWN.map((setup) => {
-    const read = setup === READ;
     const { scored, failed } = runsOfSetup(
       records,
       setup === READ ? 'plan-apart-7' : setup,
       planRunFailure,
     );
     const planted = mistakesOf(key, setup === READ ? MASH : PLAN_SETUPS[setup].lenses);
-    const mashSteps = new Set<string>(MASH.map(stepIdOf));
-    const runs = scored.map(({ attempts, wallMs }) =>
-      read
-        ? {
-            attempts: attempts.filter(({ stepId }) => mashSteps.has(stepId)),
-            wallMs: Number.NaN,
-          }
-        : { attempts, wallMs },
-    );
+    const runs: readonly Scored[] = setup === READ ? runsReadFrom(scored, MASH) : scored;
     const scores = runs.map(({ attempts }) => scoreAttempts(attempts, planted, onMistake));
     return summaryOf(setup, planted, runs, scores, failed);
   });
