@@ -94,18 +94,18 @@ describe('the Cargo manifest', () => {
     ]);
   });
 
-  it("refuses a dependency key outside Cargo's reference, naming the key", () => {
+  it("refuses a dependency key outside Cargo's schema, naming the key", () => {
     assert.deepEqual(dependsOn('[dependencies]\ngreet = { version = "1", frob = true }\n'), {
       kind: 'unreadable',
-      reason: 'its dependency greet has the key frob, which Cargo documents no meaning for',
+      reason: "its dependency greet has the key frob, which Cargo's schema does not name",
     });
     assert.deepEqual(dependsOn('[dependencies.greet]\nversion = "1"\nfeatures.x = "y"\n'), {
       kind: 'unreadable',
-      reason: 'its dependency greet has the key features.x, which Cargo documents no meaning for',
+      reason: "its dependency greet has the key features.x, which Cargo's schema does not name",
     });
   });
 
-  it("reads every key of Cargo's reference without refusing it", () => {
+  it("reads every key of Cargo's schema without refusing it", () => {
     const keys = [
       'artifact = "bin"',
       'base = "b"',
