@@ -2077,9 +2077,10 @@ describe('loadRecipes: a plan step counts its attempts since its latest plan (AD
       );
     });
 
-    it('that reviews a diff still counts over the batch: regression test', () => {
+    it('that reviews a diff counts its attempts since its latest review (ADR 0324)', () => {
       const lens = tasting({ lens: 'diff/a', diff: true });
-      assert.equal(lens.mayRetry(ended('taste', ['reviewed', 'failed']), 'taste'), false);
+      assert.equal(lens.mayRetry(ended('taste', ['reviewed', 'failed']), 'taste'), true);
+      assert.equal(lens.mayRetry(ended('taste', ['reviewed', 'failed', 'failed']), 'taste'), false);
     });
   });
 });

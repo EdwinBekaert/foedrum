@@ -84,6 +84,44 @@ const assertExhausted = (events: readonly Event[], stepId: string, attempts: num
 };
 
 describe('a lens step counts its attempts since its latest review (ADR 0324)', () => {
+  it('a diff lens step that reviewed in an earlier round may fail once in a later round and retry', async () => {
+    const steps = started(
+      await brew('nip', {
+        ...nipUpToTasting(2),
+        correctness: [asksChanges, fails, approves],
+        acceptance: [approves, approves],
+        security: [approves, approves],
+      }),
+    );
+    assert.equal(times(steps, 'correctness'), 3, steps.join(', '));
+    assert.equal(steps.at(-1), 'open-pull-request', steps.join(', '));
+  });
+
+  it("an advisory Nip Taster's one failure in round 2 does not leave the batch Stuck", async () => {
+    const events = await brew('nip', {
+      ...nipUpToTasting(2),
+      correctness: [asksChanges, approves],
+      acceptance: [approves, fails, approves],
+      security: [approves, approves],
+    });
+    const steps = started(events);
+    assert.equal(times(steps, 'acceptance'), 3, steps.join(', '));
+    assert.equal(steps.at(-1), 'open-pull-request', steps.join(', '));
+    assert.notEqual(lane(events).kind, 'stuck', JSON.stringify(lane(events)));
+  });
+
+  it('a diff lens step that fails twice in a later round goes Stuck', async () => {
+    const events = await brew('nip', {
+      ...nipUpToTasting(2),
+      correctness: [asksChanges, approves],
+      acceptance: [approves, fails, fails, approves],
+      security: [approves, approves],
+    });
+    assert.equal(times(started(events), 'acceptance'), 3, started(events).join(', '));
+    assertExhausted(events, 'acceptance', 3);
+    assert.ok(!started(events).includes('open-pull-request'), started(events).join(', '));
+  });
+
   it('a diff lens step that fails twice in its first round goes Stuck: regression test', async () => {
     const events = await brew('nip', {
       ...nipUpToTasting(1),
