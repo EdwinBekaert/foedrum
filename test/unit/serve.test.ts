@@ -1390,6 +1390,17 @@ describe('formatNotice', () => {
     );
   });
 
+  it('names the batch whose effects could not be read, and says the others go on (#867)', () => {
+    assert.equal(
+      formatNotice({
+        kind: 'batch_failed',
+        batchId: '12-1',
+        error: new Error('Recipe nip has no step innkeep'),
+      }),
+      'batch 12-1 failed, and the other batches go on: Recipe nip has no step innkeep',
+    );
+  });
+
   it('counts one worktree and one branch in the singular (regression test)', () => {
     assert.equal(
       formatNotice({

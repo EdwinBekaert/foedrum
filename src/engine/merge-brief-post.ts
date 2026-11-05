@@ -260,7 +260,9 @@ const endedText = (attempt: Attempt): string => {
  */
 const notRunLines = (steps: Steps, proof: string | undefined): string[] =>
   steps.ids.flatMap((stepId) => {
-    if (stepId === proof || steps.recipe?.action(stepId) !== undefined) return [];
+    // A step of an earlier recipe the batch brewed (a mashed batch's innkeep) is not this recipe's.
+    if (stepId === proof || steps.recipe?.has(stepId) === false) return [];
+    if (steps.recipe?.action(stepId) !== undefined) return [];
     const skipped = skippedBy(steps, stepId);
     if (skipped !== undefined) return [`- ${code(stepId)}: ${notRunText(skipped)}.`];
     const step = steps.batch.steps.get(stepId);

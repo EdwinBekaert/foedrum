@@ -101,6 +101,8 @@ export type DriverNotice =
   | { kind: 'batch_lost'; batchId: string; holder: BatchLease }
   /** Applying an effect failed; the batch's other effects wait for the next pass. */
   | { kind: 'effect_failed'; key: EffectKey; error: unknown }
+  /** Reading a batch's effects threw; the batch waits for the next pass and the others go on. */
+  | { kind: 'batch_failed'; batchId: string; error: unknown }
   /**
    * The runner's end of an attempt rejected: the attempt is blocked on its environment, and the
    * other runs go on (ADR 0099).
@@ -1123,38 +1125,46 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
   // and passes of this driver run one after another (ADR 0033).
+  const applyBatch = async (batchId: string): Promise<void> => {
+    let stopped = false;
+    // The next effect due from the state as the one before it left it: an effect may change
+    // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
+    // once a pass.
+    const tried = new Set<string>();
+    for (;;) {
+      const next = pending(log.state(), batchId).find(
+        ({ key }) => !tried.has(effectKey.encode(key)),
+      );
+      if (next === undefined) break;
+      const { key, target } = next;
+      tried.add(effectKey.encode(key));
+      heartbeat();
+      if (!claim(batchId) || awaitsTakeover(batchId)) {
+        stopped = true;
+        break;
+      }
+      try {
+        await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
+      } catch (error) {
+        report({ kind: 'effect_failed', key, error });
+        stopped = true;
+        break;
+      }
+    }
+    if (!stopped) {
+      finishActions(batchId);
+      recordAfter(batchId);
+    }
+  };
   const applyPass = async (): Promise<void> => {
     if (effects === undefined && actions === undefined) return;
     const state = log.state();
     for (const batch of state.batches.values()) {
-      let stopped = false;
-      // The next effect due from the state as the one before it left it: an effect may change
-      // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
-      // once a pass.
-      const tried = new Set<string>();
-      for (;;) {
-        const next = pending(log.state(), batch.id).find(
-          ({ key }) => !tried.has(effectKey.encode(key)),
-        );
-        if (next === undefined) break;
-        const { key, target } = next;
-        tried.add(effectKey.encode(key));
-        heartbeat();
-        if (!claim(batch.id) || awaitsTakeover(batch.id)) {
-          stopped = true;
-          break;
-        }
-        try {
-          await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
-        } catch (error) {
-          report({ kind: 'effect_failed', key, error });
-          stopped = true;
-          break;
-        }
-      }
-      if (!stopped) {
-        finishActions(batch.id);
-        recordAfter(batch.id);
+      // A batch whose effects cannot be read is reported and left: the others go on (#867).
+      try {
+        await applyBatch(batch.id);
+      } catch (error) {
+        report({ kind: 'batch_failed', batchId: batch.id, error });
       }
     }
   };
