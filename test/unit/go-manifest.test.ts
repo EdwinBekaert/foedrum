@@ -178,4 +178,17 @@ describe('the Go manifest', () => {
       assert.equal(goManifest.matches(path), false, path);
     }
   });
+
+  it('refuses a quote that does not close, whichever line and quote it is', () => {
+    const reason = 'a line has a quote that does not close';
+    for (const text of [
+      'module "x.io/a\n',
+      'module `x.io/a\n',
+      'module x.io/a\nrequire "x.io/b v1.0.0\n',
+      'module x.io/a\nreplace x.io/b => "\n',
+    ]) {
+      assert.deepEqual(goManifest.read('go.mod', text), { kind: 'unreadable', reason }, text);
+    }
+    assert.equal(goManifest.read('go.mod', 'module x.io/a // not "quoted\n').kind, 'read');
+  });
 });

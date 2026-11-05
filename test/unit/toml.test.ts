@@ -156,4 +156,37 @@ d = """e"""""
       ['x|y', 'table'],
     ]);
   });
+
+  it('refuses a key of too many parts or too long a part, so a kept path stays small', () => {
+    const dotted = (count: number) => Array.from({ length: count }, () => 'a').join('.');
+    const refuses = (toml: string, reason: RegExp) =>
+      assert.throws(
+        () => readToml(toml),
+        (error: unknown) => error instanceof NotToml && reason.test(error.message),
+        toml.slice(0, 40),
+      );
+    refuses(`[${dotted(65)}]`, /a key of too many parts on line 1/);
+    refuses(`${dotted(65)} = 1`, /a key of too many parts on line 1/);
+    refuses(`[${dotted(60)}]\n${dotted(5)} = 1`, /a key of too many parts on line 2/);
+    refuses(`${dotted(40)} = { ${dotted(25)} = 1 }`, /a key of too many parts on line 1/);
+    refuses(`${'k'.repeat(1025)} = 1`, /a key part too long on line 1/);
+    refuses(`"${'k'.repeat(1025)}" = 1`, /a key part too long on line 1/);
+    assert.equal(readToml(`[${dotted(64)}]`).length, 1);
+    assert.equal(readToml(`${'k'.repeat(1024)} = 1`).length, 1);
+  });
+
+  it('reads a date and time written with a space, and no other value so', () => {
+    assert.deepEqual(entries('a = 1979-05-27 07:32:00\nb = "c"\n'), [
+      ['a', 'other'],
+      ['b', 'c'],
+    ]);
+    for (const toml of ['a = 1979-05-27 x', 'a = 12 07:32:00']) {
+      assert.throws(
+        () => readToml(toml),
+        (error: unknown) =>
+          error instanceof NotToml && /text after a statement/.test(error.message),
+        toml,
+      );
+    }
+  });
 });

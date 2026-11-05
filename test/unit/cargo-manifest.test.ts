@@ -283,4 +283,20 @@ describe('the Cargo manifest', () => {
       [],
     );
   });
+
+  it("reads Cargo's older spellings of its tables", () => {
+    const read = cargoManifest.read(
+      'Cargo.toml',
+      '[project]\nname = "old"\n[dev_dependencies]\nd = "1"\n[build_dependencies]\nb = "2"\n[target.x.dev_dependencies]\nt = "3"\n',
+    );
+    assert.deepEqual(read, {
+      kind: 'read',
+      publishes: ['old'],
+      dependsOn: [
+        { name: 'd', via: { kind: 'package', version: '1' } },
+        { name: 'b', via: { kind: 'package', version: '2' } },
+        { name: 't', via: { kind: 'package', version: '3' } },
+      ],
+    });
+  });
 });
