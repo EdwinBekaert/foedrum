@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
@@ -26,13 +26,12 @@ import {
   subOrderOfWhy,
   summarizePlan,
 } from '../../scripts/tasting-compare/plan.ts';
-import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { parseJsonc } from '../../src/formats/jsonc.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { type PlannedSubOrder, PlanOutDoc } from '../../src/schemas/plan.ts';
 import { Recipe } from '../../src/schemas/recipe.ts';
-import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const USAGE = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 1000, cacheWriteTokens: 300 };
 
@@ -90,8 +89,14 @@ describe('the seeded plan', () => {
         planted.add(name);
       }
     }
-    // At least one sub-order holds nothing, as a control.
-    assert.ok(subOrders.some(({ id }) => !planted.has(id)));
+    // Two sub-orders hold nothing, as controls.
+    assert.deepEqual(
+      subOrders
+        .map(({ id }) => id)
+        .filter((id) => !planted.has(id))
+        .sort(),
+      ['readme', 'remind'],
+    );
   });
 
   it("the seeded plan's touches exist at the base, or are marked new", () => {
@@ -157,22 +162,20 @@ describe('the plan setups', () => {
   });
 
   it("plan mode's recipes load with Foedrum's defaults, with no blocking step", () => {
-    const brewery = makeTempDir('tasting-compare-plan');
-    try {
-      mkdirSync(join(brewery.path, 'recipes'), { recursive: true });
-      writeFileSync(
-        join(brewery.path, 'recipes', 'prose.jsonc'),
-        readText(planFixture, 'prose.jsonc'),
-      );
-      for (const name of SETUP_NAMES) {
-        writeFileSync(join(brewery.path, 'recipes', `${name}.jsonc`), planRecipeText(name));
-        assert.doesNotMatch(planRecipeText(name), /blocking|onBlocked|openPullRequest/, name);
-      }
-      const loaded = loadRecipes(readBreweryFiles(brewery.path));
-      assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
-    } finally {
-      brewery.remove();
+    for (const name of SETUP_NAMES) {
+      assert.doesNotMatch(planRecipeText(name), /blocking|onBlocked|openPullRequest/, name);
     }
+    const loaded = loadRecipes({
+      ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+      recipes: [
+        { path: 'recipes/prose.jsonc', text: readText(planFixture, 'prose.jsonc') },
+        ...SETUP_NAMES.map((name) => ({
+          path: `recipes/${name}.jsonc`,
+          text: planRecipeText(name),
+        })),
+      ],
+    });
+    assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
   });
 
   it('each apart step names the model decoction gives its lens, and a together step none', () => {
