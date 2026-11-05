@@ -143,6 +143,22 @@ describe('the default recipes that plan (ADR 0321)', () => {
     assert.equal(loaded.brewers.find('nip', 'correctness')?.choices, undefined);
   });
 
+  it('gives a step of several plan lenses together the recipes too: regression test', () => {
+    const files = readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery'));
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'read', brewer: 'taster', lenses: ['plan/naive-reader', 'plan/sizing'] },
+    ];
+    const text = recipeText('kettle', steps, { testFirst: false });
+    const loaded = loadRecipes({
+      ...files,
+      recipes: [{ path: 'recipes/kettle.jsonc', text }],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const names = loaded.brewers.find('kettle', 'read')?.choices?.map(({ name }) => name);
+    assert.ok(names?.includes('nip'), JSON.stringify(names));
+  });
+
   it('Nip and its diff lenses load as they did: regression test', () => {
     const loaded = defaults();
     assert.deepStrictEqual(loaded.recipes.find('nip')?.children('taste'), [
@@ -483,6 +499,60 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     assert.equal(stuckReason().kind, 'attempts_exhausted');
   });
 
+  it('a blocking plan lens that runs out of its rounds leaves the batch Stuck with its finding open: regression test', async () => {
+    const script = {
+      plan: [planned, replanned(), replanned()],
+      coverage: [asksChanges(guide), asksChanges(guide), asksChanges(guide)],
+      sizing: [approves, approves, approves],
+      'naive-reader': [approves, approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.ok(started.includes('coverage#3'), started.join(' '));
+    assert.ok(!started.includes('plan#4'), started.join(' '));
+    assert.equal(stuckReason().kind, 'blocked');
+    assert.ok(
+      review().includes(`- ${code('coverage')} #3: major, open: ${plain(guide.why)}`),
+      review(),
+    );
+  });
+
+  it("a person's lauter on the default mash opens its session and tastes nothing again: regression test", async () => {
+    const script = {
+      plan: [planned],
+      coverage: [approves],
+      sizing: [approves],
+      'naive-reader': [approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    const before = started.length;
+    const corrected = behave.succeedWith({ subOrders, alternatives }, 'Corrected');
+    const lauter: BrewRequest = { ...request, lauter: '12-1' };
+    assert.equal(await runBrew(setup, shell({ lauter: [corrected] }), lauter), 3, lines.join('\n'));
+    assert.deepStrictEqual(started.slice(before), ['lauter#1']);
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'lauter', attempt: 1 });
+  });
+
+  it("a person's retry at the review of the default mash plans again and tastes the new plan: regression test", async () => {
+    const script = {
+      plan: [planned, planned],
+      coverage: [approves, approves],
+      sizing: [approves, approves],
+      'naive-reader': [approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    const at = new Date('2026-11-05T12:00:00.000Z');
+    const retried = log().issue({ kind: 'retry', batchId: '12-1', by: 'ann', via: 'terminal' }, at);
+    assert.equal(retried.kind, 'accepted', JSON.stringify(retried));
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.deepStrictEqual(started.slice(4).sort(), [
+      'coverage#2',
+      'naive-reader#2',
+      'plan#2',
+      'sizing#2',
+    ]);
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 2 });
+  });
+
   it('decoction runs its seven lenses after the plan, and the plan waits for its review', async () => {
     api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue('decoction')] } });
     const lenses = [
@@ -534,6 +604,43 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
     assert.equal(models.get('naive#1'), 'sonnet');
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 1 });
+  });
+
+  it("refuses a parallel group's child whose model alias models.jsonc has no model for: regression test", () => {
+    const files = serveInputs().files;
+    const text = recipeText(
+      'kettle',
+      [
+        { id: 'plan', brewer: 'brewmaster' },
+        {
+          id: 'taste',
+          parallel: [
+            { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader', model: 'nowhere' },
+          ],
+        },
+      ],
+      { testFirst: false },
+    );
+    const brewery = readBreweryFiles(dir.path);
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...files,
+          brewery: {
+            ...files.brewery,
+            recipes: [...files.brewery.recipes, { path: 'recipes/kettle.jsonc', text }],
+            ...(brewery.defaults === undefined ? {} : { defaults: brewery.defaults }),
+          },
+        },
+      }),
+    );
+    assert.ok(result.kind === 'refused', result.kind);
+    assert.ok(
+      result.problems.includes(
+        'recipes/kettle.jsonc: step "naive" names the model alias "nowhere", which models.jsonc has no model for',
+      ),
+      result.problems.join('\n'),
+    );
   });
 
   it("refuses a recipe's step whose model alias models.jsonc has no model for", () => {
