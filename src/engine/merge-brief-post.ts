@@ -194,6 +194,13 @@ interface Steps {
   ids: readonly string[];
 }
 
+/**
+ * Whether `stepId` is a step of the batch's current recipe: not a step of an earlier recipe it
+ * brewed (a mashed batch's innkeep), nor one named as a group here, which a recipe has no step of.
+ */
+const ofRecipe = ({ recipe }: Steps, stepId: string): boolean =>
+  recipe?.has(stepId) !== false && recipe?.children(stepId) === undefined;
+
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
 const skippedBy = ({ batch, recipe }: Steps, stepId: string): { when?: string } | undefined => {
   const group = recipe?.group(stepId);
@@ -260,8 +267,7 @@ const endedText = (attempt: Attempt): string => {
  */
 const notRunLines = (steps: Steps, proof: string | undefined): string[] =>
   steps.ids.flatMap((stepId) => {
-    // A step of an earlier recipe the batch brewed (a mashed batch's innkeep) is not this recipe's.
-    if (stepId === proof || steps.recipe?.has(stepId) === false) return [];
+    if (stepId === proof || !ofRecipe(steps, stepId)) return [];
     if (steps.recipe?.action(stepId) !== undefined) return [];
     const skipped = skippedBy(steps, stepId);
     if (skipped !== undefined) return [`- ${code(stepId)}: ${notRunText(skipped)}.`];
@@ -292,7 +298,7 @@ const tastingSteps = ({ batch, ids }: Steps): string[] =>
  * steps whose risk left the brief shows.
  */
 const lastTasters = (steps: Steps): string[] => {
-  const tasters = tastingSteps(steps);
+  const tasters = tastingSteps(steps).filter((stepId) => ofRecipe(steps, stepId));
   const last = tasters.at(-1);
   if (last === undefined) return [];
   const group = steps.recipe?.group(last);
