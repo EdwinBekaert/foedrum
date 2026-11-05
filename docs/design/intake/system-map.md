@@ -16,7 +16,7 @@ Foedrum computes it from manifests, with git and no model, and never writes it i
 - The repository's test map at the same commit, for its module names ([test map](../checks/test-map.md)).
 
 Every name, version, URL and path is untrusted repository text: it is cut to one line of at most 120 characters, its control characters and line breaks made spaces and a backtick a quote, and each list to 200 items with the rest counted.
-A manifest that cannot be parsed, or that git cannot read, is kept as a line saying why; for Cargo that includes a key of a dependency outside Cargo's reference, which the line names.
+A manifest that cannot be parsed, or that git cannot read, is kept as a line saying why; for Cargo that includes a key of a dependency outside the keys Cargo's schema names, which the line names.
 
 ## Where it is kept, and when it is read again
 

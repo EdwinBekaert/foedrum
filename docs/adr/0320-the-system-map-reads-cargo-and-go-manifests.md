@@ -21,7 +21,7 @@ The two new readers have the shape of the first two: no change to the core beyon
   It walks every string, array and inline table, because a multi-line `description` can hold a line that reads `[dependencies]`, and a `features` array can span lines.
   It has a depth limit and refuses what is not TOML (ADR 0004: no npm package for a format).
 - **What the Cargo reader refuses is a line, never a silent gap.**
-  Broken TOML, a dependency that is neither a string nor a table, a `name` or a source key that is not a string, and a key of a dependency outside Cargo's reference make the manifest unreadable, with a reason that names the dependency and the key.
+  Broken TOML, a dependency that is neither a string nor a table, a `name` or a source key that is not a string, and a key of a dependency outside the keys Cargo's schema names (`TomlDetailedDependency` and `TomlInheritedDependency` in `cargo-util-schemas`, as read on 2026-11-05) make the manifest unreadable, with a reason that names the dependency and the key.
 - **`go-manifest.ts` reads each `go.mod`, line by line.**
   `module` is what it publishes, and `require` and `replace`, on one line or in a block, are its dependencies; other directives are ignored.
   No `module` line, a malformed `require` or `replace` and an unclosed block make it unreadable.
@@ -40,7 +40,7 @@ The two new readers have the shape of the first two: no change to the core beyon
 
 ## Consequences
 - A Brewery with Rust or Go repositories gives its planners the same lines as npm and .NET ones, and a Brewery with neither gives the text it gave before.
-- A key Cargo adds to a dependency after this reference (2026-11-05) makes that manifest unreadable until the list is extended, losing its links for a while; the line names the key, so a person can see why.
+- A key Cargo adds to a dependency after that read makes that manifest unreadable until the list is extended, losing its links for a while; the line names the key, so a person can see why.
   It is the price of a reader that never drops a source it does not know, and it is one line to fix.
 - `require github.com/acme/lib/v2` shows no link once `acme/lib`'s `go.mod` at its base says `/v3`, because a required module links only by the exact name published.
   `github.com/owner/repo/sub` links `owner/repo` when that repository has a `go.mod` publishing it, which is what a required module path means.
