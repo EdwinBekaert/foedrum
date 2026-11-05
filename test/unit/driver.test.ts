@@ -3096,6 +3096,54 @@ describe('openDriver', () => {
         assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
       });
 
+      it("applies a batch's effects on the next pass, once its reading answers: regression test", async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        let broken = true;
+        const driver = await open({
+          effects: {
+            due: (state, batchId) => (broken ? dueExcept('b1') : commentsDue)(state, batchId),
+            target: host.target,
+          },
+          report: () => {},
+        });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+        broken = false;
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, [
+          '["b2","plan",1,"comment"]',
+          '["b1","plan",1,"comment"]',
+        ]);
+      });
+
+      it('reports a batch whose throw comes after its effects, and goes on to the next: regression test', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const notices: unknown[] = [];
+        const driver = await open({
+          effects: {
+            due: commentsDue,
+            target: host.target,
+            recorded: (_state, batchId) => {
+              if (batchId === 'b1') throw new Error('Recipe pint has no step innkeep');
+              return [];
+            },
+          },
+          report: (notice) => notices.push(notice),
+        });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, [
+          '["b1","plan",1,"comment"]',
+          '["b2","plan",1,"comment"]',
+        ]);
+        const reported = notices.map(told);
+        assert.ok(
+          reported.some((text) => text.includes('"b1"') && text.includes('has no step innkeep')),
+          reported.join('\n'),
+        );
+      });
+
       it('applies the effects of both batches in one pass when neither throws: regression test', async () => {
         twoSucceeded();
         const host = fakeHost();
