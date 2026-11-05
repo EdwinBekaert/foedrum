@@ -76,7 +76,6 @@ const lane = (events: readonly Event[]) =>
 
 const assertExhausted = (events: readonly Event[], stepId: string, attempts: number) => {
   const stuck = lane(events);
-  assert.equal(stuck.kind, 'stuck', JSON.stringify(stuck));
   const reason = stuck.kind === 'stuck' ? stuck.reason : assert.fail(stuck.kind);
   assert.equal(reason.kind, 'attempts_exhausted', JSON.stringify(reason));
   assert.equal(reason.kind === 'attempts_exhausted' && reason.stepId, stepId);
