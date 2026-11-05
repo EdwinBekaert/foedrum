@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import {
   brewFromCheckout,
@@ -26,7 +26,6 @@ import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
-import type { EventStore } from '../../src/engine/event-store.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
@@ -35,6 +34,7 @@ import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { launchProcess } from '../../src/platform/processes.ts';
 import { BrewCommand, type LauterCommand, MashCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
+import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import {
   type Behaviour,
   behave,
@@ -44,11 +44,8 @@ import {
 import { ghOver } from '../helpers/fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { FAKE_COMMIT, fakeWorktreeMerge, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-
-const t0 = new Date('2026-10-22T12:00:00.000Z');
+import { makeTempDir } from '../helpers/temp-dir.ts';
 
 const SPINNER = ['|', '/', '-', '\\'];
 
@@ -398,180 +395,72 @@ describe('brewFromCheckout', () => {
 });
 
 describe('runBrew', () => {
-  let dir: TempDir;
-  let setup: ServeSetup;
-  let store: EventStore;
-  let lines: string[];
-  let api: FakeGitHubApi;
-  let lock: ReturnType<typeof fakeLock>;
-  let locked: string[];
-  let started: string[];
-  /** The runs the last shell's runner was asked to stop, by attempt key. */
-  let stops: readonly string[];
-
-  beforeEach(() => {
-    dir = makeTempDir('brew');
-    const result = serveSetup(
-      serveInputs({ files: { ...serveInputs().files, local: local({ workRoot: dir.path }) } }),
-    );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
-    // brew closes its store at the end; the test reads it after.
-    const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    lines = [];
-    locked = [];
-    started = [];
-    lock = fakeLock('ann');
-    api = fakeGitHubApi({
-      login: 'ann',
-      issues: {
-        'acme/brewery': [
-          {
-            number: 12,
-            labels: ['recipe:stout'],
-            author: 'ann',
-            title: 'Add a --json flag',
-            body: 'Add a --json flag.',
-          },
-          { number: 13, labels: [], author: 'ann', title: 'Unlabelled', body: 'No recipe.' },
-          {
-            number: 14,
-            labels: ['recipe:stout', 'recipe:porter'],
-            author: 'ann',
-            title: 'Two recipes',
-            body: 'Both.',
-          },
-          {
-            number: 15,
-            labels: ['recipe:stoutt'],
-            author: 'ann',
-            title: 'A typo',
-            body: 'No such recipe.',
-          },
-        ],
-      },
-    });
-  });
-  afterEach(() => dir.remove());
-
-  const log = () => createCommandLog({ store, recipes: setup.recipes });
-  /** The live lease of batch 12-1. */
-  const leaseOf = () => store.batchLeases(t0).find(({ batchId }) => batchId === '12-1');
-
-  /** serve's shell with fakes, ticking until brew stops, or failing after 20 ticks. */
-  const shell = (brew: Behaviour, overrides: Partial<ServeShell> = {}): ServeShell => {
-    let ticks = 0;
-    const runner = fakeBrewerRunner((attempt) => {
-      started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
-      return brew;
-    });
-    stops = runner.stopped;
-    return {
-      out: (line) => lines.push(line),
-      signal: new AbortController().signal,
-      clock: () => t0,
-      wait: async () => {
-        ticks++;
-        if (ticks > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
-      },
-      lock: (_workRoot, { owner }) => {
-        locked.push(owner);
-        return lock;
-      },
-      openStore: () => store,
-      stateBranch: () => ({
-        start: async () => ({ decision: 'ready' }),
-        flush: async () => ({ kind: 'unchanged' }),
-      }),
-      worktrees: async () => fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') }),
-      merge: () => fakeWorktreeMerge(),
-      push: () => ({
-        commit: async () => FAKE_COMMIT,
-        baseTip: async () => 'b'.repeat(40),
-        isAncestor: async (commit, of) => commit === of,
-        remoteTip: async () => undefined,
-        push: async () => {},
-        secretScan: async () => [],
-        touchedFiles: async () => [],
-      }),
-      runner: () => runner,
-      exec: () => Promise.reject(new Error('no check step runs here')),
-      setup: () => Promise.reject(new Error('no repository setup runs here')),
-      gh: ghOver(api.fetch).exec,
-      // A check step looks for the test map (ADR 0274): the clone has none.
-      git: (_cwd, args) =>
-        args[0] === 'ls-tree'
-          ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
-          : Promise.reject(new Error('no red proof or guarded step runs here')),
-      ...overrides,
-    };
-  };
-
-  const request: BrewRequest = { target: { issue: 12 }, owner: 'ann', by: 'ann', via: 'terminal' };
+  const f = brewFixture();
+  const { leaseOf, log, shell } = f;
 
   it('orders and routes an issue with no batch, and brews it on tap with no Cellar: exit 0', async () => {
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
-    assert.deepStrictEqual(locked, ['ann']);
-    assert.deepStrictEqual(started, ['brew#1']);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.deepStrictEqual(f.locked, ['ann']);
+    assert.deepStrictEqual(f.started, ['brew#1']);
     const batch = log().state().batches.get('12-1');
     assert.equal(batch?.lane.kind, 'on_tap');
     // The order is a person's, recorded with who ran brew and from where (ADR 0105).
-    const ordered = store.eventsAfter(0).find(({ event }) => event.type === 'batch.ordered');
+    const ordered = f.store.eventsAfter(0).find(({ event }) => event.type === 'batch.ordered');
     assert.deepStrictEqual(
       ordered?.event.type === 'batch.ordered'
         ? { by: ordered.event.by, via: ordered.event.via }
         : undefined,
       { by: 'ann', via: 'terminal' },
     );
-    assert.equal(api.pulls.length, 1);
-    assert.ok(lines.includes('foedrum brew: ordered #12 as batch 12-1'), lines.join('\n'));
+    assert.equal(f.api.pulls.length, 1);
+    assert.ok(f.lines.includes('foedrum brew: ordered #12 as batch 12-1'), f.lines.join('\n'));
     assert.ok(
-      lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
-      lines.join('\n'),
+      f.lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
+      f.lines.join('\n'),
     );
-    assert.ok(lines.includes('foedrum brew: brewing batch 12-1 as ann'), lines.join('\n'));
+    assert.ok(f.lines.includes('foedrum brew: brewing batch 12-1 as ann'), f.lines.join('\n'));
     assert.equal(
-      lines.at(-1),
-      `foedrum brew: batch 12-1 is on tap: https://github.com/acme/web/pull/${api.pulls[0]?.number}`,
+      f.lines.at(-1),
+      `foedrum brew: batch 12-1 is on tap: https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`,
     );
     // Every effect applied, the driver let the batch go and its lock.
     assert.equal(leaseOf(), undefined);
-    assert.equal(lock.held, false);
+    assert.equal(f.lock.held, false);
   });
 
   /** How many times the driver read whether acme/web is public. */
   const visibilityReads = () =>
-    api.requests.filter((request) => request === 'GET /repos/acme/web').length;
+    f.api.requests.filter((request) => request === 'GET /repos/acme/web').length;
   /** The fake GitHub, answering whether acme/web is public with `answer`. */
   const answeringVisibility = (answer: { status: number; body?: unknown }) =>
     fakeGitHubApi({
       login: 'ann',
-      issues: api.issues,
+      issues: f.api.issues,
       instead: (method, url) =>
         method === 'GET' && url.pathname === '/repos/acme/web' ? answer : undefined,
     });
 
   it("reads a repository's visibility again on each tick while it could not be read (ADR 0300)", async () => {
     // GitHub fails to answer: unknown, so every tick reads it again.
-    api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
-    assert.ok(visibilityReads() > 2, api.requests.join('|'));
+    f.api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.ok(visibilityReads() > 2, f.api.requests.join('|'));
   });
 
   it("reads a repository's visibility again only after the tick, which renews the leases first (ADR 0300)", async () => {
-    api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
-    const reads = api.requests.flatMap((request, at) =>
+    f.api = answeringVisibility({ status: 503, body: { message: 'Service Unavailable' } });
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    const reads = f.api.requests.flatMap((request, at) =>
       request === 'GET /repos/acme/web' ? [at] : [],
     );
     const [opening, second] = reads;
-    assert.ok(opening !== undefined && second !== undefined, api.requests.join('|'));
+    assert.ok(opening !== undefined && second !== undefined, f.api.requests.join('|'));
     // The first tick posts the status comment before the visibility is read again.
     assert.ok(
-      api.requests
+      f.api.requests
         .slice(opening + 1, second)
         .includes('POST /repos/Acme/Brewery/issues/12/comments'),
-      api.requests.join('|'),
+      f.api.requests.join('|'),
     );
   });
 
@@ -580,9 +469,9 @@ describe('runBrew', () => {
    * repository this Brewery does not list, acme/web answered with `answer`.
    */
   const subOrderBody = async (answer: { status: number; body?: unknown }): Promise<string> => {
-    api = answeringVisibility(answer);
+    f.api = answeringVisibility(answer);
     const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
-    store.withTransaction((tx) => {
+    f.store.withTransaction((tx) => {
       tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
       tx.append({
         type: 'order.decomposed',
@@ -604,11 +493,11 @@ describe('runBrew', () => {
       });
     });
     assert.equal(
-      await runBrew(setup, shell(behave.succeed('Brewed')), request),
+      await runBrew(f.setup, shell(behave.succeed('Brewed')), request),
       0,
-      lines.join('|'),
+      f.lines.join('|'),
     );
-    return api.pulls[0]?.body ?? assert.fail('no pull request opened');
+    return f.api.pulls[0]?.body ?? assert.fail('no pull request opened');
   };
 
   it("names a sibling in a private sub-order's pull request, as the visibility read says (ADR 0300): regression test", async () => {
@@ -629,16 +518,16 @@ describe('runBrew', () => {
   });
 
   it("reads a repository's visibility once when GitHub answers it (ADR 0300)", async () => {
-    api = answeringVisibility({ status: 200, body: { private: false, visibility: 'public' } });
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
+    f.api = answeringVisibility({ status: 200, body: { private: false, visibility: 'public' } });
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
     assert.equal(visibilityReads(), 1);
   });
 
   it('says the batch is on tap once, in its last line (#662)', async () => {
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
-    const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    const url = `https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`;
     assert.deepStrictEqual(
-      lines.filter((line) => line.includes('on tap')),
+      f.lines.filter((line) => line.includes('on tap')),
       [`foedrum brew: batch 12-1 is on tap: ${url}`],
     );
   });
@@ -651,9 +540,9 @@ describe('runBrew', () => {
         if (log().state().batches.get('12-1')?.lane.kind === 'on_tap') controller.abort();
       },
     });
-    assert.equal(await runBrew(setup, stopping, request), 1);
-    const url = `https://github.com/acme/web/pull/${api.pulls[0]?.number}`;
-    assert.equal(lines.at(-1), `foedrum brew: stopped; batch 12-1 on tap: ${url}`);
+    assert.equal(await runBrew(f.setup, stopping, request), 1);
+    const url = `https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`;
+    assert.equal(f.lines.at(-1), `foedrum brew: stopped; batch 12-1 on tap: ${url}`);
   });
 
   it("opens the pull request on the code host in Foedrum's layout, as a draft with no Taster (ADR 0167)", async () => {
@@ -662,7 +551,7 @@ describe('runBrew', () => {
       serveInputs({
         files: {
           ...files,
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             ...files.brewery,
             brewers: [
@@ -684,8 +573,8 @@ describe('runBrew', () => {
     };
     const brewing = shell(behave.succeedWith(sections, 'Added --json'));
     assert.equal(await runBrew(writing.setup, brewing, request), 0);
-    assert.equal(api.pulls.length, 1);
-    const [pull] = api.pulls;
+    assert.equal(f.api.pulls.length, 1);
+    const [pull] = f.api.pulls;
     assert.equal(pull?.draft, true);
     // Its last line is the marker of the body (ADR 0227), after the layout.
     const body = pull?.body ?? '';
@@ -725,20 +614,20 @@ describe('runBrew', () => {
   });
 
   it("labels the order's issue with its batch's lane, made in the Brewery first (#406)", async () => {
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
-    assert.deepStrictEqual(api.issue('acme/brewery', 12)?.labels, [
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    assert.deepStrictEqual(f.api.issue('acme/brewery', 12)?.labels, [
       'recipe:stout',
       'foedrum:awaiting-merge',
     ]);
-    assert.ok(api.labels.get('acme/brewery')?.has('foedrum:awaiting-merge'));
+    assert.ok(f.api.labels.get('acme/brewery')?.has('foedrum:awaiting-merge'));
   });
 
   it('prints the link to the status comment once it is made (#406)', async () => {
-    assert.equal(await runBrew(setup, shell(behave.succeed('Brewed')), request), 0);
-    const [comment] = api.comments.get('acme/brewery#12') ?? [];
-    const link = `https://github.com/${setup.brewery}/issues/12#issuecomment-${comment?.id}`;
-    const shown = lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
-    assert.equal(shown.length, 1, lines.join('\n'));
+    assert.equal(await runBrew(f.setup, shell(behave.succeed('Brewed')), request), 0);
+    const [comment] = f.api.comments.get('acme/brewery#12') ?? [];
+    const link = `https://github.com/${f.setup.brewery}/issues/12#issuecomment-${comment?.id}`;
+    const shown = f.lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
+    assert.equal(shown.length, 1, f.lines.join('\n'));
   });
 
   it('says about every 30 s which step runs and for how long (#406)', async () => {
@@ -753,8 +642,8 @@ describe('runBrew', () => {
         if (now.getTime() - t0.getTime() > 60_000) controller.abort();
       },
     });
-    assert.equal(await runBrew(setup, ticking, request), 1);
-    const progress = lines.filter((line) => line.includes('running for'));
+    assert.equal(await runBrew(f.setup, ticking, request), 1);
+    const progress = f.lines.filter((line) => line.includes('running for'));
     assert.deepStrictEqual(progress, [
       'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
       'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
@@ -782,20 +671,20 @@ describe('runBrew', () => {
         if (now.getTime() - t0.getTime() > 60_000) controller.abort();
       },
     });
-    assert.equal(await runBrew(setup, plain, request), 1);
+    assert.equal(await runBrew(f.setup, plain, request), 1);
     assert.ok(waits.length > 0 && waits.every((ms) => ms === 5_000), waits.join(' '));
     assert.deepStrictEqual(
-      lines.filter((line) => line.includes('running for')),
+      f.lines.filter((line) => line.includes('running for')),
       [
         'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
         'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
       ],
     );
     assert.ok(
-      lines.every(
+      f.lines.every(
         (line) => line.startsWith('foedrum brew: ') && !/\bturn\b|\bdenied\b|Edit/.test(line),
       ),
-      lines.join('\n'),
+      f.lines.join('\n'),
     );
   });
 
@@ -813,8 +702,8 @@ describe('runBrew', () => {
         if (now.getTime() - t0.getTime() > 60_000) controller.abort();
       },
     });
-    assert.equal(await runBrew(setup, plain, request), 1);
-    assert.deepStrictEqual(lines, [
+    assert.equal(await runBrew(f.setup, plain, request), 1);
+    assert.deepStrictEqual(f.lines, [
       'foedrum brew: routed batch 12-1 to the recipe stout',
       'foedrum brew: brewing batch 12-1 as ann',
       'foedrum brew: status comment: https://github.com/Acme/Brewery/issues/12#issuecomment-1',
@@ -834,9 +723,9 @@ describe('runBrew', () => {
         },
       }),
     });
-    assert.equal(await runBrew(setup, stopping, request), 1);
-    assert.equal(lines.at(-1), 'foedrum brew: the push was rejected: another engine wrote');
-    assert.equal(lock.held, false);
+    assert.equal(await runBrew(f.setup, stopping, request), 1);
+    assert.equal(f.lines.at(-1), 'foedrum brew: the push was rejected: another engine wrote');
+    assert.equal(f.lock.held, false);
   });
 
   describe('with a live line on a terminal (ADR 0174)', () => {
@@ -857,8 +746,8 @@ describe('runBrew', () => {
     const brewLive = async (progress: AttemptProgress, more: Live = {}) => {
       const { seconds = 10, columns = 120, onWait, runner, flush, before } = more;
       // A test brews more than once: each brew gets the lock and the store of a fresh machine.
-      lock = fakeLock('ann');
-      store = { ...openSqliteEventStore(':memory:'), close: () => {} };
+      f.lock = fakeLock('ann');
+      f.store = { ...openSqliteEventStore(':memory:'), close: () => {} };
       before?.();
       const screen = fakeScreen(columns);
       const controller = new AbortController();
@@ -868,7 +757,7 @@ describe('runBrew', () => {
       const live = shell(behave.hang(progress), {
         terminal: screen.terminal,
         out: (line) => {
-          lines.push(line);
+          f.lines.push(line);
           screen.print(line);
         },
         signal: controller.signal,
@@ -888,7 +777,7 @@ describe('runBrew', () => {
         }),
         ...(runner === undefined ? {} : { runner: () => runner }),
       });
-      const code = await runBrew(setup, live, request);
+      const code = await runBrew(f.setup, live, request);
       return { code, screen, waits, flushes: () => flushes };
     };
 
@@ -940,7 +829,7 @@ describe('runBrew', () => {
             order: { issue: 12 },
             routeBy,
           } as const;
-          store.withTransaction((tx) => tx.append(old));
+          f.store.withTransaction((tx) => tx.append(old));
         },
       });
       const times = screen.batchTimes();
@@ -1153,7 +1042,7 @@ describe('runBrew', () => {
       const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 70 });
       assert.ok(screen.rewrites().length > 0, 'a live line is drawn');
       assert.deepStrictEqual(
-        lines.filter((line) => line.includes('running for')),
+        f.lines.filter((line) => line.includes('running for')),
         [],
       );
     });
@@ -1180,7 +1069,7 @@ describe('runBrew', () => {
       const { code, screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 10 });
       assert.equal(code, 1);
       assert.ok(screen.rewrites().length > 0, 'a live line was drawn');
-      assert.ok(lines.at(-1)?.startsWith('foedrum brew: stopped; '), lines.at(-1));
+      assert.ok(f.lines.at(-1)?.startsWith('foedrum brew: stopped; '), f.lines.at(-1));
       assert.equal(screen.drawn(), undefined);
       assert.ok(!screen.events.at(-1)?.startsWith('rewrite: '), screen.events.at(-1));
     });
@@ -1209,7 +1098,7 @@ describe('runBrew', () => {
         ],
       });
       const inputs = serveInputs({
-        files: { ...serveInputs().files, local: local({ workRoot: dir.path }) },
+        files: { ...serveInputs().files, local: local({ workRoot: f.dir.path }) },
       });
       const { brewery } = inputs.files;
       const result = serveSetup({
@@ -1227,8 +1116,8 @@ describe('runBrew', () => {
           },
         },
       });
-      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
-      api = fakeGitHubApi({
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      f.api = fakeGitHubApi({
         login: 'ann',
         issues: {
           'acme/brewery': [
@@ -1247,8 +1136,8 @@ describe('runBrew', () => {
       const shown = screen.texts().map((text) => text.replace(times, ''));
       assert.ok(shown.includes('security #1 / turn 3 ; correctness #1 / turn 3'), shown.join('\n'));
       assert.ok(
-        lines.some((line) => line.includes('security #1') && line.includes('correctness #1')),
-        lines.join('\n'),
+        f.lines.some((line) => line.includes('security #1') && line.includes('correctness #1')),
+        f.lines.join('\n'),
       );
     });
 
@@ -1276,7 +1165,7 @@ describe('runBrew', () => {
           },
         },
       );
-      assert.equal(code, 0, lines.join('\n'));
+      assert.equal(code, 0, f.lines.join('\n'));
       assert.ok(waits.length > 6, `${waits.length} waits: brew went on after the attempt ended`);
       assert.ok(screen.rewrites().length > 0, 'a live line was drawn');
       for (const text of screen.texts()) assert.match(text, /^brew #1 \/ /);
@@ -1288,7 +1177,7 @@ describe('runBrew', () => {
         ['needs input', behave.needInput(), 4],
       ];
       for (const [name, ending, exitCode] of exits) {
-        lines.length = 0;
+        f.lines.length = 0;
         const inner = fakeBrewerRunner(() => ending);
         let release: () => void = () => {};
         const released = new Promise<void>((done) => {
@@ -1318,7 +1207,7 @@ describe('runBrew', () => {
             },
           },
         );
-        assert.equal(code, exitCode, `${name}: ${lines.join('\n')}`);
+        assert.equal(code, exitCode, `${name}: ${f.lines.join('\n')}`);
         assert.ok(screen.rewrites().length >= 5, `${name}: a live line was drawn`);
         assert.equal(screen.drawn(), undefined, name);
         assert.ok(
@@ -1337,17 +1226,17 @@ describe('runBrew', () => {
       t0,
     );
     const expiresAt = new Date(t0.getTime() + 60_000);
-    store.withTransaction((tx) =>
+    f.store.withTransaction((tx) =>
       tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
     );
-    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 5);
-    assert.deepStrictEqual(started, []);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
+    assert.deepStrictEqual(f.started, []);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
     );
     assert.equal(leaseOf()?.owner, 'cellar');
-    assert.equal(lock.held, false);
+    assert.equal(f.lock.held, false);
   });
 
   it('stops with the questions, numbered as foedrum answer takes them, when the batch needs input: exit 4', async () => {
@@ -1357,8 +1246,8 @@ describe('runBrew', () => {
       recommended: '--json',
       whyBlocking: 'Scripts will depend on it',
     };
-    assert.equal(await runBrew(setup, shell(behave.needInput([question, second])), request), 4);
-    assert.deepStrictEqual(lines.slice(-6), [
+    assert.equal(await runBrew(f.setup, shell(behave.needInput([question, second])), request), 4);
+    assert.deepStrictEqual(f.lines.slice(-6), [
       'foedrum brew: batch 12-1 needs input at brew:',
       'foedrum brew:   1. Which database should the cache use? (sqlite, redis; recommended: sqlite)',
       'foedrum brew:      why it blocks: The two need different migrations',
@@ -1368,15 +1257,15 @@ describe('runBrew', () => {
     ]);
     // The batch stays this driver's while its engineer answers (ADR 0044); the lock goes.
     assert.equal(leaseOf()?.owner, 'ann');
-    assert.equal(lock.held, false);
+    assert.equal(f.lock.held, false);
   });
 
   it('refuses an issue it cannot route, ordering nothing: exit 5', async () => {
     const unlabelled = { ...request, target: { issue: 13 } };
-    assert.equal(await runBrew(setup, shell(behave.succeed()), unlabelled), 5);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), unlabelled), 5);
     assert.equal(log().state().batches.size, 0);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: #13 has no recipe:<name> label; label it with the recipe to brew it with',
     );
   });
@@ -1387,7 +1276,7 @@ describe('runBrew', () => {
     const pausing = shell(behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 }), {
       wait: async () => {
         ticks++;
-        if (ticks > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (ticks > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
         if (paused) return;
         paused = true;
         // Paused with --by now: the next tick stops brew#1, and its retry waits.
@@ -1398,9 +1287,9 @@ describe('runBrew', () => {
         );
       },
     });
-    assert.equal(await runBrew(setup, pausing, request), 5);
-    assert.equal(lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
-    assert.deepStrictEqual(started, ['brew#1']);
+    assert.equal(await runBrew(f.setup, pausing, request), 5);
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.deepStrictEqual(f.started, ['brew#1']);
   });
 
   it('names the order to continue when a sub-order is held by its paused order: exit 5 (ADR 0202)', async () => {
@@ -1419,9 +1308,9 @@ describe('runBrew', () => {
     );
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
     const sub = { ...request, target: { issue: 30 } };
-    assert.equal(await runBrew(setup, shell(behave.succeed()), sub), 5);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), sub), 5);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: #30 is a sub-order of #12, which is paused; foedrum continue #12 lets it brew',
     );
   });
@@ -1429,39 +1318,39 @@ describe('runBrew', () => {
   it('refuses a paused order, ordering nothing: exit 5 (ADR 0202)', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
-    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 5);
-    assert.equal(lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
-    assert.deepStrictEqual(started, []);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.deepStrictEqual(f.started, []);
   });
 
   it('refuses any issue while the Brewery is paused, ordering nothing: exit 5 (ADR 0202)', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', by: 'ann', via: 'terminal' }, t0);
     const other = { ...request, target: { issue: 13 } };
-    assert.equal(await runBrew(setup, shell(behave.succeed()), other), 5);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), other), 5);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: the Brewery is paused; foedrum continue --all lets it brew',
     );
     assert.equal(log().state().batches.size, 1);
-    assert.deepStrictEqual(started, []);
+    assert.deepStrictEqual(f.started, []);
   });
 
   it('refuses an issue whose latest batch ended: ordering it again is foedrum order: exit 5', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'cancel', batchId: '12-1', by: 'ann', via: 'terminal' }, t0);
-    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 5);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order #12 orders it again',
     );
   });
 
   it('stops with the reason and the options when the batch is Stuck on anything but questions: exit 3', async () => {
     const blocked = behave.blocked('findings', 'The tests fail');
-    assert.equal(await runBrew(setup, shell(blocked), request), 3);
+    assert.equal(await runBrew(f.setup, shell(blocked), request), 3);
     assert.match(
-      lines.at(-1) ?? '',
+      f.lines.at(-1) ?? '',
       /^foedrum brew: batch 12-1 is stuck: blocked at brew \(findings\): The tests fail; reminder [^;]+; options: retry, /,
     );
   });
@@ -1473,8 +1362,8 @@ describe('runBrew', () => {
       },
       openStore: () => assert.fail('no store is opened'),
     });
-    assert.equal(await runBrew(setup, held, request), 5);
-    assert.equal(lines.at(-1), 'foedrum brew: The driver ann already runs on this work root');
+    assert.equal(await runBrew(f.setup, held, request), 5);
+    assert.equal(f.lines.at(-1), 'foedrum brew: The driver ann already runs on this work root');
   });
 
   it("names --as when its owner's driver already runs, as a second terminal meets it (ADR 0259)", async () => {
@@ -1484,29 +1373,29 @@ describe('runBrew', () => {
       },
       openStore: () => assert.fail('no store is opened'),
     });
-    assert.equal(await runBrew(setup, held, { ...request, owner: 'terminal' }), 5);
+    assert.equal(await runBrew(f.setup, held, { ...request, owner: 'terminal' }), 5);
     assert.match(
-      lines.at(-1) ?? '',
+      f.lines.at(-1) ?? '',
       /^foedrum brew: The driver terminal already runs .*give --as <name> to run another driver beside it$/,
     );
   });
 
   it('refuses an alias of no repository with an intake, before it takes the lock: exit 5', async () => {
     const target = { alias: 'web', issue: 7 };
-    assert.equal(await runBrew(setup, shell(behave.succeed()), { ...request, target }), 5);
-    assert.deepStrictEqual(locked, []);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), { ...request, target }), 5);
+    assert.deepStrictEqual(f.locked, []);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: foedrum.jsonc names no repository with the alias web and an intake',
     );
   });
 
   it('refuses an issue with two recipe labels, ordering nothing: exit 5', async () => {
     const two = { ...request, target: { issue: 14 } };
-    assert.equal(await runBrew(setup, shell(behave.succeed()), two), 5);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), two), 5);
     assert.equal(log().state().batches.size, 0);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: #14 carries recipe:stout and recipe:porter; give it one recipe label',
     );
   });
@@ -1518,20 +1407,20 @@ describe('runBrew', () => {
       signal: controller.signal,
       wait: async () => controller.abort(),
     });
-    assert.equal(await runBrew(setup, stopped, request), 1);
-    assert.equal(lines.at(-1), 'foedrum brew: stopped; batch 12-1 brewing: brew #1 started');
-    assert.equal(stops.length, 1, 'the hung run was stopped');
-    assert.equal(lock.held, false);
+    assert.equal(await runBrew(f.setup, stopped, request), 1);
+    assert.equal(f.lines.at(-1), 'foedrum brew: stopped; batch 12-1 brewing: brew #1 started');
+    assert.equal(f.stops.length, 1, 'the hung run was stopped');
+    assert.equal(f.lock.held, false);
   });
 
   it('holds the machine awake from the start of its attempt to its end, and lets the hold go when it stops (ADR 0195)', async () => {
     const held: string[] = [];
     const awake = {
-      attemptStarted: () => held.push(`started with ${started.length} brewer attempts begun`),
+      attemptStarted: () => held.push(`started with ${f.started.length} brewer attempts begun`),
       attemptEnded: () => held.push('ended'),
       release: () => held.push('released'),
     };
-    assert.equal(await runBrew(setup, shell(behave.succeed(), { awake }), request), 0);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed(), { awake }), request), 0);
     assert.deepStrictEqual(held, ['started with 0 brewer attempts begun', 'ended', 'released']);
   });
 
@@ -1549,7 +1438,7 @@ describe('runBrew', () => {
       wait: async () => controller.abort(),
       awake,
     });
-    assert.equal(await runBrew(setup, stopped, request), 1);
+    assert.equal(await runBrew(f.setup, stopped, request), 1);
     assert.deepStrictEqual(held.slice(0, 1), ['started']);
     assert.equal(held.at(-1), 'released');
   });
@@ -1562,13 +1451,13 @@ describe('runBrew', () => {
       release: () => held.push('released'),
     };
     const failing = {
-      ...store,
+      ...f.store,
       close: () => {
         throw new Error('the store did not close');
       },
     };
     await assert.rejects(
-      runBrew(setup, shell(behave.succeed(), { awake, openStore: () => failing }), request),
+      runBrew(f.setup, shell(behave.succeed(), { awake, openStore: () => failing }), request),
       /the store did not close/,
     );
     assert.equal(held.at(-1), 'released');
@@ -1592,9 +1481,9 @@ describe('runBrew', () => {
       return { exitCode: 0, stdout: '', stderr: '', output: '' };
     };
     assert.equal(
-      await runBrew(setup, shell(behave.succeed(), { awake, exec }), request),
+      await runBrew(f.setup, shell(behave.succeed(), { awake, exec }), request),
       0,
-      lines.join('\n'),
+      f.lines.join('\n'),
     );
     assert.deepStrictEqual(held, [
       'started',
@@ -1609,9 +1498,9 @@ describe('runBrew', () => {
   it('drives its batch alone, leaving a lease its owner holds of another batch to lapse (ADR 0123)', async () => {
     // A batch this owner left Stuck in an earlier brew, its lease still live.
     const expiresAt = new Date(t0.getTime() + 60_000);
-    store.withTransaction((tx) => tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt }));
-    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 0);
-    const other = store.batchLeases(t0).find(({ batchId }) => batchId === '13-1');
+    f.store.withTransaction((tx) => tx.putBatchLease({ batchId: '13-1', owner: 'ann', expiresAt }));
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 0);
+    const other = f.store.batchLeases(t0).find(({ batchId }) => batchId === '13-1');
     assert.deepStrictEqual(other, { batchId: '13-1', owner: 'ann', expiresAt });
   });
 
@@ -1630,21 +1519,21 @@ describe('runBrew', () => {
       if (read && log().state().batches.get('12-1')?.lane.kind === 'ordered') {
         log().issue(route, t0);
       }
-      return api.fetch(input, init);
+      return f.api.fetch(input, init);
     };
     const raced = shell(behave.succeed(), { gh: ghOver(racing).exec });
-    assert.equal(await runBrew(setup, raced, request), 0, lines.join('\n'));
-    assert.ok(!lines.some((line) => line.includes('routed batch')), lines.join('\n'));
+    assert.equal(await runBrew(f.setup, raced, request), 0, f.lines.join('\n'));
+    assert.ok(!f.lines.some((line) => line.includes('routed batch')), f.lines.join('\n'));
   });
 
   it('routes an Ordered batch it finds by its label, without ordering it again: exit 0', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-    assert.equal(await runBrew(setup, shell(behave.succeed()), request), 0);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 0);
     assert.ok(
-      lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
-      lines.join('\n'),
+      f.lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
+      f.lines.join('\n'),
     );
-    assert.ok(!lines.some((line) => line.includes('ordered #12')), lines.join('\n'));
+    assert.ok(!f.lines.some((line) => line.includes('ordered #12')), f.lines.join('\n'));
     assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
   });
 
@@ -1661,7 +1550,7 @@ describe('runBrew', () => {
       // With `only`, the one default recipe kept: mash-in, unless `keep` names another.
       const kept = `/${fields.keep ?? 'mash-in'}.jsonc`;
       const inputs = serveInputs();
-      const { defaults = {} } = readBreweryFiles(join(dir.path, 'no-brewery'));
+      const { defaults = {} } = readBreweryFiles(join(f.dir.path, 'no-brewery'));
       const own = [
         ...(inputs.files.brewery.recipes ?? []),
         { path: 'recipes/mild.jsonc', text: mild },
@@ -1671,7 +1560,7 @@ describe('runBrew', () => {
           files: {
             ...inputs.files,
             ...(fields.config === undefined ? {} : { config: fields.config }),
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
             brewery: {
               ...inputs.files.brewery,
               recipes:
@@ -1701,8 +1590,8 @@ describe('runBrew', () => {
 
     it('orders and routes an issue with no batch to mash-in, and stops with its question: exit 4', async () => {
       const asks = shell(behave.needInput([which(13)]));
-      assert.equal(await runBrew(mashSetup(), asks, mash(13)), 4, lines.join('\n'));
-      assert.deepStrictEqual(started, ['innkeep#1']);
+      assert.equal(await runBrew(mashSetup(), asks, mash(13)), 4, f.lines.join('\n'));
+      assert.deepStrictEqual(f.started, ['innkeep#1']);
       assert.deepStrictEqual(log().state().batches.get('13-1')?.recipe, {
         name: 'mash-in',
         reason: 'the engineer ran foedrum mash',
@@ -1710,8 +1599,8 @@ describe('runBrew', () => {
         by: 'ann',
         via: 'terminal',
       });
-      assert.ok(lines.includes('foedrum mash: ordered #13 as batch 13-1'), lines.join('\n'));
-      assert.deepStrictEqual(lines.slice(-4), [
+      assert.ok(f.lines.includes('foedrum mash: ordered #13 as batch 13-1'), f.lines.join('\n'));
+      assert.deepStrictEqual(f.lines.slice(-4), [
         'foedrum mash: batch 13-1 needs input at innkeep:',
         'foedrum mash:   1. Which recipe brews #13? Suggested: mild: one small change (stout, mild; recommended: mild)',
         'foedrum mash:      why it blocks: The recipe decides what runs next',
@@ -1723,7 +1612,7 @@ describe('runBrew', () => {
       it(`labels the issue recipe:${choice} once when the answer is ${choice}, and brews it from its first step`, async () => {
         const brewing = mashSetup();
         assert.equal(await runBrew(brewing, shell(behave.needInput([which(13)])), mash(13)), 4);
-        const answered = createCommandLog({ store, recipes: brewing.recipes }).issue(
+        const answered = createCommandLog({ store: f.store, recipes: brewing.recipes }).issue(
           {
             kind: 'answer',
             batchId: '13-1',
@@ -1737,10 +1626,10 @@ describe('runBrew', () => {
         const brew = { ...request, target: { issue: 13 } };
         // The next process of the same owner takes the lock again.
         const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
-        assert.equal(await runBrew(brewing, again, brew), 0, lines.join('\n'));
-        assert.deepStrictEqual(started, ['innkeep#1', 'brew#1']);
+        assert.equal(await runBrew(brewing, again, brew), 0, f.lines.join('\n'));
+        assert.deepStrictEqual(f.started, ['innkeep#1', 'brew#1']);
         assert.equal(log().state().batches.get('13-1')?.recipe?.name, choice);
-        const labels = api.issue('acme/brewery', 13)?.labels ?? [];
+        const labels = f.api.issue('acme/brewery', 13)?.labels ?? [];
         assert.deepStrictEqual(
           labels.filter((label) => label.startsWith('recipe:')),
           [`recipe:${choice}`],
@@ -1760,9 +1649,9 @@ describe('runBrew', () => {
         if (stuck) log().issue({ kind: 'unrouted', batchId: id }, late);
         assert.equal(log().state().batches.get(id)?.lane.kind, stuck ? 'stuck' : 'ordered');
         const asks = shell(behave.needInput([which(issue)]));
-        assert.equal(await runBrew(mashSetup(), asks, mash(issue)), 4, lines.join('\n'));
+        assert.equal(await runBrew(mashSetup(), asks, mash(issue)), 4, f.lines.join('\n'));
         assert.equal(log().state().batches.get(id)?.recipe?.name, 'mash-in');
-        assert.ok(!lines.some((line) => line.includes(`ordered #${issue}`)), lines.join('\n'));
+        assert.ok(!f.lines.some((line) => line.includes(`ordered #${issue}`)), f.lines.join('\n'));
       });
     }
 
@@ -1779,7 +1668,7 @@ describe('runBrew', () => {
         ready: true,
       };
       const brewing = { ...mashSetup(), github: { hostname: 'github.localhost' } };
-      const mashLog = createCommandLog({ store, recipes: brewing.recipes });
+      const mashLog = createCommandLog({ store: f.store, recipes: brewing.recipes });
       mashLog.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
       mashLog.issue(
         { kind: 'route', batchId: '13-1', recipe: 'mash', reason: 'label', source: 'label' },
@@ -1787,8 +1676,8 @@ describe('runBrew', () => {
       );
       const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
       await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
-      const bodies = (api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
-      const link = `[13-1/plan-1.md](<https://github.localhost/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
+      const bodies = (f.api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
+      const link = `[13-1/plan-1.md](<https://github.localhost/${f.setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
       assert.ok(
         bodies.some((body) => body.includes(`Full plan: ${link}`)),
         bodies.join('\n---\n'),
@@ -1808,7 +1697,7 @@ describe('runBrew', () => {
         ready: true,
       };
       const brewing = mashSetup();
-      const mashLog = createCommandLog({ store, recipes: brewing.recipes });
+      const mashLog = createCommandLog({ store: f.store, recipes: brewing.recipes });
       for (const command of [
         { kind: 'order', batchId: '13-1', order: { issue: 13 } },
         { kind: 'route', batchId: '13-1', recipe: 'mash', reason: 'label', source: 'label' },
@@ -1818,8 +1707,8 @@ describe('runBrew', () => {
       }
       const plans = behave.succeedWith({ assumptions: ['Kept the flag'], subOrders: [subOrder] });
       await runBrew(brewing, shell(plans), { ...request, target: { issue: 13 } });
-      const link = `[13-1/plan-1.md](<https://github.com/${setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
-      const bodies = (api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
+      const link = `[13-1/plan-1.md](<https://github.com/${f.setup.brewery}/blob/foedrum/state/batches/13-1/plan-1.md>)`;
+      const bodies = (f.api.comments.get('acme/brewery#13') ?? []).map(({ body }) => body);
       const shown = bodies.join('\n---\n');
       assert.ok(
         bodies.some((body) => body.includes(`- \`plan\`: full plan: ${link}`)),
@@ -1833,7 +1722,7 @@ describe('runBrew', () => {
 
     it("links a claimed order's plan comment on its Brewery issue and the Brewery's own host: regression test (#658)", async () => {
       const web = { alias: 'web', intake: { labels: ['foedrum'] } };
-      api = fakeGitHubApi({
+      f.api = fakeGitHubApi({
         login: 'ann',
         issues: {
           'acme/brewery': [
@@ -1848,7 +1737,7 @@ describe('runBrew', () => {
         ...mashSetup({ config: config({}, web) }),
         github: { hostname: 'github.localhost' },
       };
-      const claimedLog = createCommandLog({ store, recipes: claimed.recipes });
+      const claimedLog = createCommandLog({ store: f.store, recipes: claimed.recipes });
       const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
       for (const command of [
         { kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } },
@@ -1871,9 +1760,9 @@ describe('runBrew', () => {
       };
       const plans = behave.succeedWith({ assumptions: ['Kept the flag.'], subOrders: [subOrder] });
       const target = { ...request, target: { alias: 'web', issue: 7 } };
-      assert.equal(await runBrew(claimed, shell(plans), target), 3, lines.join('\n'));
-      const bodies = (api.comments.get('acme/brewery#40') ?? []).map(({ body }) => body);
-      const plan = (api.comments.get('acme/brewery#40') ?? []).find(({ body }) =>
+      assert.equal(await runBrew(claimed, shell(plans), target), 3, f.lines.join('\n'));
+      const bodies = (f.api.comments.get('acme/brewery#40') ?? []).map(({ body }) => body);
+      const plan = (f.api.comments.get('acme/brewery#40') ?? []).find(({ body }) =>
         body.includes('plan of batch'),
       );
       const url = `https://github.localhost/${claimed.brewery}/issues/40#issuecomment-${plan?.id}`;
@@ -1885,7 +1774,7 @@ describe('runBrew', () => {
 
     it('routes a claimed order through its Brewery issue: exit 4', async () => {
       const web = { alias: 'web', intake: { labels: ['foedrum'] } };
-      api = fakeGitHubApi({
+      f.api = fakeGitHubApi({
         login: 'ann',
         issues: {
           'acme/brewery': [
@@ -1901,14 +1790,14 @@ describe('runBrew', () => {
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = mashSetup({ config: config({}, web) });
       const asks = shell(behave.needInput([which(40)]));
-      assert.equal(await runBrew(claimed, asks, mash(40)), 4, lines.join('\n'));
+      assert.equal(await runBrew(claimed, asks, mash(40)), 4, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'mash-in');
       assert.deepStrictEqual([...log().state().batches.keys()], ['web-7']);
     });
 
     it('mashes a claimed issue with no batch: claims it, orders it and routes it to mash-in, exit 4 (ADR 0232)', async () => {
       const web = { alias: 'web', intake: { labels: ['foedrum'] } };
-      api = fakeGitHubApi({
+      f.api = fakeGitHubApi({
         login: 'ann',
         issues: {
           'acme/web': [
@@ -1919,11 +1808,11 @@ describe('runBrew', () => {
       const claimed = mashSetup({ config: config({}, web) });
       const asks = shell(behave.needInput([which(7)]));
       const fresh = { ...request, target: { alias: 'web', issue: 7 }, mash: true } as const;
-      assert.equal(await runBrew(claimed, asks, fresh), 4, lines.join('\n'));
+      assert.equal(await runBrew(claimed, asks, fresh), 4, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'mash-in');
       assert.ok(
-        lines.includes('foedrum mash: ordered acme/web#7 as batch web-7'),
-        lines.join('\n'),
+        f.lines.includes('foedrum mash: ordered acme/web#7 as batch web-7'),
+        f.lines.join('\n'),
       );
     });
 
@@ -1932,19 +1821,19 @@ describe('runBrew', () => {
       const route = { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label' } as const;
       log().issue({ ...route, source: 'label' }, t0);
       assert.equal(await runBrew(mashSetup(), shell(behave.succeed()), mash(12)), 5);
-      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(f.started, []);
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum mash: batch 12-1 of #12 already brews the recipe stout; foedrum recipe 12-1 <recipe> <reason> brews it with another',
       );
     });
 
     it('refuses a Brewery with one recipe to offer, ordering nothing: exit 5', async () => {
       const one = mashSetup({ only: 'stout' });
-      assert.equal(await runBrew(one, shell(behave.succeed()), mash(13)), 5, lines.join('\n'));
+      assert.equal(await runBrew(one, shell(behave.succeed()), mash(13)), 5, f.lines.join('\n'));
       assert.equal(log().state().batches.size, 0);
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it (decoction comes with #802)',
       );
     });
@@ -1962,13 +1851,13 @@ describe('runBrew', () => {
         const refusing = mashSetup(fields);
         assert.equal(await runBrew(refusing, shell(behave.succeed()), mash(13)), 5);
         assert.equal(log().state().batches.size, 0);
-        assert.equal(lines.at(-1), `foedrum mash: ${line}`);
+        assert.equal(f.lines.at(-1), `foedrum mash: ${line}`);
       });
     }
 
     it("labels a claimed order's Brewery issue once its question is answered, never the target issue", async () => {
       const web = { alias: 'web', intake: { labels: ['foedrum'] } };
-      api = fakeGitHubApi({
+      f.api = fakeGitHubApi({
         login: 'ann',
         issues: {
           'acme/brewery': [
@@ -1992,13 +1881,16 @@ describe('runBrew', () => {
         via: 'terminal',
         answers,
       } as const;
-      const answered = createCommandLog({ store, recipes: claimed.recipes }).issue(answer, t0);
+      const answered = createCommandLog({ store: f.store, recipes: claimed.recipes }).issue(
+        answer,
+        t0,
+      );
       assert.equal(answered.kind, 'accepted', JSON.stringify(answered));
       const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
       const brew = { ...request, target: { alias: 'web', issue: 7 } };
-      assert.equal(await runBrew(claimed, again, brew), 0, lines.join('\n'));
+      assert.equal(await runBrew(claimed, again, brew), 0, f.lines.join('\n'));
       const recipes = (repo: string, issue: number) =>
-        (api.issue(repo, issue)?.labels ?? []).filter((label) => label.startsWith('recipe:'));
+        (f.api.issue(repo, issue)?.labels ?? []).filter((label) => label.startsWith('recipe:'));
       assert.deepStrictEqual(recipes('acme/brewery', 40), ['recipe:stout']);
       assert.deepStrictEqual(recipes('acme/web', 7), []);
     });
@@ -2012,7 +1904,7 @@ describe('runBrew', () => {
           files: {
             ...serveInputs().files,
             config: config({}, web),
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
           },
         }),
       );
@@ -2041,7 +1933,7 @@ describe('runBrew', () => {
      */
     const brewLabelled = async (host: FakeGitHubApi, brewing: ServeSetup): Promise<number> => {
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(brewing, claimed, target), 5, lines.join('\n'));
+      assert.equal(await runBrew(brewing, claimed, target), 5, f.lines.join('\n'));
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.ok(order !== undefined, 'its Brewery issue is opened');
       order.labels.push('recipe:stout');
@@ -2054,7 +1946,7 @@ describe('runBrew', () => {
 
     it('claims it before it orders it, as foedrum order does, and brews it on tap by its Brewery issue: exit 0', async () => {
       const host = github();
-      assert.equal(await brewLabelled(host, targetSetup()), 0, lines.join('\n'));
+      assert.equal(await brewLabelled(host, targetSetup()), 0, f.lines.join('\n'));
       assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
       const batches = [...log().state().batches.values()];
       assert.deepStrictEqual(
@@ -2062,21 +1954,21 @@ describe('runBrew', () => {
         [{ id: 'web-7', repo: 'acme/web', issue: 7, lane: 'on_tap' }],
       );
       assert.ok(
-        lines.includes('foedrum brew: ordered acme/web#7 as batch web-7'),
-        lines.join('\n'),
+        f.lines.includes('foedrum brew: ordered acme/web#7 as batch web-7'),
+        f.lines.join('\n'),
       );
     });
 
     it("prints the link to the status comment on the claimed issue's Brewery issue (#413)", async () => {
       const host = github();
       const brewing = targetSetup();
-      assert.equal(await brewLabelled(host, brewing), 0, lines.join('\n'));
+      assert.equal(await brewLabelled(host, brewing), 0, f.lines.join('\n'));
       const [order] = host.issues['acme/brewery'] ?? [];
       const [comment] = host.comments.get(`acme/brewery#${order?.number}`) ?? [];
       assert.ok(comment !== undefined, 'a status comment on the Brewery issue');
       const link = `https://github.com/${brewing.brewery}/issues/${order?.number}#issuecomment-${comment.id}`;
-      const shown = lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
-      assert.equal(shown.length, 1, lines.join('\n'));
+      const shown = f.lines.filter((line) => line === `foedrum brew: status comment: ${link}`);
+      assert.equal(shown.length, 1, f.lines.join('\n'));
     });
 
     it('brews a claimed order by its Brewery issue, as its claimed batch, on tap: exit 0 (ADR 0240)', async () => {
@@ -2096,7 +1988,7 @@ describe('runBrew', () => {
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       const byOrder = { ...request, target: { issue: 40 } };
-      assert.equal(await runBrew(targetSetup(), claimed, byOrder), 0, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), claimed, byOrder), 0, f.lines.join('\n'));
       const batches = [...log().state().batches.values()];
       assert.deepStrictEqual(
         batches.map(({ id, lane }) => ({ id, lane: lane.kind })),
@@ -2120,7 +2012,7 @@ describe('runBrew', () => {
       const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 0, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), claimed, target), 0, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'stout');
     });
 
@@ -2130,15 +2022,15 @@ describe('runBrew', () => {
       const route = { kind: 'route', batchId: 'web-7', recipe: 'stout', reason: 'label' } as const;
       log().issue({ ...route, source: 'label' }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 0, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), claimed, target), 0, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.lane.kind, 'on_tap');
-      assert.ok(!lines.some((line) => line.includes('waits for')), lines.join('\n'));
+      assert.ok(!f.lines.some((line) => line.includes('waits for')), f.lines.join('\n'));
     });
 
     it('orders a claimed issue, opens its Brewery issue and waits there for its recipe label, never routing by the target issue: exit 5 (ADR 0156)', async () => {
       const host = github();
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 5, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.ok(order !== undefined, 'its Brewery issue is opened');
       const batch = log().state().batches.get('web-7');
@@ -2146,9 +2038,9 @@ describe('runBrew', () => {
         { lane: batch?.lane.kind, recipe: batch?.recipe },
         { lane: 'ordered', recipe: undefined },
       );
-      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(f.started, []);
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash web#7`,
       );
     });
@@ -2157,13 +2049,13 @@ describe('runBrew', () => {
       const host = github();
       log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 5, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       // Its target issue carries recipe:stout: a run that read it to route would say so.
-      assert.ok(!lines.some((line) => line.includes('routed')), lines.join('\n'));
+      assert.ok(!f.lines.some((line) => line.includes('routed')), f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash web#7`,
       );
     });
@@ -2178,27 +2070,27 @@ describe('runBrew', () => {
             : undefined,
       });
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 1, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), claimed, target), 1, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
       assert.deepStrictEqual(host.issues['acme/brewery'] ?? [], []);
       assert.ok(
-        lines.some((line) => line.includes('"order.issue"] failed: GitHub answered 500')),
-        lines.join('\n'),
+        f.lines.some((line) => line.includes('"order.issue"] failed: GitHub answered 500')),
+        f.lines.join('\n'),
       );
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum brew: acme/web#7 waits for its Brewery issue, which is not open yet; brew web#7 again',
       );
     });
 
     /** The live lease of the claimed batch web-7. */
-    const webLease = () => store.batchLeases(t0).find(({ batchId }) => batchId === 'web-7');
+    const webLease = () => f.store.batchLeases(t0).find(({ batchId }) => batchId === 'web-7');
 
     it('lets a claimed batch go once it waits for a label on its Brewery issue, holding no lease: exit 5 (ADR 0123)', async () => {
       const host = github();
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 5, lines.join('\n'));
-      assert.match(lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
       assert.equal(webLease(), undefined);
     });
 
@@ -2212,8 +2104,8 @@ describe('runBrew', () => {
             : undefined,
       });
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 1, lines.join('\n'));
-      assert.match(lines.at(-1) ?? '', /waits for its Brewery issue, which is not open yet/);
+      assert.equal(await runBrew(targetSetup(), claimed, target), 1, f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /waits for its Brewery issue, which is not open yet/);
       assert.equal(webLease(), undefined);
     });
 
@@ -2233,9 +2125,9 @@ describe('runBrew', () => {
         body: JSON.stringify({ ref: 'refs/foedrum/claims/issues/7', sha }),
       });
       const taken = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), taken, target), 5, lines.join('\n'));
+      assert.equal(await runBrew(targetSetup(), taken, target), 5, f.lines.join('\n'));
       assert.equal(log().state().batches.size, 0);
-      assert.equal(lines.at(-1), 'foedrum brew: acme/web#7 is claimed by other/brewery');
+      assert.equal(f.lines.at(-1), 'foedrum brew: acme/web#7 is claimed by other/brewery');
     });
   });
 
@@ -2248,17 +2140,17 @@ describe('runBrew', () => {
         flush: async () => ({ kind: 'unchanged' }),
       }),
     });
-    assert.equal(await runBrew(setup, broken, request), 1);
-    assert.equal(lines.at(-1), 'foedrum brew: the state branch is gone');
-    assert.equal(lock.held, false);
+    assert.equal(await runBrew(f.setup, broken, request), 1);
+    assert.equal(f.lines.at(-1), 'foedrum brew: the state branch is gone');
+    assert.equal(f.lock.held, false);
   });
 
   it('refuses a recipe label that names no recipe of the Brewery, ordering nothing: exit 5', async () => {
     const typo = { ...request, target: { issue: 15 } };
-    assert.equal(await runBrew(setup, shell(behave.succeed()), typo), 5);
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), typo), 5);
     assert.equal(log().state().batches.size, 0);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum brew: #15 carries recipe:stoutt, which names no recipe of this Brewery',
     );
   });
@@ -2271,15 +2163,17 @@ describe('runBrew', () => {
       recommended: 'a',
       whyBlocking: `It matters${String.fromCodePoint(0x2029)}${forged}`,
     };
-    assert.equal(await runBrew(setup, shell(behave.needInput([sneaky])), request), 4);
+    assert.equal(await runBrew(f.setup, shell(behave.needInput([sneaky])), request), 4);
     // The brewer's lines stay three, each with its breaks escaped: none is the forged one.
-    assert.ok(!lines.includes(forged), lines.join('\n'));
+    assert.ok(!f.lines.includes(forged), f.lines.join('\n'));
     const breaks = [0x0a, 0x2028, 0x2029];
     assert.ok(
-      lines.every((line) => [...line].every((char) => !breaks.includes(char.codePointAt(0) ?? 0))),
-      lines.join('\n'),
+      f.lines.every((line) =>
+        [...line].every((char) => !breaks.includes(char.codePointAt(0) ?? 0)),
+      ),
+      f.lines.join('\n'),
     );
-    assert.deepStrictEqual(lines.slice(-3), [
+    assert.deepStrictEqual(f.lines.slice(-3), [
       `foedrum brew:   1. Which name?\\u000a${forged} (a, b\\u2028${forged}; recommended: a)`,
       `foedrum brew:      why it blocks: It matters\\u2029${forged}`,
       'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1>, then brew again',
@@ -2303,7 +2197,7 @@ describe('runBrew', () => {
     /** The Brewery with the lauter recipe and `stewardText` as its steward. */
     const lauterSetup = (stewardText: string): ServeSetup => {
       const inputs = serveInputs({
-        files: { ...serveInputs().files, local: local({ workRoot: dir.path }) },
+        files: { ...serveInputs().files, local: local({ workRoot: f.dir.path }) },
       });
       const { brewery } = inputs.files;
       const result = serveSetup({
@@ -2320,8 +2214,8 @@ describe('runBrew', () => {
       return result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
     };
     beforeEach(() => {
-      setup = lauterSetup(steward);
-      api = fakeGitHubApi({
+      f.setup = lauterSetup(steward);
+      f.api = fakeGitHubApi({
         login: 'ann',
         issues: {
           'acme/brewery': [
@@ -2337,16 +2231,16 @@ describe('runBrew', () => {
       });
     });
     const resumedBy = () =>
-      store
+      f.store
         .eventsAfter(0)
         .flatMap(({ event }) =>
           event.type === 'batch.resumed' ? [`${event.action} by ${event.by} via ${event.via}`] : [],
         );
 
     it('opens the session on a terminal and goes on from its out doc to on tap: exit 0', async () => {
-      assert.equal(await runBrew(setup, shell(behave.succeed('Refined')), request), 0);
-      assert.deepStrictEqual(started, ['refine#1']);
-      const opened = store
+      assert.equal(await runBrew(f.setup, shell(behave.succeed('Refined')), request), 0);
+      assert.deepStrictEqual(f.started, ['refine#1']);
+      const opened = f.store
         .eventsAfter(0)
         .find(({ event }) => event.type === 'step.started' && event.stepId === 'refine');
       assert.equal(
@@ -2357,55 +2251,58 @@ describe('runBrew', () => {
 
     it('parks the batch without a terminal, starting nothing, and says why: exit 3', async () => {
       const piped = { ...request, noSessions: 'no-terminal' } as const;
-      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
-      assert.deepStrictEqual(started, []);
+      assert.equal(await runBrew(f.setup, shell(behave.succeed()), piped), 3);
+      assert.deepStrictEqual(f.started, []);
       assert.match(
-        lines.at(-2) ?? '',
+        f.lines.at(-2) ?? '',
         /^foedrum brew: batch 12-1 is stuck: waiting for a session at refine: foedrum brew 12 --take opens it in a terminal; reminder [^;]+; options: retry, /,
       );
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum brew: stdin is not a terminal, and claude needs one: run foedrum brew #12 in a terminal',
       );
     });
 
     it('parks the batch inside Claude Code, and names the brew to run in a terminal: exit 3', async () => {
       const inside = { ...request, noSessions: 'claude-code' } as const;
-      assert.equal(await runBrew(setup, shell(behave.succeed()), inside), 3);
+      assert.equal(await runBrew(f.setup, shell(behave.succeed()), inside), 3);
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum brew: run foedrum brew #12 in a terminal to open its session',
       );
     });
 
     it('waits for a session again, never retrying by itself, when the session closes without an out doc: exit 3', async () => {
-      assert.equal(await runBrew(setup, shell(behave.fail(true)), request), 3);
-      assert.deepStrictEqual(started, ['refine#1']);
+      assert.equal(await runBrew(f.setup, shell(behave.fail(true)), request), 3);
+      assert.deepStrictEqual(f.started, ['refine#1']);
       assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
-      assert.equal(lines.at(-1), 'foedrum brew: run foedrum brew #12 again to reopen the session');
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: run foedrum brew #12 again to reopen the session',
+      );
     });
 
     it('retries a batch it finds waiting for a session at its start, as the person, and opens the session: exit 0', async () => {
       const piped = { ...request, noSessions: 'no-terminal' } as const;
-      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      assert.equal(await runBrew(f.setup, shell(behave.succeed()), piped), 3);
       const again = shell(behave.succeed('Refined'), { lock: () => fakeLock('ann') });
-      assert.equal(await runBrew(setup, again, request), 0);
+      assert.equal(await runBrew(f.setup, again, request), 0);
       assert.deepStrictEqual(resumedBy(), ['retry by ann via terminal']);
-      assert.deepStrictEqual(started, ['refine#2']);
+      assert.deepStrictEqual(f.started, ['refine#2']);
       assert.ok(
-        lines.includes('foedrum brew: batch 12-1 waits for a session at refine; opening it'),
-        String(lines),
+        f.lines.includes('foedrum brew: batch 12-1 waits for a session at refine; opening it'),
+        String(f.lines),
       );
     });
 
     it('reopens the session fresh, with the whole prompt, also for a brewer with retryMode resume (ADR 0222)', async () => {
-      setup = lauterSetup(
+      f.setup = lauterSetup(
         steward.replace('"maxAttempts": 3', '"maxAttempts": 3,\n  "retryMode": "resume"'),
       );
-      assert.equal(await runBrew(setup, shell(behave.fail(true)), request), 3);
+      assert.equal(await runBrew(f.setup, shell(behave.fail(true)), request), 3);
       const again = shell(behave.succeed('Refined'), { lock: () => fakeLock('ann') });
-      assert.equal(await runBrew(setup, again, request), 0, String(lines));
-      const reopened = store
+      assert.equal(await runBrew(f.setup, again, request), 0, String(f.lines));
+      const reopened = f.store
         .eventsAfter(0)
         .flatMap(({ event }) =>
           event.type === 'step.started' && event.stepId === 'refine' && event.attempt === 2
@@ -2421,25 +2318,25 @@ describe('runBrew', () => {
 
     it('leaves a batch waiting for a session to the person when it opens none: exit 3', async () => {
       const piped = { ...request, noSessions: 'no-terminal' } as const;
-      assert.equal(await runBrew(setup, shell(behave.succeed()), piped), 3);
+      assert.equal(await runBrew(f.setup, shell(behave.succeed()), piped), 3);
       const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
-      assert.equal(await runBrew(setup, again, piped), 3, String(lines));
+      assert.equal(await runBrew(f.setup, again, piped), 3, String(f.lines));
       assert.deepStrictEqual(resumedBy(), []);
-      assert.deepStrictEqual(started, []);
+      assert.deepStrictEqual(f.started, []);
     });
   });
 
   it('drives on, as the same owner, the batch it left needing input once it is answered: exit 0', async () => {
-    assert.equal(await runBrew(setup, shell(behave.needInput()), request), 4);
+    assert.equal(await runBrew(f.setup, shell(behave.needInput()), request), 4);
     const answers = [{ q: question.q, answer: 'sqlite' }];
     log().issue({ kind: 'answer', batchId: '12-1', by: 'ann', via: 'terminal', answers }, t0);
-    const before = lines.length;
+    const before = f.lines.length;
     // The next process of the same owner takes the lock again.
     const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
-    assert.equal(await runBrew(setup, again, request), 0);
-    const second = lines.slice(before);
+    assert.equal(await runBrew(f.setup, again, request), 0);
+    const second = f.lines.slice(before);
     assert.ok(!second.some((line) => /ordered|routed|driven by/.test(line)), second.join('\n'));
-    assert.deepStrictEqual(started, ['brew#1', 'brew#2']);
+    assert.deepStrictEqual(f.started, ['brew#1', 'brew#2']);
     assert.match(second.at(-1) ?? '', /^foedrum brew: batch 12-1 is on tap: /);
   });
 
@@ -2452,7 +2349,7 @@ describe('runBrew', () => {
     const inputs = serveInputs({
       files: {
         ...files,
-        local: local({ workRoot: dir.path }),
+        local: local({ workRoot: f.dir.path }),
         brewery: { ...files.brewery, brewers: [{ path: 'brewers/cellarman.md', text }] },
       },
     });
@@ -2461,7 +2358,7 @@ describe('runBrew', () => {
     const runnerOf = (brew: Behaviour) =>
       fakeBrewerRunner(
         (attempt) => {
-          started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
+          f.started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
           return brew;
         },
         {
@@ -2477,7 +2374,7 @@ describe('runBrew', () => {
       runner: () => runnerOf(behave.succeed()),
     });
     assert.equal(await runBrew(answering, again, request), 0);
-    return store
+    return f.store
       .eventsAfter(0)
       .flatMap(({ event }) => (event.type === 'step.started' ? [event] : []));
   };
@@ -2515,11 +2412,11 @@ describe('runBrew', () => {
         if (waits === 1) {
           log().issue({ kind: 'cancel', batchId: '12-1', by: 'bob', via: 'terminal' }, t0);
         }
-        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (waits > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
       },
     });
-    assert.equal(await runBrew(setup, cancelled, request), 6);
-    assert.equal(lines.at(-1), 'foedrum brew: batch 12-1 was cancelled by bob via terminal');
+    assert.equal(await runBrew(f.setup, cancelled, request), 6);
+    assert.equal(f.lines.at(-1), 'foedrum brew: batch 12-1 was cancelled by bob via terminal');
   });
 
   it('refuses the batch, naming its new driver, when another driver takes it while it brews: exit 5', async () => {
@@ -2528,14 +2425,14 @@ describe('runBrew', () => {
     const taken = shell(running, {
       wait: async () => {
         // The lease of a driver that took the batch, as an expired lease of this one would let it.
-        store.withTransaction((tx) =>
+        f.store.withTransaction((tx) =>
           tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
         );
       },
     });
-    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.equal(await runBrew(f.setup, taken, request), 5);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
     );
   });
@@ -2545,7 +2442,7 @@ describe('runBrew', () => {
     let ending: (() => void) | undefined;
     const runner = {
       start: ({ ref }: { ref: { stepId: string; attempt: number } }) => {
-        started.push(`${ref.stepId}#${ref.attempt}`);
+        f.started.push(`${ref.stepId}#${ref.attempt}`);
         let settle: (end: { ending: { kind: 'cancelled' } }) => void = () => {};
         const ended = new Promise<{ ending: { kind: 'cancelled' } }>((resolve) => {
           settle = resolve;
@@ -2569,18 +2466,21 @@ describe('runBrew', () => {
           takeOver(log(), { ...handover, now: t0, leaseMs: 300_000, resumes: 'brew' });
         }
         ending?.();
-        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (waits > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
       },
     });
-    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.equal(await runBrew(f.setup, taken, request), 5);
     assert.ok(
-      store
+      f.store
         .eventsAfter(0)
         .some(({ event }) => event.type === 'step.finished' && event.stepId === 'brew'),
       'the stopped brew#1 is recorded',
     );
-    assert.deepStrictEqual(store.currentLeases(t0), [], 'and its lease let go');
-    assert.equal(lines.at(-1)?.startsWith('foedrum brew: batch 12-1 is driven by bob until'), true);
+    assert.deepStrictEqual(f.store.currentLeases(t0), [], 'and its lease let go');
+    assert.equal(
+      f.lines.at(-1)?.startsWith('foedrum brew: batch 12-1 is driven by bob until'),
+      true,
+    );
   });
 
   /**
@@ -2610,10 +2510,10 @@ describe('runBrew', () => {
           after();
         }
         now = new Date(now.getTime() + 60_000);
-        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (waits > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
       },
     });
-    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.equal(await runBrew(f.setup, taken, request), 5);
     return waits;
   };
 
@@ -2644,10 +2544,10 @@ describe('runBrew', () => {
           drawnAtTakeover = screen.rewrites().length;
         }
         now = new Date(now.getTime() + 1_000);
-        if (waits.length > 400) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (waits.length > 400) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
       },
     });
-    assert.equal(await runBrew(setup, taken, request), 5);
+    assert.equal(await runBrew(f.setup, taken, request), 5);
     assert.ok(waits.length > 5, `${waits.length} waits`);
     assert.ok(
       waits.every((ms) => ms <= 1_000),
@@ -2681,7 +2581,7 @@ describe('runBrew', () => {
         },
       }),
     });
-    assert.equal(await runBrew(setup, taken, request), 1);
+    assert.equal(await runBrew(f.setup, taken, request), 1);
     assert.ok(flushes >= 5, `${flushes} ticks in ${waits} redraws`);
   });
 
@@ -2692,7 +2592,7 @@ describe('runBrew', () => {
   it('refuses at once a batch whose resuming owner let it go to another driver (ADR 0127)', async () => {
     const until = new Date(t0.getTime() + 600_000);
     const third = () =>
-      store.withTransaction((tx) =>
+      f.store.withTransaction((tx) =>
         tx.putBatchLease({ batchId: '12-1', owner: 'session-7', expiresAt: until }),
       );
     assert.equal(await takenWithEndlessRun(true, third), 1);
@@ -2701,8 +2601,8 @@ describe('runBrew', () => {
   it('goes on recording the end of the run it stopped when a tick fails while it waits (ADR 0127)', async () => {
     // The two ticks after the takeover fail: the main loop's, then the first of the wait's.
     let failing = 0;
-    const inner = store;
-    store = {
+    const inner = f.store;
+    f.store = {
       ...inner,
       withTransaction: (fn) => {
         if (failing > 0) {
@@ -2722,10 +2622,10 @@ describe('runBrew', () => {
           takeOver(log(), { ...handover, now: t0, leaseMs: 300_000, resumes: 'brew' });
           failing = 2;
         }
-        if (waits > 20) assert.fail(`brew did not stop:\n${lines.join('\n')}`);
+        if (waits > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
       },
     });
-    assert.equal(await runBrew(setup, taken, request), 5, lines.join('\n'));
+    assert.equal(await runBrew(f.setup, taken, request), 5, f.lines.join('\n'));
     assert.ok(
       inner
         .eventsAfter(0)
@@ -2740,7 +2640,7 @@ describe('runBrew', () => {
     // Ordered, so brew reads its label before it takes the batch over.
     beforeEach(() => {
       log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-      store.withTransaction((tx) =>
+      f.store.withTransaction((tx) =>
         tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt: cellarUntil }),
       );
     });
@@ -2754,8 +2654,8 @@ describe('runBrew', () => {
           now = new Date(now.getTime() + 60_000);
         },
       });
-      assert.equal(await runBrew(setup, moving, takes), 0);
-      const handovers = store
+      assert.equal(await runBrew(f.setup, moving, takes), 0);
+      const handovers = f.store
         .eventsAfter(0)
         .map(({ event }) => event)
         .filter((event) => event.type === 'batch.taken_over');
@@ -2770,27 +2670,30 @@ describe('runBrew', () => {
           until: cellarUntil.toISOString(),
         },
       ]);
-      assert.ok(lines.includes('foedrum brew: took batch 12-1 over from cellar'), lines.join('\n'));
-      assert.equal(started.length > 0, true);
+      assert.ok(
+        f.lines.includes('foedrum brew: took batch 12-1 over from cellar'),
+        f.lines.join('\n'),
+      );
+      assert.equal(f.started.length > 0, true);
     });
 
     it('takes nothing over when it refuses the batch for its labels: exit 5', async () => {
       log().issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
-      store.withTransaction((tx) =>
+      f.store.withTransaction((tx) =>
         tx.putBatchLease({ batchId: '14-1', owner: 'cellar', expiresAt: cellarUntil }),
       );
       const two = { ...takes, target: { issue: 14 } };
-      assert.equal(await runBrew(setup, shell(behave.succeed()), two), 5);
-      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
+      assert.equal(await runBrew(f.setup, shell(behave.succeed()), two), 5);
+      assert.ok(!f.store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
       assert.equal(
-        store.batchLeases(t0).find(({ batchId }) => batchId === '14-1')?.owner,
+        f.store.batchLeases(t0).find(({ batchId }) => batchId === '14-1')?.owner,
         'cellar',
       );
     });
 
     /** serve's shell whose gh read of issue 12, for its labels, does `meanwhile` first. */
     const readingLabels = (meanwhile: () => void): Partial<ServeShell> => {
-      const gh = ghOver(api.fetch).exec;
+      const gh = ghOver(f.api.fetch).exec;
       return {
         gh: (...args: Parameters<typeof gh>) => {
           if (JSON.stringify(args).includes('issues/12')) meanwhile();
@@ -2801,28 +2704,28 @@ describe('runBrew', () => {
 
     it("brews on, taking nothing over, when the holder's lease lapsed while it read the labels: exit 0", async () => {
       const lapsed = readingLabels(() =>
-        store.withTransaction((tx) => tx.releaseBatchLease('12-1')),
+        f.store.withTransaction((tx) => tx.releaseBatchLease('12-1')),
       );
-      assert.equal(await runBrew(setup, shell(behave.succeed(), lapsed), takes), 0);
-      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
+      assert.equal(await runBrew(f.setup, shell(behave.succeed(), lapsed), takes), 0);
+      assert.ok(!f.store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
     });
 
     it('refuses with the reason, leaving the lease, when the takeover is refused while the holder still holds it: exit 5', async () => {
       const cancelled = readingLabels(() => {
         log().issue({ kind: 'cancel', batchId: '12-1', by: 'bob', via: 'terminal' }, t0);
       });
-      assert.equal(await runBrew(setup, shell(behave.succeed(), cancelled), takes), 5);
+      assert.equal(await runBrew(f.setup, shell(behave.succeed(), cancelled), takes), 5);
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum brew: batch 12-1 is cancelled; take over needs it ordered, brewing, conditioning or stuck',
       );
       assert.equal(leaseOf()?.owner, 'cellar');
     });
 
     it('brews as before when no other driver holds the batch, recording no handover', async () => {
-      store.withTransaction((tx) => tx.releaseBatchLease('12-1'));
-      assert.equal(await runBrew(setup, shell(behave.succeed()), takes), 0);
-      assert.ok(!store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
+      f.store.withTransaction((tx) => tx.releaseBatchLease('12-1'));
+      assert.equal(await runBrew(f.setup, shell(behave.succeed()), takes), 0);
+      assert.ok(!f.store.eventsAfter(0).some(({ event }) => event.type === 'batch.taken_over'));
     });
   });
 });
