@@ -428,6 +428,25 @@ describe('scoring a plan run', () => {
       assert.match(table, /^- Mash: together \(plan-apart-mash against plan-together-mash\)$/m);
       assert.match(table, /^- Seven lenses: together \(plan-apart-7 against plan-together-7\)$/m);
     });
+
+    it('a dry run says it measures nothing and makes no choice', () => {
+      const table = planTableMarkdown(
+        summarizePlan(
+          SETUP_NAMES.map((setup) => scripted(setup)),
+          plantedKey(),
+        ),
+        plantedKey(),
+        { dryRun: true },
+      );
+      assert.match(table, /^\| plan-apart-7 \| 7 \/ 7 \| 7 \| 7 \|/m);
+      assert.match(
+        table,
+        /^- A dry run measures nothing: its Tasters are scripted, so it makes no choice\.$/m,
+      );
+      assert.doesNotMatch(table, /^- Mash:/m);
+      assert.doesNotMatch(table, /^- Seven lenses:/m);
+      assert.doesNotMatch(table, /together \(plan-|apart \(plan-/);
+    });
   });
 });
 

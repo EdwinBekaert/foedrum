@@ -199,6 +199,7 @@ export const nextPlanRun = (records: readonly PlanRunRecord[], runs: number) =>
 export const planTableMarkdown = (
   summaries: readonly SetupSummary<PlanShown>[],
   key: PlanKey,
+  _options: { dryRun: boolean } = { dryRun: false },
 ): string => {
   const said = (apart: PlanShown, together: PlanShown): string =>
     `${saidChoice(choiceBetween(summaries, apart, together))} (${apart} against ${together})`;
