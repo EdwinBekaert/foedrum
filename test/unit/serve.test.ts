@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 import type { ClaudeAttemptPlan } from '../../src/brewers/claude-runner.ts';
 import {
   formatIntakeNotice,
@@ -33,9 +33,7 @@ import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import type { ExecOptions, ExecProcess } from '../../src/platform/processes.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { Git } from '../../src/workspace/git.ts';
-import { ghOver } from '../helpers/fake-gh.ts';
-import { type FakeGitHubApi, fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
-import { fakeLock } from '../helpers/fake-lock.ts';
+import { fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
 import {
   FAKE_COMMIT,
   type FakeWorktrees,
@@ -51,166 +49,11 @@ import {
   recipe,
   serveInputs,
 } from '../helpers/serve-brewery.ts';
-import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
-
-const t0 = new Date('2026-10-17T12:00:00.000Z');
+import { serveFixture, t0 } from '../helpers/serve-fixture.ts';
 
 describe('runServe', () => {
-  let dir: TempDir;
-  let setup: ServeSetup;
-  let store: EventStore;
-  let closed: number;
-  let calls: string[];
-  let lines: string[];
-  let controller: AbortController;
-  let lock: ReturnType<typeof fakeLock>;
-  let plans: ClaudeAttemptPlan[];
-  /** The Brewery's issue 12 with its text, where the status comment goes too (ADR 0072). */
-  let api: FakeGitHubApi;
-  // What the shell's pushes pushed, as `<repo> <commit> <branch>`.
-  let pushes: string[];
-  // The waits that saw the batch on tap.
-  let onTapWaits: number;
-
-  beforeEach(() => {
-    pushes = [];
-    onTapWaits = 0;
-    dir = makeTempDir('serve');
-    const result = serveSetup(
-      serveInputs({ files: { ...serveInputs().files, local: local({ workRoot: dir.path }) } }),
-    );
-    assert.equal(result.kind, 'ready');
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
-    store = openSqliteEventStore(':memory:');
-    const inner = store;
-    closed = 0;
-    store = {
-      ...inner,
-      close: () => {
-        closed++;
-      },
-    };
-    calls = [];
-    lines = [];
-    controller = new AbortController();
-    lock = fakeLock('cellar');
-    plans = [];
-    api = fakeGitHubApi({
-      login: 'ann',
-      issues: {
-        // Each batch opens its pull request with its order's title (ADR 0071).
-        'acme/brewery': [12, 13, 14].map((number) => ({
-          number,
-          labels: [],
-          author: 'ann',
-          title: 'Add a --json flag',
-          body: 'Add a --json flag.',
-        })),
-      },
-    });
-    // An order routed to the one-step recipe, as the state branch would have it.
-    const log = createCommandLog({ store, recipes: setup.recipes });
-    log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
-    log.issue(
-      { kind: 'route', batchId: '12-1', recipe: 'stout', reason: 'label', source: 'label' },
-      t0,
-    );
-  });
-  afterEach(() => dir.remove());
-
-  /** A runner whose attempts ask for their plan, then succeed, or fail when it cannot be made. */
-  const planningRunner = (plan: (start: AttemptStart) => Promise<ClaudeAttemptPlan>) => {
-    const runner: BrewerRunner = {
-      start: (start) => ({
-        ended: plan(start).then(
-          (made) => {
-            plans.push(made);
-            // As the claude runner does, before claude starts.
-            writeFileSync(made.settingsFile, '{}');
-            const output = { status: 'done', summary: 'Brewed', assumptions: [] };
-            return { ending: { kind: 'succeeded', output } } as const;
-          },
-          (error: Error) => ({
-            ending: { kind: 'failed', retryable: false, reason: error.message } as const,
-          }),
-        ),
-        stop: () => {},
-      }),
-      progress: () => undefined,
-    };
-    return runner;
-  };
-
-  // GitHub through a fake gh over a fake fetch (ADR 0073).
-  const shell = ({
-    fetch = api.fetch,
-    ...overrides
-  }: Partial<ServeShell> & { fetch?: typeof globalThis.fetch } = {}): ServeShell => ({
-    out: (line) => lines.push(line),
-    signal: controller.signal,
-    clock: () => t0,
-    // Stops serve one tick after the batch went on tap, or after 20 ticks: the openPullRequest
-    // action ends it after the drive, and the next tick's drive cleans it (ADR 0037).
-    wait: async (ms) => {
-      calls.push(`wait ${ms}`);
-      const lane = createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')
-        ?.lane.kind;
-      if (lane === 'on_tap') onTapWaits++;
-      if (onTapWaits > 1 || calls.length > 40) controller.abort();
-    },
-    lock: (workRoot, options) => {
-      calls.push(`lock ${options.owner} ${options.brewery} ${workRoot === dir.path}`);
-      return lock;
-    },
-    openStore: (path) => {
-      calls.push(`store ${path === setup.store}`);
-      return store;
-    },
-    stateBranch: () => ({
-      start: async () => {
-        calls.push('state branch');
-        return { decision: 'ready' };
-      },
-      flush: async () => ({ kind: 'unchanged' }),
-    }),
-    worktrees: async (repository) => {
-      calls.push(`worktrees ${repository.repo} ${repository.base}`);
-      return fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
-    },
-    merge: () => fakeWorktreeMerge(),
-    push: (repository) => ({
-      // The task tree is at FAKE_COMMIT, the base elsewhere.
-      commit: async () => FAKE_COMMIT,
-      baseTip: async () => 'b'.repeat(40),
-      isAncestor: async (commit, of) => commit === of,
-      remoteTip: async () => undefined,
-      push: async (commit, branch) => {
-        pushes.push(`${repository.repo} ${commit} ${branch}`);
-      },
-      secretScan: async () => [],
-      touchedFiles: async () => [],
-    }),
-    runner: (claude, plan) => {
-      calls.push(`runner ${claude}`);
-      return planningRunner(plan);
-    },
-    // The stout recipe has no check step.
-    exec: () => Promise.reject(new Error('no check step runs here')),
-    setup: () => Promise.reject(new Error('no repository setup runs here')),
-    gh: ghOver(fetch).exec,
-    // A check step looks for the test map (ADR 0274): the clone has none.
-    git: (_cwd, args) =>
-      args[0] === 'ls-tree'
-        ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
-        : Promise.reject(new Error('no red proof or guarded step runs here')),
-    ...overrides,
-  });
-
-  const types = () =>
-    store
-      .eventsAfter(0)
-      .map(({ event }) => event.type)
-      .filter((type) => type !== 'effect.applied');
+  const f = serveFixture();
+  const { shell, types } = f;
 
   it('pushes the bottle branch and opens one pull request for a recipe that ends with openPullRequest (ADR 0071)', async () => {
     const porter = JSON.stringify({
@@ -223,7 +66,7 @@ describe('runServe', () => {
       serveInputs({
         files: {
           ...serveInputs().files,
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [
               { path: 'recipes/stout.jsonc', text: recipe },
@@ -234,11 +77,11 @@ describe('runServe', () => {
         },
       }),
     );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail();
     // Serve closes its store at the end; the test reads it after.
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
       { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
@@ -252,9 +95,9 @@ describe('runServe', () => {
         ],
       },
     });
-    assert.equal(await runServe(setup, shell({ fetch: github.fetch })), 0);
+    assert.equal(await runServe(f.setup, shell({ fetch: github.fetch })), 0);
     const branch = 'foedrum/acme.brewery/12-1/acme.web';
-    assert.deepStrictEqual(pushes, [`acme/web ${FAKE_COMMIT} ${branch}`]);
+    assert.deepStrictEqual(f.pushes, [`acme/web ${FAKE_COMMIT} ${branch}`]);
     assert.deepStrictEqual(
       github.pulls.map(({ repo, head, base, title }) => ({ repo, head, base, title })),
       [{ repo: 'acme/web', head: branch, base: 'main', title: 'Add a --json flag' }],
@@ -265,7 +108,8 @@ describe('runServe', () => {
     );
     const [pull] = github.pulls;
     assert.deepStrictEqual(
-      createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane,
+      createCommandLog({ store: f.store, recipes: f.setup.recipes }).state().batches.get('12-1')
+        ?.lane,
       { kind: 'on_tap', pullRequests: [`https://github.com/acme/web/pull/${pull?.number}`] },
     );
   });
@@ -282,7 +126,7 @@ describe('runServe', () => {
       serveInputs({
         files: {
           ...serveInputs().files,
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           // No brewers/ of its own: a folder that does not exist has none, so the defaults load.
           brewery: {
             ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
@@ -291,10 +135,10 @@ describe('runServe', () => {
         },
       }),
     );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail();
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
       { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
@@ -302,15 +146,15 @@ describe('runServe', () => {
     );
     // The Cellarman's guards read its change with git: here it changed nothing they refuse.
     const git = async () => ({ code: 0, stdout: '', stderr: '' });
-    assert.equal(await runServe(setup, shell({ git })), 0);
-    const lane = createCommandLog({ store, recipes: setup.recipes })
+    assert.equal(await runServe(f.setup, shell({ git })), 0);
+    const lane = createCommandLog({ store: f.store, recipes: f.setup.recipes })
       .state()
       .batches.get('12-1')?.lane;
     assert.equal(lane?.kind, 'on_tap', JSON.stringify(lane));
-    assert.equal(plans.length, 1);
+    assert.equal(f.plans.length, 1);
     // Its order is an input, named as each input is; its tests from no gauge step are none.
-    assert.match(plans[0]?.prompt ?? '', /name="order"/);
-    assert.doesNotMatch(plans[0]?.prompt ?? '', /name="tests"/);
+    assert.match(f.plans[0]?.prompt ?? '', /name="order"/);
+    assert.doesNotMatch(f.plans[0]?.prompt ?? '', /name="tests"/);
   });
 
   it("records the sensitive files the push of a repository's pull request touches (ADR 0201)", async () => {
@@ -325,7 +169,7 @@ describe('runServe', () => {
         files: {
           ...serveInputs().files,
           config: config({}, { sensitivePaths: ['src/auth/**'] }),
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [
               { path: 'recipes/stout.jsonc', text: recipe },
@@ -336,10 +180,10 @@ describe('runServe', () => {
         },
       }),
     );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail();
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
       { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
@@ -359,13 +203,14 @@ describe('runServe', () => {
       isAncestor: async (commit: string, of: string) => commit === of,
       remoteTip: async () => undefined,
       push: async (commit: string, branch: string) => {
-        pushes.push(`${repository.repo} ${commit} ${branch}`);
+        f.pushes.push(`${repository.repo} ${commit} ${branch}`);
       },
       secretScan: async () => [],
       touchedFiles: async () => ['README.md', 'src/auth/login.ts'],
     });
-    assert.equal(await runServe(setup, shell({ fetch: github.fetch, push })), 0);
-    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
+    assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, push })), 0);
+    const pushed =
+      f.store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
     assert.deepStrictEqual((pushed.result as { sensitive?: unknown }).sensitive, {
       count: 1,
       files: ['src/auth/login.ts'],
@@ -393,7 +238,7 @@ describe('runServe', () => {
         files: {
           ...serveInputs().files,
           config: config({}, repository),
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [
               { path: 'recipes/stout.jsonc', text: recipe },
@@ -405,10 +250,10 @@ describe('runServe', () => {
         },
       }),
     );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail();
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
       { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
@@ -431,8 +276,9 @@ describe('runServe', () => {
       secretScan: async () => [],
       touchedFiles: async () => ['README.md', '.foedrum/test-map.jsonc'],
     });
-    assert.equal(await runServe(setup, shell({ fetch: github.fetch, push, git })), 0);
-    const pushed = store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
+    assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, push, git })), 0);
+    const pushed =
+      f.store.findEffect({ batchId: '12-1', effect: 'push' }) ?? assert.fail('no push');
     return (pushed.result as { sensitive?: unknown }).sensitive;
   };
 
@@ -507,7 +353,7 @@ describe('runServe', () => {
       serveInputs({
         files: {
           ...serveInputs().files,
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [
               { path: 'recipes/stout.jsonc', text: recipe },
@@ -520,10 +366,10 @@ describe('runServe', () => {
     );
     const ready = result.kind === 'ready' ? result.setup : assert.fail();
     // A pass at every tick, so one sees the batch on tap.
-    setup = { ...ready, intake: { ...ready.intake, pollEveryMs: 0 } };
+    f.setup = { ...ready, intake: { ...ready.intake, pollEveryMs: 0 } };
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
       { kind: 'route', batchId: '12-1', recipe: 'porter', reason: 'label', source: 'label' },
@@ -569,7 +415,7 @@ describe('runServe', () => {
     const asked: string[] = [];
     let waits = 0;
     const code = await runServe(
-      setup,
+      f.setup,
       shell({
         fetch: github.fetch,
         wait: async () => {
@@ -578,7 +424,7 @@ describe('runServe', () => {
           const [opened] = github.pulls;
           if (passed && opened !== undefined) opened.title = 'Add a --json flag, retitled';
           const done = passed ? briefComments() : conflictComments();
-          if (done.length > 0 || waits > 40) controller.abort();
+          if (done.length > 0 || waits > 40) f.controller.abort();
         },
         git: async (_cwd, args) => {
           asked.push(args.join(' '));
@@ -589,9 +435,9 @@ describe('runServe', () => {
           commit: async () => FAKE_COMMIT,
           baseTip: async () => 'b'.repeat(40),
           isAncestor: async (commit, of) => commit === of,
-          remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+          remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
           push: async (commit, branch) => {
-            pushes.push(`${repository.repo} ${commit} ${branch}`);
+            f.pushes.push(`${repository.repo} ${commit} ${branch}`);
           },
           secretScan: async () => [],
           touchedFiles: async () => [],
@@ -603,7 +449,7 @@ describe('runServe', () => {
       }),
     );
     const [pull] = github.pulls;
-    const baseChecks = createCommandLog({ store, recipes: setup.recipes })
+    const baseChecks = createCommandLog({ store: f.store, recipes: f.setup.recipes })
       .state()
       .batches.get('12-1')?.baseChecks;
     return { code, merged, pull, baseChecks, conflictComments, briefComments, asked };
@@ -625,7 +471,7 @@ describe('runServe', () => {
       },
     ]);
     const [comment] = conflictComments();
-    assert.ok(comment, lines.join('\n'));
+    assert.ok(comment, f.lines.join('\n'));
     assert.equal(comment?.key, `acme/web#${pull?.number}`);
     assert.match(comment?.body ?? '', /src\/cli\.ts/);
   });
@@ -634,7 +480,7 @@ describe('runServe', () => {
     const { code, pull, briefComments } = await brewWithMovedBase(true);
     assert.equal(code, 0);
     const [brief] = briefComments();
-    assert.ok(brief, lines.join(String.fromCodePoint(0x0a)));
+    assert.ok(brief, f.lines.join(String.fromCodePoint(0x0a)));
     assert.equal(brief?.key, `acme/web#${pull?.number}`);
     assert.match(brief?.body ?? '', /^### Merge\? Add a --json flag, retitled @ `/);
     assert.match(brief?.body ?? '', /- ✅ ci \(success\)/);
@@ -649,11 +495,11 @@ describe('runServe', () => {
     const servedWhileOpusClosed = async (models: string) => {
       const result = serveSetup(
         serveInputs({
-          files: { ...serveInputs().files, local: local({ workRoot: dir.path }), models },
+          files: { ...serveInputs().files, local: local({ workRoot: f.dir.path }), models },
         }),
       );
-      setup = result.kind === 'ready' ? result.setup : assert.fail();
-      store.withTransaction((tx) =>
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail();
+      f.store.withTransaction((tx) =>
         tx.append({
           type: 'usage.window_closed',
           limit: 'Opus',
@@ -662,7 +508,7 @@ describe('runServe', () => {
           read: true,
         }),
       );
-      assert.equal(await runServe(setup, shell()), 0);
+      assert.equal(await runServe(f.setup, shell()), 0);
     };
 
     it('starts the cellarman models.jsonc swaps to a Sonnet alias, though its own alias runs Opus', async () => {
@@ -672,12 +518,12 @@ describe('runServe', () => {
           brewers: { cellarman: 'middle' },
         }),
       );
-      assert.equal(plans.length, 1);
+      assert.equal(f.plans.length, 1);
     });
 
     it('holds the cellarman on Opus', async () => {
       await servedWhileOpusClosed(JSON.stringify({ models: { quick: 'claude-opus-5-5' } }));
-      assert.deepStrictEqual(plans, []);
+      assert.deepStrictEqual(f.plans, []);
     });
 
     it('starts an attempt by the family of the recipe it was scheduled under, after its batch moved to an Opus one (ADR 0310, regression test)', async () => {
@@ -687,7 +533,7 @@ describe('runServe', () => {
         serveInputs({
           files: {
             ...files,
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
             models: JSON.stringify({
               models: { quick: 'claude-sonnet-5-5', deep: 'claude-opus-5-5' },
             }),
@@ -712,10 +558,10 @@ describe('runServe', () => {
           },
         }),
       );
-      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
       // brew#1 was scheduled under stout when the batch was routed; a person moves it to imperial
       // before it starts (ADR 0240).
-      store.withTransaction((tx) => {
+      f.store.withTransaction((tx) => {
         for (const event of [
           {
             type: 'batch.recipe_chosen',
@@ -737,9 +583,9 @@ describe('runServe', () => {
           tx.append(event);
         }
       });
-      assert.equal(await runServe(setup, shell()), 0, lines.join(String.fromCodePoint(0x0a)));
+      assert.equal(await runServe(f.setup, shell()), 0, f.lines.join(String.fromCodePoint(0x0a)));
       assert.deepStrictEqual(
-        plans.map(({ call }) => call.model),
+        f.plans.map(({ call }) => call.model),
         ['claude-sonnet-5-5'],
       );
     });
@@ -763,21 +609,21 @@ describe('runServe', () => {
         touched.push('rewrite');
       },
     };
-    assert.equal(await runServe(setup, shell({ terminal })), 0);
+    assert.equal(await runServe(f.setup, shell({ terminal })), 0);
     assert.deepStrictEqual(touched, []);
-    assert.ok(lines.length > 0, 'serve printed its lines');
+    assert.ok(f.lines.length > 0, 'serve printed its lines');
   });
 
   it('sets the Cellar up in order, brews the order with its text, and stops on Ctrl+C', async () => {
-    assert.equal(await runServe(setup, shell()), 0);
-    assert.deepStrictEqual(calls.slice(0, 5), [
+    assert.equal(await runServe(f.setup, shell()), 0);
+    assert.deepStrictEqual(f.calls.slice(0, 5), [
       'lock cellar Acme/Brewery true',
       'store true',
       'state branch',
       'worktrees acme/web origin/main',
       'runner /home/brewer/.local/bin/claude',
     ]);
-    assert.ok(calls.slice(5).every((call) => call === 'wait 5000'));
+    assert.ok(f.calls.slice(5).every((call) => call === 'wait 5000'));
     assert.deepStrictEqual(types(), [
       'batch.ordered',
       'batch.recipe_chosen',
@@ -790,26 +636,29 @@ describe('runServe', () => {
       'step.finished',
       'batch.on_tap',
     ]);
-    const [plan] = plans;
+    const [plan] = f.plans;
     assert.match(plan?.prompt ?? '', /Add a --json flag\./);
     assert.equal(plan?.call.model, 'claude-haiku-5-5');
-    assert.equal(plan?.cwd, join(dir.path, 'acme.web', 'attempts', '12-1', 'brew', '1'));
+    assert.equal(plan?.cwd, join(f.dir.path, 'acme.web', 'attempts', '12-1', 'brew', '1'));
     assert.equal(plan?.env.npm_config_ignore_scripts, 'true');
     assert.equal(plan?.env.GH_TOKEN, undefined);
-    assert.equal(plan?.settingsFile, join(dir.path, 'attempt-settings', '12-1', 'brew', '1.json'));
+    assert.equal(
+      plan?.settingsFile,
+      join(f.dir.path, 'attempt-settings', '12-1', 'brew', '1.json'),
+    );
     // The cellarman produces commits: they are counted on its branch in the local clone its
     // worktree was added to, which the push takes too (ADR 0074, review of #208).
     assert.deepStrictEqual(plan?.commits, { clone, branch: 'foedrum/12-1/brew/1' });
     assert.deepStrictEqual(
-      [lines[0], lines.at(-1)],
+      [f.lines[0], f.lines.at(-1)],
       [
-        `foedrum serve: brewing for Acme/Brewery in ${dir.path}; Ctrl+C stops it`,
+        `foedrum serve: brewing for Acme/Brewery in ${f.dir.path}; Ctrl+C stops it`,
         'foedrum serve: stopped',
       ],
     );
-    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
     // One status comment on the order's issue, by the token's login, followed up to on tap.
-    const status = api.comments.get('acme/brewery#12') ?? [];
+    const status = f.api.comments.get('acme/brewery#12') ?? [];
     assert.equal(status.length, 1, 'one status comment');
     assert.equal(status[0]?.author, 'ann');
     assert.match(status[0]?.body ?? '', /On tap/);
@@ -825,7 +674,7 @@ describe('runServe', () => {
       attemptEnded: () => held.push('ended'),
       release: () => held.push('released'),
     };
-    assert.equal(await runServe(setup, shell({ awake })), 0);
+    assert.equal(await runServe(f.setup, shell({ awake })), 0);
     // The brew step's attempt; the openPullRequest action is no attempt.
     assert.deepStrictEqual(held, ['started', 'ended', 'released']);
   });
@@ -859,7 +708,7 @@ describe('runServe', () => {
         },
         progress: () => undefined,
       };
-      assert.equal(await runServe(setup, shell({ runner: () => broken, awake })), 0);
+      assert.equal(await runServe(f.setup, shell({ runner: () => broken, awake })), 0);
       balanced(held);
     });
 
@@ -869,20 +718,20 @@ describe('runServe', () => {
         start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
         progress: () => undefined,
       };
-      assert.equal(await runServe(setup, shell({ runner: () => broken, awake })), 0);
+      assert.equal(await runServe(f.setup, shell({ runner: () => broken, awake })), 0);
       balanced(held);
     });
 
     it('lets the hold go when closing its store fails', async () => {
       const { held, awake } = recording();
       const failing = {
-        ...store,
+        ...f.store,
         close: () => {
           throw new Error('the store did not close');
         },
       };
       await assert.rejects(
-        runServe(setup, shell({ awake, openStore: () => failing })),
+        runServe(f.setup, shell({ awake, openStore: () => failing })),
         /the store did not close/,
       );
       assert.equal(held.at(-1), 'released');
@@ -919,7 +768,7 @@ Plan the order in {order}.
       serveInputs({
         files: {
           ...serveInputs().files,
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [{ path: 'recipes/mash.jsonc', text: mash }],
             brewers: [{ path: 'brewers/brewmaster.md', text: planner }],
@@ -927,10 +776,10 @@ Plan the order in {order}.
         },
       }),
     );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail();
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     log.issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log.issue(
       { kind: 'route', batchId: '12-1', recipe: 'mash', reason: 'label', source: 'label' },
@@ -956,7 +805,7 @@ Plan the order in {order}.
     ) => ({
       start: (start: AttemptStart) => ({
         ended: plan(start).then((made) => {
-          plans.push(made);
+          f.plans.push(made);
           const output = { status: 'done', summary: 'Planned', assumptions: [], subOrders };
           return { ending: { kind: 'succeeded', output } } as const;
         }),
@@ -964,18 +813,18 @@ Plan the order in {order}.
       }),
       progress: () => undefined,
     });
-    assert.equal(await runServe(setup, shell({ runner })), 0);
+    assert.equal(await runServe(f.setup, shell({ runner })), 0);
     assert.deepEqual(
-      plans[0]?.touches?.map((each) => ({
+      f.plans[0]?.touches?.map((each) => ({
         repo: each.repo,
         commit: 'commit' in each && each.commit,
       })),
-      setup.repositories.map(({ repo }) => ({ repo, commit: FAKE_COMMIT })),
+      f.setup.repositories.map(({ repo }) => ({ repo, commit: FAKE_COMMIT })),
     );
-    const posted = (api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
+    const posted = (f.api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
       body.includes('plan.1'),
     );
-    assert.equal(posted.length, 1, lines.join('\n'));
+    assert.equal(posted.length, 1, f.lines.join('\n'));
     assert.match(posted[0]?.body ?? '', /^### Foedrum · plan of batch `12-1`/);
     assert.match(posted[0]?.body ?? '', /\n- Builds in acme\/web: one option, about 120 lines\n/);
   });
@@ -1006,7 +855,7 @@ Plan the order in {order}.
       serveInputs({
         files: {
           ...serveInputs().files,
-          local: local({ workRoot: dir.path }),
+          local: local({ workRoot: f.dir.path }),
           brewery: {
             recipes: [{ path: 'recipes/mash.jsonc', text: mash }],
             brewers: [{ path: 'brewers/brewmaster.md', text: planner }],
@@ -1014,10 +863,10 @@ Plan the order in {order}.
         },
       }),
     );
-    setup = result.kind === 'ready' ? result.setup : assert.fail();
+    f.setup = result.kind === 'ready' ? result.setup : assert.fail();
     const inner = openSqliteEventStore(':memory:');
-    store = { ...inner, close: () => {} };
-    const log = createCommandLog({ store, recipes: setup.recipes });
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
     const accept = (command: Parameters<typeof log.issue>[0]): void =>
       assert.equal(log.issue(command, t0).kind, 'accepted');
     accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
@@ -1039,23 +888,24 @@ Plan the order in {order}.
     const output = { status: 'done', summary: 'Planned', assumptions: [], subOrders: [subOrder] };
     accept({ kind: 'finish', ...ref, ending: { kind: 'succeeded', output } });
     accept({ kind: 'approve', batchId: '12-1', by: 'ann', via: 'terminal' });
-    assert.equal(await runServe(setup, shell()), 0);
-    const opened = api.issue('acme/brewery', 15);
-    assert.equal(opened?.title, 'A --json flag', lines.join('\n'));
+    assert.equal(await runServe(f.setup, shell()), 0);
+    const opened = f.api.issue('acme/brewery', 15);
+    assert.equal(opened?.title, 'A --json flag', f.lines.join('\n'));
     assert.deepStrictEqual(opened?.labels, ['foedrum:sub-order', 'recipe:stout']);
-    assert.deepStrictEqual(api.issue('acme/brewery', 12)?.subIssues, [15]);
+    assert.deepStrictEqual(f.api.issue('acme/brewery', 12)?.subIssues, [15]);
     assert.deepStrictEqual(
-      createCommandLog({ store, recipes: setup.recipes }).state().orders.get(12)?.subOrders,
+      createCommandLog({ store: f.store, recipes: f.setup.recipes }).state().orders.get(12)
+        ?.subOrders,
       [15],
     );
     // The sub-issues open before the plan comment is written, which names them in one revision.
-    const plan = (api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
+    const plan = (f.api.comments.get('acme/brewery#12') ?? []).filter(({ body }) =>
       body.startsWith('### Foedrum · plan of batch'),
     );
     assert.equal(plan.length, 1);
     assert.match(plan[0]?.body ?? '', /\nSub-issues: `json-flag` #15\.\n/);
-    assert.notEqual(store.findEffect({ batchId: '12-1', effect: 'plan.1' }), undefined);
-    assert.equal(store.findEffect({ batchId: '12-1', effect: 'plan.2' }), undefined);
+    assert.notEqual(f.store.findEffect({ batchId: '12-1', effect: 'plan.1' }), undefined);
+    assert.equal(f.store.findEffect({ batchId: '12-1', effect: 'plan.2' }), undefined);
   });
 
   it('keeps the out doc an attempt ended with for the state branch (ADR 0103)', async () => {
@@ -1070,9 +920,9 @@ Plan the order in {order}.
       }),
       progress: () => undefined,
     });
-    assert.equal(await runServe(setup, shell({ runner })), 0);
+    assert.equal(await runServe(f.setup, shell({ runner })), 0);
     // The stub state branch never pushes, so the store still keeps it.
-    assert.deepStrictEqual(store.keptOutDocs(), [
+    assert.deepStrictEqual(f.store.keptOutDocs(), [
       { batchId: '12-1', stepId: 'brew', attempt: 1, text },
     ]);
   });
@@ -1088,8 +938,8 @@ Plan the order in {order}.
       }),
       progress: () => undefined,
     });
-    const inner = store;
-    store = {
+    const inner = f.store;
+    f.store = {
       ...inner,
       withTransaction: (fn) =>
         inner.withTransaction((tx) =>
@@ -1101,15 +951,16 @@ Plan the order in {order}.
           }),
         ),
     };
-    assert.equal(await runServe(setup, shell({ runner })), 0);
+    assert.equal(await runServe(f.setup, shell({ runner })), 0);
     assert.ok(
-      lines.includes(
+      f.lines.includes(
         'foedrum serve: the out doc of 12-1 brew#1 was not kept for the state branch: disk full',
       ),
-      lines.join('\n'),
+      f.lines.join('\n'),
     );
     assert.equal(
-      createCommandLog({ store, recipes: setup.recipes }).state().batches.get('12-1')?.lane.kind,
+      createCommandLog({ store: f.store, recipes: f.setup.recipes }).state().batches.get('12-1')
+        ?.lane.kind,
       'on_tap',
     );
   });
@@ -1117,7 +968,7 @@ Plan the order in {order}.
   it('refuses a second Cellar, opening nothing', async () => {
     const running = new DriverRunningError('cellar', 'drivers/cellar.lock', undefined);
     const code = await runServe(
-      setup,
+      f.setup,
       shell({
         lock: () => {
           throw running;
@@ -1125,13 +976,13 @@ Plan the order in {order}.
       }),
     );
     assert.equal(code, 1);
-    assert.deepStrictEqual(calls, []);
-    assert.deepStrictEqual(lines, [`foedrum serve: ${running.message}`]);
+    assert.deepStrictEqual(f.calls, []);
+    assert.deepStrictEqual(f.lines, [`foedrum serve: ${running.message}`]);
   });
 
   it('lets the lock go and closes the store when the state branch refuses to start', async () => {
     const code = await runServe(
-      setup,
+      f.setup,
       shell({
         stateBranch: () => ({
           start: async () => {
@@ -1142,15 +993,15 @@ Plan the order in {order}.
       }),
     );
     assert.equal(code, 1);
-    assert.deepStrictEqual(lines, [
+    assert.deepStrictEqual(f.lines, [
       'foedrum serve: the branch moved and the store has unpushed events',
     ]);
-    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
   });
 
   it("stops when a repository's worktrees cannot be opened", async () => {
     const code = await runServe(
-      setup,
+      f.setup,
       shell({
         worktrees: async () => {
           throw new Error('git clone of https://github.com/acme/web.git failed: not found');
@@ -1158,15 +1009,15 @@ Plan the order in {order}.
       }),
     );
     assert.equal(code, 1);
-    assert.deepStrictEqual(lines, [
+    assert.deepStrictEqual(f.lines, [
       'foedrum serve: git clone of https://github.com/acme/web.git failed: not found',
     ]);
-    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
   });
 
   it('stops when a tick must stop the engine: another engine pushed the state branch', async () => {
     const code = await runServe(
-      setup,
+      f.setup,
       shell({
         stateBranch: () => ({
           start: async () => ({ decision: 'ready' }),
@@ -1177,24 +1028,24 @@ Plan the order in {order}.
       }),
     );
     assert.equal(code, 1);
-    assert.equal(lines.at(-1), 'foedrum serve: the push was rejected: another engine wrote');
-    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    assert.equal(f.lines.at(-1), 'foedrum serve: the push was rejected: another engine wrote');
+    assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
   });
 
   it("removes an ended batch's attempt settings with its worktrees", async () => {
-    assert.equal(await runServe(setup, shell()), 0);
-    assert.equal(plans.length, 1);
-    assert.equal(existsSync(join(dir.path, 'attempt-settings', '12-1')), false);
+    assert.equal(await runServe(f.setup, shell()), 0);
+    assert.equal(f.plans.length, 1);
+    assert.equal(existsSync(join(f.dir.path, 'attempt-settings', '12-1')), false);
   });
 
   it("lets the cleanup of an ended batch know each attempt's out doc, from its brewer (ADR 0081)", async () => {
     const managers: FakeWorktrees[] = [];
     const worktrees: ServeShell['worktrees'] = async () => {
-      const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
+      const manager = fakeWorktrees({ root: join(f.dir.path, 'acme.web', 'attempts') });
       managers.push(manager);
       return manager;
     };
-    assert.equal(await runServe(setup, shell({ worktrees })), 0);
+    assert.equal(await runServe(f.setup, shell({ worktrees })), 0);
     assert.deepStrictEqual(
       managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.outDocs,
       new Map([['12-1/brew/1', 'brew.md']]),
@@ -1204,12 +1055,12 @@ Plan the order in {order}.
   it("lets the cleanup delete the task tree's branch once the action's push recorded it (ADR 0084)", async () => {
     const managers: FakeWorktrees[] = [];
     const worktrees: ServeShell['worktrees'] = async () => {
-      const manager = fakeWorktrees({ root: join(dir.path, 'acme.web', 'attempts') });
+      const manager = fakeWorktrees({ root: join(f.dir.path, 'acme.web', 'attempts') });
       managers.push(manager);
       return manager;
     };
-    assert.equal(await runServe(setup, shell({ worktrees })), 0);
-    assert.equal(pushes.length, 1);
+    assert.equal(await runServe(f.setup, shell({ worktrees })), 0);
+    assert.equal(f.pushes.length, 1);
     assert.deepStrictEqual(
       managers.flatMap((manager) => manager.cleans()).at(-1)?.claims.unpushed,
       new Map(),
@@ -1217,25 +1068,28 @@ Plan the order in {order}.
   });
 
   it("gives each brewer its repository's toolchain rules", async () => {
-    assert.equal(await runServe(setup, shell()), 0);
-    assert.ok(plans[0]?.permissions.allow.includes('Bash(npm test*)'));
+    assert.equal(await runServe(f.setup, shell()), 0);
+    assert.ok(f.plans[0]?.permissions.allow.includes('Bash(npm test*)'));
   });
 
   // ADR 0163: the brewer finds the repository's dependencies in its worktree.
   it("gives each fresh brewer attempt its repository's setup to run before claude", async () => {
     const npmCi = { command: 'npm ci', timeout: '10m' };
-    const repositories = setup.repositories.map((repository) => ({ ...repository, setup: npmCi }));
-    assert.equal(await runServe({ ...setup, repositories }, shell()), 0);
-    assert.equal(plans[0]?.setup?.run.command, 'npm ci');
-    assert.equal(plans[0]?.setup?.run.timeoutMs, 600_000);
+    const repositories = f.setup.repositories.map((repository) => ({
+      ...repository,
+      setup: npmCi,
+    }));
+    assert.equal(await runServe({ ...f.setup, repositories }, shell()), 0);
+    assert.equal(f.plans[0]?.setup?.run.command, 'npm ci');
+    assert.equal(f.plans[0]?.setup?.run.timeoutMs, 600_000);
   });
 
   // ADR 0160: the sandbox hides the logins where serve's environment moved them.
   it('gives each brewer the sandbox and where the environment moves the logins', async () => {
     const configDirs = { GH_CONFIG_DIR: '/srv/gh' };
-    assert.equal(await runServe({ ...setup, sandbox: true, configDirs }, shell()), 0);
-    assert.equal(plans[0]?.permissions.sandbox, true);
-    assert.deepStrictEqual(plans[0]?.permissions.configDirs, configDirs);
+    assert.equal(await runServe({ ...f.setup, sandbox: true, configDirs }, shell()), 0);
+    assert.equal(f.plans[0]?.permissions.sandbox, true);
+    assert.deepStrictEqual(f.plans[0]?.permissions.configDirs, configDirs);
   });
 
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {
@@ -1245,11 +1099,14 @@ Plan the order in {order}.
       },
       progress: () => undefined,
     };
-    assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
-    assert.ok(lines.includes('foedrum serve: a tick failed: the runner broke'), lines.join('\n'));
+    assert.equal(await runServe(f.setup, shell({ runner: () => broken })), 0);
+    assert.ok(
+      f.lines.includes('foedrum serve: a tick failed: the runner broke'),
+      f.lines.join('\n'),
+    );
     // It went on ticking after the failed tick, until it was stopped.
-    assert.ok(calls.filter((call) => call === 'wait 5000').length > 1, calls.join('\n'));
-    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+    assert.ok(f.calls.filter((call) => call === 'wait 5000').length > 1, f.calls.join('\n'));
+    assert.equal(f.lines.at(-1), 'foedrum serve: stopped');
   });
 
   it('prints a run whose end rejected once, as a notice, and no failed tick (#130)', async () => {
@@ -1257,19 +1114,19 @@ Plan the order in {order}.
       start: () => ({ ended: Promise.reject(new Error('the runner broke')), stop: () => {} }),
       progress: () => undefined,
     };
-    assert.equal(await runServe(setup, shell({ runner: () => broken })), 0);
-    const failed = lines.filter((line) =>
+    assert.equal(await runServe(f.setup, shell({ runner: () => broken })), 0);
+    const failed = f.lines.filter((line) =>
       line.endsWith('failed, so it is blocked on its environment: the runner broke'),
     );
-    assert.equal(failed.length, 1, lines.join('\n'));
-    assert.ok(!lines.some((line) => line.includes('a tick failed')), lines.join('\n'));
-    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+    assert.equal(failed.length, 1, f.lines.join('\n'));
+    assert.ok(!f.lines.some((line) => line.includes('a tick failed')), f.lines.join('\n'));
+    assert.equal(f.lines.at(-1), 'foedrum serve: stopped');
   });
 
   it("prints the driver's notices, one line each, and goes on", async () => {
     let flushes = 0;
     await runServe(
-      setup,
+      f.setup,
       shell({
         stateBranch: () => ({
           start: async () => ({ decision: 'ready' }),
@@ -1279,16 +1136,16 @@ Plan the order in {order}.
       }),
     );
     assert.ok(
-      lines.includes('foedrum serve: the state branch was not pushed: no network'),
-      lines.join('\n'),
+      f.lines.includes('foedrum serve: the state branch was not pushed: no network'),
+      f.lines.join('\n'),
     );
-    assert.equal(lines.at(-1), 'foedrum serve: stopped');
+    assert.equal(f.lines.at(-1), 'foedrum serve: stopped');
   });
 
   it('prints a notice with control characters escaped, since a model may have written it', async () => {
     let flushes = 0;
     await runServe(
-      setup,
+      f.setup,
       shell({
         stateBranch: () => ({
           start: async () => ({ decision: 'ready' }),
@@ -1300,8 +1157,8 @@ Plan the order in {order}.
       }),
     );
     assert.ok(
-      lines.includes('foedrum serve: the state branch was not pushed: hook said \\u001b[2Jhi'),
-      lines.join('\n'),
+      f.lines.includes('foedrum serve: the state branch was not pushed: hook said \\u001b[2Jhi'),
+      f.lines.join('\n'),
     );
   });
 
@@ -1310,15 +1167,15 @@ Plan the order in {order}.
       'foedrum serve: check steps run outside an OS sandbox on native Windows: their commands can run code a brewer wrote, with network and home-folder access (ADR 0076)';
 
     it('says at its start, once, that check steps run outside an OS sandbox on native Windows', async () => {
-      assert.equal(await runServe({ ...setup, unsandboxedChecks: true }, shell()), 0);
-      assert.equal(lines[1], outsideSandbox);
-      assert.equal(lines.filter((line) => line === outsideSandbox).length, 1);
+      assert.equal(await runServe({ ...f.setup, unsandboxedChecks: true }, shell()), 0);
+      assert.equal(f.lines[1], outsideSandbox);
+      assert.equal(f.lines.filter((line) => line === outsideSandbox).length, 1);
     });
 
     it('says nothing of it where check steps run in the sandbox (ADR 0076)', async () => {
-      assert.equal(setup.unsandboxedChecks, false);
-      assert.equal(await runServe(setup, shell()), 0);
-      assert.ok(!lines.some((line) => line.includes('outside')), lines.join('\n'));
+      assert.equal(f.setup.unsandboxedChecks, false);
+      assert.equal(await runServe(f.setup, shell()), 0);
+      assert.ok(!f.lines.some((line) => line.includes('outside')), f.lines.join('\n'));
     });
 
     it('says nothing of it when no recipe has a check step', async () => {
@@ -1327,14 +1184,14 @@ Plan the order in {order}.
         serveInputs({
           files: {
             ...files,
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
             brewery: { ...files.brewery, recipes: files.brewery.recipes.slice(0, 1) },
           },
         }),
       );
       assert.ok(stoutOnly.kind === 'ready');
       assert.equal(await runServe({ ...stoutOnly.setup, unsandboxedChecks: true }, shell()), 0);
-      assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
+      assert.ok(!f.lines.includes(outsideSandbox), f.lines.join('\n'));
     });
 
     // A setup runs before every fresh brewer attempt too, so a recipe without a check step runs
@@ -1349,7 +1206,7 @@ Plan the order in {order}.
             files: {
               ...files,
               config: config({}, { setup: { command: 'npm ci', timeout: '10m' } }),
-              local: local({ workRoot: dir.path }),
+              local: local({ workRoot: f.dir.path }),
               brewery: { ...files.brewery, recipes },
             },
           }),
@@ -1359,11 +1216,11 @@ Plan the order in {order}.
       };
       const stoutOnly = withSetup(files.brewery.recipes.slice(0, 1));
       assert.equal(await runServe({ ...stoutOnly, unsandboxedChecks: true }, shell()), 0);
-      assert.equal(lines.filter((line) => line === setupOutside).length, 1, lines.join('\n'));
-      assert.ok(!lines.includes(outsideSandbox), lines.join('\n'));
-      lines.length = 0;
+      assert.equal(f.lines.filter((line) => line === setupOutside).length, 1, f.lines.join('\n'));
+      assert.ok(!f.lines.includes(outsideSandbox), f.lines.join('\n'));
+      f.lines.length = 0;
       assert.equal(await runServe(withSetup(files.brewery.recipes), shell()), 0);
-      assert.ok(!lines.includes(setupOutside), 'in a sandbox it says nothing of it');
+      assert.ok(!f.lines.includes(setupOutside), 'in a sandbox it says nothing of it');
     });
 
     type Call = { file: string; args: readonly string[]; options: ExecOptions };
@@ -1371,7 +1228,7 @@ Plan the order in {order}.
     const brewWithChecks = async (
       code: number,
       {
-        serving = setup,
+        serving = f.setup,
         prepare,
         merge,
         steps = [],
@@ -1385,7 +1242,7 @@ Plan the order in {order}.
         steps?: string[];
       } = {},
     ) => {
-      const log = createCommandLog({ store, recipes: setup.recipes });
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
       const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
       log.issue({ ...route, source: 'label' }, t0);
@@ -1414,21 +1271,21 @@ Plan the order in {order}.
           ...(merge === undefined ? {} : { merge: () => merge }),
           ...(git === undefined ? {} : { git }),
           wait: async () => {
-            calls.push('wait');
+            f.calls.push('wait');
             const lane = log.state().batches.get('13-1')?.lane.kind;
-            if (lane === 'on_tap' || lane === 'stuck' || calls.length > 40) controller.abort();
+            if (lane === 'on_tap' || lane === 'stuck' || f.calls.length > 40) f.controller.abort();
           },
         }),
       );
       assert.equal(code_, 0);
-      const events = store
+      const events = f.store
         .eventsAfter(0)
         .map(({ event }) => event)
         .filter((event) => 'batchId' in event && event.batchId === '13-1');
       return { checks, events, batch: log.state().batches.get('13-1') };
     };
     const worktreeOf = (attempt: number) =>
-      join(dir.path, 'acme.web', 'attempts', '13-1', 'green', String(attempt));
+      join(f.dir.path, 'acme.web', 'attempts', '13-1', 'green', String(attempt));
 
     it("merges the base into the check's worktree before its test command runs (ADR 0164)", async () => {
       const steps: string[] = [];
@@ -1447,7 +1304,7 @@ Plan the order in {order}.
         `npm test in ${worktreeOf(1)}`,
       ]);
       assert.ok(
-        store
+        f.store
           .eventsAfter(0)
           .some(
             ({ event }) =>
@@ -1457,11 +1314,11 @@ Plan the order in {order}.
     });
 
     it("runs the checks on an open pull request's merged tree once its base moves, and records the failing one (ADR 0203)", async () => {
-      const log = createCommandLog({ store, recipes: setup.recipes });
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
       const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
       log.issue({ ...route, source: 'label' }, t0);
-      const mergedRoot = join(dir.path, 'merged', 'one.tree');
+      const mergedRoot = join(f.dir.path, 'merged', 'one.tree');
       const ran: string[] = [];
       // green passes on the batch's own tree; the merged tree fails it.
       const exec: ExecProcess = async (file, _args, options) => {
@@ -1482,19 +1339,19 @@ Plan the order in {order}.
       const trees: string[] = [];
       const checked = () => log.state().batches.get('13-1')?.baseChecks ?? [];
       const code = await runServe(
-        { ...setup, intake: { ...setup.intake, pollEveryMs: 0 } },
+        { ...f.setup, intake: { ...f.setup.intake, pollEveryMs: 0 } },
         shell({
           runner: () => succeeding,
           exec,
           push: (repository) => ({
             commit: async () => FAKE_COMMIT,
             // green merged the base at 'b…'; once the pull request is open it moves to 'e…'.
-            baseTip: async () => (pushes.length > 0 ? 'e' : 'b').repeat(40),
+            baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
             isAncestor: async (commit, of) => commit === of,
             // The bottle branch holds what was pushed.
-            remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
             push: async (commit, branch) => {
-              pushes.push(`${repository.repo} ${commit} ${branch}`);
+              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
             },
             secretScan: async () => [],
             touchedFiles: async () => [],
@@ -1505,8 +1362,8 @@ Plan the order in {order}.
             return use(mergedRoot);
           },
           wait: async () => {
-            calls.push('wait');
-            if (checked().length > 0 || calls.length > 60) controller.abort();
+            f.calls.push('wait');
+            if (checked().length > 0 || f.calls.length > 60) f.controller.abort();
           },
         }),
       );
@@ -1531,7 +1388,7 @@ Plan the order in {order}.
     // Serve closes the store and lets the lock go: a run underway is stopped and settles first
     // (review of #528).
     it('stops a run on the merged tree and waits for it when a tick must stop the engine', async () => {
-      const log = createCommandLog({ store, recipes: setup.recipes });
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
       const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
       log.issue({ ...route, source: 'label' }, t0);
@@ -1552,7 +1409,7 @@ Plan the order in {order}.
         output: 'ok 1\n',
       });
       const code = await runServe(
-        { ...setup, intake: { ...setup.intake, pollEveryMs: 0 } },
+        { ...f.setup, intake: { ...f.setup.intake, pollEveryMs: 0 } },
         shell({
           runner: () => succeeding,
           exec,
@@ -1567,11 +1424,11 @@ Plan the order in {order}.
           }),
           push: (repository) => ({
             commit: async () => FAKE_COMMIT,
-            baseTip: async () => (pushes.length > 0 ? 'e' : 'b').repeat(40),
+            baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
             isAncestor: async (commit, of) => commit === of,
-            remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
             push: async (commit, branch) => {
-              pushes.push(`${repository.repo} ${commit} ${branch}`);
+              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
             },
             secretScan: async () => [],
             touchedFiles: async () => [],
@@ -1587,8 +1444,8 @@ Plan the order in {order}.
             throw new Error('stopped');
           },
           wait: async () => {
-            calls.push('wait');
-            if (calls.length > 80) controller.abort();
+            f.calls.push('wait');
+            if (f.calls.length > 80) f.controller.abort();
           },
         }),
       );
@@ -1599,7 +1456,7 @@ Plan the order in {order}.
     // On the way out a pass underway may wait for its deadline: the run is stopped first, and
     // settles before the lock goes (review of #528).
     it('stops a run on the merged tree before it waits for the pass, and lets the lock go once it settled', async () => {
-      const log = createCommandLog({ store, recipes: setup.recipes });
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
       log.issue({ kind: 'order', batchId: '13-1', order: { issue: 13 } }, t0);
       const route = { kind: 'route', batchId: '13-1', recipe: 'porter', reason: 'label' } as const;
       log.issue({ ...route, source: 'label' }, t0);
@@ -1626,10 +1483,10 @@ Plan the order in {order}.
           await aborted;
           events.push('pass read');
         }
-        return api.fetch(input, init);
+        return f.api.fetch(input, init);
       };
       const code = await runServe(
-        { ...setup, intake: { ...setup.intake, pollEveryMs: 0 } },
+        { ...f.setup, intake: { ...f.setup.intake, pollEveryMs: 0 } },
         shell({
           fetch,
           // A hang guard only: the order of events is what the test reads.
@@ -1638,7 +1495,7 @@ Plan the order in {order}.
           exec: async () => ({ exitCode: 0, stdout: 'ok 1\n', stderr: '', output: 'ok 1\n' }),
           lock: () => ({
             owner: 'cellar',
-            path: join(dir.path, 'drivers', 'cellar.lock'),
+            path: join(f.dir.path, 'drivers', 'cellar.lock'),
             held: true,
             release: () => {
               events.push('lock released');
@@ -1655,11 +1512,11 @@ Plan the order in {order}.
           }),
           push: (repository) => ({
             commit: async () => FAKE_COMMIT,
-            baseTip: async () => (pushes.length > 0 ? 'e' : 'b').repeat(40),
+            baseTip: async () => (f.pushes.length > 0 ? 'e' : 'b').repeat(40),
             isAncestor: async (commit, of) => commit === of,
-            remoteTip: async () => (pushes.length > 0 ? FAKE_COMMIT : undefined),
+            remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
             push: async (commit, branch) => {
-              pushes.push(`${repository.repo} ${commit} ${branch}`);
+              f.pushes.push(`${repository.repo} ${commit} ${branch}`);
             },
             secretScan: async () => [],
             touchedFiles: async () => [],
@@ -1678,8 +1535,8 @@ Plan the order in {order}.
             throw new Error('stopped');
           },
           wait: async () => {
-            calls.push('wait');
-            if (calls.length > 80) controller.abort();
+            f.calls.push('wait');
+            if (f.calls.length > 80) f.controller.abort();
           },
         }),
       );
@@ -1696,7 +1553,10 @@ Plan the order in {order}.
         at('run settled') >= 0 && at('run settled') < at('lock released'),
         events.join(', '),
       );
-      assert.ok(!lines.some((line) => line.includes('longer than its deadline')), lines.join('\n'));
+      assert.ok(
+        !f.lines.some((line) => line.includes('longer than its deadline')),
+        f.lines.join('\n'),
+      );
     });
 
     it("sticks the batch when the batch's test map adds a module the test command wrote no report for (ADR 0274)", async () => {
@@ -1751,8 +1611,8 @@ Plan the order in {order}.
         ],
       });
       const serving = {
-        ...setup,
-        repositories: setup.repositories.map((repository) => ({
+        ...f.setup,
+        repositories: f.setup.repositories.map((repository) => ({
           ...repository,
           testMap: { text: map },
         })),
@@ -1789,8 +1649,8 @@ Plan the order in {order}.
         ],
       });
       const serving = {
-        ...setup,
-        repositories: setup.repositories.map((repository) => ({
+        ...f.setup,
+        repositories: f.setup.repositories.map((repository) => ({
           ...repository,
           testMap: { text: map },
         })),
@@ -1868,8 +1728,8 @@ Plan the order in {order}.
 
     it("sticks the batch when the Brewery's test map of the repository does not parse: regression test", async () => {
       const serving = {
-        ...setup,
-        repositories: setup.repositories.map((repository) => ({
+        ...f.setup,
+        repositories: f.setup.repositories.map((repository) => ({
           ...repository,
           testMap: { text: '{ "modules": [' },
         })),
@@ -1927,7 +1787,7 @@ Plan the order in {order}.
           files: {
             ...serveInputs().files,
             config: config({}, { setup: { command: 'npm ci', timeout: '10m' } }),
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
           },
         }),
       );
@@ -1962,7 +1822,7 @@ Plan the order in {order}.
         brew?.id ?? '',
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
-      assert.equal(brew?.worktree, join(dir.path, 'acme.web', 'attempts', '13-1', 'brew', '1'));
+      assert.equal(brew?.worktree, join(f.dir.path, 'acme.web', 'attempts', '13-1', 'brew', '1'));
       assert.deepStrictEqual(sessionOf('green'), [undefined]);
     });
 
@@ -2044,7 +1904,7 @@ Plan the order in {order}.
           files: {
             ...files,
             config: config({}, web),
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
             brewery: {
               recipes: [{ path: 'recipes/nip.jsonc', text: recipeText }],
               brewers: [
@@ -2077,7 +1937,7 @@ Plan the order in {order}.
       /** The brewers' runner; default one whose every attempt succeeds. */
       brewing?: BrewerRunner,
     ) => {
-      const log = createCommandLog({ store, recipes: testFirst.recipes });
+      const log = createCommandLog({ store: f.store, recipes: testFirst.recipes });
       log.issue({ kind: 'order', batchId: '14-1', order: { issue: 14 } }, t0);
       const route = { kind: 'route', batchId: '14-1', recipe: 'nip', reason: 'label' } as const;
       log.issue({ ...route, source: 'label' }, t0);
@@ -2137,9 +1997,9 @@ Plan the order in {order}.
             return { code: 0, stdout: own ? '' : gaugeDiff, stderr: '' };
           },
           wait: async () => {
-            calls.push('wait');
+            f.calls.push('wait');
             const lane = log.state().batches.get('14-1')?.lane.kind;
-            if (lane === 'on_tap' || lane === 'stuck' || calls.length > 40) controller.abort();
+            if (lane === 'on_tap' || lane === 'stuck' || f.calls.length > 40) f.controller.abort();
           },
         }),
       );
@@ -2613,40 +2473,40 @@ Plan the order in {order}.
   });
 
   it('does not tick once it was stopped before it started', async () => {
-    controller.abort();
-    assert.equal(await runServe(setup, shell()), 0);
+    f.controller.abort();
+    assert.equal(await runServe(f.setup, shell()), 0);
     assert.deepStrictEqual(types().slice(-1), ['step.scheduled']);
-    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
   });
 
   // gh reads the login at the start, with the stop signal; a stop then ends that call (ADR 0073).
   it('stops with 0, and says so, when it is stopped while it reads its login', async () => {
     const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       if (new URL(String(input)).pathname === '/user') {
-        controller.abort(new Error('stopped by a signal'));
+        f.controller.abort(new Error('stopped by a signal'));
         return new Promise<Response>((_, reject) => {
           if (init?.signal?.aborted === true) reject(init.signal.reason);
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
         });
       }
-      return api.fetch(input, init);
+      return f.api.fetch(input, init);
     }) as typeof globalThis.fetch;
-    assert.equal(await runServe(setup, shell({ fetch })), 0);
-    assert.equal(lines.at(-1), 'foedrum serve: stopped');
-    assert.deepStrictEqual([lock.held, closed], [false, 1]);
+    assert.equal(await runServe(f.setup, shell({ fetch })), 0);
+    assert.equal(f.lines.at(-1), 'foedrum serve: stopped');
+    assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
   });
 
   it('still fails with the reason when its login read fails for another reason after a stop', async () => {
     const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       if (new URL(String(input)).pathname === '/user') {
-        controller.abort(new Error('stopped by a signal'));
+        f.controller.abort(new Error('stopped by a signal'));
         return new Response(JSON.stringify({ message: 'Bad credentials' }), { status: 401 });
       }
-      return api.fetch(input, init);
+      return f.api.fetch(input, init);
     }) as typeof globalThis.fetch;
-    assert.equal(await runServe(setup, shell({ fetch })), 1);
+    assert.equal(await runServe(f.setup, shell({ fetch })), 1);
     assert.equal(
-      lines.at(-1),
+      f.lines.at(-1),
       'foedrum serve: GitHub answered 401 to the login gh uses: Bad credentials',
     );
   });
@@ -2662,7 +2522,7 @@ Plan the order in {order}.
           files: {
             ...serveInputs().files,
             config: config(fields, web),
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
           },
         }),
       );
@@ -2680,17 +2540,17 @@ Plan the order in {order}.
     beforeEach(() => {
       now = t0.getTime();
     });
-    const state = () => createCommandLog({ store, recipes: setup.recipes }).state();
+    const state = () => createCommandLog({ store: f.store, recipes: f.setup.recipes }).state();
     const lane = (batchId: string) => state().batches.get(batchId)?.lane.kind;
     /** A clock that moves `stepMs` at every wait; serve stops once `stop` holds, or at 200 waits. */
     const ticking = (stop: () => boolean, stepMs = 5000) => ({
       clock: () => new Date(now),
       wait: async () => {
-        calls.push('wait');
+        f.calls.push('wait');
         now += stepMs;
         // Lets the pass underway go on between ticks, as the real wait does.
         await new Promise((resolve) => setTimeout(resolve, 1));
-        if (stop() || calls.length > 200) controller.abort();
+        if (stop() || f.calls.length > 200) f.controller.abort();
       },
     });
     /** A store with no order in it, which serve closes as it closes the one of beforeEach. */
@@ -2699,7 +2559,7 @@ Plan the order in {order}.
       return {
         ...inner,
         close: () => {
-          closed++;
+          f.closed++;
         },
       };
     };
@@ -2709,8 +2569,8 @@ Plan the order in {order}.
     };
 
     it("the ordered label is applied before the batch's first attempt starts", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 1 });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 1 });
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {
@@ -2723,22 +2583,22 @@ Plan the order in {order}.
       const seen: unknown[] = [];
       const runner: BrewerRunner = {
         start: (start) => {
-          seen.push(store.findEffect({ batchId: '12-1', effect: 'label.1' }));
+          seen.push(f.store.findEffect({ batchId: '12-1', effect: 'label.1' }));
           return hanging.start(start);
         },
         progress: () => undefined,
       };
       const started = () => seen.length > 0;
       const ran = await runServe(
-        setup,
+        f.setup,
         shell({ fetch: github.fetch, runner: () => runner, ...ticking(started) }),
       );
       assert.equal(ran, 0);
-      assert.ok(started(), lines.join('\n'));
+      assert.ok(started(), f.lines.join('\n'));
       // Ordered and routed in one intake pass: the ordered label went on between them.
       assert.ok(
-        lines.includes('foedrum serve: routed batch 12-1 to the recipe stout'),
-        lines.join('\n'),
+        f.lines.includes('foedrum serve: routed batch 12-1 to the recipe stout'),
+        f.lines.join('\n'),
       );
       assert.deepStrictEqual(seen[0], { result: { label: 'foedrum:ordered' } });
     });
@@ -2762,23 +2622,23 @@ Plan the order in {order}.
       };
 
       it('is let go by a stop, so serve stops: regression test', { timeout: 60_000 }, async () => {
-        store = empty();
-        setup = intakeSetup({ concurrency: 1 });
+        f.store = empty();
+        f.setup = intakeSetup({ concurrency: 1 });
         const github = labelled();
         const ran = await runServe(
-          setup,
+          f.setup,
           shell({
             fetch: github.fetch,
             runner: () => hanging,
             // The pass ordered and waits for the next tick, which the stop never starts.
             wait: async () => {
               await ordered();
-              controller.abort();
+              f.controller.abort();
             },
           }),
         );
         assert.equal(ran, 0);
-        assert.equal(lines.at(-1), 'foedrum serve: stopped');
+        assert.equal(f.lines.at(-1), 'foedrum serve: stopped');
         // Let go, the pass routed its batch.
         assert.equal(lane('12-1'), 'brewing');
       });
@@ -2786,11 +2646,11 @@ Plan the order in {order}.
       it('is let go by a tick that stops the engine, so serve ends: regression test', {
         timeout: 60_000,
       }, async () => {
-        store = empty();
-        setup = intakeSetup({ concurrency: 1 });
+        f.store = empty();
+        f.setup = intakeSetup({ concurrency: 1 });
         const github = labelled();
         const ran = await runServe(
-          setup,
+          f.setup,
           shell({
             fetch: github.fetch,
             runner: () => hanging,
@@ -2806,17 +2666,17 @@ Plan the order in {order}.
         );
         assert.equal(ran, 1);
         assert.ok(
-          lines.includes('foedrum serve: the push was rejected: another engine wrote'),
-          lines.join('\n'),
+          f.lines.includes('foedrum serve: the push was rejected: another engine wrote'),
+          f.lines.join('\n'),
         );
-        assert.equal(lock.held, false);
+        assert.equal(f.lock.held, false);
       });
 
       it('goes on at once when it reaches the wait after the stop', {
         timeout: 60_000,
       }, async () => {
-        store = empty();
-        setup = intakeSetup({ concurrency: 1 });
+        f.store = empty();
+        f.setup = intakeSetup({ concurrency: 1 });
         const github = labelled();
         // The pass's listing of the Brewery's issues answers only once serve is stopping.
         let answer: () => void = () => {};
@@ -2830,29 +2690,32 @@ Plan the order in {order}.
           return github.fetch(input, init);
         }) as typeof globalThis.fetch;
         const ran = await runServe(
-          setup,
+          f.setup,
           shell({
             fetch,
             runner: () => hanging,
             // Ends a pass that waits for the tick no stopped serve starts; never reached otherwise.
             intakeDeadlineMs: 5000,
             wait: async () => {
-              controller.abort();
+              f.controller.abort();
               answer();
             },
           }),
         );
         assert.equal(ran, 0);
-        assert.ok(!lines.some((line) => /longer than its deadline/.test(line)), lines.join('\n'));
-        assert.equal(lines.at(-1), 'foedrum serve: stopped');
+        assert.ok(
+          !f.lines.some((line) => /longer than its deadline/.test(line)),
+          f.lines.join('\n'),
+        );
+        assert.equal(f.lines.at(-1), 'foedrum serve: stopped');
         // It ordered after the stop and routed without waiting for a tick.
         assert.equal(lane('12-1'), 'brewing');
       });
     });
 
     it('orders and routes a labelled Brewery issue and a claimed target issue, marks the claim and releases it', async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2 }, target);
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2 }, target);
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {
@@ -2900,8 +2763,8 @@ Plan the order in {order}.
           github.requests.some((request) => takenOff.test(request))
         );
       };
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
-      assert.ok(done(), lines.join('\n'));
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(done) })), 0);
+      assert.ok(done(), f.lines.join('\n'));
       for (const batchId of ['12-1', 'web-7']) {
         assert.deepStrictEqual(state().batches.get(batchId)?.recipe, {
           name: 'stout',
@@ -2920,10 +2783,10 @@ Plan the order in {order}.
         'routed batch 12-1 to the recipe stout',
         'routed batch web-7 to the recipe stout',
       ]) {
-        assert.ok(lines.includes(`foedrum serve: ${line}`), `${line}\n${lines.join('\n')}`);
+        assert.ok(f.lines.includes(`foedrum serve: ${line}`), `${line}\n${f.lines.join('\n')}`);
       }
       assert.deepStrictEqual(
-        plans.map(({ prompt }) => /Add a (--json flag|dark theme)/.exec(prompt)?.[0]).sort(),
+        f.plans.map(({ prompt }) => /Add a (--json flag|dark theme)/.exec(prompt)?.[0]).sort(),
         ['Add a --json flag', 'Add a dark theme'],
       );
       // One Brewery issue, the title copied and the target issue linked, closed with the release.
@@ -2961,9 +2824,9 @@ Plan the order in {order}.
     });
 
     it('opens the Brewery issue of a target issue ordered by hand (ADR 0105, ADR 0144)', async () => {
-      store = empty();
-      setup = intakeSetup();
-      const log = createCommandLog({ store, recipes: setup.recipes });
+      f.store = empty();
+      f.setup = intakeSetup();
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
       const order = { issue: 7, repo: 'acme/web' };
       const by = { by: 'ann', via: 'terminal' } as const;
       log.issue({ kind: 'order_again', batchId: 'web-7', order, ...by }, t0);
@@ -2977,8 +2840,8 @@ Plan the order in {order}.
       const marked = () =>
         github.comments.get('acme/web#7')?.length === 1 &&
         github.issues['acme/brewery']?.length === 1;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(marked) })), 0);
-      assert.ok(marked(), lines.join('\n'));
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(marked) })), 0);
+      assert.ok(marked(), f.lines.join('\n'));
       assert.deepStrictEqual(
         (github.issues['acme/brewery'] ?? []).map(({ number, title }) => ({ number, title })),
         [{ number: 1, title: 'Dark theme' }],
@@ -2986,11 +2849,11 @@ Plan the order in {order}.
     });
 
     it("polls every pollEvery, not at every tick, and reads the token's login without a target intake", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2 });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2 });
       const github = fakeGitHubApi({ login: 'ann', issues: {} });
       const stop = () => now >= t0.getTime() + 125_000;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
       // At 0, 60 and 120 seconds.
       assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
       // The status comments count only the Brewery's own comments (ADR 0072).
@@ -2998,18 +2861,18 @@ Plan the order in {order}.
     });
 
     it("polls at foedrum.jsonc's pollEvery", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2, pollEvery: '2m' });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2, pollEvery: '2m' });
       const github = fakeGitHubApi({ login: 'ann', issues: {} });
       const stop = () => now >= t0.getTime() + 245_000;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
       // At 0 and 120 seconds, and 240.
       assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
     });
 
     it("times GitHub's rate-limit pause on serve's clock, not the machine's", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2 });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2 });
       // Years ahead of the machine's clock: a pause timed by Date.now would last its hour at most.
       const start = Date.parse('2031-01-01T00:00:00.000Z');
       now = start;
@@ -3029,14 +2892,14 @@ Plan the order in {order}.
         },
       });
       const stop = () => now >= start + 250_000;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
       // Refused at 0; asked again at 180 and 240 seconds of serve's clock.
       assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
     });
 
     it("starts no pass while GitHub's rate limit pauses the token (ADR 0052)", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2 });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2 });
       let first = true;
       const github = fakeGitHubApi({
         login: 'ann',
@@ -3053,23 +2916,23 @@ Plan the order in {order}.
         },
       });
       const stop = () => now >= t0.getTime() + 250_000;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop) })), 0);
       // At 0, refused; then not until the reset at 180 seconds, and again at 240.
       assert.equal(github.requests.filter(listingOf(brewerySpelled)).length, 3);
-      assert.equal(lines.filter((line) => /rate limit/.test(line)).length, 1, lines.join('\n'));
+      assert.equal(f.lines.filter((line) => /rate limit/.test(line)).length, 1, f.lines.join('\n'));
     });
 
     it('ticks on while a slow pass is underway, and the batch leases stay alive', {
       timeout: 10_000,
     }, async () => {
-      setup = intakeSetup({ concurrency: 2 });
+      f.setup = intakeSetup({ concurrency: 2 });
       const github = fakeGitHubApi({ login: 'ann', issues: {} });
       // The Brewery's listing answers only once the test lets it, three ticks after it was asked.
       let release = (): void => {};
       const released = new Promise<void>((resolve) => {
         release = resolve;
       });
-      const waits = () => calls.filter((call) => call === 'wait').length;
+      const waits = () => f.calls.filter((call) => call === 'wait').length;
       let listedAt: number | undefined;
       const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(String(input));
@@ -3084,28 +2947,28 @@ Plan the order in {order}.
       const stop = () => {
         if (listedAt !== undefined && releasedAt === undefined && waits() - listedAt >= 3) {
           // Three minutes of ticks into the pass: past half the lease, so only a heartbeat keeps it.
-          lease = store.batchLeases(new Date(now)).find(({ batchId }) => batchId === '12-1');
+          lease = f.store.batchLeases(new Date(now)).find(({ batchId }) => batchId === '12-1');
           releasedAt = waits();
           release();
         }
         return releasedAt !== undefined && waits() > releasedAt + 1;
       };
       const code = await runServe(
-        setup,
+        f.setup,
         shell({ fetch, runner: () => hanging, ...ticking(stop, 60_000) }),
       );
       assert.equal(code, 0);
-      assert.ok(releasedAt !== undefined, lines.join('\n'));
+      assert.ok(releasedAt !== undefined, f.lines.join('\n'));
       assert.equal(lease?.owner, 'cellar');
       assert.ok((lease?.expiresAt.getTime() ?? 0) > now - 60_000, 'renewed during the pass');
       assert.deepStrictEqual(
-        lines.filter((line) => line.includes('the intake failed')),
+        f.lines.filter((line) => line.includes('the intake failed')),
         [],
       );
     });
 
     it('waits for the pass underway before it stops', async () => {
-      setup = intakeSetup({ concurrency: 2 });
+      f.setup = intakeSetup({ concurrency: 2 });
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {},
@@ -3113,7 +2976,7 @@ Plan the order in {order}.
       });
       const stop = () => github.requests.some(listingOf(brewerySpelled));
       await runServe(
-        setup,
+        f.setup,
         shell({
           fetch: github.fetch,
           runner: () => hanging,
@@ -3121,14 +2984,17 @@ Plan the order in {order}.
           ...ticking(stop),
         }),
       );
-      const late = lines.findIndex((line) => /the intake failed the pass/.test(line));
-      assert.ok(late !== -1 && late < lines.indexOf('foedrum serve: stopped'), lines.join('\n'));
-      assert.deepStrictEqual([lock.held, closed], [false, 1]);
+      const late = f.lines.findIndex((line) => /the intake failed the pass/.test(line));
+      assert.ok(
+        late !== -1 && late < f.lines.indexOf('foedrum serve: stopped'),
+        f.lines.join('\n'),
+      );
+      assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
     });
 
     it("orders up to foedrum.jsonc's concurrency in one pass", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2 });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2 });
       // A recipe the Brewery lacks: both batches stay Ordered, holding their places.
       const github = fakeGitHubApi({
         login: 'ann',
@@ -3140,14 +3006,14 @@ Plan the order in {order}.
           })),
         },
       });
-      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
-      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      const stop = () => f.calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
       assert.deepStrictEqual([...state().batches.keys()], ['12-1', '13-1']);
     });
 
     it("holds a new order past foedrum.jsonc's openOrders, and says so once (ADR 0217)", async () => {
-      store = empty();
-      setup = intakeSetup({ concurrency: 2, openOrders: 1 });
+      f.store = empty();
+      f.setup = intakeSetup({ concurrency: 2, openOrders: 1 });
       // A recipe the Brewery lacks: the batch stays Ordered, its order open.
       const github = fakeGitHubApi({
         login: 'ann',
@@ -3159,17 +3025,17 @@ Plan the order in {order}.
           })),
         },
       });
-      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
-      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      const stop = () => f.calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
       assert.deepStrictEqual([...state().batches.keys()], ['12-1']);
-      const waits = lines.filter((line) => line.includes('#13 waits'));
+      const waits = f.lines.filter((line) => line.includes('#13 waits'));
       assert.deepStrictEqual(waits, [
         "foedrum serve: Acme/Brewery#13 waits: 1 order is open, the Brewery's openOrders",
       ]);
     });
 
     it('holds a second order of a recipe at its own concurrency, read from the recipe file (ADR 0217)', async () => {
-      store = empty();
+      f.store = empty();
       const files = serveInputs().files;
       const limited = JSON.stringify({ ...JSON.parse(recipe), concurrency: 1 });
       const result = serveSetup(
@@ -3177,7 +3043,7 @@ Plan the order in {order}.
           files: {
             ...files,
             config: config({ concurrency: 2 }, {}),
-            local: local({ workRoot: dir.path }),
+            local: local({ workRoot: f.dir.path }),
             brewery: {
               ...files.brewery,
               recipes: files.brewery.recipes.map((each) =>
@@ -3187,7 +3053,7 @@ Plan the order in {order}.
           },
         }),
       );
-      setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {
@@ -3198,19 +3064,19 @@ Plan the order in {order}.
           })),
         },
       });
-      const stop = () => calls.filter((call) => call === 'wait').length >= 3;
-      await runServe(setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
+      const stop = () => f.calls.filter((call) => call === 'wait').length >= 3;
+      await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(stop, 0) }));
       assert.deepStrictEqual([...state().batches.keys()], ['12-1']);
-      const waits = lines.filter((line) => line.includes('#13 waits'));
+      const waits = f.lines.filter((line) => line.includes('#13 waits'));
       assert.deepStrictEqual(waits, [
         'foedrum serve: Acme/Brewery#13 waits: recipe stout brews its 1 at once (concurrency)',
       ]);
     });
 
     it('releases the claim of a claimed batch the store has, though no repository has an intake any more', async () => {
-      store = empty();
-      setup = intakeSetup();
-      const log = createCommandLog({ store, recipes: setup.recipes });
+      f.store = empty();
+      f.setup = intakeSetup();
+      const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
       log.issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
       log.issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' }, t0);
       const github = fakeGitHubApi({
@@ -3218,18 +3084,21 @@ Plan the order in {order}.
         issues: { 'acme/web': [{ number: 7, labels: ['foedrum:claimed'], author: 'ann' }] },
       });
       const released = () => github.comments.get('acme/web#7')?.length === 1;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(released) })), 0);
-      assert.ok(released(), lines.join('\n'));
+      assert.equal(
+        await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(released) })),
+        0,
+      );
+      assert.ok(released(), f.lines.join('\n'));
       assert.ok(github.requests.includes('GET /user'));
       assert.deepStrictEqual(github.issue('acme/web', 7)?.labels, []);
     });
 
     it("records the release a merged release blocker waits on, through GitHub's API (ADR 0223)", async () => {
-      store = empty();
+      f.store = empty();
       const lib = 'acme/lib-core';
       const merged = 'https://github.com/acme/lib-core/pull/5';
       const routeBy = '2026-10-17T13:00:00.000Z';
-      store.withTransaction((tx) => {
+      f.store.withTransaction((tx) => {
         for (const event of [
           { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
           {
@@ -3255,7 +3124,7 @@ Plan the order in {order}.
           tx.append(event);
         }
       });
-      setup = intakeSetup({ concurrency: 2 });
+      f.setup = intakeSetup({ concurrency: 2 });
       const sha = 'c'.repeat(40);
       const github = fakeGitHubApi({
         login: 'ann',
@@ -3285,22 +3154,25 @@ Plan the order in {order}.
         },
       });
       const recorded = () => state().releases.length > 0;
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(recorded) })), 0);
+      assert.equal(
+        await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(recorded) })),
+        0,
+      );
       assert.deepStrictEqual(
         state().releases.map(({ repo, version }) => `${repo} ${version}`),
         [`${lib} v1.0.0`],
       );
-      assert.ok(lines.includes(`foedrum serve: recorded the release v1.0.0 of ${lib}`));
+      assert.ok(f.lines.includes(`foedrum serve: recorded the release v1.0.0 of ${lib}`));
     });
 
     it("names an order's other pull request in each sub-order pull request's body, through GitHub's API (ADR 0292)", async () => {
-      store = empty();
+      f.store = empty();
       const routeBy = '2026-10-17T13:00:00.000Z';
       const pulls = {
         '2-1': 'https://github.com/acme/lib-core/pull/7',
         '3-1': 'https://github.com/acme/web/pull/12',
       };
-      store.withTransaction((tx) => {
+      f.store.withTransaction((tx) => {
         for (const event of [
           { type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy },
           {
@@ -3343,13 +3215,13 @@ Plan the order in {order}.
               repositories: { 'acme/web': { checks }, 'acme/lib-core': { checks } },
             }),
             local: local({
-              workRoot: dir.path,
+              workRoot: f.dir.path,
               clones: { 'acme/web': clone, 'acme/lib-core': clone },
             }),
           },
         }),
       );
-      setup = listed.kind === 'ready' ? listed.setup : assert.fail(listed.problems.join('\n'));
+      f.setup = listed.kind === 'ready' ? listed.setup : assert.fail(listed.problems.join('\n'));
       const marked = (batchId: string) =>
         pullRequestText({
           title: 'Order',
@@ -3394,7 +3266,7 @@ Plan the order in {order}.
         ['/repos/acme/lib-core/pulls/7', '/repos/acme/web/pulls/12'].every((path) =>
           github.requests.includes(`PATCH ${path}`),
         );
-      assert.equal(await runServe(setup, shell({ fetch, ...ticking(patched) })), 0);
+      assert.equal(await runServe(f.setup, shell({ fetch, ...ticking(patched) })), 0);
       assert.ok(patched(), github.requests.join('\n'));
       assert.match(sent.get('/repos/acme/lib-core/pulls/7') ?? '', /acme\/web#12/);
       assert.match(sent.get('/repos/acme/web/pulls/12') ?? '', /acme\/lib-core#7/);
@@ -3406,10 +3278,10 @@ Plan the order in {order}.
       [', with a target intake', target],
     ] as const) {
       it(`closes a Brewery issue whose batch's pull request merged, with a comment, through GitHub's API (ADR 0296)${named}`, async () => {
-        store = empty();
+        f.store = empty();
         const routeBy = '2026-10-17T13:00:00.000Z';
         const url = 'https://github.com/acme/web/pull/31';
-        store.withTransaction((tx) => {
+        f.store.withTransaction((tx) => {
           for (const event of [
             { type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy },
             { type: 'effect.applied', key: JSON.stringify(['12-1', 'pull_request']), result: url },
@@ -3419,13 +3291,16 @@ Plan the order in {order}.
             tx.append(event);
           }
         });
-        setup = web === undefined ? intakeSetup() : intakeSetup({}, web);
+        f.setup = web === undefined ? intakeSetup() : intakeSetup({}, web);
         const github = fakeGitHubApi({
           login: 'ann',
           issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann' }] },
         });
         const closed = () => github.issue('acme/brewery', 12)?.state === 'closed';
-        assert.equal(await runServe(setup, shell({ fetch: github.fetch, ...ticking(closed) })), 0);
+        assert.equal(
+          await runServe(f.setup, shell({ fetch: github.fetch, ...ticking(closed) })),
+          0,
+        );
         assert.ok(closed(), github.requests.join('\n'));
         const comments = github.comments.get('acme/brewery#12') ?? [];
         assert.ok(
@@ -3436,7 +3311,7 @@ Plan the order in {order}.
     }
 
     it("stops when it cannot read the token's login for a target intake", async () => {
-      setup = intakeSetup({}, target);
+      f.setup = intakeSetup({}, target);
       const github = fakeGitHubApi({
         login: 'ann',
         issues: {},
@@ -3445,12 +3320,12 @@ Plan the order in {order}.
             ? { status: 401, body: { message: 'Bad credentials' } }
             : undefined,
       });
-      assert.equal(await runServe(setup, shell({ fetch: github.fetch })), 1);
+      assert.equal(await runServe(f.setup, shell({ fetch: github.fetch })), 1);
       assert.equal(
-        lines.at(-1),
+        f.lines.at(-1),
         'foedrum serve: GitHub answered 401 to the login gh uses: Bad credentials',
       );
-      assert.deepStrictEqual([lock.held, closed], [false, 1]);
+      assert.deepStrictEqual([f.lock.held, f.closed], [false, 1]);
     });
   });
 });
