@@ -13,7 +13,11 @@ export interface TomlEntry {
   value: TomlValue;
 }
 
-const MAX_DEPTH = 64;
+const MAX_DEPTH = 32;
+// Each statement keeps its whole path, so a path's size bounds what a manifest can make it hold.
+const MAX_KEY_PARTS = 64;
+const MAX_KEY_PART_LENGTH = 1024;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const BOM = String.fromCodePoint(0xfeff);
 const BARE_KEY = /^[\w-]$/;
 const ESCAPES: Readonly<Record<string, string>> = {
@@ -139,18 +143,27 @@ export const readToml = (text: string): TomlEntry[] => {
     const parts: string[] = [];
     for (;;) {
       skipSpaces();
+      let part: string;
       if (text[at] === '"' || text[at] === "'") {
-        parts.push(string());
+        part = string();
       } else {
         const start = at;
         while (BARE_KEY.test(text[at] ?? '')) at += 1;
         if (at === start) return fail('a key that is empty');
-        parts.push(text.slice(start, at));
+        part = text.slice(start, at);
       }
+      if (part.length > MAX_KEY_PART_LENGTH) fail('a key part too long');
+      parts.push(part);
       skipSpaces();
       if (text[at] !== '.') return parts;
       at += 1;
     }
+  };
+
+  /** The path of `parts` under `prefix`, of a size the reader keeps for each statement. */
+  const pathOf = (prefix: readonly string[], parts: readonly string[]): string[] => {
+    if (prefix.length + parts.length > MAX_KEY_PARTS) fail('a key of too many parts');
+    return [...prefix, ...parts];
   };
 
   /** The comma-separated items of the array or inline table at `at`, up to `close`. */
@@ -183,12 +196,20 @@ export const readToml = (text: string): TomlEntry[] => {
       if (path !== undefined) entries.push({ path, value: { kind: 'table' } });
       items('}', 'an unclosed inline table', () => {
         const parts = key();
-        assignment(path === undefined ? undefined : [...path, ...parts], depth + 1);
+        assignment(path === undefined ? undefined : pathOf(path, parts), depth + 1);
       });
     } else {
       const start = at;
-      while (at < text.length && !' \t\r\n,]}#'.includes(text[at] ?? '')) at += 1;
+      const toValueEnd = (): void => {
+        while (at < text.length && !' \t\r\n,]}#'.includes(text[at] ?? '')) at += 1;
+      };
+      toValueEnd();
       if (at === start) fail('a key without a value');
+      // A date and its time may have one space between them.
+      if (text[at] === ' ' && /\d/.test(text[at + 1] ?? '') && DATE.test(text.slice(start, at))) {
+        at += 1;
+        toValueEnd();
+      }
       if (path !== undefined) entries.push({ path, value: { kind: 'other' } });
     }
   };
@@ -215,10 +236,10 @@ export const readToml = (text: string): TomlEntry[] => {
     skipBlank();
     if (at >= text.length) return entries;
     if (text[at] === '[') {
-      table = header();
+      table = pathOf([], header());
       entries.push({ path: table, value: { kind: 'table' } });
     } else {
-      assignment([...table, ...key()], 0);
+      assignment(pathOf(table, key()), 0);
     }
     endStatement();
   }

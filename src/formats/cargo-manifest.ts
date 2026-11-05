@@ -19,6 +19,9 @@ const TABLES: ReadonlySet<string> = new Set([
   'dependencies',
   'dev-dependencies',
   'build-dependencies',
+  // Cargo still takes these older spellings, as it does `[project]` for `[package]`.
+  'dev_dependencies',
+  'build_dependencies',
 ]);
 
 // The keys of a dependency in Cargo's schema that the map reads, each a string,
@@ -104,7 +107,11 @@ const readManifest = (manifest: string, entries: readonly TomlEntry[]): Manifest
   const publishes: string[] = [];
   const specs = new Map<string, Spec>();
   for (const { path, value } of entries) {
-    if (path.length === 2 && path[0] === 'package' && path[1] === 'name') {
+    if (
+      path.length === 2 &&
+      (path[0] === 'package' || path[0] === 'project') &&
+      path[1] === 'name'
+    ) {
       if (value.kind !== 'string') throw new Refused('its package name is not a string');
       publishes.push(value.text);
     }

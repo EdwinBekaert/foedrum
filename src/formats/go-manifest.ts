@@ -17,12 +17,15 @@ import {
 // that finds no close means no such quote lies later, so a line is read in linear time.
 const TOKEN = /"[^"]*"|`[^`]*`|[()]|[^\s()]+/g;
 
-/** A line's tokens without their quotes, up to a comment. */
-const tokensOf = (line: string): string[] => {
+/** A line's tokens without their quotes, up to a comment; undefined when a quote does not close. */
+const tokensOf = (line: string): string[] | undefined => {
   const tokens: string[] = [];
   for (const [token] of line.matchAll(TOKEN)) {
     if (token.startsWith('//')) break;
-    tokens.push(token.startsWith('"') || token.startsWith('`') ? token.slice(1, -1) : token);
+    const quote = token.startsWith('"') ? '"' : token.startsWith('`') ? '`' : undefined;
+    if (quote === undefined) tokens.push(token);
+    else if (token.length < 2 || !token.endsWith(quote)) return undefined;
+    else tokens.push(token.slice(1, -1));
   }
   return tokens;
 };
@@ -84,6 +87,9 @@ const readManifest = (manifest: string, text: string): ManifestRead => {
   let block: string | undefined;
   for (const line of text.split('\n')) {
     const tokens = tokensOf(line);
+    if (tokens === undefined) {
+      return { kind: 'unreadable', reason: 'a line has a quote that does not close' };
+    }
     const [first, ...rest] = tokens;
     if (first === undefined) continue;
     let why: string | undefined;
