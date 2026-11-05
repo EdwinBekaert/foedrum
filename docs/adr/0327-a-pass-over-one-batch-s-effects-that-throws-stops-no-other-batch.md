@@ -1,6 +1,6 @@
 # 0327. A pass over one batch's effects that throws stops no other batch
 
-Date: 2026-11-05 · Status: Accepted · Amends [0250](0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md) (a throw in the pass over one batch's effects no longer reaches `tick_failed`)
+Date: 2026-11-05 · Status: Accepted · Amends [0250](0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md) (a throw in the pass over one batch's effects no longer reaches `tick_failed`) and [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (a merge brief shows nothing of a recipe the batch left)
 
 ## Context
 A batch's folded steps keep the attempts of every recipe it brewed, and a recipe throws when asked about a step it lacks.
@@ -19,6 +19,7 @@ ADR 0250 has each command report a tick that throws as `tick_failed` and run the
 - A `StateBranchStopError` still stops the engine through `tick()`, as ADR 0250 says: it comes from the state branch's start and the supervisor's flush, and neither runs in this pass.
 - This amends ADR 0250 for that pass only. A throw elsewhere in the tick, in the supervisor or the drive, still rejects the tick and is reported as `tick_failed`, without naming a batch.
   The maintainer narrowed #867's "one batch's error never stops another's work" to this pass: the supervisor and the drive are #870's, an open issue, which will also take how often the notice repeats.
+- A merge brief is about its head, so it shows nothing of an earlier recipe the batch brewed: every line reads only the steps of the batch's current recipe, and a step named as a group there is not one of them. The batch's history stays in its status comment. Before this, such a batch's brief threw and was not posted; a brief that read every step would have said `left open by a skip` of a Taster nobody skipped.
 
 ## Consequences
 - One broken batch no longer stops the effects of the others, or the release of other ended batches.
