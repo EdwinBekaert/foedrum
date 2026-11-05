@@ -4,7 +4,9 @@
 // `READERS`; the core knows none of them.
 
 import type { MapRead } from '../checks/test-map.ts';
+import { cargoManifest } from '../formats/cargo-manifest.ts';
 import { dotnetManifest } from '../formats/dotnet-manifest.ts';
+import { goManifest } from '../formats/go-manifest.ts';
 import type { DependencyVia, ManifestReader } from '../formats/manifest-reader.ts';
 import { npmManifest } from '../formats/npm-manifest.ts';
 import { MAX_MAP_ITEMS, MAX_MAP_NAME_LENGTH, type SystemMapEntry } from '../schemas/system-map.ts';
@@ -12,7 +14,12 @@ import type { Git, GitResult } from '../workspace/git.ts';
 import { sameRepo } from './task-tree.ts';
 
 /** The readers the map runs over each repository's files, in order. */
-export const READERS: readonly ManifestReader[] = [npmManifest, dotnetManifest];
+export const READERS: readonly ManifestReader[] = [
+  npmManifest,
+  dotnetManifest,
+  cargoManifest,
+  goManifest,
+];
 
 /** The most manifests read in one repository; the rest are counted as left out. */
 const MAX_MANIFESTS = 64;

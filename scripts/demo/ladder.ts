@@ -48,7 +48,7 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   {
     id: 'plan',
     title: 'The order, and its plan from a folder of checkouts',
-    lookFor: `recipe:mash, "chosen by its label"; the Brewmaster reads ${ALIASES[LIB]}/ and ${ALIASES[WEB]}/ and plans a sub-order in each, each with its recipe.`,
+    lookFor: `recipe:mash, "chosen by its label"; the map the Brewmaster reads links ${WEB} to ${LIB}; a sub-order in each, each with its recipe.`,
   },
   {
     id: 'approve',
