@@ -133,9 +133,23 @@ describe('the default recipes that plan (ADR 0321)', () => {
     );
     assert.equal(loaded.brewers.find('nip', 'correctness')?.choices, undefined);
   });
+
+  it('Nip and its diff lenses load as they did: regression test', () => {
+    const loaded = defaults();
+    assert.deepStrictEqual(loaded.recipes.find('nip')?.children('taste'), [
+      'correctness',
+      'acceptance',
+      'security',
+    ]);
+    const security = loaded.brewers.find('nip', 'security');
+    assert.equal(security?.lens, 'diff/security');
+    assert.equal(security?.lenses?.get('diff/security')?.path, 'defaults/lenses/diff/security.md');
+    assert.equal(security?.brewer.model, 'builder');
+    assert.equal(loaded.brewers.find('nip', 'correctness')?.blocking, true);
+  });
 });
 
-/** Three sub-orders, as the Brewmaster's plan names them (ADR 0233). */
+/** A sub-order, as the Brewmaster's plan names it (ADR 0233). */
 const subOrder = (id: string, recipe = 'nip') => ({
   id,
   title: `The ${id}`,
@@ -443,6 +457,36 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
       [...started].sort(),
       ['plan', ...lenses].map((step) => `${step}#1`).sort(),
     );
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 1 });
+  });
+
+  it('a Brewery recipe of plan then a single plan/naive-reader still runs: regression test', async () => {
+    const files = serveInputs().files;
+    const brewery = readBreweryFiles(dir.path);
+    const steps = [
+      { id: 'plan', brewer: 'brewmaster' },
+      { id: 'naive', brewer: 'taster', lens: 'plan/naive-reader' },
+    ];
+    const kettle = recipeText('kettle', steps, { testFirst: false });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...files,
+          local: local({ workRoot: dir.path }),
+          brewery: {
+            ...files.brewery,
+            recipes: [...files.brewery.recipes, { path: 'recipes/kettle.jsonc', text: kettle }],
+            ...(brewery.defaults === undefined ? {} : { defaults: brewery.defaults }),
+          },
+        },
+      }),
+    );
+    setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue('kettle')] } });
+    const script = { plan: [planned], naive: [approves] };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.deepStrictEqual(started, ['plan#1', 'naive#1']);
+    assert.equal(models.get('naive#1'), 'sonnet');
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 1 });
   });
 
