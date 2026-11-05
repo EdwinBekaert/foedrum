@@ -611,6 +611,24 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.ok(text.indexOf('When you finish, write taste.md') > 0);
     });
 
+    it('keeps the text for diff lenses together as it was: regression test', async () => {
+      const { prompt } = await (await planTaster(answers, together)).plan;
+      assert.ok(
+        prompt.includes(
+          [
+            '## Several lenses together',
+            '',
+            '{lens} holds the lenses this step reviews through, together, in this order: diff/acceptance, diff/correctness.',
+            '',
+            '- Review the change through each lens in turn.',
+            '- Give every finding the key "lens", naming the lens it was found through, one of diff/acceptance, diff/correctness: { "lens": "diff/acceptance", "file": …, "line": …, "severity": …, "why": …, "introduced": … }. A finding without it, or with another lens, makes the out doc invalid.',
+            '- Where the instructions or a lens file say to stay inside one lens, report under each lens only what it asks for.',
+            '- Start each item of `riskLeft` with its lens, such as `diff/acceptance: …`.',
+          ].join('\n'),
+        ),
+      );
+    });
+
     it("holds a one-lens step's finding that names a lens to the step's lens (review of #571)", async () => {
       const { outDoc } = (await planTaster(answers)).limits;
       const finding = { file: 'src/a.ts', severity: 'minor', why: 'x', introduced: true };
