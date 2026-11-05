@@ -197,7 +197,7 @@ describe('npm run demo -- ladder', () => {
     const at = (index: number) => result.stdout.indexOf(headingOf(index, LADDER_STEPS));
     assert.match(
       result.stdout.slice(at(0), at(1)),
-      /demo: the Brewmaster of batch 1-1 reads the system map, as \{repositories\}:\n[^]*?\n +publishes `@demo\/greet` \(npm\)\n[^]*?\n +depends on `@demo\/greet` from demo\/lib by version `1\.3\.0` \(npm\)\n/,
+      /demo: the Brewmaster of batch 1-1 reads the system map, as \{repositories\}:\n.*?\n +publishes `@demo\/greet` \(npm\)\n.*?\n +depends on `@demo\/greet` from demo\/lib by version `1\.3\.0` \(npm\)\n/s,
     );
   });
 
