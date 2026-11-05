@@ -11,7 +11,7 @@ And `retryOrStick` reported the attempts of the batch, so a line could read "`ac
 
 ## Decision
 - **One count for every brewer step, and for the openPullRequest action: the attempts since the latest that delivered what the step is for**, a success or blocked by findings (`delivered`, `deliveryRound`, `src/engine/recipe-files.ts`). The action never blocks by findings, so its count reads as it did, with its own limit (ADR 0219).
-- **A check step counts its empty reads since its latest reading** (`readingRound`), still at most 3, and a third in one round still takes its `onFail` route.
+- **A check step counts its empty reads since its latest reading** (`readingRound`), still at most 3, and a third in one round still takes its `onFail` route. Any other end starts the count again: a reading, or a block before any reading, which a person's retry follows.
 - **A failure closes no round**, so a step that fails every time is Stuck within its round: `maxAttempts` failures for a brewer step, and a step with no route back that never delivered counts as it always did.
 - **A person's `retry` gives one more** (ADR 0053), since it closes no round either: [failed, failed, retry failed] counts 3 and is Stuck again.
 - **Routes bound the rounds, as they did.** `mayRetry` limits retries, never rounds, and each route's `maxRounds` counts over the batch's life (ADR 0064). Rounds × retries stay finite.
