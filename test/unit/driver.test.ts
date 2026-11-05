@@ -3035,6 +3035,78 @@ describe('openDriver', () => {
       assert.equal(store.findEffect({ ...plan('b1'), effect: 'comment' }), undefined);
       assert.deepStrictEqual(driver.held(), ['b1']);
     });
+
+    describe("a batch whose effects throw while they are read, which stops no other batch's work (#867)", () => {
+      /** `b1` and `b2`, each with a succeeded plan#1 and held by this driver. */
+      const twoSucceeded = (): void => {
+        for (const batchId of ['b1', 'b2']) {
+          order(batchId);
+          intake.issue({ kind: 'record', event: { type: 'step.started', ...plan(batchId) } }, now);
+          intake.issue({ kind: 'finish', ...plan(batchId), ending: succeeded }, now);
+          holdFor('cellar', batchId);
+        }
+      };
+      /** The effects due of every batch but `broken`, whose reading throws as a recipe does. */
+      const dueExcept =
+        (broken: string) =>
+        (state: State, batchId: string): EffectKey[] => {
+          if (batchId === broken) throw new Error('Recipe pint has no step innkeep');
+          return commentsDue(state, batchId);
+        };
+      /** A notice as text, an error as its message. */
+      const told = (notice: unknown): string =>
+        JSON.stringify(notice, (_key, value) => (value instanceof Error ? value.message : value));
+
+      for (const [broken, other] of [
+        ['b1', 'b2'],
+        ['b2', 'b1'],
+      ] as const) {
+        it(`applies the effects of ${other} and reports ${broken} by name when ${broken}'s throw`, async () => {
+          twoSucceeded();
+          const host = fakeHost();
+          const notices: unknown[] = [];
+          const driver = await open({
+            effects: { due: dueExcept(broken), target: host.target },
+            report: (notice) => notices.push(notice),
+          });
+          await driver.applyEffects();
+          assert.deepStrictEqual(host.applied, [`["${other}","plan",1,"comment"]`]);
+          const reported = notices.map(told);
+          assert.ok(
+            reported.some(
+              (text) => text.includes(`"${broken}"`) && text.includes('has no step innkeep'),
+            ),
+            reported.join('\n'),
+          );
+          assert.ok(
+            reported.every((text) => !text.includes(`"${other}"`)),
+            reported.join('\n'),
+          );
+        });
+      }
+
+      it('ticks through it: the tick ends, and the other batch has its effects applied', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const driver = await open({
+          effects: { due: dueExcept('b1'), target: host.target },
+          report: () => {},
+        });
+        await driver.tick();
+        assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      });
+
+      it('applies the effects of both batches in one pass when neither throws: regression test', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const driver = await open({ effects: { due: commentsDue, target: host.target } });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied.sort(), [
+          '["b1","plan",1,"comment"]',
+          '["b2","plan",1,"comment"]',
+        ]);
+      });
+    });
   });
 
   describe('a tick that takes long', () => {
