@@ -1,6 +1,6 @@
 # 0322. A sub-order's security mark is the Brewmaster's, and reaches its plan entry
 
-Date: 2026-11-05 · Status: Accepted · Amends [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) (a sub-order gains an optional `securityMark`) [0290](0290-a-sub-order-s-brewers-read-its-plan-entry-from-the-parent-s-recorded-plan.md) (the entry's text shows it, and the security lens says what to do with it, beside acceptance) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (the `plan/security` lens says when a sub-order it reports has no mark)
+Date: 2026-11-05 · Status: Accepted · Amends [0233](0233-a-plan-is-an-out-doc-whose-paths-the-engine-checks-shown-as-one-comment-per-order.md) (a sub-order gains an optional `securityMark`), [0290](0290-a-sub-order-s-brewers-read-its-plan-entry-from-the-parent-s-recorded-plan.md) (the entry's text shows it, and the security lens says what to do with it, beside acceptance) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (the `plan/security` lens says when a sub-order it reports has no mark)
 
 ## Context
 Since ADR 0321 the `plan/security` lens reports a sub-order that lets outside input reach something that acts on it, as an advisory finding a person reads at gate 1.

@@ -49,7 +49,7 @@ const planned = (plan: unknown): Event[] => [
     batchId: '7-1',
     stepId: 'plan',
     attempt: 1,
-    outcome: { kind: 'succeeded', output: plan },
+    outcome: { kind: 'succeeded', output: JSON.parse(JSON.stringify(plan)) },
   },
 ];
 
