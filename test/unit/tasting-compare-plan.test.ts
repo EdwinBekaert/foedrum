@@ -349,6 +349,22 @@ describe('scoring a plan run', () => {
     assert.equal(nextPlanRun(all, 1), undefined);
   });
 
+  it('lists other findings and failed runs under the setup that ran, not the one read from it (regression test)', () => {
+    const records = [
+      run('plan-apart-7', 1, [
+        attempt('coverage', ['plan/coverage'], [finding('remind: reads well')]),
+      ]),
+      { ...run('plan-apart-7', 2, []), ended: 'cancelled' },
+    ];
+    const table = planTableMarkdown(summarizePlan(records, plantedKey()), plantedKey(), {
+      dryRun: false,
+    });
+    assert.match(table, /^Other findings of plan-apart-7, scored run 1:$/m);
+    assert.match(table, /^- coverage: major in no file: remind: reads well$/m);
+    assert.match(table, /^Failed: plan-apart-7 run 2: the batch ended cancelled$/m);
+    assert.doesNotMatch(table, /Other findings of plan-apart-mash|Failed: plan-apart-mash/);
+  });
+
   describe('a scripted plan run', () => {
     /** A run's events: the plan step, each scripted Taster as it finished, and the review. */
     const eventsOf = (setup: PlanSetupName) => {
@@ -416,6 +432,7 @@ describe('scoring a plan run', () => {
           plantedKey(),
         ),
         plantedKey(),
+        { dryRun: false },
       );
       assert.match(table, /^\| plan-apart-7 \| 7 \/ 7 \| 7 \| 7 \|/m);
       assert.match(table, /^\| plan-apart-mash \| 3 \/ 3 \| 3 \| 3 \|/m);
