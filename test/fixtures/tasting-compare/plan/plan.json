@@ -1,0 +1,160 @@
+{
+  "summary": "Ten sub-orders in demo/web, one per thing the order asks, the command line's changes one after the other.",
+  "assumptions": ["A pantry file stays a JSON list of items."],
+  "subOrders": [
+    {
+      "id": "remind",
+      "title": "Remind of the items best before soon",
+      "repo": "demo/web",
+      "size": { "lines": 80, "mechanism": "expiringSoon in pantry.mjs and the remind command" },
+      "doneWhen": "test/pantry.test.mjs shows expiringSoon's items soonest first, a past item included and a later one left out, and remind prints them as list does",
+      "touches": [
+        { "path": "src/pantry.mjs" },
+        { "path": "src/cli.mjs" },
+        { "path": "test/pantry.test.mjs" }
+      ],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "validate",
+      "title": "Refuse a pantry file with an invalid best-before date",
+      "repo": "demo/web",
+      "size": { "lines": 40, "mechanism": "a check of each item in load" },
+      "doneWhen": "test/store.test.mjs shows load throwing an error that names an item dated 'soon'",
+      "touches": [{ "path": "src/store.mjs" }, { "path": "test/store.test.mjs", "new": true }],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "past-date",
+      "title": "Flag an item added with a date already past",
+      "repo": "demo/web",
+      "size": { "lines": 50, "mechanism": "the grace rule in addItem, and the mark in list" },
+      "doneWhen": "test/pantry.test.mjs shows addItem marking an item past the grace rule with flagged: true, and leaving a later one unmarked",
+      "touches": [
+        { "path": "src/pantry.mjs" },
+        { "path": "src/cli.mjs" },
+        { "path": "test/pantry.test.mjs" }
+      ],
+      "dependencies": [{ "on": "remind", "kind": "code" }],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "notify",
+      "title": "Run a command for each item best before soon",
+      "repo": "demo/web",
+      "size": {
+        "lines": 70,
+        "mechanism": "one shell command per item: the given command line with the item's name appended"
+      },
+      "doneWhen": "test/notify.test.mjs shows, through an injected exec, the command line built for each item expiringSoon returns",
+      "touches": [
+        { "path": "src/notify.mjs", "new": true },
+        { "path": "src/cli.mjs" },
+        { "path": "test/notify.test.mjs", "new": true }
+      ],
+      "dependencies": [{ "on": "remind", "kind": "code" }, { "on": "past-date", "kind": "code" }],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "stats",
+      "title": "Print the pantry's statistics in six formats",
+      "repo": "demo/web",
+      "size": { "lines": 3000, "mechanism": "three reports, each rendered in six formats" },
+      "doneWhen": "test/stats.test.mjs shows the three reports of a fixed list of items in each of the six formats",
+      "touches": [
+        { "path": "src/stats.mjs", "new": true },
+        { "path": "src/cli.mjs" },
+        { "path": "test/stats.test.mjs", "new": true }
+      ],
+      "dependencies": [{ "on": "notify", "kind": "code" }],
+      "recipe": "nip",
+      "why": "code with tests, which nip builds test-first",
+      "ready": true
+    },
+    {
+      "id": "remove",
+      "title": "Remove an item by its name",
+      "repo": "demo/web",
+      "size": { "lines": 60, "mechanism": "removeItem in pantry.mjs and the remove command" },
+      "doneWhen": "it works",
+      "touches": [
+        { "path": "src/pantry.mjs" },
+        { "path": "src/cli.mjs" },
+        { "path": "test/pantry.test.mjs" }
+      ],
+      "dependencies": [{ "on": "stats", "kind": "code" }],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "rename",
+      "title": "Rename an item",
+      "repo": "demo/web",
+      "size": { "lines": 60, "mechanism": "renameItem in pantry.mjs and the rename command" },
+      "doneWhen": "test/pantry.test.mjs shows renameItem changing one item's name and no other's, and rename saving the list",
+      "touches": [
+        { "path": "src/pantry.mjs" },
+        { "path": "src/cli.mjs" },
+        { "path": "test/pantry.test.mjs" }
+      ],
+      "dependencies": [{ "on": "remove", "kind": "code" }],
+      "recipe": "prose",
+      "why": "a small change, quick to write and to read",
+      "ready": true
+    },
+    {
+      "id": "keep-backup",
+      "title": "Keep the text save replaces in a backup file",
+      "repo": "demo/web",
+      "size": { "lines": 30, "mechanism": "a copy to <file>.bak in save" },
+      "doneWhen": "test/store.test.mjs shows save over an existing file leaving its old text in <file>.bak",
+      "touches": [{ "path": "src/store.mjs" }, { "path": "test/store.test.mjs", "new": true }],
+      "dependencies": [{ "on": "validate", "kind": "code" }],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "atomic-save",
+      "title": "Leave the pantry file whole when a save fails",
+      "repo": "demo/web",
+      "size": { "lines": 30, "mechanism": "a write to a file beside it, then a rename, in save" },
+      "doneWhen": "test/store.test.mjs shows a save whose write fails leaving the pantry file's text as it was",
+      "touches": [{ "path": "src/store.mjs" }, { "path": "test/store.test.mjs", "new": true }],
+      "dependencies": [{ "on": "validate", "kind": "code" }],
+      "recipe": "nip",
+      "why": "a small change to code, with a test first",
+      "ready": true
+    },
+    {
+      "id": "readme",
+      "title": "Say how to use the new commands in the README",
+      "repo": "demo/web",
+      "size": { "lines": 25, "mechanism": "one paragraph per new command" },
+      "doneWhen": "README.md shows the command line of remind, notify, stats, remove and rename",
+      "touches": [{ "path": "README.md" }],
+      "dependencies": [{ "on": "rename", "kind": "code" }],
+      "recipe": "prose",
+      "why": "a page of prose and no code",
+      "ready": true
+    }
+  ],
+  "alternatives": {
+    "considered": [
+      {
+        "cut": "all the commands in one sub-order",
+        "whyNot": "a person could not review it as one change"
+      }
+    ],
+    "whyThis": "one sub-order per thing the order asks, so each merges on its own"
+  }
+}

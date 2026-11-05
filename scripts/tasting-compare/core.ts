@@ -38,7 +38,7 @@ export const IMPLEMENT = 'implement';
 export const TASTE = 'taste';
 
 /** A lens step's id in the apart group: the lens's name without its folder. */
-const stepIdOf = (lens: string): string => lens.slice(lens.indexOf('/') + 1);
+export const stepIdOf = (lens: string): string => lens.slice(lens.indexOf('/') + 1);
 
 /** The lenses each Taster step of `setup` reviews through, by step id. */
 const tasterSteps = (setup: SetupName): Map<string, readonly string[]> => {
@@ -189,8 +189,8 @@ export interface TasterAttempt {
 }
 
 /** One run of a setup, as the shell keeps it. */
-export interface RunRecord {
-  setup: SetupName;
+export interface RunRecord<Setup extends string = SetupName> {
+  setup: Setup;
   run: number;
   /** A failed run's second go. */
   retry?: true;
@@ -216,12 +216,11 @@ const findingsOf = (output: unknown): { findings: TastingFinding[]; refused: num
   return { findings, refused };
 };
 
-/** The Taster attempts of a run of `setup`, in the order they finished; the implementer's left out. */
-export const attemptsOf = (
+/** The attempts of `steps`, the lenses of each Taster step by id, in the order they finished. */
+const attemptsIn = (
   finished: readonly FinishedAttempt[],
-  setup: SetupName,
+  steps: ReadonlyMap<string, readonly string[]>,
 ): TasterAttempt[] => {
-  const steps = tasterSteps(setup);
   const attempts: TasterAttempt[] = [];
   for (const { stepId, outcome, usage, receipt } of finished) {
     const lenses = steps.get(stepId);
@@ -260,10 +259,16 @@ export const attemptsOf = (
   return attempts;
 };
 
-/** A run's record from its store's events: how its batch ended, and its Taster attempts. */
-export const recordOf = (
-  events: readonly { event: Event }[],
+/** The Taster attempts of a run of `setup`, in the order they finished; the implementer's left out. */
+export const attemptsOf = (
+  finished: readonly FinishedAttempt[],
   setup: SetupName,
+): TasterAttempt[] => attemptsIn(finished, tasterSteps(setup));
+
+/** A run's record from its store's events: how its batch ended, and the attempts of `steps`. */
+export const recordIn = (
+  events: readonly { event: Event }[],
+  steps: ReadonlyMap<string, readonly string[]>,
 ): Pick<RunRecord, 'ended' | 'attempts'> => {
   // The last end counts: a Stuck batch that was resumed may go on tap after all.
   let ended = 'not ended';
@@ -274,15 +279,24 @@ export const recordOf = (
     else if (event.type === 'batch.cancelled') ended = 'cancelled';
     else if (event.type === 'step.finished') finished.push(event);
   }
-  return { ended, attempts: attemptsOf(finished, setup) };
+  return { ended, attempts: attemptsIn(finished, steps) };
 };
 
-/** Why a run failed, or undefined: its batch is not on tap, or one of its Taster attempts failed. */
-export const runFailure = ({ ended, attempts }: RunRecord): string | undefined => {
-  if (ended !== 'on_tap') return `the batch ended ${ended}`;
+/** A run's record from its store's events: how its batch ended, and its Taster attempts. */
+export const recordOf = (
+  events: readonly { event: Event }[],
+  setup: SetupName,
+): Pick<RunRecord, 'ended' | 'attempts'> => recordIn(events, tasterSteps(setup));
+
+/** Why a run whose batch ended as it should failed all the same: one of its Taster attempts failed. */
+export const attemptFailure = (attempts: readonly TasterAttempt[]): string | undefined => {
   const failed = attempts.find(({ failure }) => failure !== undefined);
   return failed === undefined ? undefined : `${failed.stepId}: ${failed.failure}`;
 };
+
+/** Why a run failed, or undefined: its batch is not on tap, or one of its Taster attempts failed. */
+export const runFailure = ({ ended, attempts }: RunRecord): string | undefined =>
+  ended !== 'on_tap' ? `the batch ended ${ended}` : attemptFailure(attempts);
 
 /** A finding outside the key, for a person to judge. */
 export interface OtherFinding {
@@ -311,27 +325,34 @@ const onDefect = ({ file, line }: TastingFinding, defect: Defect): boolean =>
 const defectsOf = (key: Key, lenses: readonly string[]): Defect[] =>
   key.defects.filter(({ lens }) => lenses.includes(lens));
 
-/** Scores a run against the defects of its setup's lenses; every other finding is listed. */
-export const scoreRun = (record: RunRecord, key: Key, lenses = SETUPS[record.setup].lenses) => {
-  const defects = defectsOf(key, lenses);
+/** Scores `attempts` against `planted`, by what `isOn` says of a finding; every other finding is listed. */
+export const scoreAttempts = <Planted extends { id: string; lens: string }>(
+  attempts: readonly TasterAttempt[],
+  planted: readonly Planted[],
+  isOn: (finding: TastingFinding, one: Planted) => boolean,
+): RunScore => {
   const hits = new Map<string, boolean>();
   const others: OtherFinding[] = [];
-  for (const { stepId, lenses: stepLenses, findings } of record.attempts) {
+  for (const { stepId, lenses: stepLenses, findings } of attempts) {
     const stepLens = stepLenses.length === 1 ? stepLenses[0] : undefined;
     for (const finding of findings) {
-      const on = defects.filter((defect) => onDefect(finding, defect));
+      const on = planted.filter((one) => isOn(finding, one));
       if (on.length === 0) others.push({ stepId, finding });
-      for (const defect of on) {
-        const own = lensOfFinding(finding, stepLens) === defect.lens;
-        hits.set(defect.id, (hits.get(defect.id) ?? false) || own);
+      for (const { id, lens } of on) {
+        const own = lensOfFinding(finding, stepLens) === lens;
+        hits.set(id, (hits.get(id) ?? false) || own);
       }
     }
   }
-  const found = defects
+  const found = planted
     .filter(({ id }) => hits.has(id))
     .map(({ id }) => ({ defect: id, ownLens: hits.get(id) === true }));
-  return { found, others } satisfies RunScore;
+  return { found, others };
 };
+
+/** Scores a run against the defects of its setup's lenses; every other finding is listed. */
+export const scoreRun = (record: RunRecord, key: Key) =>
+  scoreAttempts(record.attempts, defectsOf(key, SETUPS[record.setup].lenses), onDefect);
 
 /** A setup as the table shows it: the three that run, and Nip's three apart read from apart-7. */
 export type Shown = SetupName | 'apart-nip';
@@ -340,8 +361,8 @@ const SHOWN: readonly Shown[] = ['apart-7', 'together-7', 'apart-nip', 'together
 export interface Tokens extends Usage {
   total: number;
 }
-export interface SetupSummary {
-  setup: Shown;
+export interface SetupSummary<Setup extends string = Shown> {
+  setup: Setup;
   /** The planted defects of the setup's lenses. */
   defects: number;
   /** Per scored run, in run order: the defects found, those of them its own lens named, the others. */
@@ -390,24 +411,20 @@ const tasteMsOf = (attempts: readonly TasterAttempt[]): number => {
 };
 
 /** A scored run's view for one shown setup: its attempts and its wall time. */
-interface Scored {
-  record: RunRecord;
+export interface Scored {
   attempts: readonly TasterAttempt[];
   wallMs: number;
 }
 
-const summaryOf = (
-  setup: Shown,
-  lenses: readonly string[],
+/** One shown setup's sums over its scored runs and their scores, of `planted`. */
+export const summaryOf = <Setup extends string>(
+  setup: Setup,
+  planted: readonly { id: string }[],
   scored: readonly Scored[],
+  scores: readonly RunScore[],
   failed: SetupSummary['failed'],
-  key: Key,
-): SetupSummary => {
-  const defects = defectsOf(key, lenses);
-  const scores = scored.map(({ record, attempts }) =>
-    scoreRun({ ...record, attempts }, key, lenses),
-  );
-  const perDefect = new Map(defects.map(({ id }) => [id, 0]));
+): SetupSummary<Setup> => {
+  const perDefect = new Map(planted.map(({ id }) => [id, 0]));
   for (const { found } of scores) {
     for (const { defect } of found) perDefect.set(defect, (perDefect.get(defect) ?? 0) + 1);
   }
@@ -420,7 +437,7 @@ const summaryOf = (
   const found = scores.map(({ found }) => found.length);
   return {
     setup,
-    defects: defects.length,
+    defects: planted.length,
     found,
     ownLens: scores.map(({ found }) => found.filter(({ ownLens }) => ownLens).length),
     meanFound: mean(found),
@@ -441,64 +458,72 @@ const summaryOf = (
   };
 };
 
-/**
- * Each shown setup over its runs: per run number the run that did not fail is scored, and every
- * failed one is listed. Nip's three apart are apart-7's correctness, acceptance and security
- * attempts, side by side: their tasting time is the longest of the three, and they have no wall time
- * of their own.
- */
-export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary[] => {
-  const ofSetup = (setup: SetupName) => {
-    const scored: RunRecord[] = [];
-    const failed: SetupSummary['failed'] = [];
-    for (const record of records.filter((each) => each.setup === setup)) {
-      const why = runFailure(record);
-      if (why !== undefined) failed.push({ run: record.run, why });
-      else if (!scored.some(({ run }) => run === record.run)) scored.push(record);
-    }
-    scored.sort((a, b) => a.run - b.run);
-    return { scored, failed };
-  };
-  return SHOWN.map((setup) => {
-    if (setup !== 'apart-nip') {
-      const { scored, failed } = ofSetup(setup);
-      const runs = scored.map((record) => ({
-        record,
-        attempts: record.attempts,
-        wallMs: record.wallMs,
-      }));
-      return summaryOf(setup, SETUPS[setup].lenses, runs, failed, key);
-    }
-    const { scored, failed } = ofSetup('apart-7');
-    const nipSteps = new Set(NIP.map(stepIdOf));
-    const runs = scored.map((record) => {
-      const attempts = record.attempts.filter(({ stepId }) => nipSteps.has(stepId));
-      // Its three steps never ran on their own, so it has no wall time of its own.
-      return { record, attempts, wallMs: Number.NaN };
-    });
-    return summaryOf(setup, NIP, runs, failed, key);
-  });
+/** A setup's runs: per run number the run that did not fail is scored, and every failed one is listed. */
+export const runsOfSetup = <Setup extends string>(
+  records: readonly RunRecord<Setup>[],
+  setup: Setup,
+  failure: (record: RunRecord<Setup>) => string | undefined,
+): { scored: RunRecord<Setup>[]; failed: SetupSummary['failed'] } => {
+  const scored: RunRecord<Setup>[] = [];
+  const failed: SetupSummary['failed'] = [];
+  for (const record of records.filter((each) => each.setup === setup)) {
+    const why = failure(record);
+    if (why !== undefined) failed.push({ run: record.run, why });
+    else if (!scored.some(({ run }) => run === record.run)) scored.push(record);
+  }
+  scored.sort((a, b) => a.run - b.run);
+  return { scored, failed };
+};
+
+/** `scored` as the steps of `lenses` alone, which never ran on their own, so have no wall time. */
+export const runsReadFrom = (scored: readonly Scored[], lenses: readonly string[]): Scored[] => {
+  const steps = new Set(lenses.map(stepIdOf));
+  return scored.map(({ attempts }) => ({
+    attempts: attempts.filter(({ stepId }) => steps.has(stepId)),
+    wallMs: Number.NaN,
+  }));
 };
 
 /**
- * The next run to brew, setup by setup and run by run: a run with no record yet, or once again
- * a run whose only record failed; undefined once every setup has `runs` runs.
+ * Each shown setup over its runs. Nip's three apart are apart-7's correctness, acceptance and
+ * security attempts, side by side: their tasting time is the longest of the three, and they have no
+ * wall time of their own.
  */
-export const nextRun = (
-  records: readonly RunRecord[],
+export const summarize = (records: readonly RunRecord[], key: Key): SetupSummary[] =>
+  SHOWN.map((setup) => {
+    const read = setup === 'apart-nip';
+    const { scored, failed } = runsOfSetup(records, read ? 'apart-7' : setup, runFailure);
+    const planted = defectsOf(key, read ? NIP : SETUPS[setup].lenses);
+    const runs: readonly Scored[] = read ? runsReadFrom(scored, NIP) : scored;
+    const scores = runs.map(({ attempts }) => scoreAttempts(attempts, planted, onDefect));
+    return summaryOf(setup, planted, runs, scores, failed);
+  });
+
+/**
+ * The next run to brew of `setups`, setup by setup and run by run: a run with no record yet, or once
+ * again a run whose only record failed; undefined once every setup has `runs` runs.
+ */
+export const nextRunOf = <Setup extends string>(
+  setups: readonly Setup[],
+  records: readonly RunRecord<Setup>[],
   runs: number,
-): { setup: SetupName; run: number; retry: boolean } | undefined => {
-  for (const setup of SETUP_NAMES) {
+  failure: (record: RunRecord<Setup>) => string | undefined,
+): { setup: Setup; run: number; retry: boolean } | undefined => {
+  for (const setup of setups) {
     for (let run = 1; run <= runs; run += 1) {
       const tried = records.filter((record) => record.setup === setup && record.run === run);
       if (tried.length === 0) return { setup, run, retry: false };
-      if (tried.length === 1 && tried[0] !== undefined && runFailure(tried[0]) !== undefined) {
+      if (tried.length === 1 && tried[0] !== undefined && failure(tried[0]) !== undefined) {
         return { setup, run, retry: true };
       }
     }
   }
   return undefined;
 };
+
+/** The next run of the three setups (`nextRunOf`). */
+export const nextRun = (records: readonly RunRecord[], runs: number) =>
+  nextRunOf(SETUP_NAMES, records, runs, runFailure);
 
 export type Choice = 'together' | 'apart';
 
@@ -507,21 +532,28 @@ export type Choice = 'together' | 'apart';
  * planted defects as apart, less half a defect, with at least 30 % fewer tokens (the four kinds
  * summed); otherwise apart. Undefined while either setup has no scored run.
  */
+export const choiceBetween = (
+  summaries: readonly Pick<SetupSummary<string>, 'setup' | 'meanFound' | 'meanTokens'>[],
+  apart: string,
+  together: string,
+): Choice | undefined => {
+  const a = summaries.find(({ setup }) => setup === apart);
+  const t = summaries.find(({ setup }) => setup === together);
+  if (a === undefined || t === undefined) return undefined;
+  if (Number.isNaN(a.meanFound) || Number.isNaN(t.meanFound)) return undefined;
+  const asGood = t.meanFound >= a.meanFound - 0.5;
+  // In whole numbers: 10 t <= 7 a, so 0.7's binary fraction never decides.
+  const cheaper = t.meanTokens.total * 10 <= a.meanTokens.total * 7;
+  return asGood && cheaper ? 'together' : 'apart';
+};
+
+/** ADR 0224's choice for the seven lenses and for Nip's. */
 export const choiceOf = (
   summaries: readonly Pick<SetupSummary, 'setup' | 'meanFound' | 'meanTokens'>[],
-): { seven: Choice | undefined; nip: Choice | undefined } => {
-  const pick = (apart: Shown, together: Shown): Choice | undefined => {
-    const a = summaries.find(({ setup }) => setup === apart);
-    const t = summaries.find(({ setup }) => setup === together);
-    if (a === undefined || t === undefined) return undefined;
-    if (Number.isNaN(a.meanFound) || Number.isNaN(t.meanFound)) return undefined;
-    const asGood = t.meanFound >= a.meanFound - 0.5;
-    // In whole numbers: 10 t <= 7 a, so 0.7's binary fraction never decides.
-    const cheaper = t.meanTokens.total * 10 <= a.meanTokens.total * 7;
-    return asGood && cheaper ? 'together' : 'apart';
-  };
-  return { seven: pick('apart-7', 'together-7'), nip: pick('apart-nip', 'together-nip') };
-};
+): { seven: Choice | undefined; nip: Choice | undefined } => ({
+  seven: choiceBetween(summaries, 'apart-7', 'together-7'),
+  nip: choiceBetween(summaries, 'apart-nip', 'together-nip'),
+});
 
 /** Model text as one Markdown table cell or list line: nothing in it is read as Markdown or HTML. */
 export const escapeCell = (text: string): string =>
@@ -537,8 +569,17 @@ const thousands = (value: number): string =>
   Number.isNaN(value) ? '-' : Math.round(value).toLocaleString('en-US');
 const seconds = (ms: number): string => (Number.isNaN(ms) ? '-' : `${round(ms / 1000, 0)} s`);
 
-/** The one table of ADR 0224: per setup, per defect, the choice, and every other finding. */
-export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): string => {
+/** What a mode's one table names: its planted word and rows, its choices, and a setup that is only read. */
+interface TableParts {
+  planted: string;
+  rows: readonly { id: string; lens: string }[];
+  choices: readonly string[];
+  readFromAnother: string;
+}
+
+/** The one table of ADR 0224: per setup, per planted item, the choice, and every other finding. */
+export const tableOf = (summaries: readonly SetupSummary<string>[], parts: TableParts): string => {
+  const { planted, rows, choices, readFromAnother } = parts;
   const lines = [
     '| Setup | Found (mean) | Per run | Own lens (mean) | Other findings (mean) | Input | Output | Cache read | Cache write | Tokens | Turns | Attempts | Tasting | Wall | Failed runs |',
     '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
@@ -555,24 +596,18 @@ export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): str
       `| ${s.setup} | ${round(s.meanFound)} / ${s.defects} | ${s.found.join(', ')} | ${round(mean(s.ownLens))} | ${round(mean(s.others.map((o) => o.length)))} | ${thousands(t.inputTokens)} | ${thousands(t.outputTokens)} | ${thousands(t.cacheReadTokens)} | ${thousands(t.cacheWriteTokens)} | ${thousands(t.total)} | ${round(s.meanTurns)} | ${seconds(s.meanAttemptMs)} | ${seconds(s.meanTasteMs)} | ${seconds(s.meanWallMs)} | ${s.failed.length} |`,
     );
   }
-  lines.push('', `| Defect | Lens | ${summaries.map(({ setup }) => setup).join(' | ')} |`);
+  lines.push('', `| ${planted} | Lens | ${summaries.map(({ setup }) => setup).join(' | ')} |`);
   lines.push(`|---|---|${summaries.map(() => '---|').join('')}`);
-  for (const { id, lens } of key.defects) {
+  for (const { id, lens } of rows) {
     const cells = summaries.map(({ perDefect, found }) => {
       const times = perDefect.get(id);
       return times === undefined || found.length === 0 ? '-' : `${times}/${found.length}`;
     });
     lines.push(`| ${id} | ${lens} | ${cells.join(' | ')} |`);
   }
-  const choice = choiceOf(summaries);
-  const said = (made: Choice | undefined): string => made ?? 'not measured';
-  lines.push(
-    '',
-    `- Nip: ${said(choice.nip)} (apart-nip against together-nip)`,
-    `- Seven lenses: ${said(choice.seven)} (apart-7 against together-7)`,
-  );
+  lines.push('', ...choices);
   for (const s of summaries) {
-    if (s.setup === 'apart-nip') continue;
+    if (s.setup === readFromAnother) continue;
     for (const [index, others] of s.others.entries()) {
       if (others.length === 0) continue;
       lines.push('', `Other findings of ${s.setup}, scored run ${index + 1}:`, '');
@@ -589,12 +624,29 @@ export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): str
     }
   }
   for (const s of summaries) {
-    if (s.setup === 'apart-nip') continue;
+    if (s.setup === readFromAnother) continue;
     for (const { run, why } of s.failed) {
       lines.push('', `Failed: ${s.setup} run ${run}: ${escapeCell(why)}`);
     }
   }
   return `${lines.join('\n')}\n`;
+};
+
+/** The word a choice is shown by, when it was made or not. */
+export const saidChoice = (made: Choice | undefined): string => made ?? 'not measured';
+
+/** The diff mode's one table (ADR 0224). */
+export const tableMarkdown = (summaries: readonly SetupSummary[], key: Key): string => {
+  const choice = choiceOf(summaries);
+  return tableOf(summaries, {
+    planted: 'Defect',
+    rows: key.defects,
+    choices: [
+      `- Nip: ${saidChoice(choice.nip)} (apart-nip against together-nip)`,
+      `- Seven lenses: ${saidChoice(choice.seven)} (apart-7 against together-7)`,
+    ],
+    readFromAnother: 'apart-nip',
+  });
 };
 
 /** The dry run's Tasters: each step reports the key's defects of its lenses (#567). */

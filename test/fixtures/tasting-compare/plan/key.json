@@ -1,0 +1,53 @@
+{
+  "mistakes": [
+    {
+      "id": "already-done",
+      "lens": "plan/coverage",
+      "subOrders": ["validate"],
+      "field": "title",
+      "what": "it builds a check that load in src/store.mjs already makes, with an error naming the item"
+    },
+    {
+      "id": "grace-rule",
+      "lens": "plan/naive-reader",
+      "subOrders": ["past-date"],
+      "field": "size.mechanism",
+      "what": "'the grace rule' is explained by neither the entry nor the order, so its brewer would have to guess it"
+    },
+    {
+      "id": "same-file-side-by-side",
+      "lens": "plan/order-and-overlap",
+      "subOrders": ["keep-backup", "atomic-save"],
+      "field": "dependencies",
+      "what": "both change src/store.mjs and test/store.test.mjs, and no dependency puts them in order"
+    },
+    {
+      "id": "prose-for-code",
+      "lens": "plan/recipe-fit",
+      "subOrders": ["rename"],
+      "field": "recipe",
+      "what": "it builds code with a test on the recipe for a page of prose, which runs no test and no lens"
+    },
+    {
+      "id": "name-in-a-command",
+      "lens": "plan/security",
+      "subOrders": ["notify"],
+      "field": "size.mechanism",
+      "what": "an item's name, from a file in a shared folder, reaches a shell command line, and nothing says how that is held"
+    },
+    {
+      "id": "three-thousand-lines",
+      "lens": "plan/sizing",
+      "subOrders": ["stats"],
+      "field": "size.lines",
+      "what": "3,000 lines is more than a person can review as one change"
+    },
+    {
+      "id": "it-works",
+      "lens": "plan/testability",
+      "subOrders": ["remove"],
+      "field": "doneWhen",
+      "what": "'it works' is a wish that no test or run can decide"
+    }
+  ]
+}

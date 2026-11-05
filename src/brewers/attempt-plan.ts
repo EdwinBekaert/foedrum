@@ -712,13 +712,19 @@ export function earlierFindingsInput(
 
 /** The engine's fixed text for a step of several lenses together (ADR 0220). */
 function togetherText(lenses: readonly string[]): string {
+  // A step's lenses are of one folder (ADR 0220); a plan's Taster has no change, and ties a finding
+  // to its sub-order (ADR 0312, ADR 0323).
+  const plan = lenses[0]?.startsWith('plan/') === true;
+  const place = plan
+    ? `"severity": …, "why": "<the sub-order's id>: …"`
+    : '"file": …, "line": …, "severity": …, "why": …';
   return [
     '## Several lenses together',
     '',
     `{lens} holds the lenses this step reviews through, together, in this order: ${lenses.join(', ')}.`,
     '',
-    '- Review the change through each lens in turn.',
-    `- Give every finding the key "lens", naming the lens it was found through, one of ${lenses.join(', ')}: { "lens": "${lenses[0]}", "file": …, "line": …, "severity": …, "why": …, "introduced": … }. A finding without it, or with another lens, makes the out doc invalid.`,
+    `- Review the ${plan ? 'plan' : 'change'} through each lens in turn.`,
+    `- Give every finding the key "lens", naming the lens it was found through, one of ${lenses.join(', ')}: { "lens": "${lenses[0]}", ${place}, "introduced": … }. A finding without it, or with another lens, makes the out doc invalid.`,
     '- Where the instructions or a lens file say to stay inside one lens, report under each lens only what it asks for.',
     `- Start each item of \`riskLeft\` with its lens, such as \`${lenses[0]}: …\`.`,
   ].join('\n');
