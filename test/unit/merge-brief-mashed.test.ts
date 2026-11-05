@@ -181,12 +181,15 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     assert.doesNotMatch(comment.body, /`innkeep`: (not run|did not pass)/);
   });
 
-  it('reads the mashed batch for its merged-check step and base conflict posts with no error: regression test', () => {
-    onTap();
+  it("finds the merged-check step of a batch mashed to nip, in nip's own steps: regression test", () => {
+    mashed('nip');
     const found = log.state().batches.get(batchId);
     assert.ok(found);
-    // Porter's last check before its pull request: it has none, so none merges the base.
-    assert.equal(mergedCheckStep(recipes, loaded.checks, found), undefined);
+    assert.equal(mergedCheckStep(recipes, loaded.checks, found)?.stepId, 'green');
+  });
+
+  it('has the base conflict post of a mashed batch due: regression test', () => {
+    onTap();
     const marks = {
       findComment: async () => undefined,
       comment: async () => 1,
