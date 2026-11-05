@@ -11,8 +11,7 @@ Draw the sub-orders as the dependencies say, then read each pair against it.
 - **A dependency left out.** An entry that uses what another builds, a function, a type, a flag, with no dependency on it. They would brew side by side, and one would find nothing there.
 - **A dependency it does not need.** An entry that waits on another for nothing it uses, so work that could run side by side runs one after the other.
 - **The wrong kind.** A `code` dependency across repositories where the system map shows one takes the other from its releases, so a merge alone gives it nothing; or a `release` dependency on a repository that publishes none.
-- **A cycle or a dead end.** Entries that wait on each other, or a dependency no entry can ever meet.
-- **The same files, side by side.** Two entries that no dependency puts in order and whose touches name the same file, or one holding the other: both would change it, and the second would meet a conflict. Name the path, and which should wait.
+- **The same files, side by side.** Two entries of one repository that no dependency puts in order and whose touches name the same file, or one holding the other: both would change it, and the second would meet a conflict. Name the path, and which should wait.
 - **An order that breaks the base.** An entry that merges first and leaves the base failing until a later one merges: a schema changed before the code that reads it.
 
 Two entries that touch one file are in order when one depends on the other; that is no finding.

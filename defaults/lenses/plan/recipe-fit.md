@@ -2,7 +2,7 @@
 
 Review whether the recipe each sub-order names matches its work. You are one of several reviewers, each with one lens; stay inside this one.
 
-The **plan** is in your input `plan`: the Brewmaster's out doc, whose frontmatter lists the sub-orders, each with its id, title, repository, size, `doneWhen`, touches, dependencies, recipe, `why`, readiness and, where test-first is off, `testFirstOff`. The **order** is the issue the plan was made for, in your input `order`. The recipes a sub-order may name are in your input `recipes`, each with its description. Your input `repositories` names where each repository is.
+The **plan** is in your input `plan`: the Brewmaster's out doc, whose frontmatter lists the sub-orders, each with its id, title, repository, size, `doneWhen`, touches, dependencies, recipe, `why`, readiness and, where test-first is off, `testFirstOff`. The **order** is the issue the plan was made for, in your input `order`. The Brewery's recipes are in your input `recipes`, each with its description. Your input `repositories` names where each repository is.
 
 ## Look for
 

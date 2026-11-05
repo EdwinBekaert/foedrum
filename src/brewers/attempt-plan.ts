@@ -337,8 +337,8 @@ const recipesInput = (name: string, choices: readonly RecipeChoice[]): PlannedIn
 
 /**
  * What the engine gives a step whose lenses review a plan (ADR 0312), after its brewer's own
- * inputs: the batch's latest plan as `plan`, the Brewery's repositories as `repositories`, and the
- * recipes a sub-order may name as `recipes` (ADR 0321).
+ * inputs: the batch's latest plan as `plan`, the Brewery's repositories as `repositories`, and its
+ * recipes as `recipes`, the list the Brewmaster reads (ADR 0321).
  */
 export const planLensInputs = (
   batch: Batch,
