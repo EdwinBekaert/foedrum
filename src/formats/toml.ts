@@ -4,6 +4,8 @@
 // and it refuses what is not TOML; it checks nothing a reader of a few tables does not need, such as
 // a key given twice. Repository content, so untrusted input. Pure.
 
+import { withoutBom } from './manifest-reader.ts';
+
 export class NotToml extends Error {}
 
 export type TomlValue = { kind: 'string'; text: string } | { kind: 'table' } | { kind: 'other' };
@@ -18,7 +20,6 @@ const MAX_DEPTH = 32;
 const MAX_KEY_PARTS = 64;
 const MAX_KEY_PART_LENGTH = 1024;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const BOM = String.fromCodePoint(0xfeff);
 const BARE_KEY = /^[\w-]$/;
 const ESCAPES: Readonly<Record<string, string>> = {
   b: '\b',
@@ -32,9 +33,10 @@ const ESCAPES: Readonly<Record<string, string>> = {
 };
 
 /** Every statement of `text`, in order, an inline table's keys after the table; throws `NotToml`. */
-export const readToml = (text: string): TomlEntry[] => {
+export const readToml = (toml: string): TomlEntry[] => {
+  const text = withoutBom(toml);
   const entries: TomlEntry[] = [];
-  let at = text.startsWith(BOM) ? 1 : 0;
+  let at = 0;
 
   const fail = (what: string, where = at): never => {
     throw new NotToml(`${what} on line ${text.slice(0, where).split('\n').length}`);
