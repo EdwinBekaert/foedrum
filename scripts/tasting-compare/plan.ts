@@ -97,6 +97,12 @@ export const planRecipeText = (setup: PlanSetupName): string => {
   return `// node scripts/tasting-compare.ts --plan's setup ${setup} (ADR 0323).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
 
+/** The Brewery's recipes in a run of `setup`, by path: its own, and the fixture's second that builds. */
+export const planRecipes = (setup: PlanSetupName, prose: string): Record<string, string> => ({
+  [`recipes/${setup}.jsonc`]: planRecipeText(setup),
+  'recipes/prose.jsonc': prose,
+});
+
 /** One planted mistake: its lens, the sub-orders at fault, the field it is in, and what it is. */
 interface Mistake {
   id: string;

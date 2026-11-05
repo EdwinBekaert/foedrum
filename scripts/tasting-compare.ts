@@ -57,7 +57,7 @@ import {
   PLAN_SETUPS,
   PLAN_STEP,
   type PlanSetupName,
-  planRecipeText,
+  planRecipes,
   planRecordOf,
   planTableMarkdown,
   readPlanKey,
@@ -163,10 +163,7 @@ const planMode = (): Mode<PlanSetupName> => {
     folders: ['plan'],
     setups: Object.keys(PLAN_SETUPS) as PlanSetupName[],
     order: join(planFixture, 'order.md'),
-    recipes: (setup) => ({
-      [`recipes/${setup}.jsonc`]: planRecipeText(setup),
-      'recipes/prose.jsonc': readFileSync(join(planFixture, 'prose.jsonc'), 'utf8'),
-    }),
+    recipes: (setup) => planRecipes(setup, readFileSync(join(planFixture, 'prose.jsonc'), 'utf8')),
     script: async (setup) => ({
       [PLAN_STEP]: [seeded],
       ...(dryRun ? scriptedPlanTastings(setup, key) : {}),
