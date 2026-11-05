@@ -308,6 +308,38 @@ describe('scoring a plan run', () => {
     }
   });
 
+  it('a list of sub-orders counts for each mistake it names, wherever it names it (regression test)', () => {
+    const score = (why: string) =>
+      scorePlanRun(
+        run('plan-apart-7', 1, [attempt('coverage', ['plan/coverage'], [finding(why)])]),
+        key,
+      ).found.map(({ defect }) => defect);
+    assert.deepEqual(score('remind, stats: a clean one first'), ['big']);
+    assert.deepEqual(score('stats, atomic-save: two mistakes'), ['big', 'overlap']);
+  });
+
+  it("the table's choice lines follow the runs, and say when a setup was not measured (regression test)", () => {
+    const taster = (stepId: string, lenses: readonly string[], whys: readonly string[]) =>
+      attempt(
+        stepId,
+        lenses,
+        whys.map((why) => finding(why)),
+      );
+    const records = [
+      run('plan-apart-7', 1, [
+        taster('sizing', ['plan/sizing'], ['stats: too big']),
+        taster('testability', ['plan/testability'], ['remove: a wish']),
+      ]),
+      // Fewer tokens, but more than half a mistake fewer found.
+      run('plan-together-7', 1, [taster('taste', [], [])]),
+    ];
+    const table = planTableMarkdown(summarizePlan(records, plantedKey()), plantedKey(), {
+      dryRun: false,
+    });
+    assert.match(table, /^- Seven lenses: apart \(plan-apart-7 against plan-together-7\)$/m);
+    assert.match(table, /^- Mash: not measured \(plan-apart-mash against plan-together-mash\)$/m);
+  });
+
   it('a finding on a mistake of a lens outside the setup is listed among the others', () => {
     const { found, others } = scorePlanRun(
       run('plan-together-mash', 1, [
