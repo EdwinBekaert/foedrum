@@ -12,6 +12,7 @@ import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { type Behaviour, fakeBrewerRunner } from './fake-brewer-runner.ts';
 import { ghOver } from './fake-gh.ts';
 import { type FakeGitHubApi, fakeGitHubApi } from './fake-github-api.ts';
@@ -28,6 +29,8 @@ export const request: BrewRequest = {
   by: 'ann',
   via: 'terminal',
 };
+
+export const idle: AttemptProgress = { lastProgressAt: t0, turnsWithoutProgress: 0 };
 
 export interface BrewFixture {
   dir: TempDir;

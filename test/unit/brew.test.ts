@@ -18,7 +18,7 @@ import {
   thisMachine,
 } from '../../src/cli/brew-main.ts';
 import { brewOwner } from '../../src/cli/driver-owner.ts';
-import type { LiveTerminal, ServeShell } from '../../src/cli/serve.ts';
+import type { ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
@@ -31,7 +31,7 @@ import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { launchProcess } from '../../src/platform/processes.ts';
 import { BrewCommand, type LauterCommand, MashCommand } from '../../src/schemas/commands.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
-import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
+import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import {
   type Behaviour,
   behave,
@@ -41,77 +41,9 @@ import {
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
+import { fakeScreen, SPINNER, withoutTime } from '../helpers/fake-screen.ts';
 import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
-
-const SPINNER = ['|', '/', '-', '\\'];
-
-/**
- * A terminal over a fake screen (ADR 0174): it keeps what the live line shows now, every call and
- * every lasting line in order, and the lasting lines printed while the live line was on screen.
- */
-const fakeScreen = (width: number | 'unknown') => {
-  let columns = width === 'unknown' ? undefined : width;
-  let drawn: string | undefined;
-  const events: string[] = [];
-  const resizers = new Set<() => void>();
-  const printedOver: string[] = [];
-  const terminal: LiveTerminal = {
-    columns: () => columns,
-    onResize: (handler) => {
-      resizers.add(handler);
-      return () => {
-        resizers.delete(handler);
-      };
-    },
-    clear: () => {
-      events.push('clear');
-      drawn = undefined;
-    },
-    rewrite: (text) => {
-      events.push(`rewrite: ${text}`);
-      drawn = text;
-    },
-  };
-  /** The live lines drawn, in order. */
-  const rewrites = (): string[] =>
-    events.filter((event) => event.startsWith('rewrite: ')).map((event) => event.slice(9));
-  return {
-    terminal,
-    events,
-    resizers,
-    printedOver,
-    rewrites,
-    /** What the live line shows now. */
-    drawn: () => drawn,
-    /** The shell's `out`: a lasting line. */
-    print: (line: string): void => {
-      if (drawn !== undefined) printedOver.push(line);
-      events.push(`out: ${line}`);
-    },
-    resize: (to: number | undefined): void => {
-      columns = to;
-      for (const handler of [...resizers]) handler();
-    },
-    /** The live lines drawn, each without its spinner and the batch's time (ADR 0179). */
-    texts: (): string[] =>
-      rewrites().map((text) => {
-        assert.ok(SPINNER.includes(text[0] ?? ''), `a spinner starts ${JSON.stringify(text)}`);
-        const batchTime = BATCH_TIME.exec(text.slice(2));
-        assert.ok(batchTime, `the batch's time leads ${JSON.stringify(text)}`);
-        return text.slice(2 + batchTime[0].length);
-      }),
-    /** The batch's time on each live line drawn. */
-    batchTimes: (): string[] =>
-      rewrites().map((text) => BATCH_TIME.exec(text.slice(2))?.[1] ?? `none in ${text}`),
-  };
-};
-
-/** The batch's time that leads a live line after its spinner, with the ` / ` after it. */
-const BATCH_TIME = /^((?:\d+m )?\d+s) \/ /;
-
-/** The line without its elapsed time, which depends on when each redraw came. */
-const withoutTime = (text: string): string => text.replace(/ \/ (\d+m )?\d+s(?= \/|$)/, '');
 
 describe('BrewCommand', () => {
   it('takes an issue as foedrum order does, and the name of its driver', () => {
@@ -646,8 +578,6 @@ describe('runBrew', () => {
       'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
     ]);
   });
-
-  const idle: AttemptProgress = { lastProgressAt: t0, turnsWithoutProgress: 0 };
 
   it('prints the same plain lines, waiting the whole tick, when the shell has no terminal, whatever the brewer reports (ADR 0174)', async () => {
     const controller = new AbortController();
