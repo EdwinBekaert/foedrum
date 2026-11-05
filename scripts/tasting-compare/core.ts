@@ -38,7 +38,7 @@ export const IMPLEMENT = 'implement';
 export const TASTE = 'taste';
 
 /** A lens step's id in the apart group: the lens's name without its folder. */
-const stepIdOf = (lens: string): string => lens.slice(lens.indexOf('/') + 1);
+export const stepIdOf = (lens: string): string => lens.slice(lens.indexOf('/') + 1);
 
 /** The lenses each Taster step of `setup` reviews through, by step id. */
 const tasterSteps = (setup: SetupName): Map<string, readonly string[]> => {
