@@ -226,4 +226,12 @@ describe('the Go manifest', () => {
       },
     );
   });
+
+  it('keeps a word of one character before a comment (regression test)', () => {
+    assert.deepEqual(goManifest.read('go.mod', 'module a// why\n'), {
+      kind: 'read',
+      publishes: ['a'],
+      dependsOn: [],
+    });
+  });
 });
