@@ -35,7 +35,11 @@ describe('the diff mode beside plan mode', () => {
       ended: 'on_tap',
       wallMs: 9_000,
       attempts: [
-        taster('correctness', ['diff/correctness'], [{ ...major, file: 'a.ts', line: 3, why: 'w' }]),
+        taster(
+          'correctness',
+          ['diff/correctness'],
+          [{ ...major, file: 'a.ts', line: 3, why: 'w' }],
+        ),
         taster('acceptance', ['diff/acceptance'], [{ ...major, why: 'elsewhere' }]),
       ],
     },
