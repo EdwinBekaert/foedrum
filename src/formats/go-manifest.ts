@@ -106,8 +106,9 @@ const readManifest = (manifest: string, text: string): ManifestRead => {
   if (block !== undefined) return { kind: 'unreadable', reason: `a ${block} block is not closed` };
   if (module === undefined) return { kind: 'unreadable', reason: 'it names no module' };
 
+  const replacesOf = Map.groupBy(replaces, (each) => each.module);
   const dependsOn: ManifestDependency[] = [...requires].map(([name, version]) => {
-    const own = replaces.filter((each) => each.module === name);
+    const own = replacesOf.get(name) ?? [];
     const replace =
       own.find((each) => each.version === version) ??
       own.find((each) => each.version === undefined);
