@@ -21,7 +21,7 @@ const TABLES: ReadonlySet<string> = new Set([
   'build-dependencies',
 ]);
 
-// The keys of a dependency in Cargo's reference that the map reads, each a string,
+// The keys of a dependency in Cargo's schema that the map reads, each a string,
 const SOURCE_KEYS: ReadonlySet<string> = new Set([
   'version',
   'git',
@@ -84,7 +84,7 @@ const addTo = (spec: Spec, rest: readonly string[], value: TomlValue): void => {
     if (key === 'workspace') spec.inherited = true;
   } else {
     throw new Refused(
-      `its dependency ${spec.name} has the key ${rest.join('.')}, which Cargo documents no meaning for`,
+      `its dependency ${spec.name} has the key ${rest.join('.')}, which Cargo's schema does not name`,
     );
   }
 };
