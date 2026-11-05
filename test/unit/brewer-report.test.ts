@@ -487,6 +487,7 @@ describe('brewerSource', () => {
       ],
       lenses: [],
       named: { brewers: new Set(['planner']), lenses: new Set(), reviewLenses: new Set() },
+      stepModels: [],
     },
   };
 
