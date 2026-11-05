@@ -2,6 +2,7 @@
 // what a manifest's text says the repository publishes and depends on. Repository content, so
 // untrusted input (ADR 0041). Pure; a reader of another ecosystem is one more file of this shape.
 
+import { posix } from 'node:path';
 import type { MapDependencyVia } from '../schemas/system-map.ts';
 import type { z } from '../schemas/zod.ts';
 
@@ -32,9 +33,22 @@ export interface ManifestReader {
 /** The last segment of a path in git's form, with forward slashes. */
 export const fileName = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
-/** Whether `path` lies in a folder of installed or built files, whose manifests are not the repository's. */
-export const inBuiltFolder = (path: string): boolean =>
+const BOM = String.fromCodePoint(0xfeff);
+
+/** A manifest's text without the byte order mark it may start with. */
+export const withoutBom = (text: string): string => (text.startsWith(BOM) ? text.slice(1) : text);
+
+/** A path the manifest at `manifest` names, from the repository's root, with forward slashes. */
+export const fromRoot = (manifest: string, path: string): string =>
+  posix.normalize(posix.join(posix.dirname(manifest), path.replaceAll('\\', '/')));
+
+/** Whether `path` lies in a folder of one of `names`, lower case, at any depth. */
+export const inFolderNamed = (path: string, names: readonly string[]): boolean =>
   path
     .split('/')
     .slice(0, -1)
-    .some((folder) => ['node_modules', 'bin', 'obj'].includes(folder.toLowerCase()));
+    .some((folder) => names.includes(folder.toLowerCase()));
+
+/** Whether `path` lies in a folder of installed or built files, whose manifests are not the repository's. */
+export const inBuiltFolder = (path: string): boolean =>
+  inFolderNamed(path, ['node_modules', 'bin', 'obj']);

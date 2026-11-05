@@ -1,9 +1,9 @@
 // .NET's manifests for the system map (ADR 0317): a project file's package id, its package and
 // project references, and a solution's projects outside the repository.
 
-import { posix } from 'node:path';
 import {
   fileName,
+  fromRoot,
   inBuiltFolder,
   type ManifestDependency,
   type ManifestRead,
@@ -23,10 +23,6 @@ const descendants = (element: Element, name: string): Element[] =>
   );
 
 const stem = (path: string): string => fileName(path.replaceAll('\\', '/')).replace(/\.[^.]*$/, '');
-
-/** A path the manifest at `manifest` names, from the repository's root, with forward slashes. */
-const fromRoot = (manifest: string, path: string): string =>
-  posix.normalize(posix.join(posix.dirname(manifest), path.replaceAll('\\', '/')));
 
 const firstText = (root: Element, name: string): string | undefined =>
   descendants(root, name)

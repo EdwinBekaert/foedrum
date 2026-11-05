@@ -70,6 +70,58 @@ describe('foedrum doctor: the system map (ADR 0317)', () => {
     assert.doesNotMatch(formatDiagnosis(diagnose(linux())), /System map/);
   });
 
+  it('foedrum doctor names the link of a Rust library and its user, and of a Go module and its user', async () => {
+    const clones = ['rustlib', 'rustapp', 'golib', 'goapp'];
+    const manifest: Record<string, { path: string; text: string }> = {
+      rustlib: { path: 'Cargo.toml', text: '[package]\nname = "greet"\n' },
+      rustapp: {
+        path: 'Cargo.toml',
+        text: '[package]\nname = "greeter"\n[dependencies]\ngreet = { git = "https://github.com/acme/rustlib", tag = "v1.1.0" }\n',
+      },
+      golib: { path: 'go.mod', text: 'module github.com/acme/golib\n' },
+      goapp: {
+        path: 'go.mod',
+        text: 'module github.com/acme/goapp\nrequire github.com/acme/golib v1.2.0\n',
+      },
+    };
+    const at = (name: string) => resolve('/clones', name);
+    const breweryFiles: Record<string, string> = {
+      [join(cwd, 'foedrum.jsonc')]: JSON.stringify({
+        brewery: 'acme/brewery',
+        repositories: Object.fromEntries(clones.map((name) => [`acme/${name}`, { checks }])),
+      }),
+      [join(cwd, '.foedrum', 'local.jsonc')]: JSON.stringify({
+        clones: Object.fromEntries(clones.map((name) => [`acme/${name}`, at(name)])),
+      }),
+    };
+    const fourGit = async (clone: string, args: readonly string[]) => {
+      const own = manifest[clones.find((name) => at(name) === clone) ?? ''];
+      if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' };
+      if (args[0] === 'ls-tree') {
+        const listing = args.includes('--name-only') ? `${own?.path}\0` : '';
+        return { code: 0, stdout: listing, stderr: '' };
+      }
+      return { code: 0, stdout: own?.text ?? '', stderr: '' };
+    };
+    const systemMap = await readDoctorMap({
+      git: fourGit,
+      home,
+      cwd,
+      readFile: (path) => breweryFiles[path],
+      exists: () => true,
+    });
+    const report = formatDiagnosis(diagnose({ ...linux(), systemMap }));
+    const shown = report.slice(report.indexOf('System map')).split('\n');
+    for (const line of [
+      '  publishes `greet` (Cargo)',
+      '  depends on `greet` from acme/rustlib by git ref `v1.1.0` (Cargo)',
+      '  publishes `github.com/acme/golib` (Go)',
+      '  depends on `github.com/acme/golib` from acme/golib by version `v1.2.0` (Go)',
+    ]) {
+      assert.ok(shown.includes(line), `${line}\n${shown.join('\n')}`);
+    }
+  });
+
   it("says why git could not resolve a clone's base, and reads the other clones when git throws", async () => {
     const failing = async (at: string, args: readonly string[]) => {
       if (at === libClone && args[0] === 'rev-parse') {
