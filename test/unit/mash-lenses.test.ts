@@ -446,6 +446,43 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 5 });
   });
 
+  it("a plan lens step's later round gets a retry of its own after a failed attempt", async () => {
+    const script = {
+      plan: [planned, replanned()],
+      coverage: [asksChanges(guide), approves],
+      sizing: [approves, behave.fail(true), approves],
+      'naive-reader': [approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.ok(started.includes('sizing#3'), started.join(' '));
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 2 });
+  });
+
+  it('a blocking plan lens that asked for changes gets a retry of its own in the next round', async () => {
+    const script = {
+      plan: [planned, replanned()],
+      coverage: [asksChanges(guide), behave.fail(true), approves],
+      sizing: [approves, approves],
+      'naive-reader': [approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.ok(started.includes('coverage#3'), started.join(' '));
+    assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'plan', attempt: 2 });
+  });
+
+  it("a plan lens step's later round still ends after its brewer's attempts", async () => {
+    const script = {
+      plan: [planned, replanned()],
+      coverage: [asksChanges(guide), approves],
+      sizing: [approves, behave.fail(true), behave.fail(true)],
+      'naive-reader': [approves, approves],
+    };
+    assert.equal(await runBrew(setup, shell(script), request), 3, lines.join('\n'));
+    assert.ok(started.includes('sizing#3'), started.join(' '));
+    assert.ok(!started.includes('sizing#4'), started.join(' '));
+    assert.equal(stuckReason().kind, 'attempts_exhausted');
+  });
+
   it('decoction runs its seven lenses after the plan, and the plan waits for its review', async () => {
     api = fakeGitHubApi({ login: 'ann', issues: { 'acme/brewery': [issue('decoction')] } });
     const lenses = [
