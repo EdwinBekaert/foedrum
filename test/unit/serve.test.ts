@@ -1395,11 +1395,11 @@ describe('formatNotice', () => {
   it('names the batch whose effects could not be read, and says the others go on (#867)', () => {
     assert.equal(
       formatNotice({
-        kind: 'batch_failed',
+        kind: 'batch_effects_failed',
         batchId: '12-1',
         error: new Error('Recipe nip has no step innkeep'),
       }),
-      'batch 12-1 failed, and the other batches go on: Recipe nip has no step innkeep',
+      'the effects of batch 12-1 could not be read or finished, and the other batches go on: Recipe nip has no step innkeep',
     );
   });
 

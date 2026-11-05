@@ -26,6 +26,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import {
   type Driver,
   type DriverActions,
+  type DriverEffects,
   type DriverNotice,
   type DriverOptions,
   openDriver,
@@ -3094,6 +3095,44 @@ describe('openDriver', () => {
         });
         await driver.tick();
         assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      });
+
+      /** `b1` and `b2` held by a driver and then ended, `b2`'s effects applied and `b1`'s throwing. */
+      const twoEnded = async (due: DriverEffects['due']) => {
+        twoSucceeded();
+        const driver = await open({
+          effects: { due, target: fakeHost().target },
+          report: () => {},
+        });
+        await driver.tick();
+        for (const batchId of ['b1', 'b2']) {
+          intake.issue({ kind: 'cancel', batchId, by: 'ada', via: 'terminal' }, now);
+        }
+        return driver;
+      };
+      /** How a tick ended, as data, so a rejected one fails an assertion. */
+      const ticked = (driver: Driver): Promise<string> =>
+        driver.tick().then(
+          () => 'ended',
+          (error: unknown) => `rejected: ${String(error)}`,
+        );
+
+      it('ends the tick when an ended batch cannot be read, and lets the other ended batch go', async () => {
+        const driver = await twoEnded(dueExcept('b1'));
+        assert.equal(await ticked(driver), 'ended');
+        assert.deepStrictEqual(driver.held(), ['b1']);
+      });
+
+      it('lets an ended batch go on a later tick, once its reading answers', async () => {
+        let broken = true;
+        const driver = await twoEnded((state, batchId) =>
+          (broken ? dueExcept('b1') : commentsDue)(state, batchId),
+        );
+        assert.equal(await ticked(driver), 'ended');
+        assert.deepStrictEqual(driver.held(), ['b1']);
+        broken = false;
+        assert.equal(await ticked(driver), 'ended');
+        assert.deepStrictEqual(driver.held(), []);
       });
 
       it("applies a batch's effects on the next pass, once its reading answers: regression test", async () => {
