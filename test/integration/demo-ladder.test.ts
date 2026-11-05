@@ -154,7 +154,7 @@ describe('npm run demo -- ladder', () => {
         /demo: batch 1-1 waits Stuck for the review of its plan/,
         /Recipe \*\*mash\*\*, chosen by its label/,
         /`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅/,
-        /\| `bump`:.* \| `ladder` \| `greet` \(release\) \| yes \|/,
+        /\| `bump`:\s.* \| `ladder` \| `greet` \(release\) \| yes \|/,
       ],
       approve: [/\$ foedrum approve 1-1\n +1-1 on tap: plan approved by ann via terminal/],
       'sub-issues': [
