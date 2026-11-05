@@ -55,9 +55,9 @@ describe('npm run demo -- ladder', () => {
     result = await execProcess(process.execPath, [demo, 'ladder', '--in', scratch, '--no-pause'], {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
-      // Only a guard against a hang (ADR 0075): four lives of the Cellar, and the plan's and the
-      // two Cellarmen's attempts.
-      timeoutMs: 7 * hangGuardMs,
+      // Only a guard against a hang (ADR 0075): four lives of the Cellar, and the plan's, its three
+      // Tasters' and the two Cellarmen's attempts.
+      timeoutMs: 10 * hangGuardMs,
     });
   });
   after(() => removeTree(dir.path));
@@ -153,7 +153,8 @@ describe('npm run demo -- ladder', () => {
       plan: [
         /demo: batch 1-1 waits Stuck for the review of its plan/,
         /Recipe \*\*mash\*\*, chosen by its label/,
-        /\| `bump`: .* \| `ladder` \| `greet` \(release\) \| yes \|/,
+        /`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅/,
+        /\| `bump`:.* \| `ladder` \| `greet` \(release\) \| yes \|/,
       ],
       approve: [/\$ foedrum approve 1-1\n +1-1 on tap: plan approved by ann via terminal/],
       'sub-issues': [

@@ -68,8 +68,8 @@ describe('npm run demo', () => {
       cwd: root,
       env: { ...env, GIT_CONFIG_GLOBAL: noIdentity, GIT_CONFIG_NOSYSTEM: '1' },
       // Only a guard against a hang (ADR 0075): two runs of the demo's recipe and the mash's
-      // Innkeeper and Brewmaster, counted by the attempts its script plays in a batch, the
-      // tasting loop's second round too (ADR 0193).
+      // Innkeeper, Brewmaster and three Tasters, counted by the attempts its script plays in a
+      // batch, the tasting loop's second round too (ADR 0193).
       timeoutMs: scriptedAttempts * hangGuardMs,
     });
     at = STEPS.map((_, index) => result.stdout.indexOf(headingOf(index)));
@@ -402,6 +402,18 @@ describe('npm run demo', () => {
     assert.match(
       mash,
       /`innkeep`: attempt 1 asked for input, answered by ann \(terminal\): mash$/m,
+    );
+  });
+
+  it('step 12 shows the three plan lenses after the plan, and their note in the Review (ADR 0321)', () => {
+    const mash = part('mash');
+    assert.ok(
+      mash.includes('`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅'),
+      mash,
+    );
+    assert.match(
+      mash.slice(mash.indexOf('**Review**')),
+      /^ +- `naive-reader` #1: minor, advisory: readme: "one section" does not say where/m,
     );
   });
 

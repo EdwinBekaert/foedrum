@@ -100,12 +100,31 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
     const files = serveInputs().files;
     // No Brewery brewer or recipe of its own named brewmaster or mash: both come from defaults/.
     const { defaults } = readBreweryFiles(dir.path);
+    // Without the default mash's lenses, which test/unit/mash-lenses.test.ts covers (ADR 0321).
+    const mash = recipeText(
+      'mash',
+      [
+        { id: 'plan', brewer: 'brewmaster' },
+        {
+          id: 'lauter',
+          brewer: 'brewmaster',
+          interactive: true,
+          chosenBy: 'lauter',
+          prompt: 'The person in this session reviews the plan in {plan} and chose to correct it.',
+        },
+      ],
+      { testFirst: false },
+    );
     const result = serveSetup(
       serveInputs({
         files: {
           ...files,
           local: local({ workRoot: dir.path }),
-          brewery: { ...files.brewery, ...(defaults === undefined ? {} : { defaults }) },
+          brewery: {
+            ...files.brewery,
+            recipes: [...files.brewery.recipes, { path: 'recipes/mash.jsonc', text: mash }],
+            ...(defaults === undefined ? {} : { defaults }),
+          },
         },
       }),
     );

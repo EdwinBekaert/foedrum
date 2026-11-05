@@ -192,7 +192,15 @@ describe('readBreweryFiles', () => {
           'security',
           'test-design',
         ].map((name) => `defaults/lenses/diff/${name}.md`),
-        'defaults/lenses/plan/naive-reader.md',
+        ...[
+          'coverage',
+          'naive-reader',
+          'order-and-overlap',
+          'recipe-fit',
+          'security',
+          'sizing',
+          'testability',
+        ].map((name) => `defaults/lenses/plan/${name}.md`),
       ],
     );
   });

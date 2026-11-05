@@ -1871,7 +1871,11 @@ describe('runBrew', () => {
       };
       const plans = behave.succeedWith({ assumptions: ['Kept the flag.'], subOrders: [subOrder] });
       const target = { ...request, target: { alias: 'web', issue: 7 } };
-      assert.equal(await runBrew(claimed, shell(plans), target), 3, lines.join('\n'));
+      // The default mash's Tasters approve the plan (ADR 0321).
+      const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
+      const runner = () =>
+        fakeBrewerRunner(({ ref }) => (ref.stepId === 'plan' ? plans : approves));
+      assert.equal(await runBrew(claimed, shell(plans, { runner }), target), 3, lines.join('\n'));
       const bodies = (api.comments.get('acme/brewery#40') ?? []).map(({ body }) => body);
       const plan = (api.comments.get('acme/brewery#40') ?? []).find(({ body }) =>
         body.includes('plan of batch'),
@@ -1945,7 +1949,7 @@ describe('runBrew', () => {
       assert.equal(log().state().batches.size, 0);
       assert.equal(
         lines.at(-1),
-        'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it (decoction comes with #802)',
+        'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it',
       );
     });
 
@@ -1954,7 +1958,7 @@ describe('runBrew', () => {
       [
         'with no recipe to offer',
         { only: 'none' },
-        'the Brewery has no recipe to offer but mash-in (decoction comes with #802)',
+        'the Brewery has no recipe to offer but mash-in',
       ],
     ];
     for (const [what, fields, line] of refusals) {
