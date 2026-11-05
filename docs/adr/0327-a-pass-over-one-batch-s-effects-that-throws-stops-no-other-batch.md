@@ -18,6 +18,7 @@ ADR 0250 has each command report a tick that throws as `tick_failed` and run the
 - The tick lets go of an ended batch only once it has no effect due. One whose due effects cannot be read counts as not finished: it stays held, and the other ended batches are let go. A batch on tap counts as ended, so this is the case #867 reported. The pass over its effects has already said why.
 - A `StateBranchStopError` still stops the engine through `tick()`, as ADR 0250 says: it comes from the state branch's start and the supervisor's flush, and neither runs in this pass.
 - This amends ADR 0250 for that pass only. A throw elsewhere in the tick, in the supervisor or the drive, still rejects the tick and is reported as `tick_failed`, without naming a batch.
+  The maintainer narrowed #867's "one batch's error never stops another's work" to this pass: the supervisor and the drive are #870's, an open issue, which will also take how often the notice repeats.
 
 ## Consequences
 - One broken batch no longer stops the effects of the others, or the release of other ended batches.
