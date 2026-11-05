@@ -244,7 +244,11 @@ describe('runBrew', () => {
       };
       const plans = behave.succeedWith({ assumptions: ['Kept the flag.'], subOrders: [subOrder] });
       const target = { ...request, target: { alias: 'web', issue: 7 } };
-      assert.equal(await runBrew(claimed, shell(plans), target), 3, f.lines.join('\n'));
+      // The default mash's Tasters approve the plan (ADR 0321).
+      const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
+      const runner = () =>
+        fakeBrewerRunner(({ ref }) => (ref.stepId === 'plan' ? plans : approves));
+      assert.equal(await runBrew(claimed, shell(plans, { runner }), target), 3, f.lines.join('\n'));
       const bodies = (f.api.comments.get('acme/brewery#40') ?? []).map(({ body }) => body);
       const plan = (f.api.comments.get('acme/brewery#40') ?? []).find(({ body }) =>
         body.includes('plan of batch'),
