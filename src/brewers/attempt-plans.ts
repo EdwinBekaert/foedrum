@@ -547,7 +547,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * step the earlier rounds' findings with their dispositions (ADR 0191), then for a brewer that
    * asks for house yeast the rules that match its change (ADR 0169), then the answers to its step's
    * questions,
-   * then what sent it back when a route scheduled it (ADR 0128), and last, for a retry after the
+   * then what sent it back when a route scheduled it or the attempt it continues (ADR 0128,
+   * ADR 0325), and last, for a retry after the
    * secret scan failed the attempt before it, why (ADR 0187). With the rules it was given.
    */
   const inputsFor = async (
