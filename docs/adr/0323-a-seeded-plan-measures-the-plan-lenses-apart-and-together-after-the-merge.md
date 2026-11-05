@@ -29,7 +29,7 @@ And the default recipes hold only one recipe that builds, so recipe fit has noth
 
 ## Consequences
 - `mash` and `decoction` keep tasting apart until those numbers say otherwise; ADR 0321's choice stands on the diff lenses' numbers until then.
-- A dry run's table shows the shape, not a measurement: every scripted lens finds its mistake with no tokens, so its choice line says together on nothing. The script's first line says the Tasters are scripted.
+- A dry run's table shows the shape, not a measurement: every scripted lens finds its mistake with no tokens, which would pass the rule, so in plan mode it says that it measures nothing and makes no choice. The diff mode's dry run stays as it was, choice line included.
 - A plan step that is scripted reaches no `touchesChecked`, which only the claude and interactive runners run (ADR 0233), so a unit test holds the plan's touches against the base patch's files.
 - One round measures the first plan's review only, not the rounds a blocking step sends back; ADR 0321's question whether a fifth plan is reached stays open.
 - One seeded plan is a small sample, as ADR 0224 says of its change.

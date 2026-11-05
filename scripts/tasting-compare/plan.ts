@@ -199,17 +199,20 @@ export const nextPlanRun = (records: readonly PlanRunRecord[], runs: number) =>
 export const planTableMarkdown = (
   summaries: readonly SetupSummary<PlanShown>[],
   key: PlanKey,
-  _options: { dryRun: boolean } = { dryRun: false },
+  { dryRun }: { dryRun: boolean } = { dryRun: false },
 ): string => {
   const said = (apart: PlanShown, together: PlanShown): string =>
     `${saidChoice(choiceBetween(summaries, apart, together))} (${apart} against ${together})`;
   return tableOf(summaries, {
     planted: 'Mistake',
     rows: key.mistakes,
-    choices: [
-      `- Mash: ${said(READ, 'plan-together-mash')}`,
-      `- Seven lenses: ${said('plan-apart-7', 'plan-together-7')}`,
-    ],
+    // A dry run spends no token, and no tokens would pass the rule.
+    choices: dryRun
+      ? ['- A dry run measures nothing: its Tasters are scripted, so it makes no choice.']
+      : [
+          `- Mash: ${said(READ, 'plan-together-mash')}`,
+          `- Seven lenses: ${said('plan-apart-7', 'plan-together-7')}`,
+        ],
     readFromAnother: READ,
   });
 };

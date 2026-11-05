@@ -174,7 +174,7 @@ const planMode = (): Mode<PlanSetupName> => {
     scriptedStep: PLAN_STEP,
     next: nextPlanRun,
     recordOf: planRecordOf,
-    table: (records) => planTableMarkdown(summarizePlan(records, key), key),
+    table: (records) => planTableMarkdown(summarizePlan(records, key), key, { dryRun }),
   };
 };
 
