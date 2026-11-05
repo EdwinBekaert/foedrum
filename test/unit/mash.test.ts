@@ -1,5 +1,6 @@
-// The Brewmaster and the `mash` recipe (ADR 0234), from Foedrum's own defaults/: `foedrum brew` on
-// an issue labelled recipe:mash plans it and shows the plan on the issue, with serve's shell over an
+// The Brewmaster and the `mash` recipe (ADR 0234): `foedrum brew` on an issue labelled recipe:mash
+// plans it and shows the plan on the issue, with the default Brewmaster and a mash of the test's own
+// without lenses, which mash-lenses.test.ts covers, with serve's shell over an
 // in-memory store, fake worktrees, a fake GitHub and the scripted runner. No process starts
 // (ADR 0021).
 
@@ -98,14 +99,33 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
   beforeEach(() => {
     dir = makeTempDir('mash');
     const files = serveInputs().files;
-    // No Brewery brewer or recipe of its own named brewmaster or mash: both come from defaults/.
+    // No Brewery brewer of its own named brewmaster: it comes from defaults/.
     const { defaults } = readBreweryFiles(dir.path);
+    // Without the default mash's lenses, which test/unit/mash-lenses.test.ts covers (ADR 0321).
+    const mash = recipeText(
+      'mash',
+      [
+        { id: 'plan', brewer: 'brewmaster' },
+        {
+          id: 'lauter',
+          brewer: 'brewmaster',
+          interactive: true,
+          chosenBy: 'lauter',
+          prompt: 'The person in this session reviews the plan in {plan} and chose to correct it.',
+        },
+      ],
+      { testFirst: false },
+    );
     const result = serveSetup(
       serveInputs({
         files: {
           ...files,
           local: local({ workRoot: dir.path }),
-          brewery: { ...files.brewery, ...(defaults === undefined ? {} : { defaults }) },
+          brewery: {
+            ...files.brewery,
+            recipes: [...files.brewery.recipes, { path: 'recipes/mash.jsonc', text: mash }],
+            ...(defaults === undefined ? {} : { defaults }),
+          },
         },
       }),
     );

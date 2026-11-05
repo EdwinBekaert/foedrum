@@ -12,7 +12,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
-import { behave } from '../helpers/fake-brewer-runner.ts';
+import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, recipe, serveInputs } from '../helpers/serve-brewery.ts';
@@ -244,7 +244,11 @@ describe('runBrew', () => {
       };
       const plans = behave.succeedWith({ assumptions: ['Kept the flag.'], subOrders: [subOrder] });
       const target = { ...request, target: { alias: 'web', issue: 7 } };
-      assert.equal(await runBrew(claimed, shell(plans), target), 3, f.lines.join('\n'));
+      // The default mash's Tasters approve the plan (ADR 0321).
+      const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
+      const runner = () =>
+        fakeBrewerRunner(({ ref }) => (ref.stepId === 'plan' ? plans : approves));
+      assert.equal(await runBrew(claimed, shell(plans, { runner }), target), 3, f.lines.join('\n'));
       const bodies = (f.api.comments.get('acme/brewery#40') ?? []).map(({ body }) => body);
       const plan = (f.api.comments.get('acme/brewery#40') ?? []).find(({ body }) =>
         body.includes('plan of batch'),
@@ -318,7 +322,7 @@ describe('runBrew', () => {
       assert.equal(log().state().batches.size, 0);
       assert.equal(
         f.lines.at(-1),
-        'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it (decoction comes with #802)',
+        'foedrum mash: the Brewery has one recipe to offer, stout: label #13 recipe:stout to brew it',
       );
     });
 
@@ -327,7 +331,7 @@ describe('runBrew', () => {
       [
         'with no recipe to offer',
         { only: 'none' },
-        'the Brewery has no recipe to offer but mash-in (decoction comes with #802)',
+        'the Brewery has no recipe to offer but mash-in',
       ],
     ];
     for (const [what, fields, line] of refusals) {

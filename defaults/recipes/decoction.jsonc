@@ -1,0 +1,50 @@
+// Decoction, a careful plan of a large order (ADR 0321): Mash's steps, with all seven plan lenses in
+// its group. Nothing is built: the plan is shown on the order's issue (ADR 0233), and the batch waits
+// Stuck for its review (ADR 0275) until foedrum approve signs it off (ADR 0281). The lauter step runs
+// only when a person chooses foedrum lauter at that review (ADR 0286).
+{
+  "$schema": "../../schemas/recipe.json",
+  "name": "decoction",
+  "description": "A careful plan of a large order, through all seven plan lenses, shown on its issue; nothing is built",
+  // It commits nothing, so there is no test to write first.
+  "testFirst": false,
+  "steps": [
+    { "id": "plan", "brewer": "brewmaster" },
+    {
+      "id": "taste",
+      "parallel": [
+        // Blocking, as in Mash: once all seven Tasters end, the first one's changes send the plan
+        // back, each of the two twice at most.
+        {
+          "id": "coverage",
+          "brewer": "taster",
+          "lens": "plan/coverage",
+          // It reads the code as well as the plan, to tell what the code already does.
+          "model": "planner",
+          "blocking": true,
+          "onBlocked": { "findings": { "goto": "plan", "maxRounds": 2 } }
+        },
+        {
+          "id": "sizing",
+          "brewer": "taster",
+          "lens": "plan/sizing",
+          "blocking": true,
+          "onBlocked": { "findings": { "goto": "plan", "maxRounds": 2 } }
+        },
+        // Advisory: every finding shows in the plan comment's Review.
+        { "id": "naive-reader", "brewer": "taster", "lens": "plan/naive-reader" },
+        { "id": "order-and-overlap", "brewer": "taster", "lens": "plan/order-and-overlap" },
+        { "id": "testability", "brewer": "taster", "lens": "plan/testability" },
+        { "id": "recipe-fit", "brewer": "taster", "lens": "plan/recipe-fit" },
+        { "id": "security", "brewer": "taster", "lens": "plan/security", "model": "planner" }
+      ]
+    },
+    {
+      "id": "lauter",
+      "brewer": "brewmaster",
+      "interactive": true,
+      "chosenBy": "lauter",
+      "prompt": "The person in this session reviews the plan in {plan} and chose to correct it with you. Greet them, sum the plan up in a few lines, and ask what they want to change. Then correct it together, as your instructions say, and end with the whole corrected plan as your out doc."
+    }
+  ]
+}

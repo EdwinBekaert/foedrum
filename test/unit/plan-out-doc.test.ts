@@ -217,6 +217,11 @@ describe('PlanOutDoc (ADR 0233)', () => {
     });
   }
 
+  it('refuses a sub-order whose recipe is decoction, which plans too (ADR 0321)', () => {
+    const plan = done([subOrder('api'), subOrder('ui', { recipe: 'decoction' })]);
+    assert.match(refused(plan) ?? '', /may not plan again[\s\S]*subOrders\[1\]\.recipe/);
+  });
+
   it('refuses a sub-order whose recipe is mash or mash-in, naming its recipe, and takes one named like them (ADR 0285)', () => {
     for (const recipe of ['mash', 'mash-in']) {
       const plan = done([subOrder('api'), subOrder('ui', { recipe })]);

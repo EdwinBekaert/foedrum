@@ -103,11 +103,10 @@ const mashRefusal = (
   const choices = setup.brewers.find(MASH_IN, mashIn.firstStep)?.choices ?? [];
   // A question needs two options (ADR 0006).
   if (choices.length >= 2) return undefined;
-  const later = '(decoction comes with #802)';
   const [only] = choices;
   return only === undefined
-    ? `the Brewery has no recipe to offer but ${MASH_IN} ${later}`
-    : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it ${later}`;
+    ? `the Brewery has no recipe to offer but ${MASH_IN}`
+    : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it`;
 };
 
 /** The line feed and the Unicode line and paragraph separators, which end a line. */

@@ -79,7 +79,8 @@ The bigger the work, the bigger the vessel. Choose one with a label such as `rec
 |---|---|
 | Mash-in | Suggest a recipe for an order and ask which brews it (`foedrum mash`) |
 | Nip | Quick fix |
-| Mash | A plan of sub-orders for an order, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
+| Mash | A plan of sub-orders for an order, reviewed through three plan lenses, shown on its issue, corrected in a lauter session if the engineer chooses; nothing built |
+| Decoction | A careful plan of a large order: Mash through all seven plan lenses |
 | Half-pint | Small feature |
 | Pint | Medium feature, with plan approval |
 | Growler | Large feature, split into sub-orders |

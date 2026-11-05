@@ -325,17 +325,30 @@ const planInput = (
   throw new Error(`the input "${name}" needs the batch's plan, which it has none of yet`);
 };
 
+/** The recipes input `name`: one line per recipe, its name and description (ADR 0232). */
+const recipesInput = (name: string, choices: readonly RecipeChoice[]): PlannedInput => ({
+  name,
+  source: { kind: 'recipes' },
+  read: {
+    kind: 'text',
+    text: choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join(''),
+  },
+});
+
 /**
  * What the engine gives a step whose lenses review a plan (ADR 0312), after its brewer's own
- * inputs: the batch's latest plan as `plan`, and the Brewery's repositories as `repositories`.
+ * inputs: the batch's latest plan as `plan`, the Brewery's repositories as `repositories`, and its
+ * recipes as `recipes`, the list the Brewmaster reads (ADR 0321).
  */
 export const planLensInputs = (
   batch: Batch,
   stepBrewer: (stepId: string, attempt?: number) => StepBrewer | undefined,
   brewery: BreweryRepositories,
+  choices: readonly RecipeChoice[] = [],
 ): PlannedInput[] => [
   planInput('plan', batch, stepBrewer),
   repositoriesInput('repositories', brewery),
+  recipesInput('recipes', choices),
 ];
 
 /**
@@ -388,10 +401,7 @@ export function inputsOf(
         if (brewery === undefined) throw new Error(`the input "${name}" has no repositories`);
         return repositoriesInput(name, brewery);
       }
-      if (from === 'recipes') {
-        const text = choices.map((choice) => `- ${choice.name}: ${choice.description}\n`).join('');
-        return { name, source: { kind: 'recipes' }, read: { kind: 'text', text } };
-      }
+      if (from === 'recipes') return recipesInput(name, choices);
       if (from === 'plan-entry' && batch.plan !== undefined) {
         const origin = batch.plan;
         if (planEntry === undefined) {

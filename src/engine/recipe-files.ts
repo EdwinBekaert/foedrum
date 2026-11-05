@@ -22,6 +22,7 @@ import {
 } from '../schemas/recipe.ts';
 import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
 import type { Attempt } from './fold.ts';
+import { reviewed } from './lens-rounds.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
@@ -101,6 +102,8 @@ export interface Catalog {
     lenses: ReadonlySet<string>;
     reviewLenses: ReadonlySet<string>;
   };
+  /** The model aliases the recipes' steps name, each with its step and recipe file (ADR 0321). */
+  stepModels: readonly { path: string; stepId: string; alias: string }[];
 }
 
 /** The brewers of the loaded recipes' steps. */
@@ -343,6 +346,12 @@ const sinceSuccess = (attempts: readonly Attempt[]): number =>
   attempts.findLastIndex(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   ) -
+  1;
+
+/** How many of `attempts` came after the latest that reviewed: all of them when none did. */
+const sinceReview = (attempts: readonly Attempt[]): number =>
+  attempts.length -
+  attempts.findLastIndex((attempt) => attempt.phase === 'finished' && reviewed(attempt.outcome)) -
   1;
 
 /** The deadline of a check step without one of its own (ADR 0069). */
@@ -727,14 +736,20 @@ const lensesOf = (step: BrewerStep): readonly string[] =>
 /** A brewer step's line and brewer, a Taster's with its lenses (ADR 0161), in `group` if any. */
 function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): StepLoad {
   const id = stepId(step);
-  const found = shelf.brewers.get(step.brewer);
-  if (found === undefined) {
+  const shelved = shelf.brewers.get(step.brewer);
+  if (shelved === undefined) {
     return shelf.brewerNames.has(step.brewer)
       ? []
       : [
           `it names no brewer "${step.brewer}" that the Brewery's brewers/ or Foedrum's defaults have (ADR 0098)`,
         ];
   }
+  // The step's model is the brewer's on this step: all that reads an attempt's model reads this
+  // brewer (ADR 0321).
+  const found: StepBrewer =
+    step.model === undefined
+      ? shelved
+      : { ...shelved, brewer: { ...shelved.brewer, model: step.model } };
   const { brewer } = found;
   const refused = unplannable(brewer);
   if (refused.length > 0) {
@@ -784,11 +799,14 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     stall: brewer.stall,
     // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
     // schedules (ADR 0286), or one that writes a plan a person can have planned again from its
-    // review (ADR 0289), counts each round's attempts, those since its latest success.
+    // review (ADR 0289), counts each round's attempts, those since its latest success; a step that
+    // reviews a plan, those since its latest review, as each new plan runs it again (ADR 0321).
     mayRetry: (attempts) =>
-      (step.chosenBy === undefined && brewer.output.schema !== PLAN
-        ? attempts.length
-        : sinceSuccess(attempts)) < brewer.maxAttempts,
+      (named[0]?.startsWith('plan/') === true
+        ? sinceReview(attempts)
+        : step.chosenBy === undefined && brewer.output.schema !== PLAN
+          ? attempts.length
+          : sinceSuccess(attempts)) < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
     ...(step.interactive === true ? { interactive: true } : {}),
@@ -1104,6 +1122,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   const namedBrewers = new Set<string>();
   // The lenses the recipes' lens steps name (ADR 0161).
   const stepLenses = new Set<string>();
+  const stepModels: { path: string; stepId: string; alias: string }[] = [];
   const recipes = new Map<string, Recipe>();
   // By recipe, then step id.
   const stepBrewers = new Map<string, ReadonlyMap<string, StepBrewer>>();
@@ -1136,6 +1155,11 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     // at once.
     const brewerOf = (name: string) => brewers.get(name)?.brewer;
     const order = [...walk(value.steps, ['steps'])].map(({ step }) => step);
+    for (const step of order) {
+      if ('brewer' in step && step.model !== undefined) {
+        stepModels.push({ path, stepId: stepId(step), alias: step.model });
+      }
+    }
     const named = order.map((step) => stepBrewerName(step));
     for (const name of named) if (name !== undefined) namedBrewers.add(name);
     if (named.some((name) => name !== undefined && brewerOf(name) === undefined)) continue;
@@ -1198,7 +1222,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
   if (problems.length > 0) return { valid: false, problems };
   // Every recipe but those that choose a recipe themselves: what a step that chooses offers, and what
   // the recipes input of any other brewer names, such as a plan's for its sub-orders (ADR 0232,
-  // ADR 0234).
+  // ADR 0234), and what a plan lens step judges those by (ADR 0321).
   const choices = [...descriptions]
     .filter(([name]) => !choosingSteps.has(name))
     .map(([name, description]): RecipeChoice => ({ name, description }));
@@ -1206,7 +1230,10 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
     const chooses = choosingSteps.get(recipe) ?? [];
     const given = [...steps].map(([id, found]): [string, StepBrewer] => {
       const names = found.brewer.inputs.some(({ from }) => from === 'recipes');
-      return names || chooses.includes(id) ? [id, { ...found, choices }] : [id, found];
+      const tastesPlan = (found.together?.[0] ?? found.lens)?.startsWith('plan/') === true;
+      return names || tastesPlan || chooses.includes(id)
+        ? [id, { ...found, choices }]
+        : [id, found];
     });
     stepBrewers.set(recipe, new Map(given));
   }
@@ -1226,6 +1253,7 @@ export function loadRecipes(breweryFiles: BreweryFiles): LoadedRecipes {
         ]),
         reviewLenses: stepLenses,
       },
+      stepModels,
     },
     recipes: { find: (name) => recipes.get(name) },
     brewers: {

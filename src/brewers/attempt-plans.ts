@@ -617,7 +617,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     const inputs: PromptInput[] = [];
     for (const input of [
       ...planned,
-      ...(planLens ? planLensInputs(batch, stepBrewer, repositories) : []),
+      ...(planLens ? planLensInputs(batch, stepBrewer, repositories, found.choices) : []),
     ]) {
       inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
     }

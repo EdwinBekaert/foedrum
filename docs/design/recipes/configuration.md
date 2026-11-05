@@ -83,7 +83,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 - At the top level, `concurrency` (1 to 20, default 1) is how many batches may be Ordered or Brewing at once ([ADR 0068](../../adr/0068-the-intake-in-foedrum-serve-brewery-orders-and-routing-by-label.md)), and `openOrders` (1 to 20, default 3) how many orders may be in progress at once ([limits](../intake/limits.md)).
 - Durations (`timeout`, `deadline`) are a whole number with `s`, `m`, `h` or `d`: `"90s"`, `"30m"`, `"3d"`.
 
-**`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:
+**`models.jsonc`** (`src/schemas/models.ts`, `schemas/models.json`) maps the aliases brewers and brewer steps name in `model` to a model id or family, and optionally gives one brewer another alias, as blind tasting does:
 
 ```jsonc
 {
@@ -93,7 +93,7 @@ Both are JSONC with a `$schema` reference for editor autocompletion; unknown fie
 }
 ```
 
-The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet` and `planner`, the Brewmaster's, to `opus` ([ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md)), and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
+The file is optional: Foedrum's own `defaults/models.jsonc` maps `builder` to `sonnet` and `planner`, the Brewmaster's and that of the coverage and security plan lens steps, to `opus` ([ADR 0234](../../adr/0234-the-brewmaster-writes-a-plan-on-the-planner-alias-and-mash-runs-it.md), [ADR 0321](../../adr/0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md)), and the Brewery's `models` replace its entries by alias and add to them, while `brewers` comes from the Brewery's file only and may name a default alias ([ADR 0153](../../adr/0153-foedrum-s-defaults-map-their-own-model-aliases.md)).
 
 Model ids reach the `claude` command line, so they are limited to lower-case letters, digits, `.`, `_`, `:` and `-` (plus a `[1m]` suffix), and never start with `-`.
 

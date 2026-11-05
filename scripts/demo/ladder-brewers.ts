@@ -1,7 +1,8 @@
 // npm run demo -- ladder's brewers (ADR 0294): the Brewmaster that plans the order from the folder of
-// checkouts it runs in (ADR 0301), and the Cellarman of each sub-order, in serve's runner seam, so
-// each attempt reads and commits in its own worktree and no model is asked. Each one decides from
-// what it reads, never from a fixed answer: the Brewmaster from the two manifests, the Cellarman
+// checkouts it runs in (ADR 0301), the three Tasters of that plan (ADR 0321), and the Cellarman of
+// each sub-order, in serve's runner seam, so each attempt reads and commits in its own worktree and
+// no model is asked. The Tasters approve; the others decide from
+// what they read, never from a fixed answer: the Brewmaster from the two manifests, the Cellarman
 // from its worktree's manifest, and the second sub-order's Cellarman bumps the library to the tag
 // its prompt's `release` input names (ADR 0291).
 
@@ -126,6 +127,9 @@ export const inputLines = (prompt: string, name: string): string[] => {
 /** The `release` input's lines in the prompt; none without one. */
 export const releaseLines = (prompt: string): string[] => inputLines(prompt, 'release');
 
+/** The lens steps of the default mash's group (ADR 0321). */
+const PLAN_LENSES: readonly string[] = ['coverage', 'sizing', 'naive-reader'];
+
 /**
  * What an attempt commits, from what it reads: the plan from the folder of checkouts, the
  * library's change in the library's worktree, and the bump in the application's.
@@ -144,6 +148,15 @@ export const turnOf = (
       read(join(ALIASES[LIB], 'package.json')),
       read(join(ALIASES[WEB], 'package.json')),
     );
+  }
+  // The default mash's Tasters review that plan side by side, and approve it (ADR 0321).
+  if (PLAN_LENSES.includes(stepId)) {
+    return {
+      files: {},
+      message: '',
+      summary: `The plan reads well through ${stepId}.`,
+      tasting: { verdict: 'approve', findings: [] },
+    };
   }
   if (stepId !== 'implement') throw new Error(`the ladder has no brewer for step ${stepId}`);
   const manifest = read('package.json') ?? '';
