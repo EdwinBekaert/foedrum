@@ -26,6 +26,7 @@ import type { Ending } from '../../src/engine/decide.ts';
 import {
   type Driver,
   type DriverActions,
+  type DriverEffects,
   type DriverNotice,
   type DriverOptions,
   openDriver,
@@ -3034,6 +3035,164 @@ describe('openDriver', () => {
       });
       assert.equal(store.findEffect({ ...plan('b1'), effect: 'comment' }), undefined);
       assert.deepStrictEqual(driver.held(), ['b1']);
+    });
+
+    describe("a batch whose effects throw while they are read, which stops no other batch's work (#867)", () => {
+      /** `b1` and `b2`, each with a succeeded plan#1 and held by this driver. */
+      const twoSucceeded = (): void => {
+        for (const batchId of ['b1', 'b2']) {
+          order(batchId);
+          intake.issue({ kind: 'record', event: { type: 'step.started', ...plan(batchId) } }, now);
+          intake.issue({ kind: 'finish', ...plan(batchId), ending: succeeded }, now);
+          holdFor('cellar', batchId);
+        }
+      };
+      /** The effects due of every batch but `broken`, whose reading throws as a recipe does. */
+      const dueExcept =
+        (broken: string) =>
+        (state: State, batchId: string): EffectKey[] => {
+          if (batchId === broken) throw new Error('Recipe pint has no step innkeep');
+          return commentsDue(state, batchId);
+        };
+      /** A notice as text, an error as its message. */
+      const told = (notice: unknown): string =>
+        JSON.stringify(notice, (_key, value) => (value instanceof Error ? value.message : value));
+
+      for (const [broken, other] of [
+        ['b1', 'b2'],
+        ['b2', 'b1'],
+      ] as const) {
+        it(`applies the effects of ${other} and reports ${broken} by name when ${broken}'s throw`, async () => {
+          twoSucceeded();
+          const host = fakeHost();
+          const notices: unknown[] = [];
+          const driver = await open({
+            effects: { due: dueExcept(broken), target: host.target },
+            report: (notice) => notices.push(notice),
+          });
+          await driver.applyEffects();
+          assert.deepStrictEqual(host.applied, [`["${other}","plan",1,"comment"]`]);
+          const reported = notices.map(told);
+          assert.ok(
+            reported.some(
+              (text) => text.includes(`"${broken}"`) && text.includes('has no step innkeep'),
+            ),
+            reported.join('\n'),
+          );
+          assert.ok(
+            reported.every((text) => !text.includes(`"${other}"`)),
+            reported.join('\n'),
+          );
+        });
+      }
+
+      it('ticks through it: the tick ends, and the other batch has its effects applied', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const driver = await open({
+          effects: { due: dueExcept('b1'), target: host.target },
+          report: () => {},
+        });
+        await driver.tick();
+        assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      });
+
+      /** `b1` and `b2` held by a driver and then ended, `b2`'s effects applied and `b1`'s throwing. */
+      const twoEnded = async (due: DriverEffects['due']) => {
+        twoSucceeded();
+        const driver = await open({
+          effects: { due, target: fakeHost().target },
+          report: () => {},
+        });
+        await driver.tick();
+        for (const batchId of ['b1', 'b2']) {
+          intake.issue({ kind: 'cancel', batchId, by: 'ada', via: 'terminal' }, now);
+        }
+        return driver;
+      };
+      /** How a tick ended, as data, so a rejected one fails an assertion. */
+      const ticked = (driver: Driver): Promise<string> =>
+        driver.tick().then(
+          () => 'ended',
+          (error: unknown) => `rejected: ${String(error)}`,
+        );
+
+      it('ends the tick when an ended batch cannot be read, and lets the other ended batch go', async () => {
+        const driver = await twoEnded(dueExcept('b1'));
+        assert.equal(await ticked(driver), 'ended');
+        assert.deepStrictEqual(driver.held(), ['b1']);
+      });
+
+      it('lets an ended batch go on a later tick, once its reading answers', async () => {
+        let broken = true;
+        const driver = await twoEnded((state, batchId) =>
+          (broken ? dueExcept('b1') : commentsDue)(state, batchId),
+        );
+        assert.equal(await ticked(driver), 'ended');
+        assert.deepStrictEqual(driver.held(), ['b1']);
+        broken = false;
+        assert.equal(await ticked(driver), 'ended');
+        assert.deepStrictEqual(driver.held(), []);
+      });
+
+      it("applies a batch's effects on the next pass, once its reading answers: regression test", async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        let broken = true;
+        const driver = await open({
+          effects: {
+            due: (state, batchId) => (broken ? dueExcept('b1') : commentsDue)(state, batchId),
+            target: host.target,
+          },
+          report: () => {},
+        });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+        broken = false;
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, [
+          '["b2","plan",1,"comment"]',
+          '["b1","plan",1,"comment"]',
+        ]);
+      });
+
+      it('reports a batch whose throw comes after its effects, and goes on to the next: regression test', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const notices: unknown[] = [];
+        const driver = await open({
+          effects: {
+            due: commentsDue,
+            target: host.target,
+            recorded: (_state, batchId) => {
+              if (batchId === 'b1') throw new Error('Recipe pint has no step innkeep');
+              return [];
+            },
+          },
+          report: (notice) => notices.push(notice),
+        });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, [
+          '["b1","plan",1,"comment"]',
+          '["b2","plan",1,"comment"]',
+        ]);
+        const reported = notices.map(told);
+        assert.ok(
+          reported.some((text) => text.includes('"b1"') && text.includes('has no step innkeep')),
+          reported.join('\n'),
+        );
+      });
+
+      it('applies the effects of both batches in one pass when neither throws: regression test', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const driver = await open({ effects: { due: commentsDue, target: host.target } });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied.sort(), [
+          '["b1","plan",1,"comment"]',
+          '["b2","plan",1,"comment"]',
+        ]);
+      });
     });
   });
 

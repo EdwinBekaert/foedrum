@@ -102,6 +102,12 @@ export type DriverNotice =
   /** Applying an effect failed; the batch's other effects wait for the next pass. */
   | { kind: 'effect_failed'; key: EffectKey; error: unknown }
   /**
+   * A pass over a batch's effects threw, reading them or finishing what they call for, outside any
+   * one effect: what the pass already recorded stays, the next pass goes on from there, and the
+   * others go on (ADR 0327).
+   */
+  | { kind: 'batch_effects_failed'; batchId: string; error: unknown }
+  /**
    * The runner's end of an attempt rejected: the attempt is blocked on its environment, and the
    * other runs go on (ADR 0099).
    */
@@ -1123,38 +1129,39 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   // Each effect under its batch's lease, renewed before it: two drivers never apply one at once,
   // and passes of this driver run one after another (ADR 0033).
+  const applyBatch = async (batchId: string): Promise<void> => {
+    // The next effect due from the state as the one before it left it: an effect may change
+    // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
+    // once a pass.
+    const tried = new Set<string>();
+    for (;;) {
+      const next = pending(log.state(), batchId).find(
+        ({ key }) => !tried.has(effectKey.encode(key)),
+      );
+      if (next === undefined) break;
+      const { key, target } = next;
+      tried.add(effectKey.encode(key));
+      heartbeat();
+      if (!claim(batchId) || awaitsTakeover(batchId)) return;
+      try {
+        await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
+      } catch (error) {
+        report({ kind: 'effect_failed', key, error });
+        return;
+      }
+    }
+    finishActions(batchId);
+    recordAfter(batchId);
+  };
   const applyPass = async (): Promise<void> => {
     if (effects === undefined && actions === undefined) return;
     const state = log.state();
     for (const batch of state.batches.values()) {
-      let stopped = false;
-      // The next effect due from the state as the one before it left it: an effect may change
-      // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
-      // once a pass.
-      const tried = new Set<string>();
-      for (;;) {
-        const next = pending(log.state(), batch.id).find(
-          ({ key }) => !tried.has(effectKey.encode(key)),
-        );
-        if (next === undefined) break;
-        const { key, target } = next;
-        tried.add(effectKey.encode(key));
-        heartbeat();
-        if (!claim(batch.id) || awaitsTakeover(batch.id)) {
-          stopped = true;
-          break;
-        }
-        try {
-          await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
-        } catch (error) {
-          report({ kind: 'effect_failed', key, error });
-          stopped = true;
-          break;
-        }
-      }
-      if (!stopped) {
-        finishActions(batch.id);
-        recordAfter(batch.id);
+      // Whatever the pass over one batch throws is reported and left: the others go on (ADR 0327).
+      try {
+        await applyBatch(batch.id);
+      } catch (error) {
+        report({ kind: 'batch_effects_failed', batchId: batch.id, error });
       }
     }
   };
@@ -1176,6 +1183,18 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
     const holder = store.batchLeases(clock()).find((lease) => lease.batchId === ref.batchId);
     return holder?.owner === takeover.to;
+  };
+
+  /**
+   * Whether `batchId` has no effect due. One that cannot be read has not finished, so it stays held
+   * and the others are let go; the pass over its effects says why (ADR 0327).
+   */
+  const noneDue = (state: State, batchId: string): boolean => {
+    try {
+      return pending(state, batchId).length === 0;
+    } catch {
+      return false;
+    }
   };
 
   const tick = async (): Promise<void> => {
@@ -1214,10 +1233,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     const state = log.state();
     const running = new Set([...runs.values()].map(({ ref }) => ref.batchId));
     const done = [...held].filter(
-      (batchId) =>
-        batchIsOver(state, batchId) &&
-        !running.has(batchId) &&
-        pending(state, batchId).length === 0,
+      (batchId) => batchIsOver(state, batchId) && !running.has(batchId) && noneDue(state, batchId),
     );
     if (done.length > 0) {
       store.withTransaction((tx) => {

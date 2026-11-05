@@ -194,6 +194,13 @@ interface Steps {
   ids: readonly string[];
 }
 
+/**
+ * Whether `stepId` is a step of the batch's current recipe: not a step of an earlier recipe it
+ * brewed (a mashed batch's innkeep), nor one named as a group here, which a recipe has no step of.
+ */
+const ofRecipe = (recipe: Recipe | undefined, stepId: string): boolean =>
+  recipe?.has(stepId) !== false && recipe?.children(stepId) === undefined;
+
 /** The `when` that was false for `stepId`, or its group's, when the batch skipped it (ADR 0064). */
 const skippedBy = ({ batch, recipe }: Steps, stepId: string): { when?: string } | undefined => {
   const group = recipe?.group(stepId);
@@ -404,11 +411,9 @@ const briefRest = (
     );
   const name = batch.recipe?.name;
   const recipe = name === undefined ? undefined : recipes.find(name);
-  const steps: Steps = {
-    batch,
-    recipe,
-    ids: [...new Set([...(recipe?.steps ?? []), ...batch.steps.keys()])],
-  };
+  // A merge brief is about this head: an earlier recipe's steps stay in the status comment (ADR 0327).
+  const ran = [...batch.steps.keys()].filter((stepId) => ofRecipe(recipe, stepId));
+  const steps: Steps = { batch, recipe, ids: [...new Set([...(recipe?.steps ?? []), ...ran])] };
   const proof = name === undefined ? undefined : redProof(name);
   const head = code(shortSha(ready.head));
   const sensitive = latestPush(state, batch.id)?.sensitive;
@@ -434,7 +439,7 @@ const briefRest = (
       ...notRunLines(steps, proof),
       tastedLine(steps, ready),
       ...(sensitive === undefined ? [] : [`- ${sensitiveLine(sensitive)}.`]),
-      ...surveyLines(batch),
+      ...surveyLines(steps),
     ],
     ['**Findings**', ...(findings.length === 0 ? ['No finding was recorded.'] : findings)],
     ['**Risk left**', ...(risks.length === 0 ? ['None recorded.'] : risks)],
@@ -450,9 +455,9 @@ const briefRest = (
  * proposed a map, new or refreshed, from its first proposal, since a survey its check sent back
  * reads its own proposal as stale, with the stale paths the Maltster named, which are model text.
  */
-const surveyLines = (batch: Batch): string[] =>
-  [...batch.steps.values()].flatMap((step) => {
-    const proposals = [...step.attempts.values()].flatMap((attempt) => {
+const surveyLines = ({ batch, ids }: Steps): string[] =>
+  ids.flatMap((stepId) => {
+    const proposals = [...(batch.steps.get(stepId)?.attempts.values() ?? [])].flatMap((attempt) => {
       if (attempt.phase !== 'finished' || attempt.outcome.kind !== 'succeeded') return [];
       const survey = surveyOf(attempt.outcome.output);
       const repo = attempt.worktree?.repo;

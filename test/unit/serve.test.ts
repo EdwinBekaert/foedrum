@@ -433,6 +433,168 @@ describe('runServe', () => {
     return { code, merged, pull, baseChecks, conflictComments, briefComments, asked };
   };
 
+  /**
+   * Brews 12-1 through mash-in (ADR 0232): the Innkeeper's question was answered with porter, so
+   * the batch's steps hold the Innkeeper's attempt beside porter's, which has no such step (#867).
+   * With `mash` false the order is routed to porter directly. Every check on its pull request's
+   * head passed; serve ticks until the merge brief is posted.
+   */
+  const brewMashed = async (mash = true) => {
+    const porter = JSON.stringify({
+      name: 'porter',
+      description: 'Brews an order in one step and opens its pull request.',
+      steps: [{ id: 'brew', brewer: 'cellarman' }, { action: 'openPullRequest' }],
+      testFirst: false,
+    });
+    const result = serveSetup(
+      serveInputs({
+        files: {
+          ...serveInputs().files,
+          local: local({ workRoot: f.dir.path }),
+          // Foedrum's mash-in and Innkeeper are the defaults'.
+          brewery: {
+            ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
+            recipes: [{ path: 'recipes/porter.jsonc', text: porter }],
+            brewers: [{ path: 'brewers/cellarman.md', text: brewer }],
+          },
+        },
+      }),
+    );
+    const ready = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+    f.setup = { ...ready, intake: { ...ready.intake, pollEveryMs: 0 } };
+    const inner = openSqliteEventStore(':memory:');
+    f.store = { ...inner, close: () => {} };
+    const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
+    const accept = (command: Parameters<typeof log.issue>[0]) => {
+      const decision = log.issue(command, t0);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+    };
+    const question = {
+      q: 'Which recipe brews #12? Suggested: porter: one small change',
+      options: ['porter', 'nip'],
+      recommended: 'porter',
+      whyBlocking: 'The recipe decides what runs next',
+    };
+    accept({ kind: 'order', batchId: '12-1', order: { issue: 12 } });
+    if (mash) {
+      accept({
+        kind: 'route',
+        batchId: '12-1',
+        recipe: 'mash-in',
+        reason: 'label',
+        source: 'label',
+      });
+      const innkeep = { batchId: '12-1', stepId: 'innkeep', attempt: 1 };
+      accept({ kind: 'record', event: { type: 'step.started', ...innkeep } });
+      accept({
+        kind: 'finish',
+        ...innkeep,
+        ending: { kind: 'needs_input', questions: [question] },
+      });
+      accept({
+        kind: 'answer',
+        batchId: '12-1',
+        by: 'ann',
+        via: 'terminal',
+        answers: [{ q: question.q, answer: 'porter' }],
+      });
+    } else {
+      accept({
+        kind: 'route',
+        batchId: '12-1',
+        recipe: 'porter',
+        reason: 'label',
+        source: 'label',
+      });
+    }
+    // The head of the pull request and the one check on it, which passed (ADR 0213).
+    const checks = (_method: string, url: URL): Instead | undefined => {
+      if (/^\/repos\/acme\/web\/pulls\/\d+$/.test(url.pathname)) {
+        return { status: 200, body: { head: { sha: FAKE_COMMIT } } };
+      }
+      if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/check-runs`)) {
+        const run = { name: 'ci', status: 'completed', conclusion: 'success', html_url: null };
+        return { status: 200, body: { total_count: 1, check_runs: [run] } };
+      }
+      if (url.pathname.endsWith(`/commits/${FAKE_COMMIT}/status`)) {
+        return { status: 200, body: { statuses: [] } };
+      }
+      return undefined;
+    };
+    const github = fakeGitHubApi({
+      login: 'ann',
+      issues: {
+        'acme/brewery': [
+          { number: 12, labels: [], author: 'ann', title: 'Add a --json flag', body: 'Please.' },
+        ],
+      },
+      instead: checks,
+    });
+    const briefComments = () =>
+      [...github.comments.values()].flatMap((comments) =>
+        comments.filter(({ body }) => body.includes('brief.1')).map(({ body }) => body),
+      );
+    let waits = 0;
+    const code = await runServe(
+      f.setup,
+      shell({
+        fetch: github.fetch,
+        wait: async () => {
+          waits++;
+          if (briefComments().length > 0 || waits > 40) f.controller.abort();
+        },
+        git: async () => {
+          throw new Error('no red proof or guarded step runs here');
+        },
+        push: (repository) => ({
+          commit: async () => FAKE_COMMIT,
+          baseTip: async () => 'b'.repeat(40),
+          isAncestor: async (commit, of) => commit === of,
+          remoteTip: async () => (f.pushes.length > 0 ? FAKE_COMMIT : undefined),
+          push: async (commit, branch) => {
+            f.pushes.push(`${repository.repo} ${commit} ${branch}`);
+          },
+          secretScan: async () => [],
+          touchedFiles: async () => [],
+        }),
+        mergeTree: () => async () => ({ kind: 'clean' }),
+      }),
+    );
+    return { code, briefComments };
+  };
+
+  /** A line that says a batch's effects threw: the tick's, a pass's that went on, or one effect's. */
+  const failedRead = (line: string): boolean =>
+    line.includes('a tick failed') ||
+    line.includes('the other batches go on') ||
+    /^foedrum serve: the effect .+ failed: /.test(line);
+
+  it('ticks with no error for a batch mashed to a building recipe that is on tap with finished checks (#867)', async () => {
+    const { code, briefComments } = await brewMashed();
+    assert.equal(code, 0);
+    assert.equal(briefComments().length, 1, f.lines.slice(0, 8).join('\n'));
+    const failed = f.lines.filter(failedRead);
+    assert.deepStrictEqual(failed.slice(0, 1), [], `${failed.length} lines say a read failed`);
+  });
+
+  it('posts the merge brief of a batch mashed to a building recipe through serve (#867)', async () => {
+    const { briefComments } = await brewMashed();
+    const [brief] = briefComments();
+    assert.ok(brief, f.lines.slice(0, 8).join('\n'));
+    assert.match(brief, /^### Merge\? Add a --json flag @ `/);
+    assert.match(brief, /- ✅ ci \(success\)/);
+    assert.doesNotMatch(brief, /`innkeep`: (not run|did not pass)/);
+  });
+
+  it('posts the merge brief of a batch routed straight to porter through the same wiring (#867, regression test)', async () => {
+    const { code, briefComments } = await brewMashed(false);
+    assert.equal(code, 0);
+    const [brief] = briefComments();
+    assert.ok(brief, f.lines.slice(0, 8).join('\n'));
+    assert.match(brief, /^### Merge\? Add a --json flag @ `/);
+    assert.deepStrictEqual(f.lines.filter(failedRead), []);
+  });
+
   it("checks an open pull request against its base's moved tip and comments the conflict on it (ADR 0198)", async () => {
     const { code, merged, pull, baseChecks, conflictComments, asked } = await brewWithMovedBase();
     assert.equal(code, 0);
@@ -1229,6 +1391,17 @@ describe('formatNotice', () => {
         'cleaned batch 12-1: removed 1 worktree; could not clean x: busy',
         'cleaned batch 12-1: nothing to remove',
       ],
+    );
+  });
+
+  it('names the batch whose effects could not be read, and says the others go on (#867)', () => {
+    assert.equal(
+      formatNotice({
+        kind: 'batch_effects_failed',
+        batchId: '12-1',
+        error: new Error('Recipe nip has no step innkeep'),
+      }),
+      'the effects of batch 12-1 could not be read or finished, and the other batches go on: Recipe nip has no step innkeep',
     );
   });
 
