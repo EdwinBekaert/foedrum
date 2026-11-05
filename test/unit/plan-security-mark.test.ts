@@ -51,6 +51,16 @@ const planned = (plan: unknown): Event[] => [
     attempt: 1,
     outcome: { kind: 'succeeded', output: JSON.parse(JSON.stringify(plan)) },
   },
+  {
+    type: 'batch.approved',
+    batchId: '7-1',
+    stepId: 'plan',
+    attempt: 1,
+    plan: '0123456789abcdef',
+    by: 'ann',
+    via: 'terminal',
+    at,
+  },
 ];
 
 const origin = { batchId: '7-1', stepId: 'plan', attempt: 1, entry: 'writer' };
@@ -177,6 +187,18 @@ describe("a sub-order's security mark (ADR 0322)", () => {
     const reason = read.valid ? '' : read.reason;
     assert.match(reason, /securityMark/);
     assert.match(reason, /testFirst/);
+  });
+
+  it('a mark is one line of at most 300 characters, and not empty: regression test', () => {
+    const reasonOf = (mark: string): string | undefined => {
+      const plan = done(subOrder('writer', { securityMark: mark }));
+      const read = readOutDoc(`---\n${JSON.stringify(plan)}\n---\n# Plan\n`, PlanOutDoc);
+      return read.valid ? undefined : read.reason;
+    };
+    assert.equal(reasonOf('m'.repeat(300)), undefined);
+    for (const mark of ['m'.repeat(301), 'one\ntwo', '']) {
+      assert.match(reasonOf(mark) ?? '', /subOrders\[0\]\.securityMark/, JSON.stringify(mark));
+    }
   });
 
   it("a marked sub-order's plan entry shows its mark, escaped as the entry's other text", () => {
