@@ -22,6 +22,7 @@ import {
 } from '../schemas/recipe.ts';
 import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
 import type { Attempt } from './fold.ts';
+import { reviewed } from './lens-rounds.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
@@ -345,6 +346,12 @@ const sinceSuccess = (attempts: readonly Attempt[]): number =>
   attempts.findLastIndex(
     (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
   ) -
+  1;
+
+/** How many of `attempts` came after the latest that reviewed: all of them when none did. */
+const sinceReview = (attempts: readonly Attempt[]): number =>
+  attempts.length -
+  attempts.findLastIndex((attempt) => attempt.phase === 'finished' && reviewed(attempt.outcome)) -
   1;
 
 /** The deadline of a check step without one of its own (ADR 0069). */
@@ -792,11 +799,14 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     stall: brewer.stall,
     // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
     // schedules (ADR 0286), or one that writes a plan a person can have planned again from its
-    // review (ADR 0289), counts each round's attempts, those since its latest success.
+    // review (ADR 0289), counts each round's attempts, those since its latest success; a step that
+    // reviews a plan, those since its latest review, as each new plan runs it again (ADR 0321).
     mayRetry: (attempts) =>
-      (step.chosenBy === undefined && brewer.output.schema !== PLAN
-        ? attempts.length
-        : sinceSuccess(attempts)) < brewer.maxAttempts,
+      (named[0]?.startsWith('plan/') === true
+        ? sinceReview(attempts)
+        : step.chosenBy === undefined && brewer.output.schema !== PLAN
+          ? attempts.length
+          : sinceSuccess(attempts)) < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
     ...(step.interactive === true ? { interactive: true } : {}),
