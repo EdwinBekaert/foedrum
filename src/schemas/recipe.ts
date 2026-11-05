@@ -1,6 +1,7 @@
 // Recipes: brewers, checks and actions in order, with loops (brewers-and-recipes §3).
 
 import { LensName, PathSafeId } from './ids.ts';
+import { ModelAlias } from './models.ts';
 import { CheckName, CommandObject, Duration } from './primitives.ts';
 import { NonEmpty } from './step-outcome.ts';
 import { z } from './zod.ts';
@@ -77,6 +78,9 @@ const BrewerStep = z
     // Only findings are routed: an environment or divergence blocker always makes the batch Stuck.
     onBlocked: z.strictObject({ findings: Route }).optional(),
     deadline: Duration.optional().describe("Overrides the brewer's deadline"),
+    model: ModelAlias.optional().describe(
+      "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
+    ),
     interactive: z
       .literal(true)
       .optional()

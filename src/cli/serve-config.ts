@@ -361,6 +361,14 @@ export const serveSetup = (inputs: ServeInputs): ServeSetupResult => {
         problems.push(`${file.path}: ${messageOf(error)}`);
       }
     }
+    // And every alias a step names (ADR 0321).
+    for (const { path, stepId, alias } of loaded.valid ? loaded.catalog.stepModels : []) {
+      if (!Object.hasOwn(models.models, alias)) {
+        problems.push(
+          `${path}: step "${stepId}" names the model alias "${alias}", which models.jsonc has no model for`,
+        );
+      }
+    }
   }
 
   for (const { required, what, fix } of diagnosis.problems) {

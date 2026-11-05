@@ -103,7 +103,7 @@ export const STEPS: readonly Step[] = [
   {
     id: 'mash',
     title: `foedrum mash ${MASH_ORDER.number} --as ${USER}`,
-    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash, and the Brewmaster's plan waits Stuck for review.`,
+    lookFor: `the Innkeeper asks which recipe brews #${MASH_ORDER.number}; the answer chooses mash; three Tasters review the plan, which waits Stuck with their notes.`,
   },
 ];
 

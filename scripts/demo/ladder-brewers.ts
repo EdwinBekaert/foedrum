@@ -123,6 +123,9 @@ export const releaseLines = (prompt: string): string[] => {
   return lines.slice(open + 1, close === -1 ? undefined : close);
 };
 
+/** The lens steps of the default mash's group (ADR 0321). */
+const PLAN_LENSES: readonly string[] = ['coverage', 'sizing', 'naive-reader'];
+
 /**
  * What an attempt commits, from what it reads: the plan from the folder of checkouts, the
  * library's change in the library's worktree, and the bump in the application's.
@@ -141,6 +144,15 @@ export const turnOf = (
       read(join(ALIASES[LIB], 'package.json')),
       read(join(ALIASES[WEB], 'package.json')),
     );
+  }
+  // The default mash's Tasters review that plan side by side, and approve it (ADR 0321).
+  if (PLAN_LENSES.includes(stepId)) {
+    return {
+      files: {},
+      message: '',
+      summary: `The plan reads well through ${stepId}.`,
+      tasting: { verdict: 'approve', findings: [] },
+    };
   }
   if (stepId !== 'implement') throw new Error(`the ladder has no brewer for step ${stepId}`);
   const manifest = read('package.json') ?? '';

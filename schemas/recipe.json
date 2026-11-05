@@ -115,6 +115,11 @@
               "type": "string",
               "pattern": "^[1-9][0-9]*[smhd]$"
             },
+            "model": {
+              "description": "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
+            },
             "interactive": {
               "description": "Runs as a person's session in `foedrum brew`'s terminal; needs a prompt (ADR 0222)",
               "type": "boolean",
@@ -474,6 +479,11 @@
                     "description": "Overrides the brewer's deadline",
                     "type": "string",
                     "pattern": "^[1-9][0-9]*[smhd]$"
+                  },
+                  "model": {
+                    "description": "Overrides the brewer's model: an alias of models.jsonc; a blind-tasting swap of the brewer still wins (ADR 0321)",
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
                   },
                   "interactive": {
                     "description": "Runs as a person's session in `foedrum brew`'s terminal; needs a prompt (ADR 0222)",

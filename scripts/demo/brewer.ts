@@ -1,6 +1,6 @@
 // npm run demo's brewers (ADR 0097, ADR 0139): the Nip fixture's scripted Maltster, Gauger,
 // Cellarman and Finer (test/helpers/nip-fixture.ts), a Taster for each lens step of the demo's parallel group, and
-// the third order's Innkeeper and Brewmaster (ADR 0232, ADR 0234), in serve's runner seam, as the E2E test runs them, so the Maltster's, the Gauger's and the Cellarman's attempts
+// the third order's Innkeeper, Brewmaster and plan Tasters (ADR 0232, ADR 0234, ADR 0321), in serve's runner seam, as the E2E test runs them, so the Maltster's, the Gauger's and the Cellarman's attempts
 // commit in their worktrees and no model is asked. In the life that crashes, the Cellar's process is
 // killed once the Gauger's first attempt has committed, before that attempt ends.
 
@@ -157,6 +157,17 @@ const PLAN: Scripted = {
   },
 };
 
+/** A plan lens's Taster that approves, with `findings` for the plan comment's Review (ADR 0321). */
+const planTasting = (
+  summary: string,
+  findings: readonly Record<string, unknown>[] = [],
+): Scripted => ({
+  files: {},
+  message: '',
+  summary,
+  tasting: { verdict: 'approve', findings },
+});
+
 /** The line of greet.mjs the Cellarman's fix of the finding leaves, which Brett mutates. */
 const TRIMMED = "return 'Hello, ' + (name.trim() === '' ? 'stranger' : name) + '!';";
 
@@ -220,9 +231,21 @@ export const DEMO_SCRIPT: Readonly<Record<string, readonly Scripted[]>> = {
   security: [security, security],
   'test-design': [testDesign, testDesign],
   mutants: [MUTANTS],
-  // The third order's mash: the Innkeeper's question, then the Brewmaster's plan (ADR 0232).
+  // The third order's mash: the Innkeeper's question, the Brewmaster's plan (ADR 0232), and three
+  // Tasters of it side by side (ADR 0321), the advisory one with a note for the Review.
   innkeep: [INNKEEP],
   plan: [PLAN],
+  coverage: [planTasting('The two sub-orders build what the order asks, and nothing more.')],
+  sizing: [planTasting('Each sub-order is one mechanism, far under 1,000 lines.')],
+  'naive-reader': [
+    planTasting('One entry leaves a small guess.', [
+      {
+        severity: 'minor',
+        why: 'readme: "one section" does not say where in the README it goes',
+        introduced: true,
+      },
+    ]),
+  ],
 };
 
 export const demoBrewers = (options: DemoBrewersOptions): BrewerRunner => {
