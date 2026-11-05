@@ -191,7 +191,24 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
       findComment: async () => undefined,
       comment: async () => 1,
     };
-    assert.deepStrictEqual(baseConflictEffects({ marks, recipes }).due(log.state(), batchId), []);
+    accept({
+      kind: 'record',
+      event: {
+        type: 'pull_request.base_checked',
+        batchId,
+        pullRequest: url,
+        branch: 'main',
+        tip: 'b'.repeat(40),
+        head,
+        conflicts: ['src/a.ts'],
+      },
+    });
+    assert.deepStrictEqual(
+      baseConflictEffects({ marks, recipes })
+        .due(log.state(), batchId)
+        .map(({ effect }) => effect),
+      ['base_conflict.1'],
+    );
   });
 
   it('posts the brief of a batch routed straight to porter, as before: regression test', async () => {

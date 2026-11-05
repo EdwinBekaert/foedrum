@@ -563,11 +563,16 @@ describe('runServe', () => {
     return { code, briefComments };
   };
 
+  /** A line that says a batch's reading threw: the tick's, or the notice of a pass that went on. */
+  const failedRead = (line: string): boolean =>
+    line.includes('a tick failed') || line.includes('the other batches go on');
+
   it('ticks with no error for a batch mashed to a building recipe that is on tap with finished checks (#867)', async () => {
-    const { code } = await brewMashed();
+    const { code, briefComments } = await brewMashed();
     assert.equal(code, 0);
-    const failed = f.lines.filter((line) => line.includes('a tick failed'));
-    assert.deepStrictEqual(failed.slice(0, 1), [], `${failed.length} ticks failed`);
+    assert.equal(briefComments().length, 1, f.lines.slice(0, 8).join('\n'));
+    const failed = f.lines.filter(failedRead);
+    assert.deepStrictEqual(failed.slice(0, 1), [], `${failed.length} lines say a read failed`);
   });
 
   it('posts the merge brief of a batch mashed to a building recipe through serve (#867)', async () => {
@@ -585,10 +590,7 @@ describe('runServe', () => {
     const [brief] = briefComments();
     assert.ok(brief, f.lines.slice(0, 8).join('\n'));
     assert.match(brief, /^### Merge\? Add a --json flag @ `/);
-    assert.deepStrictEqual(
-      f.lines.filter((line) => line.includes('a tick failed')),
-      [],
-    );
+    assert.deepStrictEqual(f.lines.filter(failedRead), []);
   });
 
   it("checks an open pull request against its base's moved tip and comments the conflict on it (ADR 0198)", async () => {
