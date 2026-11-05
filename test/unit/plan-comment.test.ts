@@ -21,7 +21,7 @@ import {
   reviewNotes,
 } from '../../src/engine/plan-comment.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { StatusComments } from '../../src/engine/status-comment.ts';
+import { code, planNextStep, type StatusComments } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import type { PlannedSubOrder, PlanReport } from '../../src/schemas/plan.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
@@ -776,9 +776,30 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.equal(
       only().body,
-      `${renderPlan('7-1', 'plan', three, undefined, undefined, true)}\n\n${marker(1)}`,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, ['recipe'])}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
+  });
+
+  it("ends the comment with the status comment's Next line, the review's other option included (#855)", async () => {
+    const driver = await open();
+    issue({ kind: 'order', batchId: '7-1', order: { issue: 7 } });
+    issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
+    step('plan', planned(three));
+    const lane = log.state().batches.get('7-1')?.lane;
+    assert.equal(lane?.kind === 'stuck' ? lane.options.includes('recipe') : undefined, true);
+    await driver.applyEffects();
+    assert.ok(
+      only().body.endsWith(
+        `\n\nNext: ${planNextStep('7-1', code)} Its other option: \`recipe\`.\n\n${marker(1)}`,
+      ),
+      only().body.slice(-400),
+    );
+  });
+
+  it('a plan rendered with no other option ends with the plan’s own Next line, as before: regression test (#855)', () => {
+    const text = renderPlan('7-1', 'plan', three, undefined, undefined, true);
+    assert.ok(text.endsWith(`\n\nNext: ${planNextStep('7-1', code)}`), text.slice(-400));
   });
 
   it('edits the plan comment once its plan is approved, to say by whom, with no next step (#588)', async () => {

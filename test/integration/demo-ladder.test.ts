@@ -202,6 +202,25 @@ describe('npm run demo -- ladder', () => {
     );
   });
 
+  it('the ladder’s first step shows the same Next line in the plan comment and the status comment (#855)', () => {
+    assert.equal(result.exitCode, 0, result.output);
+    const first = result.stdout.slice(
+      result.stdout.indexOf(headingOf(0, LADDER_STEPS)),
+      result.stdout.indexOf(headingOf(1, LADDER_STEPS)),
+    );
+    const lines = first
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('Next: read the plan'));
+    // The plan comment, the status comment, and the issue's standing.
+    assert.equal(lines.length, 3, lines.join('\n'));
+    assert.deepStrictEqual(new Set(lines).size, 1, lines.join('\n'));
+    assert.match(
+      lines[0] ?? '',
+      /, or end it with `foedrum cancel 1-1`\. Its other option: `recipe`\.$/,
+    );
+  });
+
   it("the ladder shows each issue's label and Next line at the plan review and once a sub-order is on tap (#777)", () => {
     assert.equal(result.exitCode, 0, result.output);
     const standing = (issue: number, label: string, next: string): RegExp =>

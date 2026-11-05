@@ -27,7 +27,7 @@ import { withoutSecrets } from './out-doc-text.ts';
 import { type OpenedSubIssue, openedSubIssues } from './plan-applied.ts';
 import { digestOf, findingText, knownCommits, quoted } from './pull-request.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
-import { code, labelled, plain, planNextStep, type StatusComments } from './status-comment.ts';
+import { code, labelled, plain, planNextLine, type StatusComments } from './status-comment.ts';
 
 /** The start of a plan comment's first line, before its batch; a status comment's never has it. */
 export const PLAN_HEADING = '### Foedrum · plan of batch';
@@ -270,6 +270,8 @@ export const renderPlan = (
   opened: readonly OpenedSubIssue[] = [],
   /** The notes its plan lenses left (ADR 0318); undefined while no plan lens reviewed it. */
   review?: readonly ReviewNote[],
+  /** The options of the lane that waits for the review, of which the last line names those besides the plan's own (#855). */
+  options: readonly string[] = [],
 ): string => {
   const told: Told = (text) => withoutSecrets(text, stepId, isCommit);
   const { subOrders, alternatives } = plan;
@@ -326,7 +328,7 @@ export const renderPlan = (
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
   // Last, and kept by a cut: what to do next, while the plan waits for its review.
-  const next = waitsForReview ? `\n\nNext: ${planNextStep(batchId, code)}` : '';
+  const next = waitsForReview ? `\n\n${planNextLine(batchId, options)}` : '';
   const text = joined([table, ...order, ...sections, ...others, ...after]);
   if (head.length + text.length + next.length <= longestComment) return `${head}${text}${next}`;
   // The graph goes first, so a cut never leaves its block open.
@@ -449,6 +451,7 @@ const planDue = (
     changed,
     opened,
     reviewNotes(batch, stepId, attempt),
+    review ? lane.options : [],
   );
   const digest = digestOf(text);
   if (own?.digest === digest) return undefined;

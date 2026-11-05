@@ -147,6 +147,19 @@ export const planNextStep = (batchId: string, command: (text: string) => string)
 /** The options of a plan's review that `planNextStep` names. */
 const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry', 'cancel']);
 
+/**
+ * The text of the `Next:` line of a plan that waits for its review, in the status comment and the
+ * plan comment alike: `planNextStep`, then the lane's `options` it does not name (#855).
+ */
+export const planNextLine = (batchId: string, options: readonly string[]): string => {
+  const others = options.filter((option) => !planCommands.has(option));
+  const also =
+    others.length === 0
+      ? ''
+      : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map(code).join(', ')}.`;
+  return `Next: ${planNextStep(batchId, code)}${also}`;
+};
+
 /** `rounds` rounds of a findings route, in words. */
 export const roundsText = (rounds: number): string =>
   `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`;
@@ -596,14 +609,8 @@ const nextLines = (
       `get it moving with ${shown.map(code).join(', ')}`;
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
-      case 'plan_review': {
-        const others = options.filter((option) => !planCommands.has(option));
-        const also =
-          others.length === 0
-            ? ''
-            : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map(code).join(', ')}.`;
-        return [`Next: ${planNextStep(batch.id, code)}${also}`];
-      }
+      case 'plan_review':
+        return [planNextLine(batch.id, options)];
       case 'needs_input': {
         const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
         const others = options.filter((option) => option !== 'answer');
