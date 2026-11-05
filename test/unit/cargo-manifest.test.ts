@@ -266,4 +266,21 @@ describe('the Cargo manifest', () => {
       assert.equal(cargoManifest.matches(path), false, path);
     }
   });
+
+  it("publishes only the package's name, not a library's or a binary's (regression test)", () => {
+    const read = cargoManifest.read(
+      'Cargo.toml',
+      '[lib]\nname = "other"\n[package]\nname = "real"\n[[bin]]\nname = "tool"\n',
+    );
+    assert.deepEqual(read, { kind: 'read', publishes: ['real'], dependsOn: [] });
+  });
+
+  it('reads no table that only resembles a dependency table (regression test)', () => {
+    assert.deepEqual(
+      dependsOn(
+        '[workspace.package]\nversion = "1"\n[package.metadata.dependencies]\nx = "1"\n[a.b.dependencies]\ny = "2"\n',
+      ),
+      [],
+    );
+  });
 });

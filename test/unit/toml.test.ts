@@ -146,4 +146,14 @@ d = """e"""""
     );
     assert.deepEqual(entries(`a = ${'['.repeat(32)}${']'.repeat(32)}`), [['a', 'other']]);
   });
+
+  it("reads a multi-line literal string's text, a last comment without a line end, and blanks around a key's dots (regression test)", () => {
+    assert.deepEqual(entries("e = '''x'''''\n"), [['e', "x''"]]);
+    assert.deepEqual(entries('a = 1 # end'), [['a', 'other']]);
+    assert.deepEqual(entries('# only a comment'), []);
+    assert.deepEqual(entries('a . b = "c"\n[ x . y ]\n'), [
+      ['a|b', 'c'],
+      ['x|y', 'table'],
+    ]);
+  });
 });
