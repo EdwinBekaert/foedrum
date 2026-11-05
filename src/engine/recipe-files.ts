@@ -22,7 +22,7 @@ import {
 import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import { onFindings } from './decide.ts';
-import type { Attempt } from './fold.ts';
+import type { Attempt, Batch } from './fold.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
@@ -573,12 +573,14 @@ function lineRecipe(
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
     return found;
   };
+  const attemptsOf = (batch: Batch, id: string): readonly Attempt[] => [
+    ...(batch.steps.get(id)?.attempts.values() ?? []),
+  ];
   // A route counts the attempts of its goto step it scheduled (ADR 0064).
   const roundsOf: Recipe['rounds'] = (batch, id, why) => {
     const { route } = at(id);
     if (route === undefined || route.why !== why) return undefined;
-    const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
-    return [...attempts].filter(
+    return attemptsOf(batch, route.goto).filter(
       (attempt) => attempt.route?.from === id && attempt.route.why === why,
     ).length;
   };
@@ -610,9 +612,8 @@ function lineRecipe(
         ? { kind: 'done', pullRequests: [] }
         : { kind: 'done', pullRequests: [], opens };
     },
-    mayRetry: (batch, id) => at(id).mayRetry([...(batch.steps.get(id)?.attempts.values() ?? [])]),
-    roundAttempts: (batch, id) =>
-      at(id).round([...(batch.steps.get(id)?.attempts.values() ?? [])]).length,
+    mayRetry: (batch, id) => at(id).mayRetry(attemptsOf(batch, id)),
+    roundAttempts: (batch, id) => at(id).round(attemptsOf(batch, id)).length,
     loopBack: (batch, id, why) => {
       const { route } = at(id);
       const rounds = roundsOf(batch, id, why);
