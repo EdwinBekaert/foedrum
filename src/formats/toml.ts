@@ -117,6 +117,7 @@ export const readToml = (text: string): TomlEntry[] => {
   };
   const literalString = (start: number, close: "'" | "'''"): string => {
     const multi = close === "'''";
+    const from = at;
     const end = text.indexOf(close, at);
     const line = text.slice(at, end);
     if (end === -1 || (!multi && (line.includes('\n') || line.includes('\r')))) {
@@ -124,7 +125,7 @@ export const readToml = (text: string): TomlEntry[] => {
     }
     at = end + close.length;
     while (multi && text[at] === "'") at += 1;
-    return multi ? text.slice(start + close.length, at - close.length) : line;
+    return multi ? text.slice(from, at - close.length) : line;
   };
   /** The string at `at`, a quote. */
   const string = (): string => {
@@ -132,6 +133,9 @@ export const readToml = (text: string): TomlEntry[] => {
     const quote = text[at] === '"' ? '"' : "'";
     if (text.startsWith(quote.repeat(3), at)) {
       at += 3;
+      // TOML trims a line end straight after the opening quotes.
+      if (text[at] === '\r' && text[at + 1] === '\n') at += 2;
+      else if (text[at] === '\n') at += 1;
       return quote === '"' ? basicString(start, '"""') : literalString(start, "'''");
     }
     at += 1;

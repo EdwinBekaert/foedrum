@@ -21,10 +21,15 @@ const TOKEN = /"[^"]*"|`[^`]*`|[()]|[^\s()]+/g;
 const tokensOf = (line: string): string[] | undefined => {
   const tokens: string[] = [];
   for (const [token] of line.matchAll(TOKEN)) {
-    if (token.startsWith('//')) break;
     const quote = token.startsWith('"') ? '"' : token.startsWith('`') ? '`' : undefined;
-    if (quote === undefined) tokens.push(token);
-    else if (token.length < 2 || !token.endsWith(quote)) return undefined;
+    if (quote === undefined) {
+      const comment = token.indexOf('//');
+      if (comment === -1) tokens.push(token);
+      else {
+        if (comment > 0) tokens.push(token.slice(0, comment));
+        break;
+      }
+    } else if (token.length < 2 || !token.endsWith(quote)) return undefined;
     else tokens.push(token.slice(1, -1));
   }
   return tokens;
