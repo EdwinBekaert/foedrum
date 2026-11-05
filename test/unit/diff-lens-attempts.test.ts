@@ -126,7 +126,7 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
       security: [approves, approves],
     });
     assert.equal(times(started(events), 'acceptance'), 3, started(events).join(', '));
-    assertExhausted(events, 'acceptance', 3);
+    assertExhausted(events, 'acceptance', 2);
     assert.ok(!started(events).includes('open-pull-request'), started(events).join(', '));
   });
 
@@ -150,6 +150,6 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
       'naive-reader': [approves, approves],
     });
     assert.equal(times(started(events), 'sizing'), 3, started(events).join(', '));
-    assertExhausted(events, 'sizing', 3);
+    assertExhausted(events, 'sizing', 2);
   });
 });

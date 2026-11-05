@@ -290,6 +290,66 @@ describe('routeOf', () => {
     assert.match(route?.text ?? '', /Wrong/);
   });
 
+  const failedOnce = {
+    outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+  } as const;
+  const blockedGauge: Event[] = [
+    ...attempt('gauge', 1),
+    ...attempt('implement', 1, {
+      outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): Wrong slug' },
+    }),
+    ...attempt('gauge', 2, failedOnce, { from: 'implement', why: 'findings' }),
+  ];
+  const third = { batchId: '12-1', stepId: 'gauge', attempt: 3 };
+
+  it('gives a fresh retry of an attempt a findings route scheduled what sent it back', () => {
+    const route = planned(
+      [...blockedGauge, { type: 'step.scheduled', ...third, deadlineAt, retry: true }],
+      'gauge',
+      3,
+    );
+    assert.deepEqual(route?.source, {
+      kind: 'route',
+      step: 'gauge',
+      from: 'implement',
+      why: 'findings',
+    });
+    assert.match(route?.text ?? '', /Wrong slug/);
+  });
+
+  it('gives an attempt that answers after a route what sent the round back', () => {
+    const route = planned(
+      [...blockedGauge, { type: 'step.scheduled', ...third, deadlineAt, answered: true }],
+      'gauge',
+      3,
+    );
+    assert.match(route?.text ?? '', /Wrong slug/);
+  });
+
+  it('gives a second fresh retry in the round what sent it back too: regression test', () => {
+    const route = planned(
+      [
+        ...blockedGauge,
+        { type: 'step.scheduled', ...third, deadlineAt, retry: true },
+        { type: 'step.started', ...third, worktree: worktreeOf('gauge-3') },
+        { type: 'step.finished', ...third, ...failedOnce },
+        { type: 'step.scheduled', ...third, attempt: 4, deadlineAt, retry: true },
+      ],
+      'gauge',
+      4,
+    );
+    assert.match(route?.text ?? '', /Wrong slug/);
+  });
+
+  it('gives an attempt nothing that neither a route nor a retry of one scheduled: regression test', () => {
+    const route = planned(
+      [...blockedGauge, { type: 'step.scheduled', ...third, deadlineAt }],
+      'gauge',
+      3,
+    );
+    assert.equal(route, undefined);
+  });
+
   it('points an onBlocked route at the out doc of the attempt that blocked, with its reason', () => {
     const route = planned(
       [

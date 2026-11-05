@@ -1227,6 +1227,44 @@ describe('createAttemptPlans: plan', () => {
       );
     });
 
+    describe('a retry of an attempt a findings route scheduled (ADR 0325)', () => {
+      const findings = 'source="why step brew runs again: the findings of step taste"';
+      const before: Event[] = [
+        ...ordered.slice(0, 2),
+        {
+          type: 'step.scheduled',
+          ...ref,
+          deadlineAt,
+          route: { from: 'taste', why: 'findings' },
+        },
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+      ];
+
+      it('that starts fresh is told what sent it back', async () => {
+        const fresh: Event = {
+          type: 'step.started',
+          ...second,
+          session: { id: sessionId, worktree: recreated },
+          worktree: {
+            repo: 'acme/api',
+            path: recreated,
+            branch: 'foedrum/12-1/brew/2',
+            commit: 'c'.repeat(40),
+          },
+        };
+        const { prompt } = await setup([...before, fresh]).plans.plan({ ...start, ref: second });
+        assert.equal(prompt.split(findings).length - 1, 1, prompt);
+      });
+
+      it('that resumes its session reads as today, its session holding it: regression test', async () => {
+        const { prompt } = await setup([...before, resumed]).plans.plan({ ...start, ref: second });
+        assert.equal(prompt.split(findings).length - 1, 0, prompt);
+        assert.match(prompt, /source="why step brew runs again: the failure of brew#1"/);
+      });
+    });
+
     // ADR 0175: whatever the brewer's retryMode, the driver resumed it; the plan says why.
     it('tells a retry after a turn overrun to finish and end, and names the copy of the out doc it left', async () => {
       const overran: Event = {
@@ -2503,5 +2541,29 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     };
     assert.match(await promptOf('findings'), /source="the plan of step plan#2" name="plan">/);
     assert.doesNotMatch(await promptOf('failed'), /name="plan"/);
+  });
+
+  it('keeps the plan input for a fresh retry of a plan attempt a findings route scheduled (ADR 0325)', async () => {
+    const plan3 = { batchId: '12-1', stepId: 'plan', attempt: 3 };
+    const plan4 = { ...plan3, attempt: 4 };
+    const events: Event[] = [
+      ...amber.slice(0, -1),
+      { type: 'step.scheduled', ...plan3, deadlineAt, route: { from: 'taste', why: 'findings' } },
+      { ...inTree, ...plan3 },
+      {
+        type: 'step.finished',
+        ...plan3,
+        outcome: { kind: 'failed', retryable: true, reason: 'claude crashed' },
+      },
+      { type: 'step.scheduled', ...plan4, deadlineAt, retry: true },
+      { ...inTree, ...plan4 },
+    ];
+    const { plans } = setup(events, planDocs, 'Export the batches.', tasting.brewers, {
+      repositories,
+      models: { models: { builder: 'claude-sonnet-5-5', planner: 'opus' }, brewers: {} },
+      git: async () => ({ code: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' }),
+    });
+    const { prompt } = await plans.plan({ ref: plan4, limits: plans.limits(plan4) });
+    assert.match(prompt, /source="the plan of step plan#2" name="plan">/);
   });
 });

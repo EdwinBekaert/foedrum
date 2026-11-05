@@ -706,7 +706,7 @@ describe('runServe', () => {
       assert.deepStrictEqual(batch?.lane.kind === 'stuck' && batch.lane.reason, {
         kind: 'attempts_exhausted',
         stepId: 'green',
-        attempts: 2,
+        attempts: 1,
         lastReason: 'the check "test" (npm test) failed with exit code 1',
       });
     });

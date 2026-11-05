@@ -13,7 +13,7 @@ import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts'
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import { checksInput } from '../engine/check-readings.ts';
-import { attemptRecipeOf, type Batch, type State } from '../engine/fold.ts';
+import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
@@ -547,7 +547,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    * step the earlier rounds' findings with their dispositions (ADR 0191), then for a brewer that
    * asks for house yeast the rules that match its change (ADR 0169), then the answers to its step's
    * questions,
-   * then what sent it back when a route scheduled it (ADR 0128), and last, for a retry after the
+   * then what sent it back when a route scheduled it or the attempt it continues (ADR 0128,
+   * ADR 0325), and last, for a retry after the
    * secret scan failed the attempt before it, why (ADR 0187). With the rules it was given.
    */
   const inputsFor = async (
@@ -596,8 +597,10 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     // The checks that ran on the commit the attempt starts at, when its brewer asks (ADR 0308).
     const asksChecks = found.brewer.inputs.some(({ from }) => from === 'checks');
     const checks = asksChecks ? checksInput(state(), batch, own?.commit) : undefined;
-    // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318).
-    const routed = batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route;
+    // A step a findings route sent back corrects the plan they name, as a chosen step does (ADR 0318),
+    // and a fresh retry of it too (ADR 0325).
+    const routedStep = batch.steps.get(ref.stepId);
+    const routed = routedStep === undefined ? undefined : roundRouteOf(routedStep, ref.attempt);
     const planned = inputsOf(
       found.brewer.inputs,
       batch,

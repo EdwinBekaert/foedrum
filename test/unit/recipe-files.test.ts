@@ -769,7 +769,7 @@ describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {
     assert.equal(ale.stall('green'), undefined);
   });
 
-  it('tries a check step again after an attempt that read nothing, three times over the batch', () => {
+  it('tries a check step again after an attempt that read nothing, three times since its latest reading', () => {
     const ale = aleRecipe();
     assert.equal(ale.mayRetry(withAttempts('green', [lost]), 'green'), true);
     assert.equal(ale.mayRetry(withAttempts('green', [lost, cancelled]), 'green'), true);
@@ -777,6 +777,9 @@ describe('loadRecipes: check steps, the gravity readings (ADR 0069)', () => {
     // A check that failed read the tree: those attempts do not count, rounds of a route among them.
     const rounds = withAttempts('green', [failedCheck, failedCheck, failedCheck, lost, cancelled]);
     assert.equal(ale.mayRetry(rounds, 'green'), true);
+    // A reading starts its count again, the empty reads before it left behind.
+    const after = withAttempts('green', [lost, lost, failedCheck, lost]);
+    assert.equal(ale.mayRetry(after, 'green'), true);
   });
 
   it('goes back along its onFail route while it has rounds left, then has none (ADR 0064)', () => {
@@ -1926,8 +1929,8 @@ describe('loadRecipes: a step a person chooses at gate 1 (ADR 0286, #589)', () =
     assert.equal(recipe.mayRetry(ended('fix', ['ok', 'failed', 'failed', 'failed']), 'fix'), false);
   });
 
-  it("counts a step's attempts over the batch when no choice schedules it: regression test (#589)", () => {
-    assert.equal(pale().mayRetry(ended('plan', ['ok', 'ok', 'failed']), 'plan'), false);
+  it("counts a step's attempts since its latest success when no choice schedules it (#849)", () => {
+    assert.equal(pale().mayRetry(ended('plan', ['ok', 'ok', 'failed']), 'plan'), true);
   });
 
   it('goes past a chosen step to the step after it: regression test (#589)', () => {
@@ -2010,9 +2013,10 @@ describe('loadRecipes: a plan step counts its attempts since its latest plan (AD
     assert.equal(planning().mayRetry(ended('plan', ['failed', 'failed']), 'plan'), false);
   });
 
-  it('counts a step that writes no plan over the batch: regression test (#731)', () => {
+  it('counts a step that writes no plan since its latest success (#849)', () => {
     const recipe = mash([{ id: 'notes', brewer: 'scribe' }]);
-    assert.equal(recipe.mayRetry(ended('notes', ['ok', 'ok', 'failed']), 'notes'), false);
+    assert.equal(recipe.mayRetry(ended('notes', ['ok', 'ok', 'failed']), 'notes'), true);
+    assert.equal(recipe.mayRetry(ended('notes', ['ok', 'failed', 'failed']), 'notes'), false);
   });
 
   it("keeps a lauter's count since its latest success: regression test (#731)", () => {

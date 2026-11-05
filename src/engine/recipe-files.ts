@@ -6,7 +6,6 @@
 
 import { BrewerFrontmatter } from '../schemas/brewer.ts';
 import { MUTANTS, SURVEY, TASTING } from '../schemas/out-doc.ts';
-import { PLAN } from '../schemas/plan.ts';
 import { durationMs } from '../schemas/primitives.ts';
 import { readDoc, readJsonc } from '../schemas/read.ts';
 import {
@@ -21,8 +20,9 @@ import {
   walk,
 } from '../schemas/recipe.ts';
 import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
-import type { Attempt } from './fold.ts';
-import { reviewed } from './lens-rounds.ts';
+import type { StepOutcome } from '../schemas/step-outcome.ts';
+import { onFindings } from './decide.ts';
+import type { Attempt, Batch } from './fold.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
@@ -308,6 +308,8 @@ interface LineStep {
   /** A `Duration`. */
   deadline: string;
   stall: Stall | undefined;
+  /** Its attempts of the round `attempts` ends in (ADR 0325). */
+  round: (attempts: readonly Attempt[]) => readonly Attempt[];
   /** Whether it gets another attempt after `attempts`, the last of which failed retryably. */
   mayRetry: (attempts: readonly Attempt[]) => boolean;
   /**
@@ -340,19 +342,27 @@ const ACTION_DEADLINE = '2h';
  */
 const ACTION_ATTEMPTS = 3;
 
-/** How many of `attempts` came after the latest that succeeded: all of them when none did. */
-const sinceSuccess = (attempts: readonly Attempt[]): number =>
-  attempts.length -
-  attempts.findLastIndex(
-    (attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded',
-  ) -
-  1;
+/**
+ * The round `attempts` ends in (ADR 0325): the last attempt and those back to the latest before it
+ * whose outcome closes a round; all of them when none did.
+ */
+const roundOf = (
+  attempts: readonly Attempt[],
+  closes: (outcome: StepOutcome) => boolean,
+): readonly Attempt[] =>
+  attempts.slice(
+    attempts
+      .slice(0, -1)
+      .findLastIndex((attempt) => attempt.phase === 'finished' && closes(attempt.outcome)) + 1,
+  );
 
-/** How many of `attempts` came after the latest that reviewed: all of them when none did. */
-const sinceReview = (attempts: readonly Attempt[]): number =>
-  attempts.length -
-  attempts.findLastIndex((attempt) => attempt.phase === 'finished' && reviewed(attempt.outcome)) -
-  1;
+/** Whether a brewer step or an action delivered what it is for: a success, or blocked by findings. */
+const delivered = (outcome: StepOutcome): boolean =>
+  outcome.kind === 'succeeded' || onFindings(outcome);
+
+/** The round of a brewer step or an action: its attempts since its latest that delivered. */
+const deliveryRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
+  roundOf(attempts, delivered);
 
 /** The deadline of a check step without one of its own (ADR 0069). */
 const CHECK_DEADLINE = '30m';
@@ -364,11 +374,17 @@ const CHECK_DEADLINE = '30m';
  */
 const CHECK_RETRIES = 3;
 
-/** Whether an attempt ended without a reading of its own: cancelled, or retryably failed. */
+/** Whether an outcome holds no reading: cancelled, or retryably failed. */
+const noReading = (outcome: StepOutcome): boolean =>
+  outcome.kind === 'cancelled' || (outcome.kind === 'failed' && outcome.retryable);
+
+/** The round of a check step: its attempts since its latest that read the tree (ADR 0325). */
+const readingRound = (attempts: readonly Attempt[]): readonly Attempt[] =>
+  roundOf(attempts, (outcome) => !noReading(outcome));
+
+/** Whether an attempt ended without a reading of its own. */
 const readNothing = (attempt: Attempt): boolean =>
-  attempt.phase === 'finished' &&
-  (attempt.outcome.kind === 'cancelled' ||
-    (attempt.outcome.kind === 'failed' && attempt.outcome.retryable));
+  attempt.phase === 'finished' && noReading(attempt.outcome);
 
 /** The recipe's settings after routing, which a `when` may read (ADR 0064). */
 interface Settings {
@@ -557,12 +573,14 @@ function lineRecipe(
     if (found === undefined) throw new Error(`Recipe ${name} has no step ${id}`);
     return found;
   };
+  const attemptsOf = (batch: Batch, id: string): readonly Attempt[] => [
+    ...(batch.steps.get(id)?.attempts.values() ?? []),
+  ];
   // A route counts the attempts of its goto step it scheduled (ADR 0064).
   const roundsOf: Recipe['rounds'] = (batch, id, why) => {
     const { route } = at(id);
     if (route === undefined || route.why !== why) return undefined;
-    const attempts = batch.steps.get(route.goto)?.attempts.values() ?? [];
-    return [...attempts].filter(
+    return attemptsOf(batch, route.goto).filter(
       (attempt) => attempt.route?.from === id && attempt.route.why === why,
     ).length;
   };
@@ -594,7 +612,8 @@ function lineRecipe(
         ? { kind: 'done', pullRequests: [] }
         : { kind: 'done', pullRequests: [], opens };
     },
-    mayRetry: (batch, id) => at(id).mayRetry([...(batch.steps.get(id)?.attempts.values() ?? [])]),
+    mayRetry: (batch, id) => at(id).mayRetry(attemptsOf(batch, id)),
+    roundAttempts: (batch, id) => at(id).round(attemptsOf(batch, id)).length,
     loopBack: (batch, id, why) => {
       const { route } = at(id);
       const rounds = roundsOf(batch, id, why);
@@ -676,8 +695,9 @@ function actionLine(step: ActionStep, last: boolean): StepLoad {
     deadline: ACTION_DEADLINE,
     // An action makes no progress the runner could see; its deadline covers it.
     stall: undefined,
-    // The attempts of this round: those after the step's latest that succeeded (ADR 0219).
-    mayRetry: (attempts) => sinceSuccess(attempts) < ACTION_ATTEMPTS,
+    round: deliveryRound,
+    // The attempts of this round (ADR 0219, ADR 0325): an action never blocks by findings.
+    mayRetry: (attempts) => deliveryRound(attempts).length < ACTION_ATTEMPTS,
     route:
       step.onPullRequestFail === undefined
         ? undefined
@@ -699,7 +719,8 @@ function checkLine(step: CheckStep): StepLoad {
     when: step.when,
     deadline,
     stall: undefined,
-    mayRetry: (attempts) => attempts.filter(readNothing).length < CHECK_RETRIES,
+    round: readingRound,
+    mayRetry: (attempts) => readingRound(attempts).filter(readNothing).length < CHECK_RETRIES,
     route: onFail === undefined ? undefined : { why: 'failed', ...onFail },
     ...(step.expect === 'fail' ? {} : { passes: true as const }),
   };
@@ -797,16 +818,10 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     when: step.when,
     deadline,
     stall: brewer.stall,
-    // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
-    // schedules (ADR 0286), or one that writes a plan a person can have planned again from its
-    // review (ADR 0289), counts each round's attempts, those since its latest success; a lens step,
-    // those since its latest review, as each round back to it runs it again (ADR 0321, ADR 0324).
-    mayRetry: (attempts) =>
-      (named.length > 0
-        ? sinceReview(attempts)
-        : step.chosenBy === undefined && brewer.output.schema !== PLAN
-          ? attempts.length
-          : sinceSuccess(attempts)) < brewer.maxAttempts,
+    round: deliveryRound,
+    // Each round a route, a person's choice or a person's retry brings it to has its brewer's
+    // attempts afresh; a failure closes no round, so a step that keeps failing ends Stuck (ADR 0325).
+    mayRetry: (attempts) => deliveryRound(attempts).length < brewer.maxAttempts,
     route: findings === undefined ? undefined : { why: 'findings', ...findings },
     ...(group === undefined ? {} : { group }),
     ...(step.interactive === true ? { interactive: true } : {}),

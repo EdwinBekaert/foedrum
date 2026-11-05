@@ -257,6 +257,22 @@ describe('renderStatus', () => {
     assert.match(lineOf(text, 'brew'), /🔔/);
   });
 
+  it('says one attempt in the singular when a round used only one (ADR 0325)', () => {
+    const text = renderStatus(
+      batch({
+        lane: stuck({
+          kind: 'attempts_exhausted',
+          stepId: 'brew',
+          attempts: 1,
+          lastReason: 'crash',
+        }),
+        steps: new Map([step('brew', failed(1, 'crash'))]),
+      }),
+      steps,
+    );
+    assert.ok(text.includes('used its 1 attempt; the last: crash'), text);
+  });
+
   it('says why a batch whose lost attempts used its retries is Stuck in plain words, without the owner of the lease or a UTC time (#277)', () => {
     const lost = lostReason(expiredLeaseReason('cellar', new Date('2026-10-31T14:05:04.640Z')));
     const text = renderStatus(
