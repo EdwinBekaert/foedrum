@@ -191,4 +191,28 @@ describe('the Go manifest', () => {
     }
     assert.equal(goManifest.read('go.mod', 'module x.io/a // not "quoted\n').kind, 'read');
   });
+
+  it('a replace applies only to its own module, wherever the lines stand (regression test)', () => {
+    assert.deepEqual(
+      dependsOn(
+        'replace x.io/b => ./b\nrequire x.io/a v1.0.0\nrequire x.io/c v1.0.0\nreplace x.io/c => ./c\n',
+      ),
+      [
+        { name: 'x.io/a', via: { kind: 'package', version: 'v1.0.0' } },
+        { name: 'x.io/c', via: { kind: 'project', path: 'c' } },
+        { name: 'x.io/b', via: { kind: 'project', path: 'b' } },
+      ],
+    );
+  });
+
+  it('refuses a malformed line inside a block as on its own (regression test)', () => {
+    assert.deepEqual(goManifest.read('go.mod', 'module x.io/a\nrequire (\n\tx.io/b\n)\n'), {
+      kind: 'unreadable',
+      reason: 'a require line is not a module and a version',
+    });
+    assert.deepEqual(goManifest.read('go.mod', 'module x.io/a\nreplace (\n\tx.io/b ./c\n)\n'), {
+      kind: 'unreadable',
+      reason: 'a replace line is not old => new',
+    });
+  });
 });

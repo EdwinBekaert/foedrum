@@ -299,4 +299,16 @@ describe('the Cargo manifest', () => {
       ],
     });
   });
+
+  it('refuses a key under a source key, and reads no name under the package name (regression test)', () => {
+    assert.deepEqual(dependsOn('[dependencies.greet]\nversion.x = "y"\n'), {
+      kind: 'unreadable',
+      reason: "its dependency greet has the key version.x, which Cargo's schema does not name",
+    });
+    assert.deepEqual(cargoManifest.read('Cargo.toml', '[package]\nname = "real"\nname.x = "y"\n'), {
+      kind: 'read',
+      publishes: ['real'],
+      dependsOn: [],
+    });
+  });
 });

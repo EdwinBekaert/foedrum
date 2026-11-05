@@ -189,4 +189,24 @@ d = """e"""""
       );
     }
   });
+
+  it('refuses what only its hex or its line end rejects, and names the line a form opened on (regression test)', () => {
+    const cases: [string, RegExp][] = [
+      ['a = "\\uZZZZ"', /an unknown escape on line 1/],
+      ['a = "\\u12G4"', /an unknown escape on line 1/],
+      ['a = "b\\\nc"', /an unknown escape on line 1/],
+      ['a = """b\\ c"""', /an unknown escape on line 1/],
+      ['\na = [\n1,\n2', /an unclosed array on line 2/],
+      ['\na = {\nb = 1', /an unclosed inline table on line 2/],
+      ['\na = """\nb', /an unclosed string on line 2/],
+    ];
+    for (const [toml, reason] of cases) {
+      assert.throws(
+        () => readToml(toml),
+        (error: unknown) => error instanceof NotToml && reason.test(error.message),
+        toml,
+      );
+    }
+    assert.deepEqual(entries('a = """b\\  \n  c"""'), [['a', 'bc']]);
+  });
 });
