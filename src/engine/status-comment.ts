@@ -239,7 +239,7 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: 
     case 'blocked':
       return `${code(reason.stepId)} is blocked (${reason.blockerKind}): ${told(reason.summary, reason.stepId)}`;
     case 'attempts_exhausted':
-      return `${code(reason.stepId)} used its ${reason.attempts} attempts; the last: ${told(plainReason(reason.lastReason), reason.stepId)}`;
+      return `${code(reason.stepId)} used its ${reason.attempts} attempt${reason.attempts === 1 ? '' : 's'}; the last: ${told(plainReason(reason.lastReason), reason.stepId)}`;
     case 'deadline_passed':
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':

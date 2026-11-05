@@ -490,6 +490,7 @@ export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('attempts_exhausted'),
     stepId: StepId,
+    // Those of the round it ended in; one recorded before ADR 0325 counted the batch's life.
     attempts: Attempt,
     lastReason: NonEmpty,
   }),

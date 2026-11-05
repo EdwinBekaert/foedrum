@@ -796,7 +796,7 @@ function retryOrStick(
   }
   const back = routed ? recipe.loopBack(batch, stepId, 'failed') : undefined;
   if (back === undefined) {
-    const attempts = counted.steps.get(stepId)?.attempts.size ?? 0;
+    const attempts = recipe.roundAttempts(counted, stepId);
     stick(draft, batchId, { kind: 'attempts_exhausted', stepId, attempts, lastReason });
   } else {
     goBack(draft, batchId, back, { from: stepId, why: 'failed' });

@@ -88,6 +88,8 @@ export interface Recipe {
   after(batch: Batch, stepId: string): Continuation;
   /** Whether `stepId` gets another attempt after a failed or cancelled one (`maxAttempts`). */
   mayRetry(batch: Batch, stepId: string): boolean;
+  /** How many attempts `stepId` has had in the round its latest attempt ends in (ADR 0325). */
+  roundAttempts(batch: Batch, stepId: string): number;
   /**
    * The step an `onFail` route (a failed check), an `onBlocked: findings` route or an
    * `onPullRequestFail` route (ADR 0219) sends `batch` back to, or `undefined` when `stepId` has no

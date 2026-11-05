@@ -5,11 +5,16 @@
 import { basename, dirname, join } from 'node:path';
 import { checkName, failingText, passed } from '../checks/gravity.ts';
 import type { AttemptRef } from '../engine/attempt-key.ts';
-import { mergeRouteOf } from '../engine/base-merge.ts';
 import { buildBrewerEnv, type Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits } from '../engine/brewer-runner.ts';
 import type { ChecksInput } from '../engine/check-readings.ts';
-import { type Attempt, attemptBefore, type Batch, type State } from '../engine/fold.ts';
+import {
+  type Attempt,
+  attemptBefore,
+  type Batch,
+  roundRouteOf,
+  type State,
+} from '../engine/fold.ts';
 import { lensRounds, reviewed, roundFindings, withDispositions } from '../engine/lens-rounds.ts';
 import { latestPlan } from '../engine/plan-comment.ts';
 import { checkPassed } from '../engine/pr-checks.ts';
@@ -776,11 +781,9 @@ export interface PlannedRoute {
 
 /**
  * What sent attempt `ref` back, from the latest finished attempt of the step its route came from;
- * none when no route scheduled it (ADR 0128). `outDocOf` names the out doc file of an attempt of a
- * step, in the recipe it was scheduled under (ADR 0309), and
- * `mergeOf` reads what the merge at an attempt's start recorded. A fresh retry or answer of a fix
- * whose start merged the base gets what sent that fix back, since its worktree holds the merge too
- * (ADR 0244).
+ * none when no route scheduled it, or the attempt a retry or an answer of it continues (ADR 0128,
+ * ADR 0325). `outDocOf` names the out doc file of an attempt of a step, in the recipe it was
+ * scheduled under (ADR 0309), and `mergeOf` reads what the merge at an attempt's start recorded.
  */
 export function routeOf(
   batch: Batch,
@@ -788,8 +791,8 @@ export function routeOf(
   outDocOf: (stepId: string, attempt: number) => string | undefined,
   mergeOf: (ref: AttemptRef) => MergeResult | undefined = () => undefined,
 ): PlannedRoute | undefined {
-  const route =
-    batch.steps.get(ref.stepId)?.attempts.get(ref.attempt)?.route ?? mergeRouteOf(batch, ref);
+  const step = batch.steps.get(ref.stepId);
+  const route = step === undefined ? undefined : roundRouteOf(step, ref.attempt);
   if (route === undefined) return undefined;
   if (route.why === 'pull_request') {
     switch (route.cause) {
