@@ -109,6 +109,7 @@ describe('the Cargo manifest', () => {
     const keys = [
       'artifact = "bin"',
       'base = "b"',
+      'builtin = true',
       'branch = "main"',
       'default-features = false',
       'default_features = false',
