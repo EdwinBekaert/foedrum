@@ -15,6 +15,7 @@ import {
   PLAN_SETUPS,
   type PlanRunRecord,
   type PlanSetupName,
+  planRecipes,
   planRecipeText,
   planRecordOf,
   planRunFailure,
@@ -176,6 +177,18 @@ describe('the plan setups', () => {
       ],
     });
     assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
+  });
+
+  it("a run's Brewery holds its setup's recipe and the second recipe that builds (regression test)", () => {
+    const prose = readText(planFixture, 'prose.jsonc');
+    for (const name of SETUP_NAMES) {
+      const recipes = planRecipes(name, prose);
+      assert.deepEqual(Object.keys(recipes).sort(), [
+        `recipes/${name}.jsonc`,
+        'recipes/prose.jsonc',
+      ]);
+      assert.equal(recipes['recipes/prose.jsonc'], prose);
+    }
   });
 
   it('each apart step names the model decoction gives its lens, and a together step none', () => {
