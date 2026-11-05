@@ -26,7 +26,7 @@ The files are data: `test/unit/tasting-compare-plan.test.ts` reads them against 
 Every other pair that shares a file is in order by a dependency, and a test checks that only the planted pair stands side by side.
 
 A finding counts for a mistake when its `why` starts with one of the mistake's sub-orders, with or without backticks around the id, whatever lens it names.
-A finding on either sub-order of the pair counts for that mistake.
+A finding on either sub-order of the pair, or one that starts by naming both (`keep-backup, atomic-save: …`), counts for that mistake.
 A finding on a clean sub-order, on an id that is no sub-order's, or on none is listed by the script as another finding, for a person to judge.
 
 Findings that may appear and are not wrong:

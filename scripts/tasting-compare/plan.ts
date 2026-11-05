@@ -133,23 +133,30 @@ export const readSeededPlan = (text: string): Scripted => {
   return { files: {}, message: '', summary, doc };
 };
 
-/** The id at the very start of a plan finding's `why` (ADR 0312), with or without backticks. */
-const STARTS_WITH_ID = /^`([a-z0-9-]+)`:|^([a-z0-9-]+):/;
+/** A sub-order's id as a finding writes it (ADR 0312), with or without backticks. */
+const WRITTEN_ID = /^`([a-z0-9-]+)`$|^([a-z0-9-]+)$/;
 
-/** The sub-order a finding's `why` starts with, or undefined when it starts with none. */
-export const subOrderOfWhy = (why: string): string | undefined => {
-  const match = STARTS_WITH_ID.exec(why);
-  return match?.[1] ?? match?.[2];
+/**
+ * The sub-orders a finding's `why` starts with, up to its first colon: one id, or a list of them,
+ * as a finding on two sub-orders may write it. None when anything else stands before that colon.
+ */
+export const subOrdersOfWhy = (why: string): string[] => {
+  const head = why.slice(0, Math.max(why.indexOf(':'), 0));
+  if (head.trimStart() !== head) return [];
+  const ids: string[] = [];
+  for (const part of head.split(/,| and |&|\//)) {
+    const written = part.trim();
+    if (written === '') continue;
+    const match = WRITTEN_ID.exec(written);
+    const id = match?.[1] ?? match?.[2];
+    if (id === undefined) return [];
+    ids.push(id);
+  }
+  return ids;
 };
 
-export const subOrdersOfWhy = (_why: string): string[] => {
-  throw new Error('not implemented');
-};
-
-const onMistake = ({ why }: TastingFinding, { subOrders }: Mistake): boolean => {
-  const id = subOrderOfWhy(why);
-  return id !== undefined && subOrders.includes(id);
-};
+const onMistake = ({ why }: TastingFinding, { subOrders }: Mistake): boolean =>
+  subOrdersOfWhy(why).some((id) => subOrders.includes(id));
 
 const mistakesOf = (key: PlanKey, lenses: readonly string[]): Mistake[] =>
   key.mistakes.filter(({ lens }) => lenses.includes(lens));
