@@ -799,10 +799,10 @@ function brewerLine(step: BrewerStep, group: string | undefined, shelf: Shelf): 
     stall: brewer.stall,
     // Attempts are counted over the batch's whole life (ADR 0053); a step a person's choice
     // schedules (ADR 0286), or one that writes a plan a person can have planned again from its
-    // review (ADR 0289), counts each round's attempts, those since its latest success; a step that
-    // reviews a plan, those since its latest review, as each new plan runs it again (ADR 0321).
+    // review (ADR 0289), counts each round's attempts, those since its latest success; a lens step,
+    // those since its latest review, as each round back to it runs it again (ADR 0321, ADR 0324).
     mayRetry: (attempts) =>
-      (named[0]?.startsWith('plan/') === true
+      (named.length > 0
         ? sinceReview(attempts)
         : step.chosenBy === undefined && brewer.output.schema !== PLAN
           ? attempts.length
