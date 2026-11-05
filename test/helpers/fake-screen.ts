@@ -69,10 +69,10 @@ export const fakeScreen = (width: number | 'unknown') => {
 
 /**
  * The batch's time that leads a live line after its spinner, with the words that say what it
- * measures and the ` / ` after it (ADR 0179): `ordered 5m 3s ago`, or `brew started 3s ago` for a
+ * measures and the ` / ` after it (ADR 0326): `ordered 5m 3s ago`, or `brew started 3s ago` for a
  * batch with no recorded order time.
  */
-const BATCH_TIME = /^(?:ordered |brew started )?((?:\d+m )?\d+s)(?: ago)? \/ /;
+const BATCH_TIME = /^(?:ordered|brew started) ((?:\d+m )?\d+s) ago \/ /;
 
 /** The line without its elapsed time, which depends on when each redraw came. */
 export const withoutTime = (text: string): string => text.replace(/ \/ (\d+m )?\d+s(?= \/|$)/, '');

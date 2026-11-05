@@ -86,7 +86,7 @@ describe('runBrew', () => {
       );
     });
 
-    it("leads the line with the batch's time as `ordered <time> ago`, counted from when it was ordered, before the attempts (ADR 0179)", async () => {
+    it("leads the line with the batch's time as `ordered <time> ago`, counted from when it was ordered, before the attempts (ADR 0179, ADR 0326)", async () => {
       const { screen } = await brewLive(
         { ...idle, turn: 14 },
         {
@@ -119,7 +119,7 @@ describe('runBrew', () => {
       );
     });
 
-    it("counts the batch's time from this brew's start, and says so, for a batch ordered with no time (ADR 0179)", async () => {
+    it("counts the batch's time from this brew's start, and says so, for a batch ordered with no time (ADR 0179, ADR 0326)", async () => {
       const { screen } = await brewLive(idle, {
         seconds: 5,
         before: () => {
@@ -155,7 +155,7 @@ describe('runBrew', () => {
       );
     });
 
-    it("shows a batch's time as `ordered 0s ago` while the clock reads before its order (ADR 0179)", async () => {
+    it("shows a batch's time as `ordered 0s ago` while the clock reads before its order (ADR 0179, ADR 0326)", async () => {
       const { screen } = await brewLive(idle, {
         seconds: 3,
         before: () => {
@@ -281,16 +281,17 @@ describe('runBrew', () => {
       assert.ok(full.length > 0, 'a line fills the terminal');
       assert.ok(full.every((drawn) => drawn.length === 39));
       assert.ok(narrow.screen.rewrites().every((drawn) => drawn.length <= 39));
-      // Cut from the end: the spinner and the batch's time, with its words, stay (ADR 0179).
+      // Cut from the end: the spinner and the batch's time, with its words, stay (ADR 0179, ADR
+      // 0326). A batch this brew ordered has its order time, so it says `ordered`.
       assert.ok(
-        full.every((drawn) => /^. (ordered|brew started) \d+s ago \/ brew #1 \/ /.test(drawn)),
+        full.every((drawn) => /^. ordered \d+s ago \/ brew #1 \/ /.test(drawn)),
         full.join('\n'),
       );
       // Too narrow for the words: the line is cut inside them, and nothing else shows.
       const cut = await brewLive({ ...idle, turn: 3, lastTool }, { seconds: 3, columns: 9 });
       assert.ok(cut.screen.rewrites().length > 0, 'a live line is drawn');
       assert.ok(
-        cut.screen.rewrites().every((drawn) => /^. (ordere|brew s)$/.test(drawn)),
+        cut.screen.rewrites().every((drawn) => /^. ordere$/.test(drawn)),
         cut.screen.rewrites().join('\n'),
       );
       const unknown = await brewLive(
