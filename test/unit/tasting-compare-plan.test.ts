@@ -23,7 +23,7 @@ import {
   readSeededPlan,
   scorePlanRun,
   scriptedPlanTastings,
-  subOrderOfWhy,
+  subOrdersOfWhy,
   summarizePlan,
 } from '../../scripts/tasting-compare/plan.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
@@ -292,6 +292,22 @@ describe('scoring a plan run', () => {
     }
   });
 
+  it('a finding that starts by naming both sub-orders of a mistake counts for it', () => {
+    for (const why of [
+      'keep-backup, atomic-save: both change one file',
+      '`keep-backup` and `atomic-save`: both change one file',
+    ]) {
+      const { found, others } = scorePlanRun(
+        run('plan-apart-7', 1, [
+          attempt('order-and-overlap', ['plan/order-and-overlap'], [finding(why)]),
+        ]),
+        key,
+      );
+      assert.deepEqual(found, [{ defect: 'overlap', ownLens: true }], why);
+      assert.deepEqual(others, [], why);
+    }
+  });
+
   it('a finding on a mistake of a lens outside the setup is listed among the others', () => {
     const { found, others } = scorePlanRun(
       run('plan-together-mash', 1, [
@@ -306,10 +322,25 @@ describe('scoring a plan run', () => {
   });
 
   it('reads the sub-order at the very start of a why, with or without backticks around it', () => {
-    assert.equal(subOrderOfWhy('stats: too big'), 'stats');
-    assert.equal(subOrderOfWhy('`keep-backup`: both'), 'keep-backup');
-    assert.equal(subOrderOfWhy('step-2: both'), 'step-2');
+    assert.deepEqual(subOrdersOfWhy('stats: too big'), ['stats']);
+    assert.deepEqual(subOrdersOfWhy('`keep-backup`: both'), ['keep-backup']);
+    assert.deepEqual(subOrdersOfWhy('step-2: both'), ['step-2']);
+    assert.deepEqual(subOrdersOfWhy('stats: see remind: later'), ['stats']);
     for (const why of [
+      'keep-backup, atomic-save: both',
+      'keep-backup and atomic-save: both',
+      'keep-backup, and atomic-save: both',
+      'keep-backup & atomic-save: both',
+      'keep-backup/atomic-save: both',
+      '`keep-backup`, `atomic-save`: both',
+    ]) {
+      assert.deepEqual(subOrdersOfWhy(why), ['keep-backup', 'atomic-save'], why);
+    }
+    for (const why of [
+      'keep-backup, see atomic-save: one is not an id',
+      '`keep-backup, atomic-save`: backticks around the list',
+      ': no id',
+      ', : no id',
       '`stats: an opening backtick only',
       'stats`: a closing backtick only',
       ' stats: a blank before it',
@@ -318,8 +349,9 @@ describe('scoring a plan run', () => {
       'stats too big',
       '',
       `${'a'.repeat(100_000)} no colon`,
+      `${' '.repeat(100_000)}: blanks`,
     ]) {
-      assert.equal(subOrderOfWhy(why), undefined, why.slice(0, 40));
+      assert.deepEqual(subOrdersOfWhy(why), [], why.slice(0, 40));
     }
   });
 

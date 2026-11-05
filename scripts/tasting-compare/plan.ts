@@ -142,6 +142,10 @@ export const subOrderOfWhy = (why: string): string | undefined => {
   return match?.[1] ?? match?.[2];
 };
 
+export const subOrdersOfWhy = (_why: string): string[] => {
+  throw new Error('not implemented');
+};
+
 const onMistake = ({ why }: TastingFinding, { subOrders }: Mistake): boolean => {
   const id = subOrderOfWhy(why);
   return id !== undefined && subOrders.includes(id);
