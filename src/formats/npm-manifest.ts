@@ -9,6 +9,7 @@ import {
   inBuiltFolder,
   type ManifestDependency,
   type ManifestReader,
+  withoutBom,
 } from './manifest-reader.ts';
 
 const FIELDS = [
@@ -39,8 +40,6 @@ const viaOf = (path: string, spec: string): DependencyVia => {
   return { kind: 'package', version: spec };
 };
 
-const BOM = String.fromCodePoint(0xfeff);
-
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -48,7 +47,7 @@ export const npmManifest: ManifestReader = {
   ecosystem: 'npm',
   matches: (path) => fileName(path) === 'package.json' && !inBuiltFolder(path),
   read: (path, text) => {
-    const manifest = parseJson(text.startsWith(BOM) ? text.slice(1) : text);
+    const manifest = parseJson(withoutBom(text));
     if (!isObject(manifest)) return { kind: 'unreadable', reason: 'it is not a JSON object' };
     const publishes = typeof manifest.name === 'string' ? [manifest.name] : [];
     const dependsOn: ManifestDependency[] = [];

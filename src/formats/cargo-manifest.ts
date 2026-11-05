@@ -65,11 +65,6 @@ interface Spec {
   inherited: boolean;
 }
 
-const stringOf = (name: string, key: string, value: TomlValue): string => {
-  if (value.kind === 'string') return value.text;
-  throw new Refused(`its dependency ${name} has a ${key} that is not a string`);
-};
-
 /** Adds what one statement says of the dependency in `spec`. */
 const addTo = (spec: Spec, rest: readonly string[], value: TomlValue): void => {
   const [key = ''] = rest;
@@ -79,7 +74,10 @@ const addTo = (spec: Spec, rest: readonly string[], value: TomlValue): void => {
       throw new Refused(`its dependency ${spec.name} is neither a version nor a table`);
     }
   } else if (rest.length === 1 && SOURCE_KEYS.has(key)) {
-    spec.keys.set(key, stringOf(spec.name, key, value));
+    if (value.kind !== 'string') {
+      throw new Refused(`its dependency ${spec.name} has a ${key} that is not a string`);
+    }
+    spec.keys.set(key, value.text);
   } else if (rest.length === 1 && OTHER_KEYS.has(key)) {
     if (key === 'workspace') spec.inherited = true;
   } else {

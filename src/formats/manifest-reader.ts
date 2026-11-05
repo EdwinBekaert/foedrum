@@ -33,6 +33,11 @@ export interface ManifestReader {
 /** The last segment of a path in git's form, with forward slashes. */
 export const fileName = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
+const BOM = String.fromCodePoint(0xfeff);
+
+/** A manifest's text without the byte order mark it may start with. */
+export const withoutBom = (text: string): string => (text.startsWith(BOM) ? text.slice(1) : text);
+
 /** A path the manifest at `manifest` names, from the repository's root, with forward slashes. */
 export const fromRoot = (manifest: string, path: string): string =>
   posix.normalize(posix.join(posix.dirname(manifest), path.replaceAll('\\', '/')));

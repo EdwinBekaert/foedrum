@@ -10,9 +10,9 @@ import {
   type ManifestDependency,
   type ManifestRead,
   type ManifestReader,
+  withoutBom,
 } from './manifest-reader.ts';
 
-const BOM = String.fromCodePoint(0xfeff);
 // A quoted string, a parenthesis, or a word. Each alternative consumes what it scans, and a quote
 // that finds no close means no such quote lies later, so a line is read in linear time.
 const TOKEN = /"[^"]*"|`[^`]*`|[()]|[^\s()]+/g;
@@ -61,7 +61,7 @@ const readManifest = (manifest: string, text: string): ManifestRead => {
       requires.set(name, version);
     } else if (verb === 'replace') {
       const arrow = words.indexOf('=>');
-      const [old, oldVersion] = words.slice(0, Math.max(arrow, 0));
+      const [old, oldVersion] = words.slice(0, arrow);
       const [to, version] = words.slice(arrow + 1);
       if (
         arrow < 1 ||
@@ -118,5 +118,5 @@ export const goManifest: ManifestReader = {
   // The go tool ignores a `testdata` folder, and `vendor` holds other repositories' modules.
   matches: (path) =>
     fileName(path) === 'go.mod' && !inFolderNamed(path, ['node_modules', 'vendor', 'testdata']),
-  read: (path, text) => readManifest(path, text.startsWith(BOM) ? text.slice(1) : text),
+  read: (path, text) => readManifest(path, withoutBom(text)),
 };

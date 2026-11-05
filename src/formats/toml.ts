@@ -153,6 +153,22 @@ export const readToml = (text: string): TomlEntry[] => {
     }
   };
 
+  /** The comma-separated items of the array or inline table at `at`, up to `close`. */
+  const items = (close: ']' | '}', unclosed: string, item: () => void): void => {
+    const start = at;
+    at += 1;
+    for (;;) {
+      skipBlank();
+      if (text[at] === close) break;
+      if (at >= text.length) fail(unclosed, start);
+      item();
+      skipBlank();
+      if (text[at] === ',') at += 1;
+      else if (text[at] !== close) fail(unclosed, start);
+    }
+    at += 1;
+  };
+
   /** The value at `at` of the key `path`, recorded unless it lies in an array. */
   const value = (path: readonly string[] | undefined, depth: number): void => {
     if (depth > MAX_DEPTH) fail('nested too deep');
@@ -161,34 +177,14 @@ export const readToml = (text: string): TomlEntry[] => {
       const read = string();
       if (path !== undefined) entries.push({ path, value: { kind: 'string', text: read } });
     } else if (char === '[') {
-      const start = at;
-      at += 1;
       if (path !== undefined) entries.push({ path, value: { kind: 'other' } });
-      for (;;) {
-        skipBlank();
-        if (text[at] === ']') break;
-        if (at >= text.length) fail('an unclosed array', start);
-        value(undefined, depth + 1);
-        skipBlank();
-        if (text[at] === ',') at += 1;
-        else if (text[at] !== ']') fail('an unclosed array', start);
-      }
-      at += 1;
+      items(']', 'an unclosed array', () => value(undefined, depth + 1));
     } else if (char === '{') {
-      const start = at;
-      at += 1;
       if (path !== undefined) entries.push({ path, value: { kind: 'table' } });
-      for (;;) {
-        skipBlank();
-        if (text[at] === '}') break;
-        if (at >= text.length) fail('an unclosed inline table', start);
+      items('}', 'an unclosed inline table', () => {
         const parts = key();
         assignment(path === undefined ? undefined : [...path, ...parts], depth + 1);
-        skipBlank();
-        if (text[at] === ',') at += 1;
-        else if (text[at] !== '}') fail('an unclosed inline table', start);
-      }
-      at += 1;
+      });
     } else {
       const start = at;
       while (at < text.length && !' \t\r\n,]}#'.includes(text[at] ?? '')) at += 1;
