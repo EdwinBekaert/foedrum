@@ -59,6 +59,8 @@ export const PlannedSubOrder = z
     // Off only with a reason (#219); left out, the recipe's own holds.
     testFirst: z.literal(false).exactOptional(),
     testFirstOff: line.exactOptional(),
+    // What outside input it lets in and what that reaches, as the Brewmaster read it (ADR 0322).
+    securityMark: line.exactOptional(),
     ready: z.boolean(),
     refinement: line.exactOptional(),
   })
@@ -68,6 +70,13 @@ export const PlannedSubOrder = z
         code: 'custom',
         message: 'testFirst false needs the reason',
         path: ['testFirstOff'],
+      });
+    }
+    if (subOrder.testFirst === false && subOrder.securityMark !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A sub-order with a securityMark keeps test-first on: not testFirst false',
+        path: ['testFirst'],
       });
     }
     // A sub-order builds: one that needs planning again is marked not ready instead (ADR 0285).

@@ -69,6 +69,7 @@ const planLines = [
   'doneWhen',
   'why',
   'testFirstOff',
+  'securityMark',
   'refinement',
   'cut',
   'whyNot',
