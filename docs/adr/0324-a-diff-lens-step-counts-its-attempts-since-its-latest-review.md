@@ -1,6 +1,6 @@
 # 0324. A diff lens step counts its attempts since its latest review
 
-Date: 2026-11-05 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (a lens step does not count its attempts over the batch's whole life) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (a step that reviews a diff no longer keeps the whole-life count)
+Date: 2026-11-05 · Status: Accepted · Amends [0053](0053-recipe-files-reach-the-engine-brewer-steps-in-a-line-first.md) (a lens step does not count its attempts over the batch's whole life), [0289](0289-a-step-that-writes-a-plan-counts-its-attempts-since-its-latest-plan.md) (a step that reviews a diff is not among the steps that still do) and [0321](0321-mash-and-decoction-review-a-plan-through-the-plan-lenses-apart.md) (a step that reviews a diff no longer keeps the whole-life count)
 
 ## Context
 A Taster has `maxAttempts` 2, and until now a step that reviews a diff counted its attempts over the batch's whole life, reviews included (`mayRetry`, `src/engine/recipe-files.ts`; ADR 0053).
