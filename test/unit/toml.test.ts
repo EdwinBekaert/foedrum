@@ -209,4 +209,12 @@ d = """e"""""
     }
     assert.deepEqual(entries('a = """b\\  \n  c"""'), [['a', 'bc']]);
   });
+
+  it("trims a multi-line string's first line end, as TOML says, and no later one", () => {
+    assert.deepEqual(entries('a = """\nb\nc"""\nd = \'\'\'\r\ne\'\'\'\nf = """g\nh"""\n'), [
+      ['a', 'b\nc'],
+      ['d', 'e'],
+      ['f', 'g\nh'],
+    ]);
+  });
 });

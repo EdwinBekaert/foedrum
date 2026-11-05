@@ -215,4 +215,15 @@ describe('the Go manifest', () => {
       reason: 'a replace line is not old => new',
     });
   });
+
+  it('ends a word at a comment written straight after it', () => {
+    assert.deepEqual(
+      goManifest.read('go.mod', 'module x.io/a// why\nrequire x.io/b v1.0.0//indirect\n'),
+      {
+        kind: 'read',
+        publishes: ['x.io/a'],
+        dependsOn: [{ name: 'x.io/b', via: { kind: 'package', version: 'v1.0.0' } }],
+      },
+    );
+  });
 });
