@@ -425,8 +425,8 @@ describe('scoring a plan run', () => {
         table,
         /^\| already-done \| plan\/coverage \| 1\/1 \| 1\/1 \| 1\/1 \| 1\/1 \|$/m,
       );
-      assert.match(table, /^- Mash: apart \(plan-apart-mash against plan-together-mash\)$/m);
-      assert.match(table, /^- Seven lenses: apart \(plan-apart-7 against plan-together-7\)$/m);
+      assert.match(table, /^- Mash: together \(plan-apart-mash against plan-together-mash\)$/m);
+      assert.match(table, /^- Seven lenses: together \(plan-apart-7 against plan-together-7\)$/m);
     });
   });
 });
