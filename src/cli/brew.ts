@@ -186,7 +186,7 @@ export const fit = (line: string, columns: number | undefined): string =>
     .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
     .slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
 
-/** The live line: `frame`, the batch's time with its words, then the attempts, fitted to the terminal. */
+/** The live line: `frame`, the batch's time with its words (ADR 0326), then the attempts, fitted to the terminal. */
 const liveLine = (
   frame: string,
   batchTime: string,
@@ -202,12 +202,11 @@ export const runBrew = async (
 ): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS, terminal } = shell;
   const { target, owner, by, via } = request;
-  // The live line (ADR 0174), drawn only with a terminal: when the batch was ordered (this run's
-  // start until the batch says, ADR 0179, and whether it has said), the attempts that run, when
-  // this driver first saw each run, what the driver reports of one, and whether the line is on
-  // screen.
-  let orderedAt = clock().getTime();
-  let orderTimed = false;
+  // The live line (ADR 0174), drawn only with a terminal: what the batch's time counts from and
+  // says (this run's start until the batch says when it was ordered, ADR 0179, ADR 0326), the
+  // attempts that run, when this driver first saw each run, what the driver reports of one, and
+  // whether the line is on screen.
+  let batchClock = { words: 'brew started', from: clock().getTime() };
   let brewing: Running[] = [];
   const seenAt = new Map<string, number>();
   let progressOf: (ref: AttemptRef) => AttemptProgress | undefined = () => undefined;
@@ -229,7 +228,7 @@ export const runBrew = async (
       attemptText(label, at - (seenAt.get(label) ?? at), progressOf(ref)),
     );
     const spinner = SPINNER.charAt(frame++ % SPINNER.length);
-    const batchTime = `${orderTimed ? 'ordered' : 'brew started'} ${elapsed(Math.max(0, at - orderedAt))} ago`;
+    const batchTime = `${batchClock.words} ${elapsed(Math.max(0, at - batchClock.from))} ago`;
     terminal.rewrite(liveLine(spinner, batchTime, attempts, terminal.columns()));
     onScreen = true;
   };
@@ -598,10 +597,8 @@ export const runBrew = async (
       }
       const line = `batch ${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
       const at = clock().getTime();
-      if (now.orderedAt !== undefined) {
-        orderedAt = Date.parse(now.orderedAt);
-        orderTimed = true;
-      }
+      if (now.orderedAt !== undefined)
+        batchClock = { words: 'ordered', from: Date.parse(now.orderedAt) };
       const running = runningAttempts(now);
       for (const { label } of running) if (!seenAt.has(label)) seenAt.set(label, at);
       brewing = running;
