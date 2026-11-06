@@ -91,4 +91,19 @@ describe('what is not a template literal does not change', () => {
   it('a mutant may delete a whole line that holds a literal', () => {
     assert.equal(reasonOf('x(`a ${b}`);', ''), undefined);
   });
+
+  it('still needs its original on a line of the file', () => {
+    const verdict = mutantCheck(
+      { file: 'web/line.ts', line: 1, original: 'x(`n`);', replacement: 'x(`m n`);' },
+      {
+        inCode: () => true,
+        changed: () => ({ content: 'x(`other`);\n', added: new Set([1]) }),
+      },
+    );
+    assert.deepEqual(verdict, { ok: false, reason: 'no line of web/line.ts is the original' });
+  });
+
+  it('adds no name outside the literal that the code lacks', () => {
+    assert.equal(reasonOf('x(`a b`);', 'a(`a b`);'), 'the replacement adds a');
+  });
 });
