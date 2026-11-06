@@ -402,7 +402,7 @@ export function inputsOf(
       if (from === 'order') {
         const { issue, repo } = batch;
         const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
-        const claimed = repo === undefined || breweryIssue === undefined ? {} : { breweryIssue };
+        const claimed = breweryIssue === undefined ? {} : { breweryIssue };
         return { name, source: { kind: 'issue-body', issue, ...claimed }, read };
       }
       if (from === 'repositories') {

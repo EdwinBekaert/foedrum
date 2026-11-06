@@ -104,8 +104,7 @@ const mashRefusal = (
   called: string,
 ): string | undefined => {
   if (latest?.recipe !== undefined) {
-    const { recipe } = latest;
-    return `${named} already brews the recipe ${recipe.name}; foedrum recipe ${called} <recipe> <reason> brews it with another`;
+    return `${named} already brews the recipe ${latest.recipe.name}; foedrum recipe ${called} <recipe> <reason> brews it with another`;
   }
   const mashIn = setup.recipes.find(MASH_IN);
   if (mashIn === undefined) return `the Brewery has no recipe ${MASH_IN}`;

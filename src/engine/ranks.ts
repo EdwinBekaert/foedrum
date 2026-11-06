@@ -127,12 +127,10 @@ export const rankRefusal = (state: State, order: OrderRef): string | undefined =
     }
   }
   const key = orderKey(order);
-  const batch = [...state.batches.values()]
-    .filter(
-      ({ issue, repo }) => orderKey({ issue, ...(repo === undefined ? {} : { repo }) }) === key,
-    )
-    .at(-1);
-  if (batch !== undefined && !hasSubOrdersLeft(state, order)) {
+  const ordered = [...state.batches.values()].some(
+    ({ issue, repo }) => orderKey({ issue, ...(repo === undefined ? {} : { repo }) }) === key,
+  );
+  if (ordered && !hasSubOrdersLeft(state, order)) {
     return `${name} is already ordered: a rank orders only the queue`;
   }
   return undefined;

@@ -13,7 +13,7 @@ import { mergedBase, mergeRouteOf, startMergeOf } from '../engine/base-merge.ts'
 import type { Env } from '../engine/brewer-env.ts';
 import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import { checksInput } from '../engine/check-readings.ts';
-import { breweryIssueOf } from '../engine/claim-orders.ts';
+import { claimOrderOf } from '../engine/claim-orders.ts';
 import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
@@ -615,7 +615,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       release,
       (id) => brewers.has(recipe, id),
       checks,
-      breweryIssueOf(state(), batch),
+      claimOrderOf(state(), batch.id).issue,
     );
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;
