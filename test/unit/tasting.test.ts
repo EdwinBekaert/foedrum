@@ -471,6 +471,13 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.doesNotMatch(section, /as a reviewer or an agent/);
     });
 
+    it("a Taster's prompt lets the rules excuse nothing when the change was cut", async () => {
+      assert.match(
+        await rulesSection(),
+        /When \{change\} was cut[^.]*they may only make your lens stricter[^.]*excuses nothing/,
+      );
+    });
+
     it("a Taster's prompt says what a cut change leaves of that judgement", async () => {
       const section = await rulesSection();
       assert.match(section, /When \{change\} was cut[^.]*`riskLeft`/);
