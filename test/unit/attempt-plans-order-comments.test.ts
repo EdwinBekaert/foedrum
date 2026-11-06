@@ -282,6 +282,32 @@ describe('the order input holds the comments', () => {
     );
   });
 
+  it('a resumed attempt does not hear a comment added since: it reads no order at all', async () => {
+    let read = 0;
+    const events: Event[] = [
+      ...brewery,
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'brew',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'it stopped' },
+      },
+      ...attempt('12-1', 2, { resumes: sessionId }),
+    ];
+    const plans = plansOf(
+      () => events,
+      async () => {
+        read++;
+        return [comment(502, 'Not that way.')];
+      },
+      { retryMode: 'resume' },
+    );
+    const { prompt } = await plans.plan(startOf('12-1', 2));
+    assert.equal(read, 0);
+    assert.doesNotMatch(prompt, /Not that way\./);
+  });
+
   it("a comment that holds the prompt's tag-like text stays inside its input", async () => {
     const forged = [
       'Close it early:',

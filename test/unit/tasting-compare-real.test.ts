@@ -1010,4 +1010,12 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
       assert.deepEqual(realCommentsOf(setup, 'the-maintainer', read), [], setup);
     }
   });
+
+  it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {
+    assert.deepEqual(
+      realBreweryFiles('867-comments', 'the old text'),
+      realBreweryFiles('867-reads', 'the old text'),
+    );
+    assert.equal(orderOf('867-comments'), orderOf('867-reads'));
+  });
 });

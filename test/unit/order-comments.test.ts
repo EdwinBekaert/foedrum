@@ -3,6 +3,8 @@
 // From synthetic answers through a fake `fetch`; no network (ADR 0021).
 
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { describe, it } from 'node:test';
 import { markedComment } from '../../src/engine/claim-effects.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -190,6 +192,38 @@ describe('the comments an order holds', () => {
       ),
     ]);
     assert.deepEqual(texts(await read([target])), ['The one person.']);
+  });
+
+  it('every file that posts a comment builds it with markedComment, and the list above names them', () => {
+    const root = join(import.meta.dirname, '..', '..', 'src');
+    const sources = readdirSync(root, { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.ts'))
+      .map((file) => ({
+        file: relative(root, join(root, file)).split(sep).join('/'),
+        text: readFileSync(join(root, file), 'utf8'),
+      }));
+    // A new poster fails here until the test above holds its kind.
+    assert.deepEqual(
+      sources
+        .filter(({ text }) => text.includes('markedComment('))
+        .map(({ file }) => file)
+        .sort(),
+      [
+        'engine/base-check.ts',
+        'engine/brewery-closes.ts',
+        'engine/claim-effects.ts',
+        'engine/comment-revisions.ts',
+        'engine/merge-brief-post.ts',
+      ],
+    );
+    // Only these post to an issue's comments, and each takes only a MarkedComment.
+    assert.deepEqual(
+      sources
+        .filter(({ text }) => text.includes(')}/comments`'))
+        .map(({ file }) => file)
+        .sort(),
+      ['github/marks.ts', 'github/status-comments.ts'],
+    );
   });
 
   it('a comment by a collaborator of the Brewery on a target issue they are not a collaborator of stays out', async () => {
