@@ -50,6 +50,7 @@ const line = (random: Random): Line => {
     { text: `${word}${text}`, code: [word, ...code] },
     { text: `${word} + ${text}`, code: [word, ...code] },
     { text: `${word}(${text})`, code: [word, ...code] },
+    { text: `${word}();`, code: [word] },
   ]);
 };
 

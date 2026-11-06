@@ -59,6 +59,26 @@ describe('a line the check cannot read with confidence keeps the rule of ADR 003
     assert.equal(reasonOf("'`' + a;", "'`' + b;"), 'the replacement adds b');
   });
 
+  it('a backtick inside a double-quoted string opens no template literal', () => {
+    assert.equal(reasonOf('"`" + a;', '"`" + b;'), 'the replacement adds b');
+  });
+
+  it('a slash in the original alone, or in the replacement alone, keeps the rule', () => {
+    assert.equal(reasonOf('x(`${a / 2} c`);', 'x(`${a} c`);'), 'the replacement adds `${a} c`');
+    assert.equal(
+      reasonOf('x(`${a * 2} c`);', 'x(`${a / 2} c`);'),
+      'the replacement adds `${a / 2} c`',
+    );
+  });
+
+  it('a `$` right after a closing backtick is not read as one literal', () => {
+    assert.equal(reasonOf('x(`a b`$c);', 'x(`b a`$c);'), 'the replacement adds `b a`');
+  });
+
+  it('a lone backtick in a regular expression literal is no broken literal', () => {
+    assert.equal(reasonOf('a.replace(/`/g, b);', 'a.replace(/./g, b);'), undefined);
+  });
+
   it('a line that closes a multi-line literal keeps the word rule', () => {
     assert.equal(reasonOf('${a} end`;', '${b} end`;'), 'the replacement adds b');
     assert.equal(reasonOf('${a > b} end`;', '${a >= b} end`;'), undefined);
@@ -82,6 +102,24 @@ describe('what is not a template literal does not change', () => {
   it('a backtick string of another language is one string still', () => {
     assert.equal(reasonOf('x := `a b`', 'x := `b a`', 'web/line.go'), 'the replacement adds `b a`');
     assert.equal(reasonOf('x = `a b`', 'x = `b a`', 'web/line.py'), 'the replacement adds `b a`');
+  });
+
+  it('a line with no literal that gains a whole one keeps the rule', () => {
+    assert.equal(reasonOf('const a = b;', 'const a = `b`;'), 'the replacement adds `b`');
+  });
+
+  it('a slash after the last backtick, or a comment before the first, leaves a literal read', () => {
+    assert.equal(reasonOf('x(`a b`) / 2;', 'x(`b a`) / 2;'), undefined);
+    assert.equal(reasonOf('/* c */ x(`a b`);', '/* c */ x(`b a`);'), undefined);
+  });
+
+  it('two pieces of text do not merge into a word the line lacks', () => {
+    assert.equal(reasonOf('x(`a${b}c`);', 'x(`ac`);'), 'the replacement adds ac');
+    assert.equal(reasonOf('x(`a`, `b`);', 'x(`ab`, ``);'), 'the replacement adds ab');
+  });
+
+  it('a line cut inside a `${}` leaves its literal open', () => {
+    assert.equal(reasonOf('x(`n ${a}`);', 'x(`n ${a'), 'the replacement breaks a template literal');
   });
 
   it('a change of whitespace alone changes nothing', () => {
@@ -229,7 +267,7 @@ describe('a mutant inside a template literal (ADR 0341)', () => {
     );
   });
 
-  it("counts a `{` inside a `${}`,so its `}` does not end the expression's code", () => {
+  it("counts a `{` inside a `${}`, so its `}` does not end the expression's code", () => {
     assert.equal(reasonOf('y(`x ${ {a}.a }`);', 'y(`x ${ {a}.x }`);'), 'the replacement adds x');
   });
 
