@@ -12,7 +12,6 @@ import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
 import {
-  type Batch,
   emptyState,
   fold,
   foldedBatch,

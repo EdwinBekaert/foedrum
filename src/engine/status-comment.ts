@@ -246,7 +246,6 @@ export const sessionCommand = (called: string): string => `foedrum brew ${called
 const stuckText = (
   reason: StuckReason,
   told: Told,
-  batch: Batch,
   called: string,
   planComment?: string,
 ): string => {
@@ -573,7 +572,7 @@ const laneText = (
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
       return [
-        `🔔 **Stuck**: ${stuckText(reason, told, batch, called, planComment)}`,
+        `🔔 **Stuck**: ${stuckText(reason, told, called, planComment)}`,
         ...questions,
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)

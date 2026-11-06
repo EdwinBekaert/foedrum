@@ -35,7 +35,7 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-const stuckOn = (reason: StuckReason, batch: Batch, called: string): string => {
+const stuckOn = (reason: StuckReason, called: string): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `needs input at ${reason.stepId}`;
@@ -102,7 +102,7 @@ export const describeLane = (
     case 'stuck':
       return {
         lane: 'stuck',
-        detail: `${stuckOn(lane.reason, batch, called)}; reminder ${lane.remindAt}`,
+        detail: `${stuckOn(lane.reason, called)}; reminder ${lane.remindAt}`,
       };
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
