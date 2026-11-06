@@ -340,6 +340,10 @@ export const runBrew = async (
     };
     const takesIt = (state: State): string =>
       `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take`;
+    const orderAgainLine = (state: State, batch: Batch): string => {
+      const { lane } = describeLane(batch, called(state));
+      return `batch ${batch.id} of ${named} is ${lane}; foedrum order ${called(state)} orders it again`;
+    };
     // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
     const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
     const deleted =
@@ -372,10 +376,7 @@ export const runBrew = async (
       if (latest.lane.kind === 'on_tap' && standing === 'held') {
         return refuse(heldLine(log.state(), latest));
       }
-      const { lane } = describeLane(latest, called(log.state()));
-      return refuse(
-        `batch ${latest.id} of ${named} is ${lane}; foedrum order ${called(log.state())} orders it again`,
-      );
+      return refuse(orderAgainLine(log.state(), latest));
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
     // A sub-order's batch waits for its order's pause, which is the one to continue.
@@ -471,9 +472,8 @@ export const runBrew = async (
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
     if (ending !== undefined) {
-      const tracker = githubTargetTracker(reads);
       const ends = {
-        tracker,
+        tracker: githubTargetTracker(reads),
         record: (event: PullRequestEnded) => log.issue({ kind: 'record', event }, clock()),
         // Nothing was released: the person hears why, and brews again.
         failed: (_what: string, error: unknown) => {
@@ -484,10 +484,7 @@ export const runBrew = async (
       const read = foldedBatch(log.state(), batch.id);
       if (unended(read).length > 0) {
         if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
-        const { lane } = describeLane(read, called(log.state()));
-        return refuse(
-          `batch ${read.id} of ${named} is ${lane}; foedrum order ${called(log.state())} orders it again`,
-        );
+        return refuse(orderAgainLine(log.state(), read));
       }
     }
     if (waitsForOrder && batch.lane.kind === 'ordered') {
