@@ -223,6 +223,10 @@ export interface Failing {
   since: string;
 }
 
+/** Whether a lane is Stuck on failing, whose reason says the batch's mark itself (ADR 0335). */
+export const stuckOnFailing = (lane: Lane | undefined): boolean =>
+  lane?.kind === 'stuck' && lane.reason.kind === 'failing';
+
 /** A person's handover of a batch from the driver `from` to `to` (ADR 0124). */
 export interface Takeover {
   by: string;
@@ -1116,12 +1120,10 @@ const orderOf = (state: State, issue: number): Order =>
  * A person's way out of a batch's Stuck on failing takes its mark off, and its driver's hour starts
  * again (ADR 0335); a resume from any other Stuck leaves the mark to a clean pass.
  */
-const withoutItsFailingMark = (state: State, batchId: string): State => {
-  const lane = state.batches.get(batchId)?.lane;
-  return lane?.kind === 'stuck' && lane.reason.kind === 'failing'
+const withoutItsFailingMark = (state: State, batchId: string): State =>
+  stuckOnFailing(state.batches.get(batchId)?.lane)
     ? updateBatch(state, batchId, ({ failing: _, ...batch }) => batch)
     : state;
-};
 
 function batchOf(state: State, batchId: string): Batch {
   const batch = state.batches.get(batchId);

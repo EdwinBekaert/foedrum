@@ -6,7 +6,7 @@
 import type { FailingPass } from '../schemas/events.ts';
 
 /** How long a batch fails before it is marked, and brewing with a reading that fails Stuck. */
-export const failingLimitMs = 3_600_000;
+const failingLimitMs = 3_600_000;
 
 /** A batch past the limit: what failed last, and whether its readings have for as long. */
 export interface OverLimit {

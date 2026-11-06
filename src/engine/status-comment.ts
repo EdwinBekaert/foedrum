@@ -27,6 +27,7 @@ import {
   type Lane,
   type Pause,
   type State,
+  stuckOnFailing,
   type UsageWindows,
 } from './fold.ts';
 import { briefLine } from './merge-brief.ts';
@@ -543,7 +544,7 @@ const issueNumbers = (numbers: readonly number[]): string =>
 
 /** A batch's mark, in a lane it changes nothing in (ADR 0335); a Stuck reason on it says it itself. */
 const failingLines = ({ failing, lane }: Batch, told: Told): string[] =>
-  failing === undefined || (lane.kind === 'stuck' && lane.reason.kind === 'failing')
+  failing === undefined || stuckOnFailing(lane)
     ? []
     : [
         `⚠️ **Failing**: the ${failing.pass} pass has failed since ${failing.since}: ${told(failing.summary, '')}`,

@@ -8,6 +8,7 @@ import {
   type Pause,
   runningAttempt,
   type State,
+  stuckOnFailing,
 } from '../engine/fold.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
@@ -134,7 +135,7 @@ export const unreadable = (error: unknown): string => `cannot be read: ${message
 
 /** A batch's mark (ADR 0335), but on a batch whose Stuck reason says it already. */
 export const failingParts = ({ failing, lane }: Batch): string[] =>
-  failing === undefined || (lane.kind === 'stuck' && lane.reason.kind === 'failing')
+  failing === undefined || stuckOnFailing(lane)
     ? []
     : [`failing in ${failing.pass} since ${failing.since}: ${failing.summary}`];
 

@@ -41,7 +41,7 @@ import { applyEffect, type EffectTarget, type Ledger, UnreadSources } from './ef
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
 import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
-import { type Batch, runningAttempt, type State } from './fold.ts';
+import { type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
@@ -1404,7 +1404,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
     for (const { id: batchId, lane, failing: mark } of state.batches.values()) {
       if (mark === undefined || failing.has(batchId)) continue;
-      if (lane.kind === 'stuck' && lane.reason.kind === 'failing') continue;
+      if (stuckOnFailing(lane)) continue;
       writeMark(batchId, { kind: 'record', event: { type: 'batch.recovered', batchId } });
     }
   };
