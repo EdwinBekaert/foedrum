@@ -31,6 +31,7 @@ import {
   stuckOnFailing,
   type UsageWindows,
 } from './fold.ts';
+import { handoverLines, handoversOf } from './handover.ts';
 import { briefLine } from './merge-brief.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
@@ -1242,7 +1243,7 @@ export const renderStatus = (
   subOrderPulls: readonly SubOrderRow[] = [],
   /** The Brewery issue the comment is on, whose number its session line names (ADR 0329). */
   order: number = batch.issue,
-  /** How its `Next:` line names its work, which a batch that is not the latest does by id (ADR 0334). */
+  /** How its `Next:` and handover lines name its work, which a batch that is not the latest does by id (ADR 0334). */
   called: string = String(order),
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
@@ -1287,6 +1288,11 @@ export const renderStatus = (
   if (findings.length > 0) sections.push(['**Findings**', ...findings]);
   const risksLeft = riskLeftLines(batch, stepIds, told);
   if (risksLeft.length > 0) sections.push(['**Risk left**', ...risksLeft]);
+  // How many, never what they say: ADR 0333 lets an earlier login's comment back into an order.
+  const handed = handoversOf(batch).length;
+  if (handed > 0) {
+    sections.push([`${handoverLines(handed)}: ${code(`foedrum handover ${called}`)}`]);
+  }
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);
   const receipts = receiptLines(batch, told);

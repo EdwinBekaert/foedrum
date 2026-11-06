@@ -2,7 +2,7 @@
 {
   "name": "cellarman",
   "description": "Makes the Gauger's failing tests pass in one repository, without changing them.",
-  "version": 10,
+  "version": 11,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -74,3 +74,7 @@ Foedrum builds the pull request's description from your out doc. When you are do
 - `beforeAfter` (optional, at most 20 rows): when the change alters behaviour a reader can compare, rows of `{ "case": "...", "before": "...", "after": "..." }`, each value one line of at most 200 characters. Foedrum renders the table.
 
 Do not write `Closes`, `Fixes` or `@`-mentions there: Foedrum closes the order's issue itself and takes them out.
+
+## Your handover
+
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

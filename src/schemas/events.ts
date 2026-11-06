@@ -2,7 +2,13 @@
 
 import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
-import { BlockerKind, MOST_DISPOSITIONS, MOST_MUTANTS, TastingFinding } from './out-doc.ts';
+import {
+  BlockerKind,
+  MOST_DISPOSITIONS,
+  MOST_HANDOVER_LINES,
+  MOST_MUTANTS,
+  TastingFinding,
+} from './out-doc.ts';
 import { CheckName, RelativePath } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
@@ -784,6 +790,8 @@ export const Event = z.discriminatedUnion('type', [
     houseYeast: HouseYeastSelection.optional(),
     // The highest comment id of each issue that its prompt told it (ADR 0338).
     commentsHeard: z.array(HeardComments).min(1).optional(),
+    // What the brewer's out doc handed over: proposals a person reads, in no later prompt (ADR 0340).
+    handover: z.array(NonEmpty).max(MOST_HANDOVER_LINES).optional(),
     // Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202).
     paused: z.literal(true).optional(),
     // The cancelled end of an attempt a person's stop abandoned, recorded while its batch stays

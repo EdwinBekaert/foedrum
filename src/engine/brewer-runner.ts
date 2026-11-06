@@ -76,6 +76,8 @@ export interface AttemptEnd {
   houseYeast?: HouseYeastSelection;
   /** The highest comment id per issue the attempt's plan told it (ADR 0338). */
   commentsHeard?: readonly HeardComments[];
+  /** What its out doc handed over, read as the text comes off the end (ADR 0340). */
+  handover?: readonly string[];
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };
   /**

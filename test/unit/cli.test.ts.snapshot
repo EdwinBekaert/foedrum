@@ -139,6 +139,7 @@ Commands:
   stuck                                                   List the Stuck batches with their options and questions
   brewers                                                 Report each brewer's attempts, outcomes, Stuck batches and tokens
   lenses                                                  Report each lens's findings, how they ended, and its tokens
+  handover <issue>                                        List what a batch's brewers handed over, each line a proposal a model wrote
   replay <issue>                                          Show a batch's events and its folded state
   resume <issue> [<step>]                                 Open a brewer attempt's Claude Code session in its worktree; take a running batch over
   retry <issue>                                           Give the step a Stuck batch stopped at another attempt

@@ -142,6 +142,22 @@
             ]
           }
         },
+        "handover": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "pattern": "^[^\\r\\n]*$"
+              }
+            ]
+          }
+        },
         "mutants": {
           "default": [],
           "maxItems": 5,
@@ -349,6 +365,22 @@
                   "why"
                 ],
                 "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "handover": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "pattern": "^[^\\r\\n]*$"
               }
             ]
           }
@@ -601,6 +633,22 @@
             ]
           }
         },
+        "handover": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "pattern": "^[^\\r\\n]*$"
+              }
+            ]
+          }
+        },
         "blockerKind": {
           "type": "string",
           "enum": [
@@ -817,6 +865,22 @@
                   "why"
                 ],
                 "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "handover": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "pattern": "^[^\\r\\n]*$"
               }
             ]
           }

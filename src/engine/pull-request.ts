@@ -32,6 +32,7 @@ import { z } from '../schemas/zod.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
+import type { Handover } from './handover.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { mutantLines } from './survivors.ts';
 
@@ -481,6 +482,8 @@ export interface PullRequestTextInput {
   key?: BatchEffectKey;
   /** The section that names the order's other pull requests and the merge order (ADR 0292). */
   siblings?: string;
+  /** What the brewers handed over, each line read for a secret (ADR 0340): model text, untrusted. */
+  handovers?: readonly Handover[];
 }
 
 export interface PullRequestText {
@@ -501,6 +504,8 @@ const FRAME = 200;
 const CUT = '(cut short)';
 /** The longest sibling section (ADR 0292), which every body keeps room for. */
 export const MAX_SIBLINGS = 8_000;
+/** The longest the lines of what the brewers handed over are (ADR 0340). */
+const MAX_HANDOVERS = 4_000;
 /** How far past the cut a text is read for secrets: room for a match that starts before it. */
 const SCAN_PAST = 1_000;
 /** The most attempts the brew table lists, and the longest a reason or a cell it shows. */
@@ -855,6 +860,41 @@ export const quotedDiagrams = (text: string): string => {
 const MAX_SHOWN_HOW = 12_000;
 const MAX_SHOWN_SEE = 1_200;
 
+/**
+ * `text` with each run of backticks cut to 16: model output could otherwise make the fence around
+ * it, which comes twice, as long as `text`.
+ */
+const shortRuns = (text: string): string => text.replace(/`{17,}/g, '`'.repeat(16));
+
+/** A fence longer than any run of backticks in `text`. */
+const fenceAround = (text: string): string => {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map(([run]) => run.length));
+  return '`'.repeat(Math.max(3, longest + 1));
+};
+
+/**
+ * What the brewers handed over, folded in a fence of its own, where nothing links, mentions or
+ * closes (ADR 0340): each line by its step and attempt, as many as `room` holds, the last cut and
+ * counted, since `foedrum handover` lists them all. Nothing when there is none, or no room.
+ */
+const handedOver = (handovers: readonly Handover[], room: number): string[] => {
+  const lines = handovers.map(
+    ({ stepId, attempt, text }) => `${stepId}#${attempt}: ${shortRuns(text)}`,
+  );
+  const fence = fenceAround(lines.join('\n'));
+  const frame = (shown: readonly string[], more: number) =>
+    [
+      '<details><summary>What the brewers handed over</summary>',
+      `${fence}text\n${[...shown, ...(more > 0 ? [`(${more} more: foedrum handover)`] : [])].join('\n')}\n${fence}`,
+      '</details>',
+    ].join('\n\n');
+  for (let shown = lines.length; shown > 0; shown--) {
+    const block = frame(lines.slice(0, shown), lines.length - shown);
+    if (block.length <= room) return [block];
+  }
+  return [];
+};
+
 /** The model's sections, without secrets and with nothing GitHub would act on (ADR 0167). */
 const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsCommit): string => {
   const shown = (text: string) => unlinked(withoutSecrets(text, stepId, isCommit));
@@ -937,6 +977,7 @@ export const pullRequestText = ({
   attempts = [],
   key,
   siblings,
+  handovers = [],
 }: PullRequestTextInput): PullRequestText => {
   const order = closes === undefined ? undefined : `${closes.repo}#${closes.issue}`;
   const oneLine = title.replace(/\s+/g, ' ').trim();
@@ -960,7 +1001,7 @@ export const pullRequestText = ({
   const marking = key === undefined ? 0 : bodyMarker(key, '').length + 2;
   // The reports get what the sections leave of GitHub's limit, at most MAX_REPORTS, less room for
   // the longest sibling section, which a later revision may write in place of this one (ADR 0292).
-  const room = Math.max(
+  const left = Math.max(
     0,
     Math.min(
       MAX_REPORTS,
@@ -973,6 +1014,9 @@ export const pullRequestText = ({
         FRAME,
     ),
   );
+  // What the brewers handed over comes out of the reports' room, at most MAX_HANDOVERS (ADR 0340).
+  const handed = handedOver(handovers, Math.min(MAX_HANDOVERS, left));
+  const room = Math.max(0, left - (handed[0]?.length ?? 0));
   // Only what can be shown is read (ADR 0088): reports of 1 MiB would cost a second at every apply.
   let unread = room + SCAN_PAST;
   let cut = false;
@@ -1017,12 +1061,9 @@ export const pullRequestText = ({
       ...mutantLines(mutants, (text) => flat(text, stepId)).map((line) => `  ${line}`),
     ],
   );
-  // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
-  // output could otherwise make the fence, which comes twice, as long as the reports.
-  let quoted = lines.join('\n').replace(/`{17,}/g, '`'.repeat(16));
+  let quoted = shortRuns(lines.join('\n'));
   if (cut || quoted.length > room) quoted = `${quoted.slice(0, room)}\n${CUT}`;
-  const longest = Math.max(0, ...[...quoted.matchAll(/`+/g)].map(([run]) => run.length));
-  const fence = '`'.repeat(Math.max(3, longest + 1));
+  const fence = fenceAround(quoted);
   const reported =
     lines.length === 0
       ? []
@@ -1031,7 +1072,7 @@ export const pullRequestText = ({
           `${fence}text\n${quoted}\n${fence}`,
           '</details>',
         ];
-  const body = [head, ...reported, ...closing].join('\n\n');
+  const body = [head, ...reported, ...handed, ...closing].join('\n\n');
   return {
     title: oneLine === '' ? (order ?? 'Brewed by Foedrum') : oneLine.slice(0, MAX_TITLE),
     body: key === undefined ? body : markedBody(key, body),

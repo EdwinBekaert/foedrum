@@ -2367,6 +2367,29 @@ describe('statusEffects', () => {
     assert.deepEqual(notices, []);
   });
 
+  it("names a claimed batch's handover command by its Brewery issue (ADR 0340)", async () => {
+    issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'alice/web' } });
+    const driver = await open();
+    store.withTransaction((tx) => tx.recordEffect({ batchId: 'web-7', effect: 'order.issue' }, 20));
+    issue({ kind: 'route', batchId: 'web-7', recipe: 'nip', reason: 'label', source: 'label' });
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', batchId: 'web-7', stepId: 'plan', attempt: 1 },
+    });
+    issue({
+      kind: 'finish',
+      batchId: 'web-7',
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'failed', retryable: true, reason: 'it failed' },
+      handover: ['Only a handover says this'],
+    });
+    await driver.tick();
+    const { body } = only();
+    assert.match(body, /1 handover line: `foedrum handover 20`/);
+    assert.doesNotMatch(body, /Only a handover says this/);
+  });
+
   describe('a claimed issue ordered again (ADR 0144)', () => {
     const order = { issue: 7, repo: 'alice/web' };
     const routeBy = '2026-10-23T10:00:00.000Z';
