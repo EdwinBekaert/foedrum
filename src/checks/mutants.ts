@@ -223,11 +223,10 @@ export const editFile = (mutant: Mutant, content: string | undefined): LineEdit 
 
 // The extensions of the languages whose comments are `//` and `/* */`: JavaScript and TypeScript,
 // and the C family. Elsewhere a comment counts as the line's text (ADR 0311).
-const C_COMMENTS = new Set(
-  'js mjs cjs jsx ts mts cts tsx c h cc cpp cxx hh hpp hxx cs java kt kts go rs swift scala dart'.split(
-    ' ',
-  ),
-);
+const C_COMMENTS = new Set([
+  ...TEMPLATE_LITERALS,
+  ...'c h cc cpp cxx hh hpp hxx cs java kt kts go rs swift scala dart'.split(' '),
+]);
 
 const commentsKnown = (file: string): boolean => C_COMMENTS.has(extensionOf(file));
 
