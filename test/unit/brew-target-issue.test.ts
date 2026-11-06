@@ -354,7 +354,7 @@ describe('runBrew', () => {
         assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch web-7 is on tap: /);
       });
 
-      it("a brew of a Brewery issue that ends on tap says what closes that issue, and names no claim", async () => {
+      it('a brew of a Brewery issue that ends on tap says what closes that issue, and names no claim', async () => {
         const brewing = shell(behave.succeed('Brewed'));
         assert.equal(await runBrew(f.setup, brewing, request), 0, f.lines.join('\n'));
         assert.equal(
@@ -375,7 +375,10 @@ describe('runBrew', () => {
         assert.ok(!host.issue('acme/web', 7)?.labels.includes('foedrum:claimed'));
         assert.deepStrictEqual(laneLabelsOn(host, number), []);
         const comments = host.comments.get('acme/web#7') ?? [];
-        assert.match(comments.at(-1)?.body ?? '', /released its claim.*its pull requests were merged/);
+        assert.match(
+          comments.at(-1)?.body ?? '',
+          /released its claim.*its pull requests were merged/,
+        );
         assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds, {
           [url(pull)]: 'merged',
         });
@@ -486,6 +489,25 @@ describe('runBrew', () => {
         assert.equal(await runBrew(brewing, again, byNumber), 0, f.lines.join('\n'));
         assert.equal(host.issue('acme/brewery', number)?.state, 'closed');
         assert.ok(!host.refs.has(claimRef), 'the claim ref is gone');
+      });
+
+      it('finishes a release still due of a batch on tap with no pull request: exit 0', async () => {
+        const host = two();
+        host.issues['acme/brewery'] = [{ number: 40, labels: [], author: 'ann', title: 'Dark' }];
+        const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        const order = { issue: 7, repo: 'acme/web' };
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [] });
+        });
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
+        const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        const byNumber = { ...request, target: { issue: 40 } };
+        assert.equal(await runBrew(targetSetup(), brewing, byNumber), 0, f.lines.join('\n'));
+        const comments = host.comments.get('acme/web#7') ?? [];
+        assert.match(comments.at(-1)?.body ?? '', /ended without a pull request/);
+        assert.equal(f.lines.at(-1), 'foedrum brew: batch web-7 is on tap: no pull request');
       });
 
       it('fails, recording nothing, when its pull request cannot be read: exit 1', async () => {
