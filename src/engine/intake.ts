@@ -19,7 +19,7 @@
 // Everything it reads from the tracker is untrusted input; it decides nothing by asking a model.
 
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
-import type { OrderRef } from '../schemas/events.ts';
+import type { Event, OrderRef } from '../schemas/events.ts';
 import { type BaseCheckRepository, checkBases } from './base-check.ts';
 import { nextBatchId, targetBatchId } from './batch-id.ts';
 import { defaultLeaseMs } from './batch-leases.ts';
@@ -277,6 +277,39 @@ export const intakeQueue = (
   return rankQueue(once, state.ranks);
 };
 
+/** The event that records how a pull request of a batch ended. */
+export type PullRequestEnded = Extract<Event, { type: 'pull_request.ended' }>;
+
+/**
+ * Reads each of `pullRequests` of `batch` with no recorded end, and records the end of each that
+ * merged or closed (ADR 0198). The intake's pass does it for every batch, and `foedrum brew` for
+ * the on-tap batch it is given (ADR 0336).
+ */
+export const recordEndsOf = async (
+  batch: Batch,
+  pullRequests: readonly string[],
+  ends: {
+    tracker: Pick<TargetTracker, 'pullRequest'>;
+    record: (event: PullRequestEnded) => void;
+    failed: (what: string, error: unknown) => void;
+  },
+  signal: AbortSignal,
+): Promise<void> => {
+  for (const pullRequest of pullRequests) {
+    if (batch.pullRequestEnds?.[pullRequest] !== undefined) continue;
+    let state: PullRequestState;
+    try {
+      state = await ends.tracker.pullRequest(pullRequest, signal);
+    } catch (error) {
+      ends.failed(`reading ${pullRequest}`, error);
+      continue;
+    }
+    // A pass given up at its deadline records nothing more.
+    if (state === 'open' || signal.aborted) continue;
+    ends.record({ type: 'pull_request.ended', batchId: batch.id, pullRequest, state });
+  }
+};
+
 export const createIntake = (options: IntakeOptions): Intake => {
   const { log, brewery, tracker, claims, claimant, authors, repositories, capacity, clock } =
     options;
@@ -312,26 +345,13 @@ export const createIntake = (options: IntakeOptions): Intake => {
     return lane.kind === 'brewing' || lane.kind === 'stuck' ? [...sentBackFrom(batch)] : [];
   };
   const recordEnds = async (signal: AbortSignal): Promise<void> => {
+    const ends = {
+      tracker,
+      record: (event: PullRequestEnded) => issue({ kind: 'record', event }),
+      failed: (what: string, error: unknown) => report({ kind: 'failed', what, error }),
+    };
     for (const batch of log.state().batches.values()) {
-      for (const pullRequest of endable(batch)) {
-        if (batch.pullRequestEnds?.[pullRequest] !== undefined) continue;
-        let state: PullRequestState;
-        try {
-          state = await tracker.pullRequest(pullRequest, signal);
-        } catch (error) {
-          report({ kind: 'failed', what: `reading ${pullRequest}`, error });
-          continue;
-        }
-        // A pass given up at its deadline records nothing more.
-        if (state === 'open' || signal.aborted) continue;
-        const event = {
-          type: 'pull_request.ended',
-          batchId: batch.id,
-          pullRequest,
-          state,
-        } as const;
-        issue({ kind: 'record', event });
-      }
+      await recordEndsOf(batch, endable(batch), ends, signal);
     }
   };
 
