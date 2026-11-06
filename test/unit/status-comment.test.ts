@@ -2166,6 +2166,54 @@ describe('statusEffects', () => {
     assert.deepEqual(driver.held(), []);
   });
 
+  it('a Brewing batch stays limited to one edit a minute: regression test', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    later(minute);
+    await driver.tick();
+    assert.match(lineOf(only().body, 'plan'), /attempt 1/);
+    issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending: succeeded });
+    issue({
+      kind: 'record',
+      event: { type: 'step.started', batchId: '7-1', stepId: 'brew', attempt: 1 },
+    });
+    later(minute - 1);
+    await driver.tick();
+    assert.equal(revision(3), undefined, 'not within the minute, though its text changed');
+    later(1);
+    await driver.tick();
+    assert.ok(only().body.endsWith(marker(3)));
+    assert.match(lineOf(only().body, 'brew'), /attempt 1/);
+  });
+
+  it('a reminder of a Stuck batch edits nothing, and its due revision is applied once: regression test', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    issue({
+      kind: 'finish',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'blocked', blockerKind: 'findings', summary: 'The tests fail' },
+    });
+    later(minute);
+    await driver.tick();
+    assert.match(only().body, /Stuck/);
+    const calls = [...comments.calls];
+    const lane = log.state().batches.get('7-1')?.lane;
+    const remindAt = lane?.kind === 'stuck' ? lane.remindAt : assert.fail('it is Stuck');
+    now = new Date(remindAt);
+    await driver.tick();
+    const reminded = log.state().batches.get('7-1')?.lane;
+    assert.notEqual(reminded?.kind === 'stuck' ? reminded.remindAt : undefined, remindAt);
+    assert.deepEqual(comments.calls, calls);
+    assert.equal(revision(3), undefined);
+  });
+
   it("lists the recipe's steps the batch has not reached yet", async () => {
     order();
     const driver = await open();
