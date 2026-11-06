@@ -69,8 +69,11 @@ export interface IssueMarks {
   openIssue(repo: string, title: string, body: string, signal?: AbortSignal): Promise<number>;
 }
 
+const MARKER_OPENS = '<!-- foedrum:';
+const MARKER_CLOSES = ' -->';
+
 /** The hidden marker that carries an effect's key in a comment, so `findComment` finds it. */
-export const effectMarker = (key: string): string => `<!-- foedrum:${key} -->`;
+export const effectMarker = (key: string): string => `${MARKER_OPENS}${key}${MARKER_CLOSES}`;
 
 declare const marked: unique symbol;
 /** A comment Foedrum posts, built by `markedComment`; the code host's comments take no other. */
@@ -81,8 +84,10 @@ export const markedComment = (text: string, key: string, gap = '\n\n'): MarkedCo
   `${text}${gap}${effectMarker(key)}` as MarkedComment;
 
 /** Whether `body` ends as `markedComment` ends a comment, whoever wrote it. */
-export const isMarkedComment = (_body: string): boolean => {
-  throw new Error('not implemented');
+export const isMarkedComment = (body: string): boolean => {
+  const text = body.trimEnd();
+  const last = text.slice(text.lastIndexOf('\n') + 1);
+  return last.startsWith(MARKER_OPENS) && last.endsWith(MARKER_CLOSES);
 };
 
 export interface ClaimEffectsOptions {

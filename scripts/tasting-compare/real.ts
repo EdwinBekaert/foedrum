@@ -46,9 +46,10 @@ export type RealSetup = `${OrderNumber}-${Profile}` | '867-comments';
 export type RealRecord = RunRecord<RealSetup>;
 
 /** Order by order, and setup by setup within one. */
-export const REAL_SETUPS: readonly RealSetup[] = REAL_ORDERS.flatMap(({ order }) =>
-  PROFILES.map((profile) => `${order}-${profile}` as const),
-);
+export const REAL_SETUPS: readonly RealSetup[] = [
+  ...REAL_ORDERS.flatMap(({ order }) => PROFILES.map((profile) => `${order}-${profile}` as const)),
+  '867-comments',
+];
 
 /** The order `setup` tastes. */
 export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
@@ -105,12 +106,21 @@ export const realBreweryFiles = (
  * text from `read` of a file of `test/fixtures/tasting-compare/real/`.
  */
 export const realCommentsOf = (
-  _setup: RealSetup,
-  _author: string,
-  _read: (file: string) => string,
-): FakeApiComment[] => {
-  throw new Error('not implemented');
-};
+  setup: RealSetup,
+  author: string,
+  read: (file: string) => string,
+): FakeApiComment[] =>
+  setup === '867-comments'
+    ? [
+        {
+          id: 900_001,
+          author,
+          association: 'OWNER',
+          created: '2026-11-05T19:44:00Z',
+          body: read('867-comment.md').trimEnd(),
+        },
+      ]
+    : [];
 
 /** Throws when `today`'s pinned Taster is the default's text: the comparison would be of nothing. */
 export const refuseSameTaster = (today: string, current: string): void => {

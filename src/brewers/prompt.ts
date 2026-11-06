@@ -94,7 +94,7 @@ function describeSource(source: InputSource): string {
     case 'issue-body':
       return `issue #${source.issue} body`;
     case 'comment':
-      return `comment ${source.comment} on issue #${source.issue}`;
+      return `comment ${source.comment} on ${source.repo}#${source.issue}, by ${source.by ?? 'a deleted account'} (${source.association}), ${source.at}`;
     case 'out-doc':
       return `out doc of step ${source.step}`;
     case 'plan':
