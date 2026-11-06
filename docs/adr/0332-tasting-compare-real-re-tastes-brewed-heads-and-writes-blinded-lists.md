@@ -31,6 +31,7 @@ Their tiny repository has none of the rules, decision records and design pages a
 
 ## Consequences
 - What a Taster's permissions allow was measured on 2026-11-06 with `claude` 2.1.310 on native Windows and the fake Messages API, in a worktree nested in the checkout. `Read` by a path outside and through `..`, `Grep` with a path outside or `..`, and `Glob` with a path outside or an absolute pattern were refused. `Glob` with `../outside/*` was permitted and found nothing. So today a run should not fail for this; the check holds on a version or a sandboxed level that differs, which this did not measure, and it is the issue's rule either way.
+- The transcript lookup was proved the same day, with no token: the real `claude` on the fake Messages API, through this mode's own plan, for one run's three Tasters. It found each transcript in the real config directory, and read each Taster's opened file, body and model. The model each session asked for was `claude-sonnet-5-5`, so on that version the default `sonnet` is the model the trial orders ran on.
 - A run leaves its scratch folder and, in Claude Code's config directory, a project folder per Taster's worktree. They stay until someone removes them: after a comparison, once its numbers are recorded, delete `.foedrum/tmp/tasting-compare/real` and the folders under `projects/` whose names hold `tasting-compare-real`.
 - Three orders and three runs are a small sample, as ADR 0224 says of its change.
 - The bar and the key are #879's, fixed before any run, and this record does not repeat them.
