@@ -673,6 +673,53 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       assert.deepStrictEqual(said(), ['failed b1 runs boom', 'recovered b1 runs']);
     });
 
+    it('says a run recovered though another driver holds its batch by then', async () => {
+      let throws = true;
+      const { runner } = handRunner(() => throws);
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      assert.equal(
+        intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now).kind,
+        'accepted',
+      );
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 runs boom']);
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: 'b1', owner: 'session', expiresAt: at(5) }),
+      );
+      throws = false;
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 runs boom', 'recovered b1 runs']);
+    });
+
+    it('calls a batch that went Stuck after throwing in the drive nothing recovered', async () => {
+      order('b1');
+      const family = () => {
+        throw boom;
+      };
+      const driver = await open({ family });
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 drive boom']);
+      now = at(61);
+      await driver.tick();
+      assert.equal(laneOf(driver, 'b1')?.kind, 'stuck');
+      assert.deepStrictEqual(said(), ['failed b1 drive boom']);
+    });
+
+    it('calls a batch paused after throwing in the drive nothing recovered', async () => {
+      order('b1');
+      const family = () => {
+        throw boom;
+      };
+      const driver = await open({ family });
+      await driver.tick();
+      const pause = { kind: 'pause', order: { issue: 1 }, by: 'ada', via: 'terminal' } as const;
+      assert.equal(intake.issue(pause, now).kind, 'accepted');
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 drive boom']);
+    });
+
     it('calls nothing recovered in a tick that rejected before its supervisor read the batch (regression test)', async () => {
       const { runner } = handRunner();
       order('b1', 'bad');
