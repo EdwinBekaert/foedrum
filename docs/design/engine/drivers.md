@@ -40,7 +40,7 @@ A throw for one batch in the supervisor, the pass over the runs, the drive or an
 A batch that threw gets no command from that tick's supervisor, and its lost attempt's expired lease stays for the next tick, as does one whose `lose` threw.
 It is set aside for the rest of a drive and does not count as moved, so the drive ends; the next drive tries it again.
 A run whose stop throws is stopped again on the next tick, and closing a driver stops every run and lets its lock go whichever stop throws.
-An attempt whose limits or runner start throw after its start is recorded ends at once as a run whose end rejects does: `blocked` + `environment`, `run_failed`, and its lease goes.
+An attempt whose start, limits or runner start throw once its start is recorded ends at once as a run whose end rejects does: `blocked` + `environment`, `run_failed`, and its lease goes.
 A driver says nothing of a batch it does not take or another driver holds, except that its supervisor says what it acts on, the free batches too, and a driver says the failures of the runs it runs and of their ends whoever holds their batch.
 It says each batch and pass once, and again when the message changes, kept in its memory, and says when a pass goes over the batch clean (`batch_recovered`), for the drive only of a batch that still brews unpaused; an attempt's end whose reading throws is said each time.
 A batch whose reading throws on every pass, in the effects or the supervisor, has that line in the driver's output as its only sign, and its status comment and labels wait when the throw is in its effects; what a person sees beyond it is left to the open issue #883.
