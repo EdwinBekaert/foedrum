@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type AttemptRef, attemptKey } from '../../src/engine/attempt-key.ts';
+import type { BaseMerge } from '../../src/engine/base-merge.ts';
 import type { AttemptEnd, AttemptStart, BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
@@ -22,6 +23,7 @@ import { messageOf } from '../../src/platform/errors.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
+import { fakeWorktrees } from '../helpers/fake-worktrees.ts';
 
 const minute = 60_000;
 const t0 = new Date('2026-11-06T12:00:00.000Z');
@@ -78,6 +80,8 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
   // While true, `bad` throws when the supervisor asks for a stall limit, counting each.
   let stallBroken: boolean;
   let stallsAsked: number;
+  // While true, `bad` throws when a start asks whether its step merges the base.
+  let mergeBroken: boolean;
   const drivers: Driver[] = [];
 
   const pint = fakeRecipe({ steps: ['plan', 'implement'] });
@@ -86,6 +90,10 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
     interactive: (stepId) => {
       if (broken) throw boom;
       return pint.interactive(stepId);
+    },
+    mergesBase: (stepId) => {
+      if (mergeBroken) throw boom;
+      return pint.mergesBase(stepId);
     },
     // The supervisor asks every batch's running step this, whoever holds the batch.
     stall: (stepId) => {
@@ -106,6 +114,7 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
     broken = false;
     stallBroken = false;
     stallsAsked = 0;
+    mergeBroken = false;
   });
   afterEach(() => {
     for (const driver of drivers.splice(0)) driver.close();
@@ -235,6 +244,47 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       );
       assert.ok(notices.some((notice) => notice.kind === 'run_failed'));
       assert.deepStrictEqual(started, [plan('b2')]);
+    });
+
+    it('an attempt whose start throws after it is recorded ends the same way', async () => {
+      const { runner, started } = handRunner();
+      order('b1', 'bad');
+      order('b2');
+      mergeBroken = true;
+      const worktrees = [
+        {
+          repo: 'acme/api',
+          base: 'origin/main',
+          manager: fakeWorktrees(),
+          merge: {} as BaseMerge,
+        },
+      ];
+      const driver = await open({ runner, worktrees });
+      await driver.drive();
+      assert.equal(laneOf(driver, 'b1')?.kind, 'stuck');
+      assert.ok(notices.some((notice) => notice.kind === 'run_failed'));
+      assert.deepStrictEqual(failures(), []);
+      assert.deepStrictEqual(started, [plan('b2')]);
+      assert.ok(
+        !store
+          .currentLeases(now)
+          .some(({ attemptKey: key }) => key === attemptKey.encode(plan('b1'))),
+        'its lease goes',
+      );
+    });
+
+    it('a whose-batch check that throws is said of the batch, and stops no other', async () => {
+      const { runner, started } = handRunner();
+      order('b1');
+      order('b2');
+      const takes = (batchId: string) => {
+        if (batchId === 'b1') throw boom;
+        return true;
+      };
+      const driver = await open({ runner, takes });
+      await driver.drive();
+      assert.deepStrictEqual(started, [plan('b2')]);
+      assert.deepStrictEqual(failures(), [{ kind: 'batch_failed', batchId: 'b1', pass: 'drive' }]);
     });
 
     it("an attempt whose limits throw ends the same way, and the other batch's attempt starts", async () => {
