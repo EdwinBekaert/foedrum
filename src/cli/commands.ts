@@ -7,7 +7,7 @@
 
 import { aliasOf, nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
-import { latestBatch, type NamedWork, namedWork } from '../engine/claim-orders.ts';
+import { calledAs, latestBatch, type NamedWork, namedWork } from '../engine/claim-orders.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
@@ -228,7 +228,8 @@ const changeBrewery = async (
 /** Where the batch `batchId` is now, as a command that changed it says. */
 const laneLine = (state: State, batchId: string): string => {
   // Accepted, so the batch exists.
-  const { lane, detail } = describeLane(foldedBatch(state, batchId));
+  const batch = foldedBatch(state, batchId);
+  const { lane, detail } = describeLane(batch, calledAs(state, batch));
   return `${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
 };
 
@@ -305,8 +306,10 @@ const breweryOrdering = (
   config: () => BreweryConfig,
 ): Ordering | { refused: string } => {
   const alias = order.repo === undefined || batch === undefined ? undefined : aliasOf(batch.id);
-  if (alias === undefined) return { order: { issue }, name: `#${issue}` };
-  return aliasedOrdering(alias, order.issue, config());
+  const name = `#${issue}`;
+  if (alias === undefined) return { order: { issue }, name };
+  const claimed = aliasedOrdering(alias, order.issue, config());
+  return 'refused' in claimed ? claimed : { ...claimed, name };
 };
 
 /** The repository foedrum.jsonc gives the alias, read only for a target issue's name. */
@@ -711,6 +714,7 @@ export const commands: readonly RegisteredCommand[] = [
                 (at > opened && windowed(event)),
             ),
             pauseOf(state, batch),
+            calledAs(state, batch),
           ),
         );
       }),
@@ -843,7 +847,7 @@ export const commands: readonly RegisteredCommand[] = [
         if (latest?.lane.kind === 'brewing') {
           return failed(
             'recipe',
-            `batch ${latest.id} of ${name} is brewing; foedrum stop ${name} first, then change its recipe`,
+            `batch ${latest.id} of ${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
           );
         }
         const lines: string[] = [];

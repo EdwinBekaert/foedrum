@@ -42,7 +42,7 @@ import {
   stoppedEnd,
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
-import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
+import { claimedName, claimOfOrder, claimOrderOf, liveOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import {
   type Attempt,
@@ -575,7 +575,7 @@ export function orderRefusal(state: State, order: OrderRef): string | undefined 
   // Its batches are the claimed issue's, which a new claim orders again (ADR 0144).
   const claimed = repo === undefined ? claimOfOrder(state, issue) : undefined;
   if (claimed?.repo !== undefined) {
-    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; order ${claimedName(claimed)} again`;
+    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; foedrum order ${issue} orders it again`;
   }
   return busy(state, order);
 }
@@ -612,7 +612,7 @@ function busy(state: State, order: OrderRef): string | undefined {
       case 'held':
         return `${of} holds its claim until its pull requests end`;
       case 'releasing':
-        return `the release of the claim of batch ${batch.id} is still due: foedrum serve applies it, then order ${ofRepo}#${issue} again`;
+        return `the release of the claim of batch ${batch.id} is still due: foedrum serve applies it, then foedrum order ${liveOrderOf(state, order) ?? claimedName(batch)} again`;
       case 'released':
         continue;
       default:
@@ -1496,7 +1496,10 @@ function batchesOf(draft: Draft, order: OrderRef, verb: 'pause' | 'stop'): Batch
   const claimed = order.repo === undefined ? claimOfOrder(state, order.issue) : undefined;
   if (claimed?.repo !== undefined) {
     const target = claimedName(claimed);
-    throw new Refusal(`${name} is the order of ${target}; ${verb} ${target}`);
+    const done = verb === 'pause' ? 'holds' : 'stops';
+    throw new Refusal(
+      `${name} is the order of ${target}; foedrum ${verb} ${order.issue} ${done} it`,
+    );
   }
   const key = orderKey(order);
   return [...state.batches.values()].filter(

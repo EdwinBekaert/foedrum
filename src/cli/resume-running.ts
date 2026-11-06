@@ -11,6 +11,7 @@ import {
   releaseBatch,
   takeOver,
 } from '../engine/batch-leases.ts';
+import { calledAs } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { type Batch, foldedBatch, latestAttempt } from '../engine/fold.ts';
@@ -148,7 +149,7 @@ export const runResumeRunning = async (
         await tick(driver, report);
         const batch = foldedBatch(driver.state(), batchId);
         const resumed = batch.steps.get(stepId)?.attempts.get(attempt);
-        const { lane, detail } = describeLane(batch);
+        const { lane, detail } = describeLane(batch, calledAs(driver.state(), batch));
         const where = `batch ${batchId} is ${lane}${detail === '' ? '' : `: ${detail}`}`;
         if (resumed?.phase === 'finished') {
           const next =

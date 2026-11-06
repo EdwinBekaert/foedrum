@@ -2,7 +2,6 @@
 // person moved an order with `foedrum rank`. Pure: the intake and `rank` both sort through it.
 
 import type { OrderRef, PlanOrigin } from '../schemas/events.ts';
-import { claimedName, claimOfOrder } from './claim-orders.ts';
 import { orderKey, type Rank, type State } from './fold.ts';
 
 /** An order of the intake's queue, as it sorts. */
@@ -124,11 +123,6 @@ export const rankRefusal = (state: State, order: OrderRef): string | undefined =
     const subOrder = state.subOrders.get(order.issue);
     if (subOrder !== undefined) {
       return `${name} is a sub-order of #${subOrder.order}; its plan ranks it`;
-    }
-    const claimed = claimOfOrder(state, order.issue);
-    if (claimed !== undefined) {
-      const target = claimedName(claimed);
-      return `${name} is the order of ${target}; rank ${target}`;
     }
   }
   const key = orderKey(order);

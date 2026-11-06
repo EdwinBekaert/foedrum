@@ -1,7 +1,7 @@
 // `foedrum stuck`: every Stuck batch with why, what it offers, and the questions it asks, numbered
 // in the order `foedrum answer` takes their answers.
 
-import { orderName } from '../engine/claim-orders.ts';
+import { calledAs, orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
@@ -42,7 +42,11 @@ export const formatStuck = (state: State): string => {
   );
   if (stuck.length === 0) return 'No Stuck batches.\n';
   const heads = columns(
-    stuck.map(({ batch }) => [batch.id, orderName(state, batch), describeLane(batch).detail]),
+    stuck.map(({ batch }) => [
+      batch.id,
+      orderName(state, batch),
+      describeLane(batch, calledAs(state, batch)).detail,
+    ]),
     '',
   );
   const lines = stuck.flatMap(({ batch, lane }, i) => [

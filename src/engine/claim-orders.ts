@@ -152,6 +152,17 @@ export const claimedName = (batch: Batch): string =>
   `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;
 
 /**
+ * How a line that offers a command names a batch's work (ADR 0329): the bare number of its Brewery
+ * issue, which every shell passes as it is, its target issue's `<alias>#<n>` until that is open, or
+ * the batch's own id when its id has no alias.
+ */
+export const calledAs = (state: State, batch: Batch): string => {
+  const number = breweryIssueOf(state, batch);
+  if (number !== undefined) return String(number);
+  return aliasOf(batch.id) === undefined ? batch.id : claimedName(batch);
+};
+
+/**
  * How `status` and `stuck` name a batch's issue: `#<n>` for a Brewery issue, `#<order> (<alias>#<n>)`
  * for a claimed one, and `<alias>#<n>` until its Brewery issue is opened.
  */

@@ -1,7 +1,8 @@
 // `foedrum replay <batch>`: the batch's events as stored, and the state the fold makes of them.
 
+import { calledAs } from '../engine/claim-orders.ts';
 import type { StoredEvent } from '../engine/event-store.ts';
-import type { Attempt, Batch, Pause } from '../engine/fold.ts';
+import { type Attempt, type Batch, emptyState, type Pause } from '../engine/fold.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import type { MutantVerdict } from '../schemas/events.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
@@ -72,9 +73,11 @@ export const formatReplay = (
   batch: Batch,
   events: readonly StoredEvent[],
   pause?: Pause,
+  /** How its lane's lines name its work (`calledAs`, ADR 0329). */
+  called: string = calledAs(emptyState, batch),
 ): string => {
   const idWidth = Math.max(...events.map(({ id }) => String(id).length));
-  const { lane, detail } = describeLane(batch);
+  const { lane, detail } = describeLane(batch, called);
   const { recipe } = batch;
   const lines = [
     `Batch ${batch.id}, issue ${issueOf(batch)}`,
