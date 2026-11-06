@@ -915,6 +915,16 @@ describe('the merge brief (ADR 0225)', () => {
       );
     });
 
+    it("a later run whose reports hold every named test leaves the merge brief's risk left without them (ADR 0342)", async () => {
+      order('mutated');
+      run('implement', done, { unreported: { tests: ['adds'], more: 0 } });
+      run('mutants', done, { unreported: { tests: [], more: 0 } });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(body, /\*\*Risk left\*\*\nNone recorded\.$/m);
+    });
+
     it("the merge brief's line tells a name as a finding's text is told (ADR 0342)", async () => {
       const token = ['ghp', 'A1b2'.repeat(9)].join('_');
       order('bare');

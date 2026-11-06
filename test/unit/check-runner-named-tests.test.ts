@@ -64,6 +64,7 @@ const run = async ({
   redProof = true,
   surveys = false,
   unread = false,
+  silent = [] as string[],
 }: {
   stepId?: string;
   /** The Gauger's out doc's lists. */
@@ -80,6 +81,8 @@ const run = async ({
   surveys?: boolean;
   /** Whether the report cannot be read. */
   unread?: boolean;
+  /** The report patterns that find nothing: a module that wrote no report. */
+  silent?: string[];
 } = {}) => {
   const ref = { batchId: '1-1', stepId, attempt: 1 };
   const events: Event[] = [
@@ -142,7 +145,8 @@ const run = async ({
     testMap: {
       at: async (_repo: string, commit: string) => at[commit] ?? { kind: 'map', map },
       reports: (pattern: string) => ({
-        paths: report === null && !unread ? [] : [join(tree, pattern)],
+        paths:
+          (report === null && !unread) || silent.includes(pattern) ? [] : [join(tree, pattern)],
       }),
       realPath: (path: string) => path,
       isFolder: () => false,
@@ -155,6 +159,161 @@ const run = async ({
     limits: { outDoc: { file: 'out.md', schema: undefined as never } },
   }).ended;
 };
+
+const extra: TestMapModule = {
+  ...api,
+  name: 'extra',
+  code: ['extra/src/**'],
+  tests: { paths: ['extra/test/**'] },
+  testReport: { format: 'tap', path: 'extra.tap' },
+};
+
+describe('createCheckRunner: what it does not say of the tests a Gauger named (ADR 0342)', () => {
+  describe('at a red proof', () => {
+    it('records nothing when the Gauger named no test', async () => {
+      const end = await run({ named: {} });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing when a module only the batch adds wrote no report: its tests are unread', async () => {
+      const end = await run({
+        map: mapOf(api, extra),
+        at: { [base]: { kind: 'map', map: mapOf(api) } },
+        silent: ['extra.tap'],
+      });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('says nothing of the names when a module only the batch adds wrote no report', async () => {
+      const end = await run({
+        map: mapOf(api, extra),
+        at: { [base]: { kind: 'map', map: mapOf(api) } },
+        silent: ['extra.tap'],
+        report: tap('ok 1 - subtracts'),
+        exitCode: 1,
+      });
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'the red proof of step gauge failed: no test fails, so none shows the behaviour missing',
+      });
+    });
+
+    it('a run with no failing test that holds every named test says nothing of them', async () => {
+      const end = await run({
+        named: { tests: [UNIT] },
+        report: tap(`ok 1 - ${UNIT}`),
+        exitCode: 0,
+      });
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason:
+          'the red proof of step gauge failed: no test fails, so none shows the behaviour missing',
+      });
+    });
+
+    it('a run with a load error says nothing of the names, nor records them', async () => {
+      const end = await run({
+        report: tap("not ok 1 - add\n  ---\n  error: 'SyntaxError: nope'\n  ..."),
+      });
+      assert.equal(end.ending.kind, 'failed');
+      assert.doesNotMatch(
+        end.ending.kind === 'failed' ? end.ending.reason : '',
+        /tests step gauge/,
+      );
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('a proof that fails records nothing: its reason counts them', async () => {
+      const end = await run({ report: tap('ok 1 - subtracts'), exitCode: 0 });
+      assert.equal(end.ending.kind, 'failed');
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('its reason names no name the Gauger wrote', async () => {
+      const end = await run({ report: tap('ok 1 - subtracts'), exitCode: 0 });
+      const reason = end.ending.kind === 'failed' ? end.ending.reason : '';
+      assert.match(reason, /2 of the 2 tests/);
+      assert.ok(!reason.includes(UNIT) && !reason.includes(INTEGRATION), reason);
+    });
+
+    it("bounds what it records, and keeps a name's secret and line break out", async () => {
+      const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+      const names = Array.from({ length: 12 }, (_, index) => `missing ${index}`);
+      const end = await run({
+        named: { tests: [UNIT, `logs in with ${token}`, 'adds\nforged', ...names] },
+      });
+      assert.equal(end.unreported?.tests.length, 10);
+      assert.equal(end.unreported?.more, 4);
+      assert.equal(end.unreported?.tests[0], '[left out: a name that looks like a secret]');
+      assert.equal(end.unreported?.tests[1], 'adds forged');
+    });
+  });
+
+  describe('at a check step', () => {
+    const passing = tap(`ok 1 - ${UNIT}`);
+
+    it('records nothing when the Gauger named no test', async () => {
+      const end = await run({ stepId: 'green', named: {}, report: passing });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing of a failing run, which may have stopped before a test', async () => {
+      const end = await run({ stepId: 'green', report: passing, exitCode: 1 });
+      assert.equal(end.ending.kind, 'failed');
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing when a module wrote no report: its tests are unread', async () => {
+      const end = await run({
+        stepId: 'green',
+        report: passing,
+        map: mapOf(api, extra),
+        silent: ['extra.tap'],
+      });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing when a report cannot be read', async () => {
+      const end = await run({ stepId: 'green', unread: true, report: passing });
+      // The skip check's own ending, for a report it reads too (ADR 0274): nothing new fails here.
+      assert.deepEqual(end.ending, {
+        kind: 'failed',
+        retryable: false,
+        reason: 'the test report api.tap of module "api" cannot be read: too big',
+      });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing of a TRX report, which Foedrum does not read', async () => {
+      const trx: TestMapModule = {
+        ...extra,
+        testReport: { format: 'trx', path: 'extra.trx' },
+      };
+      const end = await run({ stepId: 'green', report: passing, map: mapOf(api, trx) });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing in a recipe with no red proof', async () => {
+      const end = await run({ stepId: 'green', report: passing, redProof: false });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+
+    it("records nothing at a survey's check, before any Gauger's test", async () => {
+      const end = await run({ stepId: 'green', report: passing, surveys: true });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+      assert.equal(end.unreported, undefined);
+    });
+  });
+});
 
 describe('createCheckRunner: the tests a Gauger named (ADR 0342)', () => {
   describe('at a red proof', () => {
