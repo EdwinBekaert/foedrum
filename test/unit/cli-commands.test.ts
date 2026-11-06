@@ -332,6 +332,25 @@ describe('foedrum: commands that change state', () => {
   });
 
   describe('retry', () => {
+    it('says which batch could not be read, in one line, when its recipe throws', async () => {
+      const throwing = fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 });
+      const broken = fakeRecipes({
+        pint: {
+          ...throwing,
+          deadlineMs: () => {
+            throw new Error('recipe pint has no step plan');
+          },
+        },
+      });
+      assert.deepStrictEqual(
+        await run(['retry', '22-1'], { recipes: () => broken }),
+        refused(
+          'retry',
+          'batch 22-1 could not be read: recipe pint has no step plan; cancel it, or choose another recipe',
+        ),
+      );
+    });
+
     it('schedules another attempt, recorded with who issued it and from where', async () => {
       assert.deepStrictEqual(await run(['retry', '22-1']), ok('22-1 brewing: plan #2 scheduled\n'));
       assert.deepStrictEqual(appended(2), [
