@@ -1492,11 +1492,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
 
     for (const lane of ['ordered', 'brewing', 'conditioning', 'stuck'] as const) {
       it(`refuses it while its batch is ${lane}`, () => {
-        refuses(
-          lanes[lane],
-          again('b2', { issue: 100 }),
-          new RegExp(`^batch b1 of #100 is still ${lane}$`),
-        );
+        refuses(lanes[lane], again('b2', { issue: 100 }), new RegExp(`^#100 is still ${lane}$`));
       });
     }
 
@@ -1528,11 +1524,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
 
     it('refuses it while a later batch is live, past one that ended', () => {
       const b2: Event = { ...ordered, batchId: 'b2' };
-      refuses(
-        [...lanes.cancelled, b2],
-        again('b3', { issue: 100 }),
-        /^batch b2 of #100 is still ordered$/,
-      );
+      refuses([...lanes.cancelled, b2], again('b3', { issue: 100 }), /^#100 is still ordered$/);
     });
   });
 
@@ -1593,18 +1585,18 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       refuses(
         [webOrdered],
         again('web-7-2', { issue: 7, repo: 'Acme/Web' }),
-        /^batch web-7 of acme\/web#7 is still ordered$/,
+        /^Acme\/Web#7 is still ordered$/,
       );
     });
 
     it('refuses it while its batch is live', () => {
-      refuses([webOrdered], again('web-7-2', web), /^batch web-7 of acme\/web#7 is still ordered$/);
+      refuses([webOrdered], again('web-7-2', web), /^acme\/web#7 is still ordered$/);
     });
 
     it('refuses it while a later batch is live, past one that ended and was released', () => {
       const later: Event = { ...webOrdered, batchId: 'web-7-2' };
       const events = [...webCancelled, ...released, later];
-      const refused = /^batch web-7-2 of acme\/web#7 is still ordered$/;
+      const refused = /^acme\/web#7 is still ordered$/;
       refuses(events, again('web-7-3', web), refused);
       refuses(events, { kind: 'order', batchId: 'web-7-3', order: web }, refused);
     });
@@ -1617,7 +1609,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       refuses(
         [webOrdered],
         { kind: 'order', batchId: 'web-7-2', order: web },
-        /^batch web-7 of acme\/web#7 is still ordered$/,
+        /^acme\/web#7 is still ordered$/,
       );
     });
 
@@ -1629,7 +1621,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
         refuses(
           events,
           again('web-7-2', web),
-          /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then foedrum order web#7 again$/,
+          /^the release of the claim of acme\/web#7 is still due: foedrum serve applies it, then foedrum order web#7 again$/,
         );
       }
     });
@@ -1664,7 +1656,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       refuses(
         onTapEvents,
         again('web-7-2', web),
-        /^batch web-7 of acme\/web#7 holds its claim until its pull requests end$/,
+        /^acme\/web#7 holds its claim until its pull requests end$/,
       );
       accepts(
         [
@@ -1705,7 +1697,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       refuses(
         withOrder,
         again('web-7-2', web),
-        /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then foedrum order 200 again$/,
+        /^the release of the claim of #200 is still due: foedrum serve applies it, then foedrum order 200 again$/,
       );
       accepts([...withOrder, ...applied('release.order')], again('web-7-2', web), [
         orderedAgain('web-7-2', web),

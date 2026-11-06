@@ -218,9 +218,9 @@ describe('problemsOf', () => {
   const comment = [{ author: 'cellar-bot', body: 'On tap' }];
   // The mashed order's two lives: foedrum mash to the Innkeeper's question, then foedrum brew to the
   // plan, Stuck for review; and its status comment and plan comment.
-  const mashed = 'foedrum mash: batch 3-1 needs input at innkeep:\n';
+  const mashed = 'foedrum mash: #3 needs input at innkeep:\n';
   const planned =
-    'foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review; options: retry\n';
+    'foedrum brew: #3 is stuck: the plan of plan #1 is ready for your review; options: retry\n';
   const statusComment = { author: 'cellar-bot', body: '### Foedrum · batch `3-1`\n\nStuck' };
   const planComment = { author: 'cellar-bot', body: `${PLAN_HEADING} \`3-1\`` };
   const run = (fields: Partial<DemoRun> = {}): DemoRun => ({
@@ -270,12 +270,12 @@ describe('problemsOf', () => {
 
   it('says when foedrum brew did not end with its batch on tap', () => {
     const problems = problemsOf(run({ brew: { exitCode: 5, output: 'foedrum brew: refused\n' } }));
-    assert.match(problems.join('\n'), /foedrum brew did not put batch 2-1 on tap.*refused/s);
+    assert.match(problems.join('\n'), /foedrum brew did not put #2 on tap.*refused/s);
     // Each half alone: a brew that ends well short of on tap, or fails after it.
-    const stuck = { exitCode: 0, output: 'foedrum brew: batch 2-1 is stuck\n' };
-    assert.match(problemsOf(run({ brew: stuck })).join('\n'), /did not put batch 2-1 on tap/);
+    const stuck = { exitCode: 0, output: 'foedrum brew: #2 is stuck\n' };
+    assert.match(problemsOf(run({ brew: stuck })).join('\n'), /did not put #2 on tap/);
     const failed = { exitCode: 1, output: `${BREW_ON_TAP_LINE}: https://example.test/pull/3\n` };
-    assert.match(problemsOf(run({ brew: failed })).join('\n'), /did not put batch 2-1 on tap/);
+    assert.match(problemsOf(run({ brew: failed })).join('\n'), /did not put #2 on tap/);
   });
 
   it('says when foedrum status or replay failed, with what it said', () => {
@@ -326,35 +326,35 @@ describe('problemsOf', () => {
     const refused = { exitCode: 5, output: 'foedrum mash: refused\n' };
     assert.match(
       problemsOf(run({ mash: refused })).join('\n'),
-      /foedrum mash did not stop batch 3-1 at its question \(exit code 5\):\nfoedrum mash: refused/,
+      /foedrum mash did not stop #3 at its question \(exit code 5\):\nfoedrum mash: refused/,
     );
     // Each half alone: the question with another exit code, or exit 4 without it.
     assert.match(
       problemsOf(run({ mash: { exitCode: 0, output: mashed } })).join('\n'),
-      /did not stop batch 3-1 at its question/,
+      /did not stop #3 at its question/,
     );
-    const elsewhere = { exitCode: 4, output: 'foedrum mash: batch 3-1 needs input at plan:\n' };
+    const elsewhere = { exitCode: 4, output: 'foedrum mash: #3 needs input at plan:\n' };
     assert.match(
       problemsOf(run({ mash: elsewhere })).join('\n'),
-      /did not stop batch 3-1 at its question/,
+      /did not stop #3 at its question/,
     );
   });
 
-  it('says when foedrum brew did not leave the plan of batch 3-1 Stuck for its review', () => {
-    const tapped = { exitCode: 0, output: 'foedrum brew: batch 3-1 is on tap\n' };
+  it('says when foedrum brew did not leave the plan of #3 Stuck for its review', () => {
+    const tapped = { exitCode: 0, output: 'foedrum brew: #3 is on tap\n' };
     assert.match(
       problemsOf(run({ plan: tapped })).join('\n'),
-      /foedrum brew did not leave the plan of batch 3-1 Stuck for its review \(exit code 0\):\nfoedrum brew: batch 3-1 is on tap/,
+      /foedrum brew did not leave the plan of #3 Stuck for its review \(exit code 0\):\nfoedrum brew: #3 is on tap/,
     );
     // Each half alone: the review with another exit code, or exit 3 Stuck for another reason.
     assert.match(
       problemsOf(run({ plan: { exitCode: 1, output: planned } })).join('\n'),
-      /did not leave the plan of batch 3-1 Stuck/,
+      /did not leave the plan of #3 Stuck/,
     );
-    const otherwise = { exitCode: 3, output: 'foedrum brew: batch 3-1 is stuck: plan failed\n' };
+    const otherwise = { exitCode: 3, output: 'foedrum brew: #3 is stuck: plan failed\n' };
     assert.match(
       problemsOf(run({ plan: otherwise })).join('\n'),
-      /did not leave the plan of batch 3-1 Stuck/,
+      /did not leave the plan of #3 Stuck/,
     );
   });
 

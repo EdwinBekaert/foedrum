@@ -1,4 +1,4 @@
-// `foedrum replay <batch>`: the batch's events as stored, and the state the fold makes of them.
+// `foedrum replay <issue>`: the batch's events as stored, and the state the fold makes of them.
 
 import { calledAs } from '../engine/claim-orders.ts';
 import type { StoredEvent } from '../engine/event-store.ts';

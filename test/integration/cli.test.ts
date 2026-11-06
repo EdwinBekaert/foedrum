@@ -144,7 +144,7 @@ describe('foedrum status and replay on store files', () => {
     const { exitCode, stdout, stderr } = await foedrum('cancel', '12-1');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.equal(stdout, `12-1 cancelled: by ${userInfo().username} via terminal\n`);
+    assert.equal(stdout, `#12 cancelled: by ${userInfo().username} via terminal\n`);
     const reader = openSqliteEventStore(store, { readOnly: true });
     assert.deepEqual(reader.eventsAfter(1)[0]?.event, {
       type: 'batch.cancelled',
@@ -177,7 +177,7 @@ describe('foedrum status and replay on store files', () => {
     });
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.equal(stdout, `12-1 cancelled: by ${user} via terminal\n`);
+    assert.equal(stdout, `#12 cancelled: by ${user} via terminal\n`);
     const reader = openSqliteEventStore(store, { readOnly: true });
     assert.deepEqual(reader.eventsAfter(1)[0]?.event, {
       type: 'batch.cancelled',
@@ -426,7 +426,7 @@ describe("foedrum with the Brewery's recipe files (ADR 0053)", () => {
     const { exitCode, stdout, stderr } = await foedrum('retry', '12-1');
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(stdout, /^12-1 brewing: roaster #1 scheduled/);
+    assert.match(stdout, /^#12 brewing: roaster #1 scheduled/);
     const reader = openSqliteEventStore(store, { readOnly: true });
     const scheduled = reader
       .eventsAfter(0)
@@ -519,7 +519,7 @@ describe('foedrum order through cliFromCheckout (ADR 0105)', () => {
     const { exitCode, stdout, stderr } = await order(gh.exec);
     assert.equal(stderr, '');
     assert.equal(exitCode, 0);
-    assert.match(stdout, /^web-7-2 ordered: to be routed by \S+\n$/);
+    assert.match(stdout, /^web#7 ordered: to be routed by \S+\n$/);
     assert.deepStrictEqual(api.created, ['acme/web refs/foedrum/claims/issues/7']);
     assert.deepStrictEqual(
       [...new Set(gh.calls.map(({ args }) => flagValue(args, '--hostname')))],

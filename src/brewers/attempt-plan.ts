@@ -366,7 +366,8 @@ export const planLensInputs = (
  * the recipes input's in `choices`, the Brewery's recipes but those that choose one (ADR 0232), and
  * a sub-order's plan entry input's in `planEntry` (ADR 0290), and the release input's in `release`,
  * left out when the batch waited on no release (ADR 0291), and the checks input's in `checks`,
- * left out when no check ran on the commit the attempt starts at (ADR 0308).
+ * left out when no check ran on the commit the attempt starts at (ADR 0308). `breweryIssue` is the
+ * Brewery issue that is a claimed batch's order, which its order input's source names (ADR 0334).
  */
 export function inputsOf(
   inputs: BrewerFrontmatter['inputs'],
@@ -381,6 +382,7 @@ export function inputsOf(
   release?: ReleaseInput,
   recipeHas: (stepId: string) => boolean = () => true,
   checks?: ChecksInput,
+  breweryIssue?: number,
 ): PlannedInput[] {
   // A step the batch skipped, or one its recipe does not have (#774), gives the input nothing.
   const stepLeftOut = (step: string): boolean =>
@@ -400,7 +402,8 @@ export function inputsOf(
       if (from === 'order') {
         const { issue, repo } = batch;
         const read: InputRead = { kind: 'order', issue, ...(repo === undefined ? {} : { repo }) };
-        return { name, source: { kind: 'issue-body', issue }, read };
+        const claimed = breweryIssue === undefined ? {} : { breweryIssue };
+        return { name, source: { kind: 'issue-body', issue, ...claimed }, read };
       }
       if (from === 'repositories') {
         if (brewery === undefined) throw new Error(`the input "${name}" has no repositories`);

@@ -8,10 +8,10 @@ import { lostBecause } from '../../src/engine/supervisor.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { BREW_ORDER, MASH_ORDER, USER } from './core.ts';
 
-/** The Cellar's batch: its order is the Brewery's first issue, decomposed into one batch. */
-export const BATCH = '1-1';
-/** The batch foedrum mash orders of the third issue, which `foedrum answer` answers. */
-export const MASHED = `${MASH_ORDER.number}-1`;
+/** The Cellar's batch, by its number: its order is the Brewery's first issue, decomposed into one batch. */
+export const BATCH = '1';
+/** The third issue, whose batch foedrum mash orders and `foedrum answer` answers. */
+export const MASHED = String(MASH_ORDER.number);
 /** The attempt foedrum resume names: the Cellarman's second, the one the failed check sent back. */
 export const RESUMED = 'implement#2';
 
@@ -254,10 +254,10 @@ export const laterRoundLines = (
 };
 
 /**
- * `foedrum replay <batch>`'s output with its Events block counted in one line instead of listed:
+ * `foedrum replay <issue>`'s output with its Events block counted in one line instead of listed:
  * the State under it is what the walkthrough shows (#662).
  */
-export const replayLines = (output: string, batch: string): string[] => {
+export const replayLines = (output: string, issue: string): string[] => {
   const lines = output.trimEnd().split(/\r?\n/);
   const start = lines.indexOf('Events');
   if (start === -1) return lines;
@@ -265,7 +265,7 @@ export const replayLines = (output: string, batch: string): string[] => {
   const events = (end === -1 ? lines.length : end) - start - 1;
   return [
     ...lines.slice(0, start),
-    `Events  ${events}, left out here: foedrum replay ${batch} lists them`,
+    `Events  ${events}, left out here: foedrum replay ${issue} lists them`,
     ...(end === -1 ? [] : lines.slice(end)),
   ];
 };

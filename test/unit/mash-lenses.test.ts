@@ -547,6 +547,10 @@ describe('foedrum brew on recipe:mash and recipe:decoction, through the default 
     const lauter: BrewRequest = { ...request, lauter: '12-1' };
     assert.equal(await runBrew(setup, shell({ lauter: [corrected] }), lauter), 3, lines.join('\n'));
     assert.deepStrictEqual(started.slice(before), ['lauter#1']);
+    assert.ok(
+      lines.includes('foedrum lauter: #12 goes to a session on its plan'),
+      lines.join('\n'),
+    );
     assert.deepStrictEqual(stuckReason(), { kind: 'plan_review', stepId: 'lauter', attempt: 1 });
   });
 

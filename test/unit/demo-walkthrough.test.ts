@@ -51,7 +51,7 @@ describe('the walkthrough steps', () => {
     const title = (id: string) => STEPS.find((step) => step.id === id)?.title;
     assert.equal(title('lenses'), 'foedrum lenses');
     assert.equal(title('brew'), 'foedrum brew 2 --as ann');
-    assert.equal(title('resume'), `foedrum resume 1-1 ${RESUMED}`);
+    assert.equal(title('resume'), `foedrum resume 1 ${RESUMED}`);
     assert.equal(RESUMED, 'implement#2');
   });
 

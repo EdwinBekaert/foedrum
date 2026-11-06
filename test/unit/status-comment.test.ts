@@ -25,6 +25,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
   code,
   labelled,
+  planNextLine,
   planNextStep,
   renderStatus,
   type StatusComments,
@@ -1971,6 +1972,64 @@ describe('statusEffects', () => {
     assert.deepEqual(notices, []);
   });
 
+  it("offers an older batch's question by its id, which the number would not reach (ADR 0334)", async () => {
+    order();
+    brew();
+    const which = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+    const asks = { kind: 'needs_input' as const, questions: [which] };
+    issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending: asks });
+    // A batch on tap counts as ended, so a later batch can be ordered, and a failed pull request
+    // can then bring the earlier one back to a question (ADR 0334).
+    store.withTransaction((tx) =>
+      tx.append({ type: 'batch.ordered', batchId: '7-2', order: { issue: 7 }, routeBy: at }),
+    );
+    const driver = await open();
+    await driver.tick();
+    const bodies = comments.comments.map(({ body }) => body);
+    assert.ok(
+      bodies.some((body) => body.includes('`foedrum answer 7-1 <answer 1>`')),
+      bodies.join('\n---\n'),
+    );
+  });
+
+  it("names an older batch's options with its id, under a comment that says the number (ADR 0334)", async () => {
+    order();
+    brew();
+    const ending = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
+    issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending });
+    store.withTransaction((tx) =>
+      tx.append({ type: 'batch.ordered', batchId: '7-2', order: { issue: 7 }, routeBy: at }),
+    );
+    const driver = await open();
+    await driver.tick();
+    const bodies = comments.comments.map(({ body }) => body);
+    assert.ok(
+      bodies.some((body) => /Next: get it moving with `foedrum [a-z]+ 7-1`/.test(body)),
+      bodies.join('\n---\n'),
+    );
+  });
+
+  it("names a latest batch's options alone, since the comment says its number: regression test (ADR 0334)", () => {
+    const lane = stuck({
+      kind: 'attempts_exhausted',
+      stepId: 'plan',
+      attempts: 1,
+      lastReason: 'crash',
+    });
+    const next = renderStatus(batch({ lane }), ['plan'])
+      .split('\n')
+      .find((line) => line.startsWith('Next:'));
+    assert.match(next ?? '', /^Next: get it moving with `[a-z]+`/);
+  });
+
+  it("offers a plan's other option by the whole command only for an older batch: regression test (ADR 0334)", () => {
+    assert.match(
+      planNextLine('7-1', ['recipe'], '7-1'),
+      /Its other option: `foedrum recipe 7-1`\.$/,
+    );
+    assert.match(planNextLine('7', ['recipe'], '7-1'), /Its other option: `recipe`\.$/);
+  });
+
   it('records each revision: the comment, and the digest of the text it shows', async () => {
     order();
     const driver = await open();
@@ -3000,7 +3059,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
       `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
-      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.',
+      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7`, correct it in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
       '',
     ]);
     assert.doesNotMatch(text, /On tap|No pull request/);
@@ -3358,7 +3417,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: answer the questions above with `foedrum answer 7-1 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
+      'Next: answer the questions above with `foedrum answer 7 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
     );
   });
 
@@ -3372,7 +3431,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: answer the questions above with `foedrum answer 7-1 <answer 1>`.',
+      'Next: answer the questions above with `foedrum answer 7 <answer 1>`.',
     );
   });
 
@@ -3385,7 +3444,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: ${planNextStep('7-1', code)} Its other option: \`recipe\`.`,
+      `Next: ${planNextStep('7', code)} Its other option: \`recipe\`.`,
     );
   });
 
@@ -3398,7 +3457,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: ${planNextStep('7-1', code)} Its other options: \`recipe\`, \`skip\`.`,
+      `Next: ${planNextStep('7', code)} Its other options: \`recipe\`, \`skip\`.`,
     );
   });
 

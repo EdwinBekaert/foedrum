@@ -7,7 +7,8 @@ import type { PlanOrigin, ScheduleRoute } from '../schemas/events.ts';
 
 /** Where an input's text came from; named in the tag's `source` attribute. */
 export type InputSource =
-  | { kind: 'issue-body'; issue: number }
+  /** `breweryIssue`: the order's number on the Brewery, a claimed issue's once open (ADR 0334). */
+  | { kind: 'issue-body'; issue: number; breweryIssue?: number }
   /** A maintainer's comment on an order's issue; `by` is absent for a deleted account (ADR 0333). */
   | {
       kind: 'comment';
@@ -92,7 +93,9 @@ export type RandomBytes = (size: number) => Uint8Array;
 function describeSource(source: InputSource): string {
   switch (source.kind) {
     case 'issue-body':
-      return `issue #${source.issue} body`;
+      return source.breweryIssue === undefined
+        ? `issue #${source.issue} body`
+        : `issue #${source.issue} body, the order on Brewery issue #${source.breweryIssue}`;
     case 'comment':
       return `comment ${source.comment} on ${source.repo}#${source.issue}, by ${source.by ?? 'a deleted account'} (${source.association}), ${source.at}`;
     case 'out-doc':
