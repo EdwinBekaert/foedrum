@@ -365,7 +365,7 @@ export const runBrew = async (
       latest?.repo === undefined ? undefined : claimStandingOf(log.state(), latest, latest.repo);
     const ending =
       commandOf(request) === 'brew' &&
-      latest?.lane.kind === 'on_tap' &&
+      latest !== undefined &&
       (unended(latest).length > 0 || standing === 'releasing' || closeStillDue(log.state(), latest))
         ? latest
         : undefined;
@@ -381,6 +381,12 @@ export const runBrew = async (
     ) {
       if (latest.lane.kind === 'on_tap' && standing === 'held') {
         return refuse(heldLine(log.state(), latest));
+      }
+      if (standing === 'releasing') {
+        const { lane } = describeLane(latest, called(log.state()));
+        return refuse(
+          `batch ${latest.id} of ${named} is ${lane}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
+        );
       }
       return refuse(orderAgainLine(log.state(), latest));
     }
@@ -676,6 +682,13 @@ export const runBrew = async (
         }
         case 'cancelled':
           if (!released) break;
+          // Its release, which this brew came to finish (ADR 0336), and the exit that says cancelled.
+          if (ending !== undefined) {
+            const issue = shownOn === undefined ? '' : `Brewery issue #${shownOn} stays open, `;
+            say(
+              `claim on ${now.repo}#${now.issue} released; ${issue}unassign it to make it available`,
+            );
+          }
           say(`batch ${batchId} was ${lane} ${detail}`);
           return BREW_EXIT.cancelled;
         case 'stuck': {
