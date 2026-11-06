@@ -823,13 +823,31 @@ describe('runBrew', () => {
         const open = `#12 is on tap with its pull request still open: ${url(90)}; close it first to order it again, and foedrum brew 12 reads it again once it ended`;
         assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
         assert.equal(f.lines.at(-1), `foedrum brew: ${open}`);
-        // foedrum mash reads no end, and offers no order either.
+        // foedrum mash reads no end, so it says none is recorded, and offers no order either.
         const mash = shell(behave.succeed(), {
           gh: ghOver(host.fetch).exec,
           lock: () => fakeLock('ann'),
         });
         assert.equal(await runBrew(f.setup, mash, { ...request, mash: true }), 5);
-        assert.equal(f.lines.at(-1), `foedrum mash: ${open}`);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum mash: #12 is on tap with a pull request with no recorded end, ${url(90)}: foedrum brew 12 or foedrum serve reads it if it ended; otherwise close it first`,
+        );
+      });
+
+      it('an older batch with no recorded end behind a cancelled one offers no order, and names foedrum serve: exit 5', async () => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+          tx.append({ type: 'batch.ordered', batchId: '12-2', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.cancelled', batchId: '12-2', by: 'ann', via: 'terminal' });
+        });
+        assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: #12 is on tap with a pull request with no recorded end, ${url(90)}: foedrum serve reads it if it ended; otherwise close it first`,
+        );
       });
 
       it('a batch another driver holds is refused before anything is read: exit 5', async () => {

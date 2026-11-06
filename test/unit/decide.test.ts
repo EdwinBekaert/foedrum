@@ -1545,6 +1545,20 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       );
     });
 
+    it('names foedrum serve alone for an older batch, whose end foedrum brew of the number does not read', () => {
+      const later = {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 100 },
+        routeBy: inAnHour,
+      } as const;
+      refuses(
+        [...lanes.on_tap, later, { type: 'batch.cancelled', batchId: 'b2', ...from }],
+        again('b3', { issue: 100 }),
+        /no recorded end, https:\S+: foedrum serve reads it if it ended; otherwise close it first$/,
+      );
+    });
+
     it('names only the pull request with no recorded end, of two', () => {
       const other = 'https://github.com/acme/web/pull/8';
       const events: Event[] = [
