@@ -19,11 +19,29 @@
 // together, each run a scripted plan (no model), then its Tasters on the real claude, or scripted
 // with --dry-run, until the batch waits for the plan's review. Its records, runs and table are kept
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
+//
+// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in two
+// setups: the target is the order's base fetched from this checkout, a scripted Cellarman commits the
+// head's changed files, and nip's three Tasters run on the real claude, or scripted with --dry-run. It
+// reads each Taster's transcript for what it read, and stops at once on a transcript that cannot
+// say. It writes one blinded list per order and one file of its bodies under
+// .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
+// decisions are scripts/tasting-compare/real.ts.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { runBrew } from '../src/cli/brew.ts';
+import { claudeConfigDir } from '../src/cli/resume.ts';
 import type { ServeShell } from '../src/cli/serve.ts';
 import { serveSetup } from '../src/cli/serve-config.ts';
 import { listenWhileServing, serveShell } from '../src/cli/serve-shell.ts';
@@ -65,6 +83,24 @@ import {
   scriptedPlanTastings,
   summarizePlan,
 } from './tasting-compare/plan.ts';
+import {
+  blinded,
+  changedFiles,
+  comparisonStop,
+  nextRealRun,
+  orderOf,
+  REAL_ORDERS,
+  REAL_RECIPE,
+  REAL_SETUPS,
+  type RealSetup,
+  realBreweryFiles,
+  realRecordOf,
+  realTable,
+  refuseSameTaster,
+  scriptedRealTastings,
+  scriptedTranscript,
+  TODAY_COMMIT,
+} from './tasting-compare/real.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const fixture = join(root, 'test', 'fixtures', 'tasting-compare');
@@ -77,8 +113,17 @@ const say = (line: string): void => {
 };
 
 const { values } = parseArgs({
-  options: { runs: { type: 'string' }, 'dry-run': { type: 'boolean' }, plan: { type: 'boolean' } },
+  options: {
+    runs: { type: 'string' },
+    'dry-run': { type: 'boolean' },
+    plan: { type: 'boolean' },
+    real: { type: 'boolean' },
+  },
 });
+if (values.plan === true && values.real === true) {
+  process.stderr.write('--plan and --real are two comparisons: give one of them\n');
+  process.exit(2);
+}
 const runs = Number(values.runs ?? '3');
 if (!Number.isSafeInteger(runs) || runs < 1) {
   process.stderr.write(`--runs must be a whole number of at least 1, not ${values.runs}\n`);
@@ -96,19 +141,36 @@ const write = (path: string, text: string): void => {
   writeFileSync(path, text);
 };
 
-/** What a comparison brews and how it reads the runs: the diff mode's, or the plan mode's. */
+/** A git of a run: its output, or a throw that says what failed. */
+type RunGit = (cwd: string, args: string[]) => Promise<string>;
+
+/** The target on main, as the diff and plan modes make it: the base patch, on its scratch remote. */
+const patchedTarget = async (scratch: string, git: RunGit): Promise<void> => {
+  await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
+  await git(scratch, ['clone', '-q', 'web.git', 'web']);
+  const web = join(scratch, 'web');
+  await git(web, ['am', '-q', BASE]);
+  await git(web, ['push', '-q', 'origin', 'main']);
+};
+
+/** What a comparison brews and how it reads the runs: the diff, plan or real mode's. */
 interface Mode<Setup extends string> {
   /** Its folders under .foedrum/tmp/tasting-compare: its records and runs stay its own. */
   folders: readonly string[];
   setups: readonly Setup[];
-  order: string;
-  /** The Brewery's recipes of a run, by path. */
-  recipes: (setup: Setup) => Record<string, string>;
+  /** The file of a run's order: its title on the first line. */
+  order: (setup: Setup) => string;
+  /** The recipe a run's order is labelled for. */
+  recipeOf: (setup: Setup) => string;
+  /** The Brewery's files of a run beyond Nip's, by path: its recipes, and any brewer it replaces. */
+  breweryFiles: (setup: Setup) => Record<string, string>;
+  /** Makes the bare remote `web.git` with the target's base on main, and its clone `web`. */
+  target: (setup: Setup, scratch: string, git: RunGit) => Promise<void>;
   /** What the scripted brewers play in a run, with the target's base on its remote. */
   script: (
     setup: Setup,
     scratch: string,
-    git: (cwd: string, args: string[]) => Promise<string>,
+    git: RunGit,
   ) => Promise<Record<string, readonly Scripted[]>>;
   /** The step that is always scripted, with no model. */
   scriptedStep: string;
@@ -121,6 +183,10 @@ interface Mode<Setup extends string> {
     setup: Setup,
   ) => Pick<RunRecord, 'ended' | 'attempts'>;
   table: (records: readonly RunRecord<Setup>[]) => string;
+  /** Why a run shows the comparison itself cannot go on: the harness's fault, never a Taster's. */
+  stop?: (record: Pick<RunRecord<Setup>, 'attempts'>) => string | undefined;
+  /** More files of its report, by path in its folder. */
+  files?: (records: readonly RunRecord<Setup>[], folder: string) => Record<string, string>;
 }
 
 const diffMode = (): Mode<SetupName> => {
@@ -128,8 +194,10 @@ const diffMode = (): Mode<SetupName> => {
   return {
     folders: [],
     setups: Object.keys(SETUPS) as SetupName[],
-    order: join(fixture, 'order.md'),
-    recipes: (setup) => ({ [`recipes/${setup}.jsonc`]: recipeText(setup) }),
+    order: () => join(fixture, 'order.md'),
+    recipeOf: (setup) => setup,
+    breweryFiles: (setup) => ({ [`recipes/${setup}.jsonc`]: recipeText(setup) }),
+    target: (_setup, scratch, git) => patchedTarget(scratch, git),
     script: async (setup, scratch, git) => {
       // The change's files as the scripted Cellarman writes them: the change patch applied elsewhere.
       await git(scratch, ['clone', '-q', 'web.git', 'source']);
@@ -162,8 +230,11 @@ const planMode = (): Mode<PlanSetupName> => {
   return {
     folders: ['plan'],
     setups: Object.keys(PLAN_SETUPS) as PlanSetupName[],
-    order: join(planFixture, 'order.md'),
-    recipes: (setup) => planRecipes(setup, readFileSync(join(planFixture, 'prose.jsonc'), 'utf8')),
+    order: () => join(planFixture, 'order.md'),
+    recipeOf: (setup) => setup,
+    breweryFiles: (setup) =>
+      planRecipes(setup, readFileSync(join(planFixture, 'prose.jsonc'), 'utf8')),
+    target: (_setup, scratch, git) => patchedTarget(scratch, git),
     script: async (setup) => ({
       [PLAN_STEP]: [seeded],
       ...(dryRun ? scriptedPlanTastings(setup, key) : {}),
@@ -172,6 +243,107 @@ const planMode = (): Mode<PlanSetupName> => {
     next: nextPlanRun,
     recordOf: planRecordOf,
     table: (records) => planTableMarkdown(summarizePlan(records, key), key, { dryRun }),
+  };
+};
+
+/** A session's transcript, in the project folder claude made for its worktree; undefined when none is. */
+const transcriptOf = (sessionId: string): string | undefined => {
+  const projects = join(claudeConfigDir(process.env, process.platform, homedir()), 'projects');
+  if (!existsSync(projects)) return undefined;
+  for (const folder of readdirSync(projects)) {
+    const path = join(projects, folder, `${sessionId}.jsonl`);
+    if (existsSync(path)) return readFileSync(path, 'utf8');
+  }
+  return undefined;
+};
+
+const realMode = async (): Promise<Mode<RealSetup>> => {
+  /** A commit's whole id in this checkout, where the heads and the old Taster are read. */
+  const commitIn = async (commit: string): Promise<string> => {
+    const { code, stdout } = await runGit(root, ['rev-parse', '--verify', `${commit}^{commit}`]);
+    if (code !== 0) {
+      throw new Error(`the commit ${commit} is not in this checkout: run git fetch origin first`);
+    }
+    return stdout.trim();
+  };
+  for (const { base, head } of REAL_ORDERS) {
+    await commitIn(base);
+    await commitIn(head);
+  }
+  const today = await runGit(root, [
+    'show',
+    `${await commitIn(TODAY_COMMIT)}:defaults/brewers/taster.md`,
+  ]);
+  if (today.code !== 0) {
+    throw new Error(`the Taster of ${TODAY_COMMIT} cannot be read: ${today.stderr.trim()}`);
+  }
+  refuseSameTaster(
+    today.stdout,
+    readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8'),
+  );
+  const folder = join(fixture, 'real');
+  return {
+    folders: ['real'],
+    setups: REAL_SETUPS,
+    order: (setup) => join(folder, `${orderOf(setup).order}.md`),
+    recipeOf: () => REAL_RECIPE,
+    breweryFiles: (setup) => realBreweryFiles(setup, today.stdout),
+    target: async (setup, scratch, git) => {
+      // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
+      await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
+      const base = await commitIn(orderOf(setup).base);
+      await git(join(scratch, 'web.git'), [
+        'fetch',
+        '-q',
+        '--no-tags',
+        '--depth',
+        '1',
+        root,
+        `${base}:refs/heads/main`,
+      ]);
+      await git(scratch, ['clone', '-q', 'web.git', 'web']);
+    },
+    script: async (setup, _scratch, git) => {
+      const { base, head } = orderOf(setup);
+      const changed = changedFiles(
+        await git(root, ['diff', '--name-status', '-z', '--no-renames', base, head]),
+      );
+      const files: Record<string, string> = {};
+      for (const path of changed) files[path] = await git(root, ['show', `${head}:${path}`]);
+      const subject = (await git(root, ['log', '-1', '--format=%s', head])).trim();
+      const implement: Scripted = {
+        files,
+        message: subject,
+        summary: `The head ${head}, committed as it was brewed.`,
+      };
+      return {
+        [IMPLEMENT]: [implement],
+        ...(dryRun ? scriptedRealTastings(changed[0] ?? '') : {}),
+      };
+    },
+    scriptedStep: IMPLEMENT,
+    next: nextRealRun,
+    recordOf: (events) =>
+      realRecordOf(events, (id, worktree) =>
+        dryRun ? scriptedTranscript(worktree) : transcriptOf(id),
+      ),
+    table: realTable,
+    stop: comparisonStop,
+    files: (records, reportFolder) => {
+      // One seed for the folder, so a code stays the same as more runs come in.
+      const seedFile = join(reportFolder, 'seed.txt');
+      if (!existsSync(seedFile)) writeFileSync(seedFile, randomBytes(16).toString('hex'));
+      const { lists, bodies, codes } = blinded(records, readFileSync(seedFile, 'utf8'));
+      return {
+        'codes.md': codes,
+        ...Object.fromEntries(
+          Object.entries(lists).map(([order, list]) => [join('lists', `${order}.md`), list]),
+        ),
+        ...Object.fromEntries(
+          Object.entries(bodies).map(([order, body]) => [join('bodies', `${order}.md`), body]),
+        ),
+      };
+    },
   };
 };
 
@@ -186,7 +358,6 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     ...(dryRun ? ['dry-run'] : []),
   );
   const resultsFile = join(folder, 'results.jsonl');
-  const [title = '', ...bodyLines] = readFileSync(mode.order, 'utf8').split(/\r?\n/);
   const readRecords = (): RunRecord<Setup>[] =>
     existsSync(resultsFile)
       ? readFileSync(resultsFile, 'utf8')
@@ -210,16 +381,14 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     mkdirSync(scratch, { recursive: true });
     write(ownGit.GIT_CONFIG_GLOBAL, gitConfig(join(scratch, 'web.git')));
 
-    // The target on main: the base patch, pushed to its scratch remote.
-    await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
-    await git(scratch, ['clone', '-q', 'web.git', 'web']);
+    await mode.target(setup, scratch, git);
     const web = join(scratch, 'web');
-    await git(web, ['am', '-q', BASE]);
-    await git(web, ['push', '-q', 'origin', 'main']);
+    const [title = '', ...bodyLines] = readFileSync(mode.order(setup), 'utf8').split(/\r?\n/);
     const script = await mode.script(setup, scratch, git);
 
-    // The Brewery: Nip's fixture files with the default models (no models.jsonc), and the recipe.
-    const { 'models.jsonc': _, ...breweryFiles } = nipBreweryFiles({
+    // The Brewery: Nip's fixture files with the default models (no models.jsonc), and the mode's own
+    // files: its recipes, and any brewer it replaces.
+    const { 'models.jsonc': _, ...nipFiles } = nipBreweryFiles({
       brewery: BREWERY,
       target: TARGET,
       user: USER,
@@ -228,8 +397,8 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     await git(scratch, ['clone', '-q', 'brewery.git', 'brewery']);
     const brewery = join(scratch, 'brewery');
     for (const [path, text] of Object.entries({
-      ...breweryFiles,
-      ...mode.recipes(setup),
+      ...nipFiles,
+      ...mode.breweryFiles(setup),
     })) {
       write(join(brewery, path), text);
     }
@@ -268,7 +437,7 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
             number: 1,
             title,
             body: bodyLines.join('\n'),
-            labels: [`recipe:${setup}`],
+            labels: [`recipe:${mode.recipeOf(setup)}`],
             author: USER,
           },
         ],
@@ -344,6 +513,8 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
         run: next.run,
         ...(next.retry ? { retry: true as const } : {}),
       };
+      const stop = mode.stop?.(record);
+      if (stop !== undefined) throw new Error(stop);
     } catch (error) {
       // A run the harness could not brew is no measurement: stop, and say why.
       process.stderr.write(`tasting-compare: ${name} could not run: ${(error as Error).message}\n`);
@@ -352,10 +523,18 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     appendFileSync(resultsFile, `${JSON.stringify(record)}\n`);
     say(`tasting-compare: ${name} ended ${record.ended} in ${Math.round(record.wallMs / 1000)} s`);
   }
-  const table = mode.table(readRecords());
+  const records = readRecords();
+  const table = mode.table(records);
   writeFileSync(join(folder, 'table.md'), table);
+  for (const [path, text] of Object.entries(mode.files?.(records, folder) ?? {})) {
+    write(join(folder, path), text);
+  }
   say('');
   process.stdout.write(table);
 };
 
-await (values.plan === true ? compare(planMode()) : compare(diffMode()));
+await (values.real === true
+  ? compare(await realMode())
+  : values.plan === true
+    ? compare(planMode())
+    : compare(diffMode()));
