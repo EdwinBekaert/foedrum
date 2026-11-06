@@ -24,7 +24,7 @@ import {
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
-import type { BatchLease } from '../engine/event-store.ts';
+import type { BatchLease, Lease } from '../engine/event-store.ts';
 import { type Batch, foldedBatch, type State } from '../engine/fold.ts';
 import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
@@ -89,9 +89,8 @@ const questionLines = (state: State, stepId: string, batch: Batch): string[] => 
   if (lane.kind !== 'stuck' || lane.reason.kind !== 'needs_input') return [];
   const { questions } = lane.reason;
   const called = calledAs(state, batch);
-  // Answered, an older batch waits for no session, so brew takes neither its id nor, for this batch,
-  // its number; a Cellar drives it (ADR 0339).
-  const next = called === batch.id ? 'foedrum serve drives it' : 'brew again';
+  // A number would reach a later batch, and brew takes an older one's id with --take (ADR 0339).
+  const next = called === batch.id ? `${sessionCommand(called)} drives it` : 'brew again';
   return [
     `${saidAs(state, batch)} needs input at ${stepId}:`,
     ...questions.flatMap(({ q, options, recommended, whyBlocking }, n) => [
@@ -126,23 +125,58 @@ const mashRefusal = (
     : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it`;
 };
 
+/** What moves an older batch in `lane`, which no brew by its id does. */
+const movedBy = (lane: Batch['lane']): string => {
+  switch (lane.kind) {
+    case 'ordered':
+      return 'foedrum serve routes it';
+    case 'brewing':
+    case 'conditioning':
+      return 'foedrum status shows what it waits for';
+    case 'stuck':
+      return 'foedrum stuck lists what it offers';
+    case 'on_tap':
+      return 'its pull requests end it, and foedrum serve reads them';
+    case 'cancelled':
+      return 'it has ended, and foedrum status shows it';
+    default: {
+      const unknown: never = lane;
+      throw new Error(`Unknown lane ${JSON.stringify(unknown)}`);
+    }
+  }
+};
+
+/** Who holds a batch now: the driver another owner is, and the attempts of it under any lease. */
+interface BatchHolders {
+  driver: BatchLease | undefined;
+  attempts: readonly Lease[];
+}
+
 /**
- * Why `foedrum brew <batch id> --take` opens nothing (ADR 0339), or undefined: it takes an id only
- * for a batch that waits for a session, and names what serves any other.
+ * Why `foedrum brew <batch id> --take` opens nothing (ADR 0339), or undefined: it takes an id for a
+ * batch that waits for a session, and for an older batch that brews with nothing driving it, which
+ * only a brew could still move. Any other is refused, with what moves it.
  */
 const noSessionRefusal = (
   state: State,
   batch: Batch | undefined,
   id: string,
+  { driver, attempts: [attempt] }: BatchHolders,
 ): string | undefined => {
   if (batch === undefined) return `there is no batch ${id}`;
   const { lane } = batch;
   if (lane.kind === 'stuck' && lane.reason.kind === 'waiting_for_session') return undefined;
   const called = calledAs(state, batch);
-  const stuck =
-    lane.kind === 'stuck' ? 'foedrum stuck lists what it offers' : 'foedrum status shows it';
-  const way = called === batch.id ? stuck : `foedrum brew ${called} brews it`;
-  return `batch ${id} waits for no session, and foedrum brew takes an id only for one that does; ${way}`;
+  if (lane.kind === 'brewing' && called === batch.id) {
+    if (attempt !== undefined) {
+      const ref = attemptKey.decode(attempt.attemptKey);
+      const until = attempt.expiresAt.toISOString();
+      return `${ref?.stepId}#${ref?.attempt} of batch ${id} is held by ${attempt.owner} until ${until}; foedrum brew ${id} --take takes it once that lease ends`;
+    }
+    return driver === undefined ? undefined : drivenBy(state, driver, 'foedrum status shows it');
+  }
+  const way = called === batch.id ? movedBy(lane) : `foedrum brew ${called} brews it`;
+  return `batch ${id} waits for no session, and foedrum brew takes an id only for one that does or one nothing drives; ${way}`;
 };
 
 /** The line feed and the Unicode line and paragraph separators, which end a line. */
@@ -368,7 +402,13 @@ export const runBrew = async (
     const pinned = request.lauter ?? request.batch;
     const last = pinned === undefined ? work.batch : log.state().batches.get(pinned);
     if (request.batch !== undefined) {
-      const refused = noSessionRefusal(log.state(), last, request.batch);
+      const now = clock();
+      const refused = noSessionRefusal(log.state(), last, request.batch, {
+        driver: heldElsewhere(request.batch),
+        attempts: store
+          .currentLeases(now)
+          .filter(({ attemptKey: key }) => attemptKey.decode(key)?.batchId === request.batch),
+      });
       if (refused !== undefined) return refuse(refused);
     }
     // How a line offers it now: its number, or its target issue until the number is alive.
