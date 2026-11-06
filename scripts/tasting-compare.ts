@@ -21,7 +21,7 @@
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
 //
 // With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in two
-// setups: the target is the order's base fetched from this checkout, a scripted Cellarman commits the
+// setups, and #867 in a third with its maintainer's comment (ADR 0333): the target is the order's base fetched from this checkout, a scripted Cellarman commits the
 // head's changed files, and nip's three Tasters run on the real claude, or scripted with --dry-run. It
 // reads each Taster's transcript for what it read, and stops at once on a transcript that cannot
 // say. It writes one blinded list per order and one file of its bodies under
