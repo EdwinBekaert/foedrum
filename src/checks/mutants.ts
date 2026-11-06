@@ -43,21 +43,117 @@ const stringsOrComments = new RegExp(`${strings.source}|(?<!\\\\)(?:${comments.s
 const withoutComments = (code: string): string =>
   code.replace(stringsOrComments, (match, quote?: string) => (quote ? match : ' '));
 
+// The words of a text without its numbers; the boolean literals count as literals, which a mutant
+// may change.
+const bareWords = (text: string): string[] =>
+  (text.replace(numbers, ' ').match(words) ?? []).filter(
+    (word) => word !== 'true' && word !== 'false',
+  );
+
 // The strings and the words (identifiers, property names, keywords) in a line of code, outside
-// `//` and `/* */` comments when `stripped`, so a mutant cannot turn commented-out code on; the
-// boolean literals count as literals, which a mutant may change.
+// `//` and `/* */` comments when `stripped`, so a mutant cannot turn commented-out code on.
 const names = (code: string, stripped: boolean): Set<string> => {
   const quoted = code.match(strings) ?? [];
   const unquoted = code.replace(strings, ' ');
-  const rest = (stripped ? unquoted.replace(comments, ' ') : unquoted).replace(numbers, ' ');
-  const bare = (rest.match(words) ?? []).filter((word) => word !== 'true' && word !== 'false');
-  return new Set([...quoted, ...bare]);
+  return new Set([...quoted, ...bareWords(stripped ? unquoted.replace(comments, ' ') : unquoted)]);
 };
+
+// A template literal's text token by token: an escape, what ends or interrupts the text, a unit.
+const textTokens = /\\[\s\S]|`|\$\{|[\s\S]/y;
+// The code around it: a plain string, a comment (no slash after a backslash starts one), a unit.
+const codeTokens = new RegExp(
+  `(['"])(?:\\\\.|(?!\\1)[^\\\\])*\\1|(?<!\\\\)(?:${comments.source})|[\\s\\S]`,
+  'y',
+);
+
+// A line read for its template literals (ADR 0341): `read` holds its code and its literals' text
+// apart, `plain` opened none, and `open` leaves one open (or starts inside one and opens another).
+// Read one line at a time, with no knowledge of a regular expression literal, so `sure` is false
+// when a slash in the code comes before a backtick or a `}` that ends a `${}`, and when a word
+// follows a closing backtick, which is no JavaScript: that backtick opened the line's next literal.
+interface Reading {
+  kind: 'read' | 'plain' | 'open';
+  code: string;
+  text: string;
+  sure: boolean;
+}
+
+const readTemplates = (line: string): Reading => {
+  let code = '';
+  let text = '';
+  // The `{` still open inside each `${}` still open, innermost last.
+  const expressions: number[] = [];
+  let inText = false;
+  let opened = false;
+  let slash = false;
+  let sure = true;
+  let index = 0;
+  while (index < line.length) {
+    const tokens = inText ? textTokens : codeTokens;
+    tokens.lastIndex = index;
+    const token = tokens.exec(line)?.[0] ?? '';
+    index += token.length;
+    const depth = expressions.at(-1);
+    if (inText) {
+      if (token === '`') {
+        inText = false;
+        text += ' ';
+        if (/[\p{ID_Continue}$]/u.test(line.charAt(index))) sure = false;
+      } else if (token === '${') {
+        inText = false;
+        expressions.push(0);
+        text += ' ';
+      } else {
+        text += token;
+      }
+    } else if (token === '`' || (token === '}' && depth === 0)) {
+      if (slash) sure = false;
+      if (token === '}') expressions.pop();
+      inText = true;
+      opened = true;
+      code += ' ';
+    } else if (token.length > 1 && token.startsWith('/')) {
+      code += ' ';
+    } else {
+      if (token === '/') slash = true;
+      if (depth !== undefined && (token === '{' || token === '}')) {
+        expressions[expressions.length - 1] = depth + (token === '{' ? 1 : -1);
+      }
+      code += token;
+    }
+  }
+  const kind = inText || expressions.length > 0 ? 'open' : opened ? 'read' : 'plain';
+  return { kind, code, text, sure };
+};
+
+// A literal's words: an escape is not one, unless it is numeric and could spell one, and a `$`
+// there ends no word of the code.
+const textWords = (text: string): string[] => bareWords(text.replace(/\\[^xu\d]|\$/g, ' '));
+
+// What a replacement adds, both lines read: its code holds nothing the original's code lacks, so
+// no word of the text turns into code, and its text no word the original line lacks.
+const addedByReading = (before: Reading, after: Reading): string[] => {
+  const code = names(before.code, true);
+  const line = new Set([...code, ...textWords(before.text)]);
+  return [
+    ...new Set([
+      ...[...names(after.code, true)].filter((name) => !code.has(name)),
+      ...textWords(after.text).filter((word) => !line.has(word)),
+    ]),
+  ];
+};
+
+const extensionOf = (file: string): string => /\.([^./]+)$/.exec(file)?.[1]?.toLowerCase() ?? '';
+
+// The extensions of the languages whose backticks are template literals (ADR 0341).
+const TEMPLATE_LITERALS = new Set('js mjs cjs jsx ts mts cts tsx'.split(' '));
 
 /**
  * Why a mutant's replacement is not a small bug of its original, or undefined: more than one
- * line, a change of whitespace only (or of comments only), or a word or string the original
- * lacks, its line and block comments left out when `stripped`.
+ * line, a change of whitespace only (or of comments only), a word or string the original lacks,
+ * its line and block comments left out when `stripped`, or, in JavaScript and TypeScript, a
+ * template literal it breaks. A template literal's text and code are told apart there when the
+ * check can read both lines (ADR 0341); any other line keeps the rule of ADR 0034.
  */
 export const replacementReason = (mutant: Mutant, stripped = true): string | undefined => {
   if (/[\r\n\p{Zl}\p{Zp}]/u.test(mutant.replacement)) {
@@ -71,7 +167,20 @@ export const replacementReason = (mutant: Mutant, stripped = true): string | und
   // A mutant may only change operators and number or boolean literals, or delete or reorder
   // existing code: a small bug, never a new capability.
   const known = names(mutant.original, stripped);
-  const added = [...names(mutant.replacement, stripped)].filter((name) => !known.has(name));
+  let added = [...names(mutant.replacement, stripped)].filter((name) => !known.has(name));
+  if (stripped && TEMPLATE_LITERALS.has(extensionOf(mutant.file))) {
+    const before = readTemplates(mutant.original);
+    const after = readTemplates(mutant.replacement);
+    const sure = before.sure && after.sure;
+    if (sure && (before.kind === 'open') !== (after.kind === 'open')) {
+      return 'the replacement breaks a template literal';
+    }
+    if (before.kind === 'read' && after.kind === 'read') {
+      // A line it is not sure of must pass both rules, so it is never looser than ADR 0034's.
+      const read = addedByReading(before, after);
+      added = sure ? read : [...new Set([...added, ...read])];
+    }
+  }
   return added.length > 0 ? `the replacement adds ${added.join(', ')}` : undefined;
 };
 
@@ -120,8 +229,7 @@ const C_COMMENTS = new Set(
   ),
 );
 
-const commentsKnown = (file: string): boolean =>
-  C_COMMENTS.has(/\.([^./]+)$/.exec(file)?.[1]?.toLowerCase() ?? '');
+const commentsKnown = (file: string): boolean => C_COMMENTS.has(extensionOf(file));
 
 /** A file the batch's change left at its head: its text, and the lines the change added to it. */
 export interface ChangedFile {
