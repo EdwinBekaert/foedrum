@@ -361,8 +361,13 @@ export const runBrew = async (
     // person with no Cellar (ADR 0336); a mash or a lauter of one keeps its own refusal.
     // A Brewery issue's batch has no claim to hold, but its open pull request refuses a new order
     // all the same (ADR 0339).
-    const openLine = (state: State, batch: Batch): string =>
-      `${named} is on tap with its pull request still open: ${unendedPullRequests(batch).join(' ')}; close it first to order it again, and foedrum brew ${called(state)} reads it again once it ended`;
+    const openLine = (state: State, batch: Batch): string => {
+      // Only its decomposition orders a sub-order, so closing it opens no order to a person.
+      const close = state.subOrders.has(batch.issue)
+        ? ''
+        : 'close it first to order it again, and ';
+      return `${named} is on tap with its pull request still open: ${unendedPullRequests(batch).join(' ')}; ${close}foedrum brew ${called(state)} reads it again once it ended`;
+    };
     const heldLine = (state: State, batch: Batch): string =>
       `${named} is on tap and holds its claim until its pull requests end: ${unendedPullRequests(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
     const standing =
