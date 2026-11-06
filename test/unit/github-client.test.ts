@@ -448,6 +448,32 @@ describe('createGitHubClient', () => {
       assert.equal(calls.length, 2);
     });
 
+    it('a write that times out is not tried again', async () => {
+      for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
+        const { client, calls } = scripted([killed('timed-out')]);
+        await assert.rejects(
+          client.rest(method, '/a', {}),
+          new RegExp(`^Error: GitHub did not answer within 20 ms: ${method} /a$`),
+        );
+        assert.equal(calls.length, 1);
+      }
+    });
+
+    it('a GraphQL request that times out is not tried again, since it may be a mutation', async () => {
+      const { client, calls } = scripted([killed('timed-out')]);
+      await assert.rejects(client.graphql('{ viewer { login } }', {}), /within 20 ms: POST graphql/);
+      assert.equal(calls.length, 1);
+    });
+
+    it('a request gh stopped is not tried again', async () => {
+      const controller = new AbortController();
+      const reason = new Error('stopped by the person');
+      controller.abort(reason);
+      const { client, calls } = scripted([killed('stopped')]);
+      await assert.rejects(client.rest('GET', '/a', undefined, controller.signal), reason);
+      assert.equal(calls.length, 1);
+    });
+
     it("a read given up by its caller's signal is not tried again", async () => {
       const controller = new AbortController();
       const reason = new Error('past its deadline');
