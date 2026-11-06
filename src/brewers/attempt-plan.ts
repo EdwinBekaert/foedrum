@@ -103,8 +103,6 @@ export interface PlanFacts {
    * inputs, with only the answers as an input (ADR 0117, ADR 0118).
    */
   resumes?: Resumed;
-  /** The name of the comments a resumed attempt is told of, when it is told of some (ADR 0338). */
-  commentsNamed?: string;
   /**
    * After a turn overrun: the copy of the out doc the run before left, which the runner puts back
    * in a worktree that lost it (ADR 0175).
@@ -1359,7 +1357,11 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const instructions =
     resumes === undefined
       ? [facts.instructions.trimEnd(), ...recipePrompt, ...round, contract].join('\n\n')
-      : goOn(brewer.output.doc, resumes, facts.commentsNamed);
+      : goOn(
+          brewer.output.doc,
+          resumes,
+          facts.inputs.find(({ source }) => source.kind === 'comment')?.name,
+        );
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
     const { name, source } = assembled.input;

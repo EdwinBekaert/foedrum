@@ -275,13 +275,13 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    */
   const orderCommentsFor = async (
     name: string,
-    { issue, repo }: OrderIssue,
     batch: Batch,
     {
       body,
       heard,
     }: { body: string; heard?: never } | { body?: never; heard: ReadonlyMap<string, number> },
   ): Promise<PromptInput[]> => {
+    const { issue, repo } = batch;
     const brewery = repo === undefined ? undefined : claimOrderOf(state(), batch.id).issue;
     const read = await options.orderComments([
       repo === undefined ? { issue } : { issue, repo },
@@ -697,7 +697,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const text = await textOf(input);
       inputs.push({ name: input.name, source: input.source, text });
       if (input.read.kind === 'order') {
-        inputs.push(...(await orderCommentsFor(input.name, input.read, batch, { body: text })));
+        inputs.push(...(await orderCommentsFor(input.name, batch, { body: text })));
       }
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
@@ -837,14 +837,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         orderInput !== undefined &&
         options.opensResumed !== true;
       const since = hears
-        ? await orderCommentsFor(
-            orderInput.name,
-            batch.repo === undefined
-              ? { issue: batch.issue }
-              : { issue: batch.issue, repo: batch.repo },
-            batch,
-            { heard: commentsHeardBy(step, session.id) },
-          )
+        ? await orderCommentsFor(orderInput.name, batch, {
+            heard: commentsHeardBy(step, session.id),
+          })
         : [];
       const { inputs, houseYeast, laterRound, earlierFindings } =
         resumes === undefined
@@ -865,9 +860,6 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         settingsFile,
         sessionId: session.id,
         ...(resumes === undefined ? {} : { resumes }),
-        ...(since.length === 0 || orderInput === undefined
-          ? {}
-          : { commentsNamed: orderInput.name }),
         ...(outDocFrom === undefined ? {} : { outDocFrom }),
         ...(laterRound === undefined ? {} : { laterRound }),
         ...(earlierFindings === undefined ? {} : { earlierFindings }),
