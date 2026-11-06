@@ -26,7 +26,7 @@ The maintainer decided on 2026-11-06 to remove the older batch rather than give 
 - A pull request may have merged with no recorded end yet, with no Cellar running.
   So the refusal says `foedrum brew <n>` or `foedrum serve` reads it if it ended, as [ADR 0336](0336-small-rough-edges-of-the-self-brew-trial.md) has it, and otherwise to close it first.
 - **`foedrum brew <n>` and `foedrum mash <n>` of such a batch no longer offer `foedrum order`**, which would be refused.
-  A brew has read the pull request, so it says it is still open, to close it first to order again, and that `foedrum brew <n>` reads it again once it ended.
+  A brew has read the pull request, so it says it is still open, to close it first to order again, and that `foedrum brew <n>` reads it again once it ended; of a sub-order, which only its decomposition orders, it leaves out the order.
   A mash reads nothing, so it prints the order's own refusal, as a brew does in any other case where an order would be refused.
 
 ### Nothing else brings an older batch back
