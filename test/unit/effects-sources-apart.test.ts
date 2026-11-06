@@ -170,6 +170,40 @@ describe('combineEffects: one source that cannot be read', () => {
     assert.equal(notices.filter(({ kind }) => kind === 'effect_failed').length, 1);
   });
 
+  it('goes by its latest read: a source that reads again within the pass fails nothing', async () => {
+    const mending = source('status', {
+      target: {
+        find: async () => undefined,
+        apply: async (key) => {
+          applied.push('status');
+          broken = false;
+          return { key };
+        },
+      },
+    });
+    const driver = await open(combineEffects(unreadable, mending));
+    await driver.tick();
+    assert.deepStrictEqual(applied, ['status', 'plan']);
+    assert.deepStrictEqual(failures(), []);
+    assert.equal(records().length, 1);
+  });
+
+  it('applies the others when a source throws what has no readable message', async () => {
+    const odd = source('odd', {
+      due: () => {
+        throw {
+          get message(): string {
+            throw new Error('no message');
+          },
+        };
+      },
+    });
+    const driver = await open(combineEffects(odd, source('status')));
+    await driver.tick();
+    assert.deepStrictEqual(applied, ['status']);
+    assert.equal(failures().length, 1);
+  });
+
   it('still throws from a lone source, and records nothing (regression test)', async () => {
     const driver = await open(unreadable);
     await driver.tick();

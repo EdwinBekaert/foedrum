@@ -472,9 +472,11 @@ const weighted = <T>(random: Random, choices: readonly (readonly [number, T])[])
  * A scenario of `length` moves from `seed`: batches ordered, decomposed, routed and waiting; humans
  * answering, retrying, skipping, changing the recipe, rewinding and cancelling Stuck batches;
  * effects, some repeated and some of attempts that never existed; and the clock moving between
- * supervisor ticks, so deadlines pass, leases expire, attempts stall and reminders come due.
+ * supervisor ticks, so deadlines pass, leases expire, attempts stall and reminders come due. With
+ * `failing`, also a driver's failing mark and its recovery (ADR 0335); off by default, so a scenario
+ * a test pins by its seed stays as it is.
  */
-export const generateScenario = (seed: number, length = 40): MoveSource => {
+export const generateScenario = (seed: number, length = 40, failing = false): MoveSource => {
   const random = seededRandom(seed);
   const effectKeys: string[] = [];
   let moves = 0;
@@ -626,7 +628,7 @@ export const generateScenario = (seed: number, length = 40): MoveSource => {
       [unrouted.length > 0 ? 0.7 : 0, 'wait'],
       [inLane('stuck').length > 0 ? 4 : 0, 'unstick'],
       [live.length > 0 ? 0.3 : 0, 'meddle'],
-      [batches.length > 0 ? 0.6 : 0, 'failing'],
+      [failing && batches.length > 0 ? 1.5 : 0, 'failing'],
       [1, 'effect'],
       [4, 'tick'],
     ] as const);

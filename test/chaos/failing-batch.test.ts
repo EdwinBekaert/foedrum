@@ -36,9 +36,6 @@ const commentsDue = (state: State, batchId: string) =>
     ),
   );
 
-// Whether the check that an effect makes no batch Stuck had a failing effect behind it, in some run.
-let effectsMarked = 0;
-
 const run = async (seed: number): Promise<void> => {
   const random = seededRandom(seed);
   let sick = true;
@@ -156,8 +153,11 @@ const run = async (seed: number): Promise<void> => {
       }
     }
 
-    const events = store.eventsAfter(0).map(({ event }) => event);
-    if (events.some((e) => e.type === 'batch.failing' && e.batchId === refuser)) effectsMarked++;
+    // An hour past the last restart, the refuser's failing effect has marked it, with no Stuck.
+    await tick();
+    hand.skipTo(new Date(hand.now().getTime() + hour + 60_000));
+    await tick();
+    assert.notEqual(log.state().batches.get(refuser)?.failing, undefined, 'the effect marked it');
     // The throws stop: a person's retries bring every batch on tap, and the marks go.
     sick = false;
     for (let each = 0; each < 80; each++) {
@@ -183,7 +183,5 @@ const run = async (seed: number): Promise<void> => {
 };
 
 it('batches that fail past the limit stop none of the others, and come to rest once they read', async () => {
-  effectsMarked = 0;
   await forEachSeedAsync(10, run);
-  assert.ok(effectsMarked > 0, 'a failing effect marked its batch in some run');
 });

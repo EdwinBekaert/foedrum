@@ -535,6 +535,40 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       await ticksAt(driver, 0, 60, 61, 62);
       assert.equal(notices.filter(({ kind }) => kind === 'command_failed').length, 1);
     });
+
+    it('says each batch whose mark cannot be written, and again once one was written', async () => {
+      onTap('b1');
+      onTap('b2');
+      unread.add('b1');
+      unread.add('b2');
+      let appendFails = true;
+      const faulty: EventStore = {
+        ...store,
+        withTransaction: (work) =>
+          store.withTransaction((tx) =>
+            work({
+              ...tx,
+              append: (event) => {
+                if (event.type === 'batch.failing' && appendFails) throw new Error('disk full');
+                return tx.append(event);
+              },
+            }),
+          ),
+      };
+      const said = () => notices.filter(({ kind }) => kind === 'command_failed').length;
+      const driver = await open({ store: faulty });
+      await ticksAt(driver, 0, 60, 61);
+      assert.equal(said(), 2);
+      appendFails = false;
+      await ticksAt(driver, 62);
+      unread.clear();
+      await ticksAt(driver, 63);
+      assert.deepStrictEqual(marks('b1'), ['batch.failing', 'batch.recovered']);
+      unread.add('b1');
+      appendFails = true;
+      await ticksAt(driver, 64, 124);
+      assert.equal(said(), 3);
+    });
   });
 
   describe('a clean pass', () => {
@@ -848,6 +882,16 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       assert.equal(lines('effect_failed'), 1);
     });
 
+    it('says the same effect of another batch too, as the key names its effect', async () => {
+      onTap('b1');
+      onTap('b2');
+      refused.add('b1');
+      refused.add('b2');
+      const driver = await open();
+      await ticksAt(driver, 0, 1);
+      assert.equal(lines('effect_failed'), 2);
+    });
+
     it('says an effect again when its message changes', async () => {
       onTap('b1');
       refused.add('b1');
@@ -912,17 +956,18 @@ describe('a batch that keeps failing (ADR 0335)', () => {
 
     it('says a command again when it fails after a tick that did not', async () => {
       lostOnBad('b1');
-      lostOnBad('b2');
       retryBroken = true;
       const driver = await open();
       await ticksAt(driver, 0);
-      retryBroken = false;
-      // b1 and b2 are lost now, each with a retry; b3's loss comes next.
+      assert.equal(lines('command_failed'), 1);
+      // A live lease: no loss to decide, so a tick that does not fail on the command.
+      const key = attemptKey.encode(plan('b1'));
+      store.withTransaction((tx) =>
+        tx.putLease({ attemptKey: key, owner: 'gone', expiresAt: at(3) }),
+      );
       await ticksAt(driver, 1);
-      lostOnBad('b3');
-      retryBroken = true;
-      await ticksAt(driver, 2);
-      assert.equal(lines('command_failed'), 3);
+      await ticksAt(driver, 4);
+      assert.equal(lines('command_failed'), 2);
     });
 
     it("says a supervisor's command that keeps throwing once", async () => {
