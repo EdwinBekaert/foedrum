@@ -461,7 +461,10 @@ describe('createGitHubClient', () => {
 
     it('a GraphQL request that times out is not tried again, since it may be a mutation', async () => {
       const { client, calls } = scripted([killed('timed-out')]);
-      await assert.rejects(client.graphql('{ viewer { login } }', {}), /within 20 ms: POST graphql/);
+      await assert.rejects(
+        client.graphql('{ viewer { login } }', {}),
+        /within 20 ms: POST graphql/,
+      );
       assert.equal(calls.length, 1);
     });
 
@@ -489,7 +492,7 @@ describe('createGitHubClient', () => {
       assert.deepStrictEqual(calls, ['gh']);
     });
 
-    it("a pause met while a read waited for gh is what fails it, with no second try", async () => {
+    it('a pause met while a read waited for gh is what fails it, with no second try', async () => {
       const asked: string[] = [];
       const exec: ExecProcess = async (_file, args) => {
         const path = args.at(-1) ?? '';

@@ -42,14 +42,7 @@ import {
   stoppedEnd,
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
-import {
-  claimedName,
-  claimOfOrder,
-  claimOrderOf,
-  claimStandingOf,
-  liveOrderOf,
-} from './claim-orders.ts';
-import { effectKey } from './effect-key.ts';
+import { claimedName, claimOfOrder, claimStandingOf, liveOrderOf } from './claim-orders.ts';
 import {
   type Attempt,
   type Batch,

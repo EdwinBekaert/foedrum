@@ -309,7 +309,10 @@ describe('claimEffectsDue', () => {
     const due = claimEffectsDue({ ...batch({ kind: 'brewing' }), order }, alice, states({}));
     const comment = due.find(({ key }) => key.effect === 'claim.comment')?.effect;
     const body = comment?.kind === 'comment' ? comment.body : '';
-    assert.match(body, /Its status is on its order's issue in that Brewery, for those who can see it\./);
+    assert.match(
+      body,
+      /Its status is on its order's issue in that Brewery, for those who can see it\./,
+    );
     assert.doesNotMatch(body, /200/);
   });
 

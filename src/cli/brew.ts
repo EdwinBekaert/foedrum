@@ -151,7 +151,8 @@ const endedLine = (batch: Batch, urls: readonly string[], order: number | undefi
     : `batch ${batch.id} ended: ${urls.join(' ')} not all merged`;
   if (batch.repo === undefined) return ended;
   const target = `${batch.repo}#${batch.issue}`;
-  const issue = order === undefined ? '' : `Brewery issue #${order} ${merged ? 'closed' : 'stays open'}, `;
+  const issue =
+    order === undefined ? '' : `Brewery issue #${order} ${merged ? 'closed' : 'stays open'}, `;
   return `${ended}; ${issue}claim on ${target} released${merged ? '' : ', unassign it to make it available'}`;
 };
 
