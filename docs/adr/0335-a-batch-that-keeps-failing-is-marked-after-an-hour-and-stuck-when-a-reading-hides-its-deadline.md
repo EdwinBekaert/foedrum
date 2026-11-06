@@ -22,6 +22,7 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
   An attempt's end whose record throws does not: each end comes once, and the supervisor loses that attempt.
 - **Who writes it.** A driver that may hold the batch, in the transaction that takes or renews its lease, at the end of its tick, each mark under a guard of its own.
   A driver that does not take the batch records nothing, though its supervisor still says the line of a free one. Two drivers cannot both write: the second finds the first's lease and records nothing.
+  The write does not make a free batch the driver's: it renews no lease after it, so that lease lapses and `foedrum brew` of the batch needs no `--take` once it has. Keeping it would change who may drive a batch because it was failing.
 - **`decide` and `admit` refuse** a mark of a batch never ordered, a second mark, and a recovery with no mark, rather than throwing. Every lane takes the mark, cancelled too: a cancelled batch whose effects throw stays held, and its claim's release may be what waits.
 - At most two events per batch per hour, which bounds what a failing batch adds to the log.
 

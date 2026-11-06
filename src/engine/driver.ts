@@ -1374,12 +1374,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
   };
 
-  /** Writes a mark under the batch's lease, so one driver writes it; a throw stops no other. */
+  /**
+   * Writes a mark under the batch's lease, so one driver writes it; a throw stops no other. It does
+   * not hold the batch: a free one's lease lapses, so a mark never changes who may drive it.
+   */
   const writeMark = (batchId: string, command: EngineCommand): boolean => {
     try {
-      if (!mayHold(batchId) || !issueHolding(batchId, command)) return false;
-      held.add(batchId);
-      return true;
+      return mayHold(batchId) && issueHolding(batchId, command);
     } catch (error) {
       if (failureLines.failed('mark', batchId, rejectionText(error))) {
         report({ kind: 'command_failed', command, error });
