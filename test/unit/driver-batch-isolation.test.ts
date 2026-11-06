@@ -713,7 +713,35 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       assert.deepStrictEqual(said(), ['failed b1 drive boom']);
     });
 
-    it('says an end whose reading throws each time, since each end is its own (regression test)', async () => {
+    it('says a cleanup that keeps throwing once, as its own pass, and when it recovers (regression test)', async () => {
+      order('b1');
+      // The second read of the leases in a drive is the cleanup's first, of the ended batch.
+      let reads = Number.NEGATIVE_INFINITY;
+      let throws = true;
+      const faulty: EventStore = {
+        ...store,
+        currentLeases: (when) => {
+          if (throws && ++reads === 2) throw boom;
+          return store.currentLeases(when);
+        },
+      };
+      const clean = async () => ({ done: [], kept: [], failed: [] });
+      const driver = await open({ store: faulty, alsoCleans: [{ root: 'settings', clean }] });
+      assert.equal(
+        intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now).kind,
+        'accepted',
+      );
+      reads = 0;
+      await driver.drive();
+      reads = 0;
+      await driver.drive();
+      assert.deepStrictEqual(said(), ['failed b1 cleanup boom']);
+      throws = false;
+      await driver.drive();
+      assert.deepStrictEqual(said(), ['failed b1 cleanup boom', 'recovered b1 cleanup']);
+    });
+
+    it('says an end whose reading throws, since each end is its own (regression test)', async () => {
       const { runner, end } = handRunner();
       order('b1');
       order('b2');
