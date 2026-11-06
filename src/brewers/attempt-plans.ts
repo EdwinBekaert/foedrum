@@ -131,6 +131,11 @@ export interface AttemptPlansOptions {
   /** The maintainers' comments on an order's issues, oldest first, untrusted (ADR 0333). */
   orderComments: (issues: readonly OrderIssue[]) => Promise<readonly OrderComment[]>;
   /**
+   * Whether a resumed attempt opens as a person's session, which no prompt reaches: `foedrum resume`
+   * of a running batch's (ADR 0127), which reads no comments (ADR 0338).
+   */
+  opensResumed?: boolean;
+  /**
    * Reads the change a Taster that reviews a diff is given, in its worktree (ADR 0161); a plan
    * that needs it fails without it.
    */

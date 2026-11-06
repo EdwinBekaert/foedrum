@@ -454,6 +454,19 @@ describe('decide finish', () => {
     });
   });
 
+  it('records the comments the attempt was told (ADR 0338)', () => {
+    const commentsHeard = [{ repo: 'acme/brewery', issue: 12, id: 502 }];
+    const decision = decide(
+      fold(brewing()),
+      { ...finish(final), commentsHeard } as Command,
+      context,
+    );
+    assert.deepStrictEqual(decision.kind === 'accepted' && decision.events[0], {
+      ...finished(final),
+      commentsHeard,
+    });
+  });
+
   it('puts the batch on tap when the last step succeeded', () => {
     accepts(brewing('patch', 1, 'nip'), finish(succeeded, 'patch'), [
       finished(succeeded, 'patch'),

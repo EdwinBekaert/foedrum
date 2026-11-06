@@ -1797,6 +1797,18 @@ describe('openDriver', () => {
       assert.deepStrictEqual(planned?.houseYeast, houseYeast);
     });
 
+    it('records the comments an attempt ended with on its step.finished (ADR 0338)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const commentsHeard = [{ repo: 'acme/brewery', issue: 12, id: 502 }];
+      end(plan('b1'), succeeded, { commentsHeard });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.commentsHeard, commentsHeard);
+    });
+
     it('records the receipt of an attempt on its step.finished (ADR 0172)', async () => {
       const { runner, end } = handRunner();
       order('b1');
