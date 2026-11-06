@@ -866,9 +866,54 @@ describe('runBrew', () => {
       };
       const byNumber = { ...request, target: { issue: 40 } };
 
+      it('finishes the release a cancelled batch left due, and still says it was cancelled: exit 6', async () => {
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: {
+            ...github().issues,
+            'acme/brewery': [{ number: 40, labels: [], author: 'ann', title: 'Dark' }],
+          },
+        });
+        host.issue('acme/web', 7)?.labels.push('foedrum:claimed');
+        opened();
+        issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+        const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(targetSetup(), brewing, byNumber), 6, f.lines.join('\n'));
+        const comments = host.comments.get('acme/web#7') ?? [];
+        assert.match(comments.at(-1)?.body ?? '', /released its claim.*was cancelled/);
+        assert.ok(!host.issue('acme/web', 7)?.labels.includes('foedrum:claimed'));
+        assert.notEqual(host.issue('acme/brewery', 40)?.state, 'closed');
+        assert.deepStrictEqual([...log().state().batches.keys()], ['web-7']);
+        assert.deepStrictEqual(host.created, []);
+        assert.equal(
+          f.lines.at(-2),
+          'foedrum brew: claim on acme/web#7 released; Brewery issue #40 stays open, unassign it to make it available',
+        );
+        assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch web-7 was cancelled/);
+      });
+
+      it('foedrum mash of a batch whose release is still due names foedrum brew', async () => {
+        opened();
+        f.store.withTransaction((tx) =>
+          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [] }),
+        );
+        const mash = { ...byNumber, mash: true as const };
+        const mashing = () =>
+          shell(behave.succeed(), { gh: ghOver(github().fetch).exec, lock: () => fakeLock('ann') });
+        assert.equal(await runBrew(targetSetup(), mashing(), mash), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          'foedrum mash: batch web-7 of #40 is on tap; its release is still due, and foedrum brew 40 finishes it',
+        );
+      });
+
       it('says foedrum order of the number for an ended batch', async () => {
         opened();
         issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+        for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+          const key = effectKey.encode({ batchId: 'web-7', effect });
+          issue({ kind: 'record', event: { type: 'effect.applied', key, result: 'done' } });
+        }
         const brewing = shell(behave.succeed(), { gh: ghOver(github().fetch).exec });
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
         assert.equal(
