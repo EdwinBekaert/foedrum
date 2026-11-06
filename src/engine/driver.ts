@@ -476,11 +476,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
   };
 
-  /** A supervisor's command that threw counts for its batch (ADR 0335). */
+  /** A supervisor's command that threw counts for its batch, and is said once (ADR 0335). */
   const sayCommandFailure = (notice: Extract<DriverNotice, { kind: 'command_failed' }>): void => {
     const { command, error } = notice;
-    if ('batchId' in command) noteFailing(command.batchId, 'supervisor', error, true);
-    report(notice);
+    const batchId = 'batchId' in command ? command.batchId : undefined;
+    if (batchId !== undefined) noteFailing(batchId, 'supervisor', error, true);
+    const key = `${command.kind} ${batchId ?? ''}`;
+    if (failureLines.failed('command', key, rejectionText(error))) report(notice);
   };
 
   // The batches other drivers hold, as of the start of the current tick.
@@ -1312,7 +1314,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
       } catch (error) {
         noteFailing(batchId, 'effects', error, false);
-        report({ kind: 'effect_failed', key, error });
+        if (failureLines.failed('effect', effectKey.encode(key), rejectionText(error))) {
+          report({ kind: 'effect_failed', key, error });
+        }
         if (latest.unread !== undefined) throw latest.unread;
         return;
       }
@@ -1335,6 +1339,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
     }
     passDone('effects', itsOwn);
+    failureLines.passed('effect');
   };
   let pass: Promise<unknown> = Promise.resolve();
   const applyEffects = (): Promise<void> => {
@@ -1415,6 +1420,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     );
     await supervisor.tick();
     passDone('supervisor', (batchId) => !others.has(batchId));
+    failureLines.passed('command');
     // Stops the processes of attempts that Stuck abandoned (ADR 0027), whose batch ended, or that
     // the log shows finished while this runner still runs them: another driver lost them. Also
     // the run of a step whose batch was taken from this driver to resume that step's session: it

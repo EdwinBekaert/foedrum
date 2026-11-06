@@ -10,6 +10,9 @@ export interface FailureLines {
   passed(pass: string): string[];
 }
 
+/** A message without what changes each pass, a time or a count in it (ADR 0335). */
+const steadyText = (message: string): string => message.replace(/[0-9]+/g, '#');
+
 export const createFailureLines = (): FailureLines => {
   const byPass = new Map<string, Map<string, { message: string; again: boolean }>>();
   return {
@@ -17,8 +20,9 @@ export const createFailureLines = (): FailureLines => {
       const said = byPass.get(pass) ?? new Map<string, { message: string; again: boolean }>();
       byPass.set(pass, said);
       const earlier = said.get(batchId)?.message;
-      said.set(batchId, { message, again: true });
-      return earlier !== message;
+      const steady = steadyText(message);
+      said.set(batchId, { message: steady, again: true });
+      return earlier !== steady;
     },
     passed: (pass) => {
       const recovered: string[] = [];
