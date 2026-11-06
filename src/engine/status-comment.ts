@@ -32,6 +32,7 @@ import {
   type UsageWindows,
 } from './fold.ts';
 import { briefLine } from './merge-brief.ts';
+import { unreportedLine, unreportedOf } from './named-tests.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopAtText } from './pauses.ts';
@@ -1279,6 +1280,10 @@ export const renderStatus = (
   }
   const stale = staleMapLines(batch);
   if (stale.length > 0) sections.push(stale);
+  const named = unreportedOf(batch);
+  if (named !== undefined) {
+    sections.push([unreportedLine(named.unreported, (name) => told(name, named.stepId))]);
+  }
   const assumptions = assumptionLines(batch, stepIds, told, stateBranchUrl, planComment);
   if (assumptions.length > 0) sections.push(['**Assumptions**', ...assumptions]);
   const tests = testLines(batch, stepIds, told);

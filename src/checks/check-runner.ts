@@ -43,7 +43,7 @@ import {
   type StaleMap,
   type WorktreeRef,
 } from '../schemas/events.ts';
-import { surveyOf } from '../schemas/out-doc.ts';
+import { type GaugeReport, surveyOf } from '../schemas/out-doc.ts';
 import type { CheckRef } from '../schemas/recipe.ts';
 import type { TestMap, TestMapModule } from '../schemas/test-map.ts';
 import type { Git } from '../workspace/git.ts';
@@ -53,8 +53,10 @@ import {
   planChecks,
   type RepositoryChecks,
   settleReadings,
+  shortCommand,
   withFailing,
 } from './gravity.ts';
+import { unreportedNames, unreportedRecord } from './named-tests.ts';
 import {
   cut,
   judgeMapped,
@@ -64,7 +66,7 @@ import {
   testFileOf,
 } from './red-proof.ts';
 import { checksEnv, readingOn, runLine, runSetup, setupRunOf } from './setup.ts';
-import { readDiff, readFilesAt, stepCommits } from './step-commits.ts';
+import { readDiff, readFilesAt, stepCommits, stepTests } from './step-commits.ts';
 import {
   areaOf,
   clearReportPaths,
@@ -525,6 +527,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     check: Extract<PlannedCheck, { kind: 'run' }>,
     before: GravityReading[],
     diff: readonly DiffFile[],
+    named: GaugeReport | undefined,
   ): Promise<AttemptEnd> => {
     const find = options.testMap?.reports ?? reportPaths;
     const patterns = modules.flatMap(({ module }) => [
@@ -553,12 +556,15 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const stuck = (why: string): AttemptEnd => ({ ...blocked('environment', why), readings });
     const read: MappedReport[] = [];
     const unreported: string[] = [];
+    // Whether a module wrote nothing to read, so the run says nothing of the tests named (ADR 0342).
+    let silent = false;
     for (const { module, added } of modules) {
       const { name, testReport } = module;
       const wrote = testReportsOf(module, worktree);
       if ('stuck' in wrote) return stuck(wrote.stuck);
       if ('failed' in wrote) return failed(wrote.failed);
       read.push(...wrote.reports);
+      if (wrote.reports.length === 0) silent = true;
       // A module the batch added that wrote nothing may be one no confirmed line reaches (ADR 0280).
       if (added) continue;
       if (wrote.reports.length === 0)
@@ -577,6 +583,9 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // The check's sandbox starts the run in the worktree's real path, where its runner writes
     // absolute paths when a link leads to the worktree (macOS's /tmp, a junction).
     const realRoot = (options.testMap?.realPath ?? realPath)(worktree.path);
+    // Only a count in the reason, which a route input and the status comment quote (ADR 0342).
+    const missing = named === undefined || silent ? [] : unreportedNames(named, read);
+    const total = named === undefined ? 0 : named.tests.length + named.regressionTests.length;
     const verdict = judgeMapped({
       reports: read,
       unreported,
@@ -585,11 +594,20 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       root: worktree.path,
       ...(realRoot === worktree.path ? {} : { realRoot }),
       foldCase: foldsCase(platform),
+      ...(missing.length === 0
+        ? {}
+        : {
+            namedHint: `the run reports no test named as ${missing.length} of the ${total} tests step ${of} named, so "${shortCommand(check.command)}" may not run them`,
+          }),
     });
     // The reading names the failing tests the reports name: its tail may hold none (#779).
-    const named = [...before, withFailing(reading, read)];
-    if (!verdict.proven) return { ...failed(verdict.why), readings: named };
-    return { ending: { kind: 'succeeded', output: null }, readings: named };
+    const readingsNamed = [...before, withFailing(reading, read)];
+    if (!verdict.proven) return { ...failed(verdict.why), readings: readingsNamed };
+    return {
+      ending: { kind: 'succeeded', output: null },
+      readings: readingsNamed,
+      ...(named === undefined || silent ? {} : { unreported: unreportedRecord(missing) }),
+    };
   };
 
   /**
@@ -641,7 +659,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     const preparing = prepare(worktree, deadlineAt, signal);
     const before = preparing === undefined ? [] : await preparing;
     if (!before.every(passed)) return { ending: settleReadings(before), readings: before };
-    return proveMapped(modules, worktree, deadlineAt, of, signal, check, before, diff.files);
+    const named = stepTests(batch, of);
+    return proveMapped(modules, worktree, deadlineAt, of, signal, check, before, diff.files, named);
   };
 
   /**
@@ -790,7 +809,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         ? await proveRed(batch, ref, worktree, current.deadlineAt, of, signal)
         : await checkTree(refs, worktree, current.deadlineAt, signal);
     const judged = await afterRun(batch, worktree, end, fresh, maps, signal, survey !== undefined);
-    return survey === undefined ? judged : agreed(batch, ref, worktree, survey, judged);
+    if (survey !== undefined) return agreed(batch, ref, worktree, survey, judged);
+    return maps === undefined ? judged : namedTestsRead(batch, judged, worktree, maps);
   };
 
   /** Whether the latest survey of step `of` found the map fresh, or kept by the Brewery. */
@@ -1042,6 +1062,40 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     );
     // Settled again, so the reason names the tests too (ADR 0307).
     return readings === undefined ? end : { ...end, readings, ending: settleReadings(readings) };
+  };
+
+  /**
+   * `end` of a check step with what its passing test run's reports say of the tests the Gauger named
+   * (ADR 0342), when every module's reports were read: a failing run may have stopped before one
+   * (ADR 0280), and a module with a report that is unread, or none, says nothing of a name.
+   */
+  const namedTestsRead = (
+    batch: Batch,
+    end: AttemptEnd,
+    worktree: TreeIn,
+    { before, after }: StepMaps,
+  ): AttemptEnd => {
+    const proven = checks.redProof(batch.recipe?.name ?? '')?.of;
+    const named = proven === undefined ? undefined : stepTests(batch, proven);
+    const passing = end.readings?.some(
+      (reading) =>
+        reading.check === 'test' && reading.result === 'exited' && reading.exitCode === 0,
+    );
+    if (named === undefined || passing !== true || after.kind !== 'map') return end;
+    const modules = effectiveMap(
+      before.kind === 'map' ? before.map : undefined,
+      after.map,
+      { atBase: [], deleted: [] },
+      false,
+    );
+    const read: MappedReport[] = [];
+    for (const { module } of modules) {
+      if (module.testReport.format === 'trx') return end;
+      const wrote = testReportsOf(module, worktree);
+      if (!('reports' in wrote) || wrote.reports.length === 0) return end;
+      read.push(...wrote.reports);
+    }
+    return { ...end, unreported: unreportedRecord(unreportedNames(named, read)) };
   };
 
   /**

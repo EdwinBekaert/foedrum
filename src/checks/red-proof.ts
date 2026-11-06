@@ -75,6 +75,11 @@ export interface MappedRun {
   realRoot?: string;
   /** Whether the worktree's file system takes paths that differ only in case for one. */
   foldCase: boolean;
+  /**
+   * What the reason adds when no failing test shows the behaviour missing and the run reports some
+   * test the step named under no name: why, perhaps, none fails (ADR 0342).
+   */
+  namedHint?: string;
 }
 
 /** A path as the step's files are compared: in either case where the file system folds case. */
@@ -132,9 +137,10 @@ const inModuleOf =
  * is the step's doing, and a passing one is just a passing test.
  */
 export function judgeMapped(run: MappedRun): { proven: true } | { proven: false; why: string } {
-  const { reports, unreported, diff, modules, root, realRoot, foldCase } = run;
+  const { reports, unreported, diff, modules, root, realRoot, foldCase, namedHint } = run;
   const roots = realRoot === undefined ? [root] : [root, realRoot];
   const refused = (why: string) => ({ proven: false as const, why });
+  const hinted = (why: string) => (namedHint === undefined ? why : `${why}: ${namedHint}`);
   const bailedOut = reports.find((report) => report.bailedOut !== undefined)?.bailedOut;
   if (bailedOut !== undefined) return refused(`the run bailed out: ${bailedOut}`);
   const failures = reports.flatMap(({ tests, module }) =>
@@ -164,7 +170,9 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
   }
   // A suite's own result follows its tests'.
   const failing = failures.filter(({ leaf }) => leaf);
-  if (failing.length === 0) return refused('no test fails, so none shows the behaviour missing');
+  if (failing.length === 0) {
+    return refused(hinted('no test fails, so none shows the behaviour missing'));
+  }
   // By file: the report places a test at its declaration, which a row added to a table leaves as
   // it was. A failing test the report does not place may be the step's.
   // A relative place names a file of the module whose report it is in, never another's.
@@ -178,7 +186,9 @@ export function judgeMapped(run: MappedRun): { proven: true } | { proven: false;
     !failing.some(inChanged)
   ) {
     return refused(
-      `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, roots))}`,
+      hinted(
+        `no failing test lies in a test file the step changed: test "${cut(placed.name)}" fails in ${cut(shownFile(placed, roots))}`,
+      ),
     );
   }
   const added = new Map(

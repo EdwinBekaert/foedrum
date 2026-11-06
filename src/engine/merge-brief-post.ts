@@ -33,6 +33,7 @@ import {
   type ReadyRecord,
   readyOf,
 } from './merge-brief.ts';
+import { unreportedLine, unreportedOf } from './named-tests.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { findingText, knownCommits, latestPush, recordedPushes, unlinked } from './pull-request.ts';
 import { pairsOf } from './pull-request-pairs.ts';
@@ -393,6 +394,14 @@ const survivorLines = (steps: Steps, told: Told): string[] =>
     ),
   );
 
+/** The tests the Gauger named that the latest run's reports hold under no name (ADR 0342). */
+const unreportedLines = ({ batch }: Steps, told: Told): string[] => {
+  const found = unreportedOf(batch);
+  if (found === undefined) return [];
+  const { stepId, unreported } = found;
+  return [`- ${code(stepId)}: ${unreportedLine(unreported, (name) => told(name, stepId))}`];
+};
+
 /** The brief after its title line, for `ready`, the record that makes `batch` ready. */
 const briefRest = (
   state: State,
@@ -422,7 +431,11 @@ const briefRest = (
     ...openLines(steps, told),
     ...skippedOpenLines(steps, told),
   ];
-  const risks = [...riskLines(steps, told), ...survivorLines(steps, told)];
+  const risks = [
+    ...riskLines(steps, told),
+    ...survivorLines(steps, told),
+    ...unreportedLines(steps, told),
+  ];
   const sections = [
     [`Foedrum · batch ${code(batch.id)} · ${link(ready.pullRequest)}`],
     [

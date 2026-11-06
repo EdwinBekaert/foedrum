@@ -738,6 +738,7 @@ function apply(state: State, event: Event): State {
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
           ...(event.findings === undefined ? {} : { findings: event.findings }),
           ...(event.staleMap === undefined ? {} : { staleMap: event.staleMap }),
+          ...(event.unreported === undefined ? {} : { unreported: event.unreported }),
           ...(event.mutants === undefined ? {} : { mutants: event.mutants }),
         };
       });
