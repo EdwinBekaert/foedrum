@@ -1,6 +1,6 @@
 # 0338. A resumed session hears the comments made since it last read them
 
-Date: 2026-11-06 · Status: Accepted · Amends [0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md) (a resumed session hears the comments, which it left out), [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) and [0175](0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md) (a resumed attempt's prompt can hold tagged comments and a sentence that says what they are) and [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (an answered attempt's prompt holds them after its answers)
+Date: 2026-11-06 · Status: Accepted · Amends [0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md) (a resumed session hears the comments, which it left out), [0117](0117-a-retry-resumes-the-session-of-the-attempt-before-it-in-that-attempt-s-worktree.md) and [0175](0175-a-turn-overrun-is-retried-by-resuming-its-session-and-keeps-its-out-doc.md) (a resumed attempt's prompt can hold tagged comments and a sentence that says what they are) [0118](0118-retrymode-resume-loads-and-an-answer-resumes-the-session-that-asked.md) (an answered attempt's prompt holds them after its answers) and [0248](0248-a-retry-is-told-why-the-attempt-before-it-failed.md) (a resumed retry's reason is no longer always its one input)
 
 ## Context
 [ADR 0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md) reads the maintainers' comments when a fresh attempt is planned, and leaves a resumed session out.
