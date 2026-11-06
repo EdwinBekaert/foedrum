@@ -438,6 +438,14 @@ describe('tasting-compare --real', () => {
       assert.deepEqual([opened, refused], [[], []]);
     });
 
+    it('reads a .. before any wildcard, and a pattern with none, by where it lands', () => {
+      const reachedBy = (pattern: string) =>
+        transcriptReads(transcript({ name: 'Glob', input: { pattern } }), WORKTREE).outside;
+      assert.deepEqual(reachedBy('src/../*.ts'), []);
+      assert.deepEqual(reachedBy('src/a.ts'), []);
+      assert.deepEqual(reachedBy('../x.md'), [resolve(WORKTREE, '../x.md')]);
+    });
+
     it('reads every wildcard, and backslashes, in a Glob that goes up', () => {
       for (const pattern of ['sr?/../../../*', '[a]/../../*', 'src\\**\\..\\..\\..\\*']) {
         const call = { name: 'Glob', input: { pattern } };
@@ -721,6 +729,33 @@ describe('tasting-compare --real', () => {
       const { lists, codes } = blinded([run, failed], 'a seed');
       assert.equal([...(lists['855'] ?? '').matchAll(/^## Run /gm)].length, 1);
       assert.equal([...codes.matchAll(/^Failed: /gm)].length, 1);
+    });
+
+    it('shows a dash for the model and the tokens an attempt has none of', () => {
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [attempt('security', [], { usage: undefined })],
+      };
+      assert.match(
+        blinded([run], 'a seed').codes,
+        /\| 855-today \| 1 \| security \| - \| - \| - \| - \| - \| - \|/,
+      );
+    });
+
+    it('the table it prints is a row per setup and one line after them', () => {
+      assert.deepEqual(realTable([record('867-reads', 1, 'x')]).split('\n'), [
+        '| Setup | Runs to score | Failed goes | Retried |',
+        '|---|---|---|---|',
+        '| 855-today | 0 | 0 | 0 |',
+        '| 855-reads | 0 | 0 | 0 |',
+        '| 864-today | 0 | 0 | 0 |',
+        '| 864-reads | 0 | 0 | 0 |',
+        '| 867-today | 0 | 0 | 0 |',
+        '| 867-reads | 1 | 0 | 0 |',
+        '',
+        'Score lists/<order>.md by hand, then open codes.md, which says which setup each code is.',
+        '',
+      ]);
     });
 
     it('shows a riskLeft line apart from the findings', () => {
