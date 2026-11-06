@@ -322,6 +322,21 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       assert.deepStrictEqual(startedIn('12-2'), []);
     });
 
+    it('foedrum takeover, with no driver to take it from, names the brew that moves it', async () => {
+      await died();
+      const decision = takeOver(f.log(), {
+        batchId: '12-1',
+        owner: 'bob',
+        ...issued,
+        now: later,
+        leaseMs: 60_000,
+      });
+      assert.deepStrictEqual(
+        decision.kind === 'refused' ? decision.reason : decision,
+        'no driver holds batch 12-1; foedrum brew 12-1 --take drives it',
+      );
+    });
+
     it('refuses while an attempt lease is held, saying until when, and takes nothing over', async () => {
       await died();
       // A session open in another terminal, under an owner of its own.
