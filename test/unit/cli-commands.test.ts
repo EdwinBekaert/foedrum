@@ -561,6 +561,31 @@ describe('foedrum: commands that change state', () => {
     });
   });
 
+  describe('foedrum brew of a batch id (ADR 0339)', () => {
+    it('hands the id with --take to brew: regression test', async () => {
+      const issued: unknown[] = [];
+      const brew: CliContext['brew'] = async (input) => {
+        issued.push(input);
+        return ok('');
+      };
+      const result = await run(['brew', '27-1', '--take'], { brew });
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.deepStrictEqual(issued, [{ command: 'brew', issue: '27-1', take: true }]);
+    });
+
+    it('refuses the id alone as a mistake of the command line, naming --take: regression test', async () => {
+      const result = await run(['brew', '27-1']);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /^foedrum brew: invalid <issue> .*needs --take\n$/);
+    });
+
+    it('keeps refusing it on foedrum mash, which has no such exception: regression test', async () => {
+      const result = await run(['mash', '27-1', '--take']);
+      assert.equal(result.exitCode, 2);
+      assert.match(result.stderr, /^foedrum mash: invalid <issue> /);
+    });
+  });
+
   describe('pause and continue (ADR 0202)', () => {
     const paused = (fields: Record<string, unknown> = {}): Event =>
       ({ type: 'order.paused', by: 'ada', via: 'terminal', ...fields }) as Event;

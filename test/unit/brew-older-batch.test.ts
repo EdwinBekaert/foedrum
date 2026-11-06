@@ -13,6 +13,7 @@ import { describeLane } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import { calledAs } from '../../src/engine/claim-orders.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { foldedBatch } from '../../src/engine/fold.ts';
 import { BrewCommand } from '../../src/schemas/commands.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
@@ -21,7 +22,7 @@ import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT } from '../helpers/fake-worktrees.ts';
 import { failedCheck } from '../helpers/open-pull-request.ts';
-import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
+import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 
 const RECIPE = JSON.stringify({
   name: 'lauter',
@@ -313,6 +314,62 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       f.lines.length = 0;
       assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
       assert.match(f.lines.at(-1) ?? '', /foedrum stuck lists what it offers$/);
+    });
+
+    it("opens a claimed batch's session by its number's issue, naming its id: regression test", async () => {
+      const inputs = serveInputs({
+        files: {
+          ...serveInputs().files,
+          config: config({}, { alias: 'web', intake: { labels: ['foedrum'] } }),
+          local: local({ workRoot: f.dir.path }),
+        },
+      });
+      const { brewery } = inputs.files;
+      const result = serveSetup({
+        ...inputs,
+        files: {
+          ...inputs.files,
+          brewery: {
+            ...brewery,
+            recipes: [...brewery.recipes, { path: 'recipes/lauter.jsonc', text: RECIPE }],
+            brewers: [...brewery.brewers, { path: 'brewers/steward.md', text: STEWARD }],
+          },
+        },
+      });
+      f.setup = result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      const log = f.log();
+      const target = { issue: 7, repo: 'acme/web' };
+      const accept = (command: Parameters<typeof log.issue>[0]): void => {
+        const decision = log.issue(command, t0);
+        assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      };
+      accept({ kind: 'order', batchId: 'web-7-1', order: target, ...issued });
+      const key = effectKey.encode({ batchId: 'web-7-1', effect: 'order.issue' });
+      accept({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
+      const route = { recipe: 'lauter', reason: 'label', source: 'label' } as const;
+      accept({ kind: 'route', batchId: 'web-7-1', ...route });
+      accept({ kind: 'await_session', batchId: 'web-7-1', stepId: 'refine', attempt: 1 });
+      f.store.withTransaction((tx) =>
+        tx.append({
+          type: 'batch.ordered',
+          batchId: 'web-7-2',
+          order: target,
+          routeBy: '2026-10-22T13:00:00.000Z',
+        }),
+      );
+      const parsed = BrewCommand.safeParse({ command: 'brew', issue: 'web-7-1', take: true });
+      assert.ok(parsed.success, parsed.error?.message);
+      const repositories = [{ alias: 'web', repo: 'acme/web' }];
+      const found = batchTarget(log.state(), parsed.data.issue, repositories);
+      assert.deepStrictEqual(found, { batchId: 'web-7-1', target: { issue: 40 } });
+      const brew = brewRequestOf(parsed.data, 'ann', issued, undefined, found);
+      assert.equal(await runBrew(f.setup, shell(behave.fail(true)), brew), 3, f.lines.join('\n'));
+      assert.deepStrictEqual(startedIn('web-7-1'), ['refine#2']);
+      assert.deepStrictEqual(startedIn('web-7-2'), []);
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: run foedrum brew web-7-1 --take again to reopen the session',
+      );
     });
 
     it('refuses a batch that is not there, ordering nothing', async () => {
