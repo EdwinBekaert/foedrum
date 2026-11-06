@@ -1,5 +1,6 @@
 // Out-doc frontmatter: how a brewer reports its outcome (brewers-and-recipes §2, ADR 0005).
 
+import { findSecrets } from '../formats/secrets.ts';
 import { LensName } from './ids.ts';
 import { type DocResult, readDoc } from './read.ts';
 import { NonEmpty, Question } from './step-outcome.ts';
@@ -38,8 +39,11 @@ export const Disposition = z.discriminatedUnion('disposition', [
 ]);
 export type Disposition = z.infer<typeof Disposition>;
 
+/** One line of any length. */
+const OneLine = NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line');
+
 const shared = {
-  summary: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line'),
+  summary: OneLine,
   assumptions: z.array(NonEmpty).default([]),
   // Optional, so an out doc without them reads as before; an older Foedrum cannot read one with
   // them (ADR 0191).
@@ -108,7 +112,7 @@ export const Verdict = z.enum(['approve', 'changes']);
  * that was there before the change (ADR 0094). A finding about the change as a whole has no file.
  */
 export const TastingFinding = z.strictObject({
-  file: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line').optional(),
+  file: OneLine.optional(),
   line: z.int().positive().optional(),
   severity: z.enum(['blocker', 'major', 'minor']),
   why: NonEmpty,
@@ -123,6 +127,25 @@ export type TastingFinding = z.infer<typeof TastingFinding>;
 export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
+const RISK_CUT = ` [cut: the rest is past the limit of ${MAX_RISK_LEFT} characters]`;
+const RISK_SCANNED = 1_000;
+
+/**
+ * A `riskLeft` line within its limit (ADR 0337): as it is, or its start with a mark that says it was
+ * cut. A finished review is not worth failing over it. It is read for a secret first, since a cut
+ * can break one in two and hide the rest from `withoutSecrets`: what the cut keeps and room for a
+ * match that runs past it, as the renderers read (ADR 0088), since an out doc may hold 1 MiB. No
+ * commit is known here, so a full commit hash in that part of the line is left out too.
+ */
+const withinRiskLimit = (line: string): string => {
+  if (line.length <= MAX_RISK_LEFT) return line;
+  if (findSecrets(line.slice(0, RISK_SCANNED), () => false).length > 0) {
+    return '[left out: a riskLeft line past its limit that looks like a secret]';
+  }
+  const kept = line.slice(0, MAX_RISK_LEFT - RISK_CUT.length);
+  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}${RISK_CUT}`;
+};
+
 /** One line of at most `max` characters. */
 export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
@@ -133,7 +156,7 @@ export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Mu
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
-  riskLeft: z.array(lineOf(MAX_RISK_LEFT)).max(MOST_RISKS_LEFT).exactOptional(),
+  riskLeft: z.array(OneLine.transform(withinRiskLimit)).max(MOST_RISKS_LEFT).exactOptional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done') return;
   if (doc.verdict === undefined) {

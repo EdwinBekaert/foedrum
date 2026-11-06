@@ -279,10 +279,70 @@ describe("a Taster's riskLeft (ADR 0214)", () => {
     return read.error?.issues[0]?.path;
   };
 
-  it(`takes an item of ${MAX_RISK_LEFT} characters, and refuses a longer one with one line`, () => {
-    const sized = (length: number) => ({ ...approved, riskLeft: ['r'.repeat(length)] });
-    assert.equal(TastingOutDoc.safeParse(sized(MAX_RISK_LEFT)).success, true);
-    assert.deepEqual(refusal(['r'.repeat(MAX_RISK_LEFT + 1)]), ['riskLeft', 0]);
+  it(`takes an item of ${MAX_RISK_LEFT} characters as it is`, () => {
+    const line = 'r'.repeat(MAX_RISK_LEFT);
+    const read = TastingOutDoc.parse({ ...approved, riskLeft: [line] });
+    assert.deepEqual(read.riskLeft, [line]);
+  });
+
+  describe('an item past its limit (#889, ADR 0337)', () => {
+    const CUT = ' [cut: the rest is past the limit of 300 characters]';
+    const LEFT_OUT = '[left out: a riskLeft line past its limit that looks like a secret]';
+    const cutOf = (line: string) =>
+      TastingOutDoc.safeParse({ ...approved, riskLeft: [line] }).data?.riskLeft;
+    const kept = MAX_RISK_LEFT - CUT.length;
+
+    it('is cut to its limit, keeps its start and says it was cut', () => {
+      const [cut] = cutOf(`${'r'.repeat(kept)}${'s'.repeat(MAX_RISK_LEFT)}`) ?? [];
+      assert.equal(cut, `${'r'.repeat(kept)}${CUT}`);
+      assert.equal(cut?.length, MAX_RISK_LEFT);
+    });
+
+    it('is cut when it is one character over', () => {
+      assert.deepEqual(cutOf('r'.repeat(MAX_RISK_LEFT + 1)), [`${'r'.repeat(kept)}${CUT}`]);
+    });
+
+    it('reads the same when the stored output is read again', () => {
+      const output = TastingOutDoc.safeParse({ ...approved, riskLeft: ['r'.repeat(1_000)] }).data;
+      assert.ok(output?.riskLeft !== undefined);
+      assert.deepEqual(tastingOf(output)?.riskLeft, output.riskLeft);
+    });
+
+    it('is left out for a fixed line when the cut would break a secret in two', () => {
+      const token = `ghp_${'a1B2'.repeat(10)}`;
+      const line = `${'r '.repeat(Math.floor((kept - 10) / 2))}${token} ${'r'.repeat(300)}`;
+      assert.deepEqual(cutOf(line), [LEFT_OUT]);
+    });
+
+    it('is left out for a fixed line when the secret lies wholly past the cut', () => {
+      assert.deepEqual(cutOf(`${'r '.repeat(MAX_RISK_LEFT)}password = hunter2`), [LEFT_OUT]);
+    });
+
+    it('a secret in an item within its limit reads as before, for the renderers to leave out: regression test', () => {
+      assert.deepEqual(cutOf('password = hunter2'), ['password = hunter2']);
+    });
+
+    it('is cut as any other line when the secret lies past what is read for one: ADR 0088', () => {
+      const start = 'r '.repeat(600);
+      assert.deepEqual(cutOf(`${start}password = hunter2`), [`${start.slice(0, kept)}${CUT}`]);
+    });
+
+    it('is left out for a fixed line when it holds a full commit hash, since no commit is known here: regression test', () => {
+      const line = `${'a'.repeat(40)} ${'r '.repeat(MAX_RISK_LEFT)}`;
+      assert.deepEqual(cutOf(line), [LEFT_OUT]);
+    });
+
+    it('never ends in half a character', () => {
+      const emoji = String.fromCodePoint(0x1f37a);
+      const [cut] = cutOf(`${'r'.repeat(kept - 1)}${emoji}${'r'.repeat(MAX_RISK_LEFT)}`) ?? [];
+      assert.equal(cut, `${'r'.repeat(kept - 1)}${CUT}`);
+    });
+
+    it('is still refused when it is two lines, or only blanks', () => {
+      const long = 'r'.repeat(MAX_RISK_LEFT);
+      assert.deepEqual(refusal([`${long}\n${long}`]), ['riskLeft', 0]);
+      assert.deepEqual(refusal([' '.repeat(MAX_RISK_LEFT + 1)]), ['riskLeft', 0]);
+    });
   });
 
   it(`takes ${MOST_RISKS_LEFT} items, and refuses more with one line`, () => {
