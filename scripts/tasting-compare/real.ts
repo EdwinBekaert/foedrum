@@ -35,7 +35,7 @@ export const REAL_ORDERS = [
 export const TODAY_COMMIT = '765cc856';
 
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
-type Profile = 'today' | 'reads';
+type Profile = 'today' | 'reads' | 'lens';
 const PROFILES: readonly Profile[] = ['today', 'reads'];
 /** One order tasted one way: the order first, so the record reads on its own. */
 export type RealSetup = `${OrderNumber}-${Profile}`;
@@ -85,6 +85,11 @@ export const realRecipeText = (): string => {
     ],
   };
   return `// node scripts/tasting-compare.ts --real's recipe (ADR 0332).\n${JSON.stringify(recipe, null, 2)}\n`;
+};
+
+/** The recipe a run of `setup` brews. */
+export const realRecipeOf = (_setup: RealSetup): string => {
+  throw new Error('not implemented');
 };
 
 /** The Brewery's files of a run of `setup` beyond Nip's: the recipe, and `today`'s Taster. */
