@@ -225,9 +225,12 @@ const changeBrewery = async (
       decision = log.issue(human, context.now());
     } catch (error) {
       if (error instanceof InvalidLogError) throw error;
-      // Its recipe could not be read (ADR 0335): what still works does not read it.
-      const why = `batch ${human.batchId} could not be read: ${firstLineOf(messageOf(error))}`;
-      return failed(command, `${why}; cancel it, or choose another recipe`);
+      // Its recipe, or the store: what it says cannot tell (ADR 0335). What still works reads no recipe.
+      const why = `batch ${human.batchId} could not be changed: ${firstLineOf(messageOf(error))}`;
+      return failed(
+        command,
+        `${why}; if its recipe is what failed, cancel it or choose another recipe`,
+      );
     }
     if (decision.kind === 'refused') return failed(command, decision.reason);
     return done(`${laneLine(log.state(), human.batchId)}\n`);
