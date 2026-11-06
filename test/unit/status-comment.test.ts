@@ -2166,6 +2166,45 @@ describe('statusEffects', () => {
     assert.deepEqual(driver.held(), []);
   });
 
+  it('a batch that goes Stuck within a minute of its last edit has its revision due at once', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    later(minute);
+    await driver.tick();
+    assert.match(only().body, /Brewing/);
+    later(minute - 1);
+    issue({
+      kind: 'finish',
+      batchId: '7-1',
+      stepId: 'plan',
+      attempt: 1,
+      ending: { kind: 'blocked', blockerKind: 'findings', summary: 'The tests fail' },
+    });
+    await driver.tick();
+    assert.match(only().body, /🔔 \*\*Stuck\*\*: `plan` is blocked \(findings\): The tests fail/);
+    assert.match(only().body, /Next:/);
+    assert.ok(only().body.endsWith(marker(3)));
+  });
+
+  it('a batch the supervisor sticks at its deadline, within a minute of its last edit, shows it in that tick', async () => {
+    order();
+    const driver = await open();
+    await driver.tick();
+    brew();
+    const attempt = log.state().batches.get('7-1')?.steps.get('plan')?.attempts.get(1);
+    const deadline = Date.parse(attempt?.deadlineAt ?? assert.fail('plan has a deadline'));
+    now = new Date(deadline - 30_000);
+    // A pause edits the comment, and the attempt that has started keeps its deadline (ADR 0202).
+    issue({ kind: 'pause', order: { issue: 7 }, by: 'ada', via: 'terminal', why: 'lunch' });
+    await driver.tick();
+    assert.match(only().body, /Paused/);
+    now = new Date(deadline);
+    await driver.tick();
+    assert.match(only().body, /🔔 \*\*Stuck\*\*/);
+  });
+
   it('a Brewing batch stays limited to one edit a minute: regression test', async () => {
     order();
     const driver = await open();
