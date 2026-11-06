@@ -1,6 +1,6 @@
 # 0333. A brewer's order holds the maintainers' comments
 
-Date: 2026-11-06 · Status: Accepted · Amends [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md) (a Brewery's Taster gets the comments now), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (what a comment's `source` says), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (what the `order` input is) and [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a third setup of `--real`)
+Date: 2026-11-06 · Status: Accepted · Amends [0276](0276-the-order-a-review-reads-holds-its-recorded-scope-decisions.md) (a Brewery's Taster gets the comments now), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (what a comment's `source` says, and that comments enter by association, not by the allow-list), [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a list reads on from a full page that answers 304), [0063](0063-foedrum-serve-its-configuration-and-wiring.md) (what the `order` input is) and [0332](0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md) (a third setup of `--real`)
 
 ## Context
 A brewer's `order` input was the issue's body and nothing else (`githubOrderText`).
@@ -23,6 +23,8 @@ Three things make it more than a read:
   The repository is new to ADR 0041's form, since a target issue and a Brewery issue can share a number.
   `source` is an escaped attribute Foedrum writes, so the comment's text cannot reach it.
 - **`authorAssociation` decides who is heard. It does not make the text trusted:** every comment stays inside the prompt's nonce tags, and one that holds the nonce refuses the prompt, as a body does.
+- **It is not the Brewery's allow-list.** `users` says whose issues become orders and whose commands count ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)); comments are heard by association, as ADR 0276 has them and #877 asks, so a collaborator who is not in `users` can write part of an order they could not open.
+  `MEMBER` and `COLLABORATOR` do not imply write access: an org member with no rights on a target repository is heard there, and the acceptance lens counts what they say as a scope record. The tags, the tool allowlists, the sandbox and a person's merge still hold.
 - No default brewer's text changes: the prompt's rule already says a `{name}` refers to "the inputs with that name".
 
 ### Foedrum's own comments stay out
@@ -30,12 +32,13 @@ Three things make it more than a read:
   Both must hold: a marker alone proves nothing, since anyone can write one ([ADR 0033](0033-chaos-tests-effects-found-by-key-and-leases-at-start.md)), and the login alone is the maintainer's too.
 - **It is one shape, not a list of kinds.** Every comment Foedrum posts ends in `<!-- foedrum:<key> -->`, so a new kind needs no entry here.
 - **A poster cannot leave it out by accident:** the code host's `comment`, `create` and `edit` take only what `markedComment` builds.
-  A test goes over every kind and names the files that call it, so a new poster fails until that test holds its kind.
+  A test goes over every kind, and lists the files that call `markedComment` and those that post to an issue's comments. It catches what the type cannot: a new post that does not go through the code host's `comment` or `create`, and a new file of comments the table of kinds does not hold yet. A second kind in a file already listed fails nothing, and needs nothing, since the shape is the same.
 - **No older comment lacks it.** Each poster wrote the marker from its first commit, and on 2026-11-06 every Foedrum comment on the Brewery's issues 1 to 20 and on #855, #864 and #867 ended in one. No older text needs recognising.
 - **A marker in other hands:**
   - by any other login, it changes nothing: that comment is judged by its association, and stays in if a maintainer wrote it;
   - quoted, or followed by more text, it is no last line, so a reply that quotes a status comment stays in;
   - by a person posting as the Brewery's own login, ending a comment in a marker hides that comment from brewers. It takes that login, and hides only that person's own words.
+- **Foedrum's comments under an earlier login** stay in, because the login is the driver's now: after `gh auth switch`, or with a second driver on another maintainer's login, an older status or plan comment by the other login reads as that maintainer's, model-written text included. A Brewery that changes its login deletes those comments from its open orders' issues, or accepts them.
 - **Another Brewery's claim comment** on a target issue, by a login that is a maintainer there, stays in. It says only that the issue is being brewed, and telling Breweries apart would take a list of them.
 
 ### Which issues, in what order
@@ -57,11 +60,12 @@ Three things make it more than a read:
 - **A Brewery issue a person deleted holds no comments, and stops nothing** ([ADR 0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) keeps its batch going): GitHub's 410 that says deleted gives none.
   A 410 for issues turned off, or a 404, may come back, so each fails.
 - **Reads are conditional and whole** ([ADR 0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)): every page is read, each answered from the cache on a 304. An edited or deleted comment shows as it now stands.
+- **A full page that answers 304 reads the page after it.** Measured on 2026-11-06 with reads only: GitHub's ETag covers a page's body alone, since two URLs with one body and different `Link` headers share it and one answers 304 to the other's, and a 304 has no `Link` header. So an eleventh comment left a full first page unchanged, and the cached answer's `Link` ended the list at ten, in silence. `reads.pages` now asks for the next page after a page that came from the cache, is full and names no next; that request is conditional too. Every list gets this, the tracker's and the marks' as well.
 - **Nothing is cut.** The body and the maintainers' comments together are one input's worth, 1 MiB. Past that the attempt fails: `the input "order" was not read: its body and <n> comments are larger than 1048576 bytes`. Only maintainers' comments count, so a stranger cannot fill it.
 
 ## Consequences
 - **Cost:** one more listing per fresh attempt, two for a claimed order, a page per ten comments. An unchanged page is a 304, which does not count against the primary limit. Every read counts against the one token's primary limit, whichever repository it is in; there is no limit per repository. No model tokens go on reading them; the comments themselves go into each prompt.
-- **A stranger's flood on a public issue can stop a batch.** Strangers' comments stay out of the prompt but are read: past the reads' limits (5,000 items or 32 MiB, about 85 of the longest comments) the listing fails, and each attempt fails naming why: `the comments of <repo>#<n> is longer than …`. A person sees it on the Stuck batch, and can delete the comments or lock the issue. `findComment` already has this exposure on a claimed issue, so it adds no new kind of risk.
+- **A stranger's flood on a public issue can stop a batch.** Strangers' comments stay out of the prompt but are read: past the reads' limits (5,000 items or 32 MiB, about 85 of the longest comments) the listing fails, and each attempt fails naming the limit it passed: `the comments of <repo>#<n> has more than 500 pages`, or `is longer than 33554432 bytes`. A person sees it on the Stuck batch, and can delete the comments or lock the issue. `findComment` already has this exposure on a claimed issue, so it adds no new kind of risk.
 - **A hidden comment is still read:** the REST answer does not say a comment was minimized. A decision withdrawn should be edited, deleted or answered by a later comment.
 - **A private Brewery issue's comments reach brewers whose pull request goes to a target repository that may be public,** and a model could quote one. A plan already crosses that way, so this adds no guard; a maintainer should write on the Brewery issue what they would let a brewer repeat.
 - **The Brewery:** no file changes, and no event changes.
