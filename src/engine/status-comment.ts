@@ -16,7 +16,7 @@ import { planOf } from '../schemas/plan.ts';
 import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
-import { breweryIssueOf } from './claim-orders.ts';
+import { breweryIssueOf, calledAs } from './claim-orders.ts';
 import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
 import {
@@ -1218,6 +1218,8 @@ export const renderStatus = (
   subOrderPulls: readonly SubOrderRow[] = [],
   /** The Brewery issue the comment is on, whose number its session line names (ADR 0329). */
   order: number = batch.issue,
+  /** How its `Next:` line names its work, which a batch that is not the latest does by id (ADR 0334). */
+  called: string = String(order),
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1235,7 +1237,7 @@ export const renderStatus = (
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
-      ...nextLines(batch, subIssues, subOrderPulls, String(order)),
+      ...nextLines(batch, subIssues, subOrderPulls, called),
     ],
     [
       recipeText(batch.recipe),
@@ -1353,6 +1355,7 @@ const statusDue = (
     allSubIssues(state, batchId),
     batch.decomposed === true ? subOrderRows(state, batch.issue) : [],
     issue,
+    calledAs(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
