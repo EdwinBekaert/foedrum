@@ -257,6 +257,8 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: 
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':
       return `${code(reason.stepId)} waits for its session: run ${code(sessionCommand(batch))} in a terminal (ADR 0222)`;
+    case 'failing':
+      throw new Error('not implemented');
     case 'stalled':
       return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':

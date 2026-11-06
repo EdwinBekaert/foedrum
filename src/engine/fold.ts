@@ -8,6 +8,7 @@ import type {
   CoverageListing,
   Dependency,
   Event,
+  FailingPass,
   GravityReading,
   HeadCheck,
   MutantRecord,
@@ -215,6 +216,13 @@ export interface Rewind {
   shas: Readonly<Record<string, string>>;
 }
 
+/** What a driver's passes failed on, in which it failed last, and since when (ADR 0335). */
+export interface Failing {
+  pass: FailingPass;
+  summary: string;
+  since: string;
+}
+
 /** A person's handover of a batch from the driver `from` to `to` (ADR 0124). */
 export interface Takeover {
   by: string;
@@ -270,6 +278,8 @@ export interface Batch {
   rewinds: readonly Rewind[];
   /** Its latest handover from one driver to another (ADR 0124); absent while it had none. */
   takeover?: Takeover;
+  /** A driver's passes failed on it for an hour and have not since gone clean (ADR 0335). */
+  failing?: Failing;
   /** Its task tree; absent while it is the repository's base (ADR 0066). */
   taskTree?: TaskTree;
   /**
@@ -909,6 +919,9 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
+    case 'batch.failing':
+    case 'batch.recovered':
+      throw new Error('not implemented');
     case 'batch.taken_over': {
       const { by, via, from, to, until, resumes } = event;
       return updateBatch(state, event.batchId, (batch) => ({

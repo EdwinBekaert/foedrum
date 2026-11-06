@@ -157,6 +157,14 @@ const valid: Record<Event['type'], Event> = {
     at: '2026-10-15T12:00:00.000Z',
   },
   'batch.cancelled': { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'comment' },
+  'batch.failing': {
+    type: 'batch.failing',
+    batchId: 'b1',
+    pass: 'supervisor',
+    summary: 'The recipe could not be read',
+    since: '2026-10-15T12:00:00.000Z',
+  },
+  'batch.recovered': { type: 'batch.recovered', batchId: 'b1' },
   'batch.taken_over': {
     type: 'batch.taken_over',
     batchId: 'b1',
@@ -891,6 +899,13 @@ describe('StuckReason', () => {
       stepId: 'brew',
       lastProgressAt: '2026-10-15T12:00:00Z',
       turnsWithoutProgress: 60,
+    },
+    failing: {
+      kind: 'failing',
+      stepId: 'brew',
+      pass: 'drive',
+      summary: 'The recipe could not be read',
+      since: '2026-10-15T12:00:00Z',
     },
     routing: { kind: 'routing', deadlineAt: '2026-10-15T12:00:00Z' },
     plan_review: { kind: 'plan_review', stepId: 'plan', attempt: 2 },

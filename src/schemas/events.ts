@@ -473,6 +473,12 @@ export const RecordedFindings = z.strictObject({
 });
 export type RecordedFindings = z.infer<typeof RecordedFindings>;
 
+/** The pass a driver's failure on a batch was last in (ADR 0328, ADR 0335). */
+export const FailingPass = z.enum(['supervisor', 'runs', 'drive', 'cleanup', 'effects']);
+export type FailingPass = z.infer<typeof FailingPass>;
+/** The first line of the failure, at most 120 characters, as a rejected run's (ADR 0099). */
+const FailingSummary = NonEmpty.max(120);
+
 export const StuckReason = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('needs_input'),
@@ -496,6 +502,14 @@ export const StuckReason = z.discriminatedUnion('kind', [
   }),
   z.strictObject({ kind: z.literal('deadline_passed'), stepId: StepId, deadlineAt: Timestamp }),
   z.strictObject({ kind: z.literal('waiting_for_session'), stepId: StepId }),
+  // A step of a batch whose reading failed for an hour, so its deadline may not be readable (ADR 0335).
+  z.strictObject({
+    kind: z.literal('failing'),
+    stepId: StepId,
+    pass: FailingPass,
+    summary: FailingSummary,
+    since: Timestamp,
+  }),
   // No file write or commit since `lastProgressAt`, for `turnsWithoutProgress` turns (ADR 0027).
   z.strictObject({
     kind: z.literal('stalled'),
@@ -870,6 +884,17 @@ export const Event = z.discriminatedUnion('type', [
     by: NonEmpty,
     via: Surface,
   }),
+  // A driver's passes have failed on the batch for an hour, since `since`; it changes no lane
+  // (ADR 0335). An older Foedrum cannot read this event.
+  z.strictObject({
+    type: z.literal('batch.failing'),
+    batchId: BatchId,
+    pass: FailingPass,
+    summary: FailingSummary,
+    since: Timestamp,
+  }),
+  // A tick's passes went over the batch that carried the mark clean (ADR 0335).
+  z.strictObject({ type: z.literal('batch.recovered'), batchId: BatchId }),
   // A person handed the batch from the driver `from` to the driver `to` (ADR 0124). `until`: when
   // `from`'s lease would have expired, before which no driver applies an effect of the batch.
   z.strictObject({

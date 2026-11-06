@@ -7,6 +7,7 @@ import {
   type ClaudeReport,
   type CoverageListing,
   type Event,
+  type FailingPass,
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
   MOST_FAILED_CHECKS,
@@ -129,6 +130,7 @@ export type RecordedEvent = Extract<
       | 'bottle.opened'
       | 'release.observed'
       | 'system.mapped'
+      | 'batch.recovered'
       | 'pull_request.ended'
       | 'pull_request.base_checked'
       | 'pull_request.pair_checked'
@@ -196,6 +198,18 @@ export type EngineCommand =
   | { kind: 'wait'; batchId: string; on: WaitCondition }
   /** The supervisor found an Ordered batch past its routing deadline (ADR 0032). */
   | { kind: 'unrouted'; batchId: string }
+  /**
+   * A driver's passes failed on the batch for an hour (ADR 0335): the mark, and with `reading` a
+   * brewing batch Stuck, since a failing reading may hide its deadline.
+   */
+  | {
+      kind: 'mark_failing';
+      batchId: string;
+      pass: FailingPass;
+      summary: string;
+      since: string;
+      reading: boolean;
+    }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string }
   /**
@@ -282,6 +296,8 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'stopped':
     case 'pull_request_failed':
       return [...withoutAnswer];
+    case 'failing':
+      throw new Error('not implemented');
     // A plan to review: sign it off (ADR 0281), correct it in a session (ADR 0286), plan it again,
     // choose another recipe, or end it (ADR 0275). A skip or a rewind would end the recipe on the
     // same plan again.
@@ -455,6 +471,8 @@ function run(draft: Draft, command: Command): Event[] {
     case 'await_session':
       awaitSession(draft, command);
       break;
+    case 'mark_failing':
+      throw new Error('not implemented');
     case 'fix_pull_request':
       fixPullRequest(draft, command);
       break;

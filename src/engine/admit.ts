@@ -161,6 +161,9 @@ function rule(state: State, event: Event): string | undefined {
       return bottleable(state, event);
     case 'batch.on_tap':
       return lanes(state, event, ['brewing']);
+    case 'batch.failing':
+    case 'batch.recovered':
+      throw new Error('not implemented');
     case 'batch.taken_over':
     case 'batch.cancelled':
       return lanes(state, event, nonTerminal);

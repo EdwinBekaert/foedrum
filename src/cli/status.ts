@@ -47,6 +47,8 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
       return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
     case 'waiting_for_session':
       return `waiting for a session at ${reason.stepId}: ${sessionCommand(batch)} opens it in a terminal`;
+    case 'failing':
+      throw new Error('not implemented');
     case 'stalled':
       return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
     case 'routing':
