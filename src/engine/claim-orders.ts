@@ -8,7 +8,7 @@ import type { OrderRef } from '../schemas/events.ts';
 import { aliasOf } from './batch-id.ts';
 import { effectKey } from './effect-key.ts';
 import type { Batch, State } from './fold.ts';
-import { type ClaimOrder, orderEffects, same } from './issue-claims.ts';
+import { type ClaimOrder, claimStanding, orderEffects, same } from './issue-claims.ts';
 
 // The Brewery issue the batch opened, as the ledger recorded it; a result that is no issue number
 // never names one.
@@ -150,6 +150,21 @@ export const namedWork = (
 /** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
 export const claimedName = (batch: Batch): string =>
   `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;
+
+/** Where the claim of `batch`, a batch of `repo`'s issue, stands, from the folded state (ADR 0105). */
+export const claimStandingOf = (
+  state: State,
+  batch: Batch,
+  repo: string,
+): 'held' | 'releasing' | 'released' => {
+  const ends = batch.pullRequestEnds ?? {};
+  const { id: batchId, issue, lane } = batch;
+  return claimStanding(
+    { batchId, repo, issue, lane, order: claimOrderOf(state, batchId) },
+    (url) => ends[url] ?? 'open',
+    (key) => state.effects.has(effectKey.encode(key)),
+  );
+};
 
 /**
  * How a line that offers a command names a batch's work (ADR 0329): the bare number of its Brewery

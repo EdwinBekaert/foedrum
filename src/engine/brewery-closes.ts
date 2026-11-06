@@ -65,6 +65,13 @@ const dueClose = (state: State, batch: Batch): DueClose | undefined => {
   return { issue, body: `Merged as ${namesOf(merged).join(', ')}; Foedrum closes this issue.` };
 };
 
+/** Whether the close of `batch`'s Brewery issue is due and not all applied (ADR 0336). */
+export const closeStillDue = (state: State, batch: Batch): boolean =>
+  dueClose(state, batch) !== undefined &&
+  Object.values(closeEffects).some(
+    (effect) => !state.effects.has(effectKey.encode({ batchId: batch.id, effect })),
+  );
+
 /**
  * The close of each Brewery issue whose batch's pull requests all merged, for the driver: a comment
  * naming them, then the close. A person who deleted the issue ends both as `gone`, never a failure.

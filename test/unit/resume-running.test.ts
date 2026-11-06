@@ -285,7 +285,7 @@ describe('runResumeRunning (ADR 0127)', () => {
     assert.equal(result, 1);
     assert.equal(
       lines.at(-1),
-      `foedrum resume: batch 12-1 is driven by session-7 until ${until.toISOString()}`,
+      `foedrum resume: batch 12-1 is driven by session-7 until ${until.toISOString()}, when its lease ends by itself; foedrum resume 12 brew takes it over now`,
     );
     assert.equal(resumeLease(t0), undefined);
   });

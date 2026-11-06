@@ -313,7 +313,7 @@ export const claimEffectsDue = (
         kind: 'comment',
         repo,
         issue,
-        body: `The Brewery \`${brewery}\` is brewing this issue as batch \`${batchId}\`, and holds its claim until the batch ends. To release it by hand, delete the ref \`${claimRef(issue)}\` and unassign the issue.`,
+        body: `The Brewery \`${brewery}\` is brewing this issue as batch \`${batchId}\`, and holds its claim until the batch ends. Its status is on its order's issue in that Brewery, for those who can see it. To release it by hand, delete the ref \`${claimRef(issue)}\` and unassign the issue.`,
       }),
       ...ordering,
     ];

@@ -10,10 +10,12 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
+import { closeStillDue } from '../engine/brewery-closes.ts';
 import {
   breweryIssueOf,
   calledAs,
   claimOrderOf,
+  claimStandingOf,
   latestBatch,
   liveOrderOf,
   namedWork,
@@ -23,13 +25,14 @@ import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import { type Batch, foldedBatch, type State } from '../engine/fold.ts';
-import { recipeLabels } from '../engine/intake.ts';
+import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
 import { MASH_IN } from '../engine/recipe-label.ts';
 import { statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
+import { githubTargetTracker } from '../github/tracker.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
@@ -128,9 +131,33 @@ export const oneLine = (text: string): string =>
     })
     .join('');
 
-/** Who drives a batch another driver holds, and until when. */
-export const drivenBy = (lease: BatchLease): string =>
-  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
+/**
+ * Who drives a batch another driver holds, until when, and `wayOn`, what a person can do about it.
+ * It never says that driver stopped, which Foedrum cannot tell (ADR 0336).
+ */
+export const drivenBy = (lease: BatchLease, wayOn: string): string =>
+  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${wayOn}`;
+
+/** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
+const unended = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
+  lane.kind === 'on_tap'
+    ? lane.pullRequests.filter((url) => pullRequestEnds?.[url] === undefined)
+    : [];
+
+/** What brewing an on-tap batch did once its pull requests ended and its effects applied (ADR 0336). */
+const endedLine = (batch: Batch, urls: readonly string[], order: number | undefined): string => {
+  const merged = urls.every((url) => batch.pullRequestEnds?.[url] === 'merged');
+  const ended = merged
+    ? `batch ${batch.id} merged: ${urls.join(' ')}`
+    : `batch ${batch.id} ended: ${urls.join(' ')} not all merged`;
+  const issue =
+    order === undefined ? [] : [`Brewery issue #${order} ${merged ? 'closed' : 'stays open'}`];
+  const unassign = merged ? '' : ', unassign it to make it available';
+  const claim =
+    batch.repo === undefined ? [] : [`claim on ${batch.repo}#${batch.issue} released${unassign}`];
+  const what = [...issue, ...claim].join(', ');
+  return what === '' ? ended : `${ended}; ${what}`;
+};
 
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
@@ -314,6 +341,15 @@ export const runBrew = async (
       const alive = liveOrderOf(state, { issue, repo: repository.repo });
       return alive === undefined ? asGiven : String(alive);
     };
+    // A batch that ended cannot be taken over (ADR 0124): its lease ends, and brew tries again.
+    const wayOn = (state: State, held: Batch): string =>
+      held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
+        ? `foedrum brew ${called(state)} tries again then`
+        : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take takes it over now`;
+    const orderAgainLine = (state: State, batch: Batch): string => {
+      const { lane } = describeLane(batch, called(state));
+      return `batch ${batch.id} of ${named} is ${lane}; foedrum order ${called(state)} orders it again`;
+    };
     // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
     const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
     const deleted =
@@ -321,19 +357,38 @@ export const runBrew = async (
       (last?.lane.kind === 'on_tap' || last?.lane.kind === 'cancelled') &&
       (knew.issue !== undefined || knew.earlier !== undefined);
     const latest = deleted ? undefined : last;
+    // Brewing an on-tap batch records the ends of its pull requests and applies what follows, for a
+    // person with no Cellar (ADR 0336); a mash or a lauter of one keeps its own refusal.
+    const heldLine = (state: State, batch: Batch): string =>
+      `batch ${batch.id} of ${named} is on tap and holds its claim until its pull requests end: ${unended(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
+    const standing =
+      latest?.repo === undefined ? undefined : claimStandingOf(log.state(), latest, latest.repo);
+    const ending =
+      commandOf(request) === 'brew' &&
+      latest !== undefined &&
+      (unended(latest).length > 0 || standing === 'releasing' || closeStillDue(log.state(), latest))
+        ? latest
+        : undefined;
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
     if (request.lauter !== undefined && latest === undefined) {
       return refuse(`${named} has no batch to correct a plan of`);
     }
     if (
       request.lauter === undefined &&
+      ending === undefined &&
       latest !== undefined &&
       (latest.lane.kind === 'on_tap' || latest.lane.kind === 'cancelled')
     ) {
-      const { lane } = describeLane(latest, called(log.state()));
-      return refuse(
-        `batch ${latest.id} of ${named} is ${lane}; foedrum order ${called(log.state())} orders it again`,
-      );
+      if (latest.lane.kind === 'on_tap' && standing === 'held') {
+        return refuse(heldLine(log.state(), latest));
+      }
+      if (standing === 'releasing') {
+        const { lane } = describeLane(latest, called(log.state()));
+        return refuse(
+          `batch ${latest.id} of ${named} is ${lane}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
+        );
+      }
+      return refuse(orderAgainLine(log.state(), latest));
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
     // A sub-order's batch waits for its order's pause, which is the one to continue.
@@ -355,7 +410,9 @@ export const runBrew = async (
       return refuse(pausedLine(log.state(), latest));
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
+    if (latest !== undefined && leased !== undefined && request.take !== true) {
+      return refuse(drivenBy(leased, wayOn(log.state(), latest)));
+    }
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
     // It names its batch, never the issue's later one, whose lane the refusal names.
@@ -426,6 +483,22 @@ export const runBrew = async (
         : log.state().batches.get(latest.id);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
+    if (ending !== undefined) {
+      const ends = {
+        tracker: githubTargetTracker(reads),
+        record: (event: PullRequestEnded) => log.issue({ kind: 'record', event }, clock()),
+        // Nothing was released: the person hears why, and brews again.
+        failed: (_what: string, error: unknown) => {
+          throw error;
+        },
+      };
+      await recordEndsOf(ending, unended(ending), ends, signal);
+      const read = foldedBatch(log.state(), batch.id);
+      if (unended(read).length > 0) {
+        if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
+        return refuse(orderAgainLine(log.state(), read));
+      }
+    }
     if (waitsForOrder && batch.lane.kind === 'ordered') {
       // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
       // Brewery issue has no label yet, so the batch waits for a person to give it one.
@@ -437,6 +510,17 @@ export const runBrew = async (
       if (opened === undefined) {
         say(`${named} waits for its Brewery issue, which is not open yet; brew ${asGiven} again`);
         return BREW_EXIT.failed;
+      }
+      // A recipe label on the target issue chooses nothing (ADR 0156), and a person who put one
+      // there would wait for it: the line says so, one conditional read on this refusal alone, and
+      // is left out when that read fails (ADR 0336).
+      const carried = await githubOrderLabels(reads, setup.brewery)(order, signal).then(
+        recipeLabels,
+        () => [],
+      );
+      if (carried.length > 0) {
+        const all = carried.map((name) => `recipe:${name}`).join(' and ');
+        say(`${asGiven} carries ${all}, which Foedrum does not read; label #${opened}`);
       }
       // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
       return refuse(
@@ -496,7 +580,11 @@ export const runBrew = async (
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`batch ${batchId} waits for a session at ${found.reason.stepId}; opening it`);
     }
-    say(`brewing batch ${batchId} as ${owner}`);
+    say(
+      ending === undefined
+        ? `brewing batch ${batchId} as ${owner}`
+        : `applying what the end of batch ${batchId} leaves due as ${owner}`,
+    );
 
     /**
      * Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174),
@@ -548,7 +636,8 @@ export const runBrew = async (
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
         await endStoppedRuns(batchId, other);
-        return refuse(drivenBy(other));
+        const held = foldedBatch(driver.state(), batchId);
+        return refuse(drivenBy(other, wayOn(driver.state(), held)));
       }
       const now = foldedBatch(driver.state(), batchId);
       const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
@@ -568,7 +657,19 @@ export const runBrew = async (
         case 'on_tap': {
           if (!released) break;
           const { pullRequests } = now.lane;
+          if (pullRequests.length > 0 && ending !== undefined) {
+            say(endedLine(now, pullRequests, shownOn));
+            return BREW_EXIT.onTap;
+          }
           if (pullRequests.length > 0) {
+            // Only a read of their ends closes the order's issue, and the last line stays the
+            // pull requests' (ADR 0261, ADR 0336).
+            if (shownOn !== undefined) {
+              const claim = now.repo === undefined ? '' : ' and releases its claim';
+              say(
+                `once they merge, foedrum brew ${shownOn} or foedrum serve closes Brewery issue #${shownOn}${claim}`,
+              );
+            }
             say(`batch ${batchId} is on tap: ${pullRequests.join(' ')}`);
             return BREW_EXIT.onTap;
           }
@@ -581,6 +682,13 @@ export const runBrew = async (
         }
         case 'cancelled':
           if (!released) break;
+          // Its release, which this brew came to finish (ADR 0336), and the exit that says cancelled.
+          if (ending !== undefined) {
+            const issue = shownOn === undefined ? '' : `Brewery issue #${shownOn} stays open, `;
+            say(
+              `claim on ${now.repo}#${now.issue} released; ${issue}unassign it to make it available`,
+            );
+          }
           say(`batch ${batchId} was ${lane} ${detail}`);
           return BREW_EXIT.cancelled;
         case 'stuck': {

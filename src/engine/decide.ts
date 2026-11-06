@@ -43,8 +43,7 @@ import {
   stoppedEnd,
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
-import { claimedName, claimOfOrder, claimOrderOf, liveOrderOf } from './claim-orders.ts';
-import { effectKey } from './effect-key.ts';
+import { claimedName, claimOfOrder, claimStandingOf, liveOrderOf } from './claim-orders.ts';
 import {
   type Attempt,
   type Batch,
@@ -56,7 +55,7 @@ import {
   type Step,
   type UsageWindow,
 } from './fold.ts';
-import { claimStanding, same } from './issue-claims.ts';
+import { same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
 import { latestPlan } from './plan-comment.ts';
 import { openedPullRequest } from './pull-request.ts';
@@ -643,18 +642,7 @@ function busy(state: State, order: OrderRef): string | undefined {
     const of = `batch ${batch.id} of ${ofRepo ?? ''}#${issue}`;
     if (nonTerminal.includes(batch.lane.kind)) return `${of} is still ${batch.lane.kind}`;
     if (ofRepo === undefined) continue;
-    const ends = batch.pullRequestEnds ?? {};
-    const standing = claimStanding(
-      {
-        batchId: batch.id,
-        repo: ofRepo,
-        issue,
-        lane: batch.lane,
-        order: claimOrderOf(state, batch.id),
-      },
-      (url) => ends[url] ?? 'open',
-      (key) => state.effects.has(effectKey.encode(key)),
-    );
+    const standing = claimStandingOf(state, batch, ofRepo);
     switch (standing) {
       case 'held':
         return `${of} holds its claim until its pull requests end`;
