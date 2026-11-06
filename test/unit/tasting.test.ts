@@ -506,6 +506,27 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
     it("a Taster's prompt tells a step that reviews a plan to skip the section", async () => {
       assert.match(await rulesSection(), /A step that reviews a plan skips this section/);
     });
+
+    it('a plan Taster still reads the instructions only when its lens asks, and its body says what it read: regression test', () => {
+      const planned: BreweryFiles = {
+        ...withRecipe('amber', [
+          { id: 'coverage', brewer: 'taster', lens: 'plan/coverage' },
+          { id: 'implement', brewer: 'cellarman' },
+          { action: 'openPullRequest' },
+        ]),
+        lenses: [{ path: 'lenses/plan/coverage.md', text: 'Look at what the plan covers.' }],
+      };
+      const found = valid(loadRecipes(planned)).brewers.find('amber', 'coverage');
+      assert.ok(found !== undefined);
+      const { instructions } = found;
+      assert.match(instructions, /When \{plan\} is given, your step reviews a plan, not a diff/);
+      assert.match(
+        instructions,
+        /on a plan, read the repository's instructions and design documents when the lens asks you to check against them/,
+      );
+      const body = instructions.slice(instructions.indexOf('## Out doc'));
+      assert.match(body, /say what you read and what you checked through the lens/);
+    });
   });
 
   it("holds its step's lens, and the change the engine read with git, in its prompt as inputs", async () => {
