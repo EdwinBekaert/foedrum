@@ -24,6 +24,7 @@ import {
   type StuckOption,
   type StuckReason,
   type Surface,
+  type UnreportedTests,
   type Usage,
   UsageScope,
   type WaitCondition,
@@ -171,6 +172,8 @@ export type EngineCommand =
       staleMap?: StaleMap;
       /** What a check step's uncovered-line check did not measure (ADR 0274). */
       coverage?: CoverageListing;
+      /** A check step's: the tests the Gauger named that its run's reports hold under no name (ADR 0342). */
+      unreported?: UnreportedTests;
       /** A Brett attempt's mutants, with what the engine's runs found (ADR 0313). */
       mutants?: readonly MutantRecord[];
       /** What claude reported in its init event, when it came (ADR 0116). */

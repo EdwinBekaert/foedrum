@@ -15,7 +15,12 @@ import { type MergeBriefHost, mergeBriefEffects } from '../../src/engine/merge-b
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { type StatusComments, statusEffects } from '../../src/engine/status-comment.ts';
-import type { GravityReading, HeadCheck, MutantRecord } from '../../src/schemas/events.ts';
+import type {
+  GravityReading,
+  HeadCheck,
+  MutantRecord,
+  UnreportedTests,
+} from '../../src/schemas/events.ts';
 import type { TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { PushResult, SensitiveFiles } from '../../src/schemas/store.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -197,7 +202,13 @@ describe('the merge brief (ADR 0225)', () => {
       readings,
       commit,
       mutants,
-    }: { readings?: GravityReading[]; commit?: string; mutants?: MutantRecord[] } = {},
+      unreported,
+    }: {
+      readings?: GravityReading[];
+      commit?: string;
+      mutants?: MutantRecord[];
+      unreported?: UnreportedTests;
+    } = {},
     batchId = 'web-7',
   ): void => {
     const attempts = log.state().batches.get(batchId)?.steps.get(stepId)?.attempts;
@@ -215,6 +226,7 @@ describe('the merge brief (ADR 0225)', () => {
       ending,
       ...(readings === undefined ? {} : { readings }),
       ...(mutants === undefined ? {} : { mutants }),
+      ...(unreported === undefined ? {} : { unreported }),
     });
   };
   /** The action's scheduled attempt: the push of `round` recorded, and the pull request opened. */
@@ -889,6 +901,32 @@ describe('the merge brief (ADR 0225)', () => {
         /\*\*Risk left\*\*\n- `mutants`: survived: src\/clamp\.ts:3: - return n &gt; 10 \? 10 : n; \/ \+ return n &gt;= 10 \? 10 : n;: clamp at ten$/m,
       );
       assert.doesNotMatch(body, /clamp at zero/);
+    });
+
+    it("the merge brief's risk left says which named tests the test run reports under no name (ADR 0342)", async () => {
+      order('bare');
+      run('implement', done, { unreported: { tests: ['adds', 'subtracts'], more: 3 } });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.match(
+        body,
+        /\*\*Risk left\*\*\n- `implement`: Not proven: the test run reports no test named: adds, subtracts and 3 more$/m,
+      );
+    });
+
+    it("the merge brief's line tells a name as a finding's text is told (ADR 0342)", async () => {
+      const token = ['ghp', 'A1b2'.repeat(9)].join('_');
+      order('bare');
+      run('implement', done, {
+        unreported: { tests: [`logs in with ${token}`, 'adds\n**forged** @someone'], more: 0 },
+      });
+      open();
+      finished([passed('ci/build')]);
+      const body = await brief();
+      assert.doesNotMatch(body, /ghp|A1b2/);
+      const [line] = body.split('\n').filter((each) => each.includes('Not proven:'));
+      assert.ok(line?.endsWith('adds \\*\\*forged\\*\\* &#64;someone'), line);
     });
 
     it('takes the risk left of the last tasting round only', async () => {
