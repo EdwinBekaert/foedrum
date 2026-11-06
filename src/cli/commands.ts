@@ -169,7 +169,7 @@ const limitsHeld = (state: State, { config, recipes }: CliContext): string[] => 
 };
 
 /** Each line by its id, `<step>#<attempt>.<line>`, under a head that says who wrote them. */
-const formatHandovers = (batchId: string, handovers: readonly Handover[]): string => {
+export const formatHandovers = (batchId: string, handovers: readonly Handover[]): string => {
   if (handovers.length === 0) return `${batchId}: no handover lines\n`;
   const lines = new Map<string, number>();
   return [
