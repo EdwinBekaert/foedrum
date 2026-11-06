@@ -732,6 +732,7 @@ function apply(state: State, event: Event): State {
           ...(event.coverage === undefined ? {} : { coverage: event.coverage }),
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
+          ...(event.handover === undefined ? {} : { handover: event.handover }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
           ...(event.stopped === undefined ? {} : { stopped: event.stopped }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),

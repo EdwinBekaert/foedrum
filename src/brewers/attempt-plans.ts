@@ -15,6 +15,7 @@ import type { AttemptLimits, AttemptStart } from '../engine/brewer-runner.ts';
 import { checksInput } from '../engine/check-readings.ts';
 import { claimOrderOf } from '../engine/claim-orders.ts';
 import { attemptRecipeOf, type Batch, roundRouteOf, type State } from '../engine/fold.ts';
+import { UNREADABLE_FRONTMATTER, withoutHandover } from '../engine/handover.ts';
 import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
@@ -215,8 +216,18 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
   // have left since (#657); in its batch's recipe for an attempt that recorded none.
   const outDocOf = (ref: AttemptRef) => brewerOf(ref)?.brewer.output.doc;
 
+  /** An out doc as a later prompt reads it: without its handover, or why it cannot (ADR 0340). */
+  const laterRead = (found: OutDocRead): OutDocRead => {
+    if (found.kind !== 'text') return found;
+    try {
+      return { kind: 'text', text: withoutHandover(found.text) };
+    } catch {
+      return { kind: 'unread', reason: UNREADABLE_FRONTMATTER };
+    }
+  };
+
   /** The text of one input, untrusted. */
-  const textOf = async ({ name, read }: PlannedInput): Promise<string> => {
+  const textOf = async ({ name, source, read }: PlannedInput): Promise<string> => {
     // A lens's text was read, and held to the limit, when the brewer loaded (ADR 0098).
     if (read.kind === 'text') return read.text;
     if (read.kind === 'order') {
@@ -229,7 +240,8 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       }
       return text;
     }
-    const found = files.read(read.path, MAX_INPUT_BYTES, read.root);
+    const file = files.read(read.path, MAX_INPUT_BYTES, read.root);
+    const found = source.kind === 'out-doc' || source.kind === 'plan' ? laterRead(file) : file;
     switch (found.kind) {
       case 'text':
         return found.text;
@@ -720,7 +732,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
     if (route !== undefined) {
       const { outDoc } = route;
       const read =
-        outDoc === undefined ? undefined : files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root);
+        outDoc === undefined
+          ? undefined
+          : laterRead(files.read(outDoc.path, MAX_INPUT_BYTES, outDoc.root));
       inputs.push(routeInput(route, read));
     }
     // Its commits are gone: it writes what the scan named another way (ADR 0187).

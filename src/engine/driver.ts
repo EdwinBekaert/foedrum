@@ -42,6 +42,7 @@ import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from '.
 import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
 import { type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
+import { handoverOf } from './handover.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
@@ -323,10 +324,13 @@ const finishOf = (
   const report = ClaudeReport.safeParse({ version: session?.claudeVersion, model: session?.model });
   // Read from a stream the runner does not trust: one the event cannot hold is left out (ADR 0172).
   const took = Receipt.safeParse(receipt);
+  // Whatever the ending: a failed attempt's is the one that says what cost it time (ADR 0340).
+  const handover = rest.outDoc === undefined ? [] : handoverOf(rest.outDoc, ref.stepId);
   return {
     kind: 'finish',
     ...ref,
     ...rest,
+    ...(handover.length === 0 ? {} : { handover }),
     ...(report.success ? { claude: report.data } : {}),
     ...(took.success ? { receipt: took.data } : {}),
     // Stopped as its batch's pause reached its stopAt: no retry is spent on it (ADR 0202).

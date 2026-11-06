@@ -44,6 +44,12 @@ const shared = {
   // Optional, so an out doc without them reads as before; an older Foedrum cannot read one with
   // them (ADR 0191).
   dispositions: z.array(Disposition).max(MOST_DISPOSITIONS).exactOptional(),
+  // What a brewer may write, and what the JSON Schema shows. `readOutDoc` takes it out before any
+  // schema reads it (ADR 0340), so it fails no attempt, and no `output` holds it.
+  handover: z
+    .array(NonEmpty.max(MAX_HANDOVER_LINE).regex(/^[^\r\n]*$/, 'Must be one line'))
+    .max(MOST_HANDOVER_LINES)
+    .exactOptional(),
 };
 
 // `questions` only with needs_input and `blockerKind` only with blocked: strict objects reject them elsewhere.
@@ -77,9 +83,18 @@ export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) 
 export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
 export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 
-/** Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the reason. */
+/** A frontmatter, always an object, without its handover (ADR 0340). */
+const withoutHandoverField = (data: unknown): unknown => {
+  const { handover: _, ...rest } = z.record(z.string(), z.unknown()).parse(data);
+  return rest;
+};
+
+/**
+ * Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the
+ * reason. Its handover is not read here: `handoverOf` reads that, and it never makes one invalid.
+ */
 export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> {
-  return readDoc(text, schema);
+  return readDoc(text, z.preprocess(withoutHandoverField, schema));
 }
 
 /** The name of a Taster's out doc schema (`output.schema`): what makes a brewer a Taster (ADR 0161). */

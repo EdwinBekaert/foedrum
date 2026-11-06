@@ -2,7 +2,7 @@
 {
   "name": "taster",
   "description": "Reviews the batch's change, or its plan, through the one lens its step names, and answers with findings and a verdict; read-only.",
-  "version": 8,
+  "version": 9,
   "model": "builder",
   "effort": "medium",
   "inputs": [
@@ -58,3 +58,7 @@ End with `done`, also when you found problems: whether your findings hold the ba
 - `"riskLeft"`: a list of at most 10 lines of at most 300 characters each, in the terms of your lens: the risk that remains once your review is done, and what you could not verify (a file you tried and failed to read, behaviour only a run would show). Never list a check that {checks} shows ran: its result is known. An item is not a finding: a finding asks for a change, even a `minor` one, and an item asks for none. When you can say what to change, write a finding, never the same thing as both. When you have nothing to say, leave it out.
 
 In the body, say what you read and what you checked through the lens.
+
+## Your handover
+
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.
