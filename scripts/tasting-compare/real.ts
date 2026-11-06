@@ -86,7 +86,9 @@ export const realRecipeOf = (setup: RealSetup): string =>
 export const realRecipeText = (setup: RealSetup): string => {
   const recipe = {
     name: realRecipeOf(setup),
-    description: 'A head as it was brewed, tasted as nip tastes it, nothing blocking',
+    description: setup.endsWith('-lens')
+      ? "A head as it was brewed, tasted by nip's Tasters and design conformance, nothing blocking"
+      : 'A head as it was brewed, tasted as nip tastes it, nothing blocking',
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },

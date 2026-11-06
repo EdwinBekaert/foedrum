@@ -109,16 +109,18 @@ export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
 const RISK_CUT = ` [cut: the rest is past the limit of ${MAX_RISK_LEFT} characters]`;
+const RISK_SCANNED = 1_000;
 
 /**
  * A `riskLeft` line within its limit (ADR 0337): as it is, or its start with a mark that says it was
- * cut. A finished review is not worth failing over it. It is read whole for a secret first, since a
- * cut can break one in two and hide the rest from `withoutSecrets`; no commit is known here, so a
- * full commit hash in a line past the limit is left out too.
+ * cut. A finished review is not worth failing over it. It is read for a secret first, since a cut
+ * can break one in two and hide the rest from `withoutSecrets`: what the cut keeps and room for a
+ * match that runs past it, as the renderers read (ADR 0088), since an out doc may hold 1 MiB. No
+ * commit is known here, so a full commit hash in that part of the line is left out too.
  */
 const withinRiskLimit = (line: string): string => {
   if (line.length <= MAX_RISK_LEFT) return line;
-  if (findSecrets(line, () => false).length > 0) {
+  if (findSecrets(line.slice(0, RISK_SCANNED), () => false).length > 0) {
     return '[left out: a riskLeft line past its limit that looks like a secret]';
   }
   const kept = line.slice(0, MAX_RISK_LEFT - RISK_CUT.length);
