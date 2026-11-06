@@ -707,4 +707,72 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       assert.deepStrictEqual(marks('b1'), ['batch.failing', 'batch.recovered']);
     });
   });
+
+  describe('what it prints', () => {
+    const lines = (kind: DriverNotice['kind']) => notices.filter((n) => n.kind === kind).length;
+
+    it('says an effect that keeps failing once', async () => {
+      onTap('b1');
+      refused.add('b1');
+      const driver = await open();
+      await ticksAt(driver, 0, 1, 2);
+      assert.equal(lines('effect_failed'), 1);
+    });
+
+    it('says an effect again when its message changes', async () => {
+      onTap('b1');
+      refused.add('b1');
+      const driver = await open();
+      await ticksAt(driver, 0, 1);
+      assert.equal(lines('effect_failed'), 1);
+      message = 'another';
+      await ticksAt(driver, 2);
+      assert.equal(lines('effect_failed'), 2);
+    });
+
+    it('says an effect again when it fails after a pass that did not', async () => {
+      onTap('b1');
+      refused.add('b1');
+      let due = true;
+      const driver = await open({
+        effects: {
+          ...effects,
+          due: (state, batchId) => (due ? commentsDue(state, batchId) : []),
+        },
+      });
+      await ticksAt(driver, 0);
+      due = false;
+      await ticksAt(driver, 1);
+      due = true;
+      await ticksAt(driver, 2);
+      assert.equal(lines('effect_failed'), 2);
+    });
+
+    it('does not say a failure again when only a number in its message moved', async () => {
+      onTap('b1');
+      unread.add('b1');
+      message = 'read failed at 12:00:01';
+      const driver = await open();
+      await ticksAt(driver, 0);
+      message = 'read failed at 12:00:06';
+      await ticksAt(driver, 1);
+      assert.equal(lines('batch_effects_failed'), 1);
+    });
+
+    it("says a supervisor's command that keeps throwing once", async () => {
+      order('b1', 'bad');
+      accept({ kind: 'record', event: { type: 'step.started', ...plan('b1') } });
+      store.withTransaction((tx) =>
+        tx.putLease({
+          attemptKey: attemptKey.encode(plan('b1')),
+          owner: 'gone',
+          expiresAt: at(-1),
+        }),
+      );
+      retryBroken = true;
+      const driver = await open();
+      await ticksAt(driver, 0, 1, 2);
+      assert.equal(lines('command_failed'), 1);
+    });
+  });
 });
