@@ -106,9 +106,10 @@ export const realBreweryFiles = (
   setup: RealSetup,
   todayTaster: string,
 ): Record<string, string> => ({
-  ...(setup.endsWith('-lens')
-    ? { [`recipes/${REAL_LENS_RECIPE}.jsonc`]: realRecipeText(REAL_LENS_RECIPE, LENS_TASTERS) }
-    : { [`recipes/${REAL_RECIPE}.jsonc`]: realRecipeText() }),
+  [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(
+    realRecipeOf(setup),
+    setup.endsWith('-lens') ? LENS_TASTERS : TASTERS,
+  ),
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
 });
 

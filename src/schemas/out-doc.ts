@@ -35,8 +35,11 @@ export const Disposition = z.discriminatedUnion('disposition', [
 ]);
 export type Disposition = z.infer<typeof Disposition>;
 
+/** One line of any length. */
+const OneLine = NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line');
+
 const shared = {
-  summary: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line'),
+  summary: OneLine,
   assumptions: z.array(NonEmpty).default([]),
   // Optional, so an out doc without them reads as before; an older Foedrum cannot read one with
   // them (ADR 0191).
@@ -90,7 +93,7 @@ export const Verdict = z.enum(['approve', 'changes']);
  * that was there before the change (ADR 0094). A finding about the change as a whole has no file.
  */
 export const TastingFinding = z.strictObject({
-  file: NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line').optional(),
+  file: OneLine.optional(),
   line: z.int().positive().optional(),
   severity: z.enum(['blocker', 'major', 'minor']),
   why: NonEmpty,
@@ -132,10 +135,7 @@ export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Mu
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
-  riskLeft: z
-    .array(NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line').transform(withinRiskLimit))
-    .max(MOST_RISKS_LEFT)
-    .exactOptional(),
+  riskLeft: z.array(OneLine.transform(withinRiskLimit)).max(MOST_RISKS_LEFT).exactOptional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done') return;
   if (doc.verdict === undefined) {
