@@ -887,7 +887,7 @@ const handedOver = (handovers: readonly Handover[], room: number): string[] => {
       '<details><summary>What the brewers handed over</summary>',
       `${fence}text\n${[...shown, ...(more > 0 ? [`(${more} more: foedrum handover)`] : [])].join('\n')}\n${fence}`,
       '</details>',
-    ].join('\n');
+    ].join('\n\n');
   for (let shown = lines.length; shown > 0; shown--) {
     const block = frame(lines.slice(0, shown), lines.length - shown);
     if (block.length <= room) return [block];
