@@ -527,6 +527,43 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       const body = instructions.slice(instructions.indexOf('## Out doc'));
       assert.match(body, /say what you read and what you checked through the lens/);
     });
+
+    describe('on a diff, its first call and its body (#889, ADR 0337)', () => {
+      const FIRST_CALL =
+        "**On a diff, your first tool call reads the repository's instruction file**: `CLAUDE.md` at the root of your working directory, or `AGENTS.md` where that is what it has. Do this before anything else, whatever your lens and however small the change; the section below says what else to read and what these files are.";
+
+      it("a diff Taster's first bullet has its first tool call read the instruction file", async () => {
+        const { prompt } = await (await planTaster(answers)).plan;
+        const at = prompt.indexOf(`- ${FIRST_CALL}`);
+        assert.ok(at >= 0, prompt.slice(0, 4000));
+        assert.ok(at < prompt.indexOf('- **Read the change first.**'), prompt.slice(0, 4000));
+      });
+
+      it("a diff Taster's out doc body starts with a line that names the rules it read", async () => {
+        const { prompt } = await (await planTaster(answers)).plan;
+        const section = prompt.slice(prompt.indexOf('## Out doc'));
+        assert.match(
+          section,
+          /On a diff, your out doc's body starts with a line `Rules read:` that names each rule file, decision record and design page you read/,
+        );
+      });
+
+      it('a repository with no instruction file costs a failed read that is no failure, and says so in the body', async () => {
+        const section = await rulesSection();
+        assert.match(
+          section,
+          /the failed read of its instruction file is no finding and no failure/,
+        );
+        assert.match(section, /`Rules read: none in this repository`/);
+      });
+
+      it('says that a riskLeft line past its limit is cut', () => {
+        const found = valid(loadRecipes(room)).brewers.find('amber', 'correctness');
+        assert.ok(found !== undefined);
+        const section = found.instructions.slice(found.instructions.indexOf('## Out doc'));
+        assert.match(section, /A longer line is cut, so put what matters first/);
+      });
+    });
   });
 
   it("holds its step's lens, and the change the engine read with git, in its prompt as inputs", async () => {
