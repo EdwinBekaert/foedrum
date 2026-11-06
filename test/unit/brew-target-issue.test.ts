@@ -209,6 +209,33 @@ describe('runBrew', () => {
       assert.match(lines.at(-2) ?? '', /^foedrum brew: web#7 carries recipe:stout and recipe:nip,/);
     });
 
+    it('says nothing of a recipe label when the target issue carries none', async () => {
+      const host = fakeGitHubApi({
+        login: 'ann',
+        issues: {
+          'acme/web': [{ number: 7, labels: ['foedrum'], author: 'ann', title: 'Dark', body: 'x' }],
+        },
+      });
+      const lines = await waiting(host);
+      assert.match(lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
+      assert.ok(!lines.some((line) => line.includes('does not read')), lines.join('\n'));
+    });
+
+    it('leaves the line about a recipe label out when the target issue cannot be read then, and still refuses', async () => {
+      const opened = () => (hosted?.issues['acme/brewery'] ?? []).length > 0;
+      const hosted: FakeGitHubApi = fakeGitHubApi({
+        login: 'ann',
+        issues: github().issues,
+        instead: (method, url) =>
+          method === 'GET' && url.pathname.toLowerCase() === '/repos/acme/web/issues/7' && opened()
+            ? { status: 500, body: { message: 'Server Error' } }
+            : undefined,
+      });
+      const lines = await waiting(hosted);
+      assert.match(lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
+      assert.ok(!lines.some((line) => line.includes('does not read')), lines.join('\n'));
+    });
+
     it('fails, routing nothing, when the Brewery issue of a claimed order cannot be opened: exit 1', async () => {
       const host = fakeGitHubApi({
         login: 'ann',
