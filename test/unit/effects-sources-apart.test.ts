@@ -9,6 +9,7 @@ import {
   type Driver,
   type DriverEffects,
   type DriverNotice,
+  type DriverOptions,
   openDriver,
 } from '../../src/engine/driver.ts';
 import { combineEffects } from '../../src/engine/effects.ts';
@@ -19,7 +20,10 @@ import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
 
 const now = new Date('2026-11-06T12:00:00.000Z');
-const recipes = fakeRecipes({ pint: fakeRecipe({ steps: ['plan'] }) });
+const recipes = fakeRecipes({
+  pint: fakeRecipe({ steps: ['plan'] }),
+  acting: fakeRecipe({ steps: ['open'], actions: { open: 'openPullRequest' } }),
+});
 const succeeded: Ending = {
   kind: 'succeeded',
   output: { status: 'done', summary: 'Done', assumptions: [] },
@@ -84,7 +88,10 @@ describe('combineEffects: one source that cannot be read', () => {
       return state.batches.get(batchId)?.pullRequestEnds === undefined ? [merge(batchId)] : [];
     },
   });
-  const open = async (effects: DriverEffects): Promise<Driver> => {
+  const open = async (
+    effects: DriverEffects,
+    more: Partial<DriverOptions> = {},
+  ): Promise<Driver> => {
     const driver = await openDriver({
       store,
       runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
@@ -96,6 +103,7 @@ describe('combineEffects: one source that cannot be read', () => {
       limits: () => defaultLimits,
       effects,
       report: (notice) => notices.push(notice),
+      ...more,
     });
     drivers.push(driver);
     return driver;
@@ -202,6 +210,33 @@ describe('combineEffects: one source that cannot be read', () => {
     await driver.tick();
     assert.deepStrictEqual(applied, ['status']);
     assert.equal(failures().length, 1);
+  });
+
+  it('finishes no action attempt while a source cannot be read (regression test)', async () => {
+    const batchId = 'b2';
+    const ref = { batchId, stepId: 'open', attempt: 1 };
+    const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
+      assert.equal(log.issue(command, now).kind, 'accepted', JSON.stringify(command));
+    accept({ kind: 'order', batchId, order: { issue: 2 } });
+    accept({ kind: 'route', batchId, recipe: 'acting', reason: 'label', source: 'label' });
+    accept({ kind: 'record', event: { type: 'step.started', ...ref } });
+    // An end that needs no pull request in the ledger: this test is about when it is recorded.
+    const ending: Ending = { kind: 'failed', retryable: false, reason: 'nothing to push' };
+    const actions = {
+      due: () => [],
+      target: {
+        find: async () => assert.fail('no action effect is due'),
+        apply: async () => assert.fail('no action effect is due'),
+      },
+      ending: () => ending,
+    };
+    const phase = () => log.state().batches.get(batchId)?.steps.get('open')?.attempts.get(1)?.phase;
+    const driver = await open(combineEffects(unreadable, source('status')), { actions });
+    await driver.tick();
+    assert.equal(phase(), 'started');
+    broken = false;
+    await driver.tick();
+    assert.equal(phase(), 'finished');
   });
 
   it('still throws from a lone source, and records nothing (regression test)', async () => {
