@@ -225,6 +225,21 @@ describe('createGitHubReads', () => {
       }
     });
 
+    it('keeps the rest of the query on the page after a full page that answers 304', async () => {
+      const list = '/repos/acme/web/issues?state=all&creator=a%40b&per_page=2';
+      const { reads, requests } = readsWith([
+        { status: 200, body: [1, 2], headers: { etag: '"p1"' } },
+        { status: 304 },
+        { status: 200, body: [] },
+      ]);
+      await reads.pages(list, 'the issues');
+      await reads.pages(list, 'the issues');
+      assert.equal(
+        requests.at(-1)?.url,
+        `${api}/repos/acme/web/issues?state=all&creator=a%40b&per_page=2&page=2`,
+      );
+    });
+
     it('ends the list at an empty page after a full page that answers 304', async () => {
       const list = '/repos/acme/web/issues/7/comments?per_page=2';
       const { reads, requests } = readsWith([

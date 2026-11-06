@@ -88,6 +88,19 @@ describe('the comments an order holds', () => {
     assert.deepEqual(texts(await read([target])), ['Kept.']);
   });
 
+  it("reads GitHub's answer as the fixture has it, which holds all that an order reads", async () => {
+    const answer = JSON.parse(
+      readFileSync(new URL('../fixtures/github/comments.json', import.meta.url), 'utf8'),
+    ) as unknown[];
+    // Alice owns the repository, and is not the Brewery's login here: only hers is a maintainer's.
+    const { read } = commentsWith([{ status: 200, body: answer }]);
+    const found = await read([target]);
+    assert.deepEqual(
+      found.map(({ id, by, association, at }) => ({ id, by, association, at })),
+      [{ id: 502, by: 'Alice', association: 'OWNER', at: '2026-10-16T09:02:00Z' }],
+    );
+  });
+
   it('a comment of a deleted account counts by its association, and names nobody', async () => {
     const { read } = commentsWith([list(comment(501, 'Still said.', { author: null }))]);
     const [found] = await read([target]);
@@ -202,7 +215,8 @@ describe('the comments an order holds', () => {
         file: relative(root, join(root, file)).split(sep).join('/'),
         text: readFileSync(join(root, file), 'utf8'),
       }));
-    // A new poster fails here until the test above holds its kind.
+    // A new file of comments fails here, so its author looks at the table of kinds above; the type
+    // holds the marker, and a second kind in a listed file has the same shape.
     assert.deepEqual(
       sources
         .filter(({ text }) => text.includes('markedComment('))
