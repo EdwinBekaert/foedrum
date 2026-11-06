@@ -651,13 +651,15 @@ export const runBrew = async (
             return BREW_EXIT.onTap;
           }
           if (pullRequests.length > 0) {
-            say(`batch ${batchId} is on tap: ${pullRequests.join(' ')}`);
-            // Only a read of their ends closes the claim's issues (ADR 0198, ADR 0336).
-            if (now.repo !== undefined && shownOn !== undefined) {
+            // Only a read of their ends closes the order's issue, and the last line stays the
+            // pull requests' (ADR 0261, ADR 0336).
+            if (shownOn !== undefined) {
+              const claim = now.repo === undefined ? '' : ' and releases its claim';
               say(
-                `once they merge, foedrum brew ${shownOn} or foedrum serve closes Brewery issue #${shownOn} and releases its claim`,
+                `once they merge, foedrum brew ${shownOn} or foedrum serve closes Brewery issue #${shownOn}${claim}`,
               );
             }
+            say(`batch ${batchId} is on tap: ${pullRequests.join(' ')}`);
             return BREW_EXIT.onTap;
           }
           // With none, what it left instead: a plan's comment (#656).
