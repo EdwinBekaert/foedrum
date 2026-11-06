@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /foedrum:pause
 
-Pause an order, or with `--all` the whole Brewery and its intake (ADR 0202): nothing new starts, and what runs ends at its next convenient point. Arguments: `$ARGUMENTS`: an order (`<alias>#<n>`, or `#<n>` of the Brewery) or `--all`, then optionally `--by` and `--why`.
+Pause an order, or with `--all` the whole Brewery and its intake (ADR 0202): nothing new starts, and what runs ends at its next convenient point. Arguments: `$ARGUMENTS`: an order (its number, `<n>` or `#<n>`, or `<alias>#<n>` until its Brewery issue is open) or `--all`, then optionally `--by` and `--why`.
 
 Every command below runs with the Bash tool, never PowerShell, in this folder (the Brewery's root). Pass each value as one single-quoted argument, a `'` inside written `'\''`. Without a Bash tool in this session (Git Bash on Windows), say that the plugin needs it and stop.
 
