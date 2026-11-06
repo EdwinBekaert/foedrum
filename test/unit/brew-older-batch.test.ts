@@ -144,10 +144,10 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
     await parked();
     const line = formatStuck(f.log().state());
     const [, printed] = /foedrum brew (\S+) --take opens it/.exec(line) ?? assert.fail(line);
-    const before = startedIn('12-1').length;
     const exit = await runBrew(f.setup, shell(), brewOf(printed ?? ''));
     assert.equal(exit, 0, f.lines.join('\n'));
-    assert.equal(startedIn('12-1').length, before + 1, f.lines.join('\n'));
+    const sessions = startedIn('12-1').filter((step) => step.startsWith('refine#'));
+    assert.deepStrictEqual(sessions, ['refine#1', 'refine#3']);
     assert.deepStrictEqual(startedIn('12-2'), []);
     const state = f.log().state();
     assert.equal(foldedBatch(state, '12-1').lane.kind, 'on_tap');
@@ -159,7 +159,12 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
     it('inside Claude Code, names its id with --take, as its status comment does', async () => {
       await parked();
       const inside = brewOf('12-1', 'claude-code');
-      assert.equal(await runBrew(f.setup, shell(), inside), 3, f.lines.join('\n'));
+      // Past the limit of one edit of a status comment a minute (ADR 0072).
+      const minuteOn = f.shell(behave.succeed(), {
+        lock: () => fakeLock('ann'),
+        clock: () => new Date(t0.getTime() + 120_000),
+      });
+      assert.equal(await runBrew(f.setup, minuteOn, inside), 3, f.lines.join('\n'));
       assert.equal(
         f.lines.at(-1),
         'foedrum brew: run foedrum brew 12-1 --take in a terminal to open its session',
@@ -204,8 +209,11 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
     it('takes it from the driver that parked it, and opens its session', async () => {
       await parked();
       serveHolds();
-      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 0, f.lines.join('\n'));
+      // Closed without its out doc: effects wait out the lease it took over (ADR 0124).
+      const closes = shell(behave.fail(true));
+      assert.equal(await runBrew(f.setup, closes, brewOf('12-1')), 3, f.lines.join('\n'));
       assert.ok(f.lines.includes('foedrum brew: took batch 12-1 over from serve'), String(f.lines));
+      assert.ok(startedIn('12-1').includes('refine#3'), f.lines.join('\n'));
       assert.deepStrictEqual(startedIn('12-2'), []);
     });
 
@@ -300,7 +308,7 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       const log = f.log();
       assert.equal(log.issue({ kind: 'retry', batchId: '12-1', ...issued }, t0).kind, 'accepted');
       const expire = { kind: 'expire', batchId: '12-1', stepId: 'refine', attempt: 3 } as const;
-      const decision = log.issue(expire, t0);
+      const decision = log.issue(expire, new Date(t0.getTime() + 3_600_000));
       assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
       f.lines.length = 0;
       assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
