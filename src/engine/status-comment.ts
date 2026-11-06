@@ -1240,10 +1240,8 @@ export const renderStatus = (
   subIssues?: readonly number[],
   /** Its order's sub-orders, in merge order, once it is split (ADR 0292, ADR 0293). */
   subOrderPulls: readonly SubOrderRow[] = [],
-  /** The Brewery issue the comment is on, which names its work unless `called` says more (ADR 0329). */
-  order: number = batch.issue,
   /** How its lines offer its work, which a batch that is not the latest does by id (ADR 0334, ADR 0339). */
-  called: string = String(order),
+  called: string = String(batch.issue),
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1379,7 +1377,6 @@ const statusDue = (
     planComment,
     allSubIssues(state, batchId),
     batch.decomposed === true ? subOrderRows(state, batch.issue) : [],
-    issue,
     calledAs(state, batch),
   );
   const digest = digestOf(text);
