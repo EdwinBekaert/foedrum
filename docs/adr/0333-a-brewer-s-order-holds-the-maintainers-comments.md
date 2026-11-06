@@ -23,7 +23,7 @@ Three things make it more than a read:
   The repository is new to ADR 0041's form, since a target issue and a Brewery issue can share a number.
   `source` is an escaped attribute Foedrum writes, so the comment's text cannot reach it.
 - **`authorAssociation` decides who is heard. It does not make the text trusted:** every comment stays inside the prompt's nonce tags, and one that holds the nonce refuses the prompt, as a body does.
-- **It is not the Brewery's allow-list.** `users` says whose issues become orders and whose commands count ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)); comments are heard by association, as ADR 0276 has them and #877 asks, so a collaborator who is not in `users` can write part of an order they could not open.
+- **The Brewery's allow-list plays no part.** The maintainer decided on 2026-11-06: association only. `users` says whose issues become orders and whose commands count ([ADR 0041](0041-untrusted-input-in-per-prompt-nonce-tags.md)); a comment is heard by its association alone, as ADR 0276 has them, so a collaborator who is not in `users` can write part of an order they could not open.
   `MEMBER` and `COLLABORATOR` do not imply write access: an org member with no rights on a target repository is heard there, and the acceptance lens counts what they say as a scope record. The tags, the tool allowlists, the sandbox and a person's merge still hold.
 - No default brewer's text changes: the prompt's rule already says a `{name}` refers to "the inputs with that name".
 
@@ -60,7 +60,13 @@ Three things make it more than a read:
 - **A Brewery issue a person deleted holds no comments, and stops nothing** ([ADR 0144](0144-a-claimed-target-issue-gets-a-brewery-issue-that-is-its-order.md) keeps its batch going): GitHub's 410 that says deleted gives none.
   A 410 for issues turned off, or a 404, may come back, so each fails.
 - **Reads are conditional and whole** ([ADR 0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)): every page is read, each answered from the cache on a 304. An edited or deleted comment shows as it now stands.
-- **A full page that answers 304 reads the page after it.** Measured on 2026-11-06 with reads only: GitHub's ETag covers a page's body alone, since two URLs with one body and different `Link` headers share it and one answers 304 to the other's, and a 304 has no `Link` header. So an eleventh comment left a full first page unchanged, and the cached answer's `Link` ended the list at ten, in silence. `reads.pages` now asks for the next page after a page that came from the cache, is full and names no next; that request is conditional too. Every list gets this, the tracker's and the marks' as well.
+- **A full page that answers 304 reads the page after it.** Measured on 2026-11-06 with reads only: GitHub's ETag covers a page's body alone, since two URLs with one body and different `Link` headers share it and one answers 304 to the other's, and a 304 has no `Link` header. So an eleventh comment left a full first page unchanged, and the cached answer's `Link` ended the list at ten, in silence. `reads.pages` now asks for the next page after a page that came from the cache, is full and names no next; that request is conditional too. Every list gets this.
+- **What an older run may have missed,** on a list whose items were an exact multiple of 10 when it was cached, with the new item appended past that page. None failed; each just did not see it until something on the cached page changed:
+  - the tracker's listing of a repository's open issues, oldest first: a new order was not taken;
+  - `findComment` and the status comment's `find`, oldest first: a comment Foedrum posted before a kill was not found by its marker, so it was posted again;
+  - a parent's list of sub-issues: a sub-issue past that page was not listed.
+- **What was never exposed:** the issues a login opened (`findIssue`), newest first, where a new one changes page 1; check runs and commit statuses, whose answers hold `total_count`, so a new one changes the body; pull requests, listed by one head.
+- **No caller relied on the cut:** each wants every item. A read of a full last page costs one more conditional request, a 304 once that page is unchanged, and a list of exactly 5,000 items now fails on its second read, naming the limit, where it passed before.
 - **Nothing is cut.** The body and the maintainers' comments together are one input's worth, 1 MiB. Past that the attempt fails: `the input "order" was not read: its body and <n> comments are larger than 1048576 bytes`. Only maintainers' comments count, so a stranger cannot fill it.
 
 ## Consequences
