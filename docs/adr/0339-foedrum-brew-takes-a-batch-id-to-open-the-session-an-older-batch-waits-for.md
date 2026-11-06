@@ -19,12 +19,18 @@ From reading the code, not from a run, a shipped recipe gets there too through t
 
 ## Decision
 
-### `brew` takes a batch id for this one purpose
+### `brew` takes a batch id for a batch only it could still move
 - **`foedrum brew <batch id> --take`, or `--new-window`, opens the session of the batch it names**, its issue's latest or not, driving that batch and no other.
   This is the one exception to "`brew` takes an issue".
 - **A batch id alone is refused as a mistake of the command line**, in words that name `--take`: taking the batch from the driver that parked it is what the command is for, and the lines always print it.
-- **A batch that waits for no session is refused**, and nothing is ordered or taken over: `batch 12-2 waits for no session, and foedrum brew takes an id only for one that does; foedrum brew 12 brews it`, by the number for a batch that is its issue's latest.
-  An older batch's refusal says `foedrum stuck lists what it offers` when it is Stuck, otherwise `foedrum status shows it`, since its number would reach a later batch.
+- **It also takes an older batch that brews with nothing driving it**, since only a brew could still move that batch and a printed command must not refuse it for good.
+  A run on the fake host showed the case: with no Cellar, a foedrum that dies with the session open leaves the batch Brewing, and the refusal came before any tick, so nothing recorded the loss, every time.
+  Now its tick records the loss and the batch waits for a session again, so the next run opens it, as for a latest batch; one whose session asked and was answered goes on.
+- **A live attempt lease refuses it**, whoever's, as [ADR 0231](0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md) refuses an open session, saying who holds it and until when: `refine#3 of batch 12-1 is held by bob until <time>; foedrum brew 12-1 --take takes it once that lease ends`.
+  A brew under the owner of a dead one holds that owner's lock, so that owner's own lease is known to be dead and does not refuse it.
+- **Another driver's live lease refuses a Brewing batch, and `--take` does not hand it over**, unlike a latest batch: a batch id with `--take` is for a batch nobody is driving, and a batch waiting for a session, which a Cellar parked and holds, is the one case it takes from a driver.
+- **Any other batch is refused**, and nothing is ordered or taken over: `batch 12-2 waits for no session, and foedrum brew takes an id only for one that does or one nothing drives; foedrum brew 12 brews it`, by the number for a batch that is its issue's latest.
+  An older batch's refusal names what moves it: `foedrum stuck lists what it offers` when it is Stuck, its pull requests and `foedrum serve` on tap, and so for each lane, since its number would reach a later batch.
 - **`mash` takes no batch id**, as before.
 
 ### One resolver, one named batch
@@ -35,16 +41,16 @@ From reading the code, not from a run, a shipped recipe gets there too through t
 ### What the lines offer
 - **An older batch's session lines say `foedrum brew <id> --take`:** `foedrum status`, `foedrum stuck`, the status comment's Stuck line, `foedrum resume`'s refusal, and brew's and lauter's own last line, `run foedrum brew 12-1 --take in a terminal to open its session`, which keeps `--take` because the id needs it.
 - **`takeover` of an older batch that no driver holds offers it when the batch waits for a session:** `no driver holds batch 12-1; foedrum brew 12-1 --take opens its session`.
-  In any other lane it still offers no command.
+  An older batch that brews with no driver gets `foedrum brew 12-1 --take drives it`, and in any other lane it still offers no command.
 - **A latest batch's lines keep its number**, also when a person gave its id.
 - **No line about an older batch offers its number:**
-  a brew of one that another driver takes during the run says `foedrum status shows it`, one that goes on tap says nothing of `foedrum brew <n>` reading its pull requests, since that reads a later batch's, and one whose session asks a question says `foedrum answer <id> …, then foedrum serve drives it`.
+  a brew of one that another driver takes during the run says `foedrum status shows it`, one that goes on tap says nothing of `foedrum brew <n>` reading its pull requests, since that reads a later batch's, and one whose session asks a question says `foedrum answer <id> …, then foedrum brew <id> --take drives it`.
 - `/foedrum:brew` and `/foedrum:lauter` read the new last line and run `foedrum brew '<batch>' --new-window`.
 
 ## Consequences
 - **Brewery: nothing to do.** No file changes, no event changes, and a batch already waiting opens by the printed command.
 - A person whose older batch waits types the line it prints; an id on any other command works as before.
-- An older batch that is answered, or otherwise brewing with no session to wait for, has no brew of its own: `foedrum serve` drives it, and with no Cellar it stays where it is until one runs, on the board with its deadline.
+- A session a foedrum left behind costs a second run: the first records the loss and says to run it again, the second opens a fresh session.
 - The status comment of an older batch waiting for a session gets one more revision for its new words.
 - A status comment of a batch that is its issue's latest does not change: its Stuck line reads the same number.
 
@@ -52,6 +58,8 @@ From reading the code, not from a run, a shipped recipe gets there too through t
 - **`foedrum resume <batch id> <step>`:** it already takes an id and continues sessions, and [ADR 0231](0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md) only refuses a started attempt, so it would not be in the way.
   But on this Stuck batch `resume` opens the finished attempt for reading and appends nothing ([ADR 0126](0126-foedrum-resume-opens-a-finished-attempt-s-session-in-its-worktree.md)), so a fresh session would give it two meanings in one lane; its driver lets go after one attempt, and a plan that starts fresh runs headless ([ADR 0127](0127-foedrum-resume-takes-a-running-batch-over-and-continues-its-step-s-session.md)), where an interactive retry must open a fresh session ([ADR 0222](0222-a-recipe-s-brewer-step-may-be-interactive.md)).
 - **A new command, such as `foedrum session <batch id>`:** one meaning, but one more command for a narrow case, with the same driver underneath, and every line would change for it.
+- **Keep it to a batch waiting for a session, with a refusal that names `foedrum serve`:** three lines, but with no Cellar the printed command stays a dead end until one is started, and the wait has no deadline, since an open session's attempt has none.
+- **`--take` hands over an older batch another driver drives, as it does a latest one:** one rule for both, but it would take a batch from a driver that is moving it, for a person who can only have meant one nobody is.
 - **`brew` takes a batch id for every batch:** more reach than the gap asks for, and it would bring back a second name for a batch that has a number, which [ADR 0329](0329-one-number-per-piece-of-work.md) removed.
 - **An id without `--take` also works:** one word shorter, but a batch a Cellar parked is held by its lease, so the id alone would be refused for that and the person would get a second line to run.
 - **Leave `foedrum lauter` for another issue:** its line would keep reaching the wrong batch, which #902 says no line may, and the fix is the same field.
