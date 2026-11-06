@@ -258,6 +258,9 @@ describe('runBrew', () => {
         bodies.some((body) => body.includes(`is ready for your review: [plan comment](<${url}>)`)),
         bodies.join('\n---\n'),
       );
+      // Its commands use the Brewery issue's number, never the target issue's or the batch's.
+      assert.ok(plan?.body.includes('Waiting for `foedrum approve 40`.'), plan?.body);
+      assert.ok(plan?.body.includes('or end it with `foedrum cancel 40`.'), plan?.body);
     });
 
     it('routes a claimed order through its Brewery issue: exit 4', async () => {

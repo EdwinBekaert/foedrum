@@ -164,6 +164,14 @@ describe('takeOver (ADR 0124)', () => {
     });
   }
 
+  it('refuses a batch that was never ordered, naming it: regression test (ADR 0334)', () => {
+    const decision = takeOverAt(at(1), 'session-7', 'b9');
+    assert.deepStrictEqual(
+      decision.kind === 'refused' ? decision.reason : decision.kind,
+      'there is no batch b9',
+    );
+  });
+
   it('refuses a batch that has ended, moving no lease', () => {
     log.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, t0);
     lease('cellar', at(3));

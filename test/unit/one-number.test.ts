@@ -256,7 +256,7 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.equal(called('web-7'), 'web-7');
   });
 
-  it("foedrum takeover of an older batch names its id and offers no brew, which takes none", async () => {
+  it('foedrum takeover of an older batch names its id and offers no brew, which takes none', async () => {
     orderedAgain();
     const result = await run(['takeover', 'web-7', '--as', 'ann']);
     assert.equal(result.stderr, 'foedrum takeover: no driver holds batch web-7\n');

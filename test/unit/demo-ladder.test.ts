@@ -450,9 +450,7 @@ describe('ladderProblems', () => {
   });
 
   it('names a life that failed, with its last lines', () => {
-    const lives = new Map([
-      ['web', life(1, 'demo: #3 is Stuck: attempts_exhausted\n')],
-    ] as const);
+    const lives = new Map([['web', life(1, 'demo: #3 is Stuck: attempts_exhausted\n')]] as const);
     assert.deepStrictEqual(ladderProblems({ ...good, lives }), [
       "the Cellar's web life ended with exit code 1:\ndemo: #3 is Stuck: attempts_exhausted",
     ]);
@@ -571,10 +569,7 @@ describe('ladderTick', () => {
   });
 
   it('ends a failed life at once', () => {
-    assert.equal(
-      ladderTick({ kind: 'failed', line: 'demo: #2 was cancelled' }, false),
-      'end',
-    );
+    assert.equal(ladderTick({ kind: 'failed', line: 'demo: #2 was cancelled' }, false), 'end');
   });
 });
 

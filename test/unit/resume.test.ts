@@ -622,6 +622,41 @@ describe('foedrum resume (ADR 0126)', () => {
         assert.match(stderr, /foedrum brew 77 --take opens a fresh one\n$/);
       });
 
+      it("prints a claimed order's finished attempt by its Brewery issue's number inside a Claude Code session: regression test (ADR 0334)", async () => {
+        const log = createCommandLog({ store, recipes });
+        const issue = (command: Parameters<typeof log.issue>[0]) =>
+          assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+        const batchId = 'web-31';
+        const path = pathOf({ batchId, stepId: 'plan', attempt: 1 });
+        issue({ kind: 'order', batchId, order: { issue: 31, repo: 'acme/web' } });
+        const key = '["web-31","order.issue"]';
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: 77 } });
+        issue({ kind: 'route', batchId, recipe: 'sip', reason: 'label', source: 'label' });
+        issue({
+          kind: 'record',
+          event: {
+            type: 'step.started',
+            batchId,
+            stepId: 'plan',
+            attempt: 1,
+            session: { id: S3, worktree: path },
+            worktree: {
+              repo: 'acme/web',
+              path,
+              branch: `foedrum/${batchId}/plan/1`,
+              commit: commit('a'),
+            },
+          },
+        });
+        const ending = { kind: 'succeeded', output: {} } as const;
+        issue({ kind: 'finish', batchId, stepId: 'plan', attempt: 1, ending });
+        issue({ kind: 'cancel', batchId, by: 'ada', via: 'terminal' });
+        const { stdout } = await resumeOf(batchId, 'plan#1', {
+          terminal: { claudeCode: true, tty: false },
+        });
+        assert.match(stdout, /\n {2}foedrum resume 77 plan#1\n$/);
+      });
+
       // Decided by the maintainer (2026-10-27): close the session so it reports, then brew again.
       const held = refused(
         `talk#1 of batch 30-1 is an interactive session still open in brew-7 (since ${since}, lease until ${expiresAt.toISOString()}): close it there so it reports; if it closes without its out doc, foedrum brew 30 --take opens it again`,
