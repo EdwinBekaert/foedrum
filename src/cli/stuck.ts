@@ -44,7 +44,9 @@ export const formatStuck = (state: State): string => {
   const marked = [...state.batches.values()].flatMap((batch) =>
     batch.lane.kind === 'stuck'
       ? []
-      : failingParts(batch).map((part) => `${batch.id} ${batch.lane.kind}: ${part}`),
+      : failingParts(batch).map(
+          (part) => `${batch.id}  ${orderName(state, batch)}  ${batch.lane.kind}: ${part}`,
+        ),
   );
   const also = marked.length === 0 ? [] : ['', ...marked];
   if (stuck.length === 0) return `${['No Stuck batches.', ...also].join('\n')}\n`;
