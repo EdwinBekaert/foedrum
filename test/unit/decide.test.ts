@@ -7,11 +7,13 @@ import {
   type Context,
   decide,
   type Ending,
+  orderRefusal,
   type RecordedEvent,
   stuckOptions,
 } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
+import { orderEffects } from '../../src/engine/issue-claims.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type {
   Event,
@@ -1470,6 +1472,57 @@ describe('decide take_over: a person hands a batch to another driver (ADR 0124)'
 
   it('refuses a batch that was never ordered', () => {
     refuses([], takeOver, /batch b1 was never ordered/);
+  });
+});
+
+describe('nothing but an order brings an older batch back while a later one exists (ADR 0339)', () => {
+  const from = { by: 'ada', via: 'terminal' } as const;
+  const ended = {
+    type: 'pull_request.ended',
+    batchId: 'b1',
+    pullRequest,
+    state: 'merged',
+  } as const;
+  const later = {
+    type: 'batch.ordered',
+    batchId: 'b2',
+    order: { issue: 100 },
+    routeBy: inAnHour,
+  } as const;
+  const older: Event[] = [...lanes.on_tap, ended, later];
+
+  it('a pull request that ended sends nothing back: regression test', () => {
+    const fix = {
+      kind: 'fix_pull_request',
+      batchId: 'b1',
+      pullRequest,
+      head: 'a'.repeat(40),
+      cause: { kind: 'checks' },
+    } as const;
+    refuses(older, fix, /has no failed checks/);
+  });
+
+  for (const command of [
+    { kind: 'retry', batchId: 'b1', ...from },
+    { kind: 'skip', batchId: 'b1', ...from },
+    { kind: 'rewind', batchId: 'b1', toStepId: 'plan', ...from },
+    { kind: 'recipe', batchId: 'b1', recipe: 'pint', reason: 'again', ...from },
+    { kind: 'lauter', batchId: 'b1', ...from },
+  ] as const) {
+    it(`${command.kind} refuses a batch on tap: regression test`, () => {
+      refuses(older, command, /is on_tap|on tap/);
+    });
+  }
+
+  it('a target issue with a deleted Brewery issue still holds its claim while its pull request is open: regression test', () => {
+    const repo = 'acme/web';
+    const gone = effectKey.encode({ batchId: 'w1', effect: orderEffects.reopen });
+    const state = fold([
+      { type: 'batch.ordered', batchId: 'w1', order: { issue: 7, repo }, routeBy: inAnHour },
+      { type: 'batch.on_tap', batchId: 'w1', pullRequests: [pullRequest] },
+      { type: 'effect.applied', key: gone, result: 'gone' },
+    ]);
+    assert.match(orderRefusal(state, { issue: 7, repo }) ?? '', /holds its claim/);
   });
 });
 
