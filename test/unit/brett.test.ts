@@ -153,6 +153,7 @@ describe('the default Brett (defaults/brewers/brett.md)', () => {
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Add a top rate.',
+      orderComments: async () => [],
       git,
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),

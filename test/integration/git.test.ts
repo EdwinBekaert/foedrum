@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { execProcessWith, isPidAlive } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
-import { runGit, runGitWith } from '../../src/workspace/git.ts';
+import { runGitWith } from '../../src/workspace/git.ts';
 import { cuedTimers, waitUntil } from '../helpers/load.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import { lateKill } from './late-kill.ts';
@@ -25,12 +25,6 @@ describe('runGit with real git', () => {
   afterEach(async () => {
     await killLeftovers(pidFile);
     removeTree(dir.path);
-  });
-
-  it('answers with git output and exit code', async () => {
-    const result = await runGit(dir.path, ['--version']);
-    assert.equal(result.code, 0);
-    assert.match(result.stdout, /^git version /);
   });
 
   it('ends git and the processes it started at the timeout', async () => {

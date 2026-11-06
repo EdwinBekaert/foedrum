@@ -490,11 +490,6 @@ describe('execProcess in a Job Object', { skip: process.platform !== 'win32' }, 
 });
 
 describe('resolveExecutable on this machine', () => {
-  it('finds git through PATH', () => {
-    const git = resolveExecutable('git');
-    assert.ok(git !== undefined && existsSync(git), String(git));
-  });
-
   it('finds nothing for a name that is not installed', () => {
     assert.equal(resolveExecutable('foedrum-no-such-tool'), undefined);
   });

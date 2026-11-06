@@ -22,6 +22,7 @@ import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
 import { entryOf, type MapModules, manifestsAt, modulesOf } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
+import type { OrderComment, OrderIssue } from '../github/order-text.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
@@ -127,6 +128,8 @@ export interface AttemptPlansOptions {
   platform?: NodeJS.Platform;
   /** The text of an order's issue, untrusted. */
   orderText: (order: Extract<InputRead, { kind: 'order' }>) => Promise<string>;
+  /** The maintainers' comments on an order's issues, oldest first, untrusted (ADR 0333). */
+  orderComments: (issues: readonly OrderIssue[]) => Promise<readonly OrderComment[]>;
   /**
    * Reads the change a Taster that reviews a diff is given, in its worktree (ADR 0161); a plan
    * that needs it fails without it.
@@ -239,6 +242,39 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         throw new Error(`Unhandled read ${JSON.stringify(unhandled)}`);
       }
     }
+  };
+
+  /**
+   * The maintainers' comments that follow the order's body, each an input of its own under its name
+   * (ADR 0333): on its issue, and for a claimed order on its Brewery issue once that is open. With
+   * the body they are one input's worth of text; only maintainers write them, so a thread past it
+   * fails the attempt rather than losing a decision.
+   */
+  const orderCommentsFor = async (
+    name: string,
+    { issue, repo }: OrderIssue,
+    body: string,
+    batch: Batch,
+  ): Promise<PromptInput[]> => {
+    const brewery = repo === undefined ? undefined : claimOrderOf(state(), batch.id).issue;
+    const comments = await options.orderComments([
+      repo === undefined ? { issue } : { issue, repo },
+      ...(brewery === undefined ? [] : [{ issue: brewery }]),
+    ]);
+    const bytes = comments.reduce(
+      (sum, { text }) => sum + Buffer.byteLength(text, 'utf8'),
+      Buffer.byteLength(body, 'utf8'),
+    );
+    if (bytes > MAX_INPUT_BYTES) {
+      throw new Error(
+        `the input "${name}" was not read: its body and ${comments.length} comments are larger than ${MAX_INPUT_BYTES} bytes`,
+      );
+    }
+    return comments.map(({ id, text, ...rest }) => ({
+      name,
+      source: { kind: 'comment', comment: id, ...rest },
+      text,
+    }));
   };
 
   /**
@@ -624,7 +660,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       ...planned,
       ...(planLens ? planLensInputs(batch, stepBrewer, repositories, found.choices) : []),
     ]) {
-      inputs.push({ name: input.name, source: input.source, text: await textOf(input) });
+      const text = await textOf(input);
+      inputs.push({ name: input.name, source: input.source, text });
+      if (input.read.kind === 'order') {
+        inputs.push(...(await orderCommentsFor(input.name, input.read, text, batch)));
+      }
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
     // A Finer simplifies the change, and Brett mutates it, so each reads it as a Taster of a diff

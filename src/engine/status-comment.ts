@@ -16,6 +16,7 @@ import { planOf } from '../schemas/plan.ts';
 import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
+import type { MarkedComment } from './claim-effects.ts';
 import { breweryIssueOf, calledAs } from './claim-orders.ts';
 import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
@@ -27,6 +28,7 @@ import {
   type Lane,
   type Pause,
   type State,
+  stuckOnFailing,
   type UsageWindows,
 } from './fold.ts';
 import { briefLine } from './merge-brief.ts';
@@ -73,12 +75,12 @@ export interface StatusComments {
   /** The body of the comment `comment`, or undefined when it is gone or not the Brewery's own. */
   read(repo: string, comment: number, signal?: AbortSignal): Promise<string | undefined>;
   /** Comments on the issue; the new comment's id. */
-  create(repo: string, issue: number, body: string, signal?: AbortSignal): Promise<number>;
+  create(repo: string, issue: number, body: MarkedComment, signal?: AbortSignal): Promise<number>;
   /** Replaces the body of `comment`; `gone` when it was deleted. */
   edit(
     repo: string,
     comment: number,
-    body: string,
+    body: MarkedComment,
     signal?: AbortSignal,
   ): Promise<'edited' | 'gone'>;
 }
@@ -260,6 +262,9 @@ const stuckText = (
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':
       return `${code(reason.stepId)} waits for its session: run ${code(sessionCommand(called))} in a terminal (ADR 0222)`;
+    // What failed and since when, never blaming the batch: an outage fails it too (ADR 0335).
+    case 'failing':
+      return `${code(reason.stepId)} could not go on: the ${reason.pass} pass has failed since ${reason.since}: ${told(reason.summary, reason.stepId)}`;
     case 'stalled':
       return `${code(reason.stepId)} stalled: no file written and no commit made since ${reason.lastProgressAt}, for ${reason.turnsWithoutProgress} turns`;
     case 'routing':
@@ -540,6 +545,14 @@ const orderEndLines = (rows: readonly SubOrderRow[]): string[] => {
 /** Issue `numbers` as `#1, #2`. */
 const issueNumbers = (numbers: readonly number[]): string =>
   numbers.map((number) => `#${number}`).join(', ');
+
+/** A batch's mark, in a lane it changes nothing in (ADR 0335); a Stuck reason on it says it itself. */
+const failingLines = ({ failing, lane }: Batch, told: Told): string[] =>
+  failing === undefined || stuckOnFailing(lane)
+    ? []
+    : [
+        `⚠️ **Failing**: the ${failing.pass} pass has failed since ${failing.since}: ${told(failing.summary, '')}`,
+      ];
 
 /** The lane, and for Stuck why; never a reminder's time, which changes alone. */
 const laneText = (
@@ -1233,6 +1246,7 @@ export const renderStatus = (
     [`### Foedrum · batch ${code(batch.id)}`],
     [
       ...laneText(batch, told, String(order), planComment, subIssues),
+      ...failingLines(batch, told),
       ...orderEndLines(subOrderPulls),
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),

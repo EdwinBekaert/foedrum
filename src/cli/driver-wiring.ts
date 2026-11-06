@@ -47,7 +47,7 @@ import { githubClaimHost } from '../github/claims.ts';
 import { createGitHubClient, type GitHubClient } from '../github/client.ts';
 import { githubLogin } from '../github/login.ts';
 import { githubIssueMarks } from '../github/marks.ts';
-import { githubOrderText, githubOrderTitle } from '../github/order-text.ts';
+import { githubOrderComments, githubOrderText, githubOrderTitle } from '../github/order-text.ts';
 import { githubPullRequests } from '../github/pull-requests.ts';
 import { createGitHubReads, type GitHubReads } from '../github/reads.ts';
 import { repositoryVisibilities } from '../github/repository-visibility.ts';
@@ -344,6 +344,7 @@ export const wireDriver = async (
     workRoot: setup.workRoot,
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),
+    orderComments: githubOrderComments(reads, setup.brewery, login),
     // A Taster's change is read by the engine, so the Taster runs no git (ADR 0161).
     git: shell.git,
     // The system map is recorded where a base moved, its modules from the test map (ADR 0317).

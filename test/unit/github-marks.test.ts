@@ -5,12 +5,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import type { IssueMarks } from '../../src/engine/claim-effects.ts';
+import type { IssueMarks, MarkedComment } from '../../src/engine/claim-effects.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { githubIssueMarks } from '../../src/github/marks.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
+
+// Only what a poster builds is postable; these tests read the GitHub layer alone.
+const marked = (text: string) => text as MarkedComment;
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(new URL(`../fixtures/github/${name}.json`, import.meta.url), 'utf8'));
@@ -195,7 +198,7 @@ describe('githubIssueMarks', () => {
 
   it('comments, and answers the new comment id', async () => {
     const { marks, requests } = marksWith([{ status: 201, body: { id: 504, body: 'Hello' } }]);
-    assert.equal(await marks.comment(repo, 7, 'Hello'), 504);
+    assert.equal(await marks.comment(repo, 7, marked('Hello')), 504);
     assert.deepStrictEqual(asked(requests), [
       { method: 'POST', url: `${api}/repos/acme/web/issues/7/comments`, body: { body: 'Hello' } },
     ]);
@@ -209,7 +212,7 @@ describe('githubIssueMarks', () => {
       ['addLabel', (marks) => marks.addLabel(repo, 7, 'foedrum:claimed')],
       ['removeLabel', (marks) => marks.removeLabel(repo, 7, 'foedrum:claimed')],
       ['findComment', (marks) => marks.findComment(repo, 7, marker)],
-      ['comment', (marks) => marks.comment(repo, 7, 'Hello')],
+      ['comment', (marks) => marks.comment(repo, 7, marked('Hello'))],
       ['title', (marks) => marks.title(repo, 7)],
       ['setIssueState', (marks) => marks.setIssueState(repo, 7, 'closed')],
     ];
@@ -334,7 +337,7 @@ describe('githubIssueMarks', () => {
 
   it('fails on a comment id or an issue it cannot read', async () => {
     const noId = marksWith([{ status: 201, body: { body: 'Hello' } }]);
-    await assert.rejects(noId.marks.comment(repo, 7, 'Hello'), /acme\/web#7/);
+    await assert.rejects(noId.marks.comment(repo, 7, marked('Hello')), /acme\/web#7/);
     const broken = marksWith([{ status: 200, body: { assignees: 'alice' } }]);
     await assert.rejects(broken.marks.assignees(repo, 7), /acme\/web#7/);
   });
@@ -342,7 +345,7 @@ describe('githubIssueMarks', () => {
   it('refuses a repository that is no owner/name or an issue that is no number before asking', async () => {
     const { marks, requests } = marksWith([]);
     await assert.rejects(marks.labels('acme/../x', 7), /owner\/name/);
-    await assert.rejects(marks.comment(repo, 0, 'Hello'), /positive integer/);
+    await assert.rejects(marks.comment(repo, 0, marked('Hello')), /positive integer/);
     assert.equal(requests.length, 0);
   });
 
@@ -354,7 +357,7 @@ describe('githubIssueMarks', () => {
       ['addLabel', (marks, signal) => marks.addLabel(repo, 7, 'foedrum:claimed', signal)],
       ['removeLabel', (marks, signal) => marks.removeLabel(repo, 7, 'foedrum:claimed', signal)],
       ['findComment', (marks, signal) => marks.findComment(repo, 7, marker, signal)],
-      ['comment', (marks, signal) => marks.comment(repo, 7, 'Hello', signal)],
+      ['comment', (marks, signal) => marks.comment(repo, 7, marked('Hello'), signal)],
       ['title', (marks, signal) => marks.title(repo, 7, signal)],
       ['issueState', (marks, signal) => marks.issueState(repo, 7, signal)],
       ['setIssueState', (marks, signal) => marks.setIssueState(repo, 7, 'open', signal)],

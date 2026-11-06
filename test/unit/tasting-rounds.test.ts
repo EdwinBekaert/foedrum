@@ -163,6 +163,7 @@ const planRound = async (
     env: { base: { PATH: '/usr/bin' }, forced: {} },
     platform: 'linux',
     orderText: async () => 'Wait for a bottle to be merged.',
+    orderComments: async () => [],
     git: (cwd, args, options) => {
       calls.push(args);
       dirs.push(cwd);

@@ -1,5 +1,6 @@
 // A small GitHub client over `gh api` (ADR 0073): REST and GraphQL calls with gh's own login,
-// each given up after its timeout or when the caller's signal aborts. Foedrum never holds a token.
+// each given up after its timeout, a read after a second try (ADR 0336), or when the caller's signal
+// aborts. Foedrum never holds a token.
 // It returns what GitHub answered, parsed but unchecked: every caller checks it, since it comes
 // from outside. On GitHub's rate limit it pauses, and fails every request until the pause ends
 // (ADR 0052).
@@ -19,7 +20,7 @@ export interface GitHubClientOptions {
   platform?: NodeJS.Platform;
   /** Where gh runs; default this process's working directory. */
   cwd?: string;
-  /** How long one request may take; default 30 s. */
+  /** How long one try of a request may take; default 30 s. */
   timeoutMs?: number;
   /** How long an answer may be; default 4 MiB, the process runner's output limit (ADR 0035). */
   maxResponseBytes?: number;
@@ -278,19 +279,31 @@ export const createGitHubClient = (options: GitHubClientOptions = {}): GitHubCli
       ...(body === undefined ? [] : ['--input', '-']),
     ];
     const tooLong = () => new Error(`GitHub's answer to ${what} is longer than ${limit} bytes`);
-    const ran = await exec('gh', args, {
-      cwd,
-      env,
-      timeoutMs,
-      signal,
-      maxOutputBytes: limit + HEADER_BYTES,
-      ...(body === undefined ? {} : { stdin: JSON.stringify(body) }),
-    });
+    const asked = () =>
+      exec('gh', args, {
+        cwd,
+        env,
+        timeoutMs,
+        signal,
+        maxOutputBytes: limit + HEADER_BYTES,
+        ...(body === undefined ? {} : { stdin: JSON.stringify(body) }),
+      });
+    let ran = await asked();
+    // A read that timed out is tried once more, unless its caller gave it up or a pause began; a
+    // write may have landed, and a refusal or a 5xx is an answer (ADR 0336).
+    const again = ran.killed === 'timed-out' && method === 'GET' && signal?.aborted !== true;
+    if (again) {
+      if (now() < pausedUntil) throw new GitHubRateLimited(new Date(pausedUntil));
+      ran = await asked();
+    }
     switch (ran.killed) {
       case undefined:
         break;
       case 'timed-out':
-        throw new Error(`GitHub did not answer within ${timeoutMs} ms: ${what}`);
+        if (signal?.aborted === true) throw signal.reason;
+        throw new Error(
+          `GitHub did not answer within ${timeoutMs} ms${again ? ', tried twice' : ''}: ${what}`,
+        );
       case 'too-much-output':
         throw tooLong();
       case 'stopped':

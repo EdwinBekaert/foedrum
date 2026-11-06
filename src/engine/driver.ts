@@ -6,8 +6,14 @@
 
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
-import { messageOf } from '../platform/errors.ts';
-import { type CheckoutRef, ClaudeReport, Receipt, type SessionRef } from '../schemas/events.ts';
+import { firstLineOf, messageOf } from '../platform/errors.ts';
+import {
+  type CheckoutRef,
+  ClaudeReport,
+  type FailingPass,
+  Receipt,
+  type SessionRef,
+} from '../schemas/events.ts';
 import { checkoutName, type Target } from '../workspace/attempt-worktrees.ts';
 import type {
   AttemptWorktree,
@@ -27,14 +33,16 @@ import {
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
-import type { Ending, EngineCommand, RecordedEvent } from './decide.ts';
+import { type Ending, type EngineCommand, failingStep, type RecordedEvent } from './decide.ts';
 import type { DriverLock } from './driver-lock.ts';
 import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
-import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
+import { applyEffect, type EffectTarget, type Ledger, UnreadSources } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
+import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
-import { type Batch, runningAttempt, type State } from './fold.ts';
+import { type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
+import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
@@ -284,8 +292,20 @@ const rejectionText = (error: unknown): string => {
  * read, since the event store refuses an empty summary.
  */
 const rejectionSummary = (error: unknown): string => {
-  const line = (rejectionText(error).split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
+  const line = firstLineOf(rejectionText(error)).trim().slice(0, summaryLength);
   return line === '' ? 'the brewer runner failed without a message' : line;
+};
+
+/**
+ * The summary of a batch's failure (ADR 0335), which its status comment shows: the first line, read
+ * for a secret before it is cut, so a secret the cut would break in two is not recorded in part.
+ */
+const failingSummary = (error: unknown): string => {
+  const line = firstLineOf(rejectionText(error)).trim();
+  if (line === '') return 'the batch failed without a message';
+  return withoutSecrets(line, '', () => false) === line
+    ? line.slice(0, summaryLength)
+    : 'the failure reads like a secret, so its text is left out';
 };
 
 /**
@@ -434,11 +454,20 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   // What it said of the batches that threw, so a batch that keeps throwing is one line (ADR 0328).
   const failureLines = createFailureLines();
+  // Since when its passes fail on each batch, which marks a batch after an hour (ADR 0335).
+  const failing = createFailingBatches();
+  const noteFailing = (
+    batchId: string,
+    pass: FailingPass,
+    error: unknown,
+    reading: boolean,
+  ): void => failing.failed(batchId, pass, failingSummary(error), reading, clock());
   /** Says a batch's failure, unless it said that one last in that pass. */
   const sayFailure = (
     notice: Extract<DriverNotice, { kind: 'batch_failed' | 'batch_effects_failed' }>,
   ): void => {
     const pass = notice.kind === 'batch_failed' ? notice.pass : 'effects';
+    noteFailing(notice.batchId, pass, notice.error, true);
     if (failureLines.failed(pass, notice.batchId, rejectionText(notice.error))) report(notice);
   };
   /** After `pass` went over the batches to its end: says which recovered, of those `own` has. */
@@ -446,6 +475,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     for (const batchId of failureLines.passed(pass)) {
       if (own(batchId)) report({ kind: 'batch_recovered', batchId, pass });
     }
+  };
+
+  /** A supervisor's command that threw counts for its batch, and is said once (ADR 0335). */
+  const sayCommandFailure = (notice: Extract<DriverNotice, { kind: 'command_failed' }>): void => {
+    const { command, error } = notice;
+    const batchId = 'batchId' in command ? command.batchId : undefined;
+    if (batchId !== undefined) noteFailing(batchId, 'supervisor', error, true);
+    const key = `${command.kind} ${batchId ?? ''}`;
+    if (failureLines.failed('command', key, rejectionText(error))) report(notice);
   };
 
   // The batches other drivers hold, as of the start of the current tick.
@@ -460,6 +498,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     routingMs,
     report: (notice) => {
       if (notice.kind === 'batch_failed') sayFailure(notice);
+      else if (notice.kind === 'command_failed') sayCommandFailure(notice);
       else report(notice);
     },
     acts: (batchId) => !others.has(batchId),
@@ -564,17 +603,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /**
-   * Records the start `event` with `also`'s writes in the transaction that renews its batch's
-   * lease, so a driver that lost the batch, as to a takeover since it last claimed it, starts
-   * nothing more there (ADR 0124): the batch is lost instead. False when it is not recorded.
+   * Issues `command` with `also`'s writes in the transaction that renews `batchId`'s lease, so a
+   * driver that lost the batch, as to a takeover since it last claimed it, does nothing more there
+   * (ADR 0124): the batch is lost instead. False when it is not recorded.
    */
-  const recordStart = (
-    event: Extract<RecordedEvent, { type: 'step.started' }>,
+  const issueHolding = (
+    batchId: string,
+    command: EngineCommand,
     also?: (tx: EventStoreTransaction) => void,
   ): boolean => {
-    const { batchId } = event;
     let holder: BatchLease | undefined;
-    const command = { kind: 'record', event } as const;
     const decision = log.issue(
       (tx) => {
         const hold = holdBatch(tx, { batchId, owner, now: clock(), leaseMs });
@@ -595,6 +633,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
     return true;
   };
+
+  /** Records the start `event` under the batch's lease, with `also`'s writes (ADR 0124). */
+  const recordStart = (
+    event: Extract<RecordedEvent, { type: 'step.started' }>,
+    also?: (tx: EventStoreTransaction) => void,
+  ): boolean => issueHolding(event.batchId, { kind: 'record', event }, also);
 
   const leaseAttempt = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({ attemptKey: key, owner, expiresAt: new Date(clock().getTime() + leaseMs) });
@@ -1146,11 +1190,25 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /** The effects of `batchId` due and not in the ledger, its actions' after the others, with their target. */
-  const pending = (state: State, batchId: string): { key: EffectKey; target: EffectTarget }[] => {
+  const pending = (
+    state: State,
+    batchId: string,
+    // Takes a source that could not be read, whose others' effects are then due (ADR 0335).
+    unread?: (error: UnreadSources) => void,
+  ): { key: EffectKey; target: EffectTarget }[] => {
+    const read = (source: DriverEffects): readonly EffectKey[] => {
+      try {
+        return source.due(state, batchId);
+      } catch (error) {
+        if (unread === undefined || !(error instanceof UnreadSources)) throw error;
+        unread(error);
+        return error.readable;
+      }
+    };
     const due = [
       ...(effects === undefined
         ? []
-        : effects.due(state, batchId).map((key) => ({ key, target: effects.target }))),
+        : read(effects).map((key) => ({ key, target: effects.target }))),
       ...(actions === undefined
         ? []
         : runningActions(state, recipes, batchId).flatMap((ref) =>
@@ -1240,10 +1298,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
     // once a pass.
     const tried = new Set<string>();
+    // A source that could not be read: the others' effects are applied, and the pass fails at its
+    // end, before anything reads "nothing pending" as all done (ADR 0335).
+    const latest: { unread?: UnreadSources } = {};
     for (;;) {
-      const next = pending(log.state(), batchId).find(
-        ({ key }) => !tried.has(effectKey.encode(key)),
-      );
+      delete latest.unread;
+      const next = pending(log.state(), batchId, (error) => {
+        latest.unread = error;
+      }).find(({ key }) => !tried.has(effectKey.encode(key)));
       if (next === undefined) break;
       const { key, target } = next;
       tried.add(effectKey.encode(key));
@@ -1252,10 +1314,15 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       try {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
       } catch (error) {
-        report({ kind: 'effect_failed', key, error });
+        noteFailing(batchId, 'effects', error, false);
+        if (failureLines.failed('effect', effectKey.encode(key), rejectionText(error))) {
+          report({ kind: 'effect_failed', key, error });
+        }
+        if (latest.unread !== undefined) throw latest.unread;
         return;
       }
     }
+    if (latest.unread !== undefined) throw latest.unread;
     finishActions(batchId);
     recordAfter(batchId);
   };
@@ -1273,6 +1340,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       }
     }
     passDone('effects', itsOwn);
+    failureLines.passed('effect');
   };
   let pass: Promise<unknown> = Promise.resolve();
   const applyEffects = (): Promise<void> => {
@@ -1306,6 +1374,47 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
   };
 
+  /**
+   * Writes a mark under the batch's lease, so one driver writes it; a throw stops no other. It does
+   * not hold the batch: a free one's lease lapses, so a mark never changes who may drive it.
+   */
+  const writeMark = (batchId: string, command: EngineCommand): boolean => {
+    try {
+      return mayHold(batchId) && issueHolding(batchId, command);
+    } catch (error) {
+      if (failureLines.failed('mark', batchId, rejectionText(error))) {
+        report({ kind: 'command_failed', command, error });
+      }
+      return false;
+    }
+  };
+
+  /**
+   * The end of a tick's passes: a batch that has failed for an hour is marked, Stuck when it brews
+   * and its reading failed (ADR 0335), and one that carries a mark and went clean recovers. Stuck
+   * on failing keeps its mark until a person moves it: Stuck reads too little to call that clean.
+   */
+  const settleFailing = (): void => {
+    const state = log.state();
+    const over = failing.settle(
+      (batchId) => state.batches.get(batchId)?.failing !== undefined,
+      clock(),
+    );
+    for (const { batchId, pass, summary, since, reading } of over) {
+      const batch = state.batches.get(batchId);
+      if (batch?.failing !== undefined && (!reading || failingStep(batch) === undefined)) continue;
+      const command = { kind: 'mark_failing', batchId, pass, summary, since, reading } as const;
+      if (writeMark(batchId, command)) failing.marked(batchId);
+    }
+    for (const { id: batchId, lane, failing: mark } of state.batches.values()) {
+      if (mark === undefined || failing.has(batchId)) continue;
+      // A takeover's wait tried none of its effects, so it says nothing of them (ADR 0124).
+      if (stuckOnFailing(lane) || awaitsTakeover(batchId)) continue;
+      writeMark(batchId, { kind: 'record', event: { type: 'batch.recovered', batchId } });
+    }
+    failureLines.passed('mark');
+  };
+
   const tick = async (): Promise<void> => {
     const now = clock();
     heartbeat();
@@ -1317,6 +1426,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     );
     await supervisor.tick();
     passDone('supervisor', (batchId) => !others.has(batchId));
+    failureLines.passed('command');
     // Stops the processes of attempts that Stuck abandoned (ADR 0027), whose batch ended, or that
     // the log shows finished while this runner still runs them: another driver lost them. Also
     // the run of a step whose batch was taken from this driver to resume that step's session: it
@@ -1350,6 +1460,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     passDone('runs', () => true);
     await drive();
     await applyEffects();
+    settleFailing();
     // A batch that ended, with no attempt running and no effect due, is let go.
     const state = log.state();
     const running = new Set([...runs.values()].map(({ ref }) => ref.batchId));

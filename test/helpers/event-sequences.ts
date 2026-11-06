@@ -121,7 +121,15 @@ export const generateEvents = (seed: number, length = 60): Event[] => {
     };
   };
   const stuckReason = (stepId: string): StuckReason => {
-    switch (random.int(6)) {
+    switch (random.int(7)) {
+      case 5:
+        return {
+          kind: 'failing',
+          stepId,
+          pass: 'supervisor',
+          summary: 'the recipe could not be read',
+          since: timestamp(),
+        };
       case 0:
         return { kind: 'needs_input', stepId, questions: [question] };
       case 1:
@@ -464,9 +472,11 @@ const weighted = <T>(random: Random, choices: readonly (readonly [number, T])[])
  * A scenario of `length` moves from `seed`: batches ordered, decomposed, routed and waiting; humans
  * answering, retrying, skipping, changing the recipe, rewinding and cancelling Stuck batches;
  * effects, some repeated and some of attempts that never existed; and the clock moving between
- * supervisor ticks, so deadlines pass, leases expire, attempts stall and reminders come due.
+ * supervisor ticks, so deadlines pass, leases expire, attempts stall and reminders come due. With
+ * `failing`, also a driver's failing mark and its recovery (ADR 0335); off by default, so a scenario
+ * a test pins by its seed stays as it is.
  */
-export const generateScenario = (seed: number, length = 40): MoveSource => {
+export const generateScenario = (seed: number, length = 40, failing = false): MoveSource => {
   const random = seededRandom(seed);
   const effectKeys: string[] = [];
   let moves = 0;
@@ -618,6 +628,7 @@ export const generateScenario = (seed: number, length = 40): MoveSource => {
       [unrouted.length > 0 ? 0.7 : 0, 'wait'],
       [inLane('stuck').length > 0 ? 4 : 0, 'unstick'],
       [live.length > 0 ? 0.3 : 0, 'meddle'],
+      [failing && batches.length > 0 ? 1.5 : 0, 'failing'],
       [1, 'effect'],
       [4, 'tick'],
     ] as const);
@@ -644,6 +655,22 @@ export const generateScenario = (seed: number, length = 40): MoveSource => {
         // A human command in whatever lane the batch is in: the engine refuses it or obeys.
         const kind = random.pick(['retry', 'skip', 'cancel'] as const);
         return command({ kind, batchId: random.pick(live).id, ...human });
+      }
+      case 'failing': {
+        // In any lane: a driver's passes can fail on any batch, and a person's way out of the Stuck
+        // it may lead to is `unstick`'s (ADR 0335).
+        const batch = random.pick(batches);
+        if (batch.failing !== undefined && random.chance(0.5)) {
+          return record({ type: 'batch.recovered', batchId: batch.id });
+        }
+        return command({
+          kind: 'mark_failing',
+          batchId: batch.id,
+          pass: random.pick(['supervisor', 'drive', 'effects'] as const),
+          summary: 'the recipe could not be read',
+          since: '2026-10-15T12:00:00.000Z',
+          reading: random.chance(0.6),
+        });
       }
       case 'effect':
         return effect(state);

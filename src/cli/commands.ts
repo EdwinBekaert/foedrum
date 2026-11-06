@@ -46,7 +46,7 @@ import { batchOf } from '../engine/state-branch.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
-import { messageOf } from '../platform/errors.ts';
+import { firstLineOf, messageOf } from '../platform/errors.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
@@ -226,7 +226,18 @@ const changeBrewery = async (
   writeBrewery(command, context, async (log) => {
     const human = await build(() => log.state(), issuedBy(context));
     if ('refused' in human) return failed(command, human.refused);
-    const decision = log.issue(human, context.now());
+    let decision: ReturnType<CommandLog['issue']>;
+    try {
+      decision = log.issue(human, context.now());
+    } catch (error) {
+      if (error instanceof InvalidLogError) throw error;
+      // Its recipe, or the store: what it says cannot tell (ADR 0335). What still works reads no recipe.
+      const why = `batch ${human.batchId} could not be changed: ${firstLineOf(messageOf(error))}`;
+      return failed(
+        command,
+        `${why}; if its recipe is what failed, cancel it or choose another recipe`,
+      );
+    }
     if (decision.kind === 'refused') return failed(command, decision.reason);
     return done(`${laneLine(log.state(), human.batchId)}\n`);
   });

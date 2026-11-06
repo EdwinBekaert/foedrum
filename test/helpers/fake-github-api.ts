@@ -34,6 +34,17 @@ export const createdOf = (number: number): string =>
  */
 export const headOf = (number: number): string => `e${number.toString(16).padStart(39, '0')}`;
 
+/** A comment on an issue, which a test may put there as a person would. */
+export interface FakeApiComment {
+  id: number;
+  author: string;
+  body: string;
+  /** How its author stands to the repository; by default `OWNER` for the token's login, else `NONE`. */
+  association?: string;
+  /** When it was made; by default a minute after 2026-10-01 per comment id. */
+  created?: string;
+}
+
 /** A pull request the fake opened, as `POST /repos/{owner}/{repo}/pulls` asked for it. */
 export interface FakeApiPull {
   repo: string;
@@ -94,7 +105,7 @@ export interface FakeGitHubApi {
   /** Every pull request opened, in order. */
   readonly pulls: FakeApiPull[];
   /** The comments on each issue, by `<repo>#<n>` in lower case. */
-  readonly comments: Map<string, { id: number; author: string; body: string }[]>;
+  readonly comments: Map<string, FakeApiComment[]>;
   /** The labels made in each repository, by `owner/name` in lower case. */
   readonly labels: Map<string, Set<string>>;
   issue(repo: string, number: number): FakeApiIssue | undefined;
@@ -121,7 +132,15 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
   const created: string[] = [];
   // The message of each commit made.
   const messages = new Map<string, string>();
-  const comments = new Map<string, { id: number; author: string; body: string }[]>();
+  const comments = new Map<string, FakeApiComment[]>();
+  // A comment as GitHub answers it: Foedrum posts with gh's login, so its own read as `OWNER`.
+  const asComment = ({ id, author, body, association, created }: FakeApiComment) => ({
+    id,
+    user: { login: author },
+    body,
+    author_association: association ?? (author === login ? 'OWNER' : 'NONE'),
+    created_at: created ?? createdOf(id),
+  });
   const labels = new Map<string, Set<string>>();
   // The releases of each repository, in the order made, each with the merges made before it.
   const releases = new Map<string, (FakeApiRelease & { held: string[] })[]>();
@@ -275,17 +294,12 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     const key = `${repo.toLowerCase()}#${Number(number)}`;
     const fieldsOf = (body ?? {}) as { body?: string };
     if (method === 'GET' && what === 'comments') {
-      const listed = (comments.get(key) ?? []).map(({ id, author, body: text }) => ({
-        id,
-        user: { login: author },
-        body: text,
-      }));
-      return json(200, listed);
+      return json(200, (comments.get(key) ?? []).map(asComment));
     }
     if (method === 'POST' && what === 'comments') {
       const made = { id: ++ids, author: login, body: fieldsOf.body ?? '' };
       comments.set(key, [...(comments.get(key) ?? []), made]);
-      return json(201, { id: made.id, user: { login }, body: made.body });
+      return json(201, asComment(made));
     }
     if (found === undefined) return notFound();
     const fields = (body ?? {}) as {
@@ -326,7 +340,7 @@ export const fakeGitHubApi = (options: FakeGitHubApiOptions): FakeGitHubApi => {
     if (found === undefined) return notFound();
     if (method === 'PATCH') found.body = (body as { body?: string }).body ?? '';
     else if (method !== 'GET') return notFound();
-    return json(200, { id, user: { login: found.author }, body: found.body });
+    return json(200, asComment(found));
   };
 
   const pulls: FakeApiPull[] = [];

@@ -3,7 +3,9 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { generateScenario } from '../helpers/event-sequences.ts';
 import { holdsInScenarios, runsIn } from '../helpers/property.ts';
+import { openEngine, runScenario } from '../helpers/simulation.ts';
 
 describe('holdsInScenarios', () => {
   it('fails a broken invariant with its seed, shrunk to the one move that breaks it', async () => {
@@ -42,6 +44,43 @@ describe('holdsInScenarios', () => {
         return true;
       },
     );
+  });
+});
+
+describe('the scenarios', () => {
+  it("play the failing mark, its Stuck, its recovery and a person's way out of it (ADR 0335)", async () => {
+    const seen = new Set<string>();
+    // Fixed seeds, so what this says of the generator does not vary by run.
+    for (let seed = 0; seed < 40; seed++) {
+      const source = generateScenario(seed, 40, true);
+      const engine = openEngine((attempt) => source.play(attempt));
+      try {
+        await runScenario(engine, source);
+        const onFailing = new Set<string>();
+        for (const event of engine.events()) {
+          if (event.type === 'batch.failing' || event.type === 'batch.recovered') {
+            seen.add(event.type);
+          }
+          if (event.type === 'batch.stuck') {
+            if (event.reason.kind === 'failing') {
+              seen.add('stuck on failing');
+              onFailing.add(event.batchId);
+            } else onFailing.delete(event.batchId);
+          }
+          if (event.type === 'batch.resumed' && onFailing.delete(event.batchId)) {
+            seen.add('out of failing');
+          }
+        }
+      } finally {
+        engine.close();
+      }
+    }
+    assert.deepStrictEqual([...seen].sort(), [
+      'batch.failing',
+      'batch.recovered',
+      'out of failing',
+      'stuck on failing',
+    ]);
   });
 });
 

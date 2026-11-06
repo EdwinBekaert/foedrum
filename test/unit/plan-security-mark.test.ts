@@ -122,6 +122,7 @@ const promptOf = async (stepId: string, plan: unknown): Promise<string> => {
     env: { base: { PATH: '/usr/bin' }, forced: {} },
     platform: 'linux',
     orderText: async () => 'Save the page under its title.',
+    orderComments: async () => [],
     git: async () => ({ code: 0, stdout: '', stderr: '' }),
     files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
     random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),

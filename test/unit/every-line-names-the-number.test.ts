@@ -118,7 +118,9 @@ describe('every line names the number (ADR 0329, ADR 0334)', () => {
     const decided = log().issue(answer, t0);
     assert.equal(decided.kind, 'accepted', JSON.stringify(decided));
     assert.equal(await runBrew(brewing, again(host), target), 0, f.lines.join('\n'));
-    assert.deepStrictEqual([...new Set(offered(f.lines))], [`answer ${number}`]);
+    // `foedrum serve closes` names no issue: the other way a merge is read.
+    const commands = offered(f.lines).filter((each) => !each.startsWith('serve '));
+    assert.deepStrictEqual([...new Set(commands)], [`answer ${number}`, `brew ${number}`]);
     // The driver's own notice of its cleanup keeps the id, with the folders it names (ADR 0334).
     const told = f.lines.filter((line) => !line.includes('cleaned batch'));
     assert.ok(!told.some((line) => line.includes('web-7')), f.lines.join('\n'));

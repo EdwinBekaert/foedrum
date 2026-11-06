@@ -198,6 +198,7 @@ describe('the default Finer (defaults/brewers/finer.md)', () => {
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Add a slug helper.',
+      orderComments: async () => [],
       git,
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),

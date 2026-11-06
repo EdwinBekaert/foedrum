@@ -9,7 +9,16 @@ import type { PlanOrigin, ScheduleRoute } from '../schemas/events.ts';
 export type InputSource =
   /** `breweryIssue`: the order's number on the Brewery, a claimed issue's once open (ADR 0334). */
   | { kind: 'issue-body'; issue: number; breweryIssue?: number }
-  | { kind: 'comment'; issue: number; comment: number }
+  /** A maintainer's comment on an order's issue; `by` is absent for a deleted account (ADR 0333). */
+  | {
+      kind: 'comment';
+      repo: string;
+      issue: number;
+      comment: number;
+      by?: string;
+      association: string;
+      at: string;
+    }
   | { kind: 'out-doc'; step: string }
   /** The batch's latest plan: the out doc of the plan attempt that wrote it (ADR 0312). */
   | { kind: 'plan'; step: string; attempt: number }
@@ -88,7 +97,7 @@ function describeSource(source: InputSource): string {
         ? `issue #${source.issue} body`
         : `issue #${source.issue} body, the order on Brewery issue #${source.breweryIssue}`;
     case 'comment':
-      return `comment ${source.comment} on issue #${source.issue}`;
+      return `comment ${source.comment} on ${source.repo}#${source.issue}, by ${source.by ?? 'a deleted account'} (${source.association}), ${source.at}`;
     case 'out-doc':
       return `out doc of step ${source.step}`;
     case 'plan':

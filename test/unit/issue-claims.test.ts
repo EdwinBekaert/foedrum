@@ -304,6 +304,18 @@ describe('claimEffectsDue', () => {
     );
   });
 
+  it("the claim comment says where the batch's status is, for those who can see it, with no number", () => {
+    const order = { issue: 200 };
+    const due = claimEffectsDue({ ...batch({ kind: 'brewing' }), order }, alice, states({}));
+    const comment = due.find(({ key }) => key.effect === 'claim.comment')?.effect;
+    const body = comment?.kind === 'comment' ? comment.body : '';
+    assert.match(
+      body,
+      /Its status is on its order's issue in that Brewery, for those who can see it\./,
+    );
+    assert.doesNotMatch(body, /200/);
+  });
+
   it('keeps the marks while a pull request of the batch is open', () => {
     const due = claimEffectsDue(batch(onTap), alice, states({ [pullRequest]: 'merged' }));
     assert.deepEqual(names(due), ['claim.assignee', 'claim.label', 'claim.comment', 'order.issue']);
