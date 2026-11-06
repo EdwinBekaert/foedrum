@@ -7,16 +7,17 @@ import type { Batch } from './fold.ts';
 /**
  * What the batch's latest run whose reports were read says of the tests its Gauger named, with its
  * step: a later attempt that read none leaves it, and one whose reports hold them all takes it off.
- * `ids` keeps to those steps: a merge brief is about its head, so never about a recipe the batch
- * left (ADR 0327).
+ * `recipe` keeps to the attempts scheduled under it, each by the recipe it recorded, so a step of
+ * the same id counts too: a merge brief is about its head, so never about a recipe the batch left
+ * (ADR 0327).
  */
 export const unreportedOf = (
   batch: Batch,
-  ids?: readonly string[],
+  recipe?: string,
 ): { stepId: string; unreported: UnreportedTests } | undefined => {
   for (const { stepId, attempt } of [...(batch.path ?? [])].reverse()) {
-    if (ids !== undefined && !ids.includes(stepId)) continue;
     const ran = batch.steps.get(stepId)?.attempts.get(attempt);
+    if (recipe !== undefined && ran?.recipe !== recipe) continue;
     if (ran?.phase !== 'finished' || ran.unreported === undefined) continue;
     return ran.unreported.tests.length === 0 ? undefined : { stepId, unreported: ran.unreported };
   }

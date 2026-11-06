@@ -20,6 +20,9 @@ const inWord = (char: string | undefined): boolean =>
  */
 const MOST_COMPARED = 2 ** 28;
 
+/** What trying a place costs beside the characters it compares, which a short name makes few. */
+const TRY_COST = 64;
+
 /** Whether `text` ends with `part` as whole words: a name a brewer wrote with its suite or path. */
 const endsWhole = (text: string, part: string): boolean =>
   text.endsWith(part) && !inWord(text[text.length - part.length - 1]);
@@ -43,7 +46,7 @@ export function unreportedNames(
   const holdsWhole = (text: string, part: string): boolean => {
     compared += text.length;
     for (let at = text.indexOf(part); at !== -1; at = text.indexOf(part, at + 1)) {
-      compared += part.length;
+      compared += part.length + TRY_COST;
       if (compared > MOST_COMPARED) return false;
       if (!inWord(text[at - 1]) && !inWord(text[at + part.length])) return true;
     }

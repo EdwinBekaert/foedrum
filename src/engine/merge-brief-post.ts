@@ -395,8 +395,8 @@ const survivorLines = (steps: Steps, told: Told): string[] =>
   );
 
 /** The tests the Gauger named that the latest run's reports hold under no name (ADR 0342). */
-const unreportedLines = ({ batch, ids }: Steps, told: Told): string[] => {
-  const found = unreportedOf(batch, ids);
+const unreportedLines = ({ batch }: Steps, told: Told): string[] => {
+  const found = unreportedOf(batch, batch.recipe?.name);
   if (found === undefined) return [];
   const { stepId, unreported } = found;
   return [`- ${code(stepId)}: ${unreportedLine(unreported, (name) => told(name, stepId))}`];
