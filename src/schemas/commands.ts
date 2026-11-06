@@ -80,34 +80,60 @@ export type BrewersCommand = z.infer<typeof BrewersCommand>;
 export const LensesCommand = z.strictObject({ command: z.literal('lenses') });
 export type LensesCommand = z.infer<typeof LensesCommand>;
 
-export const ReplayCommand = z.strictObject({ command: z.literal('replay'), batch: PathSafeId });
+/**
+ * An issue as `order` takes it, which every command on a batch takes for the issue's latest (ADR
+ * 0329), or a batch id (ADR 0240): a batch id has a hyphen and no `#`, so `#<n>`, `<n>` and
+ * `<alias>#<n>` are never one.
+ */
+const asIssue = (text: string): boolean => /^[0-9]*$|#/.test(text);
+const BatchOrIssue = z
+  .string()
+  .refine(
+    (text) => (asIssue(text) ? splitIssue(text) !== undefined : PathSafeId.safeParse(text).success),
+    'Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
+  )
+  .transform((text): string | OrderTarget =>
+    asIssue(text) ? (splitIssue(text) as OrderTarget) : text,
+  );
+export type BatchOrIssue = z.output<typeof BatchOrIssue>;
+
+export const ReplayCommand = z.strictObject({ command: z.literal('replay'), issue: BatchOrIssue });
 export type ReplayCommand = z.infer<typeof ReplayCommand>;
 
-/** `foedrum resume <batch> [<step>[#<n>]]` (ADR 0126); resume reads the step and its attempt. */
+/** `foedrum resume <issue> [<step>[#<n>]]` (ADR 0126); resume reads the step and its attempt. */
 export const ResumeCommand = z.strictObject({
   command: z.literal('resume'),
-  batch: PathSafeId,
+  issue: BatchOrIssue,
   step: NonEmpty.optional(),
 });
 export type ResumeCommand = z.infer<typeof ResumeCommand>;
 
-export const RetryCommand = z.strictObject({ command: z.literal('retry'), batch: PathSafeId });
+/** What resume opens: `foedrum resume`'s command once its issue is a batch id. */
+export interface ResumeInput {
+  batch: string;
+  step?: string | undefined;
+}
+
+export const RetryCommand = z.strictObject({ command: z.literal('retry'), issue: BatchOrIssue });
 export type RetryCommand = z.infer<typeof RetryCommand>;
 
-export const SkipCommand = z.strictObject({ command: z.literal('skip'), batch: PathSafeId });
+export const SkipCommand = z.strictObject({ command: z.literal('skip'), issue: BatchOrIssue });
 export type SkipCommand = z.infer<typeof SkipCommand>;
 
-/** `foedrum approve <batch>`: sign off the plan a batch Stuck for its review waits with (ADR 0281). */
-export const ApproveCommand = z.strictObject({ command: z.literal('approve'), batch: PathSafeId });
+/** `foedrum approve <issue>`: sign off the plan a batch Stuck for its review waits with (ADR 0281). */
+export const ApproveCommand = z.strictObject({
+  command: z.literal('approve'),
+  issue: BatchOrIssue,
+});
 export type ApproveCommand = z.infer<typeof ApproveCommand>;
 
-export const CancelCommand = z.strictObject({ command: z.literal('cancel'), batch: PathSafeId });
+export const CancelCommand = z.strictObject({ command: z.literal('cancel'), issue: BatchOrIssue });
 export type CancelCommand = z.infer<typeof CancelCommand>;
 
 /** One answer per question the batch asked, in the order it asked them. */
 export const AnswerCommand = z.strictObject({
   command: z.literal('answer'),
-  batch: PathSafeId,
+  issue: BatchOrIssue,
   answers: z.array(NonEmpty).min(1),
 });
 export type AnswerCommand = z.infer<typeof AnswerCommand>;
@@ -128,7 +154,7 @@ export const RepoCommit = z
 
 export const RewindCommand = z.strictObject({
   command: z.literal('rewind'),
-  batch: PathSafeId,
+  issue: BatchOrIssue,
   step: PathSafeId,
   commits: z
     .array(RepoCommit)
@@ -142,21 +168,6 @@ export type RewindCommand = z.infer<typeof RewindCommand>;
 
 export const OrderCommand = z.strictObject({ command: z.literal('order'), issue: IssueTarget });
 export type OrderCommand = z.infer<typeof OrderCommand>;
-
-/**
- * A batch id, or an issue as `order` takes it (ADR 0240): a batch id has a hyphen and no `#`, so
- * `#<n>`, `<n>` and `<alias>#<n>` are never one.
- */
-const asIssue = (text: string): boolean => /^[0-9]*$|#/.test(text);
-const BatchOrIssue = z
-  .string()
-  .refine(
-    (text) => (asIssue(text) ? splitIssue(text) !== undefined : PathSafeId.safeParse(text).success),
-    'Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
-  )
-  .transform((text): string | OrderTarget =>
-    asIssue(text) ? (splitIssue(text) as OrderTarget) : text,
-  );
 
 export const RecipeCommand = z.strictObject({
   command: z.literal('recipe'),
@@ -193,12 +204,12 @@ export const RankCommand = z
 export type RankCommand = z.infer<typeof RankCommand>;
 
 /**
- * `foedrum takeover <batch> [--as <name>]` (ADR 0124): the batch, and the driver it hands it to,
+ * `foedrum takeover <issue> [--as <name>]` (ADR 0124): the batch, and the driver it hands it to,
  * the Cellar's included.
  */
 export const TakeoverCommand = z.strictObject({
   command: z.literal('takeover'),
-  batch: PathSafeId,
+  issue: BatchOrIssue,
   as: PathSafeId.optional(),
 });
 export type TakeoverCommand = z.infer<typeof TakeoverCommand>;
@@ -243,12 +254,12 @@ export const MashCommand = z.strictObject({
 export type MashCommand = z.infer<typeof MashCommand>;
 
 /**
- * `foedrum lauter <batch> [--as <name>]` (ADR 0286): the plan the batch waits with, corrected in a
+ * `foedrum lauter <issue> [--as <name>]` (ADR 0286, ADR 0329): the plan the batch waits with, corrected in a
  * session that brew's driver opens.
  */
 export const LauterCommand = z.strictObject({
   command: z.literal('lauter'),
-  batch: PathSafeId,
+  issue: BatchOrIssue,
   as: DriverName.optional(),
 });
 export type LauterCommand = z.infer<typeof LauterCommand>;

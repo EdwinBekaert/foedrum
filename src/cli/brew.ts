@@ -10,7 +10,7 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
-import { breweryIssueOf, claimOfOrder, latestBatch } from '../engine/claim-orders.ts';
+import { breweryIssueOf, claimOrderOf, latestBatch, namedWork } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
@@ -295,14 +295,25 @@ export const runBrew = async (
     const heldElsewhere = (id: string): BatchLease | undefined =>
       store.batchLeases(clock()).find((lease) => lease.batchId === id && lease.owner !== owner);
 
-    // A claimed issue is brewed and mashed by its Brewery issue, its order (ADR 0232, ADR 0240).
-    const claimed =
-      order.repo === undefined &&
-      latestBatch(log.state().batches.values(), issue, undefined) === undefined
-        ? claimOfOrder(log.state(), issue)
-        : undefined;
-    if (claimed?.repo !== undefined) order = { issue: claimed.issue, repo: claimed.repo };
-    const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
+    // A claimed issue is brewed and mashed by its Brewery issue, its order (ADR 0232, ADR 0240),
+    // and by that number alone once it is alive (ADR 0329).
+    const work = namedWork(log.state(), target, () => repository?.repo, commandOf(request));
+    if ('refused' in work) return refuse(work.refused);
+    order =
+      work.order.repo === undefined
+        ? { issue: work.order.issue }
+        : {
+            issue: work.order.issue,
+            repo: work.order.repo,
+          };
+    const { batch: last } = work;
+    // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
+    const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
+    const deleted =
+      alias !== undefined &&
+      (last?.lane.kind === 'on_tap' || last?.lane.kind === 'cancelled') &&
+      (knew.issue !== undefined || knew.earlier !== undefined);
+    const latest = deleted ? undefined : last;
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
     if (request.lauter !== undefined && latest === undefined) {
       return refuse(`${named} has no batch to correct a plan of`);
@@ -401,7 +412,10 @@ export const runBrew = async (
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`ordered ${named} as batch ${command.batchId}`);
     }
-    const batch = latestBatch(log.state().batches.values(), order.issue, order.repo);
+    const batch =
+      latest === undefined
+        ? latestBatch(log.state().batches.values(), order.issue, order.repo)
+        : log.state().batches.get(latest.id);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
     if (waitsForOrder && batch.lane.kind === 'ordered') {

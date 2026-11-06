@@ -31,7 +31,7 @@ import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
-import type { ResumeCommand } from '../schemas/commands.ts';
+import type { ResumeInput } from '../schemas/commands.ts';
 import type { CheckoutRef, SessionRef, WorktreeRef } from '../schemas/events.ts';
 import { checkoutName } from '../workspace/attempt-worktrees.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
@@ -351,7 +351,7 @@ const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string
 };
 
 /** Runs `foedrum resume`: claude's exit code, or one line on why it opened nothing. */
-export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promise<CliResult> => {
+export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise<CliResult> => {
   const path = storePath(shell.cwd);
   const store = shell.openStore(path);
   if (store === undefined) return failed(`no event store at ${path}`);

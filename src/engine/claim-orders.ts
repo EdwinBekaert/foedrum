@@ -3,6 +3,8 @@
 // a batch that orders the issue again has the Brewery issue an earlier batch of it opened. Pure:
 // everything here is read from the folded state.
 
+import type { OrderTarget } from '../schemas/commands.ts';
+import type { OrderRef } from '../schemas/events.ts';
 import { aliasOf } from './batch-id.ts';
 import { effectKey } from './effect-key.ts';
 import type { Batch, State } from './fold.ts';
@@ -94,6 +96,56 @@ export const latestBatch = (
           : batch.repo !== undefined && same(batch.repo, repo)),
     )
     .at(-1);
+
+/**
+ * The Brewery issue that is the order of the target issue `order` while it is alive: known to the
+ * latest batch of the issue and not found deleted, read from the fold with no call to GitHub (ADR
+ * 0329).
+ */
+export const liveOrderOf = (state: State, { issue, repo }: OrderRef): number | undefined => {
+  const latest = latestBatch(state.batches.values(), issue, repo);
+  if (latest === undefined) return undefined;
+  return leftBy(state, latest.id, claimOrderOf(state, latest.id).earlier?.issue);
+};
+
+/** What a person named when they named an issue: its order, its latest batch, and how to say it. */
+export interface NamedWork {
+  order: OrderRef;
+  batch: Batch | undefined;
+  name: string;
+}
+
+/**
+ * The one reading of a number a command takes (ADR 0329). `<n>` is the Brewery issue's own latest
+ * batch, or the latest claimed batch whose order it is, with that claimed issue as its order.
+ * `<alias>#<n>` is the target issue until its Brewery issue is open, then refused for `command`
+ * with the number to use, and again once a person deleted that issue.
+ */
+export const namedWork = (
+  state: State,
+  { alias, issue }: OrderTarget,
+  repoOf: (alias: string) => string | undefined,
+  command: string,
+): NamedWork | { refused: string } => {
+  if (alias === undefined) {
+    const own = latestBatch(state.batches.values(), issue, undefined);
+    const claimed = own === undefined ? claimOfOrder(state, issue) : undefined;
+    const order =
+      claimed?.repo === undefined ? { issue } : { issue: claimed.issue, repo: claimed.repo };
+    return { order, batch: own ?? claimed, name: `#${issue}` };
+  }
+  const repo = repoOf(alias);
+  if (repo === undefined) {
+    return { refused: `foedrum.jsonc names no repository with the alias ${alias}` };
+  }
+  const name = `${alias}#${issue}`;
+  const order = { issue, repo };
+  const alive = liveOrderOf(state, order);
+  if (alive !== undefined) {
+    return { refused: `${name} is Brewery issue #${alive}; foedrum ${command} ${alive}` };
+  }
+  return { order, batch: latestBatch(state.batches.values(), issue, repo), name };
+};
 
 /** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
 export const claimedName = (batch: Batch): string =>
