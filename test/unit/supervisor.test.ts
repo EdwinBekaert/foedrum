@@ -510,25 +510,28 @@ describe('planTick with one batch that throws (ADR 0328)', () => {
   });
 
   it('keeps the other batch when reading the pull request route throws', () => {
-    const opens = { actions: { open: 'openPullRequest' }, pullRequests: [] } as const;
-    const pint = fakeRecipe({ steps: ['plan', 'open'], ...opens });
-    const onTap = (batchId: string, recipe: string): Event[] => [
-      ordered(batchId),
-      chosen(batchId, recipe),
-      { type: 'batch.on_tap', batchId, pullRequests: [] },
-    ];
+    const ale = fakeRecipe({
+      steps: ['plan', OPEN],
+      actions: { [OPEN]: 'openPullRequest' },
+      routes: { [OPEN]: { pull_request: 'plan' } },
+      pullRequests: [],
+    });
     const tick = planTick(
-      input([...onTap('b1', 'bad'), ...onTap('b2', 'pint')], {
+      input([...openedOnTap('b1', 'bad'), ...openedOnTap('b2'), checksFinished('b2', firstHead)], {
         recipes: fakeRecipes({
-          pint,
+          ale,
           bad: {
-            ...pint,
+            ...ale,
             routesTo: () => {
               throw boom;
             },
           },
         }),
       }),
+    );
+    assert.deepStrictEqual(
+      tick.commands.map(({ kind, batchId }) => [kind, batchId]),
+      [['fix_pull_request', 'b2']],
     );
     assert.deepStrictEqual(tick.failed, [failure('b1')]);
   });

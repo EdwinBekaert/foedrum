@@ -75,6 +75,9 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
   let notices: DriverNotice[];
   // While true, the recipe `bad` throws when a deadline asks whether a step is interactive.
   let broken: boolean;
+  // While true, `bad` throws when the supervisor asks for a stall limit, counting each.
+  let stallBroken: boolean;
+  let stallsAsked: number;
   const drivers: Driver[] = [];
 
   const pint = fakeRecipe({ steps: ['plan', 'implement'] });
@@ -83,6 +86,14 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
     interactive: (stepId) => {
       if (broken) throw boom;
       return pint.interactive(stepId);
+    },
+    // The supervisor asks every batch's running step this, whoever holds the batch.
+    stall: (stepId) => {
+      if (stallBroken) {
+        stallsAsked++;
+        throw boom;
+      }
+      return pint.stall(stepId);
     },
   };
   const recipes = fakeRecipes({ pint, bad });
@@ -93,6 +104,8 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
     intake = createCommandLog({ store, recipes });
     notices = [];
     broken = false;
+    stallBroken = false;
+    stallsAsked = 0;
   });
   afterEach(() => {
     for (const driver of drivers.splice(0)) driver.close();
@@ -326,6 +339,28 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       assert.deepStrictEqual(failures(), []);
     });
 
+    it('a store that cannot say whose batch it is still says the fault (regression test)', async () => {
+      const { runner } = handRunner();
+      order('b1');
+      let fail = false;
+      const faulty: EventStore = {
+        ...store,
+        withTransaction: (work) => {
+          if (fail) throw boom;
+          return store.withTransaction(work);
+        },
+        batchLeases: (when) => {
+          if (fail) throw boom;
+          return store.batchLeases(when);
+        },
+      };
+      const driver = await open({ store: faulty, runner });
+      fail = true;
+      await driver.drive();
+      fail = false;
+      assert.deepStrictEqual(failures(), [{ kind: 'batch_failed', batchId: 'b1', pass: 'drive' }]);
+    });
+
     it('a store fault on a batch this driver takes is reported', async () => {
       const { runner } = handRunner();
       order('b1');
@@ -407,9 +442,14 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       throws = false;
       await driver.tick();
       assert.deepStrictEqual(stops, [plan('b1'), plan('b1')]);
-      // It ended as its pause stopped it: no attempt of it is spent, and no failure said.
       await driver.tick();
       assert.equal(stops.length, 2);
+      // It ended as its pause stopped it, so no attempt of it is spent (ADR 0202).
+      const finished = store
+        .eventsAfter(0)
+        .map(({ event }) => event)
+        .find((event) => event.type === 'step.finished');
+      assert.equal(finished?.type === 'step.finished' && finished.paused, true);
     });
   });
 
@@ -500,6 +540,40 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       assert.deepStrictEqual(store.expiredLeases(now), []);
       const scheduled = driver.state().batches.get('b1')?.steps.get('plan')?.attempts.size;
       assert.equal(scheduled, 2, 'lost, and retried');
+    });
+
+    it("says nothing of another driver's batch that throws in its supervisor (regression test)", async () => {
+      order('b1', 'bad');
+      startedBefore(plan('b1'));
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: 'b1', owner: 'session', expiresAt: at(5) }),
+      );
+      const driver = await open();
+      stallBroken = true;
+      await driver.tick();
+      assert.ok(stallsAsked > 0, 'the supervisor read it');
+      assert.deepStrictEqual(failures(), []);
+    });
+
+    it("says no recovery in the supervisor of a batch that is another driver's by then (regression test)", async () => {
+      order('b1', 'bad');
+      startedBefore(plan('b1'));
+      const driver = await open({ takes: () => false });
+      stallBroken = true;
+      await driver.tick();
+      assert.deepStrictEqual(failures(), [
+        { kind: 'batch_failed', batchId: 'b1', pass: 'supervisor' },
+      ]);
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: 'b1', owner: 'session', expiresAt: at(5) }),
+      );
+      stallBroken = false;
+      notices = [];
+      await driver.tick();
+      assert.deepStrictEqual(
+        notices.filter((notice) => notice.kind === 'batch_recovered'),
+        [],
+      );
     });
 
     it('a state-branch stop still rejects the tick (regression test)', async () => {
@@ -812,9 +886,13 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
   });
 
   describe('in the effects', () => {
+    let thrown = 0;
     const throwingFor = (batchId: string): DriverEffects => ({
       due: (_state, id) => {
-        if (id === batchId) throw boom;
+        if (id === batchId) {
+          thrown++;
+          throw boom;
+        }
         return [];
       },
       target: {
@@ -826,7 +904,9 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
     it('a driver that does not take the batch says nothing of its effects', async () => {
       order('b1');
       const driver = await open({ takes: () => false, effects: throwingFor('b1') });
+      thrown = 0;
       await driver.tick();
+      assert.ok(thrown > 0, 'its effects threw');
       assert.deepStrictEqual(failures(), []);
     });
 
@@ -836,7 +916,9 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
         tx.putBatchLease({ batchId: 'b1', owner: 'session', expiresAt: at(5) }),
       );
       const driver = await open({ effects: throwingFor('b1') });
+      thrown = 0;
       await driver.applyEffects();
+      assert.ok(thrown > 0, 'its effects threw');
       assert.deepStrictEqual(failures(), []);
     });
 
