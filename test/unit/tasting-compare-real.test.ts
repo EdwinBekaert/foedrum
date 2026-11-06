@@ -268,6 +268,37 @@ describe('tasting-compare --real', () => {
       }
     });
 
+    it('a Read of a path from the home folder fails the run, as it never lies in the worktree', () => {
+      const { outside, opened } = transcriptReads(transcript(read('~/notes.md')), WORKTREE);
+      assert.deepEqual(outside, ['~/notes.md']);
+      assert.deepEqual(opened, []);
+    });
+
+    it('a Grep or a Glob from the home folder fails the run', () => {
+      for (const call of [
+        { name: 'Grep', input: { pattern: 'x', path: '~' } },
+        { name: 'Glob', input: { pattern: '*', path: '~/code' } },
+        { name: 'Glob', input: { pattern: '~/*' } },
+        { name: 'Glob', input: { pattern: '~other/*.md' } },
+      ]) {
+        const { outside } = transcriptReads(transcript(call), WORKTREE);
+        assert.equal(outside.length, 1, JSON.stringify(call));
+      }
+    });
+
+    it('a refused read from the home folder is listed as refused', () => {
+      const denied = { ...read('~/notes.md'), denied: true as const };
+      assert.deepEqual(transcriptReads(transcript(denied), WORKTREE).refused, ['~/notes.md']);
+    });
+
+    it('a Glob with a .. in a brace group fails the run', () => {
+      for (const pattern of ['{../other,src}/*', '{..,src}/*', '{src,..}/*', '{src,../other}/*']) {
+        const call = { name: 'Glob', input: { pattern } };
+        const { outside } = transcriptReads(transcript(call), WORKTREE);
+        assert.deepEqual(outside, [pattern]);
+      }
+    });
+
     it('a Grep or a Glob of the worktree stays inside', () => {
       for (const call of [
         { name: 'Grep', input: { pattern: 'x' } },
