@@ -393,6 +393,14 @@ describe('the order input holds the comments', () => {
       { repo: 'acme/web', issue: 7, id: 900 },
     ]);
   });
+
+  it('a fresh attempt told no comment records no mark', async () => {
+    const plans = plansOf(
+      () => brewery,
+      async () => [],
+    );
+    assert.equal((await plans.plan(startOf('12-1'))).commentsHeard, undefined);
+  });
 });
 
 describe('a resumed session hears the comments made since (ADR 0338)', () => {
@@ -756,6 +764,76 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
       opensResumed: true,
     });
     assert.match((await plans.plan(startOf('12-1', 2))).prompt, /Not that way\./);
+  });
+
+  it("the mark's repository is read in any case, as GitHub's names are", async () => {
+    const plans = resumedPlans(retried([heard(501, 'Acme/Brewery')]), async () => [
+      comment(501, 'Told already.'),
+    ]);
+    assert.deepEqual(texts((await plans.plan(startOf('12-1', 2))).prompt).slice(1), []);
+  });
+
+  it('a retry after a turn overrun with no new comment still has no input at all', async () => {
+    const overran = { kind: 'failed', retryable: true, reason: 'turns', overran: 'turns' };
+    const events = [
+      ...brewery,
+      finished('12-1', 1, { outcome: overran, commentsHeard: [heard(501)] }),
+      ...resumedAttempt('12-1', 2),
+    ];
+    const plans = plansOf(
+      () => events,
+      async () => [comment(501, 'Told already.')],
+    );
+    assert.equal((await plans.plan(startOf('12-1', 2))).prompt, goOn('brew.md', 'turns'));
+  });
+
+  it('a brewer with no order input reads no comments on a resume', async () => {
+    let read = 0;
+    const loaded = loadRecipes({
+      recipes: [
+        {
+          path: 'recipes/pale.jsonc',
+          text: recipeText('pale', [{ id: 'brew', brewer: 'brewmaster' }]),
+        },
+      ],
+      brewers: [
+        {
+          path: 'brewers/brewmaster.md',
+          text: brewerText('brewmaster', {
+            output: { doc: 'brew.md', schema: 'outDoc' },
+            tools: { allow: ['Read', 'Write'] },
+            inputs: [],
+            retryMode: 'resume',
+          }),
+        },
+      ],
+    });
+    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
+    const plans = resumedPlans(
+      retried(),
+      async () => {
+        read++;
+        return [comment(502, 'Not that way.')];
+      },
+      { brewers: loaded.brewers },
+    );
+    assert.doesNotMatch((await plans.plan(startOf('12-1', 2))).prompt, /Not that way\./);
+    assert.equal(read, 0);
+  });
+
+  it('a session a person opens has no prompt to add to: no read can stop it (ADR 0127)', async () => {
+    let read = 0;
+    const plans = resumedPlans(
+      retried(),
+      async () => {
+        read++;
+        throw new Error('GitHub answered 500');
+      },
+      { opensResumed: true },
+    );
+    const { commentsHeard } = await plans.plan(startOf('12-1', 2));
+    assert.equal(read, 0);
+    assert.equal(commentsHeard, undefined);
   });
 
   it("the Brewmaster hears 'not that way' on a person's retry", async () => {

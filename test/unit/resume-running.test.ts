@@ -173,6 +173,37 @@ describe('runResumeRunning (ADR 0127)', () => {
   };
   const events = () => store.eventsAfter(0).map(({ event }) => event);
 
+  it("reads no comments for the person's session it opens, which has no prompt to add to (ADR 0338)", async () => {
+    const setup = setupWith(2);
+    cellarRuns(setup);
+    api.comments.set('acme/brewery#12', [
+      { id: 502, author: 'ann', body: 'Not that way.', association: 'OWNER' },
+    ]);
+    const inner = fakeBrewerRunner((attempt) => {
+      started.push(`${attempt.ref.stepId}#${attempt.ref.attempt}`);
+      return behave.succeed();
+    });
+    const planned: ReturnType<Parameters<ServeShell['runner']>[1]>[] = [];
+    const result = await runResumeRunning(
+      setup,
+      shell(behave.succeed(), cellarStops(setup), {
+        runner: (_claude, plan) => ({
+          ...inner,
+          start: (attempt) => {
+            planned.push(plan(attempt));
+            return inner.start(attempt);
+          },
+        }),
+      }),
+      request,
+    );
+    assert.equal(result, 0, lines.join('\n'));
+    assert.deepStrictEqual(started, ['brew#2']);
+    const [plan] = await Promise.all(planned);
+    assert.equal(plan?.call.session.kind, 'resume');
+    assert.doesNotMatch(plan?.prompt ?? '', /Not that way\./);
+  });
+
   it('takes the batch over for the step, continues its session as the next attempt, and lets the batch go once it ended', async () => {
     const setup = setupWith(2);
     cellarRuns(setup);
