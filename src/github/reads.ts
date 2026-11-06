@@ -1,6 +1,7 @@
 // Conditional reads of GitHub (ADR 0008, ADR 0052): every GET carries the ETag of the answer it got
 // before, and a 304 answers that same body again without counting against the rate limit. A list
-// is read page by page along GitHub's `Link` header, each page conditional on its own.
+// is read page by page along GitHub's `Link` header, each page conditional on its own, and on past a
+// full page that answers 304, which has no such header (ADR 0333).
 
 import { GitHubPage, GitHubWrappedPage } from '../schemas/github.ts';
 import { checked, refused } from './answers.ts';
