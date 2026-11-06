@@ -7,13 +7,11 @@ import {
   type Context,
   decide,
   type Ending,
-  orderRefusal,
   type RecordedEvent,
   stuckOptions,
 } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold, type Lane, type State } from '../../src/engine/fold.ts';
-import { orderEffects } from '../../src/engine/issue-claims.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import type {
   Event,
@@ -1502,17 +1500,6 @@ describe('nothing but an order brings an older batch back while a later one exis
       refuses(older, command, /is on_tap|on tap/);
     });
   }
-
-  it('a target issue with a deleted Brewery issue still holds its claim while its pull request is open: regression test', () => {
-    const repo = 'acme/web';
-    const gone = effectKey.encode({ batchId: 'w1', effect: orderEffects.reopen });
-    const state = fold([
-      { type: 'batch.ordered', batchId: 'w1', order: { issue: 7, repo }, routeBy: inAnHour },
-      { type: 'batch.on_tap', batchId: 'w1', pullRequests: [pullRequest] },
-      { type: 'effect.applied', key: gone, result: 'gone' },
-    ]);
-    assert.match(orderRefusal(state, { issue: 7, repo }) ?? '', /holds its claim/);
-  });
 });
 
 describe('decide order_again: a person orders an issue again (ADR 0105)', () => {

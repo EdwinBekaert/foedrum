@@ -870,6 +870,64 @@ describe('runBrew', () => {
         );
       });
 
+      it("a sub-order's cancelled batch prints the order's refusal, offering no order: regression test", async () => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+          tx.append({
+            type: 'order.decomposed',
+            batchId: '1-1',
+            subOrders: [{ issue: 12, repo: 'acme/web' }],
+            dependencies: [],
+          });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: '12-1',
+            order: { issue: 12 },
+            parentBatchId: '1-1',
+            routeBy,
+          });
+          tx.append({ type: 'batch.cancelled', batchId: '12-1', by: 'ann', via: 'terminal' });
+        });
+        assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
+        assert.equal(
+          f.lines.at(-1),
+          'foedrum brew: issue #12 is a sub-order of #1; its decomposition orders it',
+        );
+      });
+
+      it('of two pull requests of a Brewery issue, records the merged one and names the open one: regression test', async () => {
+        const merged = url(101);
+        const open = url(102);
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [merged, open] });
+        });
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+          instead: (method, { pathname }) => {
+            if (method !== 'GET') return undefined;
+            if (pathname === '/repos/acme/web/pulls/101') {
+              return { status: 200, body: { state: 'closed', merged: true } };
+            }
+            return pathname === '/repos/acme/web/pulls/102'
+              ? { status: 200, body: { state: 'open', merged: false } }
+              : undefined;
+          },
+        });
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
+        assert.deepStrictEqual(log().state().batches.get('12-1')?.pullRequestEnds, {
+          [merged]: 'merged',
+        });
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: #12 is on tap with its pull request still open: ${open}; close it first to order it again, and foedrum brew 12 reads it again once it ended`,
+        );
+      });
+
       it('an older batch with no recorded end behind a cancelled one offers no order, and names foedrum serve: exit 5', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
@@ -1014,6 +1072,37 @@ describe('runBrew', () => {
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       assert.ok(log().state().batches.has('web-7-3'), f.lines.join('\n'));
+    });
+
+    it('a rebrew after a deleted Brewery issue claims nothing while its pull request is open: regression test (ADR 0339)', async () => {
+      const host = github();
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const record = (effect: string, result: number | string) =>
+        issue({
+          kind: 'record',
+          event: {
+            type: 'effect.applied',
+            key: effectKey.encode({ batchId: 'web-7', effect }),
+            result,
+          },
+        });
+      const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+      f.store.withTransaction((tx) => {
+        const order = { issue: 7, repo: 'acme/web' };
+        tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
+        tx.append({
+          type: 'batch.on_tap',
+          batchId: 'web-7',
+          pullRequests: ['https://github.com/acme/web/pull/90'],
+        });
+      });
+      record('order.issue', 40);
+      record('release.order', 'gone');
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /holds its claim until its pull requests end/);
+      assert.equal(log().state().batches.has('web-7-2'), false);
     });
 
     /** The live lease of the claimed batch web-7. */
