@@ -147,6 +147,25 @@ export const batchTargetIn = (
   repositories: readonly { alias: string; repo: string }[],
 ): ReturnType<typeof batchTarget> => batchTarget(readState(storePath), named, repositories);
 
+/**
+ * What brew is asked to brew, the batch a `foedrum lauter` or a batch id names read from the
+ * Brewery's event store at `storePath`, or why it has none.
+ */
+export const brewRequestIn = (
+  storePath: string,
+  repositories: readonly { alias: string; repo: string }[],
+  input: BrewCommand | MashCommand | LauterCommand,
+  owner: string,
+  issued: { by: string; via: Surface },
+  noSessions: BrewRequest['noSessions'],
+): BrewRequest | { refused: string } => {
+  if (input.command !== 'lauter' && typeof input.issue !== 'string') {
+    return brewRequestOf(input, owner, issued, noSessions);
+  }
+  const found = batchTargetIn(storePath, input.issue, repositories);
+  return 'refused' in found ? found : brewRequestOf(input, owner, issued, noSessions, found);
+};
+
 /** What `--new-window` starts the brew with: the machine's launcher facts, node and program. */
 export interface NewWindowDeps extends WindowFacts {
   /** This node. */
@@ -282,19 +301,18 @@ export const brewFromCheckout = async (
             }),
         }),
     );
-    let found: BatchTarget | undefined;
-    if (input.command === 'lauter' || typeof input.issue === 'string') {
-      const named = batchTargetIn(setup.store, input.issue, setup.intake.repositories);
-      if ('refused' in named) {
-        return {
-          exitCode: 5,
-          stdout: '',
-          stderr: `foedrum ${input.command}: ${named.refused}\n`,
-        };
-      }
-      found = named;
+    const { store, intake } = setup;
+    const request = brewRequestIn(
+      store,
+      intake.repositories,
+      input,
+      owner.owner,
+      issued,
+      noSessions,
+    );
+    if ('refused' in request) {
+      return { exitCode: 5, stdout: '', stderr: `foedrum ${input.command}: ${request.refused}\n` };
     }
-    const request = brewRequestOf(input, owner.owner, issued, noSessions, found);
     const exitCode = await runBrew(setup, shell, request);
     return { exitCode, stdout: '', stderr: '' };
   } finally {
