@@ -11,6 +11,7 @@ import { batchTarget, brewRequestOf } from '../../src/cli/brew-main.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { describeLane } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
+import { attemptKey } from '../../src/engine/attempt-key.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import { calledAs } from '../../src/engine/claim-orders.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
@@ -323,12 +324,16 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
 
     it('refuses while an attempt lease is held, saying until when, and takes nothing over', async () => {
       await died();
-      const [held] = f.store.currentLeases(t0);
-      assert.ok(held !== undefined, 'the dead brew left its attempt lease');
+      // A session open in another terminal, under an owner of its own.
+      const key = attemptKey.encode({ batchId: '12-1', stepId: 'refine', attempt: 3 });
+      const expiresAt = new Date(t0.getTime() + 300_000);
+      f.store.withTransaction((tx) =>
+        tx.putLease({ attemptKey: key, owner: 'other-terminal', expiresAt }),
+      );
       assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: refine#3 of batch 12-1 is held by ${held.owner} until ${held.expiresAt.toISOString()}; foedrum brew 12-1 --take takes it once that lease ends`,
+        `foedrum brew: refine#3 of batch 12-1 is held by other-terminal until ${expiresAt.toISOString()}; foedrum brew 12-1 --take takes it once that lease ends`,
       );
       assert.ok(!startedIn('12-1').includes('refine#4'), String(startedIn('12-1')));
     });
