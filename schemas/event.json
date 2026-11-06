@@ -1049,6 +1049,14 @@
             "additionalProperties": false
           }
         },
+        "handover": {
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
         "paused": {
           "type": "boolean",
           "const": true

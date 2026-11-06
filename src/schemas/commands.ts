@@ -97,6 +97,13 @@ const BatchOrIssue = z
   );
 export type BatchOrIssue = z.output<typeof BatchOrIssue>;
 
+/** `foedrum handover <issue>`: what a batch's brewers handed over (ADR 0340). */
+export const HandoverCommand = z.strictObject({
+  command: z.literal('handover'),
+  issue: BatchOrIssue,
+});
+export type HandoverCommand = z.infer<typeof HandoverCommand>;
+
 export const ReplayCommand = z.strictObject({ command: z.literal('replay'), issue: BatchOrIssue });
 export type ReplayCommand = z.infer<typeof ReplayCommand>;
 

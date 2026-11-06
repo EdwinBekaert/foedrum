@@ -1828,6 +1828,30 @@ describe('openDriver', () => {
       assert.deepStrictEqual(planned?.receipt, receipt);
     });
 
+    it('records what its end handed over on its step.finished, whatever its ending (ADR 0340): regression test', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const handover = ['A lesson'];
+      end(plan('b1'), { kind: 'failed', retryable: true, reason: 'it failed' }, { handover });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.handover, handover);
+    });
+
+    it('records no handover for an attempt whose end has none (ADR 0340): regression test', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      end(plan('b1'), succeeded);
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.ok(planned !== undefined);
+      assert.equal('handover' in planned, false);
+    });
+
     it('records the ending without a receipt the event cannot hold (ADR 0172)', async () => {
       const { runner, end } = handRunner();
       order('b1');

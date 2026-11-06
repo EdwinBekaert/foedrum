@@ -42,6 +42,37 @@ describe('keepOutDocs (ADR 0103)', () => {
     assert.deepEqual(end, { ending: succeeded, usage });
   });
 
+  it('reads what the out doc handed over before it takes the text off the end (ADR 0340)', async () => {
+    const doc = '---\n{"status":"failed","summary":"s","handover":["A lesson"]}\n---\n';
+    const ending: AttemptEnd['ending'] = { kind: 'failed', retryable: true, reason: 'it failed' };
+    const { runner } = runnerEnding({ ending, outDoc: doc });
+    const end = await keepOutDocs({ runner, store }).start({ ref, limits }).ended;
+    assert.deepEqual(end, { ending, handover: ['A lesson'] });
+  });
+
+  it('names the step on a handover line it left out as a secret (ADR 0340)', async () => {
+    const key = ['ghp', 'A1b2'.repeat(9)].join('_');
+    const doc = `---\n{"status":"done","summary":"s","handover":["${key}"]}\n---\n`;
+    const { runner } = runnerEnding({ ending: succeeded, outDoc: doc });
+    const end = await keepOutDocs({ runner, store }).start({ ref, limits }).ended;
+    assert.deepEqual(end.handover, ['[left out: a text of step plan that looks like a secret]']);
+  });
+
+  it('keeps what the out doc handed over when the out doc cannot be kept (ADR 0340)', async () => {
+    const doc = '---\n{"status":"done","summary":"s","handover":["A lesson"]}\n---\n';
+    const { runner } = runnerEnding({ ending: succeeded, outDoc: doc });
+    const failing: Pick<EventStore, 'withTransaction'> = {
+      withTransaction: () => {
+        throw new Error('database is locked');
+      },
+    };
+    const end = await keepOutDocs({ runner, store: failing, report: () => {} }).start({
+      ref,
+      limits,
+    }).ended;
+    assert.deepEqual(end.handover, ['A lesson']);
+  });
+
   it('keeps nothing for an attempt that ended without an out doc', async () => {
     const { runner } = runnerEnding({ ending: { kind: 'cancelled' } });
     const end = await keepOutDocs({ runner, store }).start({ ref, limits }).ended;

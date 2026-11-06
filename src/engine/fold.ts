@@ -143,6 +143,8 @@ export type Attempt =
       receipt?: Receipt;
       /** The highest comment id per issue its prompt told it (ADR 0338). */
       commentsHeard?: readonly HeardComments[];
+      /** What its out doc handed over: proposals a person reads, in no later prompt (ADR 0340). */
+      handover?: readonly string[];
       /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
       paused?: true;
       /** Stopped by a person: it counts against no retry, and a retry resumes it (ADR 0302). */
@@ -734,6 +736,7 @@ function apply(state: State, event: Event): State {
           ...(event.claude === undefined ? {} : { claude: event.claude }),
           ...(event.receipt === undefined ? {} : { receipt: event.receipt }),
           ...(event.commentsHeard === undefined ? {} : { commentsHeard: event.commentsHeard }),
+          ...(event.handover === undefined ? {} : { handover: event.handover }),
           ...(event.paused === undefined ? {} : { paused: event.paused }),
           ...(event.stopped === undefined ? {} : { stopped: event.stopped }),
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),

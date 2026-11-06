@@ -182,6 +182,8 @@ export type EngineCommand =
       houseYeast?: HouseYeastSelection;
       /** The highest comment id per issue the attempt's plan told it (ADR 0338). */
       commentsHeard?: readonly HeardComments[];
+      /** What its out doc handed over (ADR 0340). */
+      handover?: readonly string[];
       /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
       paused?: true;
       /**
@@ -694,6 +696,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     receipt,
     houseYeast,
     commentsHeard,
+    handover,
     paused,
     reopensAt,
   } = command;
@@ -732,6 +735,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
     ...(commentsHeard === undefined ? {} : { commentsHeard: [...commentsHeard] }),
+    ...(handover === undefined ? {} : { handover: [...handover] }),
     ...(stopped ? { paused: true } : {}),
     ...(byStop ? { stopped: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
