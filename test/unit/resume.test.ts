@@ -712,6 +712,23 @@ describe('foedrum resume (ADR 0126)', () => {
         opened();
       });
 
+      it("names an older batch's id in the command that opens its session again: regression test (ADR 0339)", async () => {
+        store.withTransaction((tx) =>
+          tx.append({
+            type: 'batch.ordered',
+            batchId: '30-2',
+            order: { issue: 30 },
+            routeBy: later.toISOString(),
+          }),
+        );
+        assert.deepEqual(
+          await resumeOf('30-1', 'talk', takes),
+          refused(
+            `talk#1 of batch 30-1 is an interactive session open since ${since}, and no driver holds the session: it waits for a session again once the attempt's lease lapses, then foedrum brew 30-1 --take opens a fresh one`,
+          ),
+        );
+      });
+
       it('still hands a running headless step to the takeover', async () => {
         assert.equal((await resumeOf('23-1', 'plan', takes)).exitCode, 0);
         assert.deepEqual(handed, [{ batchId: '23-1', stepId: 'plan' }]);
