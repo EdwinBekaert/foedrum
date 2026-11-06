@@ -73,6 +73,8 @@ export interface AttemptEnd {
   mutants?: readonly MutantRecord[];
   /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
   houseYeast?: HouseYeastSelection;
+  /** What its out doc handed over, read as the text comes off the end (ADR 0340). */
+  handover?: readonly string[];
   /** The session claude set up, when its init matched what was asked (ADR 0046, ADR 0047). */
   session?: { sessionId: string; model: string; claudeVersion: string };
   /**
