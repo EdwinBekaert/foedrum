@@ -22,6 +22,7 @@ import {
   saidAs,
 } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
+import { orderRefusal } from '../engine/decide.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
@@ -393,8 +394,8 @@ export const runBrew = async (
           `${named} is ${lane}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
         );
       }
-      if (unendedPullRequests(latest).length > 0) return refuse(openLine(log.state(), latest));
-      return refuse(orderAgainLine(log.state(), latest));
+      // What an order would say, when it would be refused, in place of offering it (ADR 0339).
+      return refuse(orderRefusal(log.state(), order) ?? orderAgainLine(log.state(), latest));
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
     // A sub-order's batch waits for its order's pause, which is the one to continue.
