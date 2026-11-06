@@ -15,6 +15,7 @@ import { sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
+import { messageOf } from '../platform/errors.ts';
 import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
 import { PLANNING_RECIPES } from '../schemas/plan.ts';
 import { addUsage, number } from './brewer-report.ts';
@@ -48,7 +49,7 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
     case 'waiting_for_session':
       return `waiting for a session at ${reason.stepId}: ${sessionCommand(batch)} opens it in a terminal`;
     case 'failing':
-      throw new Error('not implemented');
+      return `failing at ${reason.stepId} in ${reason.pass} since ${reason.since}: ${reason.summary}`;
     case 'stalled':
       return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
     case 'routing':
@@ -128,6 +129,15 @@ export const pauseLine = ({ by, via, why, stopAt }: Pause, withVia = false): str
 /** The issue a batch brews: `#<n>` in the Brewery, `<owner>/<name>#<n>` in a target repository. */
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
+/** What a batch's line says when its rendering throws (ADR 0335). */
+export const unreadable = (error: unknown): string => `cannot be read: ${messageOf(error)}`;
+
+/** A batch's mark (ADR 0335), but on a batch whose Stuck reason says it already. */
+export const failingParts = ({ failing, lane }: Batch): string[] =>
+  failing === undefined || (lane.kind === 'stuck' && lane.reason.kind === 'failing')
+    ? []
+    : [`failing in ${failing.pass} since ${failing.since}: ${failing.summary}`];
+
 /**
  * A batch's cells in `foedrum status`: its id, order, lane, and what it does, with the owner of an
  * `interactive` driver that holds it (ADR 0123) and what its attempts took.
@@ -137,20 +147,26 @@ export const statusRow = (
   batch: Batch,
   interactive: ReadonlyMap<string, string> = new Map(),
 ): string[] => {
-  const { lane, detail } = describeLane(batch);
-  const pause = pauseOf(state, batch);
-  const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
-  const owner = interactive.get(batch.id);
-  const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
-  // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
-  // with its code page.
-  const total = totalParts(batch).join(' / ');
-  return [
-    batch.id,
-    orderName(state, batch),
-    lane,
-    [detail, ...paused, ...by, total].filter((part) => part !== '').join('; '),
-  ];
+  const failing = failingParts(batch);
+  // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
+  try {
+    const { lane, detail } = describeLane(batch);
+    const pause = pauseOf(state, batch);
+    const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
+    const owner = interactive.get(batch.id);
+    const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
+    // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
+    // with its code page.
+    const total = totalParts(batch).join(' / ');
+    return [
+      batch.id,
+      orderName(state, batch),
+      lane,
+      [detail, ...failing, ...paused, ...by, total].filter((part) => part !== '').join('; '),
+    ];
+  } catch (error) {
+    return [batch.id, issueOf(batch), batch.lane.kind, [unreadable(error), ...failing].join('; ')];
+  }
 };
 
 /**

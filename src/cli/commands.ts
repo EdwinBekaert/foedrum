@@ -220,7 +220,15 @@ const changeBrewery = async (
   writeBrewery(command, context, async (log) => {
     const human = await build(() => log.state(), issuedBy(context));
     if ('refused' in human) return failed(command, human.refused);
-    const decision = log.issue(human, context.now());
+    let decision: ReturnType<CommandLog['issue']>;
+    try {
+      decision = log.issue(human, context.now());
+    } catch (error) {
+      if (error instanceof InvalidLogError) throw error;
+      // Its recipe could not be read (ADR 0335): what still works does not read it.
+      const why = `batch ${human.batchId} could not be read: ${messageOf(error)}`;
+      return failed(command, `${why}; cancel it, or choose another recipe`);
+    }
     if (decision.kind === 'refused') return failed(command, decision.reason);
     return done(`${laneLine(log.state(), human.batchId)}\n`);
   });

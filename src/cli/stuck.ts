@@ -8,7 +8,7 @@ import { findingText, knownCommits } from '../engine/pull-request.ts';
 import { longest, planNextStep, roundsText, STEP_BACK } from '../engine/status-comment.ts';
 import type { StuckReason } from '../schemas/events.ts';
 import { columns } from './columns.ts';
-import { describeLane } from './status.ts';
+import { describeLane, failingParts, issueOf, unreadable } from './status.ts';
 
 /**
  * The open findings a findings route that ran out of rounds left, one line each with secrets left
@@ -40,9 +40,33 @@ export const formatStuck = (state: State): string => {
   const stuck = [...state.batches.values()].flatMap((batch) =>
     batch.lane.kind === 'stuck' ? [{ batch, lane: batch.lane }] : [],
   );
-  if (stuck.length === 0) return 'No Stuck batches.\n';
+  // A batch marked failing that is not Stuck: on tap, say, which no other line here shows (ADR 0335).
+  const marked = [...state.batches.values()].flatMap((batch) =>
+    batch.lane.kind === 'stuck'
+      ? []
+      : failingParts(batch).map((part) => `${batch.id} ${batch.lane.kind}: ${part}`),
+  );
+  const also = marked.length === 0 ? [] : ['', ...marked];
+  if (stuck.length === 0) return `${['No Stuck batches.', ...also].join('\n')}\n`;
+  // One whose rendering throws is still listed, with what it offers (ADR 0335).
+  const read = <T>(reading: () => T, instead: (error: unknown) => T): T => {
+    try {
+      return reading();
+    } catch (error) {
+      return instead(error);
+    }
+  };
   const heads = columns(
-    stuck.map(({ batch }) => [batch.id, orderName(state, batch), describeLane(batch).detail]),
+    stuck.map(({ batch }) =>
+      read(
+        () => [
+          batch.id,
+          orderName(state, batch),
+          [describeLane(batch).detail, ...failingParts(batch)].join('; '),
+        ],
+        (error) => [batch.id, issueOf(batch), unreadable(error)],
+      ),
+    ),
     '',
   );
   const lines = stuck.flatMap(({ batch, lane }, i) => [
@@ -54,12 +78,15 @@ export const formatStuck = (state: State): string => {
             `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
         )
       : []),
-    ...openLines(state, batch, lane.reason),
+    ...read(
+      () => openLines(state, batch, lane.reason),
+      () => [],
+    ),
     // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
     ...(lane.reason.kind === 'plan_review'
       ? [`  next: ${planNextStep(batch.id, (command) => command)}`]
       : []),
   ]);
   const count = `${stuck.length} Stuck ${stuck.length === 1 ? 'batch' : 'batches'}`;
-  return `${[count, '', ...lines].join('\n')}\n`;
+  return `${[count, '', ...lines, ...also].join('\n')}\n`;
 };
