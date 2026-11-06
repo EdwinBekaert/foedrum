@@ -12,7 +12,8 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
 ## Decision
 
 ### The mark
-- **A batch whose passes have failed for an hour is marked**, as `batch.failing` with the pass it failed in last, a summary of at most 120 characters (the first line, as ADR 0099 has it) and since when.
+- **A batch whose passes have failed for an hour is marked**, as `batch.failing` with the pass it failed in last, a summary of at most 120 characters and since when.
+  The summary is the first line, as ADR 0099 has it, read for a secret before it is cut, since a cut can break a secret in two: a line that reads like one is left out for a fixed text, which a full commit hash in a message also gets, since the driver does not know the commit there.
   The mark is a field of the fold and changes no lane. A clean pass records `batch.recovered`, and the mark goes.
 - **The hour is one clock per batch, across its passes**, in the driver's memory, as the flush watch's is (ADR 0027), so a restart can make the mark later, never sooner. It counts from the first failure this driver saw.
 - **It starts again** after a tick that reached its end with no failure on the batch, and at a person's way out of a Stuck on failing. A tick that rejects (`tick_failed`) resets nothing and marks nothing.
@@ -26,7 +27,7 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
 
 ### Stuck
 - **A brewing batch whose readings have failed for an hour goes Stuck**, with the new reason `failing`, in the decision that marks it: its attempt's deadline may not be readable.
-  Its reason names the first running attempt's step, read from the fold, since the recipe may be what throws.
+  Its reason names the first running attempt's step, read from the fold, since the recipe may be what throws, and what its last reading said, also when an effect failed after it: the reading is what the Stuck is for.
 - **An effect that fails marks and never makes a batch Stuck.** It leaves the deadline readable, and an hour's outage of the code host must not stick every brewing batch. So the reading has a clock of its own beside the batch's: 30 minutes of a failing effect and 30 of a failing reading mark the batch and do not stick it.
 - **A brewing batch with no running attempt carries only the mark**, until an attempt exists: a retry would have nothing to schedule.
 - **An interactive step's open session carries only the mark**: a person is at work, as ADR 0222 has it, and Stuck would stop their session.
@@ -36,6 +37,7 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
   Every person's way out of it (`retry`, `skip`, `recipe`, `rewind`) takes the mark off, and the driver's hour starts again, so a batch still failing is marked and Stuck again an hour later, not at once.
   A way out of any other Stuck leaves the mark to a clean pass.
 - **While Stuck on `failing` no recovery is recorded.** Stuck reads too little to call a tick clean, so the mark would go five seconds after it came.
+- **Nor while a takeover holds a batch's effects back** (ADR 0124): that pass tried none of them.
 - **A person's command whose reading of the recipe throws** says which batch and what failed, in one line, and that `cancel` and `recipe` still work: `retry` and `skip` read the recipe.
 
 ### The sources stay apart
@@ -47,17 +49,20 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
 ### A person sees it
 - `foedrum status`, `foedrum stuck` and the status comment show the mark: what failed and since when, never blaming the batch, since an outage fails it too.
 - Where the status comment's own source is the one throwing, the comment cannot show it, and `foedrum status` still does.
-- `foedrum status`, its order's board, `--watch` and `foedrum stuck` read each batch under a guard: a batch whose rendering throws is shown with its id, its lane, its mark and `cannot be read`, and the others are unaffected.
+- `foedrum status`, its order's board, `--watch`'s rows and `foedrum stuck` read each batch under a guard: a batch whose rendering throws is shown with its id, its lane, its mark and `cannot be read`, its message on one line, and the others are unaffected.
+  No throw there is known today from a folded batch: its renderers read validated state, and a log the fold refuses never reaches them. The guard is there because these are what a person reads when a batch is failing, so they must not fail with it: this issue's brief asked for it, and a test reaches it through a state no fold makes.
 - `foedrum stuck` also lists the marked batches that are not Stuck, which no other line there shows.
 
 ### What is printed
 - `effect_failed` and the supervisor's `command_failed` come under ADR 0328's line: said once per effect or per command and batch, until the message changes or a pass no longer fails on them.
 - A message is compared with its runs of digits folded, so a time or a count in it does not say it again each pass.
-- A summary also ends at a line or paragraph separator, so what it quotes cannot forge a line of `foedrum status`.
+- A mark that cannot be written is said once per batch, until a tick writes it.
+- A summary, and the message of a batch that cannot be read or of a person's command, ends at any line or paragraph end a terminal or a line reader takes for one (a bare carriage return, a next line, a line or paragraph separator), so what it quotes cannot forge a line of `foedrum status`.
 
 ## Consequences
-- ADR 0328's exception to "a batch must never sit silently" shrinks to one case: a batch whose status comment's own source throws, where the comment cannot show the mark and `foedrum status` still does. The `CLAUDE.md` line says so.
-- A batch's reading that fails for less than an hour still has only the driver's line. So does one whose driver does not take it: with no Cellar running, a free batch is marked by nobody.
+- ADR 0328's exception to "a batch must never sit silently" narrows. A batch that keeps failing has the driver's line alone for its first hour, or for as long as no driver that takes it runs: with no Cellar running, a free batch is marked by nobody. After that, what stays is a batch whose status comment's own source throws, where the comment cannot show the mark and `foedrum status` still does.
+- `CLAUDE.md` is reworded after the merge, as ADR 0328's line was. Its last exception under "Every wait has a deadline" is to read: "and a batch whose status comment's own source throws, whose mark that comment cannot show, while `foedrum status` still does; any other batch that keeps failing is marked after an hour, and a brewing one whose reading fails goes Stuck (ADR 0335)". Its exceptions to "No mutable state outside the event store" gain: "since when a driver's passes fail on each batch, which a driver keeps to mark it after an hour (ADR 0335)".
+- Since that clock decides a mark and a lane, a driver restarted more often than every hour never reaches it, so a brewing batch whose deadline cannot be read can run past it for that long.
 - An hour's outage of the code host marks each batch with an effect due, and clears them at the next clean pass.
 - A paused batch and one a closed usage window holds are not read by the drive, so a failure only there is recovered, as ADR 0328 said of its line; its mark comes an hour after it fails again.
 
