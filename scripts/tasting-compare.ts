@@ -378,7 +378,8 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     const [title = '', ...bodyLines] = readFileSync(mode.order(setup), 'utf8').split(/\r?\n/);
     const script = await mode.script(setup, scratch, git);
 
-    // The Brewery: Nip's fixture files with the default models (no models.jsonc), and the recipe.
+    // The Brewery: Nip's fixture files with the default models (no models.jsonc), and the mode's own
+    // files: its recipes, and any brewer it replaces.
     const { 'models.jsonc': _, ...nipFiles } = nipBreweryFiles({
       brewery: BREWERY,
       target: TARGET,

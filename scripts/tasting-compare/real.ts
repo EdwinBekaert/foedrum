@@ -161,6 +161,18 @@ const reachOf = (worktree: string, place: string): Reach => ({
 });
 
 /**
+ * Where `path` reaches, read against the worktree. A `~` first names a home folder, which a tool may
+ * expand: `resolve` would read it as a folder in the worktree, so it counts as outside.
+ */
+const reachOfPath = (worktree: string, path: string): Reach =>
+  path.startsWith('~')
+    ? { place: path, inside: false }
+    : reachOf(worktree, resolve(worktree, path));
+
+/** A segment of a Glob pattern that goes up: `..`, or `..` as one choice of a brace group. */
+const GOES_UP = /(?:^|[{,])\.\.(?:$|[},])/;
+
+/**
  * What a Glob lists: its `path`, then the pattern up to its first wildcard, where the pattern may
  * hold `..` or be absolute. A `..` past a wildcard can land anywhere, so it counts as outside.
  */
@@ -170,10 +182,17 @@ const globReach = (worktree: string, input: Record<string, unknown>): Reach | un
   const segments = pattern.replaceAll('\\', '/').split('/');
   const wildcard = segments.findIndex((segment) => /[*?[{]/.test(segment));
   const literal = wildcard === -1 ? segments : segments.slice(0, wildcard);
-  if (wildcard !== -1 && segments.slice(wildcard).includes('..')) {
+  if (
+    pattern.startsWith('~') ||
+    segments
+      .slice(wildcard === -1 ? segments.length : wildcard)
+      .some((segment) => GOES_UP.test(segment))
+  ) {
     return { place: pattern, inside: false };
   }
-  const from = resolve(worktree, text(input.path) ?? '.');
+  const path = text(input.path) ?? '.';
+  if (path.startsWith('~')) return { place: path, inside: false };
+  const from = resolve(worktree, path);
   // The `/` keeps a drive's root (`D:/*`) and the root (`/*`) from reading as the folder it is in.
   return reachOf(worktree, literal.length === 0 ? from : resolve(from, `${literal.join('/')}/`));
 };
@@ -189,10 +208,10 @@ const reachOfCall = (
     case 'Edit':
     case 'Write': {
       const path = text(input.file_path);
-      return path === undefined ? undefined : reachOf(worktree, resolve(worktree, path));
+      return path === undefined ? undefined : reachOfPath(worktree, path);
     }
     case 'Grep':
-      return reachOf(worktree, resolve(worktree, text(input.path) ?? '.'));
+      return reachOfPath(worktree, text(input.path) ?? '.');
     case 'Glob':
       return globReach(worktree, input);
     default:
