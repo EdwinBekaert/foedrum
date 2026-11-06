@@ -183,6 +183,32 @@ describe('runBrew', () => {
       );
     });
 
+    /** The lines of a brew of web#7 that waits for its Brewery issue's label, on `host`. */
+    const waiting = async (host: FakeGitHubApi): Promise<string[]> => {
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      return f.lines;
+    };
+
+    it("a claimed order's line names a recipe label on its target issue, and does not read it", async () => {
+      const host = github();
+      const lines = await waiting(host);
+      const [order] = host.issues['acme/brewery'] ?? [];
+      assert.equal(
+        lines.at(-2),
+        `foedrum brew: web#7 carries recipe:stout, which Foedrum does not read; label #${order?.number}`,
+      );
+      assert.match(lines.at(-1) ?? '', /waits for a recipe:<name> label on its Brewery issue #/);
+      assert.equal(log().state().batches.get('web-7')?.recipe, undefined);
+    });
+
+    it('names every recipe label a target issue carries', async () => {
+      const host = github();
+      host.issue('acme/web', 7)?.labels.push('recipe:nip');
+      const lines = await waiting(host);
+      assert.match(lines.at(-2) ?? '', /^foedrum brew: web#7 carries recipe:stout and recipe:nip,/);
+    });
+
     it('fails, routing nothing, when the Brewery issue of a claimed order cannot be opened: exit 1', async () => {
       const host = fakeGitHubApi({
         login: 'ann',
