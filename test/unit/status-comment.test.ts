@@ -25,6 +25,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import {
   code,
   labelled,
+  planNextLine,
   planNextStep,
   renderStatus,
   type StatusComments,
@@ -2006,6 +2007,27 @@ describe('statusEffects', () => {
       bodies.some((body) => /Next: get it moving with `foedrum [a-z]+ 7-1`/.test(body)),
       bodies.join('\n---\n'),
     );
+  });
+
+  it("names a latest batch's options alone, since the comment says its number: regression test (ADR 0334)", () => {
+    const lane = stuck({
+      kind: 'attempts_exhausted',
+      stepId: 'plan',
+      attempts: 1,
+      lastReason: 'crash',
+    });
+    const next = renderStatus(batch({ lane }), ['plan'])
+      .split('\n')
+      .find((line) => line.startsWith('Next:'));
+    assert.match(next ?? '', /^Next: get it moving with `[a-z]+`/);
+  });
+
+  it("offers a plan's other option by the whole command only for an older batch: regression test (ADR 0334)", () => {
+    assert.match(
+      planNextLine('7-1', ['recipe'], '7-1'),
+      /Its other option: `foedrum recipe 7-1`\.$/,
+    );
+    assert.match(planNextLine('7', ['recipe'], '7-1'), /Its other option: `recipe`\.$/);
   });
 
   it('records each revision: the comment, and the digest of the text it shows', async () => {
