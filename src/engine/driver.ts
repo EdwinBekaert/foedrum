@@ -433,15 +433,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   }
 
   // What it said of the batches that threw, so a batch that keeps throwing is one line (ADR 0328).
-  const failureLines = createFailureLines<FailurePass | 'effects'>();
-  /** Says a batch's failure in `pass`, unless it said that one last. */
+  const failureLines = createFailureLines();
+  /** Says a batch's failure, unless it said that one last in that pass. */
   const sayFailure = (
-    pass: FailurePass | 'effects',
-    batchId: string,
-    error: unknown,
-    notice: DriverNotice,
+    notice: Extract<DriverNotice, { kind: 'batch_failed' | 'batch_effects_failed' }>,
   ): void => {
-    if (failureLines.failed(pass, batchId, rejectionText(error))) report(notice);
+    const pass = notice.kind === 'batch_failed' ? notice.pass : 'effects';
+    if (failureLines.failed(pass, notice.batchId, rejectionText(notice.error))) report(notice);
   };
   /** After `pass` went over the batches to its end: says which recovered, of those `own` has. */
   const passDone = (pass: FailurePass | 'effects', own: (batchId: string) => boolean): void => {
@@ -461,9 +459,8 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     reminderMs,
     routingMs,
     report: (notice) => {
-      if (notice.kind === 'batch_failed') {
-        sayFailure(notice.pass, notice.batchId, notice.error, notice);
-      } else report(notice);
+      if (notice.kind === 'batch_failed') sayFailure(notice);
+      else report(notice);
     },
     acts: (batchId) => !others.has(batchId),
   });
@@ -490,13 +487,17 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     if (held.delete(batchId)) report({ kind: 'batch_lost', batchId, holder });
   };
 
+  /** Whether `batchId` may be this driver's: `holds` lets it, and it holds it or takes it. */
+  const mayHold = (batchId: string): boolean =>
+    holds(batchId) && (held.has(batchId) || takes(batchId));
+
   /**
    * Whether a throw while it visited `batchId` is this driver's to say: never of a batch it does not
    * take or another driver holds (ADR 0328). A store that cannot say counts as its own, so the fault
    * is said.
    */
   const itsOwn = (batchId: string): boolean => {
-    if (!holds(batchId) || (!held.has(batchId) && !takes(batchId))) return false;
+    if (!mayHold(batchId)) return false;
     try {
       const holder = store.batchLeases(clock()).find((lease) => lease.batchId === batchId);
       return holder === undefined || holder.owner === owner;
@@ -507,8 +508,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   /** Whether the driver holds `batchId` now: it renews the lease it holds, or takes a free one. */
   const claim = (batchId: string): boolean => {
-    if (!holds(batchId)) return false;
-    if (!held.has(batchId) && !takes(batchId)) return false;
+    if (!mayHold(batchId)) return false;
     const hold = store.withTransaction((tx) =>
       holdBatch(tx, { batchId, owner, now: clock(), leaseMs }),
     );
@@ -1046,9 +1046,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     const setAside = new Set<string>();
     const failed = (pass: 'drive' | 'cleanup', batchId: string, error: unknown): void => {
       setAside.add(batchId);
-      if (itsOwn(batchId)) {
-        sayFailure(pass, batchId, error, { kind: 'batch_failed', batchId, pass, error });
-      }
+      if (itsOwn(batchId)) sayFailure({ kind: 'batch_failed', batchId, pass, error });
     };
     for (;;) {
       let moved = false;
@@ -1261,8 +1259,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         await applyBatch(batch.id);
       } catch (error) {
         if (itsOwn(batch.id)) {
-          const notice = { kind: 'batch_effects_failed', batchId: batch.id, error } as const;
-          sayFailure('effects', batch.id, error, notice);
+          sayFailure({ kind: 'batch_effects_failed', batchId: batch.id, error });
         }
       }
     }
@@ -1338,8 +1335,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           stoppedByPause.add(key);
         }
       } catch (error) {
-        const notice = { kind: 'batch_failed', batchId: ref.batchId, pass: 'runs', error } as const;
-        sayFailure('runs', ref.batchId, error, notice);
+        sayFailure({ kind: 'batch_failed', batchId: ref.batchId, pass: 'runs', error });
       }
     }
     passDone('runs', itsOwn);

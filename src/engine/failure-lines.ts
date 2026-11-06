@@ -3,15 +3,15 @@
 // what is printed, so it stays in the driver's memory, as the flush watch does (ADR 0027): a restart
 // says each failure once more.
 
-export interface FailureLines<Pass> {
+export interface FailureLines {
   /** Notes that `batchId` threw `message` in `pass`; whether that is new to say. */
-  failed(pass: Pass, batchId: string, message: string): boolean;
+  failed(pass: string, batchId: string, message: string): boolean;
   /** Ends a run of `pass` to its end: the batches it said failed and that did not fail in this run. */
-  passed(pass: Pass): string[];
+  passed(pass: string): string[];
 }
 
-export const createFailureLines = <Pass>(): FailureLines<Pass> => {
-  const byPass = new Map<Pass, Map<string, { message: string; again: boolean }>>();
+export const createFailureLines = (): FailureLines => {
+  const byPass = new Map<string, Map<string, { message: string; again: boolean }>>();
   return {
     failed: (pass, batchId, message) => {
       const said = byPass.get(pass) ?? new Map<string, { message: string; again: boolean }>();

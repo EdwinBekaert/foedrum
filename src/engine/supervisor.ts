@@ -102,6 +102,7 @@ export const planTick = (input: TickInput): TickPlan => {
   // and a deadline that could not be read is not passed over for a lesser command (ADR 0328).
   const failed = new Map<string, unknown>();
   const reading = (batchId: string, read: () => BatchCommand | undefined): void => {
+    if (commands.has(batchId) || failed.has(batchId)) return;
     try {
       issue(read());
     } catch (error) {
@@ -135,12 +136,10 @@ export const planTick = (input: TickInput): TickPlan => {
     });
   }
   for (const batch of state.batches.values()) {
-    if (commands.has(batch.id) || failed.has(batch.id)) continue;
     reading(batch.id, () => stallCommand(batch, progress, recipes, now));
   }
   // A batch on tap whose pull request failed on the head it pushed goes back (ADR 0219).
   for (const batch of state.batches.values()) {
-    if (commands.has(batch.id) || failed.has(batch.id)) continue;
     reading(batch.id, () => fixCommand(state, batch, recipes));
   }
   // A window is every batch's: whichever supervisor ticks first reopens it (ADR 0206), and each
