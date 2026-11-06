@@ -153,7 +153,12 @@ describe('claude with the runner settings', { skip: real.kind === 'skip' && real
 
   // #167, ADR 0062: a deny rule matches the command as written, so a push with git's options
   // before the subcommand is denied only because no allow rule the runner writes reaches it.
-  const pushes = ['git -C . push', "git p''ush"];
+  const pushes = [
+    'git -C . push',
+    'git -c x=y push origin',
+    'git --git-dir=.git push',
+    "git p''ush",
+  ];
   // The PowerShell tool needs PowerShell 7 outside Windows; these machines need not have it.
   const shells: Shell[] = process.platform === 'win32' ? ['Bash', 'PowerShell'] : ['Bash'];
   for (const shell of shells) {
