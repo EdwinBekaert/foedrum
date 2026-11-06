@@ -874,7 +874,7 @@ const fenceAround = (text: string): string => {
 
 /**
  * What the brewers handed over, folded in a fence of its own, where nothing links, mentions or
- * closes (ADR 0340): each line by its step and attempt, as many as `room` holds, the newest cut and
+ * closes (ADR 0340): each line by its step and attempt, as many as `room` holds, the last cut and
  * counted, since `foedrum handover` lists them all. Nothing when there is none, or no room.
  */
 const handedOver = (handovers: readonly Handover[], room: number): string[] => {

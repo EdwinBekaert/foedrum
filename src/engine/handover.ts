@@ -28,8 +28,9 @@ const frontmatterOf = (text: string) => {
 
 /**
  * The lines of an out doc's handover, as `step.finished` records them: the first three that say
- * anything, each one line, cut past its limit (ADR 0337) and read for a secret. Anything else in the
- * field reads as none, and so does a frontmatter that does not parse.
+ * anything, each one line, cut past its limit (ADR 0337) and read for a secret. A field that is no
+ * list reads as none, an item that is no string is dropped, and a frontmatter that does not parse
+ * reads as none.
  */
 export const handoverOf = (outDoc: string, stepId: string): string[] => {
   const handover = frontmatterOf(outDoc)?.data.handover;
@@ -50,8 +51,8 @@ export const UNREADABLE_FRONTMATTER = 'its frontmatter does not read';
  * An out doc's text as a later prompt reads it: without its handover, by the reader's own parse, so
  * no spelling of the key gets past. With no handover it is the same text, byte for byte. A text
  * with no frontmatter has no field. One that opens a frontmatter this cannot read is refused,
- * rather than passed on with the field in it: it passed the reader when its attempt ended, so only
- * a changed file comes here.
+ * rather than passed on with the field in it: an out doc that passed the reader reads again, so only
+ * a changed file, or one its attempt was refused for, comes here.
  */
 export const withoutHandover = (text: string): string => {
   if (!/^﻿?---(?:\r?\n|$)/.test(text)) return text;

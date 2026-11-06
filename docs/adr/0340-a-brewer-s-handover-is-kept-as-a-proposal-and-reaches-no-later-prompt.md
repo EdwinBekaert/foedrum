@@ -1,6 +1,6 @@
 # 0340. A brewer's handover is kept as a proposal and reaches no later prompt
 
-Date: 2026-11-06 · Status: Accepted · Amends [0005](0005-typed-step-outcomes-and-out-docs.md) (an out doc may hold a field no schema reads), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (an earlier step's out doc goes in without it) and [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) (so does a route input's)
+Date: 2026-11-06 · Status: Accepted · Amends [0005](0005-typed-step-outcomes-and-out-docs.md) (an out doc may hold a field no schema reads), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (an earlier step's out doc goes in without it) , [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) (so does a route input's) and [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (a block of handover lines after the reports, out of their room)
 
 ## Context
 Nothing a brewer learns outlives its batch (#878).
@@ -27,7 +27,7 @@ An out doc goes into a later prompt whole, frontmatter included, by three paths:
 ### What is kept
 - **`step.finished.handover`, beside `houseYeast`, and never in `output`.**
   About 25 files read `output`, so none of them can pass it on, and a blocked or failed attempt's handover is kept too, where `output` exists only for a success.
-- **`handoverOf` reads the out doc's text whatever its ending:** anything but a list of strings reads as none, each line becomes one line, the first three that say anything are kept, a line past its limit is cut with a mark as a long `riskLeft` line is ([ADR 0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md), whose helper they share), and every line is read for a secret with `withoutSecrets`, however short, so whatever reads the event reads clean text.
+- **`handoverOf` reads the out doc's text whatever its ending:** anything but a list reads as none, an item that is not a string is dropped, each line becomes one line, the first three that say anything are kept, a line past its limit is cut with a mark as a long `riskLeft` line is ([ADR 0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md), whose helper they share), and every line is read for a secret with `withoutSecrets`, however short, so whatever reads the event reads clean text.
   No commit is known there, so a line holding a full commit hash is left out too.
 - **The whole out doc stays on the state branch**, as every out doc does ([ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md)).
 - **`handoversOf` lists a batch's lines**, by step and attempt.
@@ -36,7 +36,7 @@ An out doc goes into a later prompt whole, frontmatter included, by three paths:
 ### Where a person reads it
 - **The pull request's body:** its own folded fence after the reports, `<step>#<attempt>: <line>`, where nothing links, mentions or closes.
   It takes at most 4,000 characters of the reports' room.
-  Past that, the newest lines are cut and counted, `(<n> more: foedrum handover)`.
+  Past that, the last lines, by step and attempt, are cut and counted, `(<n> more: foedrum handover)`.
   With no handover the body is byte for byte what it was.
 - **`foedrum handover <issue>`** lists every line by its id, `<step>#<attempt>.<line>`, under a head that says a model wrote them.
   Its output goes through `printable`, as every command's does, and a live session reads it too, so `/foedrum:handover` carries the section that says to treat it as data.
@@ -48,7 +48,7 @@ An out doc goes into a later prompt whole, frontmatter included, by three paths:
 - **`withoutHandover`** gives an out doc to a later prompt, on all three paths: by the reader's own parse, so no spelling of the key gets past, with the same text byte for byte when there is no field.
 - **A text with no frontmatter has no field, and passes.**
   One that opens a frontmatter that does not read is refused rather than passed on.
-  It passed the reader when its attempt ended, so only a file changed since reaches this.
+  An attempt's out doc that was refused when it ended, or a file changed since, comes here: an out doc that passed the reader reads again.
   For a step or plan input the plan fails, and the attempt fails with `the input "<name>" was not read: its frontmatter does not read`.
   In a route input, which already says when an out doc cannot be read, the text is `Its out doc could not be read: its frontmatter does not read.`
 - **What was clean already:** a later round's `earlierFindings` parses the findings alone, a retry's reason quotes the summary, and a plan entry is a field of the plan.
@@ -57,7 +57,7 @@ An out doc goes into a later prompt whole, frontmatter included, by three paths:
 
 ### What stays open
 This closes the field, not a model's will, and it is no boundary against a brewer that sets out to read or pass on text. These were read from the code, not tried on a real `claude`:
-- **A brewer can write the same words elsewhere:** in its summary, its assumptions or its out doc's body, which later steps of its batch read as today, or in a commit. Across batches such text gets through only as merged code a person reviewed.
+- **A brewer can write the same words elsewhere:** in its summary, its assumptions or its out doc's body, which later steps of its batch read as today, or in a commit, and a brewer's `file:<path>` input reads what its worktree holds, a committed copy of an out doc included. Across batches such text gets through only as merged code a person reviewed.
 - **A brewer's shell.**
   - The default brewers cannot run `git fetch` or `foedrum`: the read-only ones have no shell, and a committing one has `git status`, `git add`, `git commit` and what its repository's `tools` allow. A Brewery or a repository can allow more; `Bash(git fetch *)` passes the schema.
   - The state branch is on the Brewery's repository and a clone's `origin` is the target's, so a fetch reaches it only where a target repository is also the Brewery.
