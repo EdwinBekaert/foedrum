@@ -114,8 +114,8 @@ export const placeAt = (
 
 /**
  * Why `order` cannot be ranked, from the folded state alone, or undefined: it is a sub-order, which
- * its plan ranks, the Brewery issue of a claimed target issue, or it has a batch, so it left the
- * queue, and no sub-order of its latest breakdown is left to start (ADR 0211).
+ * its plan ranks, or it has a batch, so it left the queue, and no sub-order of its latest breakdown
+ * is left to start (ADR 0211); the command layer reads a claimed order's number first (ADR 0329).
  */
 export const rankRefusal = (state: State, order: OrderRef): string | undefined => {
   const name = `${order.repo ?? ''}#${order.issue}`;
