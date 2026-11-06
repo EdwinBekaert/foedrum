@@ -36,7 +36,7 @@ export const TODAY_COMMIT = '765cc856';
 
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
 type Profile = 'today' | 'reads' | 'lens';
-const PROFILES: readonly Profile[] = ['today', 'reads'];
+const PROFILES: readonly Profile[] = ['today', 'reads', 'lens'];
 /** One order tasted one way: the order first, so the record reads on its own. */
 export type RealSetup = `${OrderNumber}-${Profile}`;
 export type RealRecord = RunRecord<RealSetup>;
@@ -54,8 +54,10 @@ export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
   return found;
 };
 
-/** The one recipe every run brews. */
+/** The recipe of the `today` and `reads` setups. */
 export const REAL_RECIPE = 'real-nip';
+/** The recipe of the `lens` setup (ADR 0337). */
+const REAL_LENS_RECIPE = 'real-nip-lens';
 
 /** `nip`'s Tasters, side by side (ADR 0306); a test holds them to `defaults/recipes/nip.jsonc`. */
 const TASTERS = [
@@ -63,8 +65,13 @@ const TASTERS = [
   { id: 'acceptance', brewer: 'taster', lens: 'diff/acceptance' },
   { id: 'security', brewer: 'taster', lens: 'diff/security' },
 ] as const;
+/** The `lens` setup's Tasters: `nip`'s and one more, which `nip` does not have (ADR 0337). */
+const LENS_TASTERS = [
+  ...TASTERS,
+  { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
+] as const;
 const STEPS: ReadonlyMap<string, readonly string[]> = new Map(
-  TASTERS.map(({ id, lens }) => [id, [lens]]),
+  LENS_TASTERS.map(({ id, lens }) => [id, [lens]]),
 );
 
 /**
@@ -72,15 +79,18 @@ const STEPS: ReadonlyMap<string, readonly string[]> = new Map(
  * request a recipe that commits must open (ADR 0084). No check runs, and the Gauger is skipped as
  * testFirst off skips it (ADR 0224).
  */
-export const realRecipeText = (): string => {
+export const realRecipeText = (
+  name: string = REAL_RECIPE,
+  tasters: readonly (typeof LENS_TASTERS)[number][] = TASTERS,
+): string => {
   const recipe = {
-    name: REAL_RECIPE,
+    name,
     description: 'A head as it was brewed, tasted as nip tastes it, nothing blocking',
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
       { id: IMPLEMENT, brewer: 'cellarman' },
-      { id: TASTE, parallel: TASTERS },
+      { id: TASTE, parallel: tasters },
       { action: 'openPullRequest' },
     ],
   };
@@ -88,16 +98,17 @@ export const realRecipeText = (): string => {
 };
 
 /** The recipe a run of `setup` brews. */
-export const realRecipeOf = (_setup: RealSetup): string => {
-  throw new Error('not implemented');
-};
+export const realRecipeOf = (setup: RealSetup): string =>
+  setup.endsWith('-lens') ? REAL_LENS_RECIPE : REAL_RECIPE;
 
 /** The Brewery's files of a run of `setup` beyond Nip's: the recipe, and `today`'s Taster. */
 export const realBreweryFiles = (
   setup: RealSetup,
   todayTaster: string,
 ): Record<string, string> => ({
-  [`recipes/${REAL_RECIPE}.jsonc`]: realRecipeText(),
+  ...(setup.endsWith('-lens')
+    ? { [`recipes/${REAL_LENS_RECIPE}.jsonc`]: realRecipeText(REAL_LENS_RECIPE, LENS_TASTERS) }
+    : { [`recipes/${REAL_RECIPE}.jsonc`]: realRecipeText() }),
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
 });
 
@@ -389,7 +400,7 @@ export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
 
 /** Each Taster of a run in the recipe's order, so the order they finished in says nothing. */
 const inRecipeOrder = (attempts: readonly TasterAttempt[]): TasterAttempt[] => {
-  const place = (stepId: string): number => TASTERS.findIndex(({ id }) => id === stepId);
+  const place = (stepId: string): number => LENS_TASTERS.findIndex(({ id }) => id === stepId);
   return [...attempts].sort((a, b) => place(a.stepId) - place(b.stepId));
 };
 
@@ -521,7 +532,7 @@ export const realTable = (records: readonly RealRecord[]): string => {
 /** The dry run's Tasters: a scripted finding on `file` and a risk left, and nothing of any key. */
 export const scriptedRealTastings = (file: string): Record<string, readonly Scripted[]> =>
   Object.fromEntries(
-    TASTERS.map(({ id, lens }) => [
+    LENS_TASTERS.map(({ id, lens }) => [
       id,
       [
         {

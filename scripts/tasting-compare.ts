@@ -20,10 +20,10 @@
 // with --dry-run, until the batch waits for the plan's review. Its records, runs and table are kept
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
 //
-// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in two
+// With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in three
 // setups: the target is the order's base fetched from this checkout, a scripted Cellarman commits the
-// head's changed files, and nip's three Tasters run on the real claude, or scripted with --dry-run. It
-// reads each Taster's transcript for what it read, and stops at once on a transcript that cannot
+// head's changed files, and nip's three Tasters, with design conformance as a fourth in the lens setup
+// (ADR 0337), run on the real claude, or scripted with --dry-run. It reads each Taster's transcript for what it read, and stops at once on a transcript that cannot
 // say. It writes one blinded list per order and one file of its bodies under
 // .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
 // decisions are scripts/tasting-compare/real.ts.
@@ -90,10 +90,10 @@ import {
   nextRealRun,
   orderOf,
   REAL_ORDERS,
-  REAL_RECIPE,
   REAL_SETUPS,
   type RealSetup,
   realBreweryFiles,
+  realRecipeOf,
   realRecordOf,
   realTable,
   refuseSameTaster,
@@ -286,7 +286,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     folders: ['real'],
     setups: REAL_SETUPS,
     order: (setup) => join(folder, `${orderOf(setup).order}.md`),
-    recipeOf: () => REAL_RECIPE,
+    recipeOf: realRecipeOf,
     breweryFiles: (setup) => realBreweryFiles(setup, today.stdout),
     target: async (setup, scratch, git) => {
       // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
