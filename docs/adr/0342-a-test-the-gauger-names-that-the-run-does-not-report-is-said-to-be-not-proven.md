@@ -51,7 +51,7 @@ A report holds every test that ran by name, passing or not, while its places are
 A repository whose CI runs those tests still runs them on the pull request, whose checks the batch waits for ([ADR 0213](0213-an-open-pull-request-s-checks-on-its-head-are-recorded-once-they-finish.md)); one whose CI does not has only the line.
 
 ### The Gauger's prompt
-- Version 10 of the default Gauger says that the test check runs one line, which may not run every folder of a test area, and to read the repository's scripts and CI for what its usual test command runs.
+- Version 11 of the default Gauger says that the test check runs one line, which may not run every folder of a test area, and to read the repository's scripts and CI for what its usual test command runs.
 - The map says where tests live, not what the line runs, and the Gauger gets no `test` command (see the alternatives).
 - "by the names the runner reports" stays in the prompt, though ADR 0297 says the prompt no longer asks for them.
   That sentence of ADR 0297 was not carried out when it was written, and the names now matter to what a person is told.
