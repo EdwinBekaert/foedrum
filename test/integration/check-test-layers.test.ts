@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -15,8 +15,7 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 const root = join(import.meta.dirname, '..', '..');
 const script = join(root, 'scripts', 'check-test-layers.ts');
 
-const runGuard = (file = script) =>
-  spawnSync(process.execPath, [file], { cwd: dirname(file), encoding: 'utf8' });
+const runGuard = (file = script) => spawnSync(process.execPath, [file], { encoding: 'utf8' });
 
 describe('check-test-layers command', () => {
   let dir: TempDir;
@@ -37,11 +36,9 @@ describe('check-test-layers command', () => {
   before(() => {
     dir = makeTempDir('check-test-layers');
     copy = join(dir.path, 'scripts', 'check-test-layers.ts');
-    mkdirSync(dirname(copy), { recursive: true });
-    copyFileSync(script, copy);
-    const excepted = join(dir.path, 'test', 'integration', 'serve.test.ts');
-    mkdirSync(dirname(excepted), { recursive: true });
-    copyFileSync(join(root, 'test', 'integration', 'serve.test.ts'), excepted);
+    cpSync(script, copy);
+    const excepted = join('test', 'integration', 'serve.test.ts');
+    cpSync(join(root, excepted), join(dir.path, excepted));
     const clean = runGuard(copy);
     assert.deepEqual([clean.status, clean.stdout], [0, ''], clean.stderr);
   });
