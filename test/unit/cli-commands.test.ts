@@ -363,7 +363,7 @@ describe('foedrum: commands that change state', () => {
         await run(['retry', '22-1'], { recipes: () => broken }),
         refused(
           'retry',
-          'batch 22-1 could not be read: first line; cancel it, or choose another recipe',
+          'batch 22-1 could not be changed: first line; if its recipe is what failed, cancel it or choose another recipe',
         ),
       );
     });
@@ -382,7 +382,7 @@ describe('foedrum: commands that change state', () => {
         await run(['retry', '22-1'], { recipes: () => broken }),
         refused(
           'retry',
-          'batch 22-1 could not be read: recipe pint has no step plan; cancel it, or choose another recipe',
+          'batch 22-1 could not be changed: recipe pint has no step plan; if its recipe is what failed, cancel it or choose another recipe',
         ),
       );
     });
