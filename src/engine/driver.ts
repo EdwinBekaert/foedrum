@@ -1120,7 +1120,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         }
       }
       if (!moved) {
-        passDone('drive', itsOwn);
+        // A batch the drive no longer reads has not recovered: its line goes unsaid.
+        passDone('drive', (batchId) => {
+          const state = log.state();
+          const batch = state.batches.get(batchId);
+          return (
+            batch?.lane.kind === 'brewing' && pauseOf(state, batch) === undefined && itsOwn(batchId)
+          );
+        });
         passDone('cleanup', itsOwn);
         return;
       }
@@ -1338,7 +1345,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         sayFailure({ kind: 'batch_failed', batchId: ref.batchId, pass: 'runs', error });
       }
     }
-    passDone('runs', itsOwn);
+    passDone('runs', () => true);
     await drive();
     await applyEffects();
     // A batch that ended, with no attempt running and no effect due, is let go.
