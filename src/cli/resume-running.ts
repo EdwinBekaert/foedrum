@@ -114,6 +114,8 @@ export const runResumeRunning = async (
       // The batch's retries and answers continue their sessions, whatever the brewer's retryMode:
       // the engineer took it over to continue one.
       resumes: (ref) => ref.batchId === batchId,
+      // Its session opens in the foreground, which no prompt reaches: it reads no comments (ADR 0338).
+      opensResumed: true,
       // Nothing more once the step's run is over: in the pass that records its end, the next
       // attempt is the batch's next driver's to start (ADR 0127).
       holds: (id) => id !== batchId || ranOut(now?.(), stepId, attempt) === undefined,
