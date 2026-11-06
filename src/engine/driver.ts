@@ -460,6 +460,21 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     if (held.delete(batchId)) report({ kind: 'batch_lost', batchId, holder });
   };
 
+  /**
+   * Whether a throw while it visited `batchId` is this driver's to say: never of a batch it does not
+   * take or another driver holds (ADR 0328). A store that cannot say counts as its own, so the fault
+   * is said.
+   */
+  const itsOwn = (batchId: string): boolean => {
+    if (!holds(batchId) || (!held.has(batchId) && !takes(batchId))) return false;
+    try {
+      const holder = store.batchLeases(clock()).find((lease) => lease.batchId === batchId);
+      return holder === undefined || holder.owner === owner;
+    } catch {
+      return true;
+    }
+  };
+
   /** Whether the driver holds `batchId` now: it renews the lease it holds, or takes a free one. */
   const claim = (batchId: string): boolean => {
     if (!holds(batchId)) return false;
@@ -912,9 +927,97 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   // per retried attempt that never started, for the driver's life.
   const saidWaiting = new Set<string>();
 
+  /** The end of an attempt whose runner broke, not the attempt: blocked on its environment (ADR 0099). */
+  const brokenEnd = (ref: AttemptRef, error: unknown) => {
+    const summary = rejectionSummary(error);
+    const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
+    return { ref, end: { ending }, rejected: { error } };
+  };
+
+  /** Starts the scheduled attempts of `batch` that may start; whether any step of it moved. */
+  const driveBatch = async (
+    batch: Batch,
+    leases: readonly AttemptLease[],
+    refused: Set<string>,
+  ): Promise<boolean> => {
+    let moved = false;
+    // A paused batch starts nothing until it continues (ADR 0202).
+    if (batch.lane.kind !== 'brewing' || pauseOf(log.state(), batch) !== undefined) return moved;
+    for (const [stepId, step] of batch.steps) {
+      const latest = runningAttempt(step);
+      if (latest?.phase !== 'scheduled') continue;
+      // Another driver's batch, or one this driver does not take, is not its to start.
+      if (!claim(batch.id)) continue;
+      const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
+      // No brewer starts while a usage window that holds its family is closed; a check or an
+      // action does (ADR 0206, ADR 0215).
+      const held = brews(ref) && windowHolds(log.state().usageWindows, family(ref));
+      if (held && actionOf(log.state(), recipes, ref) === undefined) continue;
+      const key = attemptKey.encode(ref);
+      if (refused.has(key)) continue;
+      const lease = stepLease(leases, ref);
+      if (lease !== undefined) {
+        if (!saidWaiting.has(key)) {
+          saidWaiting.add(key);
+          const { expiresAt } = lease;
+          report({ kind: 'waiting_for_lease', ref, waitsFor: lease.ref, expiresAt });
+        }
+        continue;
+      }
+      saidWaiting.delete(key);
+      moved = true;
+      // A person runs an interactive step's session, in a driver that opens one (ADR 0222).
+      if (!sessions && interactiveOf(log.state(), recipes, ref)) {
+        // A refusal (the attempt moved on meanwhile) is not asked again this drive.
+        if (!issue({ kind: 'await_session', ...ref })) refused.add(key);
+        continue;
+      }
+      const action = actionOf(log.state(), recipes, ref);
+      if (action !== undefined) {
+        if (!startAction(ref, action)) refused.add(key);
+        continue;
+      }
+      if (!(await startAttempt(ref, key))) {
+        refused.add(key);
+        continue;
+      }
+      let run: RunningAttempt;
+      try {
+        run = runner.start({ ref, limits: limitsOf(ref) });
+      } catch (error) {
+        // Recorded as started, with no run: it ends at the step boundary as a run that rejects
+        // does, rather than waiting a lease to be lost and retried the same way (ADR 0328).
+        ended.push(brokenEnd(ref, error));
+        continue;
+      }
+      runs.set(key, { ref, run });
+      run.ended
+        .then((end) => concluded(ref, end))
+        .then(
+          (end) => ended.push({ ref, end }),
+          // Its process, which may still run, is stopped before its lease goes (ADR 0099).
+          // Neither can throw, so the end always reaches the step boundary and nothing is left floating.
+          (error: unknown) => {
+            ended.push(brokenEnd(ref, error));
+            try {
+              run.stop();
+            } catch {}
+          },
+        );
+    }
+    return moved;
+  };
+
   const driveNow = async (): Promise<void> => {
     // A start the guard refuses is tried once per drive: the attempt's deadline covers it.
     const refused = new Set<string>();
+    // A batch that threw is left for the rest of this drive and never counts as moved, so a drive
+    // ends, and says it once; the next tick's tries it again (ADR 0328).
+    const setAside = new Set<string>();
+    const failed = (batchId: string, error: unknown): void => {
+      setAside.add(batchId);
+      if (itsOwn(batchId)) report({ kind: 'batch_failed', batchId, pass: 'drive', error });
+    };
     for (;;) {
       let moved = false;
       // Once per pass: a run that ended in the pass before let its lease go.
@@ -923,64 +1026,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         return ref === undefined ? [] : [{ ref, ...lease }];
       });
       for (const batch of log.state().batches.values()) {
-        // A paused batch starts nothing until it continues (ADR 0202).
-        if (batch.lane.kind !== 'brewing' || pauseOf(log.state(), batch) !== undefined) continue;
-        for (const [stepId, step] of batch.steps) {
-          const latest = runningAttempt(step);
-          if (latest?.phase !== 'scheduled') continue;
-          // Another driver's batch, or one this driver does not take, is not its to start.
-          if (!claim(batch.id)) continue;
-          const ref = { batchId: batch.id, stepId, attempt: latest.attempt };
-          // No brewer starts while a usage window that holds its family is closed; a check or an
-          // action does (ADR 0206, ADR 0215).
-          const held = brews(ref) && windowHolds(log.state().usageWindows, family(ref));
-          if (held && actionOf(log.state(), recipes, ref) === undefined) continue;
-          const key = attemptKey.encode(ref);
-          if (refused.has(key)) continue;
-          const lease = stepLease(leases, ref);
-          if (lease !== undefined) {
-            if (!saidWaiting.has(key)) {
-              saidWaiting.add(key);
-              const { expiresAt } = lease;
-              report({ kind: 'waiting_for_lease', ref, waitsFor: lease.ref, expiresAt });
-            }
-            continue;
-          }
-          saidWaiting.delete(key);
-          moved = true;
-          // A person runs an interactive step's session, in a driver that opens one (ADR 0222).
-          if (!sessions && interactiveOf(log.state(), recipes, ref)) {
-            // A refusal (the attempt moved on meanwhile) is not asked again this drive.
-            if (!issue({ kind: 'await_session', ...ref })) refused.add(key);
-            continue;
-          }
-          const action = actionOf(log.state(), recipes, ref);
-          if (action !== undefined) {
-            if (!startAction(ref, action)) refused.add(key);
-            continue;
-          }
-          if (!(await startAttempt(ref, key))) {
-            refused.add(key);
-            continue;
-          }
-          const run = runner.start({ ref, limits: limitsOf(ref) });
-          runs.set(key, { ref, run });
-          run.ended
-            .then((end) => concluded(ref, end))
-            .then(
-              (end) => ended.push({ ref, end }),
-              // The runner broke, not the attempt: it is blocked on its environment, and its process,
-              // which may still run, is stopped before its lease goes (ADR 0099).
-              // Neither can throw, so the end always reaches the step boundary and nothing is left floating.
-              (error: unknown) => {
-                const summary = rejectionSummary(error);
-                const ending = { kind: 'blocked', blockerKind: 'environment', summary } as const;
-                ended.push({ ref, end: { ending }, rejected: { error } });
-                try {
-                  run.stop();
-                } catch {}
-              },
-            );
+        if (setAside.has(batch.id)) continue;
+        try {
+          if (await driveBatch(batch, leases, refused)) moved = true;
+        } catch (error) {
+          failed(batch.id, error);
         }
       }
       // Let the runs that ended settle their promises.
@@ -992,20 +1042,26 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         runs.delete(key);
         // The step boundary: an attempt that ended is recorded, also in a batch another driver
         // took meanwhile, and lets its lease go, also when Stuck abandoned it and its finish is
-        // refused (I2). An end whose record throws keeps its lease until it expires, and the
-        // supervisor loses the attempt; a throw from the read after it is reported the same way.
+        // refused (I2). An end whose reading or record throws keeps its lease until it expires, and
+        // the supervisor loses the attempt; a throw from the read after it is reported the same way.
         // Either way the other ends of the pass go on (#278, #289).
-        const limit = end.ending.kind === 'blocked' ? end.ending.usageLimit : undefined;
-        const reopensAt = limit && reopenOf(limit.resets, clock(), zone());
-        const command = finishOf(ref, end, stoppedByPause.delete(key), reopensAt);
+        const paused = stoppedByPause.delete(key);
+        let command: EngineCommand | undefined;
         try {
+          const limit = end.ending.kind === 'blocked' ? end.ending.usageLimit : undefined;
+          const reopensAt = limit && reopenOf(limit.resets, clock(), zone());
+          command = finishOf(ref, end, paused, reopensAt);
           if (!issue(command, (tx) => tx.releaseLease(key))) releaseAttempt(key);
           // An attempt of an ended batch held its worktree until now.
           if (cleaners.length > 0 && batchIsOver(log.state(), ref.batchId)) {
             toClean.add(ref.batchId);
           }
         } catch (error) {
-          report({ kind: 'command_failed', command, error });
+          report(
+            command === undefined
+              ? { kind: 'batch_failed', batchId: ref.batchId, pass: 'drive', error }
+              : { kind: 'command_failed', command, error },
+          );
         }
         if (rejected !== undefined) report({ kind: 'run_failed', ref, error: rejected.error });
         moved = true;
@@ -1020,11 +1076,17 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         }
       }
       for (const batchId of [...toClean]) {
-        toClean.delete(batchId);
-        // Asked before the cleanup reads its claims: a lease it keeps a worktree for may expire
-        // while its git steps run. An ended batch gets no new lease, so asking early misses none.
-        if (leasedBatches().has(batchId)) cleanedLeased.add(batchId);
-        report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
+        if (setAside.has(batchId)) continue;
+        try {
+          // Asked before the cleanup reads its claims: a lease it keeps a worktree for may expire
+          // while its git steps run. An ended batch gets no new lease, so asking early misses none.
+          if (leasedBatches().has(batchId)) cleanedLeased.add(batchId);
+          report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
+          toClean.delete(batchId);
+        } catch (error) {
+          // It stays for the next drive: no later look at the store would clean it (ADR 0328).
+          failed(batchId, error);
+        }
       }
       if (!moved) return;
     }
@@ -1161,7 +1223,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       try {
         await applyBatch(batch.id);
       } catch (error) {
-        report({ kind: 'batch_effects_failed', batchId: batch.id, error });
+        if (itsOwn(batch.id)) report({ kind: 'batch_effects_failed', batchId: batch.id, error });
       }
     }
   };
@@ -1213,18 +1275,28 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     // ends at the step boundary, and the new holder continues the session (ADR 0127).
     const current = log.state();
     for (const { ref, run } of runs.values()) {
-      const attempt = attemptOf(current, ref);
-      if (attempt === undefined) continue;
-      if (isOver(attempt) || batchIsOver(current, ref.batchId) || resumedElsewhere(current, ref)) {
-        run.stop();
-        continue;
-      }
-      // What still runs of a paused batch at its pause's stopAt (ADR 0202).
-      const batch = current.batches.get(ref.batchId);
-      const key = attemptKey.encode(ref);
-      if (batch !== undefined && !stoppedByPause.has(key) && stopsNow(current, batch, now)) {
-        stoppedByPause.add(key);
-        run.stop();
+      // A run this driver runs is its own to say, whoever holds its batch now. The next tick stops
+      // one whose stop threw again, and the others go on (ADR 0328).
+      try {
+        const attempt = attemptOf(current, ref);
+        if (attempt === undefined) continue;
+        if (
+          isOver(attempt) ||
+          batchIsOver(current, ref.batchId) ||
+          resumedElsewhere(current, ref)
+        ) {
+          run.stop();
+          continue;
+        }
+        // What still runs of a paused batch at its pause's stopAt (ADR 0202).
+        const batch = current.batches.get(ref.batchId);
+        const key = attemptKey.encode(ref);
+        if (batch !== undefined && !stoppedByPause.has(key) && stopsNow(current, batch, now)) {
+          run.stop();
+          stoppedByPause.add(key);
+        }
+      } catch (error) {
+        report({ kind: 'batch_failed', batchId: ref.batchId, pass: 'runs', error });
       }
     }
     await drive();
@@ -1254,7 +1326,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     progress: (ref) => runner.progress(ref),
     close: () => {
       // Their ends are not recorded: the next start of this owner loses them (ADR 0033, ADR 0063).
-      for (const { run } of runs.values()) run.stop();
+      for (const { run } of runs.values()) {
+        try {
+          run.stop();
+        } catch {}
+      }
       lock.release();
     },
   };

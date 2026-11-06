@@ -109,8 +109,8 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     return result;
   };
 
-  /** Decides `command` and appends its events in a transaction of its own. */
-  const apply = (command: EngineCommand, now: Date): number => {
+  /** Decides `command` and appends its events in a transaction of its own; undefined when it threw. */
+  const apply = (command: EngineCommand, now: Date): number | undefined => {
     try {
       const decision = log.issue(command, now);
       if (decision.kind === 'refused') {
@@ -121,7 +121,7 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     } catch (error) {
       // One broken command must not keep the other batches from their deadlines (I5).
       report({ kind: 'command_failed', command, error });
-      return 0;
+      return undefined;
     }
   };
 
@@ -139,7 +139,12 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
     let failure: { error: unknown } | undefined;
     try {
       // Another driver's batches are its own supervisor's: their deadlines and leases stay as they are.
-      const { commands, releaseLeases, reopen } = planTick({
+      const {
+        commands,
+        releaseLeases,
+        reopen,
+        failed = [],
+      } = planTick({
         state: log.state(),
         due: store.batchesPastDeadline(now).filter(({ batchId }) => acts(batchId)),
         expiredLeases: store.expiredLeases(now).filter((lease) => {
@@ -151,13 +156,23 @@ export const createSupervisor = (options: SupervisorOptions): Supervisor => {
         now,
       });
       // Before the batches' commands, which were planned while the window was closed (ADR 0206).
-      if (reopen === true) appended += apply({ kind: 'reopen' }, now);
-      for (const command of commands) {
-        if (acts(command.batchId)) appended += apply(command, now);
+      if (reopen === true) appended += apply({ kind: 'reopen' }, now) ?? 0;
+      // Another driver's batch is its own supervisor's to say (ADR 0328).
+      for (const { batchId, error } of failed) {
+        if (acts(batchId)) report({ kind: 'batch_failed', batchId, pass: 'supervisor', error });
       }
-      if (releaseLeases.length > 0) {
+      // A lost attempt whose lose threw keeps its lease, or it would wait out its deadline with none.
+      const unlost = new Set<string>();
+      for (const command of commands) {
+        if (!acts(command.batchId)) continue;
+        const events = apply(command, now);
+        appended += events ?? 0;
+        if (events === undefined && command.kind === 'lose') unlost.add(attemptKey.encode(command));
+      }
+      const released = releaseLeases.filter((key) => !unlost.has(key));
+      if (released.length > 0) {
         store.withTransaction((tx) => {
-          for (const key of releaseLeases) tx.releaseLease(key);
+          for (const key of released) tx.releaseLease(key);
         });
       }
     } catch (error) {
