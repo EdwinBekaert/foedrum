@@ -130,6 +130,8 @@ export interface WiringOptions {
    * `retryMode` is `resume` (ADR 0118); `foedrum resume` of a running batch, always (ADR 0127).
    */
   resumes?: (attempt: AttemptRef) => boolean;
+  /** Whether a resumed attempt opens as a person's session: `foedrum resume`'s (ADR 0338). */
+  opensResumed?: boolean;
   /** Whether the driver goes on with a batch it may hold; every one by default (ADR 0127). */
   holds?: (batchId: string) => boolean;
   /** Whether it opens an interactive step's session: `foedrum brew` on a terminal (ADR 0222). */
@@ -148,7 +150,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, resumes, holds, sessions, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, opensResumed, holds, sessions, say, report }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -345,6 +347,7 @@ export const wireDriver = async (
     env: setup.brewerEnv,
     orderText: githubOrderText(reads, setup.brewery),
     orderComments: githubOrderComments(reads, setup.brewery, login),
+    ...(opensResumed === undefined ? {} : { opensResumed }),
     // A Taster's change is read by the engine, so the Taster runs no git (ADR 0161).
     git: shell.git,
     // The system map is recorded where a base moved, its modules from the test map (ADR 0317).
