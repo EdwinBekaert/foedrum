@@ -1386,7 +1386,7 @@ const listedSteps = (recipe: Recipe | undefined): readonly string[] | undefined 
 /**
  * The status comment of every batch of a Brewery issue, a claimed batch's order included, for the
  * driver: a revision whenever its text changed, at most one a minute per batch, except its first
- * and the one that shows it ended, which are due at once (ADR 0072, ADR 0155).
+ * and one that shows it ended or Stuck, which are due at once (ADR 0072, ADR 0155, ADR 0330).
  */
 export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
   const { brewery, comments, recipes, clock, stateBranchUrl, planComment } = options;
@@ -1407,11 +1407,12 @@ export const statusEffects = (options: StatusEffectsOptions): DriverEffects => {
         planComment?.(state, batchId),
       );
       if (batch === undefined || due === undefined) return [];
-      // A plan to review is where the recipe ended, so its revision is due at once (ADR 0275).
-      const review = batch.lane.kind === 'stuck' && batch.lane.reason.kind === 'plan_review';
-      const ended = batch.lane.kind === 'on_tap' || batch.lane.kind === 'cancelled' || review;
+      // The lanes where a run may end, so no later pass shows them: `foedrum brew` exits at Stuck
+      // too, and only a person's command takes a batch out of Stuck (ADR 0072, ADR 0330).
+      const { kind } = batch.lane;
+      const atOnce = kind === 'on_tap' || kind === 'cancelled' || kind === 'stuck';
       const last = lastAt.get(batchId);
-      if (due.previous !== undefined && !ended && last !== undefined) {
+      if (due.previous !== undefined && !atOnce && last !== undefined) {
         if (clock().getTime() - last < minuteMs) return [];
       }
       return [status.due(due)];
