@@ -118,7 +118,7 @@ describe('runBrew', () => {
       );
     });
 
-    it("routes an Ordered claimed batch by its recorded Brewery issue's label, brewed by its target issue: exit 0 (ADR 0156)", async () => {
+    it("routes an Ordered claimed batch by its recorded Brewery issue's label, never its target issue's: exit 0 (ADR 0156)", async () => {
       const host = fakeGitHubApi({
         login: 'ann',
         issues: {
@@ -134,7 +134,8 @@ describe('runBrew', () => {
       const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 0, f.lines.join('\n'));
+      const byOrder = { ...request, target: { issue: 40 } };
+      assert.equal(await runBrew(targetSetup(), claimed, byOrder), 0, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'stout');
     });
 
@@ -203,6 +204,44 @@ describe('runBrew', () => {
         f.lines.at(-1),
         'foedrum brew: acme/web#7 waits for its Brewery issue, which is not open yet; brew web#7 again',
       );
+    });
+
+    it('foedrum brew of a target issue whose Brewery issue is open refuses and names the number', async () => {
+      const host = github();
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.equal(f.lines.at(-1), 'foedrum brew: web#7 is Brewery issue #40; foedrum brew 40');
+      assert.deepStrictEqual(host.created, []);
+      assert.deepStrictEqual(f.started, []);
+    });
+
+    it('foedrum brew of a target issue whose Brewery issue was deleted claims again', async () => {
+      const host = github();
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const record = (effect: string, result: number | string) =>
+        issue({
+          kind: 'record',
+          event: {
+            type: 'effect.applied',
+            key: effectKey.encode({ batchId: 'web-7', effect }),
+            result,
+          },
+        });
+      issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } });
+      record('order.issue', 40);
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record(effect, 'done');
+      }
+      record('release.order', 'gone');
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
+      assert.ok(log().state().batches.has('web-7-2'), f.lines.join('\n'));
     });
 
     /** The live lease of the claimed batch web-7. */

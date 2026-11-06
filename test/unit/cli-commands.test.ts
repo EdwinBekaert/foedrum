@@ -464,7 +464,7 @@ describe('foedrum: commands that change state', () => {
     it('is a command of the registry that changes state', () => {
       const approve = commands.find(({ name }) => name === 'approve');
       assert.equal(approve?.changesState, true);
-      assert.deepStrictEqual(approve?.positionals, ['batch']);
+      assert.deepStrictEqual(approve?.positionals, ['issue']);
     });
   });
 
@@ -472,7 +472,7 @@ describe('foedrum: commands that change state', () => {
     it('is a command of the registry that changes state, on a batch', () => {
       const lauter = commands.find(({ name }) => name === 'lauter');
       assert.equal(lauter?.changesState, true);
-      assert.deepStrictEqual(lauter?.positionals, ['batch']);
+      assert.deepStrictEqual(lauter?.positionals, ['issue']);
     });
 
     it("hands the batch to brew's driver, as the person who issued it, from where", async () => {
@@ -484,7 +484,7 @@ describe('foedrum: commands that change state', () => {
       const result = await run(['lauter', '27-1', '--as', 'night', '--via', 'plugin'], { brew });
       assert.equal(result.exitCode, 0, result.stderr);
       assert.deepStrictEqual(issued, [
-        { command: 'lauter', batch: '27-1', as: 'night' },
+        { command: 'lauter', issue: '27-1', as: 'night' },
         { by: 'ada', via: 'plugin' },
       ]);
     });

@@ -341,14 +341,14 @@ describe('foedrum: the command line', () => {
     assert.equal((await run(['resume', '12-1'], { resume })).exitCode, 3);
     assert.equal((await run(['resume', '12-1', 'plan#2'], { resume })).exitCode, 3);
     assert.deepEqual(inputs, [
-      { command: 'resume', batch: '12-1' },
-      { command: 'resume', batch: '12-1', step: 'plan#2' },
+      { batch: '12-1', step: undefined },
+      { batch: '12-1', step: 'plan#2' },
     ]);
     assertUsageError(
       await run(['resume', '12-1', 'plan', 'now'], { resume }),
       'foedrum resume: unexpected argument "now"',
     );
-    assertUsageError(await run(['resume'], { resume }), 'foedrum resume: missing <batch>');
+    assertUsageError(await run(['resume'], { resume }), 'foedrum resume: missing <issue>');
   });
 
   it('refuses an argument to foedrum serve, which takes none', async () => {
@@ -407,20 +407,20 @@ describe('foedrum: the command line', () => {
   });
 
   it('refuses a missing argument', async () => {
-    assertUsageError(await run(['replay']), 'foedrum replay: missing <batch>');
+    assertUsageError(await run(['replay']), 'foedrum replay: missing <issue>');
   });
 
   it('refuses an argument its command schema rejects, with the reason', async () => {
     assertUsageError(
       await run(['replay', 'B1']),
-      'foedrum replay: invalid <batch> "B1": Must be 1 to 64 lower-case letters, digits, ".", "_" or "-", start and end with a letter or digit, and not be a Windows device name',
+      'foedrum replay: invalid <issue> "B1": Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
     );
   });
 
   it('takes what follows -- as arguments', async () => {
     assertUsageError(
       await run(['replay', '--', '-1']),
-      'foedrum replay: invalid <batch> "-1": Must be 1 to 64 lower-case letters, digits, ".", "_" or "-", start and end with a letter or digit, and not be a Windows device name',
+      'foedrum replay: invalid <issue> "-1": Must be a batch id, <alias>#<n> of a target repository, or #<n> of the Brewery',
     );
   });
 });
@@ -837,7 +837,7 @@ describe('foedrum status <order> (ADR 0295)', () => {
     });
   });
 
-  it('status of a claimed order finds its batch by its Brewery issue or its alias', async () => {
+  it('status of a claimed order finds its batch by its Brewery issue (ADR 0329)', async () => {
     // app-11 brews acme/app#11, whose order is the Brewery issue #200 (ADR 0144); 11-1 is the
     // Brewery's own #11, which neither form names.
     const claimed: Event[] = [
@@ -861,17 +861,14 @@ describe('foedrum status <order> (ADR 0295)', () => {
           },
         },
       });
-    for (const order of ['200', 'app#11']) {
-      const result = await run(['status', order], { openStore: () => storeWith(claimed), config });
-      assert.equal(result.stderr, '', order);
-      assert.match(result.stdout, /^ +app-11 +#200 \(app#11\) /m, order);
-      assert.doesNotMatch(result.stdout, /^ +11-1 /m, order);
-      assert.match(
-        result.stdout,
-        /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
-        order,
-      );
-    }
+    const result = await run(['status', '200'], { openStore: () => storeWith(claimed), config });
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /^ +app-11 +#200 \(app#11\) /m);
+    assert.doesNotMatch(result.stdout, /^ +11-1 /m);
+    assert.match(
+      result.stdout,
+      /\nbrewing: 55 tokens \(50 input, 5 output, 0 cache read, 0 cache write\)\n$/,
+    );
   });
 
   it('status of a batch routed from mash-in to nip counts mash-in as planning and nip as brewing', async () => {
@@ -936,8 +933,10 @@ describe('foedrum status <order> (ADR 0295)', () => {
   });
 
   it('status of a target issue leaves out the sub-orders of the Brewery issue with its number', async () => {
+    // Before its Brewery issue opens, the target issue is all there is (ADR 0329).
+    const unopened = beside.filter(({ type }) => type !== 'effect.applied');
     const result = await run(['status', 'app#11'], {
-      openStore: () => storeWith(beside),
+      openStore: () => storeWith(unopened),
       config: appConfig,
     });
     assert.match(result.stdout, /^1 batch\n/);

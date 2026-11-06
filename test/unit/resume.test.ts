@@ -232,10 +232,7 @@ describe('foedrum resume (ADR 0126)', () => {
     ...overrides,
   });
   const resumeOf = (batch: string, step?: string, overrides: Partial<ResumeShell> = {}) =>
-    runResume(
-      { command: 'resume', batch, ...(step === undefined ? {} : { step }) },
-      shell(overrides),
-    );
+    runResume({ batch, ...(step === undefined ? {} : { step }) }, shell(overrides));
   const resume = (step?: string, overrides: Partial<ResumeShell> = {}) =>
     resumeOf('21-1', step, overrides);
   const refused = (line: string) => ({
