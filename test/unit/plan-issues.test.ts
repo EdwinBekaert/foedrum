@@ -7,7 +7,12 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
-import { type Driver, type DriverNotice, openDriver } from '../../src/engine/driver.ts';
+import {
+  type Driver,
+  type DriverEffects,
+  type DriverNotice,
+  openDriver,
+} from '../../src/engine/driver.ts';
 import { combineEffects } from '../../src/engine/effects.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
 import { createIntake } from '../../src/engine/intake.ts';
@@ -126,9 +131,17 @@ describe('planIssueEffects (ADR 0285)', () => {
   const open = async (
     fetch: typeof globalThis.fetch = api.fetch,
     comments?: StatusComments,
+    unreadable: () => boolean = () => false,
   ): Promise<Driver> => {
     const client = createGitHubClient({ exec: ghOver(fetch).exec });
-    const planIssues = planIssueEffects({ subIssues: githubSubIssues({ client, brewery, login }) });
+    const opening = planIssueEffects({ subIssues: githubSubIssues({ client, brewery, login }) });
+    const planIssues: DriverEffects = {
+      ...opening,
+      due: (state, batchId) => {
+        if (unreadable()) throw new Error('the plan could not be read');
+        return opening.due(state, batchId);
+      },
+    };
     const driver = await openDriver({
       store,
       runner: { start: () => assert.fail('no attempt starts'), progress: () => undefined },
@@ -440,6 +453,72 @@ describe('planIssueEffects (ADR 0285)', () => {
     assert.equal(breakdown({ stepId: 'replan', attempt: 1 }), 'refused');
     assert.equal(breakdown({ stepId: 'plan', attempt: 1 }), 'accepted');
     assert.deepStrictEqual(log.state().orders.get(7)?.subOrders, [8]);
+  });
+
+  /** Status and plan comments kept in memory, and their bodies. */
+  const commentsInMemory = () => {
+    const bodies = new Map<number, { issue: number; body: string }>();
+    let ids = 0;
+    const comments: StatusComments = {
+      find: async (_repo, issue, marker) => {
+        const found = [...bodies].find(([, c]) => c.issue === issue && c.body.endsWith(marker));
+        return found === undefined ? undefined : { id: found[0], body: found[1].body };
+      },
+      read: async (_repo, id) => bodies.get(id)?.body,
+      create: async (_repo, issue, body) => {
+        bodies.set(++ids, { issue, body });
+        return ids;
+      },
+      edit: async (_repo, id, body) => {
+        const found = bodies.get(id);
+        if (found === undefined) return 'gone';
+        found.body = body;
+        return 'edited';
+      },
+    };
+    return { comments, texts: () => [...bodies.values()].map(({ body }) => body) };
+  };
+
+  describe('when its source cannot be read (ADR 0335)', () => {
+    const planOf = (texts: readonly string[]) =>
+      texts.find((body) => body.startsWith(PLAN_HEADING)) ?? '';
+    const statusOf = (texts: readonly string[]) =>
+      texts.find((body) => !body.startsWith(PLAN_HEADING)) ?? '';
+    const decomposed = () =>
+      store.eventsAfter(0).filter(({ event }) => event.type === 'order.decomposed');
+
+    it('writes the comments without the sub-issues, opens none and records no breakdown', async () => {
+      approved();
+      const { comments, texts } = commentsInMemory();
+      const driver = await open(api.fetch, comments, () => true);
+      await driver.tick();
+      assert.ok(planOf(texts()).startsWith(PLAN_HEADING), 'the plan comment is written');
+      assert.match(statusOf(texts()), /On tap/);
+      assert.doesNotMatch(planOf(texts()), /Sub-issues:/);
+      assert.deepStrictEqual(opened(), []);
+      assert.deepStrictEqual(decomposed(), []);
+      assert.deepStrictEqual(driver.held(), ['7-1']);
+      assert.equal(notices.filter(({ kind }) => kind === 'batch_effects_failed').length, 1);
+    });
+
+    it('opens them once it reads, and both comments come to name them', async () => {
+      approved();
+      const { comments, texts } = commentsInMemory();
+      let unreadable = true;
+      const driver = await open(api.fetch, comments, () => unreadable);
+      await driver.tick();
+      assert.doesNotMatch(statusOf(texts()), /sub-issues/);
+      assert.match(statusOf(texts()), /On tap/);
+      unreadable = false;
+      await driver.tick();
+      assert.deepStrictEqual(opened(), created);
+      assert.equal(decomposed().length, 1);
+      assert.ok(
+        planOf(texts()).includes('Sub-issues: `api` #8, `ui` #9, `cli` #10.'),
+        planOf(texts()),
+      );
+      assert.ok(statusOf(texts()).includes('sub-issues #8, #9, #10'), statusOf(texts()));
+    });
   });
 
   it('names the sub-issues in the plan comment and on the On tap line of the status comment: regression test', async () => {

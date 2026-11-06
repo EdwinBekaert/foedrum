@@ -64,6 +64,8 @@ export const batchOf = (event: Event): string | undefined => {
     case 'batch.on_tap':
     case 'batch.cancelled':
     case 'batch.taken_over':
+    case 'batch.failing':
+    case 'batch.recovered':
     case 'pull_request.ended':
     case 'pull_request.base_checked':
     case 'pull_request.pair_checked':

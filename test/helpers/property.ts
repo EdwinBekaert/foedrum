@@ -104,7 +104,7 @@ const shrinkBudget = 400;
 export const holdsInScenarios = async (invariant: Invariant): Promise<void> => {
   for (let seed = firstSeed; seed < firstSeed + runCount(scenarioRuns); seed++) {
     const scenario: Scenario = { moves: [], plays: [] };
-    const failed = await trial(recording(generateScenario(seed), scenario), invariant);
+    const failed = await trial(recording(generateScenario(seed, 40, true), scenario), invariant);
     if (failed === undefined) continue;
     const first = messageOf(failed.error);
     const shrunk = await shrink(scenario, invariant, failed);

@@ -29,10 +29,31 @@ export const assigneeLogins = (assignees: z.infer<typeof GitHubIssue>['assignees
   (assignees ?? []).map(({ login }) => login);
 
 /**
+ * Whether an answer says a person deleted the issue: GitHub answers 410 for that, and also for every
+ * issue of a repository that turned issues off, which is no deletion (ADR 0144).
+ */
+export const saysDeleted = (status: number, body: unknown): boolean => {
+  const parsed = GitHubError.safeParse(body);
+  return status === 410 && parsed.success && /\bdeleted\b/i.test(parsed.data.message);
+};
+
+/** An answer a read did not expect, and whether it says a person deleted the issue. */
+export class GitHubRefusal extends Error {
+  readonly deleted: boolean;
+  constructor(message: string, deleted: boolean) {
+    super(message);
+    this.deleted = deleted;
+  }
+}
+
+/**
  * The error for an answer `what` did not expect: its status, and GitHub's message when it has one.
  */
-export const refused = (status: number, body: unknown, what: string): Error => {
+export const refused = (status: number, body: unknown, what: string): GitHubRefusal => {
   const parsed = GitHubError.safeParse(body);
   const said = parsed.success ? `: ${parsed.data.message}` : '';
-  return new Error(`GitHub answered ${status} to ${what}${said}`);
+  return new GitHubRefusal(
+    `GitHub answered ${status} to ${what}${said}`,
+    saysDeleted(status, body),
+  );
 };

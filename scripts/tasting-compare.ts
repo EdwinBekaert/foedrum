@@ -21,10 +21,12 @@
 // apart under .foedrum/tmp/tasting-compare/plan. Its decisions are scripts/tasting-compare/plan.ts.
 //
 // With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in three
-// setups: the target is the order's base fetched from this checkout, a scripted Cellarman commits the
-// head's changed files, and nip's three Tasters, with design conformance as a fourth in the lens setup
-// (ADR 0337), run on the real claude, or scripted with --dry-run. It reads each Taster's transcript
-// for what it read, and stops at once on a transcript that cannot say. It writes one blinded list per order and one file of its bodies under
+// setups, and #867 in a fourth with its maintainer's comment (ADR 0333): the target is the order's
+// base fetched from this checkout, a scripted Cellarman commits the head's changed files, and nip's
+// three Tasters, with design conformance as a fourth in the lens setup (ADR 0337), run on the real
+// claude, or scripted with --dry-run. It reads each Taster's transcript for what it read, and stops
+// at once on a transcript that cannot say. It writes one blinded list per order and one file of its
+// bodies under
 // .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
 // decisions are scripts/tasting-compare/real.ts.
 
@@ -53,7 +55,7 @@ import { removeTree } from '../src/platform/remove.ts';
 import type { Event } from '../src/schemas/events.ts';
 import { runGit } from '../src/workspace/git.ts';
 import { ghOver } from '../test/helpers/fake-gh.ts';
-import { fakeGitHubApi } from '../test/helpers/fake-github-api.ts';
+import { type FakeApiComment, fakeGitHubApi } from '../test/helpers/fake-github-api.ts';
 import { nipBreweryFiles, type Scripted, scriptedNip } from '../test/helpers/nip-fixture.ts';
 import { DEMO_GIT_CONFIG } from './demo/brewer.ts';
 import { BREWERY, gitConfig, gitEnvOf, LOGIN, localConfig, TARGET, USER } from './demo/core.ts';
@@ -93,6 +95,7 @@ import {
   REAL_SETUPS,
   type RealSetup,
   realBreweryFiles,
+  realCommentsOf,
   realRecipeOf,
   realRecordOf,
   realTable,
@@ -187,6 +190,8 @@ interface Mode<Setup extends string> {
   stop?: (record: Pick<RunRecord<Setup>, 'attempts'>) => string | undefined;
   /** More files of its report, by path in its folder. */
   files?: (records: readonly RunRecord<Setup>[], folder: string) => Record<string, string>;
+  /** The comments on a run's order, by the login that writes as a maintainer (ADR 0333). */
+  comments?: (setup: Setup, author: string) => FakeApiComment[];
 }
 
 const diffMode = (): Mode<SetupName> => {
@@ -329,6 +334,8 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
       ),
     table: realTable,
     stop: comparisonStop,
+    comments: (setup, author) =>
+      realCommentsOf(setup, author, (file) => readFileSync(join(folder, file), 'utf8')),
     files: (records, reportFolder) => {
       // One seed for the folder, so a code stays the same as more runs come in.
       const seedFile = join(reportFolder, 'seed.txt');
@@ -443,6 +450,7 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
         ],
       },
     });
+    api.comments.set(`${BREWERY.toLowerCase()}#1`, mode.comments?.(setup, USER) ?? []);
     const listening = listenWhileServing(process);
     const machine = serveShell(serve, {
       root: brewery,

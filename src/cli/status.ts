@@ -5,9 +5,11 @@ import { calledAs, claimOfOrder, claimOrderOf, orderName } from '../engine/claim
 import {
   attemptRecipeOf,
   type Batch,
+  type Failing,
   type Pause,
   runningAttempt,
   type State,
+  stuckOnFailing,
 } from '../engine/fold.ts';
 import { pauseOf, stopAtText } from '../engine/pauses.ts';
 import { totalParts } from '../engine/receipt.ts';
@@ -15,6 +17,7 @@ import { sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
+import { firstLineOf, messageOf } from '../platform/errors.ts';
 import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
 import { PLANNING_RECIPES } from '../schemas/plan.ts';
 import { addUsage, number } from './brewer-report.ts';
@@ -47,6 +50,8 @@ const stuckOn = (reason: StuckReason, called: string): string => {
       return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
     case 'waiting_for_session':
       return `waiting for a session at ${reason.stepId}: ${sessionCommand(called)} opens it in a terminal`;
+    case 'failing':
+      return `failing at ${reason.stepId} in ${reason.pass} since ${reason.since}: ${reason.summary}`;
     case 'stalled':
       return `stalled at ${reason.stepId} since ${reason.lastProgressAt}`;
     case 'routing':
@@ -133,6 +138,24 @@ export const pauseLine = ({ by, via, why, stopAt }: Pause, withVia = false): str
 /** The issue a batch brews: `#<n>` in the Brewery, `<owner>/<name>#<n>` in a target repository. */
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
+/** A batch's mark as it reads (ADR 0335). */
+const failingText = ({ pass, since, summary }: Failing): string =>
+  `failing in ${pass} since ${since}: ${summary}`;
+
+/** A batch's mark, but on a batch whose Stuck reason says it already. */
+export const failingParts = ({ failing, lane }: Batch): string[] =>
+  failing === undefined || stuckOnFailing(lane) ? [] : [failingText(failing)];
+
+/**
+ * What a batch's line says when its rendering throws (ADR 0335): the message on its one line, and
+ * the mark whatever the lane, since its reason cannot say it now.
+ */
+export const unreadable = ({ failing }: Batch, error: unknown): string =>
+  [
+    `cannot be read: ${firstLineOf(messageOf(error))}`,
+    ...(failing === undefined ? [] : [failingText(failing)]),
+  ].join('; ');
+
 /**
  * A batch's cells in `foedrum status`: its id, order, lane, and what it does, with the owner of an
  * `interactive` driver that holds it (ADR 0123) and what its attempts took.
@@ -142,20 +165,26 @@ export const statusRow = (
   batch: Batch,
   interactive: ReadonlyMap<string, string> = new Map(),
 ): string[] => {
-  const { lane, detail } = describeLane(batch, calledAs(state, batch));
-  const pause = pauseOf(state, batch);
-  const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
-  const owner = interactive.get(batch.id);
-  const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
-  // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
-  // with its code page.
-  const total = totalParts(batch).join(' / ');
-  return [
-    batch.id,
-    orderName(state, batch),
-    lane,
-    [detail, ...paused, ...by, total].filter((part) => part !== '').join('; '),
-  ];
+  const failing = failingParts(batch);
+  // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
+  try {
+    const { lane, detail } = describeLane(batch, calledAs(state, batch));
+    const pause = pauseOf(state, batch);
+    const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
+    const owner = interactive.get(batch.id);
+    const by = owner === undefined ? [] : [`brewed interactively by ${owner}`];
+    // What its attempts took, summed (ADR 0172), in ASCII: a pipe on Windows decodes the output
+    // with its code page.
+    const total = totalParts(batch).join(' / ');
+    return [
+      batch.id,
+      orderName(state, batch),
+      lane,
+      [detail, ...failing, ...paused, ...by, total].filter((part) => part !== '').join('; '),
+    ];
+  } catch (error) {
+    return [batch.id, issueOf(batch), batch.lane.kind, unreadable(batch, error)];
+  }
 };
 
 /**

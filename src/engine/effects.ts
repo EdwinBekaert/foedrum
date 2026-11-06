@@ -1,5 +1,6 @@
 // Applying an external side effect through the idempotency ledger (invariant I4, ADR 0033).
 
+import { messageOf } from '../platform/errors.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectKey } from './event-store.ts';
@@ -61,9 +62,31 @@ export const applyEffect = async (
 };
 
 /**
+ * A source of effects could not be read: thrown once the others were, with the keys they gave
+ * (ADR 0335). Whoever reads it as a plain throw sees "not all known", so nothing is let go or
+ * recorded; the driver's pass applies `readable`, then fails at its end.
+ */
+export class UnreadSources extends Error {
+  readonly readable: readonly EffectKey[];
+
+  constructor(first: unknown, readable: readonly EffectKey[]) {
+    super(textOf(first), { cause: first });
+    this.readable = readable;
+  }
+}
+
+const textOf = (error: unknown): string => {
+  try {
+    return messageOf(error);
+  } catch {
+    return 'a source of effects could not be read';
+  }
+};
+
+/**
  * The effects of every source together (ADR 0072): the keys each gives, and each key applied by
- * the source that gave it. The shortest deadline of theirs holds for all, the driver's when none
- * sets one.
+ * the source that gave it. A source that throws stops none of the others (ADR 0335). The shortest
+ * deadline of theirs holds for all, the driver's when none sets one.
  */
 export const combineEffects = (...sources: readonly DriverEffects[]): DriverEffects => {
   // The source behind each key `due` gave; the driver asks `due` before it applies a key.
@@ -77,12 +100,21 @@ export const combineEffects = (...sources: readonly DriverEffects[]): DriverEffe
     deadlineMs === undefined ? [] : [deadlineMs],
   );
   return {
-    due: (state, batchId) =>
-      sources.flatMap((source) => {
-        const keys = source.due(state, batchId);
-        for (const key of keys) owners.set(effectKey.encode(key), source);
-        return keys;
-      }),
+    due: (state, batchId) => {
+      const unread: unknown[] = [];
+      const keys = sources.flatMap((source) => {
+        try {
+          const given = source.due(state, batchId);
+          for (const key of given) owners.set(effectKey.encode(key), source);
+          return given;
+        } catch (error) {
+          unread.push(error);
+          return [];
+        }
+      });
+      if (unread.length > 0) throw new UnreadSources(unread[0], keys);
+      return keys;
+    },
     target: {
       find: async (key, signal) => ownerOf(key).target.find(key, signal),
       apply: async (key, signal) => ownerOf(key).target.apply(key, signal),

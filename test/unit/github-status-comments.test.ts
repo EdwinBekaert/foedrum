@@ -4,11 +4,15 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { MarkedComment } from '../../src/engine/claim-effects.ts';
 import { createGitHubClient } from '../../src/github/client.ts';
 import { createGitHubReads } from '../../src/github/reads.ts';
 import { githubStatusComments } from '../../src/github/status-comments.ts';
 import { type Answer, fakeFetch } from '../helpers/fake-fetch.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
+
+// Only what a poster builds is postable; these tests read the GitHub layer alone.
+const marked = (text: string) => text as MarkedComment;
 
 const api = 'https://api.github.com';
 const repo = 'acme/brewery';
@@ -74,7 +78,7 @@ describe('githubStatusComments', () => {
 
   it('comments on the issue and answers the new id', async () => {
     const { comments, requests } = commentsWith([{ status: 201, body: own(504, 'Status') }]);
-    assert.equal(await comments.create(repo, 7, 'Status'), 504);
+    assert.equal(await comments.create(repo, 7, marked('Status')), 504);
     assert.deepStrictEqual(asked(requests), [
       {
         method: 'POST',
@@ -89,8 +93,8 @@ describe('githubStatusComments', () => {
       { status: 200, body: own(501, 'New') },
       { status: 404, body: { message: 'Not Found' } },
     ]);
-    assert.equal(await comments.edit(repo, 501, 'New'), 'edited');
-    assert.equal(await comments.edit(repo, 502, 'New'), 'gone');
+    assert.equal(await comments.edit(repo, 501, marked('New')), 'edited');
+    assert.equal(await comments.edit(repo, 502, marked('New')), 'gone');
     assert.deepStrictEqual(asked(requests).slice(0, 1), [
       {
         method: 'PATCH',
@@ -107,8 +111,11 @@ describe('githubStatusComments', () => {
       { status: 403, body: { message: 'Resource not accessible' } },
     ]);
     await assert.rejects(comments.read(repo, 501), /500.*acme\/brewery.*Server Error/);
-    await assert.rejects(comments.edit(repo, 501, 'x'), /422.*acme\/brewery.*Body is too long/);
-    await assert.rejects(comments.create(repo, 7, 'x'), (error: Error) => {
+    await assert.rejects(
+      comments.edit(repo, 501, marked('x')),
+      /422.*acme\/brewery.*Body is too long/,
+    );
+    await assert.rejects(comments.create(repo, 7, marked('x')), (error: Error) => {
       assert.match(error.message, /403.*acme\/brewery#7/);
       assert.doesNotMatch(error.message, /ghp_test/);
       return true;
@@ -118,7 +125,7 @@ describe('githubStatusComments', () => {
   it('refuses a comment id that is no positive integer before it asks GitHub', async () => {
     const { comments, requests } = commentsWith([]);
     await assert.rejects(comments.read(repo, 0), /comment id/);
-    await assert.rejects(comments.edit(repo, 1.5, 'x'), /comment id/);
+    await assert.rejects(comments.edit(repo, 1.5, marked('x')), /comment id/);
     assert.deepStrictEqual(requests, []);
   });
 });

@@ -704,6 +704,24 @@ describe('runBrew', () => {
     assert.equal(f.lock.held, false);
   });
 
+  it("a lease's refusal says how to take the batch over", async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    const expiresAt = new Date(t0.getTime() + 60_000);
+    f.store.withTransaction((tx) => tx.putBatchLease({ batchId: '12-1', owner: 'bob', expiresAt }));
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
+    const [, takes] = /; (.+) takes it over now$/.exec(f.lines.at(-1) ?? '') ?? [];
+    assert.equal(takes, 'foedrum brew 12 --take');
+  });
+
+  it("a lease's refusal of foedrum mash names mash's own --take", async () => {
+    log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
+    const expiresAt = new Date(t0.getTime() + 60_000);
+    f.store.withTransaction((tx) => tx.putBatchLease({ batchId: '12-1', owner: 'bob', expiresAt }));
+    assert.equal(await runBrew(f.setup, shell(behave.succeed()), { ...request, mash: true }), 5);
+    const [, takes] = /; (.+) takes it over now$/.exec(f.lines.at(-1) ?? '') ?? [];
+    assert.equal(takes, 'foedrum mash 12 --take');
+  });
+
   it('refuses a batch another driver leases, naming it and when its lease ends: exit 5', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue(
@@ -718,7 +736,7 @@ describe('runBrew', () => {
     assert.deepStrictEqual(f.started, []);
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
+      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew 12 --take takes it over now`,
     );
     assert.equal(leaseOf()?.owner, 'cellar');
     assert.equal(f.lock.held, false);
@@ -1364,7 +1382,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, taken, request), 5);
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
+      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew 12 --take takes it over now`,
     );
   });
 

@@ -8,7 +8,7 @@
 import { type GravityReading, pullRequestOf } from '../schemas/events.ts';
 import { MAX_CONFLICTS } from '../schemas/store.ts';
 import { mergeResults } from './base-merge.ts';
-import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
+import { commentId, effectMarker, type IssueMarks, markedComment } from './claim-effects.ts';
 import type { CommandLog } from './command-log.ts';
 import { type DriverEffects, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -317,9 +317,7 @@ export const baseConflictEffects = (options: BaseConflictEffectsOptions): Driver
     },
     apply: async (key, signal) => {
       const { repo, number, text } = commentFor(key);
-      return commentId(
-        await marks.comment(repo, number, `${text}\n\n${effectMarker(key)}`, signal),
-      );
+      return commentId(await marks.comment(repo, number, markedComment(text, key), signal));
     },
   };
   return {

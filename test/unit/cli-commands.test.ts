@@ -13,6 +13,7 @@ import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { InvalidLogError } from '../../src/engine/fold.ts';
 import { invalidRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
@@ -332,6 +333,76 @@ describe('foedrum: commands that change state', () => {
   });
 
   describe('retry', () => {
+    it('takes what its refusal says still works, a cancel and another recipe (regression test)', async () => {
+      const broken = fakeRecipes({
+        pint: {
+          ...fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+          deadlineMs: () => {
+            throw new Error('the recipe could not be read');
+          },
+        },
+        stout: fakeRecipe({ steps: ['analyze'] }),
+      });
+      const choose = await run(['recipe', '22-1', 'stout', 'its recipe broke'], {
+        recipes: () => broken,
+      });
+      assert.equal(choose.exitCode, 0, choose.stderr);
+      const cancel = await run(['cancel', '24-1'], { recipes: () => broken });
+      assert.equal(cancel.exitCode, 0, cancel.stderr);
+    });
+
+    it('tells an invalid log as what it is, with no advice about the batch', async () => {
+      const broken = fakeRecipes({
+        pint: {
+          ...fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+          deadlineMs: () => {
+            throw new InvalidLogError(3, 'batch.stuck', 'the log broke');
+          },
+        },
+      });
+      const result = await run(['retry', '22-1'], { recipes: () => broken });
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /Invalid event log at event 3/);
+      assert.doesNotMatch(result.stderr, /could not|cancel it/);
+    });
+
+    it('keeps what the recipe threw on one line', async () => {
+      const broken = fakeRecipes({
+        pint: {
+          ...fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+          deadlineMs: () => {
+            throw new Error('first line\nsecond line');
+          },
+        },
+      });
+      assert.deepStrictEqual(
+        await run(['retry', '22-1'], { recipes: () => broken }),
+        refused(
+          'retry',
+          'batch 22-1 could not be changed: first line; if its recipe is what failed, cancel it or choose another recipe',
+        ),
+      );
+    });
+
+    it('says which batch could not be read, in one line, when its recipe throws', async () => {
+      const throwing = fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 });
+      const broken = fakeRecipes({
+        pint: {
+          ...throwing,
+          deadlineMs: () => {
+            throw new Error('recipe pint has no step plan');
+          },
+        },
+      });
+      assert.deepStrictEqual(
+        await run(['retry', '22-1'], { recipes: () => broken }),
+        refused(
+          'retry',
+          'batch 22-1 could not be changed: recipe pint has no step plan; if its recipe is what failed, cancel it or choose another recipe',
+        ),
+      );
+    });
+
     it('schedules another attempt, recorded with who issued it and from where', async () => {
       assert.deepStrictEqual(await run(['retry', '22-1']), ok('22-1 brewing: plan #2 scheduled\n'));
       assert.deepStrictEqual(appended(2), [

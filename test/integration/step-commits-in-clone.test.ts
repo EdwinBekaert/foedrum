@@ -174,6 +174,7 @@ describe("the guard and the red proof read git in the clone, not the attempt's w
     // An import line, which only the map's rule keeps: ADR 0078's let it change.
     const edited = test.replace("from './add.mjs';", "from './sum.mjs';");
     commit(implement, { 'add.test.mjs': edited }, 'Edit the import');
+    pointAtDecoy(implement);
     const events = [...gauged, ...started('implement', implement, mapped)];
     const guarded = guardTests({
       runner: fakeBrewerRunner({ implement: [behave.succeed()] }),

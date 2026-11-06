@@ -171,6 +171,7 @@ const planOf = (
     env: { base: { PATH: '/usr/bin' }, forced: {} },
     platform: 'linux',
     orderText: async () => 'Wait for a bottle to be merged.',
+    orderComments: async () => [],
     git: (cwd, args, options) => {
       calls.push({ cwd, args, ...(options === undefined ? {} : { options }) });
       return git(cwd, args, options);

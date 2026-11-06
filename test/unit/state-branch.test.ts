@@ -273,6 +273,17 @@ describe('logPathOf', () => {
       { type: 'batch.cancelled', batchId: 'b1', by: 'octocat', via: 'plugin' },
       'batches/b1/events.jsonl',
     ],
+    'batch.failing': [
+      {
+        type: 'batch.failing',
+        batchId: 'b1',
+        pass: 'effects',
+        summary: 'boom',
+        since: '2026-10-15T12:00:00.000Z',
+      },
+      'batches/b1/events.jsonl',
+    ],
+    'batch.recovered': [{ type: 'batch.recovered', batchId: 'b1' }, 'batches/b1/events.jsonl'],
     'batch.taken_over': [
       {
         type: 'batch.taken_over',

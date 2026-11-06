@@ -8,6 +8,7 @@ import type {
   CoverageListing,
   Dependency,
   Event,
+  FailingPass,
   GravityReading,
   HeadCheck,
   MutantRecord,
@@ -215,6 +216,17 @@ export interface Rewind {
   shas: Readonly<Record<string, string>>;
 }
 
+/** What a driver's passes failed on, in which it failed last, and since when (ADR 0335). */
+export interface Failing {
+  pass: FailingPass;
+  summary: string;
+  since: string;
+}
+
+/** Whether a lane is Stuck on failing, whose reason says the batch's mark itself (ADR 0335). */
+export const stuckOnFailing = (lane: Lane | undefined): boolean =>
+  lane?.kind === 'stuck' && lane.reason.kind === 'failing';
+
 /** A person's handover of a batch from the driver `from` to `to` (ADR 0124). */
 export interface Takeover {
   by: string;
@@ -270,6 +282,8 @@ export interface Batch {
   rewinds: readonly Rewind[];
   /** Its latest handover from one driver to another (ADR 0124); absent while it had none. */
   takeover?: Takeover;
+  /** A driver's passes failed on it for an hour and have not since gone clean (ADR 0335). */
+  failing?: Failing;
   /** Its task tree; absent while it is the repository's base (ADR 0066). */
   taskTree?: TaskTree;
   /**
@@ -771,7 +785,7 @@ function apply(state: State, event: Event): State {
     case 'batch.resumed': {
       // A retry of a batch Stuck on routing waits to be routed again (ADR 0032).
       const resumed = setLane(
-        state,
+        withoutItsFailingMark(state, event.batchId),
         event.batchId,
         event.routeBy === undefined
           ? { kind: 'brewing' }
@@ -889,7 +903,7 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.rewound': {
       const { batchId, toStepId, by, via, shas } = event;
-      return updateBatch(state, batchId, (batch) => {
+      return updateBatch(withoutItsFailingMark(state, batchId), batchId, (batch) => {
         stepOf(batch, toStepId);
         return {
           ...batch,
@@ -909,6 +923,15 @@ function apply(state: State, event: Event): State {
     }
     case 'batch.on_tap':
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
+    case 'batch.failing': {
+      const { batchId, pass, summary, since } = event;
+      return updateBatch(state, batchId, (batch) => ({
+        ...batch,
+        failing: { pass, summary, since },
+      }));
+    }
+    case 'batch.recovered':
+      return updateBatch(state, event.batchId, ({ failing: _, ...batch }) => batch);
     case 'batch.taken_over': {
       const { by, via, from, to, until, resumes } = event;
       return updateBatch(state, event.batchId, (batch) => ({
@@ -1092,6 +1115,15 @@ const attemptError = (
 /** The order of an issue, or a new one when it has no batches yet. */
 const orderOf = (state: State, issue: number): Order =>
   state.orders.get(issue) ?? { issue, batchIds: [], subOrders: [], dependencies: [] };
+
+/**
+ * A person's way out of a batch's Stuck on failing takes its mark off, and its driver's hour starts
+ * again (ADR 0335); a resume from any other Stuck leaves the mark to a clean pass.
+ */
+const withoutItsFailingMark = (state: State, batchId: string): State =>
+  stuckOnFailing(state.batches.get(batchId)?.lane)
+    ? updateBatch(state, batchId, ({ failing: _, ...batch }) => batch)
+    : state;
 
 function batchOf(state: State, batchId: string): Batch {
   const batch = state.batches.get(batchId);

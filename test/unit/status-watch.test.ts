@@ -498,6 +498,25 @@ describe('foedrum status --watch: off a terminal', () => {
   });
 });
 
+describe('foedrum status --watch: a batch whose rendering throws (ADR 0335)', () => {
+  it('shows it as it cannot be read, and the others', async () => {
+    const state = stateOf([ordered(1), ordered(2)]);
+    const broken = state.batches.get('2-1');
+    assert.ok(broken);
+    const lane = {
+      kind: 'stuck',
+      reason: { kind: 'unknown' } as never,
+      options: ['cancel'],
+      remindAt: REMIND,
+    } as const;
+    const batches = new Map(state.batches).set('2-1', { ...broken, lane });
+    const { frames } = await watched({ states: [{ ...state, batches }] });
+    const frame = frames.at(-1)?.join('\n') ?? '';
+    assert.match(frame, /1-1/);
+    assert.match(frame, /2-1.*cannot be read/);
+  });
+});
+
 describe('foedrum status --watch: the command layer', () => {
   const storeWith = (events: readonly Event[]): EventStore => {
     const store = openSqliteEventStore(':memory:');

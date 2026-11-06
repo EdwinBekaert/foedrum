@@ -367,6 +367,7 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Wait for a bottle to be merged.',
+      orderComments: async () => [],
       git: (cwd, args, options) => {
         calls.push({ cwd, args, config: options?.config });
         return git(cwd, args, options);

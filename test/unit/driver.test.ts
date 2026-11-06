@@ -3850,7 +3850,7 @@ describe('openDriver', () => {
       now = at(30);
       await driver.tick();
       assert.deepStrictEqual(applied, []);
-      assert.equal(reported.filter((notice) => notice.kind === 'effect_failed').length, 2);
+      assert.equal(reported.filter((notice) => notice.kind === 'effect_failed').length, 1);
       assert.equal(
         driver.state().batches.get('b1')?.steps.get('open')?.attempts.get(1)?.phase,
         'started',

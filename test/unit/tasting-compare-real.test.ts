@@ -11,9 +11,11 @@ import {
   nextRealRun,
   orderOf,
   REAL_RECIPE,
+  REAL_SETUPS,
   type RealRecord,
   type RealSetup,
   realBreweryFiles,
+  realCommentsOf,
   realRecipeOf,
   realRecipeText,
   realRecordOf,
@@ -156,6 +158,7 @@ const SETUPS: readonly RealSetup[] = [
   '867-today',
   '867-reads',
   '867-lens',
+  '867-comments',
 ];
 
 describe('tasting-compare --real', () => {
@@ -942,6 +945,7 @@ describe('tasting-compare --real', () => {
         '| 867-today | 0 | 0 | 0 |',
         '| 867-reads | 1 | 0 | 0 |',
         '| 867-lens | 0 | 0 | 0 |',
+        '| 867-comments | 0 | 0 | 0 |',
         '',
         'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
         '',
@@ -1082,5 +1086,35 @@ describe('tasting-compare --real', () => {
       assert.equal(reads.problem, undefined);
       assert.deepEqual(reads.opened, ['CLAUDE.md']);
     });
+  });
+});
+
+describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
+  const read = (file: string) =>
+    readFileSync(new URL(`../fixtures/tasting-compare/real/${file}`, import.meta.url), 'utf8');
+
+  it('holds the one comment #867 had before it brewed, in its exact words and date', () => {
+    const comments = realCommentsOf('867-comments', 'the-maintainer', read);
+    assert.equal(comments.length, 1);
+    const [only] = comments;
+    assert.equal(only?.author, 'the-maintainer');
+    assert.equal(only?.association, 'OWNER');
+    assert.equal(only?.created, '2026-11-05T19:44:00Z');
+    assert.match(only?.body ?? '', /^Wider than first seen: `foedrum brew` hits it too\./);
+    assert.match(only?.body ?? '', /through serve or brew\.$/);
+  });
+
+  it('no other setup holds a comment', () => {
+    for (const setup of REAL_SETUPS.filter((each) => each !== '867-comments')) {
+      assert.deepEqual(realCommentsOf(setup, 'the-maintainer', read), [], setup);
+    }
+  });
+
+  it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {
+    assert.deepEqual(
+      realBreweryFiles('867-comments', 'the old text'),
+      realBreweryFiles('867-reads', 'the old text'),
+    );
+    assert.equal(orderOf('867-comments'), orderOf('867-reads'));
   });
 });

@@ -7,6 +7,10 @@
 export const messageOf = (error: unknown): string =>
   error instanceof Error ? String(error.message) : String(error);
 
+/** The first line of `text`, at any line or paragraph end a terminal or a line reader takes for one. */
+export const firstLineOf = (text: string): string =>
+  text.split(/\r\n?|\n|\x85|[\p{Zl}\p{Zp}]/u, 1)[0] ?? '';
+
 /** The `code` a thrown value carries as a string (`ENOENT`, `EPERM`), or undefined. */
 export const errorCode = (error: unknown): string | undefined =>
   error instanceof Error && 'code' in error && typeof error.code === 'string'
