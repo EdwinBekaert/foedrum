@@ -226,6 +226,26 @@ describe('createAttemptPlans: plan', () => {
     assert.match(prompt, /source="file docs\/guide\.md" name="guide">\n# Guide\n/);
   });
 
+  it("names a claimed order's Brewery issue in its order input's source, beside the target issue (ADR 0334)", async () => {
+    const claimedOrder: Event = {
+      type: 'batch.ordered',
+      batchId: ref.batchId,
+      order: { issue: 12, repo: 'acme/api' },
+      routeBy: '2026-10-17T13:00:00.000Z',
+    };
+    const opened: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: ref.batchId, effect: 'order.issue' }),
+      result: 40,
+    };
+    const { plans } = setup([claimedOrder, opened, ...ordered.slice(1), started]);
+    const { prompt } = await plans.plan(start);
+    assert.match(
+      prompt,
+      /source="issue #12 body, the order on Brewery issue #40" name="order">\nAdd a --json flag\.\n/,
+    );
+  });
+
   it("gives a fresh attempt the answers to its step's questions as an in-doc, after the inputs (ADR 0006)", async () => {
     const answered: Event = {
       type: 'input.received',

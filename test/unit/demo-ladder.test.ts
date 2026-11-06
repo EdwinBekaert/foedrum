@@ -476,9 +476,9 @@ describe('ladderProblems', () => {
       ladderProblems({
         ...good,
         orderState: 'open',
-        failedCommands: ['foedrum approve 1-1 failed (exit code 1)'],
+        failedCommands: ['foedrum approve 1 failed (exit code 1)'],
       }),
-      ['order #1 is open, not closed', 'foedrum approve 1-1 failed (exit code 1)'],
+      ['order #1 is open, not closed', 'foedrum approve 1 failed (exit code 1)'],
     );
   });
 });
@@ -635,7 +635,7 @@ describe('runLadder', () => {
     const { code, said, lives } = await run({ command: 'approve' });
     assert.equal(code, 1);
     assert.deepStrictEqual(lives, ['plan']);
-    assert.ok(said.includes('demo: foedrum approve 1-1 failed (exit code 1)'), said.join('\n'));
+    assert.ok(said.includes('demo: foedrum approve 1 failed (exit code 1)'), said.join('\n'));
   });
 
   it('stops at an error of its own, such as a merge with no pull request, and says it (regression test)', async () => {

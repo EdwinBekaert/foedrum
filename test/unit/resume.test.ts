@@ -799,7 +799,7 @@ describe('foedrum resume (ADR 0126)', () => {
       assert.deepEqual(result, {
         exitCode: 0,
         stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:
-  foedrum resume 23-1 plan
+  foedrum resume 23 plan
 `,
         stderr: '',
       });
@@ -1054,7 +1054,7 @@ describe('foedrum resume (ADR 0126)', () => {
     const result = await resume(undefined, { terminal: { claudeCode: true, tty: false } });
     assert.deepEqual(result, {
       exitCode: 0,
-      stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:\n  foedrum resume 21-1 implement#1\n`,
+      stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:\n  foedrum resume 21 implement#1\n`,
       stderr: '',
     });
     nothingOpened();

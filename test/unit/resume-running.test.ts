@@ -220,12 +220,12 @@ describe('runResumeRunning (ADR 0127)', () => {
     );
     assert.equal(lock.held, false);
     assert.ok(
-      lines.includes('foedrum resume: took batch 12-1 over from cellar to resume step brew'),
+      lines.includes('foedrum resume: took #12 over from cellar to resume step brew'),
       lines.join('\n'),
     );
     assert.equal(
       lines.at(-1),
-      'foedrum resume: brew#2 succeeded; batch 12-1 goes on from its next step under the driver that takes it',
+      'foedrum resume: brew#2 succeeded; #12 goes on from its next step under the driver that takes it',
     );
   });
 
@@ -243,10 +243,7 @@ describe('runResumeRunning (ADR 0127)', () => {
       store.batchLeases(t0).find(({ batchId }) => batchId === '12-1'),
       undefined,
     );
-    assert.match(
-      lines.at(-1) ?? '',
-      /^foedrum resume: batch 12-1 is stuck: .*; nothing was resumed$/,
-    );
+    assert.match(lines.at(-1) ?? '', /^foedrum resume: #12 is stuck: .*; nothing was resumed$/);
   });
 
   it('continues a retry that waits to resume the session, with no driver to take the batch from: exit 0', async () => {
@@ -285,7 +282,7 @@ describe('runResumeRunning (ADR 0127)', () => {
     assert.equal(result, 1);
     assert.equal(
       lines.at(-1),
-      `foedrum resume: batch 12-1 is driven by session-7 until ${until.toISOString()}`,
+      `foedrum resume: #12 is driven by session-7 until ${until.toISOString()}`,
     );
     assert.equal(resumeLease(t0), undefined);
   });
@@ -301,10 +298,7 @@ describe('runResumeRunning (ADR 0127)', () => {
       },
     });
     assert.equal(await runResumeRunning(setup, stopping, request), 1);
-    assert.equal(
-      lines.at(-1),
-      'foedrum resume: stopped; batch 12-1 is left for the driver that takes it',
-    );
+    assert.equal(lines.at(-1), 'foedrum resume: stopped; #12 is left for the driver that takes it');
     assert.equal(resumeLease(t0), undefined);
   });
 
@@ -345,7 +339,7 @@ describe('runResumeRunning (ADR 0127)', () => {
     );
     assert.match(
       lines.at(-1) ?? '',
-      /^foedrum resume: brew#2 failed: the brewer failed: The migration does not apply; batch 12-1 goes on from its next step/,
+      /^foedrum resume: brew#2 failed: the brewer failed: The migration does not apply; #12 goes on from its next step/,
     );
   });
 
@@ -462,6 +456,6 @@ describe('runResumeRunning (ADR 0127)', () => {
     );
     assert.equal(result, 1);
     assert.ok(!events().some((event) => event.type === 'batch.taken_over'));
-    assert.equal(lines.at(-1), 'foedrum resume: resume-4242 holds batch 12-1 already');
+    assert.equal(lines.at(-1), 'foedrum resume: resume-4242 holds #12 already');
   });
 });

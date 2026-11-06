@@ -75,10 +75,7 @@ describe('runBrew', () => {
         batches.map(({ id, repo, issue, lane }) => ({ id, repo, issue, lane: lane.kind })),
         [{ id: 'web-7', repo: 'acme/web', issue: 7, lane: 'on_tap' }],
       );
-      assert.ok(
-        f.lines.includes('foedrum brew: ordered acme/web#7 as batch web-7'),
-        f.lines.join('\n'),
-      );
+      assert.ok(f.lines.includes('foedrum brew: ordered web#7'), f.lines.join('\n'));
     });
 
     it("prints the link to the status comment on the claimed issue's Brewery issue (#413)", async () => {
@@ -164,7 +161,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, []);
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash ${order.number}`,
+        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash ${order.number}`,
       );
     });
 
@@ -179,7 +176,7 @@ describe('runBrew', () => {
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash ${order?.number}`,
+        `foedrum brew: web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash ${order?.number}`,
       );
     });
 
@@ -202,7 +199,7 @@ describe('runBrew', () => {
       );
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: acme/web#7 waits for its Brewery issue, which is not open yet; brew web#7 again',
+        'foedrum brew: web#7 waits for its Brewery issue, which is not open yet; brew web#7 again',
       );
     });
 
@@ -261,7 +258,7 @@ describe('runBrew', () => {
         assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
         assert.equal(
           f.lines.at(-1),
-          'foedrum brew: batch web-7 of #40 is cancelled; foedrum order 40 orders it again',
+          'foedrum brew: #40 is cancelled; foedrum order 40 orders it again',
         );
       });
 

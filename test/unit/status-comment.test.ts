@@ -3000,7 +3000,7 @@ describe('renderStatus: a plan that waits for its review (#658)', () => {
     const lane = lines.findIndex((line) => line.startsWith('🔔 **Stuck**'));
     assert.deepEqual(lines.slice(lane, lane + 3), [
       `🔔 **Stuck**: the plan of \`plan\` #2 is ready for your review: [plan comment](<${planComment}>)`,
-      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7-1`, correct it in a session with `foedrum lauter 7-1`, plan it again with `foedrum retry 7-1`, or end it with `foedrum cancel 7-1`.',
+      'Next: read the plan and its assumptions; sign it off with `foedrum approve 7`, correct it in a session with `foedrum lauter 7`, plan it again with `foedrum retry 7`, or end it with `foedrum cancel 7`.',
       '',
     ]);
     assert.doesNotMatch(text, /On tap|No pull request/);
@@ -3358,7 +3358,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: answer the questions above with `foedrum answer 7-1 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
+      'Next: answer the questions above with `foedrum answer 7 <answer 1> <answer 2>`, or get it moving with `retry`, `cancel`.',
     );
   });
 
@@ -3372,7 +3372,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      'Next: answer the questions above with `foedrum answer 7-1 <answer 1>`.',
+      'Next: answer the questions above with `foedrum answer 7 <answer 1>`.',
     );
   });
 
@@ -3385,7 +3385,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: ${planNextStep('7-1', code)} Its other option: \`recipe\`.`,
+      `Next: ${planNextStep('7', code)} Its other option: \`recipe\`.`,
     );
   });
 
@@ -3398,7 +3398,7 @@ describe('the Next line of a status comment that waits on the person (#777)', ()
     };
     assert.equal(
       nextOf(render(batch({ lane }))),
-      `Next: ${planNextStep('7-1', code)} Its other options: \`recipe\`, \`skip\`.`,
+      `Next: ${planNextStep('7', code)} Its other options: \`recipe\`, \`skip\`.`,
     );
   });
 

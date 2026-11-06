@@ -83,12 +83,12 @@ describe('runBrew', () => {
         by: 'ann',
         via: 'terminal',
       });
-      assert.ok(f.lines.includes('foedrum mash: ordered #13 as batch 13-1'), f.lines.join('\n'));
+      assert.ok(f.lines.includes('foedrum mash: ordered #13'), f.lines.join('\n'));
       assert.deepStrictEqual(f.lines.slice(-4), [
-        'foedrum mash: batch 13-1 needs input at innkeep:',
+        'foedrum mash: #13 needs input at innkeep:',
         'foedrum mash:   1. Which recipe brews #13? Suggested: mild: one small change (stout, mild; recommended: mild)',
         'foedrum mash:      why it blocks: The recipe decides what runs next',
-        'foedrum mash: answer them in order with foedrum answer 13-1 <answer 1>, then brew again',
+        'foedrum mash: answer them in order with foedrum answer 13 <answer 1>, then brew again',
       ]);
     });
 
@@ -298,10 +298,7 @@ describe('runBrew', () => {
       const fresh = { ...request, target: { alias: 'web', issue: 7 }, mash: true } as const;
       assert.equal(await runBrew(claimed, asks, fresh), 4, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'mash-in');
-      assert.ok(
-        f.lines.includes('foedrum mash: ordered acme/web#7 as batch web-7'),
-        f.lines.join('\n'),
-      );
+      assert.ok(f.lines.includes('foedrum mash: ordered web#7'), f.lines.join('\n'));
     });
 
     it('refuses a batch that started a recipe, naming foedrum recipe: exit 5', async () => {
@@ -312,7 +309,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, []);
       assert.equal(
         f.lines.at(-1),
-        'foedrum mash: batch 12-1 of #12 already brews the recipe stout; foedrum recipe 12-1 <recipe> <reason> brews it with another',
+        'foedrum mash: #12 already brews the recipe stout; foedrum recipe 12 <recipe> <reason> brews it with another',
       );
     });
 

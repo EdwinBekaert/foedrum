@@ -6,9 +6,11 @@ import assert from 'node:assert/strict';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { type CliContext, type CliResult, runCli } from '../../src/cli/run.ts';
+import { calledAs } from '../../src/engine/claim-orders.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import type { EventStore } from '../../src/engine/event-store.ts';
+import { foldedBatch } from '../../src/engine/fold.ts';
 import { pauseOf } from '../../src/engine/pauses.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { BreweryConfig } from '../../src/schemas/brewery-config.ts';
@@ -225,6 +227,80 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.deepStrictEqual(cancels, ['web-7', 'web-7-2']);
   });
 
+  /** web-7 cancelled and ordered again as web-7-2, whose order is still #40. */
+  const orderedAgain = () => {
+    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+      record('web-7', effect, 'done');
+    }
+    issue({
+      kind: 'order_again',
+      batchId: 'web-7-2',
+      order: { issue: 7, repo: WEB },
+      by: 'a',
+      via: 'terminal',
+    });
+  };
+  const called = (batchId: string): string => {
+    const state = log().state();
+    return calledAs(state, foldedBatch(state, batchId));
+  };
+
+  it("an older batch's line names its id, since the number means the latest", () => {
+    orderedAgain();
+    assert.equal(called('web-7'), 'web-7');
+  });
+
+  it("a command's line on a claimed order leads with the number", async () => {
+    const result = await run(['retry', '40']);
+    assert.equal(result.stdout, '#40 brewing: plan #2 scheduled\n');
+  });
+
+  it("foedrum stuck's next step on a claimed order's plan uses the number", async () => {
+    const { stdout } = await run(['stuck']);
+    assert.ok(
+      stdout.includes(
+        'sign it off with foedrum approve 42, correct it in a session with foedrum lauter 42, plan it again with foedrum retry 42, or end it with foedrum cancel 42.',
+      ),
+      stdout,
+    );
+  });
+
+  it('a wrong count of answers on a claimed order names the number', async () => {
+    const result = await run(['answer', '41', 'sqlite', 'more']);
+    assert.equal(
+      result.stderr,
+      'foedrum answer: #41 asked 1 question; give one answer to each, in order\n',
+    );
+  });
+
+  it('foedrum takeover of a claimed batch no driver holds offers its number', async () => {
+    const result = await run(['takeover', '40', '--as', 'ann']);
+    assert.equal(
+      result.stderr,
+      'foedrum takeover: no driver holds #40; foedrum brew 40 drives it\n',
+    );
+  });
+
+  it('foedrum continue of a claimed order that is not paused names the number', async () => {
+    const result = await run(['continue', '43']);
+    assert.equal(result.stderr, 'foedrum continue: #43 is not paused\n');
+  });
+
+  it('foedrum stop of a claimed order with nothing brewing names the number', async () => {
+    const result = await run(['stop', '41']);
+    assert.equal(result.stderr, 'foedrum stop: there is no brewing batch of #41 to stop\n');
+  });
+
+  it('foedrum pause of a claimed order that ended names the number', async () => {
+    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    const result = await run(['pause', '40']);
+    assert.equal(
+      result.stderr,
+      'foedrum pause: there is no batch of #40 that has not ended to pause\n',
+    );
+  });
+
   it("foedrum pause of a claimed order's number holds its batches", async () => {
     await accepted(['pause', '43']);
     const state = log().state();
@@ -255,11 +331,11 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.equal(laneOf('web-10'), 'stuck');
   });
 
-  it("foedrum rank of a claimed order's number is refused by its target issue's name", async () => {
+  it("foedrum rank of a claimed order's number is refused by that number", async () => {
     const result = await run(['rank', '#43']);
     assert.equal(
       result.stderr,
-      'foedrum rank: acme/web#10 was ordered as batch web-10: a rank orders only the queue\n',
+      'foedrum rank: #43 is already ordered: a rank orders only the queue\n',
     );
   });
 
@@ -341,7 +417,7 @@ describe('one number per piece of work (ADR 0329)', () => {
     const result = await run(['recipe', '43', 'pint', 'why not']);
     assert.equal(
       result.stderr,
-      'foedrum recipe: batch web-10 of #43 is brewing; foedrum stop 43 first, then change its recipe\n',
+      'foedrum recipe: #43 is brewing; foedrum stop 43 first, then change its recipe\n',
     );
   });
 

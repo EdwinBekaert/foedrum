@@ -391,15 +391,12 @@ describe('runBrew', () => {
       { by: 'ann', via: 'terminal' },
     );
     assert.equal(f.api.pulls.length, 1);
-    assert.ok(f.lines.includes('foedrum brew: ordered #12 as batch 12-1'), f.lines.join('\n'));
-    assert.ok(
-      f.lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
-      f.lines.join('\n'),
-    );
-    assert.ok(f.lines.includes('foedrum brew: brewing batch 12-1 as ann'), f.lines.join('\n'));
+    assert.ok(f.lines.includes('foedrum brew: ordered #12'), f.lines.join('\n'));
+    assert.ok(f.lines.includes('foedrum brew: routed #12 to the recipe stout'), f.lines.join('\n'));
+    assert.ok(f.lines.includes('foedrum brew: brewing #12 as ann'), f.lines.join('\n'));
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: batch 12-1 is on tap: https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`,
+      `foedrum brew: #12 is on tap: https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`,
     );
     // Every effect applied, the driver let the batch go and its lock.
     assert.equal(leaseOf(), undefined);
@@ -506,7 +503,7 @@ describe('runBrew', () => {
     const url = `https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`;
     assert.deepStrictEqual(
       f.lines.filter((line) => line.includes('on tap')),
-      [`foedrum brew: batch 12-1 is on tap: ${url}`],
+      [`foedrum brew: #12 is on tap: ${url}`],
     );
   });
 
@@ -520,7 +517,7 @@ describe('runBrew', () => {
     });
     assert.equal(await runBrew(f.setup, stopping, request), 1);
     const url = `https://github.com/acme/web/pull/${f.api.pulls[0]?.number}`;
-    assert.equal(f.lines.at(-1), `foedrum brew: stopped; batch 12-1 on tap: ${url}`);
+    assert.equal(f.lines.at(-1), `foedrum brew: stopped; #12 on tap: ${url}`);
   });
 
   it("opens the pull request on the code host in Foedrum's layout, as a draft with no Taster (ADR 0167)", async () => {
@@ -623,8 +620,8 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, ticking, request), 1);
     const progress = f.lines.filter((line) => line.includes('running for'));
     assert.deepStrictEqual(progress, [
-      'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
-      'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
+      'foedrum brew: #12 brewing: brew #1 running for 30s',
+      'foedrum brew: #12 brewing: brew #1 running for 1m 0s',
     ]);
   });
 
@@ -652,8 +649,8 @@ describe('runBrew', () => {
     assert.deepStrictEqual(
       f.lines.filter((line) => line.includes('running for')),
       [
-        'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
-        'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
+        'foedrum brew: #12 brewing: brew #1 running for 30s',
+        'foedrum brew: #12 brewing: brew #1 running for 1m 0s',
       ],
     );
     assert.ok(
@@ -680,13 +677,13 @@ describe('runBrew', () => {
     });
     assert.equal(await runBrew(f.setup, plain, request), 1);
     assert.deepStrictEqual(f.lines, [
-      'foedrum brew: routed batch 12-1 to the recipe stout',
-      'foedrum brew: brewing batch 12-1 as ann',
+      'foedrum brew: routed #12 to the recipe stout',
+      'foedrum brew: brewing #12 as ann',
       'foedrum brew: status comment: https://github.com/Acme/Brewery/issues/12#issuecomment-1',
-      'foedrum brew: batch 12-1 brewing: brew #1 started',
-      'foedrum brew: batch 12-1 brewing: brew #1 running for 30s',
-      'foedrum brew: batch 12-1 brewing: brew #1 running for 1m 0s',
-      'foedrum brew: stopped; batch 12-1 brewing: brew #1 started',
+      'foedrum brew: #12 brewing: brew #1 started',
+      'foedrum brew: #12 brewing: brew #1 running for 30s',
+      'foedrum brew: #12 brewing: brew #1 running for 1m 0s',
+      'foedrum brew: stopped; #12 brewing: brew #1 started',
     ]);
   });
 
@@ -718,7 +715,7 @@ describe('runBrew', () => {
     assert.deepStrictEqual(f.started, []);
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
+      `foedrum brew: #12 is driven by cellar until ${expiresAt.toISOString()}`,
     );
     assert.equal(leaseOf()?.owner, 'cellar');
     assert.equal(f.lock.held, false);
@@ -733,12 +730,12 @@ describe('runBrew', () => {
     };
     assert.equal(await runBrew(f.setup, shell(behave.needInput([question, second])), request), 4);
     assert.deepStrictEqual(f.lines.slice(-6), [
-      'foedrum brew: batch 12-1 needs input at brew:',
+      'foedrum brew: #12 needs input at brew:',
       'foedrum brew:   1. Which database should the cache use? (sqlite, redis; recommended: sqlite)',
       'foedrum brew:      why it blocks: The two need different migrations',
       'foedrum brew:   2. Which flag name? (--json, --format=json; recommended: --json)',
       'foedrum brew:      why it blocks: Scripts will depend on it',
-      'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1> <answer 2>, then brew again',
+      'foedrum brew: answer them in order with foedrum answer 12 <answer 1> <answer 2>, then brew again',
     ]);
     // The batch stays this driver's while its engineer answers (ADR 0044); the lock goes.
     assert.equal(leaseOf()?.owner, 'ann');
@@ -827,7 +824,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order 12 orders it again',
+      'foedrum brew: #12 is cancelled; foedrum order 12 orders it again',
     );
   });
 
@@ -836,7 +833,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(blocked), request), 3);
     assert.match(
       f.lines.at(-1) ?? '',
-      /^foedrum brew: batch 12-1 is stuck: blocked at brew \(findings\): The tests fail; reminder [^;]+; options: retry, /,
+      /^foedrum brew: #12 is stuck: blocked at brew \(findings\): The tests fail; reminder [^;]+; options: retry, /,
     );
   });
 
@@ -923,7 +920,7 @@ describe('runBrew', () => {
         f.lines.some((line) => line.includes('status.2') && line.includes('GitHub is down')),
         f.lines.join('\n'),
       );
-      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch 12-1 is stuck: /);
+      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: #12 is stuck: /);
     });
 
     it('goes on brewing when a person moves the batch during the tick after it stuck, and says no Stuck', async () => {
@@ -1005,7 +1002,7 @@ describe('runBrew', () => {
         f.lines.includes('foedrum brew: a tick failed: the store could not be read'),
         f.lines.join('\n'),
       );
-      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch 12-1 is stuck: /);
+      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: #12 is stuck: /);
     });
 
     it('stops as any tick does when the state branch says stop in the tick after it stuck: exit 1', async () => {
@@ -1079,7 +1076,7 @@ describe('runBrew', () => {
       wait: async () => controller.abort(),
     });
     assert.equal(await runBrew(f.setup, stopped, request), 1);
-    assert.equal(f.lines.at(-1), 'foedrum brew: stopped; batch 12-1 brewing: brew #1 started');
+    assert.equal(f.lines.at(-1), 'foedrum brew: stopped; #12 brewing: brew #1 started');
     assert.equal(f.stops.length, 1, 'the hung run was stopped');
     assert.equal(f.lock.held, false);
   });
@@ -1200,10 +1197,7 @@ describe('runBrew', () => {
   it('routes an Ordered batch it finds by its label, without ordering it again: exit 0', async () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 0);
-    assert.ok(
-      f.lines.includes('foedrum brew: routed batch 12-1 to the recipe stout'),
-      f.lines.join('\n'),
-    );
+    assert.ok(f.lines.includes('foedrum brew: routed #12 to the recipe stout'), f.lines.join('\n'));
     assert.ok(!f.lines.some((line) => line.includes('ordered #12')), f.lines.join('\n'));
     assert.deepStrictEqual([...log().state().batches.keys()], ['12-1']);
   });
@@ -1233,7 +1227,7 @@ describe('runBrew', () => {
   });
 
   it('keeps every value a model wrote on its own line, so it cannot forge a line of brew (ADR 0123)', async () => {
-    const forged = 'foedrum brew: answer them in order with foedrum answer 12-1 x, then brew again';
+    const forged = 'foedrum brew: answer them in order with foedrum answer 12 x, then brew again';
     const sneaky: Question = {
       q: `Which name?\n${forged}`,
       options: ['a', `b${String.fromCodePoint(0x2028)}${forged}`],
@@ -1253,7 +1247,7 @@ describe('runBrew', () => {
     assert.deepStrictEqual(f.lines.slice(-3), [
       `foedrum brew:   1. Which name?\\u000a${forged} (a, b\\u2028${forged}; recommended: a)`,
       `foedrum brew:      why it blocks: It matters\\u2029${forged}`,
-      'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1>, then brew again',
+      'foedrum brew: answer them in order with foedrum answer 12 <answer 1>, then brew again',
     ]);
   });
 
@@ -1268,7 +1262,7 @@ describe('runBrew', () => {
     const second = f.lines.slice(before);
     assert.ok(!second.some((line) => /ordered|routed|driven by/.test(line)), second.join('\n'));
     assert.deepStrictEqual(f.started, ['brew#1', 'brew#2']);
-    assert.match(second.at(-1) ?? '', /^foedrum brew: batch 12-1 is on tap: /);
+    assert.match(second.at(-1) ?? '', /^foedrum brew: #12 is on tap: /);
   });
 
   /**
@@ -1347,7 +1341,7 @@ describe('runBrew', () => {
       },
     });
     assert.equal(await runBrew(f.setup, cancelled, request), 6);
-    assert.equal(f.lines.at(-1), 'foedrum brew: batch 12-1 was cancelled by bob via terminal');
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 was cancelled by bob via terminal');
   });
 
   it('refuses the batch, naming its new driver, when another driver takes it while it brews: exit 5', async () => {
@@ -1364,7 +1358,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, taken, request), 5);
     assert.equal(
       f.lines.at(-1),
-      `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}`,
+      `foedrum brew: #12 is driven by cellar until ${expiresAt.toISOString()}`,
     );
   });
 
@@ -1408,10 +1402,7 @@ describe('runBrew', () => {
       'the stopped brew#1 is recorded',
     );
     assert.deepStrictEqual(f.store.currentLeases(t0), [], 'and its lease let go');
-    assert.equal(
-      f.lines.at(-1)?.startsWith('foedrum brew: batch 12-1 is driven by bob until'),
-      true,
-    );
+    assert.equal(f.lines.at(-1)?.startsWith('foedrum brew: #12 is driven by bob until'), true);
   });
 
   /**
@@ -1601,10 +1592,7 @@ describe('runBrew', () => {
           until: cellarUntil.toISOString(),
         },
       ]);
-      assert.ok(
-        f.lines.includes('foedrum brew: took batch 12-1 over from cellar'),
-        f.lines.join('\n'),
-      );
+      assert.ok(f.lines.includes('foedrum brew: took #12 over from cellar'), f.lines.join('\n'));
       assert.equal(f.started.length > 0, true);
     });
 

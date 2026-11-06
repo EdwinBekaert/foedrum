@@ -159,23 +159,20 @@ describe('npm run demo', () => {
     // foedrum brew orders the second issue, routes it by its label, and drives it to on tap.
     const brew = part('brew');
     assert.ok(brew.includes(`$ foedrum brew ${BREW_ORDER.number} --as ${USER}\n`), brew);
-    assert.match(brew, /foedrum brew: ordered #2 as batch 2-1/);
-    assert.match(brew, /foedrum brew: routed batch 2-1 to the recipe nip-parallel$/m);
-    assert.match(
-      brew,
-      /foedrum brew: batch 2-1 is on tap: https:\/\/github\.com\/demo\/web\/pull\/\d+/,
-    );
+    assert.match(brew, /foedrum brew: ordered #2$/m);
+    assert.match(brew, /foedrum brew: routed #2 to the recipe nip-parallel$/m);
+    assert.match(brew, /foedrum brew: #2 is on tap: https:\/\/github\.com\/demo\/web\/pull\/\d+/);
     // Once (#662).
-    assert.doesNotMatch(brew, /batch 2-1 on tap/);
+    assert.doesNotMatch(brew, /#2 on tap/);
     // foedrum resume names the Cellarman's attempt and prints its line, opening nothing.
     assert.match(
       part('resume'),
-      /\$ foedrum resume 1-1 implement#2\n[^$]*foedrum resume 1-1 implement#2/,
+      /\$ foedrum resume 1 implement#2\n[^$]*foedrum resume 1 implement#2/,
     );
     // replay shows the state the fold makes of the batch's events, and only counts them (#662).
     const replay = part('replay');
     assert.match(replay, /Batch 1-1, issue/);
-    assert.match(replay, /Events +\d+, left out here: foedrum replay 1-1 lists them/);
+    assert.match(replay, /Events +\d+, left out here: foedrum replay 1 lists them/);
     assert.doesNotMatch(replay, /batch\.on_tap/);
     assert.match(replay, /lane +on tap/);
 
@@ -349,8 +346,8 @@ describe('npm run demo', () => {
   it("step 12 prints the Innkeeper's question with its two choices", () => {
     const mash = part('mash');
     assert.ok(mash.includes('$ foedrum mash 3 --as ann\n'), mash);
-    assert.match(mash, /foedrum mash: routed batch 3-1 to the recipe mash-in$/m);
-    assert.match(mash, /foedrum mash: batch 3-1 needs input at innkeep:$/m);
+    assert.match(mash, /foedrum mash: routed #3 to the recipe mash-in$/m);
+    assert.match(mash, /foedrum mash: #3 needs input at innkeep:$/m);
     assert.match(
       mash,
       /foedrum mash: {3}1\. Which recipe brews #3\? [^\n]*\(mash, nip-parallel; recommended: mash\)$/m,
@@ -359,10 +356,10 @@ describe('npm run demo', () => {
 
   it("after the answer, step 12's foedrum stuck names the plan waiting for review and its next step", () => {
     const mash = part('mash');
-    assert.ok(mash.includes('$ foedrum answer 3-1 mash\n'), mash);
+    assert.ok(mash.includes('$ foedrum answer 3 mash\n'), mash);
     assert.match(
       mash,
-      /foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
+      /foedrum brew: #3 is stuck: the plan of plan #1 is ready for your review; [^\n]*the plan: https:\/\/github\.com\/demo\/brewery\/issues\/3#issuecomment-\d+$/m,
     );
     const stuck = mash.slice(mash.indexOf('$ foedrum stuck\n'));
     assert.ok(stuck.startsWith('$ foedrum stuck\n'), mash);

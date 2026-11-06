@@ -776,7 +776,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.equal(
       only().body,
-      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, ['recipe'])}\n\n${marker(1)}`,
+      `${renderPlan('7-1', 'plan', three, undefined, undefined, true, undefined, undefined, [], undefined, ['recipe'], '7')}\n\n${marker(1)}`,
     );
     assert.match(only().body, /\n\nNext: read the plan/);
   });
@@ -791,7 +791,7 @@ describe('planEffects (ADR 0233)', () => {
     await driver.applyEffects();
     assert.ok(
       only().body.endsWith(
-        `\n\nNext: ${planNextStep('7-1', code)} Its other option: \`recipe\`.\n\n${marker(1)}`,
+        `\n\nNext: ${planNextStep('7', code)} Its other option: \`recipe\`.\n\n${marker(1)}`,
       ),
       only().body.slice(-400),
     );
@@ -808,7 +808,7 @@ describe('planEffects (ADR 0233)', () => {
     issue({ kind: 'route', batchId: '7-1', recipe: 'pale', reason: 'label', source: 'label' });
     step('plan', planned(three));
     await driver.applyEffects();
-    assert.match(only().body, /\n\nWaiting for `foedrum approve 7-1`\.\n\nNext: /);
+    assert.match(only().body, /\n\nWaiting for `foedrum approve 7`\.\n\nNext: /);
     issue({ kind: 'approve', batchId: '7-1', by: 'grace', via: 'terminal' });
     assert.equal(log.state().batches.get('7-1')?.lane.kind, 'on_tap');
     await driver.applyEffects();

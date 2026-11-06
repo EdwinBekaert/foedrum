@@ -140,16 +140,16 @@ describe('takeOver (ADR 0124)', () => {
   });
 
   const refusals: [string, () => void, RegExp][] = [
-    ['a batch no driver holds', () => {}, /no driver holds batch b1; foedrum brew drives it/],
+    ['a batch no driver holds', () => {}, /no driver holds #1; foedrum brew 1 drives it/],
     [
       'a batch whose lease expired',
       () => lease('cellar', at(1)),
-      /no driver holds batch b1; foedrum brew drives it/,
+      /no driver holds #1; foedrum brew 1 drives it/,
     ],
     [
       'a batch its new owner holds already',
       () => lease('session-7', at(3)),
-      /session-7 holds batch b1 already/,
+      /session-7 holds #1 already/,
     ],
   ];
   for (const [what, given, reason] of refusals) {
