@@ -7,6 +7,7 @@ import {
   type ClaudeReport,
   type CoverageListing,
   type Event,
+  type FailingPass,
   type GravityReading,
   MAX_OPEN_FINDING_TEXT,
   MOST_FAILED_CHECKS,
@@ -129,6 +130,7 @@ export type RecordedEvent = Extract<
       | 'bottle.opened'
       | 'release.observed'
       | 'system.mapped'
+      | 'batch.recovered'
       | 'pull_request.ended'
       | 'pull_request.base_checked'
       | 'pull_request.pair_checked'
@@ -196,6 +198,18 @@ export type EngineCommand =
   | { kind: 'wait'; batchId: string; on: WaitCondition }
   /** The supervisor found an Ordered batch past its routing deadline (ADR 0032). */
   | { kind: 'unrouted'; batchId: string }
+  /**
+   * A driver's passes failed on the batch for an hour (ADR 0335): the mark, and with `reading` a
+   * brewing batch Stuck, since a failing reading may hide its deadline.
+   */
+  | {
+      kind: 'mark_failing';
+      batchId: string;
+      pass: FailingPass;
+      summary: string;
+      since: string;
+      reading: boolean;
+    }
   /** The supervisor found a Conditioning or Stuck reminder due. */
   | { kind: 'remind'; batchId: string }
   /**
@@ -280,6 +294,7 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'waiting_for_session':
     case 'stalled':
     case 'stopped':
+    case 'failing':
     case 'pull_request_failed':
       return [...withoutAnswer];
     // A plan to review: sign it off (ADR 0281), correct it in a session (ADR 0286), plan it again,
@@ -295,6 +310,23 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
     }
   }
+}
+
+/**
+ * The step a brewing batch whose reading fails goes Stuck on (ADR 0335), read from the fold, since
+ * its recipe may be what throws: its first running attempt. None with no attempt running, which a
+ * retry could not schedule again, and none while a person works in an interactive session.
+ */
+export function failingStep(batch: Batch): string | undefined {
+  if (batch.lane.kind !== 'brewing') return undefined;
+  const running = [...batch.steps.values()].flatMap((step) => {
+    const attempt = runningAttempt(step);
+    return attempt === undefined ? [] : [{ stepId: step.id, attempt }];
+  });
+  const open = running.some(
+    ({ attempt }) => attempt.phase === 'started' && attempt.interactiveSince !== undefined,
+  );
+  return open ? undefined : running[0]?.stepId;
 }
 
 const withoutAnswer: readonly StuckOption[] = ['retry', 'skip', 'recipe', 'rewind', 'cancel'];
@@ -455,6 +487,21 @@ function run(draft: Draft, command: Command): Event[] {
     case 'await_session':
       awaitSession(draft, command);
       break;
+    case 'mark_failing': {
+      const { batchId, pass, summary, since, reading } = command;
+      const batch = draft.batch(batchId);
+      const stepId = reading ? failingStep(batch) : undefined;
+      if (batch.failing !== undefined && stepId === undefined) {
+        throw new Refusal(`batch ${batchId} is already marked failing`);
+      }
+      if (batch.failing === undefined) {
+        draft.push({ type: 'batch.failing', batchId, pass, summary, since });
+      }
+      if (stepId !== undefined) {
+        stick(draft, batchId, { kind: 'failing', stepId, pass, summary, since });
+      }
+      break;
+    }
     case 'fix_pull_request':
       fixPullRequest(draft, command);
       break;

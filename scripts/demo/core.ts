@@ -284,6 +284,8 @@ export const lifeEndOf = (events: readonly { event: Event }[]): LifeEnd | undefi
       case 'order.continued':
       case 'order.ranked':
       case 'step.rescheduled':
+      case 'batch.failing':
+      case 'batch.recovered':
       case 'usage.window_closed':
       case 'usage.window_opened':
         break;

@@ -161,6 +161,17 @@ function rule(state: State, event: Event): string | undefined {
       return bottleable(state, event);
     case 'batch.on_tap':
       return lanes(state, event, ['brewing']);
+    // Any lane, since a batch's reading can fail in any; once each (ADR 0335).
+    case 'batch.failing':
+      return state.batches.get(event.batchId)?.failing === undefined
+        ? undefined
+        : `batch ${event.batchId} is already marked failing`;
+    case 'batch.recovered': {
+      const batch = state.batches.get(event.batchId);
+      return batch === undefined || batch.failing !== undefined
+        ? undefined
+        : `batch ${event.batchId} carries no failing mark`;
+    }
     case 'batch.taken_over':
     case 'batch.cancelled':
       return lanes(state, event, nonTerminal);
