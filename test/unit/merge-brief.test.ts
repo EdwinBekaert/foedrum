@@ -926,7 +926,7 @@ describe('the merge brief (ADR 0225)', () => {
       const body = await brief();
       assert.doesNotMatch(body, /ghp|A1b2/);
       const [line] = body.split('\n').filter((each) => each.includes('Not proven:'));
-      assert.ok(line?.endsWith('adds \\*\\*forged\\*\\* &#64;someone'), line);
+      assert.ok(line?.endsWith('adds \\*\\*forged\\*\\* someone'), line);
     });
 
     it('takes the risk left of the last tasting round only', async () => {
