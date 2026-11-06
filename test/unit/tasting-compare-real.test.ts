@@ -1110,6 +1110,21 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
     }
   });
 
+  it('the lens setups hold no comment: regression test', () => {
+    const lens = REAL_SETUPS.filter((each) => each.endsWith('-lens'));
+    assert.deepEqual(lens, ['855-lens', '864-lens', '867-lens']);
+    for (const setup of lens) {
+      assert.deepEqual(realCommentsOf(setup, 'the-maintainer', read), [], setup);
+    }
+  });
+
+  it('brews nip without the lens setup Taster: regression test', () => {
+    assert.equal(realRecipeOf('867-comments'), REAL_RECIPE);
+    assert.deepEqual(Object.keys(realBreweryFiles('867-comments', 'unused')), [
+      `recipes/${REAL_RECIPE}.jsonc`,
+    ]);
+  });
+
   it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {
     assert.deepEqual(
       realBreweryFiles('867-comments', 'the old text'),
