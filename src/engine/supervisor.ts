@@ -84,6 +84,8 @@ export interface TickPlan {
   releaseLeases: string[];
   /** A closed usage window's reopen is due, before the batches' commands (ADR 0206, ADR 0215). */
   reopen?: true;
+  /** The batches whose reading threw, each once: they get no command this tick (ADR 0328). */
+  failed?: { batchId: string; error: unknown }[];
 }
 
 /** The commands one tick issues: deadlines first (invariant I5), then lost, then stalled attempts. */
@@ -96,19 +98,31 @@ export const planTick = (input: TickInput): TickPlan => {
       commands.set(command.batchId, command);
     }
   };
+  // A batch whose reading threw gets nothing more this tick: the others keep their deadlines (I5),
+  // and a deadline that could not be read is not passed over for a lesser command (ADR 0328).
+  const failed = new Map<string, unknown>();
+  const reading = (batchId: string, read: () => BatchCommand | undefined): void => {
+    if (commands.has(batchId) || failed.has(batchId)) return;
+    try {
+      issue(read());
+    } catch (error) {
+      failed.set(batchId, error);
+    }
+  };
   for (const { batchId } of due) {
     const batch = state.batches.get(batchId);
-    if (batch !== undefined) issue(dueCommand(state, batch, now, recipes));
+    if (batch !== undefined) reading(batchId, () => dueCommand(state, batch, now, recipes));
   }
   // The expired leases of lost attempts this tick leaves to the next: a batch's other children
-  // of a parallel group, which would otherwise wait out their deadline with no lease (ADR 0168).
+  // of a parallel group, or one of a batch that threw, which would otherwise wait out their
+  // deadline with no lease (ADR 0168, ADR 0328).
   const kept = new Set<string>();
   for (const { attemptKey: key, owner, expiresAt } of expiredLeases) {
     const ref = attemptKey.decode(key);
     const batch = ref && state.batches.get(ref.batchId);
     const lost = batch && running(batch).find((attempt) => isSame(attempt, ref));
     if (lost?.phase !== 'started') continue;
-    if (commands.get(lost.batchId)?.kind === 'lose') {
+    if (commands.get(lost.batchId)?.kind === 'lose' || failed.has(lost.batchId)) {
       kept.add(key);
       continue;
     }
@@ -122,23 +136,11 @@ export const planTick = (input: TickInput): TickPlan => {
     });
   }
   for (const batch of state.batches.values()) {
-    if (commands.has(batch.id)) continue;
-    const recipe = batch.recipe && recipes.find(batch.recipe.name);
-    for (const { phase, batchId, stepId, attempt } of running(batch)) {
-      // A step the recipe file no longer has (renamed under the batch) has no stall limit: its
-      // deadline still holds, and asking the recipe about it would throw on every tick.
-      const limit = recipe?.has(stepId) === true ? recipe.stall(stepId) : undefined;
-      const signal =
-        phase === 'started' ? progress.progress({ batchId, stepId, attempt }) : undefined;
-      if (limit !== undefined && signal !== undefined && isStalled(limit, signal, now)) {
-        const { lastProgressAt, turnsWithoutProgress } = signal;
-        issue({ kind: 'stall', batchId, stepId, attempt, lastProgressAt, turnsWithoutProgress });
-      }
-    }
+    reading(batch.id, () => stallCommand(batch, progress, recipes, now));
   }
   // A batch on tap whose pull request failed on the head it pushed goes back (ADR 0219).
   for (const batch of state.batches.values()) {
-    if (!commands.has(batch.id)) issue(fixCommand(state, batch, recipes));
+    reading(batch.id, () => fixCommand(state, batch, recipes));
   }
   // A window is every batch's: whichever supervisor ticks first reopens it (ADR 0206), and each
   // reopens at its own reset (ADR 0215).
@@ -149,8 +151,33 @@ export const planTick = (input: TickInput): TickPlan => {
     commands: [...commands.values()],
     releaseLeases: expiredLeases.map((lease) => lease.attemptKey).filter((key) => !kept.has(key)),
     ...(reopen ? { reopen: true as const } : {}),
+    ...(failed.size === 0
+      ? {}
+      : { failed: [...failed].map(([batchId, error]) => ({ batchId, error })) }),
   };
 };
+
+/** The stall of a running attempt of `batch`, the first of its steps that has one (ADR 0027). */
+function stallCommand(
+  batch: Batch,
+  progress: ProgressSource,
+  recipes: Recipes,
+  now: Date,
+): BatchCommand | undefined {
+  const recipe = batch.recipe && recipes.find(batch.recipe.name);
+  for (const { phase, batchId, stepId, attempt } of running(batch)) {
+    // A step the recipe file no longer has (renamed under the batch) has no stall limit: its
+    // deadline still holds, and asking the recipe about it would throw on every tick.
+    const limit = recipe?.has(stepId) === true ? recipe.stall(stepId) : undefined;
+    const signal =
+      phase === 'started' ? progress.progress({ batchId, stepId, attempt }) : undefined;
+    if (limit !== undefined && signal !== undefined && isStalled(limit, signal, now)) {
+      const { lastProgressAt, turnsWithoutProgress } = signal;
+      return { kind: 'stall', batchId, stepId, attempt, lastProgressAt, turnsWithoutProgress };
+    }
+  }
+  return undefined;
+}
 
 /** What a due deadline asks of `batch`: expire, remind (ADR 0025) or `unrouted` (ADR 0032). */
 function dueCommand(

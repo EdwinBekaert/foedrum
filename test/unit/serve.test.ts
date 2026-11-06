@@ -1233,11 +1233,12 @@ Plan the order in {order}.
   });
 
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {
+    // The heartbeat's reading of a run, which belongs to no pass over the batches (ADR 0328).
     const broken: BrewerRunner = {
-      start: () => {
+      start: () => ({ ended: new Promise(() => {}), stop: () => {} }),
+      progress: () => {
         throw new Error('the runner broke');
       },
-      progress: () => undefined,
     };
     assert.equal(await runServe(f.setup, shell({ runner: () => broken })), 0);
     assert.ok(
@@ -1403,6 +1404,37 @@ describe('formatNotice', () => {
       }),
       'the effects of batch 12-1 could not be read or finished, and the other batches go on: Recipe nip has no step innkeep',
     );
+  });
+
+  it('names the batch that threw and the pass it threw in, and says the others go on (ADR 0328)', () => {
+    const line = (pass: 'supervisor' | 'runs' | 'drive' | 'cleanup') =>
+      formatNotice({ kind: 'batch_failed', batchId: '12-1', pass, error: new Error('boom') });
+    assert.equal(
+      line('supervisor'),
+      'batch 12-1 could not be read by the supervisor, and the other batches go on: boom',
+    );
+    assert.equal(
+      line('runs'),
+      'a run of batch 12-1 could not be read or stopped, and the other batches go on: boom',
+    );
+    assert.equal(
+      line('drive'),
+      'batch 12-1 could not be driven, and the other batches go on: boom',
+    );
+    assert.equal(
+      line('cleanup'),
+      'the worktrees of batch 12-1 could not be cleaned, and the other batches go on: boom',
+    );
+  });
+
+  it('says of each pass that a batch that failed there recovered (ADR 0328)', () => {
+    const line = (pass: 'supervisor' | 'runs' | 'drive' | 'cleanup' | 'effects') =>
+      formatNotice({ kind: 'batch_recovered', batchId: '12-1', pass });
+    assert.equal(line('supervisor'), 'the supervisor reads batch 12-1 again');
+    assert.equal(line('runs'), 'the runs of batch 12-1 read and stop again');
+    assert.equal(line('drive'), 'batch 12-1 is driven again');
+    assert.equal(line('cleanup'), 'the worktrees of batch 12-1 are cleaned again');
+    assert.equal(line('effects'), 'the effects of batch 12-1 read and finish again');
   });
 
   it('counts one worktree and one branch in the singular (regression test)', () => {
