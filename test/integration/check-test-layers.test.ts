@@ -54,7 +54,10 @@ describe('check-test-layers command', () => {
   });
 
   it('exits 1 naming a file under test/unit/ that imports child_process', () => {
-    const result = withProbe('unit/guard-probe.ts', "export { spawn } from 'node:child_process';\n");
+    const result = withProbe(
+      'unit/guard-probe.ts',
+      "export { spawn } from 'node:child_process';\n",
+    );
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stdout, /^test\/unit\/guard-probe\.ts imports child_process/m);
   });

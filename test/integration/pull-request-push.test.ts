@@ -284,7 +284,10 @@ describe('the openPullRequest push with real git', () => {
       assert.equal(git(user, ['rev-parse', 'refs/remotes/origin/main']).trim(), start);
       // The plant works: git in the clone no longer reaches the origin.
       assert.throws(() => git(user, ['ls-remote', origin]));
-      assert.equal(git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]), '');
+      assert.equal(
+        git(origin, ['for-each-ref', '--format=%(refname)', `refs/heads/${bottle}`]),
+        '',
+      );
       assert.deepEqual(requests, []);
       const attempt = state.batches.get('12-1')?.steps.get('open-pull-request')?.attempts.get(1);
       assert.deepEqual(attempt?.phase === 'finished' && attempt.outcome, {
