@@ -5,7 +5,7 @@
 // append its events through the command log, recorded with who issued it and from where
 // (ADR 0025).
 
-import { aliasOf, nextBatchId, targetBatchId } from '../engine/batch-id.ts';
+import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
 import { calledAs, latestBatch, type NamedWork, namedWork } from '../engine/claim-orders.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
@@ -37,6 +37,7 @@ import {
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
+import { sameRepo } from '../engine/task-tree.ts';
 import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -301,12 +302,20 @@ const aliasedOrdering = (
  */
 const breweryOrdering = (
   issue: number,
-  { order, batch }: NamedWork,
+  { order }: NamedWork,
   config: () => BreweryConfig,
 ): Ordering | { refused: string } => {
-  const alias = order.repo === undefined || batch === undefined ? undefined : aliasOf(batch.id);
   const name = `#${issue}`;
-  if (alias === undefined) return { order: { issue }, name };
+  const { repo } = order;
+  if (repo === undefined) return { order: { issue }, name };
+  // The alias foedrum.jsonc gives the repository now: one in the batch's id may have been renamed.
+  const alias = Object.entries(config().repositories).find(([each]) => sameRepo(each, repo))?.[1]
+    .alias;
+  if (alias === undefined) {
+    return {
+      refused: `foedrum.jsonc gives ${repo} no alias; give it one to order its issue again`,
+    };
+  }
   const claimed = aliasedOrdering(alias, order.issue, config());
   return 'refused' in claimed ? claimed : { ...claimed, name };
 };

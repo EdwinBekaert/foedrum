@@ -26,7 +26,7 @@ The maintainer decided on 2026-11-05: "If we take from a repository, we select t
 - **"Alive" reads only the fold, with no call to GitHub:** the latest batch of the target issue knows its Brewery issue and has not found it deleted (`liveOrderOf`).
 - **Before the Brewery issue opens**, `<alias>#<n>` is all there is, and it works.
 - **A Brewery issue a person deleted** is found by the batch's reopen or close (ADR 0144); then `<alias>#<n>` claims anew, in `order` and in `brew`, as it does when `foedrum order 19` finds the issue gone.
-- A closed Brewery issue is ordered again by its number, `foedrum order 19`, which reopens it.
+- A closed Brewery issue is ordered again by its number, `foedrum order 19`, which reopens it, by the alias `foedrum.jsonc` gives its repository now, never the one in the batch's id, so a renamed alias leaves the number working.
 - `foedrum#864` stays where work crosses to the target: the claim, and what goes back there, such as the pull request's `Closes`.
 
 ### The batch id stays the engine's own
@@ -45,7 +45,7 @@ The maintainer decided on 2026-11-05: "If we take from a repository, we select t
 - No file in a Brewery changes, and no event changes: a running batch keeps working.
 - The status comment of a batch waiting for a session gets one more revision for its new words.
 - `brew --new-window` reads no store before it opens the window, so on a live `<alias>#<n>` the refusal shows in that window, and where no window can open its line repeats what was typed, whose run is then refused with the number. `/foedrum:brew` takes the number from the line it read, so it never gets there.
-- `rankRefusal` and `decide`'s pause and stop lose their case for a claimed order's Brewery issue, which the command layer now resolves first; every caller goes through it. `decide`'s `orderRefusal` keeps its own, for a claimed batch whose id has no alias, and its words name the number.
+- `rankRefusal` and `decide`'s pause and stop lose their case for a claimed order's Brewery issue, which the command layer now resolves first; every caller goes through it. `decide`'s `orderRefusal` keeps its own, since a batch ordered by a claimed order's number with no repository would brew the Brewery issue as an order of its own, and its words name the number.
 - `foedrum status foedrum#864` is refused too. It only reads, but one rule for every command is easier to learn than one with an exception.
 
 ## Alternatives considered
