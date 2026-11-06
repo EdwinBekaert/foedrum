@@ -901,6 +901,40 @@ describe('runBrew', () => {
       assert.equal(runner.started.length, 2);
     });
 
+    it('ticks once more after a second Stuck too, when a person moved the batch after the first', async () => {
+      const runner = fakeBrewerRunner({
+        brew: [behave.blocked('findings', 'The tests fail'), behave.succeed('Brewed')],
+      });
+      let retried = false;
+      const again = shell(behave.succeed(), {
+        runner: () => runner,
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            if (!retried && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+              retried = true;
+              const by = { by: 'ann', via: 'terminal' } as const;
+              log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
+            }
+            return { kind: 'unchanged' };
+          },
+        }),
+        push: () => ({
+          commit: async () => 'c'.repeat(40),
+          baseTip: async () => 'b'.repeat(40),
+          isAncestor: async (commit, of) => commit === of,
+          remoteTip: async () => undefined,
+          push: async () => assert.fail('a refused push pushes nothing'),
+          secretScan: async () => [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }],
+          touchedFiles: async () => [],
+        }),
+      });
+      assert.equal(await runBrew(f.setup, again, request), 3);
+      assert.equal(retried, true);
+      assert.match(shown(), /🔔 \*\*Stuck\*\*: `open-pull-request`/);
+      assert.equal(stuckLines().length, 1, f.lines.join('\n'));
+    });
+
     it('still exits Stuck, and says why, when the tick after it stuck throws: regression test', async () => {
       let thrown = false;
       const failing = shell(behave.blocked('findings', 'The tests fail'), {
