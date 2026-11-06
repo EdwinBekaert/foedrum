@@ -10,13 +10,14 @@ import { type AttemptPlansOptions, createAttemptPlans } from '../../src/brewers/
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
 import { baseMergeKey } from '../../src/engine/base-merge.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { checksInput } from '../../src/engine/check-readings.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { type ReadPaths, touchesChecked } from '../../src/engine/plan-touches.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { worktreeClaims } from '../../src/engine/worktree-claims.ts';
-import type { Event } from '../../src/schemas/events.ts';
+import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 
@@ -2669,5 +2670,55 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     });
     const { prompt } = await plans.plan({ ref: plan4, limits: plans.limits(plan4) });
     assert.match(prompt, /source="the plan of step plan#2" name="plan">/);
+  });
+});
+
+describe('createAttemptPlans: a recorded test name (ADR 0342)', () => {
+  const deadlineAt = '2026-10-17T13:00:00.000Z';
+  const commit = 'c'.repeat(40);
+  const name = 'only-in-the-record';
+  const red = { batchId: '12-1', stepId: 'red', attempt: 1 };
+  const reading = {
+    result: 'exited',
+    check: 'test',
+    command: 'npm test',
+    exitCode: 1,
+    tail: '',
+  };
+  const events: Event[] = [
+    ...ordered.slice(0, 2),
+    { type: 'step.scheduled', ...red, deadlineAt },
+    {
+      type: 'step.started',
+      ...red,
+      worktree: { repo: 'acme/api', path: join('/work', 'red'), branch: 'red', commit },
+    },
+    {
+      type: 'step.finished',
+      ...red,
+      outcome: { kind: 'failed', retryable: false, reason: 'the reason of the route' },
+      readings: [reading as GravityReading],
+      unreported: { tests: [name], more: 0 },
+    },
+  ];
+
+  it("reaches no route input through step.finished: the route's reason does", async () => {
+    const { plans } = setup([
+      ...events,
+      { type: 'step.scheduled', ...ref, deadlineAt, route: { from: 'red', why: 'failed' } },
+      started,
+    ]);
+    const { prompt } = await plans.plan(start);
+    assert.match(prompt, /the reason of the route/);
+    assert.ok(!prompt.includes(name), prompt);
+  });
+
+  it("reaches no brewer's checks input through step.finished: the reading does", () => {
+    const state = fold(events);
+    const batch = state.batches.get('12-1');
+    assert.ok(batch !== undefined);
+    const input = checksInput(state, batch, commit);
+    assert.match(input?.text ?? '', /the check "test" failed with exit code 1/);
+    assert.ok(!(input?.text ?? '').includes(name), input?.text);
   });
 });

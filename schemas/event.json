@@ -1265,6 +1265,30 @@
           },
           "additionalProperties": false
         },
+        "unreported": {
+          "type": "object",
+          "properties": {
+            "tests": {
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "more": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "tests",
+            "more"
+          ],
+          "additionalProperties": false
+        },
         "mutants": {
           "minItems": 1,
           "maxItems": 5,

@@ -444,6 +444,17 @@ export const CoverageListing = z.strictObject({
 });
 export type CoverageListing = z.infer<typeof CoverageListing>;
 
+/**
+ * The tests a Gauger named that a test run's reports hold under no name (ADR 0342): the first, each
+ * kept as a failing test's name is, and how many more. None when the run's reports hold them all,
+ * so a later run can take a line off; a run whose reports were not read records nothing.
+ */
+export const UnreportedTests = z.strictObject({
+  tests: z.array(NonEmpty.max(MAX_TEST_NAME_LENGTH)).max(MOST_FAILING_TESTS),
+  more: Count,
+});
+export type UnreportedTests = z.infer<typeof UnreportedTests>;
+
 /** The most of a recorded mutant's file, description, reason or why (ADR 0313). */
 export const MAX_MUTANT_TEXT = 500;
 
@@ -806,6 +817,8 @@ export const Event = z.discriminatedUnion('type', [
     staleMap: StaleMap.optional(),
     // What a check step's uncovered-line check did not measure (ADR 0274).
     coverage: CoverageListing.optional(),
+    // A check step's: the tests the Gauger named that its run's reports hold under no name (ADR 0342).
+    unreported: UnreportedTests.optional(),
     // A Brett attempt's mutants, each with what the engine's runs found (ADR 0313).
     mutants: z.array(MutantRecord).min(1).max(MOST_MUTANTS).optional(),
   }),

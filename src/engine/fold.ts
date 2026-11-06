@@ -24,6 +24,7 @@ import type {
   StuckOption,
   StuckReason,
   Surface,
+  UnreportedTests,
   Usage,
   UsageLimitName,
   UsageScope,
@@ -155,6 +156,8 @@ export type Attempt =
       findings?: RecordedFindings;
       /** A check step's: the test map it found stale without failing for it (ADR 0282). */
       staleMap?: StaleMap;
+      /** A check step's: the tests the Gauger named that its run's reports hold under no name (ADR 0342). */
+      unreported?: UnreportedTests;
       /** A Brett attempt's mutants, with what the engine's runs found (ADR 0313). */
       mutants?: readonly MutantRecord[];
     };
@@ -742,6 +745,7 @@ function apply(state: State, event: Event): State {
           ...(event.usageLimited === undefined ? {} : { usageLimited: event.usageLimited }),
           ...(event.findings === undefined ? {} : { findings: event.findings }),
           ...(event.staleMap === undefined ? {} : { staleMap: event.staleMap }),
+          ...(event.unreported === undefined ? {} : { unreported: event.unreported }),
           ...(event.mutants === undefined ? {} : { mutants: event.mutants }),
         };
       });

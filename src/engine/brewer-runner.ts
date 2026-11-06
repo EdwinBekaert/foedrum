@@ -9,6 +9,7 @@ import type {
   MutantRecord,
   Receipt,
   StaleMap,
+  UnreportedTests,
   Usage,
 } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
@@ -70,6 +71,8 @@ export interface AttemptEnd {
   staleMap?: StaleMap;
   /** What a check step's uncovered-line check did not measure (ADR 0274). */
   coverage?: CoverageListing;
+  /** A check step's: the tests the Gauger named that its run's reports hold under no name (ADR 0342). */
+  unreported?: UnreportedTests;
   /** A Brett attempt's mutants, with what the engine's runs found (ADR 0313). */
   mutants?: readonly MutantRecord[];
   /** The house-yeast rules the attempt's plan gave it (ADR 0169). */

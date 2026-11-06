@@ -20,6 +20,13 @@ A test that pins behaviour the order keeps passes before the change, as it shoul
 The red proof does not judge the names: a passing test is just a passing test.
 The pull request lists them, and the test-design lens checks that each one pins behaviour the order keeps: a Taster that reviews a diff gets the list in its change input ([tasting](../recipes/tasting.md)).
 
+**A test the Gauger names that the run does not report** ([ADR 0342](../../adr/0342-a-test-the-gauger-names-that-the-run-does-not-report-is-said-to-be-not-proven.md)).
+A red proof, and a check step whose test check exited 0, compare the names of the Gauger's latest success with every test of the modules' reports (`src/checks/named-tests.ts`), when every module's reports were read; it judges nothing.
+The comparison stops at a limit of work and then says nothing, as of a report it could not read.
+`step.finished` keeps `unreported`: the first 10 names as a failing test's are kept, and a count of the rest, an empty list when the reports hold them all.
+The latest attempt on the batch's path with that field decides one line in the status comment, and among the attempts of the current recipe one under the merge brief's Risk left: `Not proven: the test run reports no test named: a, b`.
+A red proof with no failing test, or none in a changed test file, adds to its reason how many it does not hold, and no name.
+
 **What `testsUnchanged` keeps** ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 After an attempt of a brewer with the guard succeeds, the engine compares the test files at its branch with what the step its recipe's red proof proves committed.
 Every line that step added to a separate test file of the effective map, from the maps at the base the batch's change starts from and at the proven step's tip, must still be there as often as before, compared trimmed, blank lines aside: imports and helpers included, so an edited import line fails the attempt too.
@@ -32,7 +39,7 @@ An attempt that changed them fails, and is retried; a brewer that thinks a test 
 
 ## With a test map
 
-The red proof reads the test map the base or its tip has, and no test names ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
+The red proof judges by the test map the base or its tip has, never by a test's name: the names a Gauger gave are only compared for what a person is told (above) ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
 The base is taken as green, so a test that fails after the proven step failed because of it, and a test that passes, such as a regression test, is just a passing test.
 
 **The run.** The engine reads the map at the batch's base (the base it merged, else where its change starts) and at the red proof's tip, and builds the [effective map](test-map.md): a base map that cannot be read makes the batch Stuck (`environment`), and a tip map that cannot be read fails the step for its `onFail` route.
