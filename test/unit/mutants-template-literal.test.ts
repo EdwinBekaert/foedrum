@@ -194,7 +194,7 @@ describe('a mutant inside a template literal (ADR 0341)', () => {
       'the replacement adds failed',
     );
     // A word built from a numeric escape is new too, and so is a string's content or a comment's.
-    assert.equal(reasonOf('x(`a`);', 'x(`\\x65val`);'), 'the replacement adds \\x65, val');
+    assert.equal(reasonOf('x(`a`);', 'x(`\\x65val`);'), 'the replacement adds \\x65val');
     assert.equal(reasonOf("x(`a`, 'b');", "x(`b`, 'b');"), 'the replacement adds b');
     assert.equal(reasonOf('x(`a`); // b', 'x(`b`);'), 'the replacement adds b');
   });
@@ -215,6 +215,17 @@ describe('a mutant inside a template literal (ADR 0341)', () => {
     assert.equal(reasonOf('x(`a`);', 'x(`\\u{65}`);'), 'the replacement adds \\u{65}');
     assert.equal(reasonOf('x(`u a`);', 'x(`\\u{65} a`);'), 'the replacement adds \\u{65}');
     assert.equal(reasonOf('x(`\\x65 a`);', 'x(`a \\x65`);'), undefined);
+  });
+
+  it('reads a numeric escape with the word it joins, so joining them spells no new word', () => {
+    assert.equal(reasonOf('x(`\\x65 val`);', 'x(`\\x65val`);'), 'the replacement adds \\x65val');
+    assert.equal(reasonOf('x(`e \\x76 al`);', 'x(`e\\x76al`);'), 'the replacement adds e\\x76al');
+    assert.equal(reasonOf('x(`\\x65val b`);', 'x(`b \\x65val`);'), undefined);
+  });
+
+  it('an escaped backtick on a middle line of a multi-line literal opens no literal', () => {
+    assert.equal(reasonOf('use \\`foo\\` here', ''), undefined);
+    assert.equal(reasonOf('use \\`foo\\` here', 'use foo here'), undefined);
   });
 
   it('reads a replacement with no literal left, so no word of the text becomes code', () => {
