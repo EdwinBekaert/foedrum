@@ -44,7 +44,9 @@ export const formatStuck = (state: State): string => {
   const marked = [...state.batches.values()].flatMap((batch) =>
     batch.lane.kind === 'stuck'
       ? []
-      : failingParts(batch).map((part) => `${batch.id} ${batch.lane.kind}: ${part}`),
+      : failingParts(batch).map(
+          (part) => `${batch.id}  ${orderName(state, batch)}  ${batch.lane.kind}: ${part}`,
+        ),
   );
   const also = marked.length === 0 ? [] : ['', ...marked];
   if (stuck.length === 0) return `${['No Stuck batches.', ...also].join('\n')}\n`;
@@ -72,6 +74,11 @@ export const formatStuck = (state: State): string => {
   const lines = stuck.flatMap(({ batch, lane }, i) => [
     heads[i] ?? '',
     `  options: ${lane.options.join(', ')}`,
+    // A number means the latest batch: an older one's options run by its id (ADR 0334).
+    ...read(
+      () => (calledAs(state, batch) === batch.id ? [`  run as: foedrum <option> ${batch.id}`] : []),
+      () => [],
+    ),
     ...(lane.reason.kind === 'needs_input'
       ? lane.reason.questions.map(
           ({ q, options, recommended }, n) =>
@@ -84,7 +91,7 @@ export const formatStuck = (state: State): string => {
     ),
     // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
     ...(lane.reason.kind === 'plan_review'
-      ? [`  next: ${planNextStep(batch.id, (command) => command)}`]
+      ? [`  next: ${planNextStep(calledAs(state, batch), (command) => command)}`]
       : []),
   ]);
   const count = `${stuck.length} Stuck ${stuck.length === 1 ? 'batch' : 'batches'}`;

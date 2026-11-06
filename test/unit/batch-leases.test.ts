@@ -140,16 +140,16 @@ describe('takeOver (ADR 0124)', () => {
   });
 
   const refusals: [string, () => void, RegExp][] = [
-    ['a batch no driver holds', () => {}, /no driver holds batch b1; foedrum brew drives it/],
+    ['a batch no driver holds', () => {}, /no driver holds #1; foedrum brew 1 drives it/],
     [
       'a batch whose lease expired',
       () => lease('cellar', at(1)),
-      /no driver holds batch b1; foedrum brew drives it/,
+      /no driver holds #1; foedrum brew 1 drives it/,
     ],
     [
       'a batch its new owner holds already',
       () => lease('session-7', at(3)),
-      /session-7 holds batch b1 already/,
+      /session-7 holds #1 already/,
     ],
   ];
   for (const [what, given, reason] of refusals) {
@@ -163,6 +163,14 @@ describe('takeOver (ADR 0124)', () => {
       assert.deepStrictEqual(store.batchLeases(at(1)), before);
     });
   }
+
+  it('refuses a batch that was never ordered, naming it: regression test (ADR 0334)', () => {
+    const decision = takeOverAt(at(1), 'session-7', 'b9');
+    assert.deepStrictEqual(
+      decision.kind === 'refused' ? decision.reason : decision.kind,
+      'there is no batch b9',
+    );
+  });
 
   it('refuses a batch that has ended, moving no lease', () => {
     log.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, t0);

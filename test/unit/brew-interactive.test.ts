@@ -175,7 +175,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, []);
       assert.match(
         f.lines.at(-2) ?? '',
-        /^foedrum brew: batch 12-1 is stuck: waiting for a session at refine: foedrum brew 12 --take opens it in a terminal; reminder [^;]+; options: retry, /,
+        /^foedrum brew: #12 is stuck: waiting for a session at refine: foedrum brew 12 --take opens it in a terminal; reminder [^;]+; options: retry, /,
       );
       assert.equal(
         f.lines.at(-1),
@@ -217,7 +217,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(resumedBy(), ['retry by ann via terminal']);
       assert.deepStrictEqual(f.started, ['refine#2']);
       assert.ok(
-        f.lines.includes('foedrum brew: batch 12-1 waits for a session at refine; opening it'),
+        f.lines.includes('foedrum brew: #12 waits for a session at refine; opening it'),
         String(f.lines),
       );
     });

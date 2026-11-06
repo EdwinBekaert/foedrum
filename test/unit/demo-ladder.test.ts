@@ -353,6 +353,23 @@ describe('ladderLifeEnd', () => {
       events.map((event) => ({ event: event as Event })),
     ).kind;
 
+  it('says the number of a batch that fails a life: regression test (ADR 0334)', () => {
+    const ordered = {
+      type: 'batch.ordered',
+      batchId: '2-1',
+      order: { issue: 2 },
+      routeBy: '2026-10-17T13:00:00.000Z',
+    };
+    const cancelled = { type: 'batch.cancelled', batchId: '2-1', by: 'ann', via: 'terminal' };
+    assert.deepStrictEqual(
+      ladderLifeEnd(
+        'lib',
+        [ordered, cancelled].map((event) => ({ event: event as Event })),
+      ),
+      { kind: 'failed', line: 'demo: #2 was cancelled' },
+    );
+  });
+
   it("ends the plan's life once the planned batch is Stuck", () => {
     assert.equal(of('plan', ordered(PLANNED)), 'brewing');
     assert.equal(of('plan', ordered(PLANNED), reviewing), 'ended');
@@ -450,11 +467,9 @@ describe('ladderProblems', () => {
   });
 
   it('names a life that failed, with its last lines', () => {
-    const lives = new Map([
-      ['web', life(1, 'demo: batch 3-1 is Stuck: attempts_exhausted\n')],
-    ] as const);
+    const lives = new Map([['web', life(1, 'demo: #3 is Stuck: attempts_exhausted\n')]] as const);
     assert.deepStrictEqual(ladderProblems({ ...good, lives }), [
-      "the Cellar's web life ended with exit code 1:\ndemo: batch 3-1 is Stuck: attempts_exhausted",
+      "the Cellar's web life ended with exit code 1:\ndemo: #3 is Stuck: attempts_exhausted",
     ]);
   });
 
@@ -476,9 +491,9 @@ describe('ladderProblems', () => {
       ladderProblems({
         ...good,
         orderState: 'open',
-        failedCommands: ['foedrum approve 1-1 failed (exit code 1)'],
+        failedCommands: ['foedrum approve 1 failed (exit code 1)'],
       }),
-      ['order #1 is open, not closed', 'foedrum approve 1-1 failed (exit code 1)'],
+      ['order #1 is open, not closed', 'foedrum approve 1 failed (exit code 1)'],
     );
   });
 });
@@ -558,7 +573,7 @@ describe('ladderBrewers', () => {
 });
 
 describe('ladderTick', () => {
-  const ended = { kind: 'ended', line: 'demo: batch 2-1 is on tap' } as const;
+  const ended = { kind: 'ended', line: 'demo: #2 is on tap' } as const;
 
   it('waits while the life brews, quiet or not', () => {
     assert.equal(ladderTick({ kind: 'brewing' }, true), 'wait');
@@ -571,10 +586,7 @@ describe('ladderTick', () => {
   });
 
   it('ends a failed life at once', () => {
-    assert.equal(
-      ladderTick({ kind: 'failed', line: 'demo: batch 2-1 was cancelled' }, false),
-      'end',
-    );
+    assert.equal(ladderTick({ kind: 'failed', line: 'demo: #2 was cancelled' }, false), 'end');
   });
 });
 
@@ -609,7 +621,7 @@ describe('runLadder', () => {
         live: async (life) => {
           lives.push(life);
           const exitCode = life === failing.life ? 1 : 0;
-          const output = exitCode === 0 ? '' : 'demo: batch 1-1 is Stuck: attempts_exhausted\n';
+          const output = exitCode === 0 ? '' : 'demo: #1 is Stuck: attempts_exhausted\n';
           return { exitCode, output, stdout: output, stderr: '' } as ProcessOutcome;
         },
       });
@@ -625,7 +637,7 @@ describe('runLadder', () => {
     assert.deepStrictEqual(lives, ['plan']);
     assert.ok(
       said.includes(
-        "demo: the Cellar's plan life ended with exit code 1:\ndemo: batch 1-1 is Stuck: attempts_exhausted",
+        "demo: the Cellar's plan life ended with exit code 1:\ndemo: #1 is Stuck: attempts_exhausted",
       ),
       said.join('\n'),
     );
@@ -635,7 +647,7 @@ describe('runLadder', () => {
     const { code, said, lives } = await run({ command: 'approve' });
     assert.equal(code, 1);
     assert.deepStrictEqual(lives, ['plan']);
-    assert.ok(said.includes('demo: foedrum approve 1-1 failed (exit code 1)'), said.join('\n'));
+    assert.ok(said.includes('demo: foedrum approve 1 failed (exit code 1)'), said.join('\n'));
   });
 
   it('stops at an error of its own, such as a merge with no pull request, and says it (regression test)', async () => {

@@ -124,8 +124,8 @@ describe('foedrum brew', () => {
 
     const output = lines.join('\n');
     assert.equal(exitCode, 0, output);
-    assert.ok(lines.includes(`foedrum brew: ordered #${ORDER.number} as batch 1-1`), output);
-    assert.ok(lines.includes('foedrum brew: routed batch 1-1 to the recipe nip-parallel'), output);
+    assert.ok(lines.includes(`foedrum brew: ordered #${ORDER.number}`), output);
+    assert.ok(lines.includes('foedrum brew: routed #1 to the recipe nip-parallel'), output);
     // One pull request on the code host, from the batch's bottle branch into main, with the
     // brewer's commit pushed to the target's remote.
     const branch = `foedrum/${BREWERY.replace('/', '.')}/1-1/${TARGET.replace('/', '.')}`;
@@ -146,7 +146,7 @@ describe('foedrum brew', () => {
     const [pull] = host.pulls();
     assert.equal(
       lines.at(-1),
-      `foedrum brew: batch 1-1 is on tap: https://github.com/${TARGET}/pull/${pull?.number}`,
+      `foedrum brew: #1 is on tap: https://github.com/${TARGET}/pull/${pull?.number}`,
     );
   });
 });

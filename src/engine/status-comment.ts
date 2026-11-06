@@ -144,8 +144,15 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
  * What a person does with a plan that waits for its review (ADR 0281): `command` writes a command
  * as the reader shows it.
  */
-export const planNextStep = (batchId: string, command: (text: string) => string): string =>
-  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${batchId}`)}, correct it in a session with ${command(`foedrum lauter ${batchId}`)}, plan it again with ${command(`foedrum retry ${batchId}`)}, or end it with ${command(`foedrum cancel ${batchId}`)}.`;
+export const planNextStep = (called: string, command: (text: string) => string): string =>
+  `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${called}`)}, correct it in a session with ${command(`foedrum lauter ${called}`)}, plan it again with ${command(`foedrum retry ${called}`)}, or end it with ${command(`foedrum cancel ${called}`)}.`;
+
+/**
+ * An option as a line offers it: its name, under a comment that says its number, or the whole command
+ * for a batch a number would not reach (ADR 0334).
+ */
+const optionOffered = (option: string, called: string, batchId: string): string =>
+  called === batchId ? `foedrum ${option} ${called}` : option;
 
 /** The options of a plan's review that `planNextStep` names. */
 const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry', 'cancel']);
@@ -154,13 +161,17 @@ const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry',
  * The text of the `Next:` line of a plan that waits for its review, in the status comment and the
  * plan comment alike: `planNextStep`, then the lane's `options` it does not name (#855).
  */
-export const planNextLine = (batchId: string, options: readonly string[]): string => {
+export const planNextLine = (
+  called: string,
+  options: readonly string[],
+  batchId: string,
+): string => {
   const others = options.filter((option) => !planCommands.has(option));
   const also =
     others.length === 0
       ? ''
-      : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map(code).join(', ')}.`;
-  return `Next: ${planNextStep(batchId, code)}${also}`;
+      : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map((option) => code(optionOffered(option, called, batchId))).join(', ')}.`;
+  return `Next: ${planNextStep(called, code)}${also}`;
 };
 
 /** `rounds` rounds of a findings route, in words. */
@@ -619,22 +630,23 @@ const nextLines = (
   batch: Batch,
   subIssues: readonly number[] | undefined,
   rows: readonly SubOrderRow[],
+  called: string,
 ): string[] => {
   const { lane } = batch;
   if (lane.kind === 'stuck') {
     const { reason, options } = lane;
     const moving = (shown: readonly string[]): string =>
-      `get it moving with ${shown.map(code).join(', ')}`;
+      `get it moving with ${shown.map((option) => code(optionOffered(option, called, batch.id))).join(', ')}`;
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
       case 'plan_review':
-        return [planNextLine(batch.id, options)];
+        return [planNextLine(called, options, batch.id)];
       case 'needs_input': {
         const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
         const others = options.filter((option) => option !== 'answer');
         const or = others.length === 0 ? '' : `, or ${moving(others)}`;
         return [
-          `Next: answer the questions above with ${code(`foedrum answer ${batch.id} ${answers}`)}${or}.`,
+          `Next: answer the questions above with ${code(`foedrum answer ${called} ${answers}`)}${or}.`,
         ];
       }
       default:
@@ -1231,7 +1243,7 @@ export const renderStatus = (
   subOrderPulls: readonly SubOrderRow[] = [],
   /** The Brewery issue the comment is on, whose number its session line names (ADR 0329). */
   order: number = batch.issue,
-  /** How its handover line names its work (`calledAs`, ADR 0329). */
+  /** How its `Next:` and handover lines name its work, which a batch that is not the latest does by id (ADR 0334). */
   called: string = String(order),
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
@@ -1251,7 +1263,7 @@ export const renderStatus = (
       ...subOrderPulls.map(subOrderPullLine),
       ...(paused === undefined ? [] : [pauseText(paused)]),
       ...usageWindowLines(batch, usageWindows),
-      ...nextLines(batch, subIssues, subOrderPulls),
+      ...nextLines(batch, subIssues, subOrderPulls, called),
     ],
     [
       recipeText(batch.recipe),

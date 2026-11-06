@@ -43,7 +43,13 @@ import {
   stoppedEnd,
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
-import { claimedName, claimOfOrder, claimStandingOf, liveOrderOf } from './claim-orders.ts';
+import {
+  claimedName,
+  claimOfOrder,
+  claimStandingOf,
+  liveOrderOf,
+  orderSaid,
+} from './claim-orders.ts';
 import {
   type Attempt,
   type Batch,
@@ -641,7 +647,7 @@ function busy(state: State, order: OrderRef): string | undefined {
     if (ofRepo === undefined ? repo !== undefined : repo === undefined || !same(ofRepo, repo)) {
       continue;
     }
-    const of = `batch ${batch.id} of ${ofRepo ?? ''}#${issue}`;
+    const of = orderSaid(state, order);
     if (nonTerminal.includes(batch.lane.kind)) return `${of} is still ${batch.lane.kind}`;
     if (ofRepo === undefined) continue;
     const standing = claimStandingOf(state, batch, ofRepo);
@@ -649,7 +655,7 @@ function busy(state: State, order: OrderRef): string | undefined {
       case 'held':
         return `${of} holds its claim until its pull requests end`;
       case 'releasing':
-        return `the release of the claim of batch ${batch.id} is still due: foedrum serve applies it, then foedrum order ${liveOrderOf(state, order) ?? claimedName(batch)} again`;
+        return `the release of the claim of ${of} is still due: foedrum serve applies it, then foedrum order ${liveOrderOf(state, order) ?? claimedName(batch)} again`;
       case 'released':
         continue;
       default:
@@ -1493,9 +1499,6 @@ function recipeOf(draft: Draft, batch: Batch): Recipe {
   return find(draft, batch.recipe.name);
 }
 
-/** How an order is named in a refusal: `#<n>`, or `<owner>/<name>#<n>` for a target issue's. */
-const orderName = ({ issue, repo }: OrderRef): string => `${repo ?? ''}#${issue}`;
-
 /**
  * A person's pause of an order, or with no order of the whole Brewery (ADR 0202): it holds any
  * order with a batch that has not ended, and replaces an earlier pause of the same order.
@@ -1507,7 +1510,9 @@ function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void
       nonTerminal.includes(batch.lane.kind),
     );
     if (!live) {
-      throw new Refusal(`there is no batch of ${orderName(order)} that has not ended to pause`);
+      throw new Refusal(
+        `there is no batch of ${orderSaid(draft.state, order)} that has not ended to pause`,
+      );
     }
   }
   draft.push({
@@ -1527,7 +1532,7 @@ function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void
  */
 function batchesOf(draft: Draft, order: OrderRef, verb: 'pause' | 'stop'): Batch[] {
   const { state } = draft;
-  const name = orderName(order);
+  const name = orderSaid(state, order);
   const subOrder = order.repo === undefined ? state.subOrders.get(order.issue) : undefined;
   if (subOrder !== undefined) {
     throw new Refusal(`${name} is a sub-order of #${subOrder.order}; ${verb} #${subOrder.order}`);
@@ -1551,7 +1556,7 @@ function stop(draft: Draft, command: Stop): void {
     return stepId === undefined ? [] : [{ batchId: batch.id, stepId }];
   });
   if (stops.length === 0) {
-    throw new Refusal(`there is no brewing batch of ${orderName(order)} to stop`);
+    throw new Refusal(`there is no brewing batch of ${orderSaid(draft.state, order)} to stop`);
   }
   for (const { batchId, stepId } of stops) {
     stick(draft, batchId, {
@@ -1577,10 +1582,10 @@ function lift(draft: Draft, command: Extract<Command, { kind: 'continue' }>): vo
     }
   } else if (pauses.all !== undefined) {
     throw new Refusal(
-      `the whole Brewery is paused: foedrum continue --all lifts it, ${orderName(order)} with it`,
+      `the whole Brewery is paused: foedrum continue --all lifts it, ${orderSaid(draft.state, order)} with it`,
     );
   } else if (!pauses.orders.has(orderKey(order))) {
-    throw new Refusal(`${orderName(order)} is not paused`);
+    throw new Refusal(`${orderSaid(draft.state, order)} is not paused`);
   }
   const held = [...draft.state.batches.values()].filter(
     (batch) => pauseOf(draft.state, batch) !== undefined,

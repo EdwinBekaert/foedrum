@@ -127,11 +127,11 @@ const shell: ServeShell = {
         out(`${ON_TAP_LINE}: ${end.pullRequests.join(', ')}`);
         break;
       case 'stuck':
-        out(`demo: batch 1-1 is Stuck: ${end.reason}`);
+        out(`demo: #1 is Stuck: ${end.reason}`);
         failed = true;
         break;
       case 'cancelled':
-        out('demo: batch 1-1 was cancelled');
+        out('demo: #1 was cancelled');
         failed = true;
         break;
       default:

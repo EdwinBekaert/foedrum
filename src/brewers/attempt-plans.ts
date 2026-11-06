@@ -663,6 +663,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       release,
       (id) => brewers.has(recipe, id),
       checks,
+      claimOrderOf(state(), batch.id).issue,
     );
     // A step's lenses together share one folder (ADR 0143, ADR 0220).
     const diffLens = stepLenses[0]?.startsWith('diff/') === true;

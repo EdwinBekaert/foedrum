@@ -369,7 +369,7 @@ describe('the intake in rank order (ADR 0208)', () => {
     accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
     assert.deepStrictEqual(log.issue(rank({ issue: 7, repo: web }, first), t0), {
       kind: 'refused',
-      reason: 'acme/web#7 was ordered as batch web-7: a rank orders only the queue',
+      reason: 'acme/web#7 is already ordered: a rank orders only the queue',
     });
   });
 });
@@ -544,7 +544,7 @@ describe('foedrum rank (ADR 0208)', () => {
     );
     assert.deepStrictEqual(
       await run(['rank', '#12', 'first']),
-      refused('acme/web#7 was ordered as batch web-7: a rank orders only the queue'),
+      refused('#12 is already ordered: a rank orders only the queue'),
     );
     assert.equal(lastId(), before);
   });
@@ -608,7 +608,7 @@ describe('foedrum rank (ADR 0208)', () => {
       const before = lastId();
       assert.deepStrictEqual(
         await run(['rank', '#30', '1'], queue),
-        refused('#30 was ordered as batch 30-1: a rank orders only the queue'),
+        refused('#30 is already ordered: a rank orders only the queue'),
       );
       assert.equal(lastId(), before);
     });

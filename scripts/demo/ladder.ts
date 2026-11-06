@@ -52,7 +52,7 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   },
   {
     id: 'approve',
-    title: `foedrum approve ${PLANNED}`,
+    title: `foedrum approve ${LADDER_ORDER.number}`,
     lookFor: 'the plan signed off by its digest: the batch goes on tap.',
   },
   {
@@ -227,11 +227,11 @@ export const ladderLifeEnd = (
     if (batch.lane.kind === 'stuck' && !(life === 'plan' && reviewing(batch))) {
       return {
         kind: 'failed',
-        line: `demo: batch ${batch.id} is Stuck: ${batch.lane.reason.kind}`,
+        line: `demo: #${batch.issue} is Stuck: ${batch.lane.reason.kind}`,
       };
     }
     if (batch.lane.kind === 'cancelled') {
-      return { kind: 'failed', line: `demo: batch ${batch.id} was cancelled` };
+      return { kind: 'failed', line: `demo: #${batch.issue} was cancelled` };
     }
   }
   const tapped = subOrderBatches(state.batches.values()).filter(
@@ -240,13 +240,16 @@ export const ladderLifeEnd = (
   switch (life) {
     case 'plan':
       return reviewing(state.batches.get(PLANNED))
-        ? { kind: 'ended', line: `demo: batch ${PLANNED} waits Stuck for the review of its plan` }
+        ? {
+            kind: 'ended',
+            line: `demo: #${LADDER_ORDER.number} waits Stuck for the review of its plan`,
+          }
         : { kind: 'brewing' };
     case 'lib':
     case 'web': {
       const wanted = life === 'lib' ? 1 : 2;
       return tapped.length >= wanted
-        ? { kind: 'ended', line: `demo: batch ${tapped[wanted - 1]?.id} is on tap` }
+        ? { kind: 'ended', line: `demo: #${tapped[wanted - 1]?.issue} is on tap` }
         : { kind: 'brewing' };
     }
     case 'close': {
@@ -442,7 +445,7 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     await standing(LADDER_ORDER.number);
 
     await next();
-    await foedrum(['approve', PLANNED]);
+    await foedrum(['approve', String(LADDER_ORDER.number)]);
 
     await next();
     say('demo: the Cellar starts again, and brews until the first pull request is on tap');

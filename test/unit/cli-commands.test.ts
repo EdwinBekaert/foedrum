@@ -452,7 +452,7 @@ describe('foedrum: commands that change state', () => {
     });
 
     it('schedules another attempt, recorded with who issued it and from where', async () => {
-      assert.deepStrictEqual(await run(['retry', '22-1']), ok('22-1 brewing: plan #2 scheduled\n'));
+      assert.deepStrictEqual(await run(['retry', '22-1']), ok('#22 brewing: plan #2 scheduled\n'));
       assert.deepStrictEqual(appended(2), [
         { type: 'batch.resumed', batchId: '22-1', by: 'ada', via: 'terminal', action: 'retry' },
         {
@@ -495,7 +495,7 @@ describe('foedrum: commands that change state', () => {
     it('goes on after the step the batch stopped at', async () => {
       assert.deepStrictEqual(
         await run(['skip', '22-1']),
-        ok('22-1 brewing: implement #1 scheduled\n'),
+        ok('#22 brewing: implement #1 scheduled\n'),
       );
       assert.equal(appended(2)[0]?.type, 'batch.resumed');
     });
@@ -505,7 +505,7 @@ describe('foedrum: commands that change state', () => {
     it('cancels a batch in any lane but the terminal ones', async () => {
       assert.deepStrictEqual(
         await run(['cancel', '23-1']),
-        ok('23-1 cancelled: by ada via terminal\n'),
+        ok('#23 cancelled: by ada via terminal\n'),
       );
       assert.deepStrictEqual(appended(1), [
         { type: 'batch.cancelled', batchId: '23-1', by: 'ada', via: 'terminal' },
@@ -525,7 +525,7 @@ describe('foedrum: commands that change state', () => {
       waiting();
       assert.deepStrictEqual(
         await run(['approve', '27-1'], { user: () => 'grace', surface: 'plugin' }),
-        ok('27-1 on tap: plan approved by grace via plugin\n'),
+        ok('#27 on tap: plan approved by grace via plugin\n'),
       );
       assert.deepStrictEqual(appended(2), [
         {
@@ -941,7 +941,7 @@ describe('foedrum: commands that change state', () => {
     it('makes the brewing batch of an order Stuck stopped, recorded with who, from where and why', async () => {
       assert.deepStrictEqual(
         await run(['stop', '#23', '--why', 'lunch']),
-        ok('#23 stopped: 23-1 is Stuck at plan; foedrum retry continues it\n'),
+        ok('#23 stopped: #23 is Stuck at plan; foedrum retry continues it\n'),
       );
       assert.deepStrictEqual(appended(1), [
         {
@@ -980,7 +980,7 @@ describe('foedrum: commands that change state', () => {
 
     it('is continued by retry, from the step it stopped', async () => {
       await run(['stop', '23']);
-      assert.deepStrictEqual(await run(['retry', '23-1']), ok('23-1 brewing: plan #2 scheduled\n'));
+      assert.deepStrictEqual(await run(['retry', '23-1']), ok('#23 brewing: plan #2 scheduled\n'));
     });
 
     it("names each batch it stops, a sub-order's too, and shows a stop without a reason as such", async () => {
@@ -1003,7 +1003,7 @@ describe('foedrum: commands that change state', () => {
       assert.deepStrictEqual(
         await run(['stop', '23']),
         ok(
-          '#23 stopped: 23-1 is Stuck at plan, 30-1 is Stuck at plan; foedrum retry continues each\n',
+          '#23 stopped: #23 is Stuck at plan, #30 is Stuck at plan; foedrum retry continues each\n',
         ),
       );
       assert.match(
@@ -1017,7 +1017,7 @@ describe('foedrum: commands that change state', () => {
     it('records the plugin as the surface of a command the plugin runs', async () => {
       assert.deepStrictEqual(
         await run(['cancel', '23-1', '--via', 'plugin']),
-        ok('23-1 cancelled: by ada via plugin\n'),
+        ok('#23 cancelled: by ada via plugin\n'),
       );
       assert.deepStrictEqual(appended(1), [
         { type: 'batch.cancelled', batchId: '23-1', by: 'ada', via: 'plugin' },
@@ -1084,7 +1084,7 @@ describe('foedrum: commands that change state', () => {
     it('answers the questions in the order they were asked, and resumes the step', async () => {
       assert.deepStrictEqual(
         await run(['answer', '21-1', 'sqlite', 'no, drop it']),
-        ok('21-1 brewing: plan #2 scheduled\n'),
+        ok('#21 brewing: plan #2 scheduled\n'),
       );
       assert.deepStrictEqual(appended(3)[0], {
         type: 'input.received',
@@ -1101,7 +1101,7 @@ describe('foedrum: commands that change state', () => {
 
     it('refuses too few or too many answers, appending nothing', async () => {
       const before = lastId();
-      const reason = 'batch 21-1 asked 2 questions; give one answer to each, in order';
+      const reason = '#21 asked 2 questions; give one answer to each, in order';
       assert.deepStrictEqual(await run(['answer', '21-1', 'sqlite']), refused('answer', reason));
       assert.deepStrictEqual(
         await run(['answer', '21-1', 'sqlite', 'no', 'and more']),
@@ -1139,7 +1139,7 @@ describe('foedrum: commands that change state', () => {
     it('brews the batch with another recipe from its first step', async () => {
       assert.deepStrictEqual(
         await run(['recipe', '22-1', 'stout', 'the plan needs an analysis']),
-        ok('22-1 brewing: analyze #1 scheduled\n'),
+        ok('#22 brewing: analyze #1 scheduled\n'),
       );
       assert.deepStrictEqual(appended(3).slice(0, 2), [
         {
@@ -1165,7 +1165,7 @@ describe('foedrum: commands that change state', () => {
     it("brews an issue's live batch with another recipe, by the issue (ADR 0240)", async () => {
       assert.deepStrictEqual(
         await run(['recipe', '#22', 'stout', 'the plan needs an analysis']),
-        ok('22-1 brewing: analyze #1 scheduled\n'),
+        ok('#22 brewing: analyze #1 scheduled\n'),
       );
       assert.deepStrictEqual(appended(3)[0], {
         type: 'batch.recipe_chosen',
@@ -1182,10 +1182,7 @@ describe('foedrum: commands that change state', () => {
       const before = lastId();
       assert.deepStrictEqual(
         await run(['recipe', '#23', 'stout', 'the plan needs an analysis']),
-        refused(
-          'recipe',
-          'batch 23-1 of #23 is brewing; foedrum stop 23 first, then change its recipe',
-        ),
+        refused('recipe', '#23 is brewing; foedrum stop 23 first, then change its recipe'),
       );
       assert.equal(lastId(), before);
     });
@@ -1195,7 +1192,7 @@ describe('foedrum: commands that change state', () => {
     it('takes the batch back to a step with the commit of each repository', async () => {
       assert.deepStrictEqual(
         await run(['rewind', '22-1', 'plan', `acme/app=${SHA}`, `acme/lib=${'e'.repeat(40)}`]),
-        ok('22-1 brewing: plan #2 scheduled\n'),
+        ok('#22 brewing: plan #2 scheduled\n'),
       );
       assert.deepStrictEqual(appended(2)[0], {
         type: 'batch.rewound',
@@ -1248,7 +1245,7 @@ describe('foedrum: commands that change state', () => {
     it("hands a batch from the driver that holds it to --as's, recording who and from where", async () => {
       assert.deepStrictEqual(
         await run(['takeover', '22-1', '--as', 'ann']),
-        ok(`22-1 handed from cellar to ann; its effects wait until ${iso(3)}\n`),
+        ok(`#22 handed from cellar to ann; its effects wait until ${iso(3)}\n`),
       );
       assert.deepStrictEqual(appended(1), [
         {
@@ -1275,7 +1272,7 @@ describe('foedrum: commands that change state', () => {
     it('hands it to terminal without --as outside a session (ADR 0259)', async () => {
       assert.deepStrictEqual(
         await run(['takeover', '22-1']),
-        ok(`22-1 handed from cellar to terminal; its effects wait until ${iso(3)}\n`),
+        ok(`#22 handed from cellar to terminal; its effects wait until ${iso(3)}\n`),
       );
       assert.deepStrictEqual(leases(), [['22-1', 'terminal']]);
     });
@@ -1297,7 +1294,7 @@ describe('foedrum: commands that change state', () => {
     it('refuses a batch no other driver holds', async () => {
       assert.deepStrictEqual(
         await run(['takeover', '23-1', '--as', 'ann']),
-        refused('takeover', 'no driver holds batch 23-1; foedrum brew drives it'),
+        refused('takeover', 'no driver holds #23; foedrum brew 23 drives it'),
       );
     });
   });
@@ -1406,7 +1403,7 @@ describe('foedrum stuck', () => {
         '',
         `12-1  #12  the plan of plan #2 is ready for your review; reminder ${iso(2880)}`,
         '  options: retry, recipe, cancel',
-        '  next: read the plan and its assumptions; sign it off with foedrum approve 12-1, correct it in a session with foedrum lauter 12-1, plan it again with foedrum retry 12-1, or end it with foedrum cancel 12-1.',
+        '  next: read the plan and its assumptions; sign it off with foedrum approve 12, correct it in a session with foedrum lauter 12, plan it again with foedrum retry 12, or end it with foedrum cancel 12.',
         '',
       ].join('\n'),
       stderr: '',
@@ -1903,7 +1900,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
 
   describe('a target-repository issue', () => {
     it('claims it again and orders it as <alias>-<n>-<k>, recorded with who and from where', async () => {
-      assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web-7-2 ${ordered}\n`));
+      assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web#7 ${ordered}\n`));
       assert.deepStrictEqual(last(), {
         type: 'batch.ordered',
         batchId: 'web-7-2',
@@ -1922,11 +1919,11 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
 
     it('orders an issue whose claim is its own already', async () => {
       github.setRef('acme/web', 7, record('acme/brewery', 7));
-      assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web-7-2 ${ordered}\n`));
+      assert.deepStrictEqual(await run(['order', 'web#7']), ok(`web#7 ${ordered}\n`));
     });
 
     it('orders an issue it never brewed as <alias>-<n>', async () => {
-      assert.deepStrictEqual(await run(['order', 'web#5']), ok(`web-5 ${ordered}\n`));
+      assert.deepStrictEqual(await run(['order', 'web#5']), ok(`web#5 ${ordered}\n`));
     });
 
     it('refuses an issue another Brewery holds, naming it, and appends nothing', async () => {
@@ -1960,7 +1957,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       };
       assert.deepStrictEqual(
         await run(['order', 'web#7'], { claims: () => racing }),
-        refused('batch web-7-2 of acme/web#7 is still ordered'),
+        refused('acme/web#7 is still ordered'),
       );
       const event = last();
       assert.deepStrictEqual(event?.type === 'batch.ordered' && [event.batchId, event.by], [
@@ -1971,10 +1968,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     });
 
     it('refuses an issue with a live batch before it claims anything', async () => {
-      assert.deepStrictEqual(
-        await run(['order', 'web#9']),
-        refused('batch web-9 of acme/web#9 is still brewing'),
-      );
+      assert.deepStrictEqual(await run(['order', 'web#9']), refused('acme/web#9 is still brewing'));
       assert.equal(reached(), 0);
     });
 
@@ -1983,7 +1977,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.deepStrictEqual(
         await run(['order', 'web#8']),
         refused(
-          'the release of the claim of batch web-8 is still due: foedrum serve applies it, then foedrum order web#8 again',
+          'the release of the claim of acme/web#8 is still due: foedrum serve applies it, then foedrum order web#8 again',
         ),
       );
       assert.equal(reached(), 0);
@@ -2046,7 +2040,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
 
     for (const issue of ['#21', '21']) {
       it(`orders ${issue} again as <n>-<k>, without reading foedrum.jsonc or claiming`, async () => {
-        assert.deepStrictEqual(await run(['order', issue], noConfig), ok(`21-2 ${ordered}\n`));
+        assert.deepStrictEqual(await run(['order', issue], noConfig), ok(`#21 ${ordered}\n`));
         assert.deepStrictEqual(last(), {
           type: 'batch.ordered',
           batchId: '21-2',
@@ -2062,12 +2056,12 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     it('refuses an issue with a live batch', async () => {
       assert.deepStrictEqual(
         await run(['order', '#22'], noConfig),
-        refused('batch 22-1 of #22 is still brewing'),
+        refused('#22 is still brewing'),
       );
     });
 
     it('orders an issue it never brewed as <n>-1, as its first order (ADR 0240)', async () => {
-      assert.deepStrictEqual(await run(['order', '#30'], noConfig), ok(`30-1 ${ordered}\n`));
+      assert.deepStrictEqual(await run(['order', '#30'], noConfig), ok(`#30 ${ordered}\n`));
     });
   });
 
@@ -2083,7 +2077,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
   describe("a claimed order's Brewery issue (ADR 0240)", () => {
     it('orders the claimed issue again, as its alias form does', async () => {
       orderedAs40();
-      assert.deepStrictEqual(await run(['order', '#40']), ok(`web-7-2 ${ordered}\n`));
+      assert.deepStrictEqual(await run(['order', '#40']), ok(`#40 ${ordered}\n`));
       assert.deepStrictEqual(last(), {
         type: 'batch.ordered',
         batchId: 'web-7-2',
@@ -2116,7 +2110,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       const before = lastId();
       assert.deepStrictEqual(
         await run(['recipe', '#21', 'stout', 'the plan has one sub-order'], noConfig),
-        ok('ordered #21 as batch 21-2\n21-2 brewing: analyze #1 scheduled\n'),
+        ok('ordered #21\n#21 brewing: analyze #1 scheduled\n'),
       );
       const [ordering, choice] = events(before);
       assert.deepStrictEqual(ordering, {
@@ -2147,7 +2141,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       const before = lastId();
       assert.deepStrictEqual(
         await run(['recipe', '#31', 'stout', 'the plan has one sub-order'], noConfig),
-        ok('ordered #31 as batch 31-2\n31-2 brewing: analyze #1 scheduled\n'),
+        ok('ordered #31\n#31 brewing: analyze #1 scheduled\n'),
       );
       assert.deepStrictEqual(events(before)[1], chosen('31-2', 'stout'));
     });
@@ -2176,7 +2170,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         }),
         {
           exitCode: 1,
-          stdout: 'ordered #21 as batch 21-2\n',
+          stdout: 'ordered #21\n',
           stderr:
             'foedrum recipe: batch 21-2 is brewing; recipe needs it ordered, conditioning or stuck\n',
         },
@@ -2186,14 +2180,14 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
     it('orders an issue it never brewed with the recipe', async () => {
       assert.deepStrictEqual(
         await run(['recipe', '30', 'pint', 'the plan has one sub-order'], noConfig),
-        ok('ordered #30 as batch 30-1\n30-1 brewing: plan #1 scheduled\n'),
+        ok('ordered #30\n#30 brewing: plan #1 scheduled\n'),
       );
     });
 
     it('claims an ended target issue again and orders it with the recipe', async () => {
       assert.deepStrictEqual(
         await run(['recipe', 'web#7', 'pint', 'the plan has one sub-order']),
-        ok('ordered web#7 as batch web-7-2\nweb-7-2 brewing: plan #1 scheduled\n'),
+        ok('ordered web#7\nweb#7 brewing: plan #1 scheduled\n'),
       );
       assert.equal(JSON.parse(github.refs.get('acme/web#7') ?? 'null')?.brewery, 'acme/brewery');
     });
@@ -2202,7 +2196,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       orderedAs40();
       assert.deepStrictEqual(
         await run(['recipe', '#40', 'pint', 'the plan has one sub-order']),
-        ok('ordered #40 as batch web-7-2\nweb-7-2 brewing: plan #1 scheduled\n'),
+        ok('ordered #40\n#40 brewing: plan #1 scheduled\n'),
       );
     });
 
@@ -2225,7 +2219,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         exitCode: 1,
         stdout: '',
         stderr:
-          'foedrum recipe: the release of the claim of batch web-8 is still due: foedrum serve applies it, then foedrum order web#8 again\n',
+          'foedrum recipe: the release of the claim of acme/web#8 is still due: foedrum serve applies it, then foedrum order web#8 again\n',
       });
       assert.equal(lastId(), before);
       assert.equal(reached(), 0);

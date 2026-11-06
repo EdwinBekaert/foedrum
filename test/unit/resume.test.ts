@@ -513,7 +513,7 @@ describe('foedrum resume (ADR 0126)', () => {
       assert.deepEqual(
         await resumeOf('23-1', 'plan#1', takes),
         refused(
-          'batch 23-1 is brewing: name the step alone, and foedrum resume continues its latest attempt',
+          '#23 is brewing: name the step alone, and foedrum resume continues its latest attempt',
         ),
       );
       assert.deepEqual(handed, []);
@@ -620,6 +620,41 @@ describe('foedrum resume (ADR 0126)', () => {
         }
         const { stderr } = await resumeOf(batchId, 'talk');
         assert.match(stderr, /foedrum brew 77 --take opens a fresh one\n$/);
+      });
+
+      it("prints a claimed order's finished attempt by its Brewery issue's number inside a Claude Code session: regression test (ADR 0334)", async () => {
+        const log = createCommandLog({ store, recipes });
+        const issue = (command: Parameters<typeof log.issue>[0]) =>
+          assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+        const batchId = 'web-31';
+        const path = pathOf({ batchId, stepId: 'plan', attempt: 1 });
+        issue({ kind: 'order', batchId, order: { issue: 31, repo: 'acme/web' } });
+        const key = '["web-31","order.issue"]';
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: 77 } });
+        issue({ kind: 'route', batchId, recipe: 'sip', reason: 'label', source: 'label' });
+        issue({
+          kind: 'record',
+          event: {
+            type: 'step.started',
+            batchId,
+            stepId: 'plan',
+            attempt: 1,
+            session: { id: S3, worktree: path },
+            worktree: {
+              repo: 'acme/web',
+              path,
+              branch: `foedrum/${batchId}/plan/1`,
+              commit: commit('a'),
+            },
+          },
+        });
+        const ending = { kind: 'succeeded', output: {} } as const;
+        issue({ kind: 'finish', batchId, stepId: 'plan', attempt: 1, ending });
+        issue({ kind: 'cancel', batchId, by: 'ada', via: 'terminal' });
+        const { stdout } = await resumeOf(batchId, 'plan#1', {
+          terminal: { claudeCode: true, tty: false },
+        });
+        assert.match(stdout, /\n {2}foedrum resume 77 plan#1\n$/);
       });
 
       // Decided by the maintainer (2026-10-27): close the session so it reports, then brew again.
@@ -787,7 +822,7 @@ describe('foedrum resume (ADR 0126)', () => {
     it('refuses an Ordered batch, of which no step has run', async () => {
       assert.deepEqual(
         await resumeOf('27-1', undefined, takes),
-        refused('batch 27-1 is ordered: no step of it has run yet'),
+        refused('#27 is ordered: no step of it has run yet'),
       );
     });
 
@@ -799,7 +834,7 @@ describe('foedrum resume (ADR 0126)', () => {
       assert.deepEqual(result, {
         exitCode: 0,
         stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:
-  foedrum resume 23-1 plan
+  foedrum resume 23 plan
 `,
         stderr: '',
       });
@@ -1050,11 +1085,25 @@ describe('foedrum resume (ADR 0126)', () => {
     assert.deepEqual(store.currentLeases(now), []);
   });
 
+  it("inside a Claude Code session, an older batch's line names its id, which the number would not reach: regression test (ADR 0334)", async () => {
+    store.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.ordered',
+        batchId: '21-2',
+        order: { issue: 21 },
+        routeBy: t0.toISOString(),
+      }),
+    );
+    const result = await resume(undefined, { terminal: { claudeCode: true, tty: false } });
+    assert.match(result.stdout, /\n {2}foedrum resume 21-1 implement#1\n$/);
+    nothingOpened();
+  });
+
   it('inside a Claude Code session, prints the line to run in a terminal and opens nothing', async () => {
     const result = await resume(undefined, { terminal: { claudeCode: true, tty: false } });
     assert.deepEqual(result, {
       exitCode: 0,
-      stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:\n  foedrum resume 21-1 implement#1\n`,
+      stdout: `foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over; run this in a terminal in ${cwd}:\n  foedrum resume 21 implement#1\n`,
       stderr: '',
     });
     nothingOpened();
@@ -1069,7 +1118,7 @@ describe('foedrum resume (ADR 0126)', () => {
     };
     assert.deepEqual(
       await resume(undefined, { setup: setupWhileRetried }),
-      refused('batch 21-1 is brewing now: run foedrum resume again to take it over'),
+      refused('#21 is brewing now: run foedrum resume again to take it over'),
     );
     nothingOpened();
   });
