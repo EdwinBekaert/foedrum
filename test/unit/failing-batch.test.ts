@@ -440,7 +440,24 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       const taker = await open({ lock: () => fakeLock('taker') });
       await ticksAt(taker, 60, 120);
       assert.deepStrictEqual(marks('b1'), ['batch.failing']);
-      assert.deepStrictEqual(taker.held(), ['b1']);
+      assert.deepStrictEqual(taker.held(), [], "a mark does not make the batch this driver's");
+    });
+
+    it('lets a free batch it marked be, so its lease lapses and a person can brew it', async () => {
+      accept({ kind: 'order', batchId: 'b1', order: { issue: 1 } });
+      accept({ kind: 'wait', batchId: 'b1', on: { kind: 'merge', pullRequest } });
+      unread.add('b1');
+      const driver = await open();
+      await ticksAt(driver, 0, 60);
+      assert.notEqual(batchOf('b1')?.failing, undefined);
+      assert.deepStrictEqual(driver.held(), []);
+      assert.deepStrictEqual(
+        store.batchLeases(at(60)).map(({ batchId }) => batchId),
+        ['b1'],
+        'the write held it, so no other driver wrote beside it',
+      );
+      await ticksAt(driver, 61, 62, 63, 64, 66);
+      assert.deepStrictEqual(store.batchLeases(at(66)), []);
     });
 
     it("records nothing of a brewing batch this driver's supervisor reads but does not take", async () => {
