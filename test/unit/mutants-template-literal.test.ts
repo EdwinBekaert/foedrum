@@ -156,9 +156,39 @@ describe('a mutant inside a template literal (ADR 0341)', () => {
       'the replacement adds failed',
     );
     // A word built from a numeric escape is new too, and so is a string's content or a comment's.
-    assert.equal(reasonOf('x(`a`);', 'x(`\\x65val`);'), 'the replacement adds x65val');
+    assert.equal(reasonOf('x(`a`);', 'x(`\\x65val`);'), 'the replacement adds \\x65, val');
     assert.equal(reasonOf("x(`a`, 'b');", "x(`b`, 'b');"), 'the replacement adds b');
     assert.equal(reasonOf('x(`a`); // b', 'x(`b`);'), 'the replacement adds b');
+  });
+
+  it('reads an escape of a letter as that letter, so it spells no new word', () => {
+    assert.equal(
+      reasonOf('x(`tests passed`);', 'x(`tests \\d\\i\\e\\d`);'),
+      'the replacement adds died',
+    );
+    assert.equal(reasonOf('x(`a`);', 'x(`\\c\\m\\d`);'), 'the replacement adds cmd');
+    assert.equal(reasonOf('x(`url`);', 'x(`\\curl`);'), 'the replacement adds curl');
+    // An escape of a word's own letter on the line spells that word, which the line holds.
+    assert.equal(reasonOf('x(`cmd a`);', 'x(`a \\c\\m\\d`);'), undefined);
+  });
+
+  it('reads a numeric escape whole, in each of its forms, so it spells no new word', () => {
+    assert.equal(reasonOf('x(`a`);', 'x(`\\u0065`);'), 'the replacement adds \\u0065');
+    assert.equal(reasonOf('x(`a`);', 'x(`\\u{65}`);'), 'the replacement adds \\u{65}');
+    assert.equal(reasonOf('x(`u a`);', 'x(`\\u{65} a`);'), 'the replacement adds \\u{65}');
+    assert.equal(reasonOf('x(`\\x65 a`);', 'x(`a \\x65`);'), undefined);
+  });
+
+  it('reads a replacement with no literal left, so no word of the text becomes code', () => {
+    assert.equal(
+      reasonOf('alpha(`${`gamma ${beta}`} `);', 'gamma();'),
+      'the replacement adds gamma',
+    );
+    assert.equal(
+      reasonOf('alpha(`${`gamma ${beta / 2}`} `);', 'gamma();'),
+      'the replacement adds gamma',
+    );
+    assert.equal(reasonOf('x(`${a}`);', 'x(a);'), undefined);
   });
 
   it('adds no name or string to an expression that its code lacks', () => {
