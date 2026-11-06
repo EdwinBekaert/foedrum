@@ -1,6 +1,6 @@
 # 0336. Five rough edges of the self-brew trial: a read's timeout, a lease's way on, a merge without a Cellar, a claimed issue's status and its recipe label
 
-Date: 2026-11-06 · Status: Accepted · Amends [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a read that timed out is tried once more), [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `foedrum brew` of an on-tap batch does, and what a lease's refusal says), [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (`foedrum brew` records the ends of its own batch's pull requests too), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the claim comment says), [0155](0155-a-claimed-order-s-brewery-issue-gets-the-status-comment-and-the-lane-label.md) (the target issue's comment says where the status is) [0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) (a line says that a recipe label on the target issue is not read) and [0296](0296-a-target-repository-s-pull-request-names-no-brewery-issue-and-the-engine-closes-it.md) (`foedrum brew` of an on-tap batch records the end that closes a Brewery issue too)
+Date: 2026-11-06 · Status: Accepted · Amends [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a read that timed out is tried once more), [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `foedrum brew` of an on-tap batch does, and what a lease's refusal says), [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (`foedrum brew` records the ends of its own batch's pull requests too), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the claim comment says), [0155](0155-a-claimed-order-s-brewery-issue-gets-the-status-comment-and-the-lane-label.md) (the target issue's comment says where the status is), [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (a mash of a claimed batch whose claim is held names `foedrum brew`), [0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) (a line says that a recipe label on the target issue is not read) and [0296](0296-a-target-repository-s-pull-request-names-no-brewery-issue-and-the-engine-closes-it.md) (`foedrum brew` of an on-tap batch records the end that closes a Brewery issue too)
 
 ## Context
 The self-brew trial (#374) left five small things (#874):
@@ -66,8 +66,8 @@ A brew of an on-tap batch with a pull request that merged or closed now exits 0,
 So a claimed on-tap batch whose claim is `releasing` is driven too, one with no pull request included, which until now was refused.
 So is a Brewery issue's batch whose close is due and not applied (`closeStillDue`, `src/engine/brewery-closes.ts`), since ordering it again would only take that close off due.
 
-**`foedrum mash` and `foedrum lauter` of an on-tap batch keep their own refusals** and read nothing: they are not what this is for.
-A mash of a claimed batch whose claim is held no longer offers `foedrum order`, which `decide` refuses then, and names `foedrum brew` instead.
+**`foedrum mash` and `foedrum lauter` of an on-tap batch are still refused** and read nothing: they are not what this is for.
+The one change is the words of a mash of a claimed batch whose claim is held: it no longer offers `foedrum order`, which `decide` refuses then, and names `foedrum brew` instead.
 
 A brew that ends on tap with pull requests says what comes next, on the line before its last, which stays the pull requests' ([ADR 0261](0261-the-status-path-says-why-a-failed-attempt-failed-and-what-answered-a-question.md)): `once they merge, foedrum brew 40 or foedrum serve closes Brewery issue #40 and releases its claim`, without the claim for a Brewery issue's own batch.
 `/foedrum:brew` shows a line that says the batch merged or ended as that, not as on tap.
@@ -83,7 +83,8 @@ The claim comment gains one sentence: `Its status is on its order's issue in tha
 
 ### A recipe label on the target issue: said, not read
 [ADR 0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) stands: only people who can label in the Brewery choose a recipe, and copying the label would let anyone with triage on the target choose.
-A brew that refuses a claimed issue for its Brewery issue's label says so first: `web#7 carries recipe:nip, which Foedrum does not read; label #19`.
+The brew that opens a claimed issue's Brewery issue, and refuses it for that issue's label, says so first: `web#7 carries recipe:nip, which Foedrum does not read; label #19`.
+A later `foedrum brew 19` reads only the Brewery issue, and its refusal already says to label #19, so it makes no read of the target issue for this.
 The refusal stays the last line, as it was.
 
 **The cost is one conditional GET of the target issue, on this refusal alone.** `GitHubReads` cannot look at its cache without asking, and the tick has just read the same path, so it is normally a 304. When that read fails, the line is left out and the refusal still prints.
