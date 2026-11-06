@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /foedrum:rank
 
-Move an order in the intake's queue, which orders and claims by arrival unless a person moved one (ADR 0208): to place `<n>`, or `first` to finish it before every order without the mark. With no place, show where the order stands. Arguments: `$ARGUMENTS`: an order (`<alias>#<n>`, or `#<n>` of the Brewery), then optionally a place and `--why`.
+Move an order in the intake's queue, which orders and claims by arrival unless a person moved one (ADR 0208): to place `<n>`, or `first` to finish it before every order without the mark. With no place, show where the order stands. Arguments: `$ARGUMENTS`: an order (its number, `<n>` or `#<n>`, or `<alias>#<n>` until its Brewery issue is open), then optionally a place and `--why`.
 
 Every command below runs with the Bash tool, never PowerShell, in this folder (the Brewery's root). Pass each value as one single-quoted argument, a `'` inside written `'\''`. Without a Bash tool in this session (Git Bash on Windows), say that the plugin needs it and stop.
 

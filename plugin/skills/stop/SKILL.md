@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /foedrum:stop
 
-Stop an order now (ADR 0205): what runs of it is killed, and each of its brewing batches is Stuck with reason `stopped` until a retry (`/foedrum:stuck` lists it) continues it from the same step. Arguments: `$ARGUMENTS`: an order (`<alias>#<n>`, or `#<n>` of the Brewery), then optionally `--why`.
+Stop an order now (ADR 0205): what runs of it is killed, and each of its brewing batches is Stuck with reason `stopped` until a retry (`/foedrum:stuck` lists it) continues it from the same step. Arguments: `$ARGUMENTS`: an order (its number, `<n>` or `#<n>`, or `<alias>#<n>` until its Brewery issue is open), then optionally `--why`.
 
 Run with the Bash tool, never PowerShell, in this folder (the Brewery's root), each value as one single-quoted argument, a `'` inside written `'\''`. Without a Bash tool in this session (Git Bash on Windows), say that the plugin needs it and stop.
 

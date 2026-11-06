@@ -121,7 +121,7 @@ describe('pause and continue (ADR 0202)', () => {
       assert.equal(pauseOf(log.state(), batch('b13')), undefined);
     });
 
-    it('is refused for a sub-order, or the order of a claimed issue, naming the order to pause', () => {
+    it('is refused for a sub-order, naming the order to pause, and for a number the command layer did not resolve', () => {
       order(12);
       accept({
         kind: 'record',
@@ -145,7 +145,7 @@ describe('pause and continue (ADR 0202)', () => {
       });
       refuse(
         { kind: 'pause', order: { issue: 40 }, ...who },
-        /^#40 is the order of web#7; pause web#7$/,
+        /^there is no batch of #40 that has not ended to pause$/,
       );
     });
 

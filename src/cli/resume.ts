@@ -16,11 +16,13 @@ import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
+import { calledAs } from '../engine/claim-orders.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
 import {
   attemptRecipeOf,
   type Batch,
   fold,
+  foldedBatch,
   latestAttempt,
   runningAttempt,
   type State,
@@ -31,7 +33,7 @@ import { sameRepo } from '../engine/task-tree.ts';
 import { envNameKey } from '../platform/env.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
-import type { ResumeCommand } from '../schemas/commands.ts';
+import type { ResumeInput } from '../schemas/commands.ts';
 import type { CheckoutRef, SessionRef, WorktreeRef } from '../schemas/events.ts';
 import { checkoutName } from '../workspace/attempt-worktrees.ts';
 import type { AttemptWorktrees } from '../workspace/attempt-worktrees-git.ts';
@@ -218,8 +220,6 @@ interface Running {
 interface Open {
   open: true;
   ref: AttemptRef;
-  /** The batch's issue, which `foedrum brew` reopens the session by. */
-  batch: Pick<Batch, 'issue' | 'repo'>;
   /** When its session opened (`interactiveSince`). */
   since: string;
 }
@@ -258,7 +258,7 @@ const runningTarget = (
     if (latest?.phase !== 'started') continue;
     const { attempt: n, interactiveSince: since } = latest;
     if (since !== undefined)
-      return { open: true, ref: { batchId, stepId: step.id, attempt: n }, batch, since };
+      return { open: true, ref: { batchId, stepId: step.id, attempt: n }, since };
   }
   let why: string | undefined;
   for (const step of steps) {
@@ -336,9 +336,9 @@ const failed = (line: string): CliResult => ({
  * opens it again when it closed without its out doc. Open for sure only while its attempt's lease
  * lives, which brew renews while it waits on claude; the batch's may be another driver's.
  */
-const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string => {
+const openLine = ({ ref, since }: Open, leases: readonly Lease[], called: string): string => {
   const of = `${labelOf(ref)} of batch ${ref.batchId} is an interactive session`;
-  const brew = sessionCommand(batch);
+  const brew = sessionCommand(called);
   const key = attemptKey.encode(ref);
   const lease = leases.find((held) => held.attemptKey === key);
   if (lease === undefined) {
@@ -351,7 +351,7 @@ const openLine = ({ ref, batch, since }: Open, leases: readonly Lease[]): string
 };
 
 /** Runs `foedrum resume`: claude's exit code, or one line on why it opened nothing. */
-export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promise<CliResult> => {
+export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise<CliResult> => {
   const path = storePath(shell.cwd);
   const store = shell.openStore(path);
   if (store === undefined) return failed(`no event store at ${path}`);
@@ -360,7 +360,10 @@ export const runResume = async (input: ResumeCommand, shell: ResumeShell): Promi
     const state = fold(events.map(({ event }) => event));
     const target = targetOf(events, state, input.batch, input.step);
     if ('refused' in target) return failed(target.refused);
-    if ('open' in target) return failed(openLine(target, store.currentLeases(shell.now())));
+    if ('open' in target) {
+      const called = calledAs(state, foldedBatch(state, target.ref.batchId));
+      return failed(openLine(target, store.currentLeases(shell.now()), called));
+    }
     const { ref } = target;
     const session = 'running' in target ? target.session : target.session.id;
     const { batchId } = ref;

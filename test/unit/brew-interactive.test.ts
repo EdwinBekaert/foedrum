@@ -6,11 +6,13 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
 import { type ServeSetup, serveSetup } from '../../src/cli/serve-config.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
+import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
+import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
 
 describe('runBrew', () => {
   const f = brewFixture();
@@ -66,6 +68,88 @@ describe('runBrew', () => {
         },
       });
     });
+    describe("a claimed order's session (ADR 0329)", () => {
+      const web = { alias: 'web', intake: { labels: ['foedrum'] } };
+      const claimedSetup = (): ServeSetup => {
+        const inputs = serveInputs({
+          files: {
+            ...serveInputs().files,
+            config: config({}, web),
+            local: local({ workRoot: f.dir.path }),
+          },
+        });
+        const { brewery } = inputs.files;
+        const result = serveSetup({
+          ...inputs,
+          files: {
+            ...inputs.files,
+            brewery: {
+              ...brewery,
+              recipes: [...brewery.recipes, { path: 'recipes/lauter.jsonc', text: lauter }],
+              brewers: [...brewery.brewers, { path: 'brewers/steward.md', text: steward }],
+            },
+          },
+        });
+        return result.kind === 'ready' ? result.setup : assert.fail(JSON.stringify(result));
+      };
+      const hosted = (brewery: { number: number; labels: string[] }[]) =>
+        fakeGitHubApi({
+          login: 'ann',
+          issues: {
+            'acme/brewery': brewery.map((issue) => ({
+              ...issue,
+              author: 'ann',
+              title: 'Lauter',
+              body: 'web#7',
+            })),
+            'acme/web': [
+              { number: 7, labels: ['foedrum'], author: 'ann', title: 'Lauter', body: 'Plan it.' },
+            ],
+          },
+        });
+      const ordered = { kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } };
+      const inside = { noSessions: 'claude-code' } as const;
+
+      it('names its number in the line that opens it, the lane and the status comment', async () => {
+        const host = hosted([{ number: 40, labels: ['recipe:lauter'] }]);
+        log().issue({ ...ordered, kind: 'order' }, t0);
+        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
+        const byOrder = { ...request, target: { issue: 40 }, ...inside };
+        const parked = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(claimedSetup(), parked, byOrder), 3, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          'foedrum brew: run foedrum brew 40 in a terminal to open its session',
+        );
+        assert.match(f.lines.at(-2) ?? '', /foedrum brew 40 --take opens it in a terminal/);
+        const [comment] = host.comments.get('acme/brewery#40') ?? [];
+        assert.match(comment?.body ?? '', /run `foedrum brew 40 --take` in a terminal/);
+      });
+
+      it('names the number of a Brewery issue that opened during the run it was brewed by its target issue', async () => {
+        const host = hosted([]);
+        log().issue({ ...ordered, kind: 'order' }, t0);
+        const route = {
+          kind: 'route',
+          batchId: 'web-7',
+          recipe: 'lauter',
+          reason: 'label',
+          source: 'label',
+        } as const;
+        log().issue(route, t0);
+        const byTarget = { ...request, target: { alias: 'web', issue: 7 }, ...inside };
+        const parked = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(claimedSetup(), parked, byTarget), 3, f.lines.join('\n'));
+        const [order] = host.issues['acme/brewery'] ?? [];
+        assert.ok(order !== undefined, 'its Brewery issue is opened');
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: run foedrum brew ${order.number} in a terminal to open its session`,
+        );
+      });
+    });
+
     const resumedBy = () =>
       f.store
         .eventsAfter(0)
@@ -95,7 +179,7 @@ describe('runBrew', () => {
       );
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: stdin is not a terminal, and claude needs one: run foedrum brew #12 in a terminal',
+        'foedrum brew: stdin is not a terminal, and claude needs one: run foedrum brew 12 in a terminal',
       );
     });
 
@@ -114,7 +198,7 @@ describe('runBrew', () => {
       assert.equal(await runBrew(f.setup, shell(behave.succeed()), inside), 3);
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: run foedrum brew #12 in a terminal to open its session',
+        'foedrum brew: run foedrum brew 12 in a terminal to open its session',
       );
     });
 
@@ -122,10 +206,7 @@ describe('runBrew', () => {
       assert.equal(await runBrew(f.setup, shell(behave.fail(true)), request), 3);
       assert.deepStrictEqual(f.started, ['refine#1']);
       assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
-      assert.equal(
-        f.lines.at(-1),
-        'foedrum brew: run foedrum brew #12 again to reopen the session',
-      );
+      assert.equal(f.lines.at(-1), 'foedrum brew: run foedrum brew 12 again to reopen the session');
     });
 
     it('retries a batch it finds waiting for a session at its start, as the person, and opens the session: exit 0', async () => {

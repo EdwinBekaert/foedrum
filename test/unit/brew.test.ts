@@ -24,6 +24,7 @@ import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
+import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
@@ -133,8 +134,9 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
   });
 
   it('asks runBrew to lauter the issue of the batch, taking it over, for foedrum lauter (ADR 0286, #589)', () => {
-    const lauter: LauterCommand = { command: 'lauter', batch: '12-1' };
-    assert.deepStrictEqual(brewRequestOf(lauter, 'ann', issued, undefined, { issue: 12 }), {
+    const lauter: LauterCommand = { command: 'lauter', issue: '12-1' };
+    const found = { batchId: '12-1', target: { issue: 12 } };
+    assert.deepStrictEqual(brewRequestOf(lauter, 'ann', issued, undefined, found), {
       target: { issue: 12 },
       owner: 'ann',
       ...issued,
@@ -142,6 +144,47 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       lauter: '12-1',
     });
     assert.equal('lauter' in brewRequestOf(command, 'ann', issued, undefined), false);
+  });
+
+  describe('foedrum lauter by a number (ADR 0329)', () => {
+    const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+    const claimed = [
+      {
+        type: 'batch.ordered',
+        batchId: 'web-7',
+        order: { issue: 7, repo: 'acme/web' },
+        routeBy: '2026-10-28T13:00:00.000Z',
+      },
+      { type: 'effect.applied', key, result: 40 },
+    ] as const;
+    const repositories = [{ alias: 'web', repo: 'acme/web' }];
+
+    it("foedrum lauter takes a Brewery issue's number and acts on its latest batch", () => {
+      assert.deepStrictEqual(lauterTarget(fold(claimed), { issue: 40 }, repositories), {
+        batchId: 'web-7',
+        target: { issue: 40 },
+      });
+    });
+
+    it('a batch id brews by the number of its issue, which brew takes', () => {
+      assert.deepStrictEqual(lauterTarget(fold(claimed), 'web-7', repositories), {
+        batchId: 'web-7',
+        target: { issue: 40 },
+      });
+    });
+
+    it('refuses the target issue once its Brewery issue is alive, naming the number', () => {
+      assert.deepStrictEqual(
+        lauterTarget(fold(claimed), { alias: 'web', issue: 7 }, repositories),
+        { refused: 'web#7 is Brewery issue #40; foedrum lauter 40' },
+      );
+    });
+
+    it('says a number with no batch has none', () => {
+      assert.deepStrictEqual(lauterTarget(fold(claimed), { issue: 99 }, repositories), {
+        refused: '#99 has no batch',
+      });
+    });
   });
 
   it("reads the batch foedrum lauter names from the Brewery's store, none yet being no batch: regression test (#589)", () => {
@@ -158,7 +201,10 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
         tx.append({ type: 'batch.ordered', batchId: '12-1', order, routeBy }),
       );
       store.close();
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), { target: { issue: 12 } });
+      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
+        batchId: '12-1',
+        target: { issue: 12 },
+      });
       assert.deepStrictEqual(lauterTargetIn(path, '99-1', []), {
         refused: 'there is no batch 99-1',
       });
@@ -175,8 +221,12 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       ordered('web-7-1', { issue: 7, repo: 'acme/web' }),
     ]);
     const repositories = [{ alias: 'web', repo: 'acme/web' }];
-    assert.deepStrictEqual(lauterTarget(state, '12-1', repositories), { target: { issue: 12 } });
+    assert.deepStrictEqual(lauterTarget(state, '12-1', repositories), {
+      batchId: '12-1',
+      target: { issue: 12 },
+    });
     assert.deepStrictEqual(lauterTarget(state, 'web-7-1', repositories), {
+      batchId: 'web-7-1',
       target: { alias: 'web', issue: 7 },
     });
     assert.deepStrictEqual(lauterTarget(state, '99-1', repositories), {
@@ -723,7 +773,7 @@ describe('runBrew', () => {
       },
     });
     assert.equal(await runBrew(f.setup, pausing, request), 5);
-    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue 12 lets it brew');
     assert.deepStrictEqual(f.started, ['brew#1']);
   });
 
@@ -746,7 +796,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), sub), 5);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: #30 is a sub-order of #12, which is paused; foedrum continue #12 lets it brew',
+      'foedrum brew: #30 is a sub-order of #12, which is paused; foedrum continue 12 lets it brew',
     );
   });
 
@@ -754,7 +804,7 @@ describe('runBrew', () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
-    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue 12 lets it brew');
     assert.deepStrictEqual(f.started, []);
   });
 
@@ -777,7 +827,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order #12 orders it again',
+      'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order 12 orders it again',
     );
   });
 

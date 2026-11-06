@@ -243,7 +243,7 @@ describe('runBrew', () => {
         ready: true,
       };
       const plans = behave.succeedWith({ assumptions: ['Kept the flag.'], subOrders: [subOrder] });
-      const target = { ...request, target: { alias: 'web', issue: 7 } };
+      const target = { ...request, target: { issue: 40 } };
       // The default mash's Tasters approve the plan (ADR 0321).
       const approves = behave.succeedWith({ verdict: 'approve', findings: [] });
       const runner = () =>
@@ -375,7 +375,7 @@ describe('runBrew', () => {
       );
       assert.equal(answered.kind, 'accepted', JSON.stringify(answered));
       const again = shell(behave.succeed(), { lock: () => fakeLock('ann') });
-      const brew = { ...request, target: { alias: 'web', issue: 7 } };
+      const brew = { ...request, target: { issue: 40 } };
       assert.equal(await runBrew(claimed, again, brew), 0, f.lines.join('\n'));
       const recipes = (repo: string, issue: number) =>
         (f.api.issue(repo, issue)?.labels ?? []).filter((label) => label.startsWith('recipe:'));

@@ -12,7 +12,7 @@ import { interactiveBrewerRunner } from '../brewers/interactive-runner.ts';
 import { openSqliteEventStore } from '../engine/sqlite-event-store.ts';
 import { environmentVariable } from '../platform/executables.ts';
 import { foregroundProcess } from '../platform/processes.ts';
-import type { ResumeCommand } from '../schemas/commands.ts';
+import type { ResumeInput } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import { openAttemptWorktrees, worktreeClonePath } from '../workspace/attempt-worktrees-git.ts';
 import { runGit } from '../workspace/git.ts';
@@ -83,7 +83,7 @@ const resumeRunning = async (
 /** Runs `foedrum resume` in the Brewery checkout `cwd`; doctor's facts come through `options`. */
 export const resumeFromCheckout = async (
   cwd: string,
-  input: ResumeCommand,
+  input: ResumeInput,
   issued: { by: string; via: Surface },
   options?: StartOptions,
 ): Promise<CliResult> => {

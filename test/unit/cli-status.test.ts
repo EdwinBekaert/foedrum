@@ -27,7 +27,7 @@ describe('describeLane', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch), {
+    assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
       detail: `https://github.com/acme/api/pull/12 failed its checks on ${'c'.repeat(40)} at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
     });
@@ -60,7 +60,7 @@ describe('describeLane', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch), {
+    assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
       detail: `https://github.com/acme/api/pull/12 fails its checks on the merged tree with main at ${'e'.repeat(40)}: the check "test" (npm test), at open-pull-request after 1 round; reminder 2026-10-17T12:00:00.000Z`,
     });
@@ -93,7 +93,7 @@ describe('describeLane', () => {
         remindAt: '2026-10-17T12:00:00.000Z',
       },
     };
-    assert.deepStrictEqual(describeLane(batch), {
+    assert.deepStrictEqual(describeLane(batch, '12'), {
       lane: 'stuck',
       detail: `https://github.com/acme/api/pull/12 conflicts with main at ${'e'.repeat(40)} in src/a.ts, logo.png, at open-pull-request after 2 rounds; reminder 2026-10-17T12:00:00.000Z`,
     });

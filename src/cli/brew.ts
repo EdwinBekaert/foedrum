@@ -10,7 +10,14 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
-import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
+import {
+  breweryIssueOf,
+  calledAs,
+  claimOrderOf,
+  latestBatch,
+  liveOrderOf,
+  namedWork,
+} from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
@@ -26,7 +33,7 @@ import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
-import { latestBatch, type OrderClaim, orderIssue } from './commands.ts';
+import { type OrderClaim, orderIssue } from './commands.ts';
 import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';
@@ -295,14 +302,25 @@ export const runBrew = async (
     const heldElsewhere = (id: string): BatchLease | undefined =>
       store.batchLeases(clock()).find((lease) => lease.batchId === id && lease.owner !== owner);
 
-    // A claimed issue is brewed and mashed by its Brewery issue, its order (ADR 0232, ADR 0240).
-    const claimed =
-      order.repo === undefined &&
-      latestBatch(log.state().batches.values(), issue, undefined) === undefined
-        ? claimOfOrder(log.state(), issue)
-        : undefined;
-    if (claimed?.repo !== undefined) order = { issue: claimed.issue, repo: claimed.repo };
-    const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
+    // A claimed issue is brewed and mashed by its Brewery issue, its order (ADR 0232, ADR 0240),
+    // and by that number alone once it is alive (ADR 0329).
+    const work = namedWork(log.state(), target, () => repository?.repo, commandOf(request));
+    if ('refused' in work) return refuse(work.refused);
+    order = work.order;
+    const { batch: last } = work;
+    // How a line offers it now: its number, or its target issue until the number is alive.
+    const called = (state: State): string => {
+      if (repository === undefined) return String(issue);
+      const alive = liveOrderOf(state, { issue, repo: repository.repo });
+      return alive === undefined ? asGiven : String(alive);
+    };
+    // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
+    const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
+    const deleted =
+      alias !== undefined &&
+      (last?.lane.kind === 'on_tap' || last?.lane.kind === 'cancelled') &&
+      (knew.issue !== undefined || knew.earlier !== undefined);
+    const latest = deleted ? undefined : last;
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
     if (request.lauter !== undefined && latest === undefined) {
       return refuse(`${named} has no batch to correct a plan of`);
@@ -312,9 +330,9 @@ export const runBrew = async (
       latest !== undefined &&
       (latest.lane.kind === 'on_tap' || latest.lane.kind === 'cancelled')
     ) {
-      const { lane } = describeLane(latest);
+      const { lane } = describeLane(latest, called(log.state()));
       return refuse(
-        `batch ${latest.id} of ${named} is ${lane}; foedrum order ${asGiven} orders it again`,
+        `batch ${latest.id} of ${named} is ${lane}; foedrum order ${called(log.state())} orders it again`,
       );
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
@@ -324,10 +342,11 @@ export const runBrew = async (
         return 'the Brewery is paused; foedrum continue --all lets it brew';
       }
       const held = batch === undefined ? undefined : orderOfBatch(state, batch);
-      if (held === undefined || held.issue === issue) {
-        return `${named} is paused; foedrum continue ${asGiven} lets it brew`;
+      // A claimed batch's order is its target issue, which its number names (ADR 0329).
+      if (held === undefined || held.repo !== undefined || held.issue === issue) {
+        return `${named} is paused; foedrum continue ${called(state)} lets it brew`;
       }
-      return `${named} is a sub-order of #${held.issue}, which is paused; foedrum continue #${held.issue} lets it brew`;
+      return `${named} is a sub-order of #${held.issue}, which is paused; foedrum continue ${held.issue} lets it brew`;
     };
     if (
       log.state().pauses.all !== undefined ||
@@ -401,7 +420,10 @@ export const runBrew = async (
       if (decision.kind === 'refused') return refuse(decision.reason);
       say(`ordered ${named} as batch ${command.batchId}`);
     }
-    const batch = latestBatch(log.state().batches.values(), order.issue, order.repo);
+    const batch =
+      latest === undefined
+        ? latestBatch(log.state().batches.values(), order.issue, order.repo)
+        : log.state().batches.get(latest.id);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
     if (waitsForOrder && batch.lane.kind === 'ordered') {
@@ -418,7 +440,7 @@ export const runBrew = async (
       }
       // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
       return refuse(
-        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, or foedrum mash ${asGiven}`,
+        `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, or foedrum mash ${opened}`,
       );
     }
     if (request.mash === true && batch.recipe === undefined) {
@@ -447,14 +469,15 @@ export const runBrew = async (
       say(`routed batch ${batchId} to the recipe ${recipe}`);
     }
     // What opens the session a batch waits for, as this brew can or cannot (ADR 0222).
-    const sessionLine = (why: BrewRequest['noSessions']): string => {
+    const sessionLine = (why: BrewRequest['noSessions'], state: State): string => {
+      const brew = `foedrum brew ${called(state)}`;
       switch (why) {
         case undefined:
-          return `run foedrum brew ${asGiven} again to reopen the session`;
+          return `run ${brew} again to reopen the session`;
         case 'claude-code':
-          return `run foedrum brew ${asGiven} in a terminal to open its session`;
+          return `run ${brew} in a terminal to open its session`;
         case 'no-terminal':
-          return `stdin is not a terminal, and claude needs one: run foedrum brew ${asGiven} in a terminal`;
+          return `stdin is not a terminal, and claude needs one: run ${brew} in a terminal`;
         default: {
           const unhandled: never = why;
           throw new Error(`Unhandled reason ${JSON.stringify(unhandled)}`);
@@ -528,7 +551,7 @@ export const runBrew = async (
         return refuse(drivenBy(other));
       }
       const now = foldedBatch(driver.state(), batchId);
-      const { lane, detail } = describeLane(now);
+      const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
       // The status comment, on the batch's Brewery issue, once its first revision is recorded
       // (ADR 0072, ADR 0155).
       const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
@@ -582,7 +605,9 @@ export const runBrew = async (
           const shown =
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
           say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
-          if (reason.kind === 'waiting_for_session') say(sessionLine(request.noSessions));
+          if (reason.kind === 'waiting_for_session') {
+            say(sessionLine(request.noSessions, driver.state()));
+          }
           return BREW_EXIT.stuck;
         }
         case 'brewing':

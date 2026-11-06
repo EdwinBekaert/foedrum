@@ -2,7 +2,6 @@
 // person moved an order with `foedrum rank`. Pure: the intake and `rank` both sort through it.
 
 import type { OrderRef, PlanOrigin } from '../schemas/events.ts';
-import { claimedName, claimOfOrder } from './claim-orders.ts';
 import { orderKey, type Rank, type State } from './fold.ts';
 
 /** An order of the intake's queue, as it sorts. */
@@ -115,8 +114,8 @@ export const placeAt = (
 
 /**
  * Why `order` cannot be ranked, from the folded state alone, or undefined: it is a sub-order, which
- * its plan ranks, the Brewery issue of a claimed target issue, or it has a batch, so it left the
- * queue, and no sub-order of its latest breakdown is left to start (ADR 0211).
+ * its plan ranks, or it has a batch, so it left the queue, and no sub-order of its latest breakdown
+ * is left to start (ADR 0211); the command layer reads a claimed order's number first (ADR 0329).
  */
 export const rankRefusal = (state: State, order: OrderRef): string | undefined => {
   const name = `${order.repo ?? ''}#${order.issue}`;
@@ -124,11 +123,6 @@ export const rankRefusal = (state: State, order: OrderRef): string | undefined =
     const subOrder = state.subOrders.get(order.issue);
     if (subOrder !== undefined) {
       return `${name} is a sub-order of #${subOrder.order}; its plan ranks it`;
-    }
-    const claimed = claimOfOrder(state, order.issue);
-    if (claimed !== undefined) {
-      const target = claimedName(claimed);
-      return `${name} is the order of ${target}; rank ${target}`;
     }
   }
   const key = orderKey(order);
