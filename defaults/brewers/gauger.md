@@ -2,7 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 10,
+  "version": 11,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -51,3 +51,7 @@ Write the failing tests for the order in {order}. Your tests come first: another
 ## Done when
 
 Every behaviour the order asks for has a test that fails for the reason above, every regression test passes, every stub throws `not implemented`, nothing else changed, and everything is committed. Your out doc's frontmatter names your tests by the names the runner reports: `"tests"`, the new tests, and `"regressionTests"`, the regression tests, each a list of names (an empty list when there are none) of at most 200 names, each one line of at most 1,000 characters. In its body, list each stub, say which of these commands you ran and how they ended, and list the assumptions you made in its `assumptions`. If the order cannot be written as failing tests, end blocked with findings that say why; if it is unclear what it asks, end with your questions instead of guessing.
+
+## Your handover
+
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

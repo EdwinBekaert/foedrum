@@ -14,6 +14,10 @@ export const MOST_DISPOSITIONS = 100;
 export const MAX_DISPOSITION_FILE = 1_000;
 export const MAX_DISPOSITION_WHY = 2_000;
 
+/** The most lines a handover keeps, and the longest one (ADR 0340). */
+export const MOST_HANDOVER_LINES = 3;
+export const MAX_HANDOVER_LINE = 300;
+
 const place = {
   file: NonEmpty.max(MAX_DISPOSITION_FILE)
     .regex(/^[^\r\n]*$/, 'Must be one line')
@@ -38,12 +42,18 @@ export type Disposition = z.infer<typeof Disposition>;
 /** One line of any length. */
 const OneLine = NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line');
 
+/** One line of at most `max` characters. */
+export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
+
 const shared = {
   summary: OneLine,
   assumptions: z.array(NonEmpty).default([]),
   // Optional, so an out doc without them reads as before; an older Foedrum cannot read one with
   // them (ADR 0191).
   dispositions: z.array(Disposition).max(MOST_DISPOSITIONS).exactOptional(),
+  // What a brewer may write, and what the JSON Schema shows. `readOutDoc` takes it out before any
+  // schema reads it (ADR 0340), so it fails no attempt, and no `output` holds it.
+  handover: z.array(lineOf(MAX_HANDOVER_LINE)).max(MOST_HANDOVER_LINES).exactOptional(),
 };
 
 // `questions` only with needs_input and `blockerKind` only with blocked: strict objects reject them elsewhere.
@@ -77,9 +87,18 @@ export const outDocFrontmatter = <Fields extends z.ZodRawShape>(fields: Fields) 
 export const OutDocFrontmatter = z.discriminatedUnion('status', [...variants]);
 export type OutDocFrontmatter = z.infer<typeof OutDocFrontmatter>;
 
-/** Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the reason. */
+/** A frontmatter, always an object, without its handover (ADR 0340). */
+const withoutHandoverField = (data: unknown): unknown => {
+  const { handover: _, ...rest } = z.record(z.string(), z.unknown()).parse(data);
+  return rest;
+};
+
+/**
+ * Reads an out doc; a syntax error or a frontmatter that breaks `schema` makes it invalid, with the
+ * reason. Its handover is not read here: `handoverOf` reads that, and it never makes one invalid.
+ */
 export function readOutDoc<T>(text: string, schema: z.ZodType<T>): DocResult<T> {
-  return readDoc(text, schema);
+  return readDoc(text, z.preprocess(withoutHandoverField, schema));
 }
 
 /** The name of a Taster's out doc schema (`output.schema`): what makes a brewer a Taster (ADR 0161). */
@@ -108,27 +127,24 @@ export type TastingFinding = z.infer<typeof TastingFinding>;
 export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
-const RISK_CUT = ` [cut: the rest is past the limit of ${MAX_RISK_LEFT} characters]`;
-const RISK_SCANNED = 1_000;
+const SCANNED_PAST_LIMIT = 1_000;
 
 /**
- * A `riskLeft` line within its limit (ADR 0337): as it is, or its start with a mark that says it was
- * cut. A finished review is not worth failing over it. It is read for a secret first, since a cut
+ * A `field` line within `max` characters (ADR 0337): as it is, or its start with a mark that says it
+ * was cut. A finished run is not worth failing over it. It is read for a secret first, since a cut
  * can break one in two and hide the rest from `withoutSecrets`: what the cut keeps and room for a
  * match that runs past it, as the renderers read (ADR 0088), since an out doc may hold 1 MiB. No
  * commit is known here, so a full commit hash in that part of the line is left out too.
  */
-const withinRiskLimit = (line: string): string => {
-  if (line.length <= MAX_RISK_LEFT) return line;
-  if (findSecrets(line.slice(0, RISK_SCANNED), () => false).length > 0) {
-    return '[left out: a riskLeft line past its limit that looks like a secret]';
+export const withinLimit = (line: string, max: number, field: string): string => {
+  if (line.length <= max) return line;
+  if (findSecrets(line.slice(0, SCANNED_PAST_LIMIT), () => false).length > 0) {
+    return `[left out: a ${field} line past its limit that looks like a secret]`;
   }
-  const kept = line.slice(0, MAX_RISK_LEFT - RISK_CUT.length);
-  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}${RISK_CUT}`;
+  const cut = ` [cut: the rest is past the limit of ${max} characters]`;
+  const kept = line.slice(0, max - cut.length);
+  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}${cut}`;
 };
-
-/** One line of at most `max` characters. */
-export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
 /**
  * A Taster's out doc: the contract's, with its findings, a verdict when it is done, and the risk
@@ -137,7 +153,10 @@ export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Mu
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
-  riskLeft: z.array(OneLine.transform(withinRiskLimit)).max(MOST_RISKS_LEFT).exactOptional(),
+  riskLeft: z
+    .array(OneLine.transform((line) => withinLimit(line, MAX_RISK_LEFT, 'riskLeft')))
+    .max(MOST_RISKS_LEFT)
+    .exactOptional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done') return;
   if (doc.verdict === undefined) {

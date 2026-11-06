@@ -2,7 +2,7 @@
 {
   "name": "finer",
   "description": "Simplifies the batch's change without changing what it does, and commits it; or says why there was nothing to simplify.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "high",
   "inputs": [{ "name": "order", "from": "order" }],
@@ -68,3 +68,7 @@ End with `done`. Your out doc's frontmatter adds one of two keys to the `done` e
 - `"unchanged"`: when you committed nothing, one line of at most 1,000 characters that says why there was nothing to simplify.
 
 In the body, say which commands you ran and how they ended.
+
+## Your handover
+
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

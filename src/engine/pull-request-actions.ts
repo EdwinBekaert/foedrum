@@ -20,6 +20,7 @@ import { type DriverActions, repositoryOf } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
+import { type Handover, handoversOf } from './handover.ts';
 import { matchesWithDots } from './path-globs.ts';
 import {
   type AttemptRow,
@@ -130,6 +131,8 @@ interface BodyFrom {
   key: BatchEffectKey;
   /** The section that names the order's other pull requests, for a sub-order's (ADR 0292). */
   siblings?: string;
+  /** What the batch's brewers handed over (ADR 0340). */
+  handovers: readonly Handover[];
 }
 
 /** What one of the action's effects does, as `due` worked it out. */
@@ -280,7 +283,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
   };
 
   const render = async (from: BodyFrom, signal?: AbortSignal) => {
-    const { order, reports, isCommit, recipe, attempts, key, siblings } = from;
+    const { order, reports, isCommit, recipe, attempts, key, siblings, handovers } = from;
     return pullRequestText({
       title: await orderTitle(order, signal),
       // Only a claimed target issue: a Brewery issue is private (ADR 0296).
@@ -291,6 +294,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
       attempts,
       key,
       ...(siblings === undefined ? {} : { siblings }),
+      handovers,
     });
   };
 
@@ -455,6 +459,7 @@ export const pullRequestActions = (options: PullRequestActionsOptions): DriverAc
         attempts: brewLog(batch),
         key,
         ...(siblings === undefined ? {} : { siblings }),
+        handovers: handoversOf(batch),
       });
       const opened = pullRequestKey(batchId);
       effects.set(effectKey.encode(opened), {

@@ -334,6 +334,31 @@ describe('pullRequestActions: the pull request', () => {
     assert.doesNotMatch(body, /^Closes /m);
   });
 
+  it('opens it with what the brewers handed over (ADR 0340)', async () => {
+    const { actions, requests } = actionsWith();
+    const handed: Event[] = [
+      {
+        type: 'step.scheduled',
+        batchId: '12-1',
+        stepId: 'taste',
+        attempt: 1,
+        deadlineAt: '2026-10-15T13:00:00.000Z',
+      },
+      { type: 'step.started', batchId: '12-1', stepId: 'taste', attempt: 1 },
+      {
+        type: 'step.finished',
+        batchId: '12-1',
+        stepId: 'taste',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: true, reason: 'it failed' },
+        handover: ['Only a handover says this'],
+      },
+    ];
+    keysOf(fold([ordered({ issue: 12 }), ...brewed, ...handed, ...opening]), actions);
+    await actions.target.apply(open);
+    assert.match(requests[0]?.request.body ?? '', /taste#1: Only a handover says this/);
+  });
+
   it("opens it from the bottle branch into the base, with the order's title and the reports", async () => {
     const { actions, requests, titles } = actionsWith();
     keysOf(brewing(), actions);

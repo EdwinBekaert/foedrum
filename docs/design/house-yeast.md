@@ -39,6 +39,9 @@ When the lesson recurs, or a human asks with `/foedrum remember`, it is proposed
 A repository-layer rule ships in the same bottle as the fix that taught it.
 A human always approves a rule.
 
+**A brewer's handover** ([ADR 0340](../adr/0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md)): an out doc's `handover` is what a brewer learned, kept on its `step.finished` as a proposal, in no later prompt.
+It is not a candidate, and nothing makes a rule of it yet: how a person sorts a line is #908.
+
 **Foedrum's own reviews** ([ADR 0122](../adr/0122-house-yeast-for-foedrum-s-own-reviews-candidates-in-the-main-checkout-rules-per-lens.md)): until the state branch carries them, `/brew-review` records candidates in `.foedrum/house-yeast-candidates.jsonl` of the main checkout, which every worktree shares.
 Each lens reads the rules at the base whose scope matches the change, within the budget, and the summary names the rules the budget cut and flags structural rules as promotion candidates.
 `node scripts/house-yeast.ts recurring` ([ADR 0315](../adr/0315-a-rule-reviews-keep-recording-after-it-was-proposed-is-a-candidate-for-a-promotion-review.md)) reports, per active rule, the reviews that recorded its lesson again after the day it was proposed (its `created`), and lists a rule recorded in at least `minReviews` of them (`scripts/house-yeast/core.ts`) as a candidate for a check, of either kind: a person reviews it in an issue of its own, which may end in a check or a sharper rule (#685).
