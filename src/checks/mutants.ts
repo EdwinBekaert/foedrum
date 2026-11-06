@@ -60,9 +60,10 @@ const names = (code: string, stripped: boolean): Set<string> => {
 
 // A template literal's text token by token: an escape, what ends or interrupts the text, a unit.
 const textTokens = /\\[\s\S]|`|\$\{|[\s\S]/y;
-// The code around it: a plain string, a comment (no slash after a backslash starts one), a unit.
+// The code around it: a plain string, a comment, a backslash with what it escapes (which so opens
+// no literal, string or comment), a unit.
 const codeTokens = new RegExp(
-  `(['"])(?:\\\\.|(?!\\1)[^\\\\])*\\1|(?<!\\\\)(?:${comments.source})|[\\s\\S]`,
+  `(['"])(?:\\\\.|(?!\\1)[^\\\\])*\\1|${comments.source}|\\\\[\\s\\S]|[\\s\\S]`,
   'y',
 );
 
@@ -126,11 +127,12 @@ const readTemplates = (line: string): Reading => {
   return { kind, code, text, sure };
 };
 
-// A numeric escape of a literal's text, whole: it can spell any character.
-const numericEscapes = /\\(?:x|u\{?)[\da-f]*\}?/gi;
+// A numeric escape of a literal's text with the word it joins, whole: it can spell any character.
+const numericEscapes =
+  /(?<!\p{ID_Continue})\p{ID_Continue}*(?:\\(?:x|u\{?)[\da-fA-F]*\}?\p{ID_Continue}*)+/gu;
 
-// A literal's words, as they read when it runs: a numeric escape counts whole, an escape of a
-// letter is that letter, and any other escape, or a `$`, ends a word.
+// A literal's words, as they read when it runs: a numeric escape counts whole, with the word it
+// joins, an escape of a letter is that letter, and any other escape, or a `$`, ends a word.
 const textWords = (text: string): string[] => [
   ...(text.match(numericEscapes) ?? []),
   ...bareWords(
