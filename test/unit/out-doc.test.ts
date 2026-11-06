@@ -327,6 +327,11 @@ describe("a Taster's riskLeft (ADR 0214)", () => {
       assert.deepEqual(cutOf(`${start}password = hunter2`), [`${start.slice(0, kept)}${CUT}`]);
     });
 
+    it('is left out for a fixed line when it holds a full commit hash, since no commit is known here: regression test', () => {
+      const line = `${'a'.repeat(40)} ${'r '.repeat(MAX_RISK_LEFT)}`;
+      assert.deepEqual(cutOf(line), [LEFT_OUT]);
+    });
+
     it('never ends in half a character', () => {
       const emoji = String.fromCodePoint(0x1f37a);
       const [cut] = cutOf(`${'r'.repeat(kept - 1)}${emoji}${'r'.repeat(MAX_RISK_LEFT)}`) ?? [];
