@@ -17,7 +17,7 @@ import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
 import type { MarkedComment } from './claim-effects.ts';
-import { breweryIssueOf } from './claim-orders.ts';
+import { breweryIssueOf, calledAs } from './claim-orders.ts';
 import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
 import {
@@ -1231,6 +1231,8 @@ export const renderStatus = (
   subOrderPulls: readonly SubOrderRow[] = [],
   /** The Brewery issue the comment is on, whose number its session line names (ADR 0329). */
   order: number = batch.issue,
+  /** How its handover line names its work (`calledAs`, ADR 0329). */
+  called: string = String(order),
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1278,7 +1280,7 @@ export const renderStatus = (
   const handed = handoversOf(batch).length;
   if (handed > 0) {
     const lines = `${handed} handover line${handed === 1 ? '' : 's'}`;
-    sections.push([`${lines}: ${code(`foedrum handover ${batch.id}`)}`]);
+    sections.push([`${lines}: ${code(`foedrum handover ${called}`)}`]);
   }
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);
@@ -1373,6 +1375,7 @@ const statusDue = (
     allSubIssues(state, batchId),
     batch.decomposed === true ? subOrderRows(state, batch.issue) : [],
     issue,
+    calledAs(state, batch),
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

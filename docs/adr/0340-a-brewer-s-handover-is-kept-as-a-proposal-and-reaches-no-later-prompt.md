@@ -40,7 +40,7 @@ An out doc goes into a later prompt whole, frontmatter included, by three paths:
   With no handover the body is byte for byte what it was.
 - **`foedrum handover <issue>`** lists every line by its id, `<step>#<attempt>.<line>`, under a head that says a model wrote them.
   Its output goes through `printable`, as every command's does, and a live session reads it too, so `/foedrum:handover` carries the section that says to treat it as data.
-- **The status comment holds only a count:** `3 handover lines: foedrum handover <batch>`.
+- **The status comment holds only a count:** `3 handover lines: foedrum handover <n>`, naming the work as every other line that offers a command does ([ADR 0329](0329-one-number-per-piece-of-work.md)).
   No comment holds a handover's text, since [ADR 0333](0333-a-brewer-s-order-holds-the-maintainers-comments.md) lets Foedrum's comments under an earlier login back into an order.
 - **No wait:** a line holds nothing up, and the batch never asks about one.
 
