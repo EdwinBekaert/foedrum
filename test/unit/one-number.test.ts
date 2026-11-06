@@ -23,6 +23,8 @@ const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const WEB = 'acme/web';
 const recipes = fakeRecipes({
   pint: fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+  // talk is a person's session (ADR 0222).
+  sip: fakeRecipe({ steps: ['talk'], interactive: ['talk'] }),
   // One plan step and no pull request: its plan waits for review (ADR 0275).
   mash: fakeRecipe({ steps: ['plan'], pullRequests: [] }),
 });
@@ -253,17 +255,8 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.equal(laneOf('web-10'), 'stuck');
   });
 
-  it("foedrum rank of a claimed order's number finds its target issue in the queue", async () => {
-    const result = await run(['rank', '#43'], {
-      queue: () => ({
-        tracker: {
-          issues: async () => [],
-          pullRequest: async () => assert.fail('no pull request to read'),
-        },
-        login: async () => 'ada',
-      }),
-    });
-    // web#10 has a batch and no sub-order left, so its rank is refused by the target issue's name.
+  it("foedrum rank of a claimed order's number is refused by its target issue's name", async () => {
+    const result = await run(['rank', '#43']);
     assert.equal(
       result.stderr,
       'foedrum rank: acme/web#10 was ordered as batch web-10: a rank orders only the queue\n',
@@ -350,6 +343,64 @@ describe('one number per piece of work (ADR 0329)', () => {
       result.stderr,
       'foedrum recipe: batch web-10 of #43 is brewing; foedrum stop 43 first, then change its recipe\n',
     );
+  });
+
+  describe('a claimed batch waiting for its session: regression tests', () => {
+    /** Batch `batchId` of web#`number`, parked for a person's session. */
+    const parked = (batchId: string, number: number) => {
+      issue({ kind: 'order', batchId, order: { issue: number, repo: WEB } });
+      issue({ kind: 'route', batchId, recipe: 'sip', reason: 'label', source: 'label' });
+      issue({ kind: 'await_session', batchId, stepId: 'talk', attempt: 1 });
+    };
+
+    it('foedrum status names its number once its Brewery issue is open', async () => {
+      parked('web-20', 20);
+      record('web-20', 'order.issue', 50);
+      assert.match((await run(['status'])).stdout, /foedrum brew 50 --take opens it/);
+    });
+
+    it('foedrum stuck names its number once its Brewery issue is open', async () => {
+      parked('web-20', 20);
+      record('web-20', 'order.issue', 50);
+      assert.match((await run(['stuck'])).stdout, /foedrum brew 50 --take opens it/);
+    });
+
+    it('foedrum replay names its number once its Brewery issue is open', async () => {
+      parked('web-20', 20);
+      record('web-20', 'order.issue', 50);
+      assert.match((await run(['replay', '50'])).stdout, /foedrum brew 50 --take opens it/);
+    });
+
+    it('foedrum status names its target issue until its Brewery issue is open', async () => {
+      parked('web-20', 20);
+      assert.match((await run(['status'])).stdout, /foedrum brew web#20 --take opens it/);
+    });
+  });
+
+  describe('a target issue ordered again: regression tests', () => {
+    const orderedAgain = () => {
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record('web-7', effect, 'done');
+      }
+      const order = { issue: 7, repo: WEB };
+      issue({ kind: 'order_again', batchId: 'web-7-2', order, by: 'a', via: 'terminal' });
+    };
+
+    it('is refused by its target issue while the Brewery issue an earlier batch opened is alive', async () => {
+      orderedAgain();
+      assert.equal(
+        (await run(['cancel', 'web#7'])).stderr,
+        'foedrum cancel: web#7 is Brewery issue #40; foedrum cancel 40\n',
+      );
+    });
+
+    it('goes by its target issue once its reopen found that Brewery issue gone', async () => {
+      orderedAgain();
+      record('web-7-2', 'order.reopen', 'gone');
+      await accepted(['cancel', 'web#7']);
+      assert.equal(laneOf('web-7-2'), 'cancelled');
+    });
   });
 
   it('a batch id still works: regression test', async () => {

@@ -277,6 +277,33 @@ describe('runBrew', () => {
       });
     });
 
+    it('foedrum brew claims again when a batch ordered again found its Brewery issue deleted: regression test', async () => {
+      const host = github();
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const record = (batchId: string, effect: string, result: number | string) =>
+        issue({
+          kind: 'record',
+          event: { type: 'effect.applied', key: effectKey.encode({ batchId, effect }), result },
+        });
+      const order = { issue: 7, repo: 'acme/web' };
+      issue({ kind: 'order', batchId: 'web-7', order });
+      record('web-7', 'order.issue', 40);
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record('web-7', effect, 'done');
+      }
+      issue({ kind: 'order_again', batchId: 'web-7-2', order, by: 'ann', via: 'terminal' });
+      record('web-7-2', 'order.reopen', 'gone');
+      issue({ kind: 'cancel', batchId: 'web-7-2', by: 'ann', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record('web-7-2', effect, 'done');
+      }
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.ok(log().state().batches.has('web-7-3'), f.lines.join('\n'));
+    });
+
     /** The live lease of the claimed batch web-7. */
     const webLease = () => f.store.batchLeases(t0).find(({ batchId }) => batchId === 'web-7');
 

@@ -165,7 +165,7 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       });
     });
 
-    it('a batch id brews by the number of its issue, which brew takes: regression test', () => {
+    it('a batch id brews by the number of its issue, which brew takes', () => {
       assert.deepStrictEqual(lauterTarget(fold(claimed), 'web-7', repositories), {
         batchId: 'web-7',
         target: { issue: 40 },
