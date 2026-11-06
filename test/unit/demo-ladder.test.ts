@@ -451,10 +451,10 @@ describe('ladderProblems', () => {
 
   it('names a life that failed, with its last lines', () => {
     const lives = new Map([
-      ['web', life(1, 'demo: batch 3-1 is Stuck: attempts_exhausted\n')],
+      ['web', life(1, 'demo: #3 is Stuck: attempts_exhausted\n')],
     ] as const);
     assert.deepStrictEqual(ladderProblems({ ...good, lives }), [
-      "the Cellar's web life ended with exit code 1:\ndemo: batch 3-1 is Stuck: attempts_exhausted",
+      "the Cellar's web life ended with exit code 1:\ndemo: #3 is Stuck: attempts_exhausted",
     ]);
   });
 
@@ -558,7 +558,7 @@ describe('ladderBrewers', () => {
 });
 
 describe('ladderTick', () => {
-  const ended = { kind: 'ended', line: 'demo: batch 2-1 is on tap' } as const;
+  const ended = { kind: 'ended', line: 'demo: #2 is on tap' } as const;
 
   it('waits while the life brews, quiet or not', () => {
     assert.equal(ladderTick({ kind: 'brewing' }, true), 'wait');
@@ -572,7 +572,7 @@ describe('ladderTick', () => {
 
   it('ends a failed life at once', () => {
     assert.equal(
-      ladderTick({ kind: 'failed', line: 'demo: batch 2-1 was cancelled' }, false),
+      ladderTick({ kind: 'failed', line: 'demo: #2 was cancelled' }, false),
       'end',
     );
   });
@@ -609,7 +609,7 @@ describe('runLadder', () => {
         live: async (life) => {
           lives.push(life);
           const exitCode = life === failing.life ? 1 : 0;
-          const output = exitCode === 0 ? '' : 'demo: batch 1-1 is Stuck: attempts_exhausted\n';
+          const output = exitCode === 0 ? '' : 'demo: #1 is Stuck: attempts_exhausted\n';
           return { exitCode, output, stdout: output, stderr: '' } as ProcessOutcome;
         },
       });
@@ -625,7 +625,7 @@ describe('runLadder', () => {
     assert.deepStrictEqual(lives, ['plan']);
     assert.ok(
       said.includes(
-        "demo: the Cellar's plan life ended with exit code 1:\ndemo: batch 1-1 is Stuck: attempts_exhausted",
+        "demo: the Cellar's plan life ended with exit code 1:\ndemo: #1 is Stuck: attempts_exhausted",
       ),
       said.join('\n'),
     );

@@ -85,7 +85,7 @@ describe('npm run demo -- ladder', () => {
     // The application's Cellarman was told the tag as written, and wrote the version it names.
     assert.match(
       result.stdout,
-      /demo: the Cellarman of batch 3-1 is told the release it waited for, as \{release\}:\n +#### The release of demo\/lib that #3 waited for\n +- Tag, as written: v1\.4\.0\n/,
+      /demo: the Cellarman of #3 is told the release it waited for, as \{release\}:\n +#### The release of demo\/lib that #3 waited for\n +- Tag, as written: v1\.4\.0\n/,
     );
     const web = (await host()).pulls().find(({ repo }) => repo === WEB);
     const manifest = await show('web', `${web?.head}:package.json`);
@@ -151,12 +151,12 @@ describe('npm run demo -- ladder', () => {
     };
     const lines: Record<string, RegExp[]> = {
       plan: [
-        /demo: batch 1-1 waits Stuck for the review of its plan/,
+        /demo: #1 waits Stuck for the review of its plan/,
         /Recipe \*\*mash\*\*, chosen by its label/,
         /`plan #1` ✅ → `coverage #1` ✅ → `sizing #1` ✅ → `naive-reader #1` ✅/,
         /\| `bump`:\s.* \| `ladder` \| `greet` \(release\) \| yes \|/,
       ],
-      approve: [/\$ foedrum approve 1-1\n +1-1 on tap: plan approved by ann via terminal/],
+      approve: [/\$ foedrum approve 1\n +#1 on tap: plan approved by ann via terminal/],
       'sub-issues': [
         /sub-issue #3 of #1: .*\n +labels: foedrum:sub-order, recipe:ladder\n +blocked by: #2\n/,
       ],
@@ -198,7 +198,7 @@ describe('npm run demo -- ladder', () => {
     const at = (index: number) => result.stdout.indexOf(headingOf(index, LADDER_STEPS));
     assert.match(
       result.stdout.slice(at(0), at(1)),
-      /demo: the Brewmaster of batch 1-1 reads the system map, as \{repositories\}:\n.*?\n +publishes `@demo\/greet` \(npm\)\n.*?\n +depends on `@demo\/greet` from demo\/lib by version `1\.3\.0` \(npm\)\n/s,
+      /demo: the Brewmaster of #1 reads the system map, as \{repositories\}:\n.*?\n +publishes `@demo\/greet` \(npm\)\n.*?\n +depends on `@demo\/greet` from demo\/lib by version `1\.3\.0` \(npm\)\n/s,
     );
   });
 
@@ -217,7 +217,7 @@ describe('npm run demo -- ladder', () => {
     assert.deepStrictEqual(new Set(lines).size, 1, lines.join('\n'));
     assert.match(
       lines[0] ?? '',
-      /, or end it with `foedrum cancel 1-1`\. Its other option: `recipe`\.$/,
+      /, or end it with `foedrum cancel 1`\. Its other option: `recipe`\.$/,
     );
   });
 

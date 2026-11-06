@@ -822,7 +822,7 @@ describe('foedrum: commands that change state', () => {
     it('makes the brewing batch of an order Stuck stopped, recorded with who, from where and why', async () => {
       assert.deepStrictEqual(
         await run(['stop', '#23', '--why', 'lunch']),
-        ok('#23 stopped: 23-1 is Stuck at plan; foedrum retry continues it\n'),
+        ok('#23 stopped: #23 is Stuck at plan; foedrum retry continues it\n'),
       );
       assert.deepStrictEqual(appended(1), [
         {
@@ -884,7 +884,7 @@ describe('foedrum: commands that change state', () => {
       assert.deepStrictEqual(
         await run(['stop', '23']),
         ok(
-          '#23 stopped: 23-1 is Stuck at plan, 30-1 is Stuck at plan; foedrum retry continues each\n',
+          '#23 stopped: #23 is Stuck at plan, #30 is Stuck at plan; foedrum retry continues each\n',
         ),
       );
       assert.match(
@@ -1126,7 +1126,7 @@ describe('foedrum: commands that change state', () => {
     it("hands a batch from the driver that holds it to --as's, recording who and from where", async () => {
       assert.deepStrictEqual(
         await run(['takeover', '22-1', '--as', 'ann']),
-        ok(`22-1 handed from cellar to ann; its effects wait until ${iso(3)}\n`),
+        ok(`#22 handed from cellar to ann; its effects wait until ${iso(3)}\n`),
       );
       assert.deepStrictEqual(appended(1), [
         {
@@ -1153,7 +1153,7 @@ describe('foedrum: commands that change state', () => {
     it('hands it to terminal without --as outside a session (ADR 0259)', async () => {
       assert.deepStrictEqual(
         await run(['takeover', '22-1']),
-        ok(`22-1 handed from cellar to terminal; its effects wait until ${iso(3)}\n`),
+        ok(`#22 handed from cellar to terminal; its effects wait until ${iso(3)}\n`),
       );
       assert.deepStrictEqual(leases(), [['22-1', 'terminal']]);
     });
