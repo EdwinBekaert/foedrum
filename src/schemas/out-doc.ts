@@ -1,5 +1,6 @@
 // Out-doc frontmatter: how a brewer reports its outcome (brewers-and-recipes §2, ADR 0005).
 
+import { findSecrets } from '../formats/secrets.ts';
 import { LensName } from './ids.ts';
 import { type DocResult, readDoc } from './read.ts';
 import { NonEmpty, Question } from './step-outcome.ts';
@@ -104,6 +105,23 @@ export type TastingFinding = z.infer<typeof TastingFinding>;
 export const MOST_RISKS_LEFT = 10;
 export const MAX_RISK_LEFT = 300;
 
+const RISK_CUT = ` [cut: the rest is past the limit of ${MAX_RISK_LEFT} characters]`;
+
+/**
+ * A `riskLeft` line within its limit (ADR 0337): as it is, or its start with a mark that says it was
+ * cut. A finished review is not worth failing over it. It is read whole for a secret first, since a
+ * cut can break one in two and hide the rest from `withoutSecrets`; no commit is known here, so a
+ * full commit hash in a line past the limit is left out too.
+ */
+const withinRiskLimit = (line: string): string => {
+  if (line.length <= MAX_RISK_LEFT) return line;
+  if (findSecrets(line, () => false).length > 0) {
+    return '[left out: a riskLeft line past its limit that looks like a secret]';
+  }
+  const kept = line.slice(0, MAX_RISK_LEFT - RISK_CUT.length);
+  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}${RISK_CUT}`;
+};
+
 /** One line of at most `max` characters. */
 export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
@@ -114,7 +132,10 @@ export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Mu
 export const TastingOutDoc = outDocFrontmatter({
   verdict: Verdict.optional(),
   findings: z.array(TastingFinding).default([]),
-  riskLeft: z.array(lineOf(MAX_RISK_LEFT)).max(MOST_RISKS_LEFT).exactOptional(),
+  riskLeft: z
+    .array(NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line').transform(withinRiskLimit))
+    .max(MOST_RISKS_LEFT)
+    .exactOptional(),
 }).superRefine((doc, ctx) => {
   if (doc.status !== 'done') return;
   if (doc.verdict === undefined) {
