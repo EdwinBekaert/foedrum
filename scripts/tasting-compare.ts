@@ -23,8 +23,8 @@
 // With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in three
 // setups: the target is the order's base fetched from this checkout, a scripted Cellarman commits the
 // head's changed files, and nip's three Tasters, with design conformance as a fourth in the lens setup
-// (ADR 0337), run on the real claude, or scripted with --dry-run. It reads each Taster's transcript for what it read, and stops at once on a transcript that cannot
-// say. It writes one blinded list per order and one file of its bodies under
+// (ADR 0337), run on the real claude, or scripted with --dry-run. It reads each Taster's transcript
+// for what it read, and stops at once on a transcript that cannot say. It writes one blinded list per order and one file of its bodies under
 // .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
 // decisions are scripts/tasting-compare/real.ts.
 
