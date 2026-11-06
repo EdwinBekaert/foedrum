@@ -223,6 +223,16 @@ describe('a mutant inside a template literal (ADR 0341)', () => {
     assert.equal(reasonOf('x(`\\x65val b`);', 'x(`b \\x65val`);'), undefined);
   });
 
+  it('a control escape ends a word, and an escaped backslash does not join two', () => {
+    assert.equal(reasonOf('x(`rat`);', 'x(`\\rat`);'), 'the replacement adds at');
+    assert.equal(reasonOf('x(`a\\\\b`);', 'x(`b\\\\a`);'), undefined);
+  });
+
+  it('the literal check leaves a line it is not sure of alone, on either side', () => {
+    assert.equal(reasonOf("/``/.test('b c');", "/`/.test('b c');"), undefined);
+    assert.equal(reasonOf('a.replace(/./g, b);', 'a.replace(/`/g, b);'), undefined);
+  });
+
   it('an escaped backtick on a middle line of a multi-line literal opens no literal', () => {
     assert.equal(reasonOf('use \\`foo\\` here', ''), undefined);
     assert.equal(reasonOf('use \\`foo\\` here', 'use foo here'), undefined);
