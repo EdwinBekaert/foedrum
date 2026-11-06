@@ -110,7 +110,7 @@ export const liveOrderOf = (state: State, { issue, repo }: OrderRef): number | u
 
 /** What a person named when they named an issue: its order, its latest batch, and how to say it. */
 export interface NamedWork {
-  order: OrderRef;
+  order: { issue: number; repo?: string };
   batch: Batch | undefined;
   name: string;
 }
@@ -130,7 +130,7 @@ export const namedWork = (
   if (alias === undefined) {
     const own = latestBatch(state.batches.values(), issue, undefined);
     const claimed = own === undefined ? claimOfOrder(state, issue) : undefined;
-    const order =
+    const order: NamedWork['order'] =
       claimed?.repo === undefined ? { issue } : { issue: claimed.issue, repo: claimed.repo };
     return { order, batch: own ?? claimed, name: `#${issue}` };
   }

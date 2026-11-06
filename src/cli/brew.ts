@@ -306,18 +306,12 @@ export const runBrew = async (
     // and by that number alone once it is alive (ADR 0329).
     const work = namedWork(log.state(), target, () => repository?.repo, commandOf(request));
     if ('refused' in work) return refuse(work.refused);
-    order =
-      work.order.repo === undefined
-        ? { issue: work.order.issue }
-        : {
-            issue: work.order.issue,
-            repo: work.order.repo,
-          };
+    order = work.order;
     const { batch: last } = work;
     // How a line offers it now: its number, or its target issue until the number is alive.
     const called = (state: State): string => {
-      if (alias === undefined) return String(issue);
-      const alive = liveOrderOf(state, { issue, repo: repository?.repo ?? '' });
+      if (repository === undefined) return String(issue);
+      const alive = liveOrderOf(state, { issue, repo: repository.repo });
       return alive === undefined ? asGiven : String(alive);
     };
     // A target issue that ended and whose Brewery issue a person deleted is claimed anew.

@@ -731,15 +731,11 @@ export const commands: readonly RegisteredCommand[] = [
       const issued = { by: context.user(), via: context.surface };
       if (typeof issue === 'string') return context.resume({ batch: issue, step }, issued);
       // The store is read and closed first: the session may run for hours.
-      let batch: string | { refused: string } = { refused: `#${issue.issue} has no batch` };
       const read = await readBrewery('resume', context, (_events, state) => {
-        batch = batchNamed(state, issue, 'resume', context);
-        return done('');
+        const batch = batchNamed(state, issue, 'resume', context);
+        return typeof batch === 'string' ? done(batch) : failed('resume', batch.refused);
       });
-      if (read.exitCode !== 0) return read;
-      return typeof batch === 'string'
-        ? context.resume({ batch, step }, issued)
-        : failed('resume', batch.refused);
+      return read.exitCode === 0 ? context.resume({ batch: read.stdout, step }, issued) : read;
     },
   }),
   define({
