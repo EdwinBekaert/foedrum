@@ -248,6 +248,28 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
         'no driver holds batch 12-1; foedrum brew 12-1 --take opens its session',
       );
     });
+
+    it('foedrum takeover offers it no command once it is Stuck on anything else: regression test', async () => {
+      await parked();
+      const log = f.log();
+      assert.equal(log.issue({ kind: 'retry', batchId: '12-1', ...issued }, t0).kind, 'accepted');
+      const expire = { kind: 'expire', batchId: '12-1', stepId: 'refine', attempt: 3 } as const;
+      const later = new Date(t0.getTime() + 3_600_000);
+      assert.equal(log.issue(expire, later).kind, 'accepted');
+      const lane = log.state().batches.get('12-1')?.lane;
+      assert.equal(lane?.kind === 'stuck' && lane.reason.kind, 'deadline_passed');
+      const decision = takeOver(log, {
+        batchId: '12-1',
+        owner: 'bob',
+        ...issued,
+        now: later,
+        leaseMs: 60_000,
+      });
+      assert.deepStrictEqual(
+        decision.kind === 'refused' ? decision.reason : decision,
+        'no driver holds batch 12-1',
+      );
+    });
   });
 
   describe('a batch id on foedrum brew', () => {
@@ -290,6 +312,19 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
         f.lines.at(-1),
         'foedrum brew: batch 12-2 waits for no session, and foedrum brew takes an id only for one that does; foedrum brew 12 brews it',
       );
+    });
+
+    it('takes nothing over from the driver that holds a batch it refuses: regression test', async () => {
+      await parked();
+      const expiresAt = new Date(t0.getTime() + 60_000);
+      f.store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '12-2', owner: 'serve', expiresAt }),
+      );
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-2')), 5, f.lines.join('\n'));
+      const held = f.store.batchLeases(t0).find(({ batchId }) => batchId === '12-2');
+      assert.equal(held?.owner, 'serve');
+      assert.ok(!f.lines.some((line) => line.includes('took batch')), f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /waits for no session/);
     });
 
     it('refuses an older batch on tap, offering no command that reaches a later one', async () => {

@@ -12,6 +12,7 @@ import {
   batchTargetIn,
   brewFromCheckout,
   brewInNewWindow,
+  brewRequestIn,
   brewRequestOf,
   brewShellOf,
   noSessionsOf,
@@ -210,6 +211,50 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     } finally {
       dir.remove();
     }
+  });
+
+  describe("brew's request, read from the Brewery's store (ADR 0339): regression tests", () => {
+    const issuedBy = { by: 'ann', via: 'terminal' } as const;
+    const parse = (issue: string) => {
+      const parsed = BrewCommand.safeParse({ command: 'brew', issue, take: true });
+      return parsed.success ? parsed.data : assert.fail(parsed.error.message);
+    };
+
+    it('reads a batch id from it, and refuses one that is not there', () => {
+      const dir = makeTempDir('brew-request');
+      try {
+        const path = join(dir.path, 'index.db');
+        const store = openSqliteEventStore(path);
+        const order = { issue: 12 };
+        const routeBy = '2026-10-28T13:00:00.000Z';
+        store.withTransaction((tx) =>
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order, routeBy }),
+        );
+        store.close();
+        const of = (issue: string) =>
+          brewRequestIn(path, [], parse(issue), 'ann', issuedBy, undefined);
+        assert.deepStrictEqual(of('12-1'), {
+          target: { issue: 12 },
+          owner: 'ann',
+          ...issuedBy,
+          take: true,
+          batch: '12-1',
+        });
+        assert.deepStrictEqual(of('12-9'), { refused: 'there is no batch 12-9' });
+      } finally {
+        dir.remove();
+      }
+    });
+
+    it('reads no store for an issue, which brew resolves itself', () => {
+      const path = join('no-such-folder', 'index.db');
+      assert.deepStrictEqual(brewRequestIn(path, [], parse('12'), 'ann', issuedBy, undefined), {
+        target: { issue: 12 },
+        owner: 'ann',
+        ...issuedBy,
+        take: true,
+      });
+    });
   });
 
   it('finds the issue of the batch foedrum lauter names, by its alias in a target repository (#589)', () => {
