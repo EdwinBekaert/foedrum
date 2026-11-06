@@ -185,7 +185,7 @@ describe('stop (ADR 0205)', () => {
     });
     refuse(
       { kind: 'stop', order: { issue: 40 }, ...who },
-      /^#40 is the order of web#7; stop web#7$/,
+      /^#40 is the order of web#7; foedrum stop 40 stops it$/,
     );
   });
 

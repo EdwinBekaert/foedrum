@@ -145,7 +145,7 @@ describe('pause and continue (ADR 0202)', () => {
       });
       refuse(
         { kind: 'pause', order: { issue: 40 }, ...who },
-        /^#40 is the order of web#7; pause web#7$/,
+        /^#40 is the order of web#7; foedrum pause 40 holds it$/,
       );
     });
 

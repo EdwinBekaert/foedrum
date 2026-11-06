@@ -24,14 +24,14 @@ const waiting = (fields: Partial<Batch> = {}): Batch => ({
 
 describe('describeLane: a batch waiting for a session (ADR 0222)', () => {
   it('names foedrum brew with --take, to run in a terminal', () => {
-    assert.deepStrictEqual(describeLane(waiting()), {
+    assert.deepStrictEqual(describeLane(waiting(), '7'), {
       lane: 'stuck',
       detail: `waiting for a session at refine: foedrum brew 7 --take opens it in a terminal; reminder ${remindAt}`,
     });
   });
 
-  it("names a target issue's order by its repository, whose alias foedrum.jsonc gives", () => {
-    const { detail } = describeLane(waiting({ repo: 'acme/api' }));
-    assert.match(detail, /foedrum brew <alias of acme\/api>#7 --take opens it in a terminal/);
+  it("names a target issue's order by what its caller reads from the fold (ADR 0329)", () => {
+    const { detail } = describeLane(waiting({ repo: 'acme/api' }), '40');
+    assert.match(detail, /foedrum brew 40 --take opens it in a terminal/);
   });
 });

@@ -1572,7 +1572,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       refuses(
         events,
         again('200-1', { issue: 200 }),
-        /^issue #200 is the order of acme\/web#7; order web#7 again$/,
+        /^issue #200 is the order of acme\/web#7; foedrum order 200 orders it again$/,
       );
       accepts(events, again('201-1', { issue: 201 }), [orderedAgain('201-1', { issue: 201 })]);
     });
@@ -1629,7 +1629,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
         refuses(
           events,
           again('web-7-2', web),
-          /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then order acme\/web#7 again$/,
+          /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then foedrum order web#7 again$/,
         );
       }
     });
@@ -1705,7 +1705,7 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       refuses(
         withOrder,
         again('web-7-2', web),
-        /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then order acme\/web#7 again$/,
+        /^the release of the claim of batch web-7 is still due: foedrum serve applies it, then foedrum order 200 again$/,
       );
       accepts([...withOrder, ...applied('release.order')], again('web-7-2', web), [
         orderedAgain('web-7-2', web),

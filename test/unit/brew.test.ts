@@ -772,7 +772,7 @@ describe('runBrew', () => {
       },
     });
     assert.equal(await runBrew(f.setup, pausing, request), 5);
-    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue 12 lets it brew');
     assert.deepStrictEqual(f.started, ['brew#1']);
   });
 
@@ -795,7 +795,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), sub), 5);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: #30 is a sub-order of #12, which is paused; foedrum continue #12 lets it brew',
+      'foedrum brew: #30 is a sub-order of #12, which is paused; foedrum continue 12 lets it brew',
     );
   });
 
@@ -803,7 +803,7 @@ describe('runBrew', () => {
     log().issue({ kind: 'order', batchId: '12-1', order: { issue: 12 } }, t0);
     log().issue({ kind: 'pause', order: { issue: 12 }, by: 'ann', via: 'terminal' }, t0);
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
-    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue #12 lets it brew');
+    assert.equal(f.lines.at(-1), 'foedrum brew: #12 is paused; foedrum continue 12 lets it brew');
     assert.deepStrictEqual(f.started, []);
   });
 
@@ -826,7 +826,7 @@ describe('runBrew', () => {
     assert.equal(await runBrew(f.setup, shell(behave.succeed()), request), 5);
     assert.equal(
       f.lines.at(-1),
-      'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order #12 orders it again',
+      'foedrum brew: batch 12-1 of #12 is cancelled; foedrum order 12 orders it again',
     );
   });
 

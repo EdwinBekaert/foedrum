@@ -263,10 +263,11 @@ describe('one number per piece of work (ADR 0329)', () => {
         login: async () => 'ada',
       }),
     });
-    // web#10 has a batch and no sub-order left, so its rank is refused by the target issue's name,
-    // never as the Brewery issue of a claimed order.
-    assert.equal(result.exitCode, 1);
-    assert.doesNotMatch(result.stderr, /is the order of/);
+    // web#10 has a batch and no sub-order left, so its rank is refused by the target issue's name.
+    assert.equal(
+      result.stderr,
+      'foedrum rank: acme/web#10 was ordered as batch web-10: a rank orders only the queue\n',
+    );
   });
 
   describe('a target issue whose Brewery issue is alive', () => {
@@ -341,6 +342,14 @@ describe('one number per piece of work (ADR 0329)', () => {
       stderr: 'foedrum retry: #99 has no batch\n',
     });
     assert.equal(store.lastEventId(), before);
+  });
+
+  it("foedrum recipe of a brewing claimed order's number names the number to stop", async () => {
+    const result = await run(['recipe', '43', 'pint', 'why not']);
+    assert.equal(
+      result.stderr,
+      'foedrum recipe: batch web-10 of #43 is brewing; foedrum stop 43 first, then change its recipe\n',
+    );
   });
 
   it('a batch id still works: regression test', async () => {
