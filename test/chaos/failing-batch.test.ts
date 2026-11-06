@@ -36,6 +36,9 @@ const commentsDue = (state: State, batchId: string) =>
     ),
   );
 
+// Whether the check that an effect makes no batch Stuck had a failing effect behind it, in some run.
+let effectsMarked = 0;
+
 const run = async (seed: number): Promise<void> => {
   const random = seededRandom(seed);
   let sick = true;
@@ -130,6 +133,9 @@ const run = async (seed: number): Promise<void> => {
       }
     };
 
+    // The refuser past its first step, so its effect fails from the start.
+    await tick();
+    hand.endSome(({ batchId }) => batchId === refuser);
     const rounds = 80 + random.int(40);
     for (let each = rounds; each > 0; each--) {
       if (random.chance(0.04)) {
@@ -150,6 +156,8 @@ const run = async (seed: number): Promise<void> => {
       }
     }
 
+    const events = store.eventsAfter(0).map(({ event }) => event);
+    if (events.some((e) => e.type === 'batch.failing' && e.batchId === refuser)) effectsMarked++;
     // The throws stop: a person's retries bring every batch on tap, and the marks go.
     sick = false;
     for (let each = 0; each < 80; each++) {
@@ -175,5 +183,7 @@ const run = async (seed: number): Promise<void> => {
 };
 
 it('batches that fail past the limit stop none of the others, and come to rest once they read', async () => {
+  effectsMarked = 0;
   await forEachSeedAsync(10, run);
+  assert.ok(effectsMarked > 0, 'a failing effect marked its batch in some run');
 });

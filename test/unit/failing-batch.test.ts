@@ -21,6 +21,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import type { State } from '../../src/engine/fold.ts';
 import type { Recipe } from '../../src/engine/recipes.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { StateBranchStopError } from '../../src/engine/state-branch.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeGitHub } from '../helpers/fake-github.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -255,12 +256,35 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       await ticksAt(driver, 0, 30);
       readingBroken = false;
       unread.add('b1');
+      message = 'later';
       await ticksAt(driver, 31, 60);
       assert.deepStrictEqual(batchOf('b1')?.failing, {
         pass: 'effects',
-        summary: 'boom',
+        summary: 'later',
         since: t0.toISOString(),
       });
+    });
+
+    it('a tick that rejects marks nothing and keeps the clock', async () => {
+      onTap('b1');
+      unread.add('b1');
+      let stops = false;
+      const driver = await open({
+        stateBranch: {
+          flush: async () => {
+            if (stops) throw new StateBranchStopError('another engine pushed');
+            return { kind: 'unchanged' };
+          },
+        },
+      });
+      await ticksAt(driver, 0);
+      stops = true;
+      now = at(60);
+      await assert.rejects(driver.tick(), StateBranchStopError);
+      assert.deepStrictEqual(marks('b1'), []);
+      stops = false;
+      await ticksAt(driver, 61);
+      assert.equal(batchOf('b1')?.failing?.since, t0.toISOString());
     });
 
     it('starts the hour again after a tick that went clean', async () => {
@@ -297,6 +321,9 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       await ticksAt(next, 6, 66);
       assert.equal(batchOf('b1')?.failing?.pass, 'supervisor');
       assert.ok(notices.some((notice) => notice.kind === 'command_failed'));
+      const lane = batchOf('b1')?.lane;
+      assert.ok(lane?.kind === 'stuck' && lane.reason.kind === 'failing', JSON.stringify(lane));
+      assert.equal(lane.reason.stepId, 'plan');
     });
   });
 
@@ -462,6 +489,7 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       onTap('b1');
       onTap('b2');
       unread.add('b1');
+      unread.add('b2');
       let appendFails = true;
       const faulty: EventStore = {
         ...store,
@@ -470,7 +498,9 @@ describe('a batch that keeps failing (ADR 0335)', () => {
             work({
               ...tx,
               append: (event) => {
-                if (event.type === 'batch.failing' && appendFails) throw new Error('disk full');
+                const refuses =
+                  appendFails && event.type === 'batch.failing' && event.batchId === 'b1';
+                if (refuses) throw new Error('disk full');
                 return tx.append(event);
               },
             }),
@@ -479,7 +509,7 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       const driver = await open({ store: faulty });
       await ticksAt(driver, 0, 60);
       assert.equal(batchOf('b1')?.failing, undefined);
-      assert.equal(applied.length, 1, "b2's effect still applied");
+      assert.notEqual(batchOf('b2')?.failing, undefined, "b2's mark is still written");
       appendFails = false;
       await ticksAt(driver, 61);
       assert.notEqual(batchOf('b1')?.failing, undefined);
@@ -829,7 +859,7 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       assert.equal(lines('effect_failed'), 2);
     });
 
-    it('says an effect again when it fails after a pass that did not', async () => {
+    it('says an effect again when it fails after a pass that did not (regression test)', async () => {
       onTap('b1');
       refused.add('b1');
       let due = true;
@@ -856,6 +886,43 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       message = 'read failed at 12:00:06';
       await ticksAt(driver, 1);
       assert.equal(lines('batch_effects_failed'), 1);
+    });
+
+    /** `batchId` on `bad`, started, and its lease run out: deciding its loss reads the recipe. */
+    const lostOnBad = (batchId: string): void => {
+      order(batchId, 'bad');
+      accept({ kind: 'record', event: { type: 'step.started', ...plan(batchId) } });
+      store.withTransaction((tx) =>
+        tx.putLease({
+          attemptKey: attemptKey.encode(plan(batchId)),
+          owner: 'gone',
+          expiresAt: at(-1),
+        }),
+      );
+    };
+
+    it("says the same command of another batch too, as the key names the batch's", async () => {
+      lostOnBad('b1');
+      lostOnBad('b2');
+      retryBroken = true;
+      const driver = await open();
+      await ticksAt(driver, 0, 1);
+      assert.equal(lines('command_failed'), 2);
+    });
+
+    it('says a command again when it fails after a tick that did not', async () => {
+      lostOnBad('b1');
+      lostOnBad('b2');
+      retryBroken = true;
+      const driver = await open();
+      await ticksAt(driver, 0);
+      retryBroken = false;
+      // b1 and b2 are lost now, each with a retry; b3's loss comes next.
+      await ticksAt(driver, 1);
+      lostOnBad('b3');
+      retryBroken = true;
+      await ticksAt(driver, 2);
+      assert.equal(lines('command_failed'), 3);
     });
 
     it("says a supervisor's command that keeps throwing once", async () => {

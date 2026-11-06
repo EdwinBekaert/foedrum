@@ -332,6 +332,24 @@ describe('foedrum: commands that change state', () => {
   });
 
   describe('retry', () => {
+    it('takes what its refusal says still works, a cancel and another recipe (regression test)', async () => {
+      const broken = fakeRecipes({
+        pint: {
+          ...fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+          deadlineMs: () => {
+            throw new Error('the recipe could not be read');
+          },
+        },
+        stout: fakeRecipe({ steps: ['analyze'] }),
+      });
+      const choose = await run(['recipe', '22-1', 'stout', 'its recipe broke'], {
+        recipes: () => broken,
+      });
+      assert.equal(choose.exitCode, 0, choose.stderr);
+      const cancel = await run(['cancel', '24-1'], { recipes: () => broken });
+      assert.equal(cancel.exitCode, 0, cancel.stderr);
+    });
+
     it('keeps what the recipe threw on one line', async () => {
       const broken = fakeRecipes({
         pint: {

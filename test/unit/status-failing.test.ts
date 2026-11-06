@@ -125,6 +125,45 @@ describe('a batch whose rendering throws', () => {
 });
 
 describe('foedrum stuck', () => {
+  it('shows the mark of a batch Stuck for another reason', () => {
+    const stopped = batch('1-1', 1, {
+      failing,
+      lane: {
+        kind: 'stuck',
+        reason: { kind: 'stopped', stepId: 'plan', by: 'ada', via: 'terminal' },
+        options: ['retry', 'cancel'],
+        remindAt,
+      },
+    });
+    assert.match(formatStuck(stateOf(stopped)), /1-1.*stopped.*failing in effects since/);
+  });
+
+  it('lists a marked batch that is not Stuck beside one that is', () => {
+    const text = formatStuck(stateOf(stuckFailing('1-1', 1), batch('2-1', 2, { failing })));
+    assert.match(text, /1 Stuck batch/);
+    assert.match(text, /2-1 on_tap: failing in effects/);
+  });
+
+  it('lists the others when the open findings of one cannot be rendered (regression test)', () => {
+    const broken = batch('1-1', 1, {
+      lane: {
+        kind: 'stuck',
+        reason: {
+          kind: 'blocked',
+          stepId: 'plan',
+          blockerKind: 'findings',
+          summary: 'open',
+          roundsOut: { rounds: 2, open: null, more: 0 } as never,
+        },
+        options: ['cancel'],
+        remindAt,
+      },
+    });
+    const text = formatStuck(stateOf(broken, stuckFailing('2-1', 2)));
+    assert.match(text, /options: cancel/);
+    assert.match(text, /2-1.*failing at plan/);
+  });
+
   it('lists a batch Stuck on failing with its options', () => {
     const text = formatStuck(stateOf(stuckFailing('1-1', 1)));
     assert.match(text, /1 Stuck batch/);
@@ -167,6 +206,16 @@ describe('the status comment', () => {
   it('shows no such line with no mark, and shows one with it', () => {
     assert.doesNotMatch(renderStatus(batch('1-1', 1)), /Failing/);
     assert.match(renderStatus(batch('1-1', 1, { failing })), /Failing/);
+  });
+
+  it('leaves out a summary that reads like a secret, on the mark and on the Stuck', () => {
+    const token = `ghp_${'a'.repeat(36)}`;
+    const secret = { ...failing, summary: token };
+    assert.doesNotMatch(renderStatus(batch('1-1', 1, { failing: secret })), /ghp_/);
+    const stuck = stuckFailing('1-1', 1);
+    const reason = { kind: 'failing', stepId: 'plan', ...secret } as const;
+    const lane = { ...stuck.lane, reason } as Batch['lane'];
+    assert.doesNotMatch(renderStatus({ ...stuck, lane }), /ghp_/);
   });
 
   it('shows why a batch is Stuck on failing, with no second line for its mark', () => {

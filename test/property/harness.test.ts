@@ -45,6 +45,37 @@ describe('holdsInScenarios', () => {
   });
 });
 
+describe('the scenarios', () => {
+  it("play the failing mark, its Stuck, its recovery and a person's way out of it (ADR 0335)", async () => {
+    const seen = new Set<string>();
+    await holdsInScenarios({
+      atEnd: (engine) => {
+        const onFailing = new Set<string>();
+        for (const event of engine.events()) {
+          if (event.type === 'batch.failing' || event.type === 'batch.recovered') {
+            seen.add(event.type);
+          }
+          if (event.type === 'batch.stuck') {
+            if (event.reason.kind === 'failing') {
+              seen.add('stuck on failing');
+              onFailing.add(event.batchId);
+            } else onFailing.delete(event.batchId);
+          }
+          if (event.type === 'batch.resumed' && onFailing.delete(event.batchId)) {
+            seen.add('out of failing');
+          }
+        }
+      },
+    });
+    assert.deepStrictEqual([...seen].sort(), [
+      'batch.failing',
+      'batch.recovered',
+      'out of failing',
+      'stuck on failing',
+    ]);
+  });
+});
+
 // A file that runs a count of its own reads it as every property does (ADR 0243).
 describe('runsIn', () => {
   it("gives the file's own count when FOEDRUM_RUNS is unset", () => {
