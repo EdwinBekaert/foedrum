@@ -2125,7 +2125,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.deepStrictEqual(choice, chosen('21-2', 'stout'));
     });
 
-    it('orders an issue whose batch is on tap again with the recipe', async () => {
+    it('refuses an issue on tap with an open pull request, ordering nothing, and orders it with the recipe once that ended', async () => {
       // 31-1 brews pint's two steps and goes on tap.
       const log = createCommandLog({ store, recipes });
       const issue = (command: Parameters<typeof log.issue>[0]) =>
@@ -2138,6 +2138,20 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         issue({ kind: 'finish', ...step, ending: { kind: 'succeeded', output: {} } });
       }
       assert.equal(log.state().batches.get('31-1')?.lane.kind, 'on_tap');
+      const lane = log.state().batches.get('31-1')?.lane;
+      const [pullRequest] = lane?.kind === 'on_tap' ? lane.pullRequests : [];
+      assert.ok(pullRequest !== undefined, '31-1 went on tap with its pull request');
+      const open = await run(['recipe', '#31', 'stout', 'the plan has one sub-order'], noConfig);
+      assert.equal(open.exitCode, 1);
+      assert.match(open.stderr, /is on tap with a pull request with no recorded end/);
+      assert.equal(log.state().batches.has('31-2'), false);
+      const event = {
+        type: 'pull_request.ended',
+        batchId: '31-1',
+        pullRequest,
+        state: 'closed',
+      } as const;
+      issue({ kind: 'record', event });
       const before = lastId();
       assert.deepStrictEqual(
         await run(['recipe', '#31', 'stout', 'the plan has one sub-order'], noConfig),
