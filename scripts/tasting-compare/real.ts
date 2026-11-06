@@ -230,11 +230,13 @@ const readLine = (line: string) => {
 /**
  * What the calls in a session's transcript reached, against `worktree`, which relative paths are
  * read against. Only the model's and the tools' own lines count: a transcript also logs requests. A
- * call that came back as an error read nothing. A transcript that shows no call says nothing, since a
- * Taster writes its out doc with one, so a transcript of another format cannot read as staying inside.
+ * call that came back as an error read nothing. A transcript that shows no call, or a call with no
+ * result, says nothing, since a Taster writes its out doc with one, so a transcript of another format
+ * cannot read as staying inside.
  */
 export const transcriptReads = (transcript: string, worktree: string): TranscriptReads => {
   const calls = new Map<string, { name: string; input: Record<string, unknown> }>();
+  const answered = new Set<string>();
   const opened = new Set<string>();
   const outside: string[] = [];
   const refused: string[] = [];
@@ -258,6 +260,7 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
       if (type !== 'user' || !result.success) continue;
       const call = calls.get(result.data.tool_use_id);
       if (call === undefined) continue;
+      answered.add(result.data.tool_use_id);
       const reach = reachOfCall(worktree, call.name, call.input);
       if (result.data.is_error === true) {
         if (reach !== undefined && !reach.inside) refused.push(reach.place);
@@ -272,6 +275,10 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
     }
   }
   if (calls.size === 0) problem ??= 'its transcript shows no tool call';
+  const unanswered = [...calls.keys()].find((id) => !answered.has(id));
+  if (unanswered !== undefined) {
+    problem ??= `its transcript shows no result of the ${calls.get(unanswered)?.name} call`;
+  }
   return { opened: [...opened], outside, refused, ...(problem === undefined ? {} : { problem }) };
 };
 
