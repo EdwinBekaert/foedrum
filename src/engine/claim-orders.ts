@@ -119,7 +119,7 @@ export interface NamedWork {
  * The one reading of a number a command takes (ADR 0329). `<n>` is the Brewery issue's own latest
  * batch, or the latest claimed batch whose order it is, with that claimed issue as its order.
  * `<alias>#<n>` is the target issue until its Brewery issue is open, then refused for `command`
- * with the number to use, and again once a person deleted that issue.
+ * with the number to use, and the target issue once more after a person deleted that Brewery issue.
  */
 export const namedWork = (
   state: State,
