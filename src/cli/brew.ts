@@ -358,6 +358,10 @@ export const runBrew = async (
     const latest = deleted ? undefined : last;
     // Brewing an on-tap batch records the ends of its pull requests and applies what follows, for a
     // person with no Cellar (ADR 0336); a mash or a lauter of one keeps its own refusal.
+    // A Brewery issue's batch has no claim to hold, but its open pull request refuses a new order
+    // all the same (ADR 0339).
+    const openLine = (state: State, batch: Batch): string =>
+      `${named} is on tap with its pull request still open: ${unendedPullRequests(batch).join(' ')}; close it first to order it again, and foedrum brew ${called(state)} reads it again once it ended`;
     const heldLine = (state: State, batch: Batch): string =>
       `${named} is on tap and holds its claim until its pull requests end: ${unendedPullRequests(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
     const standing =
@@ -389,6 +393,7 @@ export const runBrew = async (
           `${named} is ${lane}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
         );
       }
+      if (unendedPullRequests(latest).length > 0) return refuse(openLine(log.state(), latest));
       return refuse(orderAgainLine(log.state(), latest));
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
@@ -501,7 +506,7 @@ export const runBrew = async (
       const read = foldedBatch(log.state(), batch.id);
       if (unendedPullRequests(read).length > 0) {
         if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
-        return refuse(orderAgainLine(log.state(), read));
+        return refuse(openLine(log.state(), read));
       }
     }
     if (waitsForOrder && batch.lane.kind === 'ordered') {

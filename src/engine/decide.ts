@@ -62,6 +62,7 @@ import {
   type State,
   type Step,
   type UsageWindow,
+  unendedPullRequests,
 } from './fold.ts';
 import { same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
@@ -655,7 +656,12 @@ function busy(state: State, order: OrderRef): string | undefined {
     }
     const of = orderSaid(state, order);
     if (nonTerminal.includes(batch.lane.kind)) return `${of} is still ${batch.lane.kind}`;
-    if (ofRepo === undefined) continue;
+    if (ofRepo === undefined) {
+      // A number reaches its issue's one live batch, which a later batch would hide (ADR 0339).
+      const open = unendedPullRequests(batch);
+      if (open.length === 0) continue;
+      return `${of} is on tap with a pull request with no recorded end, ${open.join(' ')}: foedrum brew ${issue} or foedrum serve reads it if it ended; otherwise close it first`;
+    }
     const standing = claimStandingOf(state, batch, ofRepo);
     switch (standing) {
       case 'held':
