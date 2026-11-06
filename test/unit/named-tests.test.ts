@@ -128,6 +128,15 @@ describe('unreportedNames (ADR 0342)', () => {
     );
   });
 
+  it('says nothing past its limit of work: a short name tried at every place of a long one', () => {
+    assert.equal(
+      unreportedNames({ tests: ['a'], regressionTests: [] }, [
+        reportOf(reported('a'.repeat(5_000_000))),
+      ]),
+      undefined,
+    );
+  });
+
   it('a blank name is not read', () => {
     assert.deepEqual(unreportedNames({ tests: [' \t'], regressionTests: [] }, []), []);
   });

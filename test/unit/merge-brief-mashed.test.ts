@@ -55,6 +55,7 @@ const loaded = loadRecipes({
     { path: 'recipes/porter.jsonc', text: porter },
     building('reviewed', [{ id: 'old-taster', ...earlierTaster }, ask, open]),
     building('tasted', [{ id: 'implement', brewer: 'cellarman' }, diffTaster('new-taster'), open]),
+    building('built-first', [{ id: 'implement', brewer: 'cellarman' }, ask, open]),
     building('plain-taste', [{ id: 'taste', ...earlierTaster }, ask, open]),
     building('group-taste', [
       { id: 'implement', brewer: 'cellarman' },
@@ -339,6 +340,17 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     );
     assert.match(body, /\*\*Risk left\*\*\n- `new-taster`: the cut was not run$/m);
     assert.doesNotMatch(body, /Not proven/);
+  });
+
+  it("leaves out what an earlier recipe's step of the same id recorded of the named tests (ADR 0342)", async () => {
+    movedOff(
+      'built-first',
+      () => run('implement', done, { unreported: { tests: ['adds'], more: 0 } }),
+      'porter',
+    );
+    porterToOpen();
+    const body = await briefBody();
+    assert.match(body, /\*\*Risk left\*\*\nNone recorded\./);
   });
 
   it("shows the risk the current recipe's Taster left, never an earlier recipe's", async () => {
