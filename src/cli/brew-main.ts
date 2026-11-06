@@ -69,8 +69,8 @@ export const brewRequestOf = (
   owner: string,
   issued: { by: string; via: Surface },
   noSessions: BrewRequest['noSessions'],
-  /** For `foedrum lauter`: its batch and how brew takes it (`lauterTarget`). */
-  found?: LauterTarget,
+  /** For `foedrum lauter`: its batch and how brew takes it (`batchTarget`). */
+  found?: BatchTarget,
 ): BrewRequest => {
   if (input.command !== 'lauter') return brewOrMash(input, owner, issued, noSessions);
   if (found === undefined) throw new Error('foedrum lauter needs its batch');
@@ -100,7 +100,7 @@ const brewOrMash = (
 });
 
 /** The batch `foedrum lauter` names, and its issue as brew takes it. */
-export interface LauterTarget {
+export interface BatchTarget {
   batchId: string;
   target: OrderTarget;
 }
@@ -109,11 +109,11 @@ export interface LauterTarget {
  * The batch `foedrum lauter` names, or why it has none (ADR 0286): a batch id names that batch, and
  * an issue its latest (ADR 0329). Brew takes it by its number once it has one.
  */
-export const lauterTarget = (
+export const batchTarget = (
   state: State,
   named: BatchOrIssue,
   repositories: readonly { alias: string; repo: string }[],
-): LauterTarget | { refused: string } => {
+): BatchTarget | { refused: string } => {
   let batchId: string;
   if (typeof named === 'string') {
     batchId = named;
@@ -148,12 +148,12 @@ const readState = (path: string): State => {
   }
 };
 
-/** `lauterTarget` of the Brewery's event store at `storePath`, read only. */
-export const lauterTargetIn = (
+/** `batchTarget` of the Brewery's event store at `storePath`, read only. */
+export const batchTargetIn = (
   storePath: string,
   named: BatchOrIssue,
   repositories: readonly { alias: string; repo: string }[],
-): ReturnType<typeof lauterTarget> => lauterTarget(readState(storePath), named, repositories);
+): ReturnType<typeof batchTarget> => batchTarget(readState(storePath), named, repositories);
 
 /** What `--new-window` starts the brew with: the machine's launcher facts, node and program. */
 export interface NewWindowDeps extends WindowFacts {
@@ -287,9 +287,9 @@ export const brewFromCheckout = async (
             }),
         }),
     );
-    let found: LauterTarget | undefined;
+    let found: BatchTarget | undefined;
     if (input.command === 'lauter') {
-      const named = lauterTargetIn(setup.store, input.issue, setup.intake.repositories);
+      const named = batchTargetIn(setup.store, input.issue, setup.intake.repositories);
       if ('refused' in named) {
         return {
           exitCode: 5,

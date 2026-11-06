@@ -8,12 +8,12 @@ import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
 import {
+  batchTarget,
+  batchTargetIn,
   brewFromCheckout,
   brewInNewWindow,
   brewRequestOf,
   brewShellOf,
-  lauterTarget,
-  lauterTargetIn,
   noSessionsOf,
   thisMachine,
 } from '../../src/cli/brew-main.ts';
@@ -160,28 +160,27 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     const repositories = [{ alias: 'web', repo: 'acme/web' }];
 
     it("foedrum lauter takes a Brewery issue's number and acts on its latest batch", () => {
-      assert.deepStrictEqual(lauterTarget(fold(claimed), { issue: 40 }, repositories), {
+      assert.deepStrictEqual(batchTarget(fold(claimed), { issue: 40 }, repositories), {
         batchId: 'web-7',
         target: { issue: 40 },
       });
     });
 
     it('a batch id brews by the number of its issue, which brew takes', () => {
-      assert.deepStrictEqual(lauterTarget(fold(claimed), 'web-7', repositories), {
+      assert.deepStrictEqual(batchTarget(fold(claimed), 'web-7', repositories), {
         batchId: 'web-7',
         target: { issue: 40 },
       });
     });
 
     it('refuses the target issue once its Brewery issue is alive, naming the number', () => {
-      assert.deepStrictEqual(
-        lauterTarget(fold(claimed), { alias: 'web', issue: 7 }, repositories),
-        { refused: 'web#7 is Brewery issue #40; foedrum lauter 40' },
-      );
+      assert.deepStrictEqual(batchTarget(fold(claimed), { alias: 'web', issue: 7 }, repositories), {
+        refused: 'web#7 is Brewery issue #40; foedrum lauter 40',
+      });
     });
 
     it('says a number with no batch has none', () => {
-      assert.deepStrictEqual(lauterTarget(fold(claimed), { issue: 99 }, repositories), {
+      assert.deepStrictEqual(batchTarget(fold(claimed), { issue: 99 }, repositories), {
         refused: '#99 has no batch',
       });
     });
@@ -191,7 +190,7 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
     const dir = makeTempDir('lauter-store');
     try {
       const path = join(dir.path, 'index.db');
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
+      assert.deepStrictEqual(batchTargetIn(path, '12-1', []), {
         refused: 'there is no batch 12-1',
       });
       const store = openSqliteEventStore(path);
@@ -201,11 +200,11 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
         tx.append({ type: 'batch.ordered', batchId: '12-1', order, routeBy }),
       );
       store.close();
-      assert.deepStrictEqual(lauterTargetIn(path, '12-1', []), {
+      assert.deepStrictEqual(batchTargetIn(path, '12-1', []), {
         batchId: '12-1',
         target: { issue: 12 },
       });
-      assert.deepStrictEqual(lauterTargetIn(path, '99-1', []), {
+      assert.deepStrictEqual(batchTargetIn(path, '99-1', []), {
         refused: 'there is no batch 99-1',
       });
     } finally {
@@ -221,18 +220,18 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       ordered('web-7-1', { issue: 7, repo: 'acme/web' }),
     ]);
     const repositories = [{ alias: 'web', repo: 'acme/web' }];
-    assert.deepStrictEqual(lauterTarget(state, '12-1', repositories), {
+    assert.deepStrictEqual(batchTarget(state, '12-1', repositories), {
       batchId: '12-1',
       target: { issue: 12 },
     });
-    assert.deepStrictEqual(lauterTarget(state, 'web-7-1', repositories), {
+    assert.deepStrictEqual(batchTarget(state, 'web-7-1', repositories), {
       batchId: 'web-7-1',
       target: { alias: 'web', issue: 7 },
     });
-    assert.deepStrictEqual(lauterTarget(state, '99-1', repositories), {
+    assert.deepStrictEqual(batchTarget(state, '99-1', repositories), {
       refused: 'there is no batch 99-1',
     });
-    assert.deepStrictEqual(lauterTarget(state, 'web-7-1', []), {
+    assert.deepStrictEqual(batchTarget(state, 'web-7-1', []), {
       refused: 'batch web-7-1 is of acme/web, which foedrum.jsonc names with no alias and intake',
     });
   });
