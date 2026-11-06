@@ -313,6 +313,19 @@ describe('the comments an order holds', () => {
     await assert.rejects(cut.read([target]), /GitHub answered 502 to the comments of acme\/web#7/);
   });
 
+  it('an eleventh comment reaches the order, though the full page before it answers 304', async () => {
+    const ten = Array.from({ length: 10 }, (_, at) => comment(501 + at, `Comment ${at + 1}.`));
+    const { read } = commentsWith([
+      { status: 200, body: ten, headers: { etag: '"full"' } },
+      { status: 304 },
+      { status: 200, body: [comment(511, 'The eleventh.')], headers: { etag: '"next"' } },
+    ]);
+    assert.equal((await read([target])).length, 10);
+    const found = await read([target]);
+    assert.equal(found.length, 11);
+    assert.equal(found.at(-1)?.text, 'The eleventh.');
+  });
+
   it('a read that fails is no order without comments', async () => {
     for (const failure of [
       { status: 404, body: { message: 'Not Found' } },

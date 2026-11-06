@@ -181,6 +181,51 @@ describe('createGitHubReads', () => {
       );
     });
 
+    // GitHub's ETag covers the body alone, and a 304 has no Link header: a page that was full and
+    // the last one answers 304 after a new item starts the page after it (ADR 0333).
+    it('reads the page after a full page that answers 304, which says nothing of a new page', async () => {
+      const list = '/repos/acme/web/issues/7/comments?per_page=2';
+      const { reads, requests } = readsWith([
+        { status: 200, body: [1, 2], headers: { etag: '"p1"' } },
+        { status: 304 },
+        { status: 200, body: [3], headers: { etag: '"p2"' } },
+      ]);
+      assert.deepStrictEqual(await reads.pages(list, 'the comments'), [1, 2]);
+      assert.deepStrictEqual(await reads.pages(list, 'the comments'), [1, 2, 3]);
+      assert.equal(requests.at(-1)?.url, `${api}${list}&page=2`);
+    });
+
+    it('ends the list at an empty page after a full page that answers 304', async () => {
+      const list = '/repos/acme/web/issues/7/comments?per_page=2';
+      const { reads, requests } = readsWith([
+        { status: 200, body: [1, 2], headers: { etag: '"p1"' } },
+        { status: 304 },
+        { status: 200, body: [], headers: { etag: '"empty"' } },
+      ]);
+      await reads.pages(list, 'the comments');
+      assert.deepStrictEqual(await reads.pages(list, 'the comments'), [1, 2]);
+      assert.equal(requests.length, 3);
+    });
+
+    it('counts on from a later page that was full and answers 304', async () => {
+      const list = '/repos/acme/web/issues/7/comments?per_page=2';
+      const second = `${list}&page=2`;
+      const { reads, requests } = readsWith([
+        {
+          status: 200,
+          body: [1, 2],
+          headers: { etag: '"p1"', link: `<${api}${second}>; rel="next"` },
+        },
+        { status: 200, body: [3, 4], headers: { etag: '"p2"' } },
+        { status: 304 },
+        { status: 304 },
+        { status: 200, body: [5], headers: { etag: '"p3"' } },
+      ]);
+      await reads.pages(list, 'the comments');
+      assert.deepStrictEqual(await reads.pages(list, 'the comments'), [1, 2, 3, 4, 5]);
+      assert.equal(requests.at(-1)?.url, `${api}${list}&page=3`);
+    });
+
     it('reads the next page among the other relations of the Link header', async () => {
       const link = `<${api}/r?page=1>; rel="prev", <${api}/r?page=3>; rel="next", <${api}/r?page=9>; rel="last"`;
       const { reads, requests } = readsWith([
