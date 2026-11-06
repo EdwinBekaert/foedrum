@@ -7,7 +7,13 @@
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { messageOf } from '../platform/errors.ts';
-import { type CheckoutRef, ClaudeReport, Receipt, type SessionRef } from '../schemas/events.ts';
+import {
+  type CheckoutRef,
+  ClaudeReport,
+  type FailingPass,
+  Receipt,
+  type SessionRef,
+} from '../schemas/events.ts';
 import { checkoutName, type Target } from '../workspace/attempt-worktrees.ts';
 import type {
   AttemptWorktree,
@@ -27,12 +33,13 @@ import {
 import { defaultLeaseMs, holdBatch, releaseBatch } from './batch-leases.ts';
 import type { AttemptEnd, AttemptLimits, BrewerRunner, RunningAttempt } from './brewer-runner.ts';
 import { createCommandLog, defaultReminderMs, defaultRoutingMs } from './command-log.ts';
-import type { Ending, EngineCommand, RecordedEvent } from './decide.ts';
+import { type Ending, type EngineCommand, failingStep, type RecordedEvent } from './decide.ts';
 import type { DriverLock } from './driver-lock.ts';
 import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
 import { applyEffect, type EffectTarget, type Ledger, UnreadSources } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
+import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
 import { type Batch, runningAttempt, type State } from './fold.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
@@ -283,9 +290,14 @@ const rejectionText = (error: unknown): string => {
  * at most `summaryLength` characters, or a fixed text when that has nothing to show or cannot be
  * read, since the event store refuses an empty summary.
  */
-const rejectionSummary = (error: unknown): string => {
-  const line = (rejectionText(error).split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
-  return line === '' ? 'the brewer runner failed without a message' : line;
+const rejectionSummary = (
+  error: unknown,
+  without = 'the brewer runner failed without a message',
+): string => {
+  const line = (rejectionText(error).split(/\r?\n|[\p{Zl}\p{Zp}]/u, 1)[0] ?? '')
+    .trim()
+    .slice(0, summaryLength);
+  return line === '' ? without : line;
 };
 
 /**
@@ -434,11 +446,27 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   // What it said of the batches that threw, so a batch that keeps throwing is one line (ADR 0328).
   const failureLines = createFailureLines();
+  // Since when its passes fail on each batch, which marks a batch after an hour (ADR 0335).
+  const failing = createFailingBatches();
+  const noteFailing = (
+    batchId: string,
+    pass: FailingPass,
+    error: unknown,
+    reading: boolean,
+  ): void =>
+    failing.failed(
+      batchId,
+      pass,
+      rejectionSummary(error, 'the batch failed without a message'),
+      reading,
+      clock(),
+    );
   /** Says a batch's failure, unless it said that one last in that pass. */
   const sayFailure = (
     notice: Extract<DriverNotice, { kind: 'batch_failed' | 'batch_effects_failed' }>,
   ): void => {
     const pass = notice.kind === 'batch_failed' ? notice.pass : 'effects';
+    noteFailing(notice.batchId, pass, notice.error, true);
     if (failureLines.failed(pass, notice.batchId, rejectionText(notice.error))) report(notice);
   };
   /** After `pass` went over the batches to its end: says which recovered, of those `own` has. */
@@ -446,6 +474,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     for (const batchId of failureLines.passed(pass)) {
       if (own(batchId)) report({ kind: 'batch_recovered', batchId, pass });
     }
+  };
+
+  /** A supervisor's command that threw counts for its batch (ADR 0335). */
+  const sayCommandFailure = (notice: Extract<DriverNotice, { kind: 'command_failed' }>): void => {
+    const { command, error } = notice;
+    if ('batchId' in command) noteFailing(command.batchId, 'supervisor', error, true);
+    report(notice);
   };
 
   // The batches other drivers hold, as of the start of the current tick.
@@ -460,6 +495,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     routingMs,
     report: (notice) => {
       if (notice.kind === 'batch_failed') sayFailure(notice);
+      else if (notice.kind === 'command_failed') sayCommandFailure(notice);
       else report(notice);
     },
     acts: (batchId) => !others.has(batchId),
@@ -1275,6 +1311,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       try {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
       } catch (error) {
+        noteFailing(batchId, 'effects', error, false);
         report({ kind: 'effect_failed', key, error });
         if (latest.unread !== undefined) throw latest.unread;
         return;
@@ -1331,6 +1368,42 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
   };
 
+  /** Writes a mark under the batch's lease, so one driver writes it; a throw stops no other. */
+  const writeMark = (batchId: string, command: EngineCommand): boolean => {
+    try {
+      if (!mayHold(batchId) || !issueHolding(batchId, command)) return false;
+      held.add(batchId);
+      return true;
+    } catch (error) {
+      report({ kind: 'command_failed', command, error });
+      return false;
+    }
+  };
+
+  /**
+   * The end of a tick's passes: a batch that has failed for an hour is marked, Stuck when it brews
+   * and its reading failed (ADR 0335), and one that carries a mark and went clean recovers. Stuck
+   * on failing keeps its mark until a person moves it: Stuck reads too little to call that clean.
+   */
+  const settleFailing = (): void => {
+    const state = log.state();
+    const over = failing.settle(
+      (batchId) => state.batches.get(batchId)?.failing !== undefined,
+      clock(),
+    );
+    for (const { batchId, pass, summary, since, reading } of over) {
+      const batch = state.batches.get(batchId);
+      if (batch?.failing !== undefined && (!reading || failingStep(batch) === undefined)) continue;
+      const command = { kind: 'mark_failing', batchId, pass, summary, since, reading } as const;
+      if (writeMark(batchId, command)) failing.marked(batchId);
+    }
+    for (const { id: batchId, lane, failing: mark } of state.batches.values()) {
+      if (mark === undefined || failing.has(batchId)) continue;
+      if (lane.kind === 'stuck' && lane.reason.kind === 'failing') continue;
+      writeMark(batchId, { kind: 'record', event: { type: 'batch.recovered', batchId } });
+    }
+  };
+
   const tick = async (): Promise<void> => {
     const now = clock();
     heartbeat();
@@ -1375,6 +1448,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     passDone('runs', () => true);
     await drive();
     await applyEffects();
+    settleFailing();
     // A batch that ended, with no attempt running and no effect due, is let go.
     const state = log.state();
     const running = new Set([...runs.values()].map(({ ref }) => ref.batchId));
