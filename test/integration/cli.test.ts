@@ -25,6 +25,7 @@ import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
 import {
   cannedGhLogin,
   doctorHere,
+  MADE_UP_CONFIG,
   MADE_UP_GH,
   noDenylist,
   resolveWithMadeUpGh,
@@ -193,6 +194,23 @@ describe('foedrum status and replay on store files', () => {
     assert.equal(exitCode, 1);
     assert.equal(stderr, `foedrum cancel: no event store at ${store}\n`);
     assert.equal(existsSync(store), false);
+  });
+
+  it('foedrum brew of a batch id reads the store through the real command, refusing one that is not there: regression test (ADR 0339)', async () => {
+    const clone = join(brewery.path, 'web');
+    mkdirSync(clone);
+    const githubApi = JSON.parse(MADE_UP_CONFIG).githubApi;
+    writeFileSync(join(brewery.path, 'foedrum.jsonc'), config({ githubApi }));
+    mkdirSync(join(brewery.path, '.foedrum'));
+    writeFileSync(
+      join(brewery.path, '.foedrum', 'local.jsonc'),
+      JSON.stringify({ clones: { 'acme/web': clone } }),
+    );
+    assert.deepStrictEqual(await foedrum('brew', '99-9', '--take'), {
+      exitCode: 5,
+      stdout: '',
+      stderr: 'foedrum brew: there is no batch 99-9\n',
+    });
   });
 
   it("lists a kept task-tree branch from the repository's clone, through git (ADR 0092)", async () => {
