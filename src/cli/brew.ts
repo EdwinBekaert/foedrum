@@ -53,7 +53,7 @@ export interface BrewRequest {
   take?: true;
   /** `foedrum mash`: route the batch to mash-in and drive it to its question (ADR 0232). */
   mash?: true;
-  /** `foedrum lauter <batch>`: the batch whose plan a session corrects, taking it over (ADR 0286). */
+  /** `foedrum lauter <issue>`: the batch whose plan a session corrects, taking it over (ADR 0286). */
   lauter?: string;
   /**
    * Why it opens no interactive step's session, when it does not (ADR 0222): it runs inside Claude

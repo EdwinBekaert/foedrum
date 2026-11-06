@@ -16,7 +16,7 @@ import { isSessionId, resumeArgs } from '../brewers/claude-command.ts';
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs } from '../engine/batch-leases.ts';
 import { buildBrewerEnv } from '../engine/brewer-env.ts';
-import { calledAs } from '../engine/claim-orders.ts';
+import { calledAs, saidAs } from '../engine/claim-orders.ts';
 import type { EventStore, Lease, StoredEvent } from '../engine/event-store.ts';
 import {
   attemptRecipeOf,
@@ -237,17 +237,19 @@ const isRunning = (state: State, batchId: string): boolean => {
  * step whose session is open, of `stepId` or of any step, is refused instead (ADR 0231).
  */
 const runningTarget = (
+  state: State,
   batch: Batch,
   stepId: string | undefined,
   attempt: string | undefined,
 ): Running | Open | Refused => {
   const batchId = batch.id;
+  const said = saidAs(state, batch);
   if (batch.lane.kind === 'ordered') {
-    return { refused: `batch ${batchId} is ordered: no step of it has run yet` };
+    return { refused: `${said} is ordered: no step of it has run yet` };
   }
   if (attempt !== undefined) {
     const latest = 'name the step alone, and foedrum resume continues its latest attempt';
-    return { refused: `batch ${batchId} is ${batch.lane.kind}: ${latest}` };
+    return { refused: `${said} is ${batch.lane.kind}: ${latest}` };
   }
   const steps = stepId === undefined ? [...batch.steps.values()] : [batch.steps.get(stepId)];
   // A person's session cannot be stopped from outside, so it is never taken over (ADR 0231), also
@@ -306,7 +308,7 @@ const targetOf = (
   if (stepId !== undefined && !batch.steps.has(stepId)) {
     return { refused: `batch ${batchId} has no attempt of step ${stepId}` };
   }
-  if (isRunning(state, batchId)) return runningTarget(batch, stepId, attempt);
+  if (isRunning(state, batchId)) return runningTarget(state, batch, stepId, attempt);
   if (stepId !== undefined && attempt !== undefined) {
     return finishedTarget(state, { batchId, stepId, attempt: Number(attempt) });
   }
@@ -431,7 +433,7 @@ export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise
           const latest = fold(store.eventsAfter(0).map(({ event }) => event));
           if (isRunning(latest, batchId)) {
             const { kind } = latest.batches.get(batchId)?.lane ?? {};
-            return `batch ${batchId} is ${kind} now: run foedrum resume again to take it over`;
+            return `${saidAs(latest, foldedBatch(latest, batchId))} is ${kind} now: run foedrum resume again to take it over`;
           }
         }
         const other = store

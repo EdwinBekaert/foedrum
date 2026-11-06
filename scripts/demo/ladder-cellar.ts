@@ -25,6 +25,8 @@ import { inputLines, ladderBrewers, releaseLines } from './ladder-brewers.ts';
 import { STATUS_LINE } from './walkthrough.ts';
 
 /** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
+/** A demo batch by its Brewery issue: `<n>-<k>` is a batch of issue `<n>`. */
+const said = (batchId: string): string => `#${batchId.split('-')[0]}`;
 const INTERVAL_MS = 100;
 
 const LIVES: readonly LadderLife[] = ['plan', 'lib', 'web', 'close'];
@@ -112,13 +114,13 @@ const shell: ServeShell = {
         const map = ref.stepId === 'plan' ? inputLines(prompt, 'repositories') : [];
         if (map.length > 0) {
           out(
-            `demo: the Brewmaster of batch ${ref.batchId} reads the system map, as {repositories}:`,
+            `demo: the Brewmaster of ${said(ref.batchId)} reads the system map, as {repositories}:`,
           );
           for (const line of map) out(line === '' ? '' : `  ${line}`);
         }
         const told = releaseLines(prompt);
         if (told.length === 0) return;
-        out(`${TOLD_LINE} batch ${ref.batchId} is told the release it waited for, as {release}:`);
+        out(`${TOLD_LINE} ${said(ref.batchId)} is told the release it waited for, as {release}:`);
         for (const line of told) out(line === '' ? '' : `  ${line}`);
       },
     }),

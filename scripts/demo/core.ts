@@ -168,7 +168,7 @@ export type Life = 'crash' | 'finish' | 'brew';
 /** The line the Cellar prints right before its process is killed. */
 export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is killed mid-attempt';
 /** The start of the line the Cellar prints once the batch is on tap. */
-export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
+export const ON_TAP_LINE = 'demo: #1 is on tap';
 /** The start of foedrum brew's last line once the second order's batch is on tap. */
 export const BREW_ON_TAP_LINE = 'foedrum brew: #2 is on tap';
 /** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
@@ -340,20 +340,18 @@ export const problemsOf = (run: DemoRun): string[] => {
     );
   }
   if (brew.exitCode !== 0 || !brew.output.includes(BREW_ON_TAP_LINE)) {
-    problems.push(
-      `foedrum brew did not put batch 2-1 on tap (${ending(brew)}):\n${tail(brew.output)}`,
-    );
+    problems.push(`foedrum brew did not put #2 on tap (${ending(brew)}):\n${tail(brew.output)}`);
   }
   // foedrum brew's exit codes (ADR 0123): 4 when the batch needs input, 3 when it is Stuck.
   if (mash.exitCode !== 4 || !mash.output.includes(QUESTION_LINE)) {
     problems.push(
-      `foedrum mash did not stop batch 3-1 at its question (${ending(mash)}):
+      `foedrum mash did not stop #3 at its question (${ending(mash)}):
 ${tail(mash.output)}`,
     );
   }
   if (plan.exitCode !== 3 || !plan.output.includes(PLAN_REVIEW_LINE)) {
     problems.push(
-      `foedrum brew did not leave the plan of batch 3-1 Stuck for its review (${ending(plan)}):
+      `foedrum brew did not leave the plan of #3 Stuck for its review (${ending(plan)}):
 ${tail(plan.output)}`,
     );
   }

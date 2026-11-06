@@ -1019,7 +1019,9 @@ export const commands: readonly RegisteredCommand[] = [
         if (decision.kind === 'refused') return failed('stop', decision.reason);
         const stuck = decision.events.flatMap((event) =>
           event.type === 'batch.stuck' && event.reason.kind === 'stopped'
-            ? [`${event.batchId} is Stuck at ${event.reason.stepId}`]
+            ? [
+                `${saidAs(log.state(), foldedBatch(log.state(), event.batchId))} is Stuck at ${event.reason.stepId}`,
+              ]
             : [],
         );
         const them = stuck.length === 1 ? 'it' : 'each';
@@ -1167,7 +1169,8 @@ export const commands: readonly RegisteredCommand[] = [
         const [handed] = decision.events;
         if (handed?.type !== 'batch.taken_over') throw new Error('A takeover recorded no handover');
         const { from, to, until } = handed;
-        return done(`${batch} handed from ${from} to ${to}; its effects wait until ${until}\n`);
+        const said = saidAs(log.state(), foldedBatch(log.state(), batch));
+        return done(`${said} handed from ${from} to ${to}; its effects wait until ${until}\n`);
       });
     },
   }),

@@ -1,6 +1,6 @@
 # 0334. Every line names the number, and the Innkeeper reads it from its input's source
 
-Date: 2026-11-06 · Status: Accepted · Amends [0329](0329-one-number-per-piece-of-work.md) (the rest of its rule, with one exception) and [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (which number the Innkeeper's question names)
+Date: 2026-11-06 · Status: Accepted · Amends [0329](0329-one-number-per-piece-of-work.md) (the rest of its rule, with one exception) and [0232](0232-foedrum-mash-routes-an-issue-to-the-innkeeper-whose-question-the-answer-chooses-the-recipe-by.md) (which number the Innkeeper's question names), [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (the words of `recipe`'s lines) and [0281](0281-foedrum-approve-signs-off-a-plan-by-its-hash-and-puts-the-batch-on-tap.md) (the plan comment's `Waiting for` line)
 
 ## Context
 [ADR 0329](0329-one-number-per-piece-of-work.md) made every command take the Brewery issue's number and left "every other line" to #881: lines that still named a batch id, and the Innkeeper's question, which said `#864` on Brewery issue #19 because the model took the number from the order.
@@ -26,11 +26,12 @@ Two things were not settled there: how the Innkeeper is given the number, and wh
   This is the only line that suggests a batch id.
 - **It never reaches `brew`, which takes no batch id.**
   `calledAs` also fills `foedrum brew <issue> --take` in the lines of a batch waiting for a session, but that batch is Stuck, and a new batch of an issue is refused while an earlier one has not ended (`busy` in `decide.ts`), so a batch waiting for a session is always its issue's latest.
+  `foedrum takeover` of an older batch, which no driver holds, says so and offers no command.
 
 ### What keeps the batch id, offering no command
 - The headings of the status comment and the plan comment, and the footers of sub-issues and merge briefs: each batch has its own, and several batches of one issue differ by it, as with `foedrum status`'s columns.
 - `foedrum serve`'s driver notices (`formatNotice`), which are the engine's log over many batches, and the `sibling` wait.
-- The generic refusals of `admit.ts` and `decide.ts` (`batch 7-1 is on_tap; retry needs it stuck`), and `foedrum resume`'s refusals about an attempt, none of which offers a command.
+- The generic refusals of `admit.ts` and `decide.ts` (`batch 7-1 is on_tap; retry needs it stuck`), and `foedrum resume`'s refusals about an attempt, none of which offers a command with an argument.
 
 ### What goes back to the target stays the target's
 The claim comment and the pull request name the target issue, and never a bare Brewery number: on the target, `#19` would link that repository's own issue 19.
