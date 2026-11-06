@@ -136,6 +136,8 @@ interface TranscriptReads {
   refused: readonly string[];
   /** Why the transcript cannot say what the Taster read. */
   problem?: string;
+  /** Its out doc's text past the frontmatter. */
+  body?: string;
 }
 
 const TranscriptLine = z.looseObject({
@@ -331,6 +333,10 @@ export const realRecordOf = (
   };
 };
 
+export const comparisonStop = (_record: Pick<RealRecord, 'attempts'>): string | undefined => {
+  throw new Error('not implemented');
+};
+
 /** The next run to brew (`nextRunOf`). */
 export const nextRealRun = (records: readonly RealRecord[], runs: number) =>
   nextRunOf(REAL_SETUPS, records, runs, runFailure);
@@ -385,7 +391,7 @@ const codeRows = (code: string, { setup, run, attempts }: RealRecord): string[] 
 export const blinded = (
   records: readonly RealRecord[],
   seed: string,
-): { lists: Record<string, string>; codes: string } => {
+): { lists: Record<string, string>; bodies: Record<string, string>; codes: string } => {
   const lists: Record<string, string> = {};
   const rows: string[] = [];
   const failures: string[] = [];
@@ -427,7 +433,13 @@ export const blinded = (
     ...(failures.length === 0 ? [] : ['', ...failures]),
     '',
   ].join('\n');
-  return { lists, codes };
+  return {
+    lists,
+    get bodies(): Record<string, string> {
+      throw new Error('not implemented');
+    },
+    codes,
+  };
 };
 
 /**

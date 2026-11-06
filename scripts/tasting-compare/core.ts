@@ -202,6 +202,10 @@ export interface TasterAttempt {
   outside?: readonly string[];
   /** What it asked for outside its worktree and was refused. */
   refused?: readonly string[];
+  /** Why its transcript cannot say what it read, of an attempt that succeeded: no measurement at all. */
+  unreadable?: string;
+  /** Its out doc's text past the frontmatter, from its transcript. */
+  body?: string;
 }
 
 /** One run of a setup, as the shell keeps it. */

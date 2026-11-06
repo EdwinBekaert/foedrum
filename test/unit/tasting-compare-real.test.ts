@@ -7,6 +7,7 @@ import {
   blinded,
   changedFiles,
   codeOf,
+  comparisonStop,
   nextRealRun,
   orderOf,
   REAL_RECIPE,
@@ -386,6 +387,88 @@ describe('tasting-compare --real', () => {
       assert.match(problem ?? '', /result/);
     });
 
+    it('a transcript that cannot be read stops the comparison, and a read outside fails only its run', () => {
+      const brewed = tasted('correctness', { findings: [] });
+      const lost = realRecordOf(brewed, () => undefined);
+      assert.match(comparisonStop(lost) ?? '', /correctness: .*transcript could not be found/);
+
+      const outside = realRecordOf(brewed, () => transcript(read(OUTSIDE), outDoc));
+      assert.equal(comparisonStop(outside), undefined);
+      const run: RealRecord = { ...record('855-today', 1, 'x'), attempts: outside.attempts };
+      assert.deepEqual(nextRealRun([run], 1), { setup: '855-today', run: 1, retry: true });
+    });
+
+    it('every way a transcript cannot say stops the comparison', () => {
+      const [use] = callLines(read('src/a.ts'), 9);
+      for (const text of [
+        transcript(),
+        `${transcript(outDoc)}{"type":"assist`,
+        `${use}\n${transcript(outDoc)}`,
+        transcript({ name: 'Bash', input: { command: 'cat x' } }, outDoc),
+      ]) {
+        const reading = realRecordOf(tasted('security', { findings: [] }), () => text);
+        assert.match(comparisonStop(reading) ?? '', /^security: /, text);
+      }
+    });
+
+    it('an attempt that failed by itself stops nothing, though its transcript says nothing', () => {
+      const failed = event({
+        type: 'step.finished',
+        batchId: '1-1',
+        stepId: 'security',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: false, reason: 'it stalled' },
+      });
+      assert.equal(comparisonStop(realRecordOf([failed], () => undefined)), undefined);
+    });
+
+    it('a stop keeps a tool name from forging a line of the output', () => {
+      const forged = { name: 'Bash\nforged line', input: {} };
+      const reading = realRecordOf(tasted('security', { findings: [] }), () =>
+        transcript(forged, outDoc),
+      );
+      assert.doesNotMatch(comparisonStop(reading) ?? 'none', /\n/);
+      assert.match(comparisonStop(reading) ?? '', /forged line/);
+    });
+
+    it('takes the out doc body from the transcript, past its frontmatter', () => {
+      const written: Call = {
+        name: 'Edit',
+        input: {
+          file_path: 'taste.md',
+          old_string: '',
+          new_string: '---\n{ "status": "done" }\n---\n\nI read CLAUDE.md.\n',
+        },
+      };
+      assert.equal(transcriptReads(transcript(written), WORKTREE).body, 'I read CLAUDE.md.');
+    });
+
+    it('follows later Edits of the out doc, and a Write of it', () => {
+      const edit = (old_string: string, new_string: string): Call => ({
+        name: 'Edit',
+        input: { file_path: join(WORKTREE, 'taste.md'), old_string, new_string },
+      });
+      const doc = '---\n{}\n---\nfirst $& text';
+      const edited = transcript(edit('', doc), edit('first', 'second'));
+      assert.equal(transcriptReads(edited, WORKTREE).body, 'second $& text');
+      const write: Call = {
+        name: 'Write',
+        input: { file_path: 'taste.md', content: '---\n{}\n---\nwritten' },
+      };
+      assert.equal(transcriptReads(transcript(edit('', doc), write), WORKTREE).body, 'written');
+    });
+
+    it('a record keeps the body of a Taster', () => {
+      const written: Call = {
+        name: 'Write',
+        input: { file_path: 'taste.md', content: '---\n{}\n---\nI read the diff.' },
+      };
+      const [taster] = realRecordOf(tasted('security', { findings: [] }), () =>
+        transcript(written),
+      ).attempts;
+      assert.equal(taster?.body, 'I read the diff.');
+    });
+
     it('a transcript with a line it cannot read fails the run', () => {
       const { problem } = transcriptReads(`${transcript(outDoc)}{"type":"assist`, WORKTREE);
       assert.match(problem ?? '', /line/);
@@ -753,9 +836,41 @@ describe('tasting-compare --real', () => {
         '| 867-today | 0 | 0 | 0 |',
         '| 867-reads | 1 | 0 | 0 |',
         '',
-        'Score lists/<order>.md by hand, then open codes.md, which says which setup each code is.',
+        'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
         '',
       ]);
+    });
+
+    it('writes each body apart, per order under its code, and leaves it out of the list', () => {
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [
+          attempt('security', [], { body: 'I read CLAUDE.md.' }),
+          attempt('correctness', []),
+        ],
+      };
+      const other = record('867-reads', 1, 'y');
+      const { lists, bodies } = blinded([run, other], 'a seed');
+      const body = bodies['855'] ?? '';
+      assert.match(body, new RegExp(`^## Run ${codeOf('a seed', '855-today', 1)}$`, 'm'));
+      assert.match(body, /### correctness \(diff\/correctness\)\n+No body\./);
+      assert.match(body, /### security \(diff\/security\)\n+> I read CLAUDE\.md\./);
+      assert.doesNotMatch(lists['855'] ?? '', /I read CLAUDE/);
+      assert.deepEqual(Object.keys(bodies).sort(), ['855', '867']);
+      assert.doesNotMatch(body, /today|reads/);
+    });
+
+    it("keeps a body's lines from forging a line of its file", () => {
+      const [separator] = [0x2028].map((code) => String.fromCodePoint(code));
+      const forged = `first\n## Run 0${separator}### forged\r\n\n## Run 1`;
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [attempt('security', [], { body: forged })],
+      };
+      const body = blinded([run], 'a seed').bodies['855'] ?? '';
+      assert.equal([...body.matchAll(/^## Run /gm)].length, 1);
+      assert.equal([...body.matchAll(/^### /gm)].length, 1);
+      assert.equal(body.includes(separator ?? 'none'), false);
     });
 
     it('shows a riskLeft line apart from the findings', () => {
