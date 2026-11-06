@@ -162,11 +162,15 @@ const run = async (seed: number): Promise<void> => {
       }
     };
 
-    for (let each = 12 + random.int(12); each > 0; each--) {
+    const rounds = 12 + random.int(12);
+    for (let each = rounds; each > 0; each--) {
       if (random.chance(0.15)) {
         hand.skipTo(new Date(hand.now().getTime() + hour + 60_000));
       }
-      for (const batchId of [...sick]) if (random.chance(0.08)) sick.delete(batchId);
+      // Each stays sick for the first tick, so each site throws in every run, a replayed one too.
+      if (each < rounds) {
+        for (const batchId of [...sick]) if (random.chance(0.08)) sick.delete(batchId);
+      }
       if (random.chance(0.1)) {
         await hand.restart();
         // What it said is in the driver's memory, which went with it.
@@ -192,8 +196,13 @@ const run = async (seed: number): Promise<void> => {
     for (const batch of log.state().batches.values()) {
       assert.equal(batch.lane.kind, 'on_tap', `${batch.id} is on tap once it reads`);
     }
-    for (const key of log.state().effects.keys()) {
-      assert.ok(applied.has(key), `${effectKey.decode(key).effect} reached the host`);
+    for (const batchId of log.state().batches.keys()) {
+      const due = commentsDue(log.state(), batchId);
+      assert.ok(due.length > 0, `${batchId} has an effect due`);
+      for (const key of due) {
+        const text = effectKey.encode(key);
+        assert.equal(applied.get(text), 1, `${text} reached the host once`);
+      }
     }
   } finally {
     hand.close();
