@@ -493,12 +493,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
 
   /**
    * Whether a throw while it visited `batchId` is this driver's to say: never of a batch it does not
-   * take or another driver holds (ADR 0328). A store that cannot say counts as its own, so the fault
-   * is said.
+   * take or another driver holds (ADR 0328). What cannot be said, a store's fault among it, counts
+   * as its own, so the fault is said.
    */
   const itsOwn = (batchId: string): boolean => {
-    if (!mayHold(batchId)) return false;
     try {
+      if (!mayHold(batchId)) return false;
       const holder = store.batchLeases(clock()).find((lease) => lease.batchId === batchId);
       return holder === undefined || holder.owner === owner;
     } catch {
@@ -1007,14 +1007,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         if (!startAction(ref, action)) refused.add(key);
         continue;
       }
-      if (!(await startAttempt(ref, key))) {
-        refused.add(key);
-        continue;
-      }
       let run: RunningAttempt;
       try {
+        if (!(await startAttempt(ref, key))) {
+          refused.add(key);
+          continue;
+        }
         run = runner.start({ ref, limits: limitsOf(ref) });
       } catch (error) {
+        // One that has not started is the batch's failure, tried again next drive.
+        if (attemptOf(log.state(), ref)?.phase !== 'started') throw error;
         // Recorded as started, with no run: it ends at the step boundary as a run that rejects
         // does, rather than waiting a lease to be lost and retried the same way (ADR 0328).
         ended.push(brokenEnd(ref, error));
