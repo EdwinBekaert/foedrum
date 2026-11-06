@@ -17,6 +17,7 @@ import { serveFromCheckout } from '../../src/cli/serve-main.ts';
 import { execProcess } from '../../src/platform/processes.ts';
 import { removeTree } from '../../src/platform/remove.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
+import { hangGuardMs } from '../helpers/load.ts';
 import { realClaude } from '../helpers/real-claude.ts';
 import { brewer, recipe } from '../helpers/serve-brewery.ts';
 import { makeTempDir, type TempDir } from '../helpers/temp-dir.ts';
@@ -260,23 +261,23 @@ describe('foedrum serve brews one real step', { skip: real.kind === 'skip' && re
       }
     };
     const stop = new AbortController();
-    const started = Date.now();
     const serving = execProcess(process.execPath, [main, 'serve'], {
       cwd: brewery,
       env,
       signal: stop.signal,
-      timeoutMs: 180_000,
+      // Only a guard against a hang (ADR 0070): a loaded machine may take its time, and the loop
+      // below ends when this ends serve.
+      timeoutMs: 5 * hangGuardMs,
     });
     let ended = false;
     void serving.then(() => {
       ended = true;
     });
-    while (!pushed().includes('"batch.on_tap"') && !ended && Date.now() - started < 170_000) {
+    while (!pushed().includes('"batch.on_tap"') && !ended) {
       await sleep(250);
     }
     stop.abort();
     const result = await serving;
-    process.stdout.write(`# foedrum serve brewed the step in ${Date.now() - started} ms\n`);
 
     const types = pushed()
       .split('\n')

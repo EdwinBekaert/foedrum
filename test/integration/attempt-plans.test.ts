@@ -238,7 +238,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
     },
   ];
 
-  it('brews the step from scheduled through started and finished to on tap, its change committed', async () => {
+  it('brews the step from scheduled through started and finished, its change committed, and goes Stuck at the pull request with no code host', async () => {
     const { worktree, events, bodies } = await brewWith(committing);
     assert.deepEqual(
       events.map((event) => event.type),
