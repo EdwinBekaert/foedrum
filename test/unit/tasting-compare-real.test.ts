@@ -680,18 +680,18 @@ describe('tasting-compare --real', () => {
       const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
       const named = (steps: ReturnType<typeof tasteOf>) =>
         steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
-      assert.deepEqual(named(tasteOf(realRecipeText())), named(tasteOf(nip)));
+      assert.deepEqual(named(tasteOf(realRecipeText('855-reads'))), named(tasteOf(nip)));
     });
 
     it('blocks nowhere, so every run ends', () => {
-      for (const step of tasteOf(realRecipeText())) {
+      for (const step of tasteOf(realRecipeText('855-reads'))) {
         assert.equal(step.blocking, undefined, step.id);
         assert.equal(step.onBlocked, undefined, step.id);
       }
     });
 
     it('is named as the label of every order, loads as a Brewery file, and opens a pull request', () => {
-      const recipe = Recipe.parse(parseJsonc(realRecipeText()));
+      const recipe = Recipe.parse(parseJsonc(realRecipeText('855-reads')));
       assert.equal(recipe.name, REAL_RECIPE);
       assert.equal(recipe.testFirst, false);
       assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));

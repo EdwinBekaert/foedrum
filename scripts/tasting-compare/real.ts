@@ -74,42 +74,36 @@ const STEPS: ReadonlyMap<string, readonly string[]> = new Map(
   LENS_TASTERS.map(({ id, lens }) => [id, [lens]]),
 );
 
+/** The recipe a run of `setup` brews. */
+export const realRecipeOf = (setup: RealSetup): string =>
+  setup.endsWith('-lens') ? REAL_LENS_RECIPE : REAL_RECIPE;
+
 /**
- * The scripted implementer, `nip`'s Tasters with nothing blocking, so every run ends, and the pull
+ * The scripted implementer, `setup`'s Tasters with nothing blocking, so every run ends, and the pull
  * request a recipe that commits must open (ADR 0084). No check runs, and the Gauger is skipped as
  * testFirst off skips it (ADR 0224).
  */
-export const realRecipeText = (
-  name: string = REAL_RECIPE,
-  tasters: readonly (typeof LENS_TASTERS)[number][] = TASTERS,
-): string => {
+export const realRecipeText = (setup: RealSetup): string => {
   const recipe = {
-    name,
+    name: realRecipeOf(setup),
     description: 'A head as it was brewed, tasted as nip tastes it, nothing blocking',
     testFirst: false,
     steps: [
       { id: 'gauge', brewer: 'gauger', when: 'recipe.testFirst' },
       { id: IMPLEMENT, brewer: 'cellarman' },
-      { id: TASTE, parallel: tasters },
+      { id: TASTE, parallel: setup.endsWith('-lens') ? LENS_TASTERS : TASTERS },
       { action: 'openPullRequest' },
     ],
   };
   return `// node scripts/tasting-compare.ts --real's recipe (ADR 0332).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
 
-/** The recipe a run of `setup` brews. */
-export const realRecipeOf = (setup: RealSetup): string =>
-  setup.endsWith('-lens') ? REAL_LENS_RECIPE : REAL_RECIPE;
-
 /** The Brewery's files of a run of `setup` beyond Nip's: the recipe, and `today`'s Taster. */
 export const realBreweryFiles = (
   setup: RealSetup,
   todayTaster: string,
 ): Record<string, string> => ({
-  [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(
-    realRecipeOf(setup),
-    setup.endsWith('-lens') ? LENS_TASTERS : TASTERS,
-  ),
+  [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
 });
 
