@@ -77,6 +77,7 @@ const run = async (seed: number): Promise<void> => {
   };
   let notices: DriverNotice[] = [];
   const lastSaid = new Map<string, string>();
+  const saidTwice: string[] = [];
   const hand = await handDrivenRun({
     t0,
     recipes,
@@ -101,7 +102,8 @@ const run = async (seed: number): Promise<void> => {
         const pass = notice.kind === 'batch_failed' ? notice.pass : 'effects';
         const key = `${notice.batchId} ${pass}`;
         const message = String(notice.error);
-        assert.notEqual(lastSaid.get(key), message, `${key} said twice: ${message}`);
+        // Asserted after the tick: the driver ignores a report that throws.
+        if (lastSaid.get(key) === message) saidTwice.push(`${key}: ${message}`);
         lastSaid.set(key, message);
       },
     },
@@ -137,6 +139,7 @@ const run = async (seed: number): Promise<void> => {
       notices = [];
       await hand.tick();
       holds();
+      assert.deepStrictEqual(saidTwice, [], 'a failure said again with nothing changed');
       const now = hand.now().getTime();
       const named = notices.flatMap((notice) =>
         notice.kind === 'batch_failed' || notice.kind === 'batch_effects_failed'
