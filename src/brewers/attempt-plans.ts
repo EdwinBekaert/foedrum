@@ -835,7 +835,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         resumes !== undefined &&
         step !== undefined &&
         orderInput !== undefined &&
-        (options.opensResumed !== true || found.interactive !== undefined);
+        options.opensResumed !== true;
       const since = hears
         ? await orderCommentsFor(
             orderInput.name,

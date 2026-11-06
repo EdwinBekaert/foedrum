@@ -736,36 +736,6 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
     await assert.rejects(plans.plan(startOf('12-1', 2)), /comment 502 on acme\/brewery#12/);
   });
 
-  it("an interactive step's resumed session reads its prompt, so it hears them where a person opens it", async () => {
-    const loaded = loadRecipes({
-      recipes: [
-        {
-          path: 'recipes/pale.jsonc',
-          text: recipeText('pale', [
-            { id: 'brew', brewer: 'brewmaster', interactive: true, prompt: 'Talk it through.' },
-          ]),
-        },
-      ],
-      brewers: [
-        {
-          path: 'brewers/brewmaster.md',
-          text: brewerText('brewmaster', {
-            output: { doc: 'brew.md', schema: 'outDoc' },
-            tools: { allow: ['Read', 'Write'] },
-            inputs: [{ name: 'order', from: 'order' }],
-            retryMode: 'resume',
-          }),
-        },
-      ],
-    });
-    assert.ok(loaded.valid, loaded.valid ? '' : loaded.problems.join('\n'));
-    const plans = resumedPlans(retried(), async () => [comment(502, 'Not that way.')], {
-      brewers: loaded.brewers,
-      opensResumed: true,
-    });
-    assert.match((await plans.plan(startOf('12-1', 2))).prompt, /Not that way\./);
-  });
-
   it("the mark's repository is read in any case, as GitHub's names are", async () => {
     const plans = resumedPlans(retried([heard(501, 'Acme/Brewery')]), async () => [
       comment(501, 'Told already.'),
