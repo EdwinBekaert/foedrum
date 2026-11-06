@@ -516,8 +516,9 @@ export const runBrew = async (
     // When the last line was said, and when this driver first saw each attempt run.
     let saidAt = clock().getTime();
     let linked = false;
-    // Whether brew ticked once more after its batch stuck (ADR 0275, ADR 0330).
-    let settled = false;
+    // The Stuck lane brew last ticked once more after: a person may move the batch on in that tick,
+    // and it may stick again before brew reads another lane (ADR 0275, ADR 0330).
+    let settled: string | undefined;
     stopResize = terminal?.onResize(draw);
     for (;;) {
       await tick(driver, report);
@@ -570,8 +571,9 @@ export const runBrew = async (
           // is due. One tick more applies it, and this switch reads what that tick left, so a
           // person's retry meanwhile goes on brewing (ADR 0275, ADR 0330). Questions come only
           // from an attempt's end, which the tick records before it asks.
-          if (!settled) {
-            settled = true;
+          const stuck = JSON.stringify(now.lane);
+          if (settled !== stuck) {
+            settled = stuck;
             continue;
           }
           // A plan to review names its comment, as on tap did before (#656, ADR 0275).
