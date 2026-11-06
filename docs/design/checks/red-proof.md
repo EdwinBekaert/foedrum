@@ -24,7 +24,7 @@ The pull request lists them, and the test-design lens checks that each one pins 
 A red proof, and a check step whose test check exited 0, compare the names of the Gauger's latest success with every test of the modules' reports (`src/checks/named-tests.ts`), when every module's reports were read; it judges nothing.
 The comparison stops at a limit of work and then says nothing, as of a report it could not read.
 `step.finished` keeps `unreported`: the first 10 names as a failing test's are kept, and a count of the rest, an empty list when the reports hold them all.
-The latest attempt on the batch's path with that field decides one line in the status comment, and among the current recipe's steps one under the merge brief's Risk left: `Not proven: the test run reports no test named: a, b`.
+The latest attempt on the batch's path with that field decides one line in the status comment, and among the attempts of the current recipe one under the merge brief's Risk left: `Not proven: the test run reports no test named: a, b`.
 A red proof with no failing test, or none in a changed test file, adds to its reason how many it does not hold, and no name.
 
 **What `testsUnchanged` keeps** ([ADR 0274](../../adr/0274-the-red-proof-reads-line-coverage-of-the-change-and-a-test-map-not-test-names.md)).
