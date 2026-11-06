@@ -13,6 +13,9 @@ import { StateBranchStopError } from './state-branch.ts';
 import type { FlushResult, StateBranch } from './state-branch-git.ts';
 import { type FlushWatch, type ProgressSource, planTick, watchFlush } from './supervisor.ts';
 
+/** The passes over the batches in a driver's tick that one batch can fail in (ADR 0328). */
+export type FailurePass = 'supervisor' | 'runs' | 'drive' | 'cleanup';
+
 /** What the supervisor reports instead of failing: it keeps running. */
 export type Notice =
   /**
@@ -29,7 +32,7 @@ export type Notice =
    * One batch threw outside any one command, in the named pass over the batches: the others go on,
    * and the next tick tries it again (ADR 0328).
    */
-  | { kind: 'batch_failed'; batchId: string; pass: 'supervisor' | 'runs' | 'drive'; error: unknown }
+  | { kind: 'batch_failed'; batchId: string; pass: FailurePass; error: unknown }
   /** The flush of the state branch failed; the next tick retries it. */
   | { kind: 'flush_failed'; reason: string }
   /** The flushes have failed since `since`, for longer than the flush deadline (ADR 0024 as amended by ADR 0027). */

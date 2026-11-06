@@ -153,9 +153,12 @@ export const formatNotice = (notice: DriverNotice): string => {
         supervisor: `batch ${notice.batchId} could not be read by the supervisor`,
         runs: `a run of batch ${notice.batchId} could not be read or stopped`,
         drive: `batch ${notice.batchId} could not be driven`,
+        cleanup: 'not implemented',
       }[notice.pass];
       return `${what}, and the other batches go on: ${messageOf(notice.error)}`;
     }
+    case 'batch_recovered':
+      throw new Error('not implemented');
     case 'batch_effects_failed':
       return `the effects of batch ${notice.batchId} could not be read or finished, and the other batches go on: ${messageOf(notice.error)}`;
     case 'run_failed': {

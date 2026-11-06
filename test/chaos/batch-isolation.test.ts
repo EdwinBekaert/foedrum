@@ -76,6 +76,7 @@ const run = async (seed: number): Promise<void> => {
     },
   };
   let notices: DriverNotice[] = [];
+  const lastSaid = new Map<string, string>();
   const hand = await handDrivenRun({
     t0,
     recipes,
@@ -89,7 +90,20 @@ const run = async (seed: number): Promise<void> => {
         return defaultLimits;
       },
       effects,
-      report: (notice) => notices.push(notice),
+      report: (notice) => {
+        notices.push(notice);
+        // Said once until its message changes or it recovers (ADR 0328).
+        if (notice.kind === 'batch_recovered') {
+          lastSaid.delete(`${notice.batchId} ${notice.pass}`);
+          return;
+        }
+        if (notice.kind !== 'batch_failed' && notice.kind !== 'batch_effects_failed') return;
+        const pass = notice.kind === 'batch_failed' ? notice.pass : 'effects';
+        const key = `${notice.batchId} ${pass}`;
+        const message = String(notice.error);
+        assert.notEqual(lastSaid.get(key), message, `${key} said twice: ${message}`);
+        lastSaid.set(key, message);
+      },
     },
   });
   const { store, log, accept } = hand;
@@ -150,7 +164,11 @@ const run = async (seed: number): Promise<void> => {
         hand.skipTo(new Date(hand.now().getTime() + hour + 60_000));
       }
       for (const batchId of [...sick]) if (random.chance(0.08)) sick.delete(batchId);
-      if (random.chance(0.1)) await hand.restart();
+      if (random.chance(0.1)) {
+        await hand.restart();
+        // What it said is in the driver's memory, which went with it.
+        lastSaid.clear();
+      }
       hand.endSome(() => random.chance(0.4));
       await tick();
     }

@@ -18,6 +18,7 @@ import type { EventStore } from '../../src/engine/event-store.ts';
 import type { Recipe } from '../../src/engine/recipes.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { StateBranchStopError } from '../../src/engine/state-branch.ts';
+import { messageOf } from '../../src/platform/errors.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeRecipe, fakeRecipes } from '../helpers/fake-recipes.ts';
@@ -291,7 +292,9 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       reads = 0;
       await driver.drive();
       assert.deepStrictEqual(started, [plan('b2')]);
-      assert.deepStrictEqual(failures(), [{ kind: 'batch_failed', batchId: 'b1', pass: 'drive' }]);
+      assert.deepStrictEqual(failures(), [
+        { kind: 'batch_failed', batchId: 'b1', pass: 'cleanup' },
+      ]);
       assert.deepStrictEqual(cleans, []);
       await driver.drive();
       assert.deepStrictEqual(cleans, ['b1']);
@@ -544,6 +547,192 @@ describe('one batch that throws in the driver (ADR 0328)', () => {
       assert.ok(notices.some((notice) => notice.kind === 'batch_lost'));
       assert.deepStrictEqual(failures(), []);
       assert.deepStrictEqual(started, [plan('b1')]);
+    });
+  });
+
+  describe('how often it says so', () => {
+    const said = () =>
+      notices.flatMap((notice) =>
+        notice.kind === 'batch_failed'
+          ? [`failed ${notice.batchId} ${notice.pass} ${messageOf(notice.error)}`]
+          : notice.kind === 'batch_effects_failed'
+            ? [`failed ${notice.batchId} effects ${messageOf(notice.error)}`]
+            : notice.kind === 'batch_recovered'
+              ? [`recovered ${notice.batchId} ${notice.pass}`]
+              : [],
+      );
+
+    it('a batch that keeps throwing in drive is said once, and again when its message changes', async () => {
+      order('b1');
+      let message = 'one';
+      const family = () => {
+        throw new Error(message);
+      };
+      const driver = await open({ family });
+      await driver.tick();
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 drive one']);
+      message = 'two';
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 drive one', 'failed b1 drive two']);
+    });
+
+    it('says when a batch recovers, once, and says a new failure after it', async () => {
+      const { runner } = handRunner();
+      order('b1');
+      let throws = true;
+      const family = () => {
+        if (throws) throw boom;
+        return undefined;
+      };
+      const driver = await open({ runner, family });
+      await driver.tick();
+      throws = false;
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 drive boom', 'recovered b1 drive']);
+      order('b2');
+      throws = true;
+      await driver.tick();
+      assert.deepStrictEqual(said(), [
+        'failed b1 drive boom',
+        'recovered b1 drive',
+        'failed b2 drive boom',
+      ]);
+    });
+
+    it('keeps two batches and two passes apart', async () => {
+      order('b1');
+      order('b2');
+      const family = () => {
+        throw boom;
+      };
+      const effects: DriverEffects = {
+        due: (_state, id) => {
+          if (id === 'b1') throw boom;
+          return [];
+        },
+        target: { find: async () => undefined, apply: async () => ({}) },
+      };
+      const driver = await open({ family, effects });
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said().sort(), [
+        'failed b1 drive boom',
+        'failed b1 effects boom',
+        'failed b2 drive boom',
+      ]);
+    });
+
+    it('says the effects and the supervisor once each, and when each recovers', async () => {
+      const { runner } = handRunner();
+      order('b1', 'bad');
+      let throws = true;
+      const effects: DriverEffects = {
+        due: () => {
+          if (throws) throw boom;
+          return [];
+        },
+        target: { find: async () => undefined, apply: async () => ({}) },
+      };
+      const driver = await open({ runner, effects });
+      await driver.drive();
+      broken = true;
+      now = at(61);
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said().sort(), [
+        'failed b1 effects boom',
+        'failed b1 supervisor boom',
+      ]);
+      notices = [];
+      broken = false;
+      throws = false;
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said().sort(), ['recovered b1 effects', 'recovered b1 supervisor']);
+    });
+
+    it('says a run whose stop keeps throwing once, and when it stops', async () => {
+      let throws = true;
+      const { runner } = handRunner(() => throws);
+      order('b1');
+      const driver = await open({ runner });
+      await driver.drive();
+      assert.equal(
+        intake.issue({ kind: 'cancel', batchId: 'b1', by: 'ada', via: 'terminal' }, now).kind,
+        'accepted',
+      );
+      await driver.tick();
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 runs boom']);
+      throws = false;
+      await driver.tick();
+      assert.deepStrictEqual(said(), ['failed b1 runs boom', 'recovered b1 runs']);
+    });
+
+    it('calls nothing recovered in a tick that rejected before its supervisor read the batch (regression test)', async () => {
+      const { runner } = handRunner();
+      order('b1', 'bad');
+      let fail = false;
+      const faulty: EventStore = {
+        ...store,
+        batchesPastDeadline: (when) => {
+          if (fail) throw new Error('the store broke');
+          return store.batchesPastDeadline(when);
+        },
+      };
+      const driver = await open({ store: faulty, runner });
+      await driver.drive();
+      broken = true;
+      now = at(61);
+      await driver.tick();
+      broken = false;
+      fail = true;
+      await assert.rejects(driver.tick());
+      assert.deepStrictEqual(said(), ['failed b1 supervisor boom']);
+    });
+
+    it("says nothing recovered of a batch that is another driver's by then (regression test)", async () => {
+      order('b1');
+      let throws = true;
+      const family = () => {
+        if (throws) throw boom;
+        return undefined;
+      };
+      const driver = await open({ family });
+      await driver.drive();
+      assert.deepStrictEqual(said(), ['failed b1 drive boom']);
+      store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: 'b1', owner: 'session', expiresAt: at(5) }),
+      );
+      throws = false;
+      await driver.drive();
+      assert.deepStrictEqual(said(), ['failed b1 drive boom']);
+    });
+
+    it('says an end whose reading throws each time, since each end is its own (regression test)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      order('b2');
+      const zone = () => {
+        throw boom;
+      };
+      const driver = await open({ runner, zone });
+      await driver.drive();
+      const usageLimit = { limit: 'session', resets: '3:45pm' } as const;
+      const ending = { kind: 'blocked', blockerKind: 'environment', summary: 'out', usageLimit };
+      end(plan('b1'), ending as Ending);
+      await driver.drive();
+      end(plan('b2'), ending as Ending);
+      await driver.drive();
+      assert.deepStrictEqual(
+        said().filter((line) => line.startsWith('failed')),
+        ['failed b1 drive boom', 'failed b2 drive boom'],
+      );
+      assert.ok(!said().some((line) => line.startsWith('recovered')));
     });
   });
 

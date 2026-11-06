@@ -39,7 +39,7 @@ import type { RecipeAction, Recipes } from './recipes.ts';
 import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
 import type { StateBranch } from './state-branch-git.ts';
 import type { AttemptProgress } from './supervisor.ts';
-import { createSupervisor, type Notice } from './supervisor-loop.ts';
+import { createSupervisor, type FailurePass, type Notice } from './supervisor-loop.ts';
 import { sameRepo, taskTreeStart } from './task-tree.ts';
 import { type ModelFamily, type Reopen, reopenOf, windowHolds } from './usage-window.ts';
 import type { OutDocOf } from './worktree-claims.ts';
@@ -107,6 +107,8 @@ export type DriverNotice =
    * others go on (ADR 0327).
    */
   | { kind: 'batch_effects_failed'; batchId: string; error: unknown }
+  /** A pass that a batch failed in, said once, went over it clean (ADR 0328). */
+  | { kind: 'batch_recovered'; batchId: string; pass: FailurePass | 'effects' }
   /**
    * The runner's end of an attempt rejected: the attempt is blocked on its environment, and the
    * other runs go on (ADR 0099).
