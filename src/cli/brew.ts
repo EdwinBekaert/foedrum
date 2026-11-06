@@ -58,6 +58,8 @@ export interface BrewRequest {
   mash?: true;
   /** `foedrum lauter <issue>`: the batch whose plan a session corrects, taking it over (ADR 0286). */
   lauter?: string;
+  /** `foedrum brew <batch id> --take`: the batch waiting for a session that it opens (ADR 0339). */
+  batch?: string;
   /**
    * Why it opens no interactive step's session, when it does not (ADR 0222): it runs inside Claude
    * Code, or its stdin is no terminal. Its driver then parks such a step's attempt.

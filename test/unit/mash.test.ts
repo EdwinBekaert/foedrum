@@ -868,6 +868,48 @@ describe('foedrum brew on recipe:mash, with the default Brewmaster (ADR 0234)', 
       assert.ok(planComment()?.includes('The export schema, corrected'), planComment());
     });
 
+    describe("of a batch that is not its issue's latest (ADR 0339)", () => {
+      /** Batch 12-1 waits with its plan, and 12-2 is ordered after it. */
+      const olderWithPlan = async (): Promise<void> => {
+        assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
+        store.withTransaction((tx) =>
+          tx.append({
+            type: 'batch.ordered',
+            batchId: '12-2',
+            order: { issue: 12 },
+            routeBy: '2026-10-28T13:00:00.000Z',
+          }),
+        );
+        lines.length = 0;
+      };
+      const older: BrewRequest = { ...lauter, take: true };
+
+      it('opens the session of the batch it names, and leaves the later one alone', async () => {
+        await olderWithPlan();
+        assert.equal(await runBrew(setup, shell([corrected]), older), 3, lines.join('\n'));
+        assert.deepStrictEqual(started, ['plan#1', 'lauter#1']);
+        const state = log().state();
+        const named = state.batches.get('12-1')?.lane;
+        assert.deepStrictEqual(named?.kind === 'stuck' ? named.reason : named, {
+          kind: 'plan_review',
+          stepId: 'lauter',
+          attempt: 1,
+        });
+        assert.equal(state.batches.get('12-2')?.lane.kind, 'ordered');
+        assert.equal(state.batches.get('12-2')?.recipe, undefined);
+      });
+
+      it('names its id with --take when it opens no session here', async () => {
+        await olderWithPlan();
+        const piped: BrewRequest = { ...older, noSessions: 'no-terminal' };
+        assert.equal(await runBrew(setup, shell([]), piped), 3, lines.join('\n'));
+        assert.equal(
+          lines.at(-1),
+          'foedrum lauter: stdin is not a terminal, and claude needs one: run foedrum brew 12-1 --take in a terminal',
+        );
+      });
+    });
+
     it('says on the plan comment that the plan was changed in a session, by whom and when (#589)', async () => {
       assert.equal(await runBrew(setup, shell([planned]), request), 3, lines.join('\n'));
       assert.doesNotMatch(planComment() ?? '', /Changed in a session/);

@@ -265,6 +265,20 @@ describe("brew-main's shell, request and new window (ADR 0222)", () => {
       },
     });
 
+    it('launches brew <batch id> --take for a batch id (ADR 0339)', async () => {
+      launched.length = 0;
+      const parsed = BrewCommand.safeParse({ command: 'brew', issue: '12-1', 'new-window': true });
+      assert.ok(parsed.success, parsed.error?.message);
+      const result = await brewInNewWindow(
+        '/home/ann/brewery',
+        parsed.data,
+        'session-ab12',
+        deps(0),
+      );
+      assert.match(result.stdout, /that runs foedrum brew 12-1 --take --as session-ab12;/);
+      assert.ok(launched[0]?.args.includes('12-1'), JSON.stringify(launched));
+    });
+
     it('launches this node and program with brew <alias>#<issue> --take in the Brewery: exit 0', async () => {
       launched.length = 0;
       const result = await brewInNewWindow('/home/ann/brewery', command, 'session-ab12', deps(0));

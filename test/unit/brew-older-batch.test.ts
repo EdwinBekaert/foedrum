@@ -6,13 +6,16 @@
 
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { runBrew } from '../../src/cli/brew.ts';
+import { type BrewRequest, runBrew } from '../../src/cli/brew.ts';
+import { batchTarget, brewRequestOf } from '../../src/cli/brew-main.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { describeLane } from '../../src/cli/status.ts';
 import { formatStuck } from '../../src/cli/stuck.ts';
+import { takeOver } from '../../src/engine/batch-leases.ts';
 import { calledAs } from '../../src/engine/claim-orders.ts';
 import { foldedBatch } from '../../src/engine/fold.ts';
-import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
+import { BrewCommand } from '../../src/schemas/commands.ts';
+import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import { type Behaviour, behave } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -33,12 +36,36 @@ const STEWARD = brewer
   .replace('"cellarman"', '"steward"')
   .replace('"maxAttempts": 1', '"maxAttempts": 3');
 
+/** What each command a line offers is given: `brew 12-1`. */
+const offered = (lines: readonly string[]): string[] =>
+  lines.flatMap((line) =>
+    [...line.matchAll(/\bfoedrum ([a-z]+) (\S+)/g)].map(([, command, arg]) => `${command} ${arg}`),
+  );
+
 describe('an older batch waiting for a session (ADR 0339)', () => {
   const f = brewFixture();
   const issued = { by: 'ann', via: 'terminal' } as const;
 
   const shell = (behaviour: Behaviour = behave.succeed('Refined')) =>
     f.shell(behaviour, { lock: () => fakeLock('ann') });
+
+  const startedIn = (batchId: string) =>
+    f.store
+      .eventsAfter(0)
+      .flatMap(({ event }) =>
+        event.type === 'step.started' && event.batchId === batchId
+          ? [`${event.stepId}#${event.attempt}`]
+          : [],
+      );
+
+  /** What the terminal makes of `foedrum brew <issue> --take`, through its schema and resolver. */
+  const brewOf = (issue: string, noSessions?: BrewRequest['noSessions']): BrewRequest => {
+    const parsed = BrewCommand.safeParse({ command: 'brew', issue, take: true });
+    assert.ok(parsed.success, `foedrum brew ${issue} --take is refused: ${parsed.error?.message}`);
+    const found = batchTarget(f.log().state(), parsed.data.issue, []);
+    assert.ok(!('refused' in found), JSON.stringify(found));
+    return brewRequestOf(parsed.data, 'ann', issued, noSessions, found);
+  };
 
   /** Batch 12-1 sent back by its pull request and parked at refine, with 12-2 ordered after it. */
   const parked = async (): Promise<void> => {
@@ -110,6 +137,181 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
     it('foedrum stuck names its id: regression test', async () => {
       await parked();
       assert.match(formatStuck(f.log().state()), /foedrum brew 12-1 --take opens it in a terminal/);
+    });
+  });
+
+  it("has a printed command that opens its session and no other's", async () => {
+    await parked();
+    const line = formatStuck(f.log().state());
+    const [, printed] = /foedrum brew (\S+) --take opens it/.exec(line) ?? assert.fail(line);
+    const before = startedIn('12-1').length;
+    const exit = await runBrew(f.setup, shell(), brewOf(printed ?? ''));
+    assert.equal(exit, 0, f.lines.join('\n'));
+    assert.equal(startedIn('12-1').length, before + 1, f.lines.join('\n'));
+    assert.deepStrictEqual(startedIn('12-2'), []);
+    const state = f.log().state();
+    assert.equal(foldedBatch(state, '12-1').lane.kind, 'on_tap');
+    assert.equal(foldedBatch(state, '12-2').lane.kind, 'ordered');
+    assert.ok(!offered(f.lines).includes('brew 12'), f.lines.join('\n'));
+  });
+
+  describe('the lines of a brew that opens no session, or whose session closes', () => {
+    it('inside Claude Code, names its id with --take, as its status comment does', async () => {
+      await parked();
+      const inside = brewOf('12-1', 'claude-code');
+      assert.equal(await runBrew(f.setup, shell(), inside), 3, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: run foedrum brew 12-1 --take in a terminal to open its session',
+      );
+      const bodies = (f.api.comments.get('acme/brewery#12') ?? []).map(({ body }) => body);
+      assert.ok(
+        bodies.some((body) => body.includes('run `foedrum brew 12-1 --take` in a terminal')),
+        bodies.join('\n---\n'),
+      );
+    });
+
+    it('without a terminal, names its id with --take', async () => {
+      await parked();
+      const piped = brewOf('12-1', 'no-terminal');
+      assert.equal(await runBrew(f.setup, shell(), piped), 3, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: stdin is not a terminal, and claude needs one: run foedrum brew 12-1 --take in a terminal',
+      );
+    });
+
+    it('once a session closes without its out doc, names its id with --take', async () => {
+      await parked();
+      assert.equal(await runBrew(f.setup, shell(behave.fail(true)), brewOf('12-1')), 3);
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: run foedrum brew 12-1 --take again to reopen the session',
+      );
+    });
+  });
+
+  describe('its driver', () => {
+    const serveHolds = () =>
+      f.store.withTransaction((tx) =>
+        tx.putBatchLease({
+          batchId: '12-1',
+          owner: 'serve',
+          expiresAt: new Date(t0.getTime() + 60_000),
+        }),
+      );
+
+    it('takes it from the driver that parked it, and opens its session', async () => {
+      await parked();
+      serveHolds();
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 0, f.lines.join('\n'));
+      assert.ok(f.lines.includes('foedrum brew: took batch 12-1 over from serve'), String(f.lines));
+      assert.deepStrictEqual(startedIn('12-2'), []);
+    });
+
+    it('offers no command by the number when another driver takes it during the run', async () => {
+      await parked();
+      let taken = false;
+      const taking = f.shell(behave.hang(idle), {
+        lock: () => fakeLock('ann'),
+        wait: async () => {
+          if (taken) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
+          taken = true;
+          serveHolds();
+        },
+      });
+      assert.equal(await runBrew(f.setup, taking, brewOf('12-1')), 5, f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /driven by serve until .*; foedrum status shows it$/);
+      assert.ok(!offered(f.lines).includes('brew 12'), f.lines.join('\n'));
+    });
+
+    it('foedrum takeover, with no driver to take it from, names the command that opens it', async () => {
+      await parked();
+      const decision = takeOver(f.log(), {
+        batchId: '12-1',
+        owner: 'bob',
+        ...issued,
+        now: t0,
+        leaseMs: 60_000,
+      });
+      assert.deepStrictEqual(
+        decision.kind === 'refused' ? decision.reason : decision,
+        'no driver holds batch 12-1; foedrum brew 12-1 --take opens its session',
+      );
+    });
+  });
+
+  describe('a batch id on foedrum brew', () => {
+    it('is taken only with --take or --new-window, and refused alone with the word to add', () => {
+      for (const flag of [{ take: true }, { 'new-window': true }]) {
+        const parsed = BrewCommand.safeParse({ command: 'brew', issue: '12-1', ...flag });
+        assert.ok(parsed.success, JSON.stringify(flag));
+        assert.equal(parsed.data.issue, '12-1');
+      }
+      const alone = BrewCommand.safeParse({ command: 'brew', issue: '12-1' });
+      assert.match(alone.error?.issues[0]?.message ?? 'parsed', /--take/);
+    });
+
+    it('asks runBrew for that batch, taking it over', () => {
+      const parsed = BrewCommand.safeParse({ command: 'brew', issue: '12-1', take: true });
+      assert.ok(parsed.success, parsed.error?.message);
+      const found = { batchId: '12-1', target: { issue: 12 } };
+      assert.deepStrictEqual(brewRequestOf(parsed.data, 'ann', issued, undefined, found), {
+        target: { issue: 12 },
+        owner: 'ann',
+        ...issued,
+        take: true,
+        batch: '12-1',
+      });
+    });
+
+    it('opens the session of a latest batch that waits for one, whose lines then say its number', async () => {
+      const piped = { ...request, noSessions: 'no-terminal' } as const;
+      assert.equal(await runBrew(f.setup, shell(), piped), 3, f.lines.join('\n'));
+      const closed = await runBrew(f.setup, shell(behave.fail(true)), brewOf('12-1'));
+      assert.equal(closed, 3, f.lines.join('\n'));
+      assert.deepStrictEqual(startedIn('12-1'), ['refine#2']);
+      assert.equal(f.lines.at(-1), 'foedrum brew: run foedrum brew 12 again to reopen the session');
+    });
+
+    it('refuses a latest batch that waits for no session, naming its number', async () => {
+      await parked();
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-2')), 5, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: batch 12-2 waits for no session, and foedrum brew takes an id only for one that does; foedrum brew 12 brews it',
+      );
+    });
+
+    it('refuses an older batch on tap, offering no command that reaches a later one', async () => {
+      assert.equal(await runBrew(f.setup, shell(), request), 0, f.lines.join('\n'));
+      const order = { kind: 'order', batchId: '12-2', order: { issue: 12 }, ...issued } as const;
+      assert.equal(f.log().issue(order, t0).kind, 'accepted');
+      f.lines.length = 0;
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: batch 12-1 waits for no session, and foedrum brew takes an id only for one that does; foedrum status shows it',
+      );
+    });
+
+    it('refuses an older batch Stuck on anything else, naming foedrum stuck', async () => {
+      await parked();
+      const log = f.log();
+      assert.equal(log.issue({ kind: 'retry', batchId: '12-1', ...issued }, t0).kind, 'accepted');
+      const expire = { kind: 'expire', batchId: '12-1', stepId: 'refine', attempt: 3 } as const;
+      const decision = log.issue(expire, t0);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      f.lines.length = 0;
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /foedrum stuck lists what it offers$/);
+    });
+
+    it('refuses a batch that is not there, ordering nothing', async () => {
+      const ghost: BrewRequest = { ...request, take: true, batch: '12-9' };
+      assert.equal(await runBrew(f.setup, shell(), ghost), 5, f.lines.join('\n'));
+      assert.equal(f.lines.at(-1), 'foedrum brew: there is no batch 12-9');
+      assert.equal(f.log().state().batches.size, 0);
     });
   });
 });
