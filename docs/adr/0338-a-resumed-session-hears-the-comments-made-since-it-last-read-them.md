@@ -14,7 +14,8 @@ No event of an attempt keeps a time: `step.started` holds deadlines only.
 
 ### What a session was told is recorded by comment id
 - **`step.finished` gains `commentsHeard`: for each issue, the highest comment id the attempt's prompt held**, as `{ repo, issue, id }`, absent when it held none.
-  It travels as `houseYeast` does, from the plan through the attempt's end, however the attempt ended.
+  It travels as `houseYeast` does, from the plan through a headless run's end, however that run ended.
+  A foreground session's end records none: it has no init report, so its retry starts fresh and no mark would be read.
 - **A session's mark is the highest per issue over all its attempts**, by session id (`commentsHeardBy`), the repository's name read in any case.
   A resumed attempt records only what it was told itself, so a second retry does not repeat what the first was told, and a retry told nothing leaves the mark as it was.
 - **A comment is new when its id is above its own issue's mark.** No mark means nothing was told, so every comment of that issue is new.

@@ -1158,6 +1158,56 @@ describe('createAttemptPlans: plan', () => {
       );
     });
 
+    it("gives a resumed fix the comments made since after its kept merge's files (ADR 0338)", async () => {
+      const pullRequest = 'https://github.com/acme/api/pull/12';
+      const route = {
+        from: 'open',
+        why: 'pull_request',
+        pullRequest,
+        head: 'd'.repeat(40),
+        cause: 'conflict',
+        tip: 'e'.repeat(40),
+      } as const;
+      const kept = {
+        base: 'e'.repeat(40),
+        kept: { files: [{ path: 'src/a.ts', status: 'both modified' }], more: 0 },
+      };
+      const events: Event[] = [
+        ...ordered.slice(0, 2),
+        { type: 'step.scheduled', ...ref, deadlineAt, route },
+        started,
+        failed,
+        { type: 'step.scheduled', ...second, deadlineAt, retry: true },
+        resumed,
+        {
+          type: 'pull_request.base_checked',
+          batchId: '12-1',
+          pullRequest,
+          branch: 'main',
+          tip: 'e'.repeat(40),
+          head: 'd'.repeat(40),
+          conflicts: ['src/a.ts'],
+        },
+        { type: 'effect.applied', key: effectKey.encode(baseMergeKey(second)), result: kept },
+      ];
+      const said = {
+        repo: 'acme/brewery',
+        issue: 12,
+        id: 502,
+        by: 'ada',
+        association: 'OWNER',
+        at: '2026-11-05T19:44:00Z',
+        text: 'Not that way.',
+      };
+      const { plans } = setup(events, {}, undefined, undefined, {
+        orderComments: async () => [said],
+      });
+      const { prompt } = await plans.plan({ ...start, ref: second });
+      const merge = prompt.indexOf('source="the merge of main in progress');
+      assert.ok(merge >= 0, prompt);
+      assert.ok(prompt.indexOf('source="comment 502 on acme/brewery#12') > merge, prompt);
+    });
+
     it('gives a retry of a routed fix what sent it back and why the attempt before it failed, once each (ADR 0244, ADR 0248)', async () => {
       const pullRequest = 'https://github.com/acme/api/pull/12';
       const route = {

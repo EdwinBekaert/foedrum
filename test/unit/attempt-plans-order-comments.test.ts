@@ -636,6 +636,38 @@ describe('a resumed session hears the comments made since (ADR 0338)', () => {
     assert.deepEqual(commentsHeard, [heard(800, 'acme/brewery', 19)]);
   });
 
+  it('a mark holds for its repository alone: the same issue number elsewhere is still new', async () => {
+    const opened: Event = {
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: 'web-19', effect: orderEffects.open }),
+      result: 19,
+    };
+    const events = [
+      ...orderedAs('web-19', { issue: 19, repo: 'acme/web' }),
+      opened,
+      ...attempt('web-19', 1),
+      finished('web-19', 1, { commentsHeard: [heard(900, 'acme/web', 19)] }),
+      ...resumedAttempt('web-19', 2),
+    ];
+    const plans = resumedPlans(events, async () => [
+      comment(900, 'Told on the target.', { repo: 'acme/web', issue: 19 }),
+      comment(800, 'New on the Brewery issue.', { issue: 19 }),
+    ]);
+    assert.deepEqual(texts((await plans.plan(startOf('web-19', 2))).prompt).slice(1), [
+      'New on the Brewery issue.',
+    ]);
+  });
+
+  it('a mark holds for its issue alone: another issue of the repository is still new', async () => {
+    const plans = resumedPlans(retried([heard(900, 'acme/brewery', 12)]), async () => [
+      comment(900, 'Told on this issue.'),
+      comment(800, 'New on the other.', { issue: 19 }),
+    ]);
+    assert.deepEqual(texts((await plans.plan(startOf('12-1', 2))).prompt).slice(1), [
+      'New on the other.',
+    ]);
+  });
+
   it('a resume with no new comment has the prompt it had, and records no mark', async () => {
     let read = 0;
     const plans = resumedPlans(retried([heard(501)]), async () => {
