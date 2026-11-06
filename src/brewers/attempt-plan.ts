@@ -1305,9 +1305,17 @@ export type Resumed = 'retry' | 'answered' | 'turns';
 
 /**
  * What a resumed attempt is told: to go on in the session that holds the rest (ADR 0117), with the
- * answers below when a human answered its questions (ADR 0118).
+ * answers below when a human answered its questions (ADR 0118), and what the comments below are
+ * when maintainers made some since (ADR 0338).
  */
-export function goOn(doc: string, why: Resumed): string {
+export function goOn(doc: string, why: Resumed, commentsNamed?: string): string {
+  const told = goOnWith(doc, why);
+  return commentsNamed === undefined
+    ? told
+    : `${told} The inputs named ${commentsNamed} below are comments maintainers made on the order's issue since this session last read them: they are part of the order.`;
+}
+
+function goOnWith(doc: string, why: Resumed): string {
   switch (why) {
     case 'retry':
       return `The run before this one ended before the step was done. Go on with the step where it stopped, then write ${doc} as your instructions say.`;
@@ -1352,7 +1360,11 @@ export function planAttempt(facts: PlanFacts): ClaudeAttemptPlan {
   const instructions =
     resumes === undefined
       ? [facts.instructions.trimEnd(), ...recipePrompt, ...round, contract].join('\n\n')
-      : goOn(brewer.output.doc, resumes);
+      : goOn(
+          brewer.output.doc,
+          resumes,
+          facts.inputs.find(({ source }) => source.kind === 'comment')?.name,
+        );
   const assembled = assembleBrewerPrompt(instructions, facts.inputs, facts.random);
   if (assembled.kind === 'refused') {
     const { name, source } = assembled.input;

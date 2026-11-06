@@ -150,6 +150,14 @@ export const SessionRef = z.strictObject({
 });
 export type SessionRef = z.infer<typeof SessionRef>;
 
+/** The highest id of an issue's comments that an attempt's prompt told its session (ADR 0338). */
+export const HeardComments = z.strictObject({
+  repo: NonEmpty,
+  issue: z.number().int().positive(),
+  id: z.number().int().positive(),
+});
+export type HeardComments = z.infer<typeof HeardComments>;
+
 /**
  * What claude reported in its init event: its version and the model it ran, for diagnosis
  * (ADR 0116). A run that ended before the init has none.
@@ -785,6 +793,8 @@ export const Event = z.discriminatedUnion('type', [
     receipt: Receipt.optional(),
     // The house-yeast rules a brewer's plan selected for it (ADR 0169).
     houseYeast: HouseYeastSelection.optional(),
+    // The highest comment id of each issue that its prompt told it (ADR 0338).
+    commentsHeard: z.array(HeardComments).min(1).optional(),
     // Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202).
     paused: z.literal(true).optional(),
     // The cancelled end of an attempt a person's stop abandoned, recorded while its batch stays

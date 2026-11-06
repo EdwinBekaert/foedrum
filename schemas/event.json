@@ -1020,6 +1020,35 @@
           ],
           "additionalProperties": false
         },
+        "commentsHeard": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "repo": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "issue": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "repo",
+              "issue",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
         "paused": {
           "type": "boolean",
           "const": true
