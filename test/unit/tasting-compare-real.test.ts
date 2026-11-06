@@ -380,6 +380,12 @@ describe('tasting-compare --real', () => {
       assert.match(taster?.failure ?? '', /no tool call/);
     });
 
+    it('a call whose result it cannot find fails the run: what it read cannot be told', () => {
+      const [use] = callLines(read(OUTSIDE), 9);
+      const { problem } = transcriptReads(`${use}\n${transcript(outDoc)}`, WORKTREE);
+      assert.match(problem ?? '', /result/);
+    });
+
     it('a transcript with a line it cannot read fails the run', () => {
       const { problem } = transcriptReads(`${transcript(outDoc)}{"type":"assist`, WORKTREE);
       assert.match(problem ?? '', /line/);
