@@ -2,7 +2,7 @@
 {
   "name": "brett",
   "description": "Proposes a few mutants of the batch's change, each a one-line edit of a line it added, for the engine to check; read-only.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "medium",
   "inputs": [
