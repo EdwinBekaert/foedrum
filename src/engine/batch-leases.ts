@@ -67,6 +67,7 @@ const noDriverOffer = (state: State, batch: Batch): string => {
   const called = calledAs(state, batch);
   if (called !== batch.id) return `; foedrum brew ${called} drives it`;
   const { lane } = batch;
+  if (lane.kind === 'brewing') return `; foedrum brew ${called} --take drives it`;
   return lane.kind === 'stuck' && lane.reason.kind === 'waiting_for_session'
     ? `; foedrum brew ${called} --take opens its session`
     : '';
