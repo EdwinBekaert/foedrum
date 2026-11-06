@@ -421,7 +421,6 @@ describe('tasting-compare --real', () => {
   });
 
   describe('the recipe', () => {
-    const recipe = Recipe.parse(parseJsonc(realRecipeText()));
     const tasteOf = (text: string) => {
       const parsed = Recipe.parse(parseJsonc(text));
       const taste = parsed.steps.find((step) => 'id' in step && step.id === 'taste');
@@ -444,6 +443,7 @@ describe('tasting-compare --real', () => {
     });
 
     it('is named as the label of every order, loads as a Brewery file, and opens a pull request', () => {
+      const recipe = Recipe.parse(parseJsonc(realRecipeText()));
       assert.equal(recipe.name, REAL_RECIPE);
       assert.equal(recipe.testFirst, false);
       assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));
