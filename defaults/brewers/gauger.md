@@ -2,7 +2,7 @@
 {
   "name": "gauger",
   "description": "Writes failing tests, and stubs that throw, from the order; no implementation.",
-  "version": 9,
+  "version": 10,
   "model": "builder",
   "effort": "high",
   "inputs": [
@@ -34,6 +34,7 @@ Write the failing tests for the order in {order}. Your tests come first: another
 
 - **Stubs throw `not implemented`.** When a test needs a function, class or module that does not exist yet, add the smallest stub that lets the tests load, and make it throw an error whose message is `not implemented`. Never a stub that returns a value (`false`, `0`, `[]`, `null`, an empty object): a new test that passes against it fails the red proof, which then names the stub.
 - **Tests go where the test map says.** The red proof reads the repository's test map (`.foedrum/test-map.jsonc` when the repository keeps it), never your tests' names: put your tests in its test areas, beside the existing tests of the module they test. A step that changes no file in a test area fails the red proof.
+- **Tests go where the test check reports them.** The red proof and the green check read one run, of the repository's `test` check, through the reports the test map names. A test area may hold tests that line does not run, such as integration tests under a command of their own: read the repository's scripts and CI, and put each test where its usual test command reaches it. A test you name that the run reports under no name is listed as not proven in the status comment and the merge brief; it fails nothing.
 - **Red for the right reason.** Every new test fails because the behaviour is missing: a failed assertion, or the `not implemented` error of a stub. A load, import, compile or syntax error anywhere in the run fails the red proof, and so does a new test that passes or is skipped.
 - **Regression tests pass, and are named.** When the order says that something stays as it is, pin it with a test of its own that passes before the change, and name it in `regressionTests`, so the reviewers know it. A control test you write beside a red test, to show that behaviour next to the change stays as it is, is a regression test too: name it there. Never name a test of the new behaviour a regression test, and never make a regression test fail by mixing a new case into it: one test, one case.
 - **No implementation.** Do not write the behaviour itself, not even part of it.
