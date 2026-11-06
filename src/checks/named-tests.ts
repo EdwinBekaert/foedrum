@@ -35,14 +35,12 @@ export function unreportedNames(
   named: GaugeReport,
   reports: readonly TestReport[],
 ): readonly string[] {
-  const held = new Set(
-    reports.flatMap(({ tests }) => tests.map(({ name }) => oneLine(name))).filter(Boolean),
-  );
+  const held = reports
+    .flatMap(({ tests }) => tests.map(({ name }) => oneLine(name)))
+    .filter(Boolean);
   return [...named.tests, ...named.regressionTests].filter((name) => {
     const line = oneLine(name);
-    if (line === '') return false;
-    if (held.has(line)) return false;
-    return ![...held].some((each) => holdsWhole(each, line) || endsWhole(line, each));
+    return line !== '' && !held.some((each) => holdsWhole(each, line) || endsWhole(line, each));
   });
 }
 
@@ -52,7 +50,7 @@ export function unreportedNames(
  * the rest. A brewer wrote them.
  */
 export function unreportedRecord(names: readonly string[]): UnreportedTests {
-  const kept = [...new Set(names.map((name) => keptName(name)).filter((name) => name !== ''))];
+  const kept = [...new Set(names.map((name) => keptName(name)))];
   const tests = kept.slice(0, MOST_FAILING_TESTS);
   return { tests, more: kept.length - tests.length };
 }

@@ -236,6 +236,15 @@ interface StepMaps {
   after: MapRead;
 }
 
+/** The effective map of a check step's maps, read by what each map lists alone. */
+const stepModules = (before: MapRead, after: TestMap): EffectiveModule[] =>
+  effectiveMap(
+    before.kind === 'map' ? before.map : undefined,
+    after,
+    { atBase: [], deleted: [] },
+    false,
+  );
+
 /** The report paths `of` gives each module either map lists, each once (ADR 0274). */
 const pathsOf = (
   { before, after }: StepMaps,
@@ -584,7 +593,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     // absolute paths when a link leads to the worktree (macOS's /tmp, a junction).
     const realRoot = (options.testMap?.realPath ?? realPath)(worktree.path);
     // Only a count in the reason, which a route input and the status comment quote (ADR 0342).
-    const missing = named === undefined || silent ? [] : unreportedNames(named, read);
+    const missing = named === undefined || silent ? undefined : unreportedNames(named, read);
     const total = named === undefined ? 0 : named.tests.length + named.regressionTests.length;
     const verdict = judgeMapped({
       reports: read,
@@ -594,7 +603,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       root: worktree.path,
       ...(realRoot === worktree.path ? {} : { realRoot }),
       foldCase: foldsCase(platform),
-      ...(missing.length === 0
+      ...(missing === undefined || missing.length === 0
         ? {}
         : {
             namedHint: `the run reports no test named as ${missing.length} of the ${total} tests step ${of} named, so "${shortCommand(check.command)}" may not run them`,
@@ -606,7 +615,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     return {
       ending: { kind: 'succeeded', output: null },
       readings: readingsNamed,
-      ...(named === undefined || silent ? {} : { unreported: unreportedRecord(missing) }),
+      ...(missing === undefined ? {} : { unreported: unreportedRecord(missing) }),
     };
   };
 
@@ -999,12 +1008,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       return ended({ kind: 'failed', retryable: false, reason });
     }
     if (after.kind === 'none') return end;
-    const modules = effectiveMap(
-      before.kind === 'map' ? before.map : undefined,
-      after.map,
-      { atBase: [], deleted: [] },
-      false,
-    );
+    const modules = stepModules(before, after.map);
     const find = testMap.reports ?? reportPaths;
     for (const { module, added } of modules) {
       if (!added) continue;
@@ -1046,12 +1050,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
     { before, after }: StepMaps,
   ): AttemptEnd => {
     if (after.kind !== 'map') return end;
-    const modules = effectiveMap(
-      before.kind === 'map' ? before.map : undefined,
-      after.map,
-      { atBase: [], deleted: [] },
-      false,
-    );
+    const modules = stepModules(before, after.map);
     const reports = modules.flatMap(({ module }) => {
       if (module.testReport.format === 'trx') return [];
       const wrote = testReportsOf(module, worktree);
@@ -1082,12 +1081,7 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
         reading.check === 'test' && reading.result === 'exited' && reading.exitCode === 0,
     );
     if (named === undefined || passing !== true || after.kind !== 'map') return end;
-    const modules = effectiveMap(
-      before.kind === 'map' ? before.map : undefined,
-      after.map,
-      { atBase: [], deleted: [] },
-      false,
-    );
+    const modules = stepModules(before, after.map);
     const read: MappedReport[] = [];
     for (const { module } of modules) {
       if (module.testReport.format === 'trx') return end;
