@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: the strings are lines of code the check reads
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
@@ -45,6 +46,21 @@ describe('parseMutant', () => {
     for (const [original, replacement] of edits) {
       assert.equal(parseMutant(mutant({ original, replacement })).ok, true, replacement);
     }
+  });
+
+  it('reads a template literal as the engine does, its text and its expressions (ADR 0341)', () => {
+    const original = 'throw new Error(`not on tap: ${a > b}`);';
+    const valid = [
+      'throw new Error(`on tap: ${a > b}`);',
+      'throw new Error(`not on tap: ${a >= b}`);',
+    ];
+    for (const replacement of valid) {
+      assert.equal(parseMutant(mutant({ original, replacement })).ok, true, replacement);
+    }
+    assert.match(
+      reasonOf(mutant({ original, replacement: 'throw new Error(`not on tap: ${a > b});' })),
+      /breaks a template literal/,
+    );
   });
 
   it('rejects an entry that is not a mutant', () => {

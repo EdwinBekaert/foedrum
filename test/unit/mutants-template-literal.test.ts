@@ -107,3 +107,131 @@ describe('what is not a template literal does not change', () => {
     assert.equal(reasonOf('x(`a b`);', 'a(`a b`);'), 'the replacement adds a');
   });
 });
+
+describe('a mutant inside a template literal (ADR 0341)', () => {
+  const real = ") => fit(`${frame} ${batchTime} / ${attempts.join(' ; ')}`, columns);";
+
+  for (const [name, ending] of [
+    ['LF', '\n'],
+    ['CRLF', '\r\n'],
+  ] as const) {
+    it(`may change the literal's text, found on its line, in a file of ${name}`, () => {
+      const replacement = real.replace(' / ', ' | ');
+      const verdict = check(real, replacement, 'web/line.ts', ending);
+      assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
+      assert.equal(verdict.line, 2);
+      assert.equal(verdict.content, `first();${ending}  ${replacement}${ending}last();${ending}`);
+    });
+
+    it(`may change an expression in its \${}, found on its line, in a file of ${name}`, () => {
+      const replacement = 'x(`n ${a >= b}`);';
+      const verdict = check('x(`n ${a > b}`);', replacement, 'web/line.ts', ending);
+      assert.ok(verdict.ok, verdict.ok ? '' : verdict.reason);
+      assert.equal(verdict.content, `first();${ending}  ${replacement}${ending}last();${ending}`);
+    });
+  }
+
+  it('may reorder, drop or change what the text and the expressions already hold', () => {
+    const edits: Array<[string, string]> = [
+      [real, ") => fit(`${batchTime} ${frame} / ${attempts.join(' ; ')}`, columns);"],
+      [real, ") => fit(`${frame} / ${attempts.join(' ; ')}`, columns);"],
+      ['x(`not on tap`);', 'x(`on tap`);'],
+      ['x(`on tap not`);', 'x(`not on tap`);'],
+      ['x(`at 5 of 6`);', 'x(`at 6 of 6`);'],
+      ['x(`done: true`);', 'x(`done: false`);'],
+      ['x(`a ${b}`);', 'x(`a b`);'],
+      ['x(`a ${b}`);', 'x(`a $b}`);'],
+      ['x(`\\na`);', 'x(`a`);'],
+      ['x(`a\\n`);', 'x(`a\\t`);'],
+      ["x(`it's ${a}`, 'y');", "x(`${a} it's`, 'y');"],
+    ];
+    for (const [original, replacement] of edits) {
+      assert.equal(reasonOf(original, replacement), undefined, replacement);
+    }
+  });
+
+  it('adds no word to the text that the line lacks, so new words stay refused', () => {
+    assert.equal(
+      reasonOf('x(`tests passed`);', 'x(`tests failed`);'),
+      'the replacement adds failed',
+    );
+    // A word built from a numeric escape is new too, and so is a string's content or a comment's.
+    assert.equal(reasonOf('x(`a`);', 'x(`\\x65val`);'), 'the replacement adds x65val');
+    assert.equal(reasonOf("x(`a`, 'b');", "x(`b`, 'b');"), 'the replacement adds b');
+    assert.equal(reasonOf('x(`a`); // b', 'x(`b`);'), 'the replacement adds b');
+  });
+
+  it('adds no name or string to an expression that its code lacks', () => {
+    assert.equal(reasonOf('x(`n ${a}`);', 'x(`n ${c}`);'), 'the replacement adds c');
+    assert.equal(reasonOf("x(`n ${a}`, 'y');", "x(`n ${a}`, 'z');"), "the replacement adds 'z'");
+  });
+
+  it('turns no word of the text into code, though the text may take a word of the code', () => {
+    assert.equal(reasonOf('x(`eval ${a}`);', 'x(`${eval} a`);'), 'the replacement adds eval');
+  });
+
+  it('a mutant that removes an escape cannot turn text into code', () => {
+    assert.equal(reasonOf('x(`a \\${eval} b`);', 'x(`a ${eval} b`);'), 'the replacement adds eval');
+    assert.equal(
+      reasonOf('x(`a\\` + eval + \\`b`);', 'x(`a` + eval + `b`);'),
+      'the replacement adds eval',
+    );
+  });
+
+  it('reads a literal nested in a `${}`, with its text as text', () => {
+    const nested = "x(`${a ? `b c` : 'd'} e`);";
+    assert.equal(reasonOf(nested, "x(`${a ? `c b` : 'd'} e`);"), undefined);
+    assert.equal(reasonOf(nested, "x(`${!a ? `b c` : 'd'} e`);"), undefined);
+    assert.equal(reasonOf(nested, "x(`${b ? `b c` : 'd'} e`);"), 'the replacement adds b');
+  });
+
+  it("does not read a nested literal's text as code, as the pairs of backticks would", () => {
+    assert.equal(
+      reasonOf('alpha(`${`\\${gamma} beta ${`beta `} `} \\` beta `);', 'gamma(`beta `);'),
+      'the replacement adds gamma',
+    );
+  });
+
+  it('a line it is not sure of must pass both rules, so a nested literal stays text', () => {
+    assert.equal(
+      reasonOf('alpha(`${`gamma ${beta / 2}`} `);', 'gamma(`${`gamma ${beta / 2}`} `);'),
+      'the replacement adds gamma',
+    );
+  });
+
+  it("counts a `{` inside a `${}`,so its `}` does not end the expression's code", () => {
+    assert.equal(reasonOf('y(`x ${ {a}.a }`);', 'y(`x ${ {a}.x }`);'), 'the replacement adds x');
+  });
+
+  it('reads a tagged template as text', () => {
+    assert.equal(reasonOf('sql`select a from b`;', 'sql`select b from a`;'), undefined);
+    assert.equal(
+      reasonOf('sql`select a from b`;', 'sql`drop a from b`;'),
+      'the replacement adds drop',
+    );
+  });
+
+  it('reads the literals of every JavaScript and TypeScript extension, in capitals too', () => {
+    for (const extension of ['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'TS']) {
+      assert.equal(reasonOf('x(`a b`);', 'x(`b a`);', `web/line.${extension}`), undefined);
+    }
+  });
+
+  it('refuses a replacement that breaks the literal', () => {
+    const broken = 'the replacement breaks a template literal';
+    assert.equal(reasonOf('x(`/`);', 'x(`/);'), broken);
+    assert.equal(reasonOf('x(`n ${a}`);', 'x(`n ${a`);'), broken);
+    assert.equal(reasonOf('x(`n ${a}`);', 'x(`n ${a});'), broken);
+    assert.equal(reasonOf('x(`n ${a}`);', 'x(`n` ${a}`);'), broken);
+    assert.equal(reasonOf('x(`n\\\\`);', 'x(`n\\`);'), broken);
+    assert.equal(reasonOf('x(`n \\` m`);', 'x(`n ` m`);'), broken);
+  });
+
+  it("refuses a line that gains or loses a multi-line literal's lone backtick", () => {
+    const broken = 'the replacement breaks a template literal';
+    assert.equal(reasonOf('n m', 'n` m'), broken);
+    assert.equal(reasonOf('const a = `n ${b}', 'const a = n ${b}'), broken);
+    assert.equal(reasonOf('n ${a}`;', 'n ${a};'), broken);
+    assert.equal(reasonOf('const a = `n ${b}', ''), broken);
+  });
+});
