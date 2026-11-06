@@ -187,6 +187,16 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       );
     });
 
+    it('when its session asks, names its id to answer, and no brew that would refuse it or reach another', async () => {
+      await parked();
+      const asks = shell(behave.needInput());
+      assert.equal(await runBrew(f.setup, asks, brewOf('12-1')), 4, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1>, then foedrum serve drives it',
+      );
+    });
+
     it('once a session closes without its out doc, names its id with --take', async () => {
       await parked();
       assert.equal(await runBrew(f.setup, shell(behave.fail(true)), brewOf('12-1')), 3);
