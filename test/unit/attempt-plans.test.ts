@@ -246,6 +246,18 @@ describe('createAttemptPlans: plan', () => {
     );
   });
 
+  it("says only the target issue in a claimed order's source until its Brewery issue opens: regression test (ADR 0334)", async () => {
+    const claimedOrder: Event = {
+      type: 'batch.ordered',
+      batchId: ref.batchId,
+      order: { issue: 12, repo: 'acme/api' },
+      routeBy: '2026-10-17T13:00:00.000Z',
+    };
+    const { plans } = setup([claimedOrder, ...ordered.slice(1), started]);
+    const { prompt } = await plans.plan(start);
+    assert.match(prompt, /source="issue #12 body" name="order">/);
+  });
+
   it("gives a fresh attempt the answers to its step's questions as an in-doc, after the inputs (ADR 0006)", async () => {
     const answered: Event = {
       type: 'input.received',

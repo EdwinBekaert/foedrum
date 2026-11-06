@@ -246,6 +246,11 @@ describe('one number per piece of work (ADR 0329)', () => {
     return calledAs(state, foldedBatch(state, batchId));
   };
 
+  it("the latest batch's line names the number", () => {
+    orderedAgain();
+    assert.equal(called('web-7-2'), '40');
+  });
+
   it("an older batch's line names its id, since the number means the latest", () => {
     orderedAgain();
     assert.equal(called('web-7'), 'web-7');
