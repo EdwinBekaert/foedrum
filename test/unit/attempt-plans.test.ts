@@ -2628,7 +2628,13 @@ describe('createAttemptPlans: a recorded test name (ADR 0342)', () => {
   const commit = 'c'.repeat(40);
   const name = 'only-in-the-record';
   const red = { batchId: '12-1', stepId: 'red', attempt: 1 };
-  const reading = { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '' };
+  const reading = {
+    result: 'exited',
+    check: 'test',
+    command: 'npm test',
+    exitCode: 1,
+    tail: '',
+  };
   const events: Event[] = [
     ...ordered.slice(0, 2),
     { type: 'step.scheduled', ...red, deadlineAt },
@@ -2662,7 +2668,7 @@ describe('createAttemptPlans: a recorded test name (ADR 0342)', () => {
     const batch = state.batches.get('12-1');
     assert.ok(batch !== undefined);
     const input = checksInput(state, batch, commit);
-    assert.match(input?.text ?? '', /npm test|test/);
+    assert.match(input?.text ?? '', /the check "test" failed with exit code 1/);
     assert.ok(!(input?.text ?? '').includes(name), input?.text);
   });
 });

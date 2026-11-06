@@ -65,6 +65,7 @@ const run = async ({
   surveys = false,
   unread = false,
   silent = [] as string[],
+  lintFirst = false,
 }: {
   stepId?: string;
   /** The Gauger's out doc's lists. */
@@ -83,6 +84,8 @@ const run = async ({
   unread?: boolean;
   /** The report patterns that find nothing: a module that wrote no report. */
   silent?: string[];
+  /** Whether a lint check that passes runs before the test check. */
+  lintFirst?: boolean;
 } = {}) => {
   const ref = { batchId: '1-1', stepId, attempt: 1 };
   const events: Event[] = [
@@ -110,15 +113,24 @@ const run = async ({
       worktree: { repo: 'acme/api', path: tree, branch: 'check', commit: tip },
     },
   ];
-  const exec: ExecProcess = async () => ({ exitCode, stdout: '', stderr: '', output: '' });
+  const exec: ExecProcess = async (file) => ({
+    exitCode: file === 'npm run lint' ? 0 : exitCode,
+    stdout: '',
+    stderr: '',
+    output: '',
+  });
   const git: Git = async () => ({ code: 0, stdout: diff, stderr: '' });
   const reports: ReportFiles = {
     clear: () => {},
-    read: () =>
-      unread ? { kind: 'unread', reason: 'too big' } : { kind: 'text', text: report ?? '' },
+    read: (file) => {
+      if (unread) return { kind: 'unread', reason: 'too big' };
+      // A file JUnit's reader takes, with no test: only the guard on its format stops it.
+      if (file.endsWith('.trx')) return { kind: 'text', text: '<testsuites></testsuites>' };
+      return { kind: 'text', text: report ?? '' };
+    },
   };
   const checks: StepChecks = {
-    find: () => ['test'],
+    find: () => (lintFirst ? ['lint', 'test'] : ['test']),
     any: () => true,
     proves: (_recipe, step) => (redProof && step === 'red' ? 'gauge' : undefined),
     redProof: () => (redProof ? { id: 'red', of: 'gauge' } : undefined),
@@ -130,7 +142,7 @@ const run = async ({
     repositoryChecks: () => ({
       build: null,
       typecheck: null,
-      lint: null,
+      lint: lintFirst ? 'npm run lint' : null,
       format: null,
       test: 'npm test',
     }),
@@ -234,6 +246,18 @@ describe('createCheckRunner: what it does not say of the tests a Gauger named (A
       assert.equal(end.unreported, undefined);
     });
 
+    it('its reason counts every test named, of both lists, and those it does not hold', async () => {
+      const end = await run({
+        named: { tests: [UNIT, INTEGRATION], regressionTests: ['keeps the sign'] },
+        report: tap(`ok 1 - ${UNIT}`),
+        exitCode: 0,
+      });
+      assert.match(
+        end.ending.kind === 'failed' ? end.ending.reason : '',
+        /no test named as 2 of the 3 tests step gauge named/,
+      );
+    });
+
     it('its reason names no name the Gauger wrote', async () => {
       const end = await run({ report: tap('ok 1 - subtracts'), exitCode: 0 });
       const reason = end.ending.kind === 'failed' ? end.ending.reason : '';
@@ -265,6 +289,12 @@ describe('createCheckRunner: what it does not say of the tests a Gauger named (A
 
     it('records nothing of a failing run, which may have stopped before a test', async () => {
       const end = await run({ stepId: 'green', report: passing, exitCode: 1 });
+      assert.equal(end.ending.kind, 'failed');
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records nothing when only another check passed', async () => {
+      const end = await run({ stepId: 'green', report: passing, exitCode: 1, lintFirst: true });
       assert.equal(end.ending.kind, 'failed');
       assert.equal(end.unreported, undefined);
     });

@@ -93,6 +93,12 @@ describe('unreportedNames (ADR 0342)', () => {
     assert.equal(unreported('add', 'add_two'), true);
   });
 
+  it('a name beside a digit or a letter outside ASCII is not reported', () => {
+    assert.equal(unreported('add', 'add2'), true);
+    assert.equal(unreported('add', '2add'), true);
+    assert.equal(unreported('add', 'addé'), true);
+  });
+
   it("a report's name that ends a longer word of the named test is not reported", () => {
     assert.equal(unreported('math_adds', 'adds'), true);
   });
