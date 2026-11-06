@@ -31,7 +31,7 @@ import type { Ending, EngineCommand, RecordedEvent } from './decide.ts';
 import type { DriverLock } from './driver-lock.ts';
 import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
-import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
+import { applyEffect, type EffectTarget, type Ledger, UnreadSources } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
 import { createFailureLines } from './failure-lines.ts';
 import { type Batch, runningAttempt, type State } from './fold.ts';
@@ -1151,11 +1151,25 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /** The effects of `batchId` due and not in the ledger, its actions' after the others, with their target. */
-  const pending = (state: State, batchId: string): { key: EffectKey; target: EffectTarget }[] => {
+  const pending = (
+    state: State,
+    batchId: string,
+    // Takes a source that could not be read, whose others' effects are then due (ADR 0335).
+    unread?: (error: UnreadSources) => void,
+  ): { key: EffectKey; target: EffectTarget }[] => {
+    const read = (source: DriverEffects): readonly EffectKey[] => {
+      try {
+        return source.due(state, batchId);
+      } catch (error) {
+        if (unread === undefined || !(error instanceof UnreadSources)) throw error;
+        unread(error);
+        return error.readable;
+      }
+    };
     const due = [
       ...(effects === undefined
         ? []
-        : effects.due(state, batchId).map((key) => ({ key, target: effects.target }))),
+        : read(effects).map((key) => ({ key, target: effects.target }))),
       ...(actions === undefined
         ? []
         : runningActions(state, recipes, batchId).flatMap((ref) =>
@@ -1245,10 +1259,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     // what follows, as an empty push leaves no pull request to open (ADR 0071). A key is tried
     // once a pass.
     const tried = new Set<string>();
+    // A source that could not be read: the others' effects are applied, and the pass fails at its
+    // end, before anything reads "nothing pending" as all done (ADR 0335).
+    const latest: { unread?: UnreadSources } = {};
     for (;;) {
-      const next = pending(log.state(), batchId).find(
-        ({ key }) => !tried.has(effectKey.encode(key)),
-      );
+      delete latest.unread;
+      const next = pending(log.state(), batchId, (error) => {
+        latest.unread = error;
+      }).find(({ key }) => !tried.has(effectKey.encode(key)));
       if (next === undefined) break;
       const { key, target } = next;
       tried.add(effectKey.encode(key));
@@ -1258,9 +1276,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
       } catch (error) {
         report({ kind: 'effect_failed', key, error });
+        if (latest.unread !== undefined) throw latest.unread;
         return;
       }
     }
+    if (latest.unread !== undefined) throw latest.unread;
     finishActions(batchId);
     recordAfter(batchId);
   };
