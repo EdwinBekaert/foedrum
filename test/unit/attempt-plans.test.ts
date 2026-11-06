@@ -2414,6 +2414,25 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     );
   });
 
+  it("keeps a plan Taster's prompt to the plan, reading the repository's instructions when its lens asks: regression test", async () => {
+    const { prompt } = await planTaste([...amber, inTree]);
+    const instructions = prompt.slice(0, prompt.indexOf('## Untrusted input'));
+    assert.ok(
+      instructions.includes(
+        'When {plan} is given, your step reviews a plan, not a diff: there is no {change}. Review the plan in {plan} against {order}, through your lens.',
+      ),
+      instructions,
+    );
+    assert.ok(
+      instructions.includes(
+        "on a plan, read the repository's instructions and design documents when the lens asks you to check against them",
+      ),
+      instructions,
+    );
+    assert.match(prompt, /source="the plan of step plan#2" name="plan">/);
+    assert.doesNotMatch(prompt, /name="change">/);
+  });
+
   it("gives a step of plan lenses together the batch's latest plan and the repositories: regression test", async () => {
     const together = loadRecipes({
       ...readBreweryFiles(join(FOEDRUM_DEFAULTS, 'no-such-brewery')),
