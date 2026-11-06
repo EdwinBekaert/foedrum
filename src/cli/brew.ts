@@ -25,7 +25,7 @@ import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
-import { type Batch, foldedBatch, type State } from '../engine/fold.ts';
+import { type Batch, foldedBatch, type State, unendedPullRequests } from '../engine/fold.ts';
 import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
@@ -138,12 +138,6 @@ export const oneLine = (text: string): string =>
  */
 export const drivenBy = (state: State, lease: BatchLease, wayOn: string): string =>
   `${saidAs(state, foldedBatch(state, lease.batchId))} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${wayOn}`;
-
-/** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
-const unended = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
-  lane.kind === 'on_tap'
-    ? lane.pullRequests.filter((url) => pullRequestEnds?.[url] === undefined)
-    : [];
 
 /** What brewing an on-tap batch did once its pull requests ended and its effects applied (ADR 0336). */
 const endedLine = (
@@ -365,13 +359,15 @@ export const runBrew = async (
     // Brewing an on-tap batch records the ends of its pull requests and applies what follows, for a
     // person with no Cellar (ADR 0336); a mash or a lauter of one keeps its own refusal.
     const heldLine = (state: State, batch: Batch): string =>
-      `${named} is on tap and holds its claim until its pull requests end: ${unended(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
+      `${named} is on tap and holds its claim until its pull requests end: ${unendedPullRequests(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
     const standing =
       latest?.repo === undefined ? undefined : claimStandingOf(log.state(), latest, latest.repo);
     const ending =
       commandOf(request) === 'brew' &&
       latest !== undefined &&
-      (unended(latest).length > 0 || standing === 'releasing' || closeStillDue(log.state(), latest))
+      (unendedPullRequests(latest).length > 0 ||
+        standing === 'releasing' ||
+        closeStillDue(log.state(), latest))
         ? latest
         : undefined;
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
@@ -501,9 +497,9 @@ export const runBrew = async (
           throw error;
         },
       };
-      await recordEndsOf(ending, unended(ending), ends, signal);
+      await recordEndsOf(ending, unendedPullRequests(ending), ends, signal);
       const read = foldedBatch(log.state(), batch.id);
-      if (unended(read).length > 0) {
+      if (unendedPullRequests(read).length > 0) {
         if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
         return refuse(orderAgainLine(log.state(), read));
       }
