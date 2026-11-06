@@ -95,6 +95,10 @@ export const realBreweryFiles = (
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
 });
 
+export const refuseSameTaster = (_today: string, _current: string): void => {
+  throw new Error('not implemented');
+};
+
 /**
  * The files the scripted Cellarman commits, from `git diff --name-status -z --no-renames`; throws on
  * a head it could not commit as it is, which would taste something else: one that deletes a file, or

@@ -16,6 +16,7 @@ import {
   realRecipeText,
   realRecordOf,
   realTable,
+  refuseSameTaster,
   scriptedRealTastings,
   scriptedTranscript,
   transcriptReads,
@@ -458,6 +459,15 @@ describe('tasting-compare --real', () => {
       } finally {
         brewery.remove();
       }
+    });
+
+    it('refuses a comparison whose two setups would taste with one Taster text', () => {
+      assert.throws(() => refuseSameTaster('the text\n', 'the text\n'), /same Taster/);
+      assert.throws(() => refuseSameTaster('the\r\ntext\r\n', 'the\ntext\n'), /same Taster/);
+    });
+
+    it('lets a comparison of two Taster texts go on', () => {
+      assert.doesNotThrow(() => refuseSameTaster('version 7\n', 'version 8\n'));
     });
 
     it('the today setup replaces the Taster, and the reads setup keeps the default', () => {
