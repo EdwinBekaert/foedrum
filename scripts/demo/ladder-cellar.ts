@@ -24,9 +24,9 @@ import { LADDER_HOST, type LadderLife, ladderLifeEnd, ladderTick, TOLD_LINE } fr
 import { inputLines, ladderBrewers, releaseLines } from './ladder-brewers.ts';
 import { STATUS_LINE } from './walkthrough.ts';
 
-/** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
 /** A demo batch by its Brewery issue: `<n>-<k>` is a batch of issue `<n>`. */
 const said = (batchId: string): string => `#${batchId.split('-')[0]}`;
+/** How often the Cellar ticks: serve's 5 s would make the demo wait for nothing. */
 const INTERVAL_MS = 100;
 
 const LIVES: readonly LadderLife[] = ['plan', 'lib', 'web', 'close'];
