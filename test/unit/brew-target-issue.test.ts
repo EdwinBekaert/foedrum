@@ -835,6 +835,41 @@ describe('runBrew', () => {
         );
       });
 
+      it('a sub-order whose pull request is open is not told to close it to order it again: exit 5', async () => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '1-1', order: { issue: 1 }, routeBy });
+          tx.append({
+            type: 'order.decomposed',
+            batchId: '1-1',
+            subOrders: [{ issue: 12, repo: 'acme/web' }],
+            dependencies: [],
+          });
+          tx.append({
+            type: 'batch.ordered',
+            batchId: '12-1',
+            order: { issue: 12 },
+            parentBatchId: '1-1',
+            routeBy,
+          });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+        });
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+          instead: (method, { pathname }) =>
+            method === 'GET' && pathname === '/repos/acme/web/pulls/90'
+              ? { status: 200, body: { state: 'open', merged: false } }
+              : undefined,
+        });
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: #12 is on tap with its pull request still open: ${url(90)}; foedrum brew 12 reads it again once it ended`,
+        );
+      });
+
       it('an older batch with no recorded end behind a cancelled one offers no order, and names foedrum serve: exit 5', async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
