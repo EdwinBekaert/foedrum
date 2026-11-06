@@ -141,7 +141,7 @@ describe('foedrum stuck', () => {
   it('lists a marked batch that is not Stuck beside one that is', () => {
     const text = formatStuck(stateOf(stuckFailing('1-1', 1), batch('2-1', 2, { failing })));
     assert.match(text, /1 Stuck batch/);
-    assert.match(text, /2-1  #2  on_tap: failing in effects/);
+    assert.match(text, /2-1 {2}#2 {2}on_tap: failing in effects/);
   });
 
   it('lists the others when the open findings of one cannot be rendered (regression test)', () => {

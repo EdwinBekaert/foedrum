@@ -262,6 +262,21 @@ describe('one number per piece of work (ADR 0329)', () => {
     assert.equal(result.stderr, 'foedrum takeover: no driver holds batch web-7\n');
   });
 
+  it("foedrum stuck offers an older batch's options by its id", async () => {
+    // A batch on tap can come back Stuck past a later batch of its issue (ADR 0334).
+    store.withTransaction((tx) =>
+      tx.append({
+        type: 'batch.ordered',
+        batchId: 'web-8-2',
+        order: { issue: 8, repo: WEB },
+        routeBy: t0.toISOString(),
+      }),
+    );
+    const { stdout } = await run(['stuck']);
+    const runAs = stdout.split('\n').filter((line) => line.includes('run as:'));
+    assert.deepStrictEqual(runAs, ['  run as: foedrum <option> web-8']);
+  });
+
   it("a command's line on a claimed order leads with the number", async () => {
     const result = await run(['retry', '40']);
     assert.equal(result.stdout, '#40 brewing: plan #2 scheduled\n');

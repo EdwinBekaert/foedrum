@@ -1991,6 +1991,23 @@ describe('statusEffects', () => {
     );
   });
 
+  it("names an older batch's options with its id, under a comment that says the number (ADR 0334)", async () => {
+    order();
+    brew();
+    const ending = { kind: 'failed', retryable: false, reason: 'tests fail' } as const;
+    issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending });
+    store.withTransaction((tx) =>
+      tx.append({ type: 'batch.ordered', batchId: '7-2', order: { issue: 7 }, routeBy: at }),
+    );
+    const driver = await open();
+    await driver.tick();
+    const bodies = comments.comments.map(({ body }) => body);
+    assert.ok(
+      bodies.some((body) => /Next: get it moving with `foedrum [a-z]+ 7-1`/.test(body)),
+      bodies.join('\n---\n'),
+    );
+  });
+
   it('records each revision: the comment, and the digest of the text it shows', async () => {
     order();
     const driver = await open();
