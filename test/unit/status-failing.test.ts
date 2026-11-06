@@ -100,6 +100,30 @@ describe('foedrum status', () => {
   });
 });
 
+describe('a batch whose rendering throws', () => {
+  it('still shows the mark of a batch Stuck on failing, whose reason would have said it', () => {
+    // Its lane reads, and the pause read after it throws.
+    const broken: State = { ...stateOf(stuckFailing('1-1', 1)), pauses: null as never };
+    const text = formatStatus(broken);
+    assert.match(text, /cannot be read/);
+    assert.match(text, /failing in effects since 2026-11-06T11:00:00\.000Z/);
+  });
+
+  it('shows the lane and the mark in foedrum stuck', () => {
+    const broken = { ...stuckUnreadable('1-1', 1), failing };
+    const text = formatStuck(stateOf(broken));
+    assert.match(text, /1-1.*stuck.*cannot be read.*failing in effects since/);
+  });
+
+  it('keeps the message on its line, so what it quotes cannot forge a row', () => {
+    const reason = { kind: `x${String.fromCodePoint(0x2028)}9-1 forged` } as never;
+    const lane: Batch['lane'] = { kind: 'stuck', reason, options: ['cancel'], remindAt };
+    const text = formatStatus(stateOf(batch('2-1', 2, { lane })));
+    assert.match(text, /cannot be read/);
+    assert.doesNotMatch(text, /forged/);
+  });
+});
+
 describe('foedrum stuck', () => {
   it('lists a batch Stuck on failing with its options', () => {
     const text = formatStuck(stateOf(stuckFailing('1-1', 1)));

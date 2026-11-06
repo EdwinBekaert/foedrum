@@ -82,6 +82,8 @@ describe('a batch that keeps failing (ADR 0335)', () => {
   let retryBroken: boolean;
   // The message `due` of `effects` throws for a batch in `unread`, and `apply` for one in `refused`.
   let message: string;
+  // What an effect's `apply` throws, where a test tells it from a reading's throw.
+  let effectMessage: string | undefined;
   let unread: Set<string>;
   let refused: Set<string>;
   let applied: string[];
@@ -119,7 +121,7 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       find: async () => undefined,
       apply: async (key) => {
         const { batchId } = effectKey.decode(key);
-        if (refused.has(batchId)) throw new Error(message);
+        if (refused.has(batchId)) throw new Error(effectMessage ?? message);
         applied.push(key);
         return { key };
       },
@@ -134,6 +136,7 @@ describe('a batch that keeps failing (ADR 0335)', () => {
     readingBroken = false;
     retryBroken = false;
     message = 'boom';
+    effectMessage = undefined;
     unread = new Set();
     refused = new Set();
     applied = [];
@@ -324,6 +327,81 @@ describe('a batch that keeps failing (ADR 0335)', () => {
     });
   });
 
+  describe('what the review found in its summary', () => {
+    const summaryOf = async (text: string): Promise<string | undefined> => {
+      onTap('b1');
+      unread.add('b1');
+      message = text;
+      const driver = await open();
+      await ticksAt(driver, 0, 60);
+      return batchOf('b1')?.failing?.summary;
+    };
+    const token = `ghp_${'a'.repeat(36)}`;
+    const leftOut = 'the failure reads like a secret, so its text is left out';
+
+    it('ends the line at a paragraph separator (regression test)', async () => {
+      assert.equal(await summaryOf(`first${String.fromCodePoint(0x2029)}second`), 'first');
+    });
+
+    it('ends the line at a bare carriage return', async () => {
+      assert.equal(await summaryOf('first\rsecond'), 'first');
+    });
+
+    it('ends the line at a next line', async () => {
+      assert.equal(await summaryOf(`first${String.fromCodePoint(0x85)}second`), 'first');
+    });
+
+    it('leaves out a text that reads like a secret', async () => {
+      assert.equal(await summaryOf(`the host said ${token}`), leftOut);
+    });
+
+    it('leaves out a text whose secret the 120 characters would cut in two', async () => {
+      assert.equal(await summaryOf(`${'x'.repeat(105)} ${token}`), leftOut);
+    });
+  });
+
+  describe('a reading and an effect that fail together', () => {
+    it('names the reading on its Stuck, though the effect failed last', async () => {
+      order('b1', 'bad');
+      accept({ kind: 'record', event: { type: 'step.started', ...plan('b1') } });
+      accept({ kind: 'finish', ...plan('b1'), ending: succeeded });
+      refused.add('b1');
+      effectMessage = 'host down';
+      const driver = await open();
+      await ticksAt(driver, 0);
+      readingBroken = true;
+      await ticksAt(driver, 0, 60);
+      const lane = batchOf('b1')?.lane;
+      assert.ok(lane?.kind === 'stuck' && lane.reason.kind === 'failing', JSON.stringify(lane));
+      assert.equal(lane.reason.pass, 'supervisor');
+      assert.equal(lane.reason.summary, 'boom');
+      assert.equal(batchOf('b1')?.failing?.summary, 'boom');
+    });
+  });
+
+  describe('while a takeover holds its effects back', () => {
+    it('records no recovery of effects it never tried', async () => {
+      order('b1');
+      accept({ kind: 'record', event: { type: 'step.started', ...plan('b1') } });
+      accept({ kind: 'finish', ...plan('b1'), ending: succeeded });
+      refused.add('b1');
+      const driver = await open();
+      await ticksAt(driver, 0, 60);
+      assert.deepStrictEqual(marks('b1'), ['batch.failing']);
+      now = at(60);
+      accept({
+        kind: 'take_over',
+        batchId: 'b1',
+        ...who,
+        from: 'cellar',
+        to: 'cellar',
+        until: at(70).toISOString(),
+      });
+      await ticksAt(driver, 61);
+      assert.deepStrictEqual(marks('b1'), ['batch.failing']);
+    });
+  });
+
   describe('who writes it', () => {
     it('records nothing from a driver that does not take a free batch', async () => {
       onTap('b1');
@@ -405,6 +483,27 @@ describe('a batch that keeps failing (ADR 0335)', () => {
       appendFails = false;
       await ticksAt(driver, 61);
       assert.notEqual(batchOf('b1')?.failing, undefined);
+    });
+
+    it('says a mark that cannot be written once, not on every tick', async () => {
+      onTap('b1');
+      unread.add('b1');
+      const faulty: EventStore = {
+        ...store,
+        withTransaction: (work) =>
+          store.withTransaction((tx) =>
+            work({
+              ...tx,
+              append: (event) => {
+                if (event.type === 'batch.failing') throw new Error('disk full');
+                return tx.append(event);
+              },
+            }),
+          ),
+      };
+      const driver = await open({ store: faulty });
+      await ticksAt(driver, 0, 60, 61, 62);
+      assert.equal(notices.filter(({ kind }) => kind === 'command_failed').length, 1);
     });
   });
 

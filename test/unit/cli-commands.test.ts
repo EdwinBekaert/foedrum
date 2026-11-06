@@ -332,6 +332,24 @@ describe('foedrum: commands that change state', () => {
   });
 
   describe('retry', () => {
+    it('keeps what the recipe threw on one line', async () => {
+      const broken = fakeRecipes({
+        pint: {
+          ...fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 }),
+          deadlineMs: () => {
+            throw new Error('first line\nsecond line');
+          },
+        },
+      });
+      assert.deepStrictEqual(
+        await run(['retry', '22-1'], { recipes: () => broken }),
+        refused(
+          'retry',
+          'batch 22-1 could not be read: first line; cancel it, or choose another recipe',
+        ),
+      );
+    });
+
     it('says which batch could not be read, in one line, when its recipe throws', async () => {
       const throwing = fakeRecipe({ steps: ['plan', 'implement'], maxAttempts: 1 });
       const broken = fakeRecipes({
