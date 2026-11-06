@@ -405,6 +405,14 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.match(section, /not a tour/);
     });
 
+    it("a diff Taster's prompt has it read them before it judges, whatever its lens names: regression test", async () => {
+      const { prompt } = await (await planTaster(answers)).plan;
+      assert.match(prompt, /On a diff, read the repository's rules as the section below says/);
+      const section = await rulesSection();
+      assert.match(section, /read them yourself before you judge, whatever your lens names/);
+      assert.match(section, /read the instruction file at the root of your working directory/);
+    });
+
     it("a diff Taster's prompt reads a repository's rule folder, whichever tool it is for", async () => {
       const section = await rulesSection();
       assert.match(section, /scoped rules in a folder of their own/);
