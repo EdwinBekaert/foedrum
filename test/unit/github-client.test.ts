@@ -477,6 +477,37 @@ describe('createGitHubClient', () => {
       assert.equal(calls.length, 1);
     });
 
+    it('a pause that ended while a read waited for gh does not stop its second try', async () => {
+      let now = start;
+      const calls: string[] = [];
+      const exec: ExecProcess = async (_file, args) => {
+        const path = args.at(-1) ?? '';
+        calls.push(path);
+        if (path === '/limited') return answer(captured.rateLimited?.stdout ?? '', 1);
+        if (calls.filter((each) => each === '/a').length > 1) return okOutput;
+        await limited(client.rest('GET', '/limited'));
+        now = start + 700_000;
+        return killed('timed-out');
+      };
+      const client = createGitHubClient({ exec, now: () => now });
+      assert.equal((await client.rest('GET', '/a')).status, 200);
+      assert.deepStrictEqual(calls, ['/a', '/limited', '/a']);
+    });
+
+    it("a write whose timeout and caller's signal come at once fails with the signal's reason", async () => {
+      const controller = new AbortController();
+      const reason = new Error('past its deadline');
+      let calls = 0;
+      const exec: ExecProcess = async () => {
+        calls++;
+        controller.abort(reason);
+        return killed('timed-out');
+      };
+      const client = createGitHubClient({ exec, now: () => start });
+      await assert.rejects(client.rest('POST', '/a', {}, controller.signal), reason);
+      assert.equal(calls, 1);
+    });
+
     it("a read given up by its caller's signal is not tried again", async () => {
       const controller = new AbortController();
       const reason = new Error('past its deadline');
