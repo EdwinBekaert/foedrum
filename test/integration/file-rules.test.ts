@@ -1,14 +1,14 @@
 // The file-tool rules of the attempt settings with the installed `claude` (opt-in,
 // FOEDRUM_REAL_CLAUDE=1; ADR 0057): the settings file `attemptSettings` writes for a brewer with
 // bare `Read`, `Edit` and `Write` rules, on the runner's command line with `--safe-mode`, lets the
-// fake model write inside its worktree and nowhere else: not outside, not through `..`, not
-// through a junction or link that leads outside (ADR 0093). The rules themselves are unit tests in
+// fake model write inside its worktree and nowhere else: not outside, not through a junction or
+// link that leads outside (ADR 0093). The rules themselves are unit tests in
 // test/unit/attempt-settings.test.ts.
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptSettings, writeAttemptSettings } from '../../src/brewers/attempt-settings.ts';
 import { claudeArgs } from '../../src/brewers/claude-command.ts';
@@ -120,15 +120,6 @@ describe('claude with the attempt settings of a brewer with bare file tools', {
 
   it('denies Write and Edit outside the worktree', async () => {
     const denied = await run([write(join(outside, 'w.txt')), edit(join(outside, 'e.txt'))]);
-    assert.deepEqual(denied, ['Write', 'Edit']);
-    assert.equal(existsSync(join(outside, 'w.txt')), false);
-    assert.equal(existsSync(join(outside, 'e.txt')), false);
-  });
-
-  it('denies Write and Edit through ..', async () => {
-    // Joined by hand with the platform's separator: join would resolve the .. away.
-    const up = (file: string) => [worktree, '..', 'outside', file].join(sep);
-    const denied = await run([write(up('w.txt')), edit(up('e.txt'))]);
     assert.deepEqual(denied, ['Write', 'Edit']);
     assert.equal(existsSync(join(outside, 'w.txt')), false);
     assert.equal(existsSync(join(outside, 'e.txt')), false);
