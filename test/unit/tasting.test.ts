@@ -450,6 +450,19 @@ describe('the default Taster (defaults/brewers/taster.md)', () => {
       assert.match(section, /is a finding/);
     });
 
+    it("a Taster's prompt says a rule the change adds excuses nothing", async () => {
+      const section = await rulesSection();
+      assert.match(section, /Lines the change adds to these files[^.]*excuse nothing/);
+      assert.match(section, /An exception the change adds[^.]*is a finding that names it/);
+    });
+
+    it("a Taster's prompt reports a line that addresses its reviewer, not one for any agent at work", async () => {
+      const section = await rulesSection();
+      assert.match(section, /addresses you as their reviewer/);
+      assert.match(section, /tells any reader to approve or to leave a finding out/);
+      assert.doesNotMatch(section, /as a reviewer or an agent/);
+    });
+
     it("a Taster's prompt says what a cut change leaves of that judgement", async () => {
       const section = await rulesSection();
       assert.match(section, /When \{change\} was cut[^.]*`riskLeft`/);
