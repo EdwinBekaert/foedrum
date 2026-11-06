@@ -36,6 +36,9 @@ const commentsDue = (state: State, batchId: string) =>
     ),
   );
 
+// How many runs had the refuser's effect due at their end, so the check above was not idle.
+let effectsMarked = 0;
+
 const run = async (seed: number): Promise<void> => {
   const random = seededRandom(seed);
   let sick = true;
@@ -153,11 +156,17 @@ const run = async (seed: number): Promise<void> => {
       }
     }
 
-    // An hour past the last restart, the refuser's failing effect has marked it, with no Stuck.
+    // An hour past the last restart, the refuser's failing effect has marked it. A schedule may lose
+    // its attempts to kills and clock jumps until it is Stuck on them with none succeeded: then no
+    // effect of it was ever due, and nothing failed to mark.
     await tick();
+    const effectDue = commentsDue(log.state(), refuser).length > 0;
     hand.skipTo(new Date(hand.now().getTime() + hour + 60_000));
     await tick();
-    assert.notEqual(log.state().batches.get(refuser)?.failing, undefined, 'the effect marked it');
+    if (effectDue) {
+      assert.notEqual(log.state().batches.get(refuser)?.failing, undefined, 'the effect marked it');
+    }
+    if (effectDue) effectsMarked++;
     // The throws stop: a person's retries bring every batch on tap, and the marks go.
     sick = false;
     for (let each = 0; each < 80; each++) {
@@ -183,5 +192,10 @@ const run = async (seed: number): Promise<void> => {
 };
 
 it('batches that fail past the limit stop none of the others, and come to rest once they read', async () => {
+  effectsMarked = 0;
   await forEachSeedAsync(10, run);
+  // None when one seed is replayed and it has no effect due, so only over several.
+  if (process.env.FOEDRUM_SEED === undefined) {
+    assert.ok(effectsMarked > 0, 'a run had an effect that failed and marked its batch');
+  }
 });
