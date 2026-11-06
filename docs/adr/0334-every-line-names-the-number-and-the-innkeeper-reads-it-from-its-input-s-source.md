@@ -31,7 +31,7 @@ Two things were not settled there: how the Innkeeper is given the number, and wh
 - **`brew` takes no batch id, and this does not change that.**
   `foedrum takeover` of an older batch that no driver holds says so and offers no command.
   An older batch waiting for a session has no command that opens it, as it had none before: its status comment offers the number, which reaches the latest batch, and `foedrum status` and `stuck` offer its id, which `brew` refuses at once.
-  That needs a recipe whose pull-request route passes through an interactive step, and the gap is older than this record.
+  That needs a recipe whose pull-request route passes through an interactive step, and the gap is older than this record; #902 tracks it.
 
 ### What keeps the batch id, offering no command
 - The headings of the status comment and the plan comment, and the footers of sub-issues and merge briefs: each batch has its own, and several batches of one issue differ by it, as with `foedrum status`'s columns.
