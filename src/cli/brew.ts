@@ -445,6 +445,17 @@ export const runBrew = async (
         say(`${named} waits for its Brewery issue, which is not open yet; brew ${asGiven} again`);
         return BREW_EXIT.failed;
       }
+      // A recipe label on the target issue chooses nothing (ADR 0156), and a person who put one
+      // there would wait for it: the line says so, one conditional read on this refusal alone, and
+      // is left out when that read fails (ADR 0336).
+      const carried = await githubOrderLabels(reads, setup.brewery)(order, signal).then(
+        recipeLabels,
+        () => [],
+      );
+      if (carried.length > 0) {
+        const all = carried.map((name) => `recipe:${name}`).join(' and ');
+        say(`${asGiven} carries ${all}, which Foedrum does not read; label #${opened}`);
+      }
       // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
       return refuse(
         `${named} waits for a recipe:<name> label on its Brewery issue #${opened}; label it and brew ${opened}, or foedrum mash ${opened}`,
