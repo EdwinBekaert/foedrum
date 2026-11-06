@@ -32,6 +32,7 @@ import { z } from '../schemas/zod.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { Batch, State, Step } from './fold.ts';
+import type { Handover } from './handover.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 import { mutantLines } from './survivors.ts';
 
@@ -481,6 +482,8 @@ export interface PullRequestTextInput {
   key?: BatchEffectKey;
   /** The section that names the order's other pull requests and the merge order (ADR 0292). */
   siblings?: string;
+  /** What the brewers handed over, each line read for a secret (ADR 0340): model text, untrusted. */
+  handovers?: readonly Handover[];
 }
 
 export interface PullRequestText {

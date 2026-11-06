@@ -140,6 +140,8 @@ export type Attempt =
       claude?: ClaudeReport;
       /** What a brewer's attempt took, once its stream was read (ADR 0172). */
       receipt?: Receipt;
+      /** What its out doc handed over: proposals a person reads, in no later prompt (ADR 0340). */
+      handover?: readonly string[];
       /** Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202). */
       paused?: true;
       /** Stopped by a person: it counts against no retry, and a retry resumes it (ADR 0302). */

@@ -2,7 +2,13 @@
 
 import { HouseYeastSelection } from './house-yeast.ts';
 import { PathSafeId } from './ids.ts';
-import { BlockerKind, MOST_DISPOSITIONS, MOST_MUTANTS, TastingFinding } from './out-doc.ts';
+import {
+  BlockerKind,
+  MOST_DISPOSITIONS,
+  MOST_HANDOVER_LINES,
+  MOST_MUTANTS,
+  TastingFinding,
+} from './out-doc.ts';
 import { CheckName, RelativePath } from './primitives.ts';
 import { NonEmpty, Question, StepOutcome } from './step-outcome.ts';
 import { CommitSha, EffectKeyText, MAX_CONFLICTS } from './store.ts';
@@ -774,6 +780,8 @@ export const Event = z.discriminatedUnion('type', [
     receipt: Receipt.optional(),
     // The house-yeast rules a brewer's plan selected for it (ADR 0169).
     houseYeast: HouseYeastSelection.optional(),
+    // What the brewer's out doc handed over: proposals a person reads, in no later prompt (ADR 0340).
+    handover: z.array(NonEmpty).max(MOST_HANDOVER_LINES).optional(),
     // Stopped when its batch's pause reached its stopAt: it counts against no retry (ADR 0202).
     paused: z.literal(true).optional(),
     // The cancelled end of an attempt a person's stop abandoned, recorded while its batch stays

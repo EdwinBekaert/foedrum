@@ -173,6 +173,8 @@ export type EngineCommand =
       receipt?: Receipt;
       /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
       houseYeast?: HouseYeastSelection;
+      /** What its out doc handed over (ADR 0340). */
+      handover?: readonly string[];
       /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
       paused?: true;
       /**

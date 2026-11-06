@@ -13,6 +13,10 @@ export const MOST_DISPOSITIONS = 100;
 export const MAX_DISPOSITION_FILE = 1_000;
 export const MAX_DISPOSITION_WHY = 2_000;
 
+/** The most lines a handover keeps, and the longest one (ADR 0340). */
+export const MOST_HANDOVER_LINES = 3;
+export const MAX_HANDOVER_LINE = 300;
+
 const place = {
   file: NonEmpty.max(MAX_DISPOSITION_FILE)
     .regex(/^[^\r\n]*$/, 'Must be one line')

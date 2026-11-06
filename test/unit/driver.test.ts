@@ -1816,6 +1816,46 @@ describe('openDriver', () => {
       assert.deepStrictEqual(planned?.receipt, receipt);
     });
 
+    it('records what the out doc handed over on its step.finished, whatever its ending (ADR 0340)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const outDoc = '---\n{ "status": "failed", "summary": "s", "handover": ["A lesson"] }\n---\n';
+      end(plan('b1'), { kind: 'failed', retryable: true, reason: 'it failed' }, { outDoc });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.handover, ['A lesson']);
+    });
+
+    it('names the step on a handover line it left out as a secret (ADR 0340)', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const key = ['ghp', 'A1b2'.repeat(9)].join('_');
+      const outDoc = `---\n{ "status": "done", "summary": "s", "handover": ["${key}"] }\n---\n`;
+      end(plan('b1'), succeeded, { outDoc });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.deepStrictEqual(planned?.handover, [
+        '[left out: a text of step plan that looks like a secret]',
+      ]);
+    });
+
+    it('records no handover for an attempt whose out doc wrote none (ADR 0340): regression test', async () => {
+      const { runner, end } = handRunner();
+      order('b1');
+      const driver = await open({ runner, ...manager(), sessionId: ids() });
+      await driver.drive();
+      const outDoc = '---\n{ "status": "done", "summary": "s" }\n---\n';
+      end(plan('b1'), succeeded, { outDoc });
+      await driver.drive();
+      const [planned] = recorded('step.finished');
+      assert.ok(planned !== undefined);
+      assert.equal('handover' in planned, false);
+    });
+
     it('records the ending without a receipt the event cannot hold (ADR 0172)', async () => {
       const { runner, end } = handRunner();
       order('b1');
