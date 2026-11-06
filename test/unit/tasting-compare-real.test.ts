@@ -16,6 +16,7 @@ import {
   type RealSetup,
   realBreweryFiles,
   realCommentsOf,
+  realRecipeOf,
   realRecipeText,
   realRecordOf,
   realTable,
@@ -150,10 +151,13 @@ const attempt = (
 const SETUPS: readonly RealSetup[] = [
   '855-today',
   '855-reads',
+  '855-lens',
   '864-today',
   '864-reads',
+  '864-lens',
   '867-today',
   '867-reads',
+  '867-lens',
   '867-comments',
 ];
 
@@ -679,18 +683,18 @@ describe('tasting-compare --real', () => {
       const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
       const named = (steps: ReturnType<typeof tasteOf>) =>
         steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
-      assert.deepEqual(named(tasteOf(realRecipeText())), named(tasteOf(nip)));
+      assert.deepEqual(named(tasteOf(realRecipeText('855-reads'))), named(tasteOf(nip)));
     });
 
     it('blocks nowhere, so every run ends', () => {
-      for (const step of tasteOf(realRecipeText())) {
+      for (const step of tasteOf(realRecipeText('855-reads'))) {
         assert.equal(step.blocking, undefined, step.id);
         assert.equal(step.onBlocked, undefined, step.id);
       }
     });
 
     it('is named as the label of every order, loads as a Brewery file, and opens a pull request', () => {
-      const recipe = Recipe.parse(parseJsonc(realRecipeText()));
+      const recipe = Recipe.parse(parseJsonc(realRecipeText('855-reads')));
       assert.equal(recipe.name, REAL_RECIPE);
       assert.equal(recipe.testFirst, false);
       assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));
@@ -724,6 +728,93 @@ describe('tasting-compare --real', () => {
         'the old text',
       );
       assert.equal(realBreweryFiles('864-reads', 'the old text')['brewers/taster.md'], undefined);
+    });
+
+    describe('the lens setup (#889, ADR 0337)', () => {
+      const lensRecipe = () => {
+        const text = realBreweryFiles('855-lens', 'unused')['recipes/real-nip-lens.jsonc'];
+        assert.ok(text !== undefined, 'the lens setup has no recipe of its own');
+        return text;
+      };
+
+      it("the lens setup's Tasters are exactly nip's lenses and design conformance", () => {
+        const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
+        const named = (steps: ReturnType<typeof tasteOf>) =>
+          steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
+        assert.deepEqual(named(tasteOf(lensRecipe())), [
+          ...named(tasteOf(nip)),
+          { id: 'design-conformance', brewer: 'taster', lens: 'diff/design-conformance' },
+        ]);
+      });
+
+      it('its recipe blocks nowhere, so every run ends', () => {
+        for (const step of tasteOf(lensRecipe())) {
+          assert.equal(step.blocking, undefined, step.id);
+          assert.equal(step.onBlocked, undefined, step.id);
+        }
+      });
+
+      it('its recipe says it tastes with more than nip does', () => {
+        const { description } = Recipe.parse(parseJsonc(lensRecipe()));
+        assert.match(description ?? '', /design conformance/);
+        assert.doesNotMatch(description ?? '', /as nip tastes it/);
+      });
+
+      it('each setup brews the recipe of its own kind', () => {
+        assert.deepEqual(
+          SETUPS.map((setup) => realRecipeOf(setup)),
+          SETUPS.map((setup) => (setup.endsWith('-lens') ? 'real-nip-lens' : REAL_RECIPE)),
+        );
+      });
+
+      it("its recipe is named as an order's label and loads as a Brewery file, on the default Taster", () => {
+        const files = realBreweryFiles('855-lens', 'the old text');
+        assert.equal(files['brewers/taster.md'], undefined);
+        assert.equal(Recipe.parse(parseJsonc(lensRecipe())).name, 'real-nip-lens');
+        const brewery = makeTempDir('tasting-compare-real');
+        try {
+          for (const [path, text] of Object.entries(files)) {
+            mkdirSync(dirname(join(brewery.path, path)), { recursive: true });
+            writeFileSync(join(brewery.path, path), text);
+          }
+          const loaded = loadRecipes(readBreweryFiles(brewery.path));
+          assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
+          assert.ok(loaded.valid && loaded.recipes.find('real-nip-lens') !== undefined);
+        } finally {
+          brewery.remove();
+        }
+      });
+
+      it('a record reads the fourth Taster of a run', () => {
+        const { attempts } = realRecordOf(
+          [
+            ...tasted('correctness', { findings: [] }),
+            ...tasted('design-conformance', { findings: [finding('a stale page')] }),
+          ],
+          () => transcript(outDoc),
+        );
+        assert.deepEqual(
+          attempts.map(({ stepId, lenses }) => [stepId, lenses]),
+          [
+            ['correctness', ['diff/correctness']],
+            ['design-conformance', ['diff/design-conformance']],
+          ],
+        );
+      });
+
+      it("a list shows the fourth Taster last, in its recipe's order", () => {
+        const run: RealRecord = {
+          ...record('855-lens', 1, 'x'),
+          attempts: [
+            attempt('design-conformance', [finding('a stale page')]),
+            attempt('security', [finding('a hole')]),
+          ],
+        };
+        const list = blinded([run], 'a seed').lists[855] ?? '';
+        const at = (name: string) => list.indexOf(`### ${name} (`);
+        assert.ok(at('security') >= 0, list);
+        assert.ok(at('security') < at('design-conformance'), list);
+      });
     });
   });
 
@@ -847,10 +938,13 @@ describe('tasting-compare --real', () => {
         '|---|---|---|---|',
         '| 855-today | 0 | 0 | 0 |',
         '| 855-reads | 0 | 0 | 0 |',
+        '| 855-lens | 0 | 0 | 0 |',
         '| 864-today | 0 | 0 | 0 |',
         '| 864-reads | 0 | 0 | 0 |',
+        '| 864-lens | 0 | 0 | 0 |',
         '| 867-today | 0 | 0 | 0 |',
         '| 867-reads | 1 | 0 | 0 |',
+        '| 867-lens | 0 | 0 | 0 |',
         '| 867-comments | 0 | 0 | 0 |',
         '',
         'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
@@ -969,7 +1063,12 @@ describe('tasting-compare --real', () => {
   describe('the dry run', () => {
     it('plays each Taster of the recipe, with a finding on the file it is given and a risk left', () => {
       const tastings = scriptedRealTastings('src/a.ts');
-      assert.deepEqual(Object.keys(tastings), ['correctness', 'acceptance', 'security']);
+      assert.deepEqual(Object.keys(tastings), [
+        'correctness',
+        'acceptance',
+        'security',
+        'design-conformance',
+      ]);
       const [turn] = tastings.security ?? [];
       assert.equal(turn?.tasting?.findings[0]?.file, 'src/a.ts');
       assert.equal(Array.isArray(turn?.doc?.riskLeft), true);
@@ -1009,6 +1108,21 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
     for (const setup of REAL_SETUPS.filter((each) => each !== '867-comments')) {
       assert.deepEqual(realCommentsOf(setup, 'the-maintainer', read), [], setup);
     }
+  });
+
+  it('the lens setups hold no comment: regression test', () => {
+    const lens = REAL_SETUPS.filter((each) => each.endsWith('-lens'));
+    assert.deepEqual(lens, ['855-lens', '864-lens', '867-lens']);
+    for (const setup of lens) {
+      assert.deepEqual(realCommentsOf(setup, 'the-maintainer', read), [], setup);
+    }
+  });
+
+  it('brews nip without the lens setup Taster: regression test', () => {
+    assert.equal(realRecipeOf('867-comments'), REAL_RECIPE);
+    assert.deepEqual(Object.keys(realBreweryFiles('867-comments', 'unused')), [
+      `recipes/${REAL_RECIPE}.jsonc`,
+    ]);
   });
 
   it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {

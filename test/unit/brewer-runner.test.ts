@@ -10,7 +10,13 @@ import {
 } from '../../src/engine/brewer-runner.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import { findSecrets } from '../../src/formats/secrets.ts';
-import { OutDocFrontmatter, outDocFrontmatter } from '../../src/schemas/out-doc.ts';
+import {
+  MAX_RISK_LEFT,
+  OutDocFrontmatter,
+  outDocFrontmatter,
+  tastingOf,
+  tastingOutDocOf,
+} from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
 import { documentedSpendLimits, documentedUsageLimits } from '../fixtures/claude-usage-limits.ts';
 import { outDoc } from '../helpers/fake-brewer-runner.ts';
@@ -412,6 +418,49 @@ describe('settleAttempt', () => {
       output: { status: 'done', summary: 'Looks right', assumptions: [], verdict: 'approve' },
     });
     assert.equal(settleAttempt(facts({ outDoc: review }), limits).kind, 'failed');
+  });
+});
+
+describe("settleAttempt: a Taster's riskLeft past its limit (#889, ADR 0337)", () => {
+  const schema = tastingOutDocOf(['diff/correctness']);
+  const finding = {
+    file: 'src/wait.ts',
+    line: 13,
+    severity: 'major',
+    why: 'it never ends',
+    introduced: true,
+  };
+  const tasted = (verdict: string, findings: readonly unknown[]) =>
+    outDoc({
+      status: 'done',
+      summary: 'Tasted',
+      verdict,
+      findings,
+      riskLeft: ['r'.repeat(MAX_RISK_LEFT + 1)],
+    });
+
+  it("a riskLeft line over its limit leaves the review's findings standing", () => {
+    const minor = { ...finding, severity: 'minor' };
+    const ending = settleAttempt(facts({ outDoc: tasted('approve', [minor]) }), {
+      outDoc: { file: 'taste.md', schema },
+    });
+    assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
+    const report = ending.kind === 'succeeded' ? tastingOf(ending.output) : undefined;
+    assert.deepEqual(report?.findings, [minor]);
+    assert.equal(report?.riskLeft?.[0]?.length, MAX_RISK_LEFT);
+  });
+
+  it("a riskLeft line over its limit leaves a blocking step's findings holding it up", () => {
+    const ending = settleAttempt(facts({ outDoc: tasted('changes', [finding]) }), {
+      outDoc: { file: 'taste.md', schema },
+      blocking: true,
+    });
+    assert.deepEqual(ending, {
+      kind: 'blocked',
+      blockerKind: 'findings',
+      summary: 'the Taster asks for changes: Tasted',
+      findings: [finding],
+    });
   });
 });
 
