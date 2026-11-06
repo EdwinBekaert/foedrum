@@ -11,7 +11,7 @@ import {
   GitHubIssue,
   GitHubValidationError,
 } from '../schemas/github.ts';
-import { assigneeLogins, checked, labelNames, refused, repoPath } from './answers.ts';
+import { assigneeLogins, checked, labelNames, refused, repoPath, saysDeleted } from './answers.ts';
 import { LABEL_COLOR } from './brewery-repository.ts';
 import type { GitHubAnswer, GitHubClient } from './client.ts';
 import { type GitHubReads, pageSize } from './reads.ts';
@@ -116,10 +116,7 @@ export const githubIssueMarks = (
     issueState: async (repo, issue, signal) => {
       const what = `the issue ${repo}#${issue}`;
       const answer = await reads.get(issuePath(repo, issue), signal);
-      const error = GitHubError.safeParse(answer.body);
-      if (answer.status === 410 && error.success && /\bdeleted\b/i.test(error.data.message)) {
-        return 'gone';
-      }
+      if (saysDeleted(answer.status, answer.body)) return 'gone';
       return checked(GitHubIssue, expect(answer, 200, what).body, what).state;
     },
     setIssueState: async (repo, issue, state, signal) => {

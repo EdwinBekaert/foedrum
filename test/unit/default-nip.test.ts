@@ -766,6 +766,7 @@ describe('the default Gauger', () => {
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Add a --json flag to status.',
+      orderComments: async () => [],
       files: {
         read: () => ({ kind: 'missing' }),
         makeFolder: () => {},
@@ -913,6 +914,7 @@ describe("a sub-order's plan entry in the default brewers' prompts (ADR 0290)", 
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Add a --json flag to status.',
+      orderComments: async () => [],
       // The Taster's change: one commit, no diff to show.
       git: async () => ({ code: 0, stdout: '', stderr: '' }),
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
@@ -1036,6 +1038,7 @@ describe("the release a sub-order waited for in the default brewers' prompts (AD
       env: { base: { PATH: '/usr/bin' }, forced: {} },
       platform: 'linux',
       orderText: async () => 'Use the new parser of acme/lib.',
+      orderComments: async () => [],
       git: async () => ({ code: 0, stdout: '', stderr: '' }),
       files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
       random: () => Buffer.from('0123456789abcdef0123456789abcdef', 'hex'),

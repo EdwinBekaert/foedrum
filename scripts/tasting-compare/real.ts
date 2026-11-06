@@ -9,6 +9,7 @@ import { pathInside } from '../../src/platform/paths.ts';
 import { ClaudeToolResult, ClaudeToolUse } from '../../src/schemas/claude-stream.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { z } from '../../src/schemas/zod.ts';
+import type { FakeApiComment } from '../../test/helpers/fake-github-api.ts';
 import type { Scripted } from '../../test/helpers/nip-fixture.ts';
 import {
   escapeCell,
@@ -37,14 +38,18 @@ export const TODAY_COMMIT = '765cc856';
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
 type Profile = 'today' | 'reads';
 const PROFILES: readonly Profile[] = ['today', 'reads'];
-/** One order tasted one way: the order first, so the record reads on its own. */
-export type RealSetup = `${OrderNumber}-${Profile}`;
+/**
+ * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
+ * `867-reads` with the one maintainer's comment an order had before it brewed (ADR 0333).
+ */
+export type RealSetup = `${OrderNumber}-${Profile}` | '867-comments';
 export type RealRecord = RunRecord<RealSetup>;
 
 /** Order by order, and setup by setup within one. */
-export const REAL_SETUPS: readonly RealSetup[] = REAL_ORDERS.flatMap(({ order }) =>
-  PROFILES.map((profile) => `${order}-${profile}` as const),
-);
+export const REAL_SETUPS: readonly RealSetup[] = [
+  ...REAL_ORDERS.flatMap(({ order }) => PROFILES.map((profile) => `${order}-${profile}` as const)),
+  '867-comments',
+];
 
 /** The order `setup` tastes. */
 export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
@@ -95,6 +100,27 @@ export const realBreweryFiles = (
   [`recipes/${REAL_RECIPE}.jsonc`]: realRecipeText(),
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
 });
+
+/**
+ * The comments on the fake host's issue in a run of `setup`, `author` a maintainer's login, the
+ * text from `read` of a file of `test/fixtures/tasting-compare/real/`.
+ */
+export const realCommentsOf = (
+  setup: RealSetup,
+  author: string,
+  read: (file: string) => string,
+): FakeApiComment[] =>
+  setup === '867-comments'
+    ? [
+        {
+          id: 900_001,
+          author,
+          association: 'OWNER',
+          created: '2026-11-05T19:44:00Z',
+          body: read('867-comment.md').trimEnd(),
+        },
+      ]
+    : [];
 
 /** Throws when `today`'s pinned Taster is the default's text: the comparison would be of nothing. */
 export const refuseSameTaster = (today: string, current: string): void => {

@@ -1,0 +1,1 @@
+Wider than first seen: `foedrum brew` hits it too. `foedrum brew foedrum#867` on another order printed `a tick failed: Recipe nip has no step innkeep`, and its Brewery issue was not opened. So while such a batch is on tap with finished checks, no order in that Brewery can start, through serve or brew.

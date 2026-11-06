@@ -158,6 +158,7 @@ describe('one real step through the driver', { skip: real.kind === 'skip' && rea
         forced: {},
       },
       orderText: async () => 'Add a --json flag.',
+      orderComments: async () => [],
     });
     const log = createCommandLog({ store, recipes: loaded.recipes });
     const now = new Date();

@@ -7,7 +7,7 @@
 
 import { pullRequestOf } from '../schemas/events.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
-import { commentId, effectMarker, type IssueMarks } from './claim-effects.ts';
+import { commentId, effectMarker, type IssueMarks, markedComment } from './claim-effects.ts';
 import { breweryIssueOf, latestOf } from './claim-orders.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
@@ -91,9 +91,7 @@ export const breweryCloseEffects = (options: BreweryClosesOptions): DriverEffect
     },
     apply: async (key, signal) => {
       const { issue, body } = dueFor(key);
-      return commentId(
-        await marks.comment(brewery, issue, `${body}\n\n${effectMarker(key)}`, signal),
-      );
+      return commentId(await marks.comment(brewery, issue, markedComment(body, key), signal));
     },
   };
   const close: EffectTarget = {

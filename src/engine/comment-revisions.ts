@@ -4,7 +4,7 @@
 
 import { StatusRevision } from '../schemas/status-comment.ts';
 import type { BatchEffectKey } from '../schemas/store.ts';
-import { commentId, effectMarker } from './claim-effects.ts';
+import { commentId, effectMarker, markedComment } from './claim-effects.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
 import type { State } from './fold.ts';
@@ -104,7 +104,7 @@ export const commentRevisions = (prefix: string, what: string) => {
       },
       apply: async (key, signal) => {
         const due = revisionFor(key);
-        const body = `${due.text}\n\n${effectMarker(key)}`;
+        const body = markedComment(due.text, key);
         if (due.previous !== undefined) {
           const edited = await comments.edit(brewery, due.previous.comment, body, signal);
           if (edited === 'edited') return applied(due, due.previous.comment, due.digest);

@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { effectMarker } from '../../src/engine/claim-effects.ts';
+import { effectMarker, isMarkedComment } from '../../src/engine/claim-effects.ts';
 import { type CommandLog, createCommandLog } from '../../src/engine/command-log.ts';
 import type { Ending } from '../../src/engine/decide.ts';
 import type { DriverEffects } from '../../src/engine/driver.ts';
@@ -1037,6 +1037,12 @@ describe('the merge brief (ADR 0225)', () => {
   });
 
   describe('found by its marker', () => {
+    it('posts a brief that ends as a marked comment, so it stays out of an order (ADR 0333)', async () => {
+      nip();
+      finished([passed('ci/build')]);
+      assert.equal(isMarkedComment(await brief()), true);
+    });
+
     it('takes a brief a killed driver posted for this record as posted', async () => {
       nip();
       finished([passed('ci/build')]);

@@ -18,7 +18,15 @@ const inputs: PromptInput[] = [
   { name: 'order', source: { kind: 'issue-body', issue: 12 }, text: 'Add a --json flag.' },
   {
     name: 'order',
-    source: { kind: 'comment', issue: 12, comment: 4567 },
+    source: {
+      kind: 'comment',
+      repo: 'acme/web',
+      issue: 12,
+      comment: 4567,
+      by: 'ada',
+      association: 'OWNER',
+      at: '2026-11-05T19:44:00Z',
+    },
     text: 'Also for status.',
   },
   { name: 'plan', source: { kind: 'out-doc', step: 'plan' }, text: '# Plan\n\n1. Parse the flag.' },
@@ -54,7 +62,11 @@ describe('assembleBrewerPrompt (#106, ADR 0041)', () => {
     const { prompt } = assembled(assembleBrewerPrompt(instructions, inputs, fixed));
     assert.deepStrictEqual(blocks(prompt, nonce), [
       { attributes: 'source="issue #12 body" name="order"', text: 'Add a --json flag.' },
-      { attributes: 'source="comment 4567 on issue #12" name="order"', text: 'Also for status.' },
+      {
+        attributes:
+          'source="comment 4567 on acme/web#12, by ada (OWNER), 2026-11-05T19:44:00Z" name="order"',
+        text: 'Also for status.',
+      },
       {
         attributes: 'source="out doc of step plan" name="plan"',
         text: '# Plan\n\n1. Parse the flag.',
