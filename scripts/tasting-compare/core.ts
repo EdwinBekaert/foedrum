@@ -173,7 +173,13 @@ export interface FinishedAttempt {
   attempt: number;
   outcome: StepOutcome;
   usage?: Usage | undefined;
-  receipt?: { turns: number; durationMs?: number | undefined } | undefined;
+  receipt?:
+    | {
+        turns: number;
+        durationMs?: number | undefined;
+        models?: readonly { model: string }[] | undefined;
+      }
+    | undefined;
 }
 
 /** One Taster attempt of a run. */
@@ -186,6 +192,20 @@ export interface TasterAttempt {
   usage: Usage | undefined;
   turns: number | undefined;
   durationMs: number | undefined;
+  /** The risks it left, which are no findings. */
+  riskLeft?: readonly string[];
+  /** The models it ran on, by claude's receipt. */
+  models?: readonly string[];
+  /** The real mode's reading of its transcript (ADR 0332): the files it read, by path in its worktree. */
+  opened?: readonly string[];
+  /** What it reached outside its worktree, which fails its run. */
+  outside?: readonly string[];
+  /** What it asked for outside its worktree and was refused. */
+  refused?: readonly string[];
+  /** Why its transcript cannot say what it read, of an attempt that succeeded: no measurement at all. */
+  unreadable?: string;
+  /** Its out doc's text past the frontmatter, from its transcript. */
+  body?: string;
 }
 
 /** One run of a setup, as the shell keeps it. */
@@ -214,6 +234,12 @@ const findingsOf = (output: unknown): { findings: TastingFinding[]; refused: num
     else refused += 1;
   }
   return { findings, refused };
+};
+
+/** The risks a succeeded Taster's output left, none when it lists none. */
+const risksOf = (output: unknown): { riskLeft?: readonly string[] } => {
+  const read = z.looseObject({ riskLeft: z.array(z.string()).min(1) }).safeParse(output);
+  return read.success ? { riskLeft: read.data.riskLeft } : {};
 };
 
 /** The attempts of `steps`, the lenses of each Taster step by id, in the order they finished. */
@@ -254,6 +280,10 @@ const attemptsIn = (
       usage,
       turns: receipt?.turns,
       durationMs: receipt?.durationMs,
+      ...(outcome.kind === 'succeeded' ? risksOf(outcome.output) : {}),
+      ...(receipt?.models === undefined
+        ? {}
+        : { models: receipt.models.map(({ model }) => model) }),
     });
   }
   return attempts;
@@ -295,7 +325,10 @@ export const attemptFailure = (attempts: readonly TasterAttempt[]): string | und
 };
 
 /** Why a run failed, or undefined: its batch is not on tap, or one of its Taster attempts failed. */
-export const runFailure = ({ ended, attempts }: RunRecord): string | undefined =>
+export const runFailure = ({
+  ended,
+  attempts,
+}: Pick<RunRecord, 'ended' | 'attempts'>): string | undefined =>
   ended !== 'on_tap' ? `the batch ended ${ended}` : attemptFailure(attempts);
 
 /** A finding outside the key, for a person to judge. */
@@ -384,7 +417,7 @@ export interface SetupSummary<Setup extends string = Shown> {
 const mean = (values: readonly number[]): number =>
   values.length === 0 ? Number.NaN : values.reduce((sum, value) => sum + value, 0) / values.length;
 
-const tokensOf = (attempts: readonly TasterAttempt[]): Tokens => {
+export const tokensOf = (attempts: readonly TasterAttempt[]): Tokens => {
   const sum = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   for (const { usage } of attempts) {
     if (usage === undefined) continue;
@@ -558,10 +591,14 @@ export const choiceOf = (
 /** Model text as one Markdown table cell or list line: nothing in it is read as Markdown or HTML. */
 export const escapeCell = (text: string): string =>
   text
-    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\r\n|[\r\n\p{Zl}\p{Zp}]/gu, ' ')
     .replace(/[\\`*_[\]|]/g, (character) => `\\${character}`)
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+
+/** Where a finding is, as a list line shows it. */
+export const placeShown = ({ file, line }: TastingFinding): string =>
+  file === undefined ? 'no file' : `${file}${line === undefined ? '' : `:${line}`}`;
 
 const round = (value: number, digits = 1): string =>
   Number.isNaN(value) ? '-' : String(Number(value.toFixed(digits)));
@@ -612,13 +649,9 @@ export const tableOf = (summaries: readonly SetupSummary<string>[], parts: Table
       if (others.length === 0) continue;
       lines.push('', `Other findings of ${s.setup}, scored run ${index + 1}:`, '');
       for (const { stepId, finding } of others) {
-        const place =
-          finding.file === undefined
-            ? 'no file'
-            : `${finding.file}${finding.line === undefined ? '' : `:${finding.line}`}`;
         const lens = finding.lens === undefined ? '' : `${finding.lens}, `;
         lines.push(
-          `- ${stepId}: ${escapeCell(`${lens}${finding.severity} in ${place}: ${finding.why}`)}`,
+          `- ${stepId}: ${escapeCell(`${lens}${finding.severity} in ${placeShown(finding)}: ${finding.why}`)}`,
         );
       }
     }

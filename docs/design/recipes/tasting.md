@@ -75,6 +75,7 @@ Its findings show their lens before their severity (`diff/security, major in src
 The status comment shows ten findings per lens when every finding of the step names one, and ten per step otherwise.
 The default recipes run their lenses apart: together was measured on a seeded change and fell short of the rule that picks it ([ADR 0224](../../adr/0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md)).
 `node scripts/tasting-compare.ts --plan` measures the plan lenses the same way on a seeded plan, by the same rule; no numbers exist until the maintainer runs it after the merge ([ADR 0323](../../adr/0323-a-seeded-plan-measures-the-plan-lenses-apart-and-together-after-the-merge.md)).
+`node scripts/tasting-compare.ts --real` tastes three of Foedrum's own heads as they were brewed, to measure whether a change to the Tasters finds more: it writes blinded lists for a person to score, and fails a run whose Taster read outside its worktree ([ADR 0332](../../adr/0332-tasting-compare-real-re-tastes-brewed-heads-and-writes-blinded-lists.md)).
 
 **Brett's mutants are one-line edits, checked against the change.** Brett ([`defaults/brewers/brett.md`](../../../defaults/brewers/brett.md)) proposes a few mutants in a `mutants` out doc, at most 5, each as a one-line structured edit (`file`, `line`, `original`, `replacement`, `description`), never a patch ([ADR 0034](../../adr/0034-brett-mutants-as-structured-line-edits.md)).
 A brewer whose out doc schema is `mutants` gets the input `change`, as a Finer and a Taster that reviews a diff do.
