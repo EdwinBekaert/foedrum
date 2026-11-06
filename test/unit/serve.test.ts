@@ -1233,11 +1233,12 @@ Plan the order in {order}.
   });
 
   it('keeps ticking after a tick failed for another reason than the state branch', async () => {
+    // The heartbeat's reading of a run, which belongs to no pass over the batches (ADR 0328).
     const broken: BrewerRunner = {
-      start: () => {
+      start: () => ({ ended: new Promise(() => {}), stop: () => {} }),
+      progress: () => {
         throw new Error('the runner broke');
       },
-      progress: () => undefined,
     };
     assert.equal(await runServe(f.setup, shell({ runner: () => broken })), 0);
     assert.ok(
@@ -1402,6 +1403,23 @@ describe('formatNotice', () => {
         error: new Error('Recipe nip has no step innkeep'),
       }),
       'the effects of batch 12-1 could not be read or finished, and the other batches go on: Recipe nip has no step innkeep',
+    );
+  });
+
+  it('names the batch that threw and the pass it threw in, and says the others go on (ADR 0328)', () => {
+    const line = (pass: 'supervisor' | 'runs' | 'drive') =>
+      formatNotice({ kind: 'batch_failed', batchId: '12-1', pass, error: new Error('boom') });
+    assert.equal(
+      line('supervisor'),
+      'batch 12-1 could not be read by the supervisor, and the other batches go on: boom',
+    );
+    assert.equal(
+      line('runs'),
+      'a run of batch 12-1 could not be read or stopped, and the other batches go on: boom',
+    );
+    assert.equal(
+      line('drive'),
+      'batch 12-1 could not be driven, and the other batches go on: boom',
     );
   });
 

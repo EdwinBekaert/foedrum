@@ -84,6 +84,8 @@ export interface TickPlan {
   releaseLeases: string[];
   /** A closed usage window's reopen is due, before the batches' commands (ADR 0206, ADR 0215). */
   reopen?: true;
+  /** The batches whose reading threw, each once: they get no command this tick (ADR 0328). */
+  failed?: { batchId: string; error: unknown }[];
 }
 
 /** The commands one tick issues: deadlines first (invariant I5), then lost, then stalled attempts. */

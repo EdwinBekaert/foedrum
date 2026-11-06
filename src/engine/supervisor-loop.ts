@@ -25,6 +25,11 @@ export type Notice =
    * reports a finish it recorded this way when the read of the state after it throws (#289).
    */
   | { kind: 'command_failed'; command: EngineCommand; error: unknown }
+  /**
+   * One batch threw outside any one command, in the named pass over the batches: the others go on,
+   * and the next tick tries it again (ADR 0328).
+   */
+  | { kind: 'batch_failed'; batchId: string; pass: 'supervisor' | 'runs' | 'drive'; error: unknown }
   /** The flush of the state branch failed; the next tick retries it. */
   | { kind: 'flush_failed'; reason: string }
   /** The flushes have failed since `since`, for longer than the flush deadline (ADR 0024 as amended by ADR 0027). */

@@ -417,6 +417,152 @@ describe('planTick: stalls (ADR 0027)', () => {
   });
 });
 
+describe('planTick with one batch that throws (ADR 0328)', () => {
+  const boom = new Error('boom');
+  /** A recipe whose answers throw for what `throws` names, beside one that reads. */
+  const recipes = (throws: 'interactive' | 'stall') => {
+    const pint = fakeRecipe({ steps: ['plan', 'implement'], stall });
+    return fakeRecipes({
+      pint,
+      bad: {
+        ...pint,
+        [throws]: () => {
+          throw boom;
+        },
+      },
+    });
+  };
+  const failure = (batchId: string) => ({ batchId, error: boom });
+
+  it("keeps the other batch's deadline when reading one batch's deadline throws", () => {
+    const tick = planTick(
+      input([...brewing('b1', past, 'bad'), ...brewing('b2', past)], {
+        due: [dueAt('b1'), dueAt('b2')],
+        recipes: recipes('interactive'),
+      }),
+    );
+    assert.deepStrictEqual(tick, {
+      commands: [expire('b2')],
+      releaseLeases: [],
+      failed: [failure('b1')],
+    });
+  });
+
+  it("keeps the expired lease of a lost attempt whose batch threw, and releases the other's", () => {
+    const tick = planTick(
+      input([...brewing('b1', past, 'bad'), ...brewing('b2')], {
+        due: [dueAt('b1')],
+        expiredLeases: [leaseOf(plan('b1')), leaseOf(plan('b2'))],
+        recipes: recipes('interactive'),
+      }),
+    );
+    assert.deepStrictEqual(tick, {
+      commands: [lose('b2')],
+      releaseLeases: [leaseOf(plan('b2')).attemptKey],
+      failed: [failure('b1')],
+    });
+  });
+
+  it('still releases an expired lease that holds no started attempt of a batch that threw', () => {
+    const key = leaseOf(plan('b1', 7)).attemptKey;
+    const tick = planTick(
+      input(brewing('b1', past, 'bad'), {
+        due: [dueAt('b1')],
+        expiredLeases: [leaseOf(plan('b1', 7))],
+        recipes: recipes('interactive'),
+      }),
+    );
+    assert.deepStrictEqual(tick.releaseLeases, [key]);
+  });
+
+  it('keeps the other batch when reading a stall limit throws', () => {
+    const tick = planTick(
+      input([...brewing('b1', ahead, 'bad'), ...brewing('b2')], {
+        progress: {
+          [attemptKey.encode(plan('b1'))]: idle(30),
+          [attemptKey.encode(plan('b2'))]: idle(30),
+        },
+        recipes: recipes('stall'),
+      }),
+    );
+    assert.deepStrictEqual(
+      tick.commands.map(({ kind, batchId }) => [kind, batchId]),
+      [['stall', 'b2']],
+    );
+    assert.deepStrictEqual(tick.failed, [failure('b1')]);
+  });
+
+  it("keeps the other batch when reading a runner's progress throws", () => {
+    const tick = planTick({
+      ...input([...brewing('b1'), ...brewing('b2')]),
+      progress: {
+        progress: (ref) => {
+          if (ref.batchId === 'b1') throw boom;
+          return idle(30);
+        },
+      },
+    });
+    assert.deepStrictEqual(
+      tick.commands.map(({ kind, batchId }) => [kind, batchId]),
+      [['stall', 'b2']],
+    );
+    assert.deepStrictEqual(tick.failed, [failure('b1')]);
+  });
+
+  it('keeps the other batch when reading the pull request route throws', () => {
+    const opens = { actions: { open: 'openPullRequest' }, pullRequests: [] } as const;
+    const pint = fakeRecipe({ steps: ['plan', 'open'], ...opens });
+    const onTap = (batchId: string, recipe: string): Event[] => [
+      ordered(batchId),
+      chosen(batchId, recipe),
+      { type: 'batch.on_tap', batchId, pullRequests: [] },
+    ];
+    const tick = planTick(
+      input([...onTap('b1', 'bad'), ...onTap('b2', 'pint')], {
+        recipes: fakeRecipes({
+          pint,
+          bad: {
+            ...pint,
+            routesTo: () => {
+              throw boom;
+            },
+          },
+        }),
+      }),
+    );
+    assert.deepStrictEqual(tick.failed, [failure('b1')]);
+  });
+
+  it('asks a batch that threw at its deadline nothing more, and fails it once', () => {
+    let asked = 0;
+    const pint = fakeRecipe({ steps: ['plan', 'implement'], stall });
+    const tick = planTick(
+      input(brewing('b1', past), {
+        due: [dueAt('b1')],
+        recipes: fakeRecipes({
+          pint: {
+            ...pint,
+            interactive: () => {
+              throw boom;
+            },
+            stall: (stepId) => {
+              asked++;
+              return pint.stall(stepId);
+            },
+          },
+        }),
+      }),
+    );
+    assert.equal(asked, 0);
+    assert.deepStrictEqual(tick.failed, [failure('b1')]);
+  });
+
+  it('says nothing of failures when none threw (regression test)', () => {
+    const tick = planTick(input(brewing('b1', past), { due: [dueAt('b1')] }));
+    assert.equal('failed' in tick, false);
+  });
+});
+
 describe('watchFlush (ADR 0024)', () => {
   const deadline = 10 * minute;
   const at = (minutes: number) => new Date(now.getTime() + minutes * minute);

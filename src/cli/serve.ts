@@ -148,6 +148,8 @@ export const formatNotice = (notice: DriverNotice): string => {
       return `batch ${notice.batchId} is driven by ${notice.holder.owner} now`;
     case 'effect_failed':
       return `the effect ${effectKey.encode(notice.key)} failed: ${messageOf(notice.error)}`;
+    case 'batch_failed':
+      throw new Error('not implemented');
     case 'batch_effects_failed':
       return `the effects of batch ${notice.batchId} could not be read or finished, and the other batches go on: ${messageOf(notice.error)}`;
     case 'run_failed': {
