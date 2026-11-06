@@ -1,6 +1,6 @@
 # 0339. An issue has one live batch: no second batch on a Brewery issue while its pull request is open
 
-Date: 2026-11-06 · Status: Accepted · Amends [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (when a Brewery issue on tap can be ordered again), [0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md) (an older batch comes only from before this record) and [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (`recipe` of an issue on tap orders it again under the same rule)
+Date: 2026-11-06 · Status: Accepted · Amends [0105](0105-foedrum-order-orders-an-issue-again-as-a-human-command-recorded-on-batch-ordered.md) (when a Brewery issue on tap can be ordered again), [0336](0336-small-rough-edges-of-the-self-brew-trial.md) (what `foedrum brew` of a Brewery issue's batch with an open pull request says), [0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md) (an older batch comes only from before this record) and [0240](0240-order-and-recipe-work-by-the-brewery-issue-on-both-surfaces.md) (`recipe` of an issue on tap orders it again under the same rule)
 
 ## Context
 A number means its issue's latest batch ([ADR 0329](0329-one-number-per-piece-of-work.md)).
@@ -25,12 +25,14 @@ The maintainer decided on 2026-11-06 to remove the older batch rather than give 
 ### The line says what to do
 - A pull request may have merged with no recorded end yet, with no Cellar running.
   So the refusal says `foedrum brew <n>` or `foedrum serve` reads it if it ended, as [ADR 0336](0336-small-rough-edges-of-the-self-brew-trial.md) has it, and otherwise to close it first.
-- **`foedrum brew <n>` and `foedrum mash <n>` of such a batch no longer offer `foedrum order`**, which would be refused: they say the pull request is still open, to close it first to order again, and that `foedrum brew <n>` reads it again once it ended.
+- **`foedrum brew <n>` and `foedrum mash <n>` of such a batch no longer offer `foedrum order`**, which would be refused.
+  A brew has read the pull request, so it says it is still open, to close it first to order again, and that `foedrum brew <n>` reads it again once it ended.
+  A mash reads nothing, so it prints the order's own refusal, as a brew does in any other case where an order would be refused.
 
 ### Nothing else brings an older batch back
 Each of these is pinned by a test.
 - **`fix_pull_request`** needs an open pull request on a batch on tap, which now has no later batch.
-  One whose pull request ended has nothing to send back.
+  One whose pull request ended has nothing to send back, which the fix section of `test/unit/decide.test.ts` pins.
 - **`retry`, `skip`, `rewind`, `recipe` and `lauter`** of a batch refuse it on tap.
 - **A rebrew after a deleted Brewery issue** is of a target issue, whose claim is held while its pull request is open, deleted or not.
 - **A sub-order** is ordered once, by the intake, only while it has no batch ([ADR 0211](0211-the-intake-starts-ready-sub-orders-at-their-order-s-rank-once-their-blockers-merged.md)), and a person's order of it is refused.
@@ -39,9 +41,10 @@ Each of these is pinned by a test.
 ### A batch from before this record
 - A Brewery may already hold an older batch, and nothing in its files or events changes.
   [ADR 0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md)'s lines for it stay, since they are all such a batch has.
-- **It can do what a batch id reaches:** `cancel`, `retry`, `skip`, `answer`, `approve`, `rewind`, `recipe` and `resume` by its id.
+- **It can do what a batch id reaches:** a Stuck one can `cancel`, `retry`, `skip`, `answer`, `approve`, `rewind` and `recipe` by its id, and any can `resume`.
+- **One on tap with no recorded end refuses a new order until that end is read**, like any other, and only `foedrum serve` reads it: `foedrum brew <n>` reads the latest batch's, so the refusal names `foedrum serve` alone for an older batch.
 - **Two gaps stay, for it alone.**
-  One waiting for a session has no command that opens its session, so a person cancels it by its id, and orders the issue again once nothing refuses that.
+  One waiting for a session has no command that opens its session, so a person cancels it by its id.
   `foedrum lauter <id>` of one records the lauter on that batch and then drives the latest, as it did before.
 
 ## Consequences
