@@ -173,7 +173,13 @@ export interface FinishedAttempt {
   attempt: number;
   outcome: StepOutcome;
   usage?: Usage | undefined;
-  receipt?: { turns: number; durationMs?: number | undefined } | undefined;
+  receipt?:
+    | {
+        turns: number;
+        durationMs?: number | undefined;
+        models?: readonly { model: string }[] | undefined;
+      }
+    | undefined;
 }
 
 /** One Taster attempt of a run. */
@@ -186,6 +192,16 @@ export interface TasterAttempt {
   usage: Usage | undefined;
   turns: number | undefined;
   durationMs: number | undefined;
+  /** The risks it left, which are no findings. */
+  riskLeft?: readonly string[];
+  /** The models it ran on, by claude's receipt. */
+  models?: readonly string[];
+  /** The real mode's reading of its transcript (ADR 0332): the files it read, by path in its worktree. */
+  opened?: readonly string[];
+  /** What it reached outside its worktree, which fails its run. */
+  outside?: readonly string[];
+  /** What it asked for outside its worktree and was refused. */
+  refused?: readonly string[];
 }
 
 /** One run of a setup, as the shell keeps it. */

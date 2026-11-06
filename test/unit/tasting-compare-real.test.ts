@@ -1,0 +1,615 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, parse, resolve } from 'node:path';
+import { describe, it } from 'node:test';
+import type { RunRecord, TasterAttempt } from '../../scripts/tasting-compare/core.ts';
+import {
+  blinded,
+  changedFiles,
+  codeOf,
+  nextRealRun,
+  orderOf,
+  REAL_RECIPE,
+  type RealRecord,
+  type RealSetup,
+  realBreweryFiles,
+  realRecipeText,
+  realRecordOf,
+  realTable,
+  scriptedRealTastings,
+  scriptedTranscript,
+  transcriptReads,
+} from '../../scripts/tasting-compare/real.ts';
+import { readBreweryFiles } from '../../src/engine/brewery-files.ts';
+import { loadRecipes } from '../../src/engine/recipe-files.ts';
+import { parseJsonc } from '../../src/formats/jsonc.ts';
+import type { Event } from '../../src/schemas/events.ts';
+import { Recipe } from '../../src/schemas/recipe.ts';
+import { makeTempDir } from '../helpers/temp-dir.ts';
+
+const root = resolve(import.meta.dirname, '..', '..');
+const WORKTREE = resolve('scratch', 'attempts', 'correctness', '1');
+const OUTSIDE = resolve('scratch', 'docs', 'adr', '0327.md');
+
+/** One tool call of a transcript and its result, as claude writes them (read from a run of 2.1.310). */
+interface Call {
+  name: string;
+  input: Record<string, unknown>;
+  denied?: true;
+}
+
+const callLines = ({ name, input, denied }: Call, at: number): string[] => {
+  const id = `toolu_${at}`;
+  return [
+    JSON.stringify({
+      type: 'assistant',
+      cwd: WORKTREE,
+      message: {
+        model: 'claude-sonnet-5-5',
+        role: 'assistant',
+        content: [{ type: 'tool_use', id, name, input }],
+      },
+    }),
+    JSON.stringify({
+      type: 'user',
+      cwd: WORKTREE,
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: id,
+            content: denied === true ? 'Permission to use it has been denied' : 'the file',
+            ...(denied === true ? { is_error: true } : {}),
+          },
+        ],
+      },
+      permissionDecision: { decision: denied === true ? 'reject' : 'accept', source: 'config' },
+    }),
+  ];
+};
+
+/** A transcript of `calls`, with the lines of other types around them that it also holds. */
+const transcript = (...calls: readonly Call[]): string =>
+  [
+    JSON.stringify({ type: 'queue-operation', operation: 'enqueue' }),
+    JSON.stringify({
+      type: 'user',
+      cwd: WORKTREE,
+      message: { role: 'user', content: 'The order' },
+    }),
+    ...calls.flatMap(callLines),
+    '',
+  ].join('\n');
+
+const read = (file_path: string): Call => ({ name: 'Read', input: { file_path } });
+const outDoc: Call = {
+  name: 'Edit',
+  input: { file_path: join(WORKTREE, 'taste.md'), old_string: '', new_string: 'done' },
+};
+
+const finding = (why: string) => ({
+  file: 'src/a.ts',
+  line: 3,
+  severity: 'major' as const,
+  why,
+  introduced: true,
+});
+
+/** An event of a run's store, with only the fields the record reads. */
+const event = (fields: Record<string, unknown>) => ({ event: fields as unknown as Event });
+
+/** One Taster's two events, in a session named after it. */
+const tasted = (stepId: string, output: Record<string, unknown>) => [
+  event({
+    type: 'step.started',
+    batchId: '1-1',
+    stepId,
+    attempt: 1,
+    session: { id: `session-${stepId}`, worktree: WORKTREE },
+  }),
+  event({
+    type: 'step.finished',
+    batchId: '1-1',
+    stepId,
+    attempt: 1,
+    outcome: { kind: 'succeeded', output },
+    usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 },
+    receipt: { turns: 5, durationMs: 6, models: [{ model: 'claude-sonnet-5-5' }] },
+  }),
+];
+
+/** A record of `setup`'s `run`, with one Taster finding `why`. */
+const record = (setup: RealSetup, run: number, why: string): RealRecord => ({
+  setup,
+  run,
+  ended: 'on_tap',
+  wallMs: 1,
+  attempts: [attempt('correctness', [finding(why)])],
+});
+
+const attempt = (
+  stepId: string,
+  findings: TasterAttempt['findings'],
+  more: Partial<TasterAttempt> = {},
+): TasterAttempt => ({
+  stepId,
+  lenses: [`diff/${stepId}`],
+  failure: undefined,
+  findings,
+  usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 },
+  turns: 5,
+  durationMs: 6,
+  ...more,
+});
+
+const SETUPS: readonly RealSetup[] = [
+  '855-today',
+  '855-reads',
+  '864-today',
+  '864-reads',
+  '867-today',
+  '867-reads',
+];
+
+describe('tasting-compare --real', () => {
+  describe('the runs', () => {
+    it("the real mode's next run goes order by order and setup by setup, and picks up where it stopped", () => {
+      const records: RealRecord[] = [];
+      const walked: string[] = [];
+      for (let next = nextRealRun(records, 2); next !== undefined; next = nextRealRun(records, 2)) {
+        walked.push(`${next.setup}#${next.run}`);
+        records.push(record(next.setup, next.run, 'a finding'));
+      }
+      assert.deepEqual(
+        walked,
+        SETUPS.flatMap((setup) => [`${setup}#1`, `${setup}#2`]),
+      );
+
+      // A stopped comparison, its records out of order: the first run with none comes next.
+      const stopped = [record('855-reads', 2, 'x'), record('855-today', 2, 'x')];
+      stopped.push(record('855-today', 1, 'x'));
+      assert.deepEqual(nextRealRun(stopped, 2), { setup: '855-reads', run: 1, retry: false });
+    });
+
+    it('runs a failed run once more, and goes on after a second failure', () => {
+      const failed: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        ended: 'stuck: attempts_exhausted',
+      };
+      assert.deepEqual(nextRealRun([failed], 1), { setup: '855-today', run: 1, retry: true });
+      assert.deepEqual(nextRealRun([failed, failed], 1), {
+        setup: '855-reads',
+        run: 1,
+        retry: false,
+      });
+    });
+
+    it('runs a run again when a Taster failed it by reading outside its worktree', () => {
+      const [taster] = realRecordOf([...tasted('correctness', { findings: [] })], () =>
+        transcript(read(OUTSIDE), outDoc),
+      ).attempts;
+      assert.ok(taster);
+      const run: RealRecord = { ...record('855-today', 1, 'x'), attempts: [taster] };
+      assert.deepEqual(nextRealRun([run], 1), { setup: '855-today', run: 1, retry: true });
+    });
+
+    it('keeps each setup with its own order', () => {
+      assert.equal(orderOf('864-today').head, '5590e9c5');
+      assert.equal(orderOf('867-reads').base, '02eba0cd');
+    });
+  });
+
+  describe('a head', () => {
+    it('a head that deletes a file is refused', () => {
+      assert.throws(
+        () => changedFiles('M\0src/a.ts\0D\0docs/gone.md\0'),
+        /docs\/gone\.md.*deletes|deletes.*docs\/gone\.md/,
+      );
+    });
+
+    it('takes the files a head adds or changes, in the order git names them', () => {
+      assert.deepEqual(changedFiles('M\0src/b.ts\0A\0D\0M\0a b.md\0'), ['src/b.ts', 'D', 'a b.md']);
+    });
+
+    it('refuses a change it would not commit as it is: another kind of file', () => {
+      assert.throws(() => changedFiles('T\0src/link\0'), /src\/link/);
+    });
+
+    it('refuses a head that changes no file', () => {
+      assert.throws(() => changedFiles(''), /no file/);
+    });
+  });
+
+  describe('what a Taster read', () => {
+    it('a Taster that read a file outside its worktree fails its run', () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript(read(OUTSIDE), outDoc),
+      ).attempts;
+      assert.match(taster?.failure ?? '', /outside its worktree/);
+      assert.match(taster?.failure ?? '', /0327\.md/);
+      assert.deepEqual(taster?.outside, [OUTSIDE]);
+    });
+
+    it('reads a relative path against the worktree, .. too', () => {
+      const { outside, opened } = transcriptReads(
+        transcript(read('../../docs/adr/0327.md'), read('src/a.ts')),
+        WORKTREE,
+      );
+      assert.deepEqual(outside, [resolve(WORKTREE, '../../docs/adr/0327.md')]);
+      assert.deepEqual(opened, ['src/a.ts']);
+    });
+
+    it("holds a sibling whose name starts with the worktree's to be outside", () => {
+      const sibling = `${WORKTREE}-other`;
+      const { outside } = transcriptReads(transcript(read(join(sibling, 'a.ts'))), WORKTREE);
+      assert.deepEqual(outside, [join(sibling, 'a.ts')]);
+    });
+
+    it('holds any file to be inside a worktree at the root', () => {
+      const top = parse(WORKTREE).root;
+      const { outside } = transcriptReads(transcript(read(join(top, 'a.ts'))), top);
+      assert.deepEqual(outside, []);
+    });
+
+    it('a Grep or a Glob that searched outside fails too', () => {
+      for (const call of [
+        { name: 'Grep', input: { pattern: 'x', path: '..' } },
+        { name: 'Glob', input: { pattern: '*', path: dirname(OUTSIDE) } },
+        { name: 'Glob', input: { pattern: '../other/*' } },
+        { name: 'Glob', input: { pattern: `${dirname(OUTSIDE).replaceAll('\\', '/')}/*` } },
+        { name: 'Glob', input: { pattern: 'src/**/../../../*' } },
+        { name: 'Glob', input: { pattern: '/*' } },
+        { name: 'Glob', input: { pattern: `${parse(WORKTREE).root.replaceAll('\\', '/')}*` } },
+      ]) {
+        const { outside } = transcriptReads(transcript(call), WORKTREE);
+        assert.equal(outside.length, 1, JSON.stringify(call));
+      }
+    });
+
+    it('a Grep or a Glob of the worktree stays inside', () => {
+      for (const call of [
+        { name: 'Grep', input: { pattern: 'x' } },
+        { name: 'Grep', input: { pattern: 'x', path: 'src' } },
+        { name: 'Glob', input: { pattern: '**/*.ts' } },
+        { name: 'Glob', input: { pattern: 'src/*.ts', path: WORKTREE } },
+      ]) {
+        const { outside, problem } = transcriptReads(transcript(call), WORKTREE);
+        assert.deepEqual({ outside, problem }, { outside: [], problem: undefined });
+      }
+    });
+
+    it('a read the permissions refused read nothing: it is listed, and fails no run', () => {
+      const denied = { ...read(OUTSIDE), denied: true as const };
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript(denied, outDoc),
+      ).attempts;
+      assert.equal(taster?.failure, undefined);
+      assert.deepEqual(taster?.outside, []);
+      assert.deepEqual(taster?.refused, [OUTSIDE]);
+    });
+
+    it('keeps the files a Taster opened by path, once each, and not its out doc', () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript(read(join(WORKTREE, 'src', 'b.ts')), read('src/a.ts'), read('src/b.ts'), outDoc),
+      ).attempts;
+      assert.deepEqual(taster?.opened, ['src/b.ts', 'src/a.ts']);
+    });
+
+    it('a Taster that opened no file and wrote its out doc passes its run, with no file listed as opened', () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript(outDoc),
+      ).attempts;
+      assert.equal(taster?.failure, undefined);
+      assert.deepEqual(taster?.opened, []);
+      assert.deepEqual(taster?.outside, []);
+    });
+
+    it('a tool whose reads it cannot tell fails the run', () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript({ name: 'Bash', input: { command: 'cat ../x' } }, outDoc),
+      ).attempts;
+      assert.match(taster?.failure ?? '', /Bash/);
+    });
+
+    it('a tool that came back refused is no read, whatever the tool', () => {
+      const { problem } = transcriptReads(
+        transcript({ name: 'Bash', input: { command: 'cat x' }, denied: true }),
+        WORKTREE,
+      );
+      assert.equal(problem, undefined);
+    });
+
+    it('a transcript it cannot find fails the run, and claims no read', () => {
+      const [taster] = realRecordOf(
+        tasted('correctness', { findings: [] }),
+        () => undefined,
+      ).attempts;
+      assert.match(taster?.failure ?? '', /transcript/);
+      assert.deepEqual(taster?.opened, []);
+    });
+
+    it('a transcript that shows no tool call fails the run: a Taster writes its out doc with one', () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript(),
+      ).attempts;
+      assert.match(taster?.failure ?? '', /no tool call/);
+    });
+
+    it('a transcript with a line it cannot read fails the run', () => {
+      const { problem } = transcriptReads(`${transcript(outDoc)}{"type":"assist`, WORKTREE);
+      assert.match(problem ?? '', /line/);
+    });
+
+    it('reads calls only from what the model and the tools said, not from a line of another type', () => {
+      const logged = JSON.stringify({
+        type: 'api-request-blob',
+        message: {
+          content: [{ type: 'tool_use', id: 'x', name: 'Read', input: { file_path: OUTSIDE } }],
+        },
+      });
+      const { outside } = transcriptReads(`${logged}\n${transcript(outDoc)}`, WORKTREE);
+      assert.deepEqual(outside, []);
+    });
+
+    it('an earlier failure of the attempt stays its reason', () => {
+      const failed = event({
+        type: 'step.finished',
+        batchId: '1-1',
+        stepId: 'security',
+        attempt: 1,
+        outcome: { kind: 'failed', retryable: false, reason: 'it stalled' },
+      });
+      const [taster] = realRecordOf([failed], () => undefined).attempts;
+      assert.match(taster?.failure ?? '', /it stalled/);
+    });
+  });
+
+  describe('a record', () => {
+    it("a record keeps each Taster's riskLeft", () => {
+      const { attempts } = realRecordOf(
+        [
+          ...tasted('correctness', { findings: [], riskLeft: ['the store may be stale'] }),
+          ...tasted('security', { findings: [] }),
+        ],
+        () => transcript(outDoc),
+      );
+      assert.deepEqual(attempts[0]?.riskLeft, ['the store may be stale']);
+      assert.equal(attempts[1]?.riskLeft, undefined);
+    });
+
+    it('keeps the model each attempt ran on, and its tokens', () => {
+      const [taster] = realRecordOf(tasted('correctness', { findings: [] }), () =>
+        transcript(outDoc),
+      ).attempts;
+      assert.deepEqual(taster?.models, ['claude-sonnet-5-5']);
+      assert.equal(taster?.usage?.cacheWriteTokens, 4);
+    });
+
+    it('reads each Taster in its own session', () => {
+      const asked: string[] = [];
+      realRecordOf(
+        [...tasted('security', { findings: [] }), ...tasted('acceptance', { findings: [] })],
+        (id, worktree) => {
+          asked.push(`${id} ${worktree}`);
+          return transcript(outDoc);
+        },
+      );
+      assert.deepEqual(asked, [`session-security ${WORKTREE}`, `session-acceptance ${WORKTREE}`]);
+    });
+
+    it('reads how the batch ended, and only the Tasters', () => {
+      const implement = event({
+        type: 'step.finished',
+        batchId: '1-1',
+        stepId: 'implement',
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: {} },
+      });
+      const onTap = event({ type: 'batch.on_tap', batchId: '1-1', pullRequests: [] });
+      const { ended, attempts } = realRecordOf(
+        [implement, ...tasted('security', { findings: [] }), onTap],
+        () => transcript(outDoc),
+      );
+      assert.equal(ended, 'on_tap');
+      assert.deepEqual(
+        attempts.map(({ stepId }) => stepId),
+        ['security'],
+      );
+    });
+  });
+
+  describe('the recipe', () => {
+    const recipe = Recipe.parse(parseJsonc(realRecipeText()));
+    const tasteOf = (text: string) => {
+      const parsed = Recipe.parse(parseJsonc(text));
+      const taste = parsed.steps.find((step) => 'id' in step && step.id === 'taste');
+      assert.ok(taste !== undefined && 'parallel' in taste);
+      return taste.parallel;
+    };
+
+    it("the real mode's Tasters are the lenses of the default nip recipe", () => {
+      const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
+      const named = (steps: ReturnType<typeof tasteOf>) =>
+        steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
+      assert.deepEqual(named(tasteOf(realRecipeText())), named(tasteOf(nip)));
+    });
+
+    it('blocks nowhere, so every run ends', () => {
+      for (const step of tasteOf(realRecipeText())) {
+        assert.equal(step.blocking, undefined, step.id);
+        assert.equal(step.onBlocked, undefined, step.id);
+      }
+    });
+
+    it('is named as the label of every order, loads as a Brewery file, and opens a pull request', () => {
+      assert.equal(recipe.name, REAL_RECIPE);
+      assert.equal(recipe.testFirst, false);
+      assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));
+      const brewery = makeTempDir('tasting-compare-real');
+      try {
+        const files = realBreweryFiles('855-reads', 'unused');
+        for (const [path, text] of Object.entries(files)) {
+          mkdirSync(dirname(join(brewery.path, path)), { recursive: true });
+          writeFileSync(join(brewery.path, path), text);
+        }
+        const loaded = loadRecipes(readBreweryFiles(brewery.path));
+        assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
+      } finally {
+        brewery.remove();
+      }
+    });
+
+    it('the today setup replaces the Taster, and the reads setup keeps the default', () => {
+      assert.equal(
+        realBreweryFiles('864-today', 'the old text')['brewers/taster.md'],
+        'the old text',
+      );
+      assert.equal(realBreweryFiles('864-reads', 'the old text')['brewers/taster.md'], undefined);
+    });
+  });
+
+  describe('the blinded lists', () => {
+    const records: RealRecord[] = [
+      record('867-reads', 1, 'a finding of the second setup'),
+      record('855-reads', 2, 'another on 855'),
+      record('855-today', 1, 'a finding on 855'),
+      record('855-reads', 1, 'a third on 855'),
+    ];
+
+    it('a blinded list names no setup, and the codes file maps every code back to one', () => {
+      const { lists, codes } = blinded(records, 'a seed');
+      const list = lists['855'] ?? '';
+      assert.doesNotMatch(list, /today|reads/);
+      for (const why of ['another on 855', 'a finding on 855', 'a third on 855']) {
+        assert.match(list, new RegExp(why));
+      }
+      assert.doesNotMatch(list, /second setup/);
+      assert.deepEqual(Object.keys(lists).sort(), ['855', '867']);
+      for (const [setup, run] of [
+        ['855-today', 1],
+        ['855-reads', 1],
+        ['855-reads', 2],
+        ['867-reads', 1],
+      ] as const) {
+        const code = codeOf('a seed', setup, run);
+        assert.match(lists[setup.slice(0, 3)] ?? '', new RegExp(`Run ${code}`));
+        assert.match(codes, new RegExp(`\\| ${code} \\| ${setup} \\| ${run} \\|`));
+      }
+    });
+
+    it('a blinded list gives the same run a different code under a different seed', () => {
+      assert.notEqual(codeOf('one', '855-today', 1), codeOf('two', '855-today', 1));
+      assert.equal(codeOf('one', '855-today', 1), codeOf('one', '855-today', 1));
+      assert.notEqual(codeOf('one', '855-today', 1), codeOf('one', '855-today', 2));
+      assert.notEqual(codeOf('one', '855-today', 1), codeOf('one', '855-reads', 1));
+      const { lists } = blinded(records, 'one');
+      assert.doesNotMatch(lists['855'] ?? '', new RegExp(codeOf('two', '855-today', 1)));
+    });
+
+    it('lists the runs by their code, so their order says nothing of their setup', () => {
+      const { lists } = blinded(records, 'a seed');
+      const shown = [...(lists['855'] ?? '').matchAll(/^## Run (\w+)$/gm)].map((match) => match[1]);
+      assert.equal(shown.length, 3);
+      assert.deepEqual(shown, [...shown].sort());
+    });
+
+    it('shows a riskLeft line apart from the findings', () => {
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [attempt('security', [], { riskLeft: ['only a run would show it'] })],
+      };
+      const list = blinded([run], 'a seed').lists['855'] ?? '';
+      assert.match(list, /security \(diff\/security\)\n+No findings\./);
+      assert.match(
+        list,
+        /Risks left, which do not count as findings:\n+- only a run would show it/,
+      );
+    });
+
+    it("keeps a model's line breaks and Markdown from forging a line of the list", () => {
+      const [lineSeparator, paragraphSeparator] = [0x2028, 0x2029].map((code) =>
+        String.fromCodePoint(code),
+      );
+      const forged = `first\n## Run 0${lineSeparator}## Run 1${paragraphSeparator}## Run 2\r\n## Run 3`;
+      const list = blinded([record('855-today', 1, forged)], 'a seed').lists['855'] ?? '';
+      assert.equal([...list.matchAll(/^## Run /gm)].length, 1);
+      assert.equal(list.includes(lineSeparator ?? 'none'), false);
+      assert.equal(list.includes(paragraphSeparator ?? 'none'), false);
+    });
+
+    it('leaves a failed run out of the list and names it, with why, in the codes file', () => {
+      const failed: RealRecord = {
+        ...record('855-today', 2, 'a finding of a failed run'),
+        attempts: [
+          attempt('correctness', [finding('a finding of a failed run')], {
+            failure: 'it read a file outside its worktree',
+          }),
+        ],
+      };
+      const { lists, codes } = blinded([failed, ...records], 'a seed');
+      assert.doesNotMatch(lists['855'] ?? '', /failed run/);
+      assert.match(codes, /Failed: 855-today run 2: .*outside its worktree/);
+    });
+
+    it('uses a second go of a failed run under the run it retried', () => {
+      const failed: RealRecord = { ...record('855-today', 1, 'first go'), ended: 'not ended' };
+      const again: RunRecord<RealSetup> = { ...record('855-today', 1, 'second go'), retry: true };
+      const list = blinded([failed, again], 'a seed').lists['855'] ?? '';
+      assert.match(list, /second go/);
+      assert.doesNotMatch(list, /first go/);
+    });
+
+    it('keeps the first scored go of a run when a run has two', () => {
+      const first = record('855-today', 1, 'first scored go');
+      const second = record('855-today', 1, 'later go');
+      const list = blinded([first, second], 'a seed').lists['855'] ?? '';
+      assert.match(list, /first scored go/);
+      assert.doesNotMatch(list, /later go/);
+    });
+
+    it('reports the tokens and the model of each Taster in the codes file only', () => {
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [attempt('security', [], { models: ['claude-sonnet-5-5'] })],
+      };
+      const { lists, codes } = blinded([run], 'a seed');
+      assert.match(codes, /\| security \| claude-sonnet-5-5 \| 1 \| 2 \| 3 \| 4 \| 10 \|/);
+      assert.doesNotMatch(lists['855'] ?? '', /claude-sonnet|\b10\b/);
+    });
+
+    it('the table it prints counts the runs of each setup, scored, failed and retried, and no code', () => {
+      const failed: RealRecord = { ...record('855-today', 2, 'x'), ended: 'not ended' };
+      const again: RealRecord = { ...record('855-today', 2, 'y'), retry: true };
+      const table = realTable([failed, ...records, again]);
+      assert.match(table, /\| 855-today \| 2 \| 1 \| 1 \|/);
+      assert.match(table, /\| 855-reads \| 2 \| 0 \| 0 \|/);
+      assert.match(table, /\| 864-today \| 0 \| 0 \| 0 \|/);
+      assert.match(table, /\| 867-reads \| 1 \| 0 \| 0 \|/);
+      assert.doesNotMatch(table, new RegExp(codeOf('a seed', '855-today', 1)));
+    });
+  });
+
+  describe('the dry run', () => {
+    it('plays each Taster of the recipe, with a finding on the file it is given and a risk left', () => {
+      const tastings = scriptedRealTastings('src/a.ts');
+      assert.deepEqual(Object.keys(tastings), ['correctness', 'acceptance', 'security']);
+      const [turn] = tastings.security ?? [];
+      assert.equal(turn?.tasting?.findings[0]?.file, 'src/a.ts');
+      assert.equal(Array.isArray(turn?.doc?.riskLeft), true);
+    });
+
+    it('holds no line of a key: its scripted findings say they are scripted', () => {
+      for (const [turn] of Object.values(scriptedRealTastings('src/a.ts'))) {
+        assert.match(String(turn?.tasting?.findings[0]?.why), /scripted/);
+      }
+    });
+
+    it('its transcript reads as a Taster that stayed inside', () => {
+      const reads = transcriptReads(scriptedTranscript(WORKTREE), WORKTREE);
+      assert.deepEqual(reads.outside, []);
+      assert.equal(reads.problem, undefined);
+      assert.deepEqual(reads.opened, ['CLAUDE.md']);
+    });
+  });
+});
