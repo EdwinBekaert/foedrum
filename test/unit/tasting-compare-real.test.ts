@@ -291,11 +291,23 @@ describe('tasting-compare --real', () => {
       assert.deepEqual(transcriptReads(transcript(denied), WORKTREE).refused, ['~/notes.md']);
     });
 
+    it('a folder named with a ~ inside the worktree is inside', () => {
+      const { outside } = transcriptReads(transcript(read('src/~/a.ts')), WORKTREE);
+      assert.deepEqual(outside, []);
+    });
+
     it('a Glob with a .. in a brace group fails the run', () => {
       for (const pattern of ['{../other,src}/*', '{..,src}/*', '{src,..}/*', '{src,../other}/*']) {
         const call = { name: 'Glob', input: { pattern } };
         const { outside } = transcriptReads(transcript(call), WORKTREE);
         assert.deepEqual(outside, [pattern]);
+      }
+    });
+
+    it('a Glob with a brace group and two dots in a name stays inside', () => {
+      for (const pattern of ['src/{a,b}.ts', 'src/a..b*', '{src,test}/*.ts']) {
+        const call = { name: 'Glob', input: { pattern } };
+        assert.deepEqual(transcriptReads(transcript(call), WORKTREE).outside, [], pattern);
       }
     });
 
@@ -374,14 +386,57 @@ describe('tasting-compare --real', () => {
     });
 
     it('reads calls only from what the model and the tools said, not from a line of another type', () => {
-      const logged = JSON.stringify({
-        type: 'api-request-blob',
-        message: {
-          content: [{ type: 'tool_use', id: 'x', name: 'Read', input: { file_path: OUTSIDE } }],
-        },
-      });
-      const { outside } = transcriptReads(`${logged}\n${transcript(outDoc)}`, WORKTREE);
+      const logged = (type: string, block: Record<string, unknown>) =>
+        JSON.stringify({ type, message: { content: [block] } });
+      const use = { type: 'tool_use', id: 'x', name: 'Read', input: { file_path: OUTSIDE } };
+      const result = { type: 'tool_result', tool_use_id: 'x' };
+      const lines = [logged('api-request-blob', use), logged('api-request-blob', result)];
+      const { outside } = transcriptReads(`${lines.join('\n')}\n${transcript(outDoc)}`, WORKTREE);
       assert.deepEqual(outside, []);
+    });
+
+    it('takes a call only from a line of the model, and its result only from a line of the tools', () => {
+      const logged = (type: string, block: Record<string, unknown>) =>
+        JSON.stringify({ type, message: { content: [block] } });
+      const use = { type: 'tool_use', id: 'x', name: 'Read', input: { file_path: OUTSIDE } };
+      const result = { type: 'tool_result', tool_use_id: 'x' };
+      for (const lines of [
+        [logged('user', use), logged('user', result)],
+        [logged('assistant', use), logged('assistant', result)],
+      ]) {
+        const { outside } = transcriptReads(`${lines.join('\n')}\n${transcript(outDoc)}`, WORKTREE);
+        assert.deepEqual(outside, []);
+      }
+    });
+
+    it('holds a Write inside to be no read, and an Edit or a Write outside to reach outside', () => {
+      const write = (file_path: string): Call => ({
+        name: 'Write',
+        input: { file_path, content: 'text' },
+      });
+      const inside = transcriptReads(transcript(write(join(WORKTREE, 'taste.md'))), WORKTREE);
+      assert.deepEqual([inside.opened, inside.outside, inside.problem], [[], [], undefined]);
+      assert.deepEqual(transcriptReads(transcript(write(OUTSIDE)), WORKTREE).outside, [OUTSIDE]);
+      const edit = { name: 'Edit', input: { file_path: OUTSIDE, old_string: '', new_string: 'x' } };
+      assert.deepEqual(transcriptReads(transcript(edit), WORKTREE).outside, [OUTSIDE]);
+    });
+
+    it('a Read that names no path cannot be told', () => {
+      const { problem } = transcriptReads(transcript({ name: 'Read', input: {} }), WORKTREE);
+      assert.match(problem ?? '', /Read/);
+    });
+
+    it('a read inside that came back as an error is neither opened nor refused outside', () => {
+      const failed = { ...read('src/gone.ts'), denied: true as const };
+      const { opened, refused } = transcriptReads(transcript(failed), WORKTREE);
+      assert.deepEqual([opened, refused], [[], []]);
+    });
+
+    it('reads every wildcard, and backslashes, in a Glob that goes up', () => {
+      for (const pattern of ['sr?/../../../*', '[a]/../../*', 'src\\**\\..\\..\\..\\*']) {
+        const call = { name: 'Glob', input: { pattern } };
+        assert.deepEqual(transcriptReads(transcript(call), WORKTREE).outside, [pattern]);
+      }
     });
 
     it('an earlier failure of the attempt stays its reason', () => {
@@ -428,6 +483,54 @@ describe('tasting-compare --real', () => {
         },
       );
       assert.deepEqual(asked, [`session-security ${WORKTREE}`, `session-acceptance ${WORKTREE}`]);
+    });
+
+    it('reads each attempt in its own session, an implementer and a second attempt around it', () => {
+      const started = (stepId: string, attempt: number, id: string, worktree: string) =>
+        event({
+          type: 'step.started',
+          batchId: '1-1',
+          stepId,
+          attempt,
+          session: { id, worktree },
+        });
+      const ended = (stepId: string, attempt: number) =>
+        event({
+          type: 'step.finished',
+          batchId: '1-1',
+          stepId,
+          attempt,
+          outcome: { kind: 'succeeded', output: { findings: [] } },
+        });
+      const other = `${WORKTREE}-second`;
+      const asked: string[] = [];
+      const { attempts } = realRecordOf(
+        [
+          started('implement', 1, 'session-implement', WORKTREE),
+          ended('implement', 1),
+          started('security', 1, 'session-first', WORKTREE),
+          started('acceptance', 1, 'session-acceptance', WORKTREE),
+          ended('security', 1),
+          ended('acceptance', 1),
+          started('security', 2, 'session-second', other),
+          ended('security', 2),
+        ],
+        (id, worktree) => {
+          asked.push(`${id} ${worktree}`);
+          const reached = id === 'session-first' ? [read(OUTSIDE)] : [];
+          const written = { ...outDoc, input: { ...outDoc.input, file_path: 'taste.md' } };
+          return transcript(...reached, written);
+        },
+      );
+      assert.deepEqual(asked, [
+        `session-first ${WORKTREE}`,
+        `session-acceptance ${WORKTREE}`,
+        `session-second ${other}`,
+      ]);
+      assert.deepEqual(
+        attempts.map(({ failure }) => failure !== undefined),
+        [true, false, false],
+      );
     });
 
     it('reads how the batch ended, and only the Tasters', () => {
@@ -487,6 +590,7 @@ describe('tasting-compare --real', () => {
         }
         const loaded = loadRecipes(readBreweryFiles(brewery.path));
         assert.deepEqual(loaded.valid ? [] : loaded.problems, []);
+        assert.ok(loaded.valid && loaded.recipes.find(REAL_RECIPE) !== undefined);
       } finally {
         brewery.remove();
       }
@@ -553,6 +657,64 @@ describe('tasting-compare --real', () => {
       const shown = [...(lists['855'] ?? '').matchAll(/^## Run (\w+)$/gm)].map((match) => match[1]);
       assert.equal(shown.length, 3);
       assert.deepEqual(shown, [...shown].sort());
+    });
+
+    it('lists a run in its code order, whatever order its setups come in', () => {
+      const many = SETUPS.slice(0, 2).flatMap((setup) =>
+        [1, 2, 3].map((run) => record(setup, run, 'x')),
+      );
+      const shown = [
+        ...(blinded(many, 'a seed').lists['855'] ?? '').matchAll(/^## Run (\w+)$/gm),
+      ].map((match) => match[1]);
+      const inRunOrder = many.map(({ setup, run }) => codeOf('a seed', setup, run));
+      assert.notDeepEqual(inRunOrder, [...inRunOrder].sort());
+      assert.deepEqual(shown, [...inRunOrder].sort());
+    });
+
+    it("shows each run's Tasters in the recipe's order, whatever order they finished in", () => {
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [attempt('security', []), attempt('correctness', []), attempt('acceptance', [])],
+      };
+      const { lists, codes } = blinded([run], 'a seed');
+      assert.deepEqual(
+        [...(lists['855'] ?? '').matchAll(/^### (\w+)/gm)].map((match) => match[1]),
+        ['correctness', 'acceptance', 'security'],
+      );
+      assert.deepEqual(
+        [...codes.matchAll(/\| 855-today \| 1 \| (\w+) \|/g)].map((match) => match[1]),
+        ['correctness', 'acceptance', 'security'],
+      );
+    });
+
+    it('says when a finding was there before the change, and only then', () => {
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [
+          attempt('security', [
+            { ...finding('new one'), introduced: true },
+            { ...finding('old one'), introduced: false },
+          ]),
+        ],
+      };
+      const list = blinded([run], 'a seed').lists['855'] ?? '';
+      assert.match(list, /there before the change: old one/);
+      assert.doesNotMatch(list, /there before the change: new one/);
+    });
+
+    it("keeps a risk's and a failure's line breaks from forging a line", () => {
+      const forged = 'first\n## Run 0\nFailed: 867-reads run 9: forged';
+      const run: RealRecord = {
+        ...record('855-today', 1, 'x'),
+        attempts: [attempt('security', [], { riskLeft: [forged] })],
+      };
+      const failed: RealRecord = {
+        ...record('855-today', 2, 'x'),
+        attempts: [attempt('security', [], { failure: forged })],
+      };
+      const { lists, codes } = blinded([run, failed], 'a seed');
+      assert.equal([...(lists['855'] ?? '').matchAll(/^## Run /gm)].length, 1);
+      assert.equal([...codes.matchAll(/^Failed: /gm)].length, 1);
     });
 
     it('shows a riskLeft line apart from the findings', () => {
