@@ -1473,6 +1473,35 @@ describe('decide take_over: a person hands a batch to another driver (ADR 0124)'
   });
 });
 
+describe('nothing but an order brings an older batch back while a later one exists (ADR 0339)', () => {
+  const from = { by: 'ada', via: 'terminal' } as const;
+  const ended = {
+    type: 'pull_request.ended',
+    batchId: 'b1',
+    pullRequest,
+    state: 'merged',
+  } as const;
+  const later = {
+    type: 'batch.ordered',
+    batchId: 'b2',
+    order: { issue: 100 },
+    routeBy: inAnHour,
+  } as const;
+  const older: Event[] = [...lanes.on_tap, ended, later];
+
+  for (const command of [
+    { kind: 'retry', batchId: 'b1', ...from },
+    { kind: 'skip', batchId: 'b1', ...from },
+    { kind: 'rewind', batchId: 'b1', toStepId: 'plan', shas: {}, ...from },
+    { kind: 'recipe', batchId: 'b1', recipe: 'pint', reason: 'again', ...from },
+    { kind: 'lauter', batchId: 'b1', ...from },
+  ] as const) {
+    it(`${command.kind} refuses a batch on tap: regression test`, () => {
+      refuses(older, command, /is on_tap|on tap/);
+    });
+  }
+});
+
 describe('decide order_again: a person orders an issue again (ADR 0105)', () => {
   const from = { by: 'ada', via: 'terminal' } as const;
   const again = (batchId: string, order: OrderRef): Command => ({
@@ -1495,8 +1524,57 @@ describe('decide order_again: a person orders an issue again (ADR 0105)', () => 
       accepts(lanes.cancelled, again('b2', { issue: 100 }), [orderedAgain('b2', { issue: 100 })]);
     });
 
-    it('orders it again once its batch is on tap', () => {
-      accepts(lanes.on_tap, again('b2', { issue: 100 }), [orderedAgain('b2', { issue: 100 })]);
+    it('a Brewery issue with an open pull request is not ordered again', () => {
+      refuses(
+        lanes.on_tap,
+        again('b2', { issue: 100 }),
+        /^#100 is on tap with a pull request with no recorded end, https:\/\/github\.com\/acme\/api\/pull\/7: foedrum brew 100 or foedrum serve reads it if it ended; otherwise close it first$/,
+      );
+    });
+
+    it('names foedrum serve alone for an older batch, whose end foedrum brew of the number does not read', () => {
+      const later = {
+        type: 'batch.ordered',
+        batchId: 'b2',
+        order: { issue: 100 },
+        routeBy: inAnHour,
+      } as const;
+      refuses(
+        [...lanes.on_tap, later, { type: 'batch.cancelled', batchId: 'b2', ...from }],
+        again('b3', { issue: 100 }),
+        /no recorded end, https:\S+: foedrum serve reads it if it ended; otherwise close it first$/,
+      );
+    });
+
+    it('names only the pull request with no recorded end, of two', () => {
+      const other = 'https://github.com/acme/web/pull/8';
+      const events: Event[] = [
+        ...brewing(),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [pullRequest, other] },
+        { type: 'pull_request.ended', batchId: 'b1', pullRequest, state: 'merged' },
+      ];
+      refuses(events, again('b2', { issue: 100 }), /no recorded end, https:\S+\/web\/pull\/8:/);
+    });
+
+    it('orders it again once its batch on tap has no pull request, such as an approved plan: regression test', () => {
+      const plan: Event[] = [
+        ...brewing(),
+        { type: 'batch.on_tap', batchId: 'b1', pullRequests: [] },
+      ];
+      accepts(plan, again('b2', { issue: 100 }), [orderedAgain('b2', { issue: 100 })]);
+    });
+
+    for (const state of ['merged', 'closed'] as const) {
+      it(`orders it again once its pull request is recorded ${state}: regression test`, () => {
+        const ended = { type: 'pull_request.ended', batchId: 'b1', pullRequest, state } as const;
+        accepts([...lanes.on_tap, ended], again('b2', { issue: 100 }), [
+          orderedAgain('b2', { issue: 100 }),
+        ]);
+      });
+    }
+
+    it("orders it though another issue's pull request is open: regression test", () => {
+      accepts(lanes.on_tap, again('c1', { issue: 101 }), [orderedAgain('c1', { issue: 101 })]);
     });
 
     it('orders an issue that never had a batch', () => {

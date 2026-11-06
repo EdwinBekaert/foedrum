@@ -46,6 +46,7 @@ import {
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
 import {
+  calledAs,
   claimedName,
   claimOfOrder,
   claimStandingOf,
@@ -62,6 +63,7 @@ import {
   type State,
   type Step,
   type UsageWindow,
+  unendedPullRequests,
 } from './fold.ts';
 import { same } from './issue-claims.ts';
 import { orderOfBatch, pauseOf } from './pauses.ts';
@@ -102,8 +104,8 @@ export type HumanCommand =
   | ({ kind: 'lauter' } & Issuer)
   /**
    * A new batch of an issue a person orders by hand (`foedrum order`, ADR 0105): refused while the
-   * issue has a live batch, while its last claim is held or being released, or when it is a
-   * sub-order (`orderRefusal`).
+   * issue has a live batch, a pull request with no recorded end (ADR 0339), or a last claim held or
+   * being released, or when it is a sub-order (`orderRefusal`).
    */
   | ({ kind: 'order_again'; order: OrderRef } & Issuer)
   /**
@@ -642,7 +644,8 @@ export function orderRefusal(state: State, order: OrderRef): string | undefined 
 
 /**
  * Why the issue of `order` may not get a new batch now, or undefined: one of its batches is live,
- * or the claim of a target issue's batch is still held or being released. A new claim made before
+ * a Brewery issue's batch on tap has a pull request with no recorded end (ADR 0339), or the claim of
+ * a target issue's batch is still held or being released. A new claim made before
  * that release would lose its ref to it.
  */
 function busy(state: State, order: OrderRef): string | undefined {
@@ -655,7 +658,15 @@ function busy(state: State, order: OrderRef): string | undefined {
     }
     const of = orderSaid(state, order);
     if (nonTerminal.includes(batch.lane.kind)) return `${of} is still ${batch.lane.kind}`;
-    if (ofRepo === undefined) continue;
+    if (ofRepo === undefined) {
+      // A number reaches its issue's one live batch, which a later batch would hide (ADR 0339).
+      const open = unendedPullRequests(batch);
+      if (open.length === 0) continue;
+      // Brew of the number reads the latest batch's ends, so an older batch's is serve's alone.
+      const older = calledAs(state, batch) === batch.id;
+      const reads = older ? 'foedrum serve' : `foedrum brew ${issue} or foedrum serve`;
+      return `${of} is on tap with a pull request with no recorded end, ${open.join(' ')}: ${reads} reads it if it ended; otherwise close it first`;
+    }
     const standing = claimStandingOf(state, batch, ofRepo);
     switch (standing) {
       case 'held':

@@ -656,6 +656,24 @@ describe('createIntake', () => {
       assert.deepStrictEqual(lanes(), ['5-1 cancelled', '6-1 brewing']);
     });
 
+    it('the intake does not order a Brewery issue on tap again: regression test (ADR 0339)', async () => {
+      store.withTransaction((tx) => {
+        tx.append({
+          type: 'batch.ordered',
+          batchId: '5-1',
+          order: { issue: 5 },
+          routeBy: '2026-10-16T10:00:00.000Z',
+        });
+        tx.append({ type: 'batch.on_tap', batchId: '5-1', pullRequests: [pullRequest] });
+      });
+      const { tracker } = fakeTracker(
+        { [brewery]: [labelled(5), labelled(6)], [web]: [], [api]: [] },
+        { [pullRequest]: 'open' },
+      );
+      await breweryIntake(tracker).poll();
+      assert.deepStrictEqual(lanes(), ['5-1 on_tap', '6-1 brewing']);
+    });
+
     it('never orders the Brewery issue that is the order of a claimed issue, labelled or not (ADR 0144)', async () => {
       accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
       accept({

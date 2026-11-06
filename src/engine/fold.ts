@@ -177,6 +177,12 @@ export interface Step {
   inputs: readonly Input[];
 }
 
+/** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
+export const unendedPullRequests = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
+  lane.kind === 'on_tap'
+    ? lane.pullRequests.filter((url) => pullRequestEnds?.[url] === undefined)
+    : [];
+
 /** The attempt of `step` with the highest number, if it has one: the step's latest (I2). */
 export const latestAttempt = (step: Step): Attempt | undefined =>
   step.attempts.get(Math.max(...step.attempts.keys()));

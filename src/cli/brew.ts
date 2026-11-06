@@ -22,10 +22,11 @@ import {
   saidAs,
 } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
+import { orderRefusal } from '../engine/decide.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
-import { type Batch, foldedBatch, type State } from '../engine/fold.ts';
+import { type Batch, foldedBatch, type State, unendedPullRequests } from '../engine/fold.ts';
 import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/intake.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
@@ -138,12 +139,6 @@ export const oneLine = (text: string): string =>
  */
 export const drivenBy = (state: State, lease: BatchLease, wayOn: string): string =>
   `${saidAs(state, foldedBatch(state, lease.batchId))} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${wayOn}`;
-
-/** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
-const unended = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
-  lane.kind === 'on_tap'
-    ? lane.pullRequests.filter((url) => pullRequestEnds?.[url] === undefined)
-    : [];
 
 /** What brewing an on-tap batch did once its pull requests ended and its effects applied (ADR 0336). */
 const endedLine = (
@@ -364,14 +359,25 @@ export const runBrew = async (
     const latest = deleted ? undefined : last;
     // Brewing an on-tap batch records the ends of its pull requests and applies what follows, for a
     // person with no Cellar (ADR 0336); a mash or a lauter of one keeps its own refusal.
+    // A Brewery issue's batch has no claim to hold, but its open pull request refuses a new order
+    // all the same (ADR 0339).
+    const openLine = (state: State, batch: Batch): string => {
+      // Only its decomposition orders a sub-order, so closing it opens no order to a person.
+      const close = state.subOrders.has(batch.issue)
+        ? ''
+        : 'close it first to order it again, and ';
+      return `${named} is on tap with its pull request still open: ${unendedPullRequests(batch).join(' ')}; ${close}foedrum brew ${called(state)} reads it again once it ended`;
+    };
     const heldLine = (state: State, batch: Batch): string =>
-      `${named} is on tap and holds its claim until its pull requests end: ${unended(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
+      `${named} is on tap and holds its claim until its pull requests end: ${unendedPullRequests(batch).join(' ')}; foedrum brew ${called(state)} reads them again`;
     const standing =
       latest?.repo === undefined ? undefined : claimStandingOf(log.state(), latest, latest.repo);
     const ending =
       commandOf(request) === 'brew' &&
       latest !== undefined &&
-      (unended(latest).length > 0 || standing === 'releasing' || closeStillDue(log.state(), latest))
+      (unendedPullRequests(latest).length > 0 ||
+        standing === 'releasing' ||
+        closeStillDue(log.state(), latest))
         ? latest
         : undefined;
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
@@ -393,7 +399,8 @@ export const runBrew = async (
           `${named} is ${lane}; its release is still due, and foedrum brew ${called(log.state())} finishes it`,
         );
       }
-      return refuse(orderAgainLine(log.state(), latest));
+      // What an order would say, when it would be refused, in place of offering it (ADR 0339).
+      return refuse(orderRefusal(log.state(), order) ?? orderAgainLine(log.state(), latest));
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
     // A sub-order's batch waits for its order's pause, which is the one to continue.
@@ -501,11 +508,11 @@ export const runBrew = async (
           throw error;
         },
       };
-      await recordEndsOf(ending, unended(ending), ends, signal);
+      await recordEndsOf(ending, unendedPullRequests(ending), ends, signal);
       const read = foldedBatch(log.state(), batch.id);
-      if (unended(read).length > 0) {
+      if (unendedPullRequests(read).length > 0) {
         if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
-        return refuse(orderAgainLine(log.state(), read));
+        return refuse(openLine(log.state(), read));
       }
     }
     if (waitsForOrder && batch.lane.kind === 'ordered') {

@@ -109,6 +109,14 @@ describe('readySubOrders', () => {
     ]);
   });
 
+  it('holds a sub-order only while it has no batch, on tap or ended: regression test (ADR 0339)', () => {
+    const split = [ordered('1-1', 1), decomposed('1-1', [2])];
+    assert.deepStrictEqual(ready(...split), [sub(1, 2)]);
+    const once = [...split, ordered('2-1', 2, '1-1')];
+    assert.deepStrictEqual(ready(...once), []);
+    assert.deepStrictEqual(ready(...once, onTap('2-1', pr(5)), ended('2-1', pr(5), 'closed')), []);
+  });
+
   it('holds a blocked sub-order only once a pull request of its blocker merged', () => {
     const start = [
       ordered('1-1', 1),
