@@ -8,6 +8,7 @@ import type { Decision } from './admit.ts';
 import { calledAs, saidAs } from './claim-orders.ts';
 import type { CommandLog } from './command-log.ts';
 import type { BatchLease, EventStoreTransaction } from './event-store.ts';
+import type { Batch, State } from './fold.ts';
 
 /** Whether the driver holds the batch now, or which other driver does. */
 export type Hold = { kind: 'held'; lease: BatchLease } | { kind: 'other'; lease: BatchLease };
@@ -59,6 +60,19 @@ export interface TakeoverRequest {
 }
 
 /**
+ * What a batch no driver holds offers: brew by its number; an older batch's number reaches a later
+ * one, and brew takes its id only to open the session it waits for (ADR 0334, ADR 0339).
+ */
+const noDriverOffer = (state: State, batch: Batch): string => {
+  const called = calledAs(state, batch);
+  if (called !== batch.id) return `; foedrum brew ${called} drives it`;
+  const { lane } = batch;
+  return lane.kind === 'stuck' && lane.reason.kind === 'waiting_for_session'
+    ? `; foedrum brew ${called} --take opens its session`
+    : '';
+};
+
+/**
  * Hands `batchId` from the driver whose live lease holds it to `owner`, and records the handover
  * (ADR 0124): the lease is read, and given, in the transaction that appends.
  */
@@ -72,10 +86,7 @@ export const takeOver = (log: CommandLog, request: TakeoverRequest): Decision =>
       const current = tx.batchLease(batchId);
       const said = saidAs(state, batch);
       if (current === undefined || current.expiresAt <= now) {
-        // Brew takes no batch id, so an older batch's line offers it nothing (ADR 0334).
-        const called = calledAs(state, batch);
-        const brew = called === batch.id ? '' : `; foedrum brew ${called} drives it`;
-        return { refused: `no driver holds ${said}${brew}` };
+        return { refused: `no driver holds ${said}${noDriverOffer(state, batch)}` };
       }
       if (current.owner === owner) return { refused: `${owner} holds ${said} already` };
       const until = current.expiresAt.toISOString();

@@ -225,17 +225,28 @@ const DriverName = PathSafeId.refine(
 
 /**
  * `foedrum brew <issue> [--as <name>]` (ADR 0123): the issue as `order` takes it, and the name of
- * its driver, one path segment that is not the Cellar's.
+ * its driver, one path segment that is not the Cellar's. A batch id only to open the session the
+ * batch waits for, which `--take` or `--new-window` say (ADR 0339).
  */
-export const BrewCommand = z.strictObject({
-  command: z.literal('brew'),
-  issue: IssueTarget,
-  as: DriverName.optional(),
-  /** `--take`: take the batch over from the driver that holds it (ADR 0124). */
-  take: z.literal(true).optional(),
-  /** `--new-window`: run `foedrum brew <issue> --take` in a new terminal window (ADR 0222). */
-  'new-window': z.literal(true).optional(),
-});
+export const BrewCommand = z
+  .strictObject({
+    command: z.literal('brew'),
+    issue: BatchOrIssue,
+    as: DriverName.optional(),
+    /** `--take`: take the batch over from the driver that holds it (ADR 0124). */
+    take: z.literal(true).optional(),
+    /** `--new-window`: run `foedrum brew <issue> --take` in a new terminal window (ADR 0222). */
+    'new-window': z.literal(true).optional(),
+  })
+  .refine(
+    ({ issue, take, 'new-window': window }) =>
+      typeof issue !== 'string' || take === true || window === true,
+    {
+      path: ['issue'],
+      message:
+        'Must be <alias>#<n> of a target repository, or #<n> of the Brewery; a batch id waiting for a session needs --take',
+    },
+  );
 export type BrewCommand = z.infer<typeof BrewCommand>;
 
 /**

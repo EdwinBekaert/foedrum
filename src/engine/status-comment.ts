@@ -1240,9 +1240,9 @@ export const renderStatus = (
   subIssues?: readonly number[],
   /** Its order's sub-orders, in merge order, once it is split (ADR 0292, ADR 0293). */
   subOrderPulls: readonly SubOrderRow[] = [],
-  /** The Brewery issue the comment is on, whose number its session line names (ADR 0329). */
+  /** The Brewery issue the comment is on, which names its work unless `called` says more (ADR 0329). */
   order: number = batch.issue,
-  /** How its `Next:` line names its work, which a batch that is not the latest does by id (ADR 0334). */
+  /** How its lines offer its work, which a batch that is not the latest does by id (ADR 0334, ADR 0339). */
   called: string = String(order),
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
@@ -1256,7 +1256,7 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     [
-      ...laneText(batch, told, String(order), planComment, subIssues),
+      ...laneText(batch, told, called, planComment, subIssues),
       ...failingLines(batch, told),
       ...orderEndLines(subOrderPulls),
       ...subOrderPulls.map(subOrderPullLine),

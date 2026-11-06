@@ -30,7 +30,7 @@ import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/int
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
 import { MASH_IN } from '../engine/recipe-label.ts';
-import { statusCommentOf } from '../engine/status-comment.ts';
+import { sessionCommand, statusCommentOf } from '../engine/status-comment.ts';
 import type { AttemptProgress } from '../engine/supervisor.ts';
 import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import { githubTargetTracker } from '../github/tracker.ts';
@@ -120,6 +120,25 @@ const mashRefusal = (
   return only === undefined
     ? `the Brewery has no recipe to offer but ${MASH_IN}`
     : `the Brewery has one recipe to offer, ${only.name}: label ${named} recipe:${only.name} to brew it`;
+};
+
+/**
+ * Why `foedrum brew <batch id> --take` opens nothing (ADR 0339), or undefined: it takes an id only
+ * for a batch that waits for a session, and names what serves any other.
+ */
+const noSessionRefusal = (
+  state: State,
+  batch: Batch | undefined,
+  id: string,
+): string | undefined => {
+  if (batch === undefined) return `there is no batch ${id}`;
+  const { lane } = batch;
+  if (lane.kind === 'stuck' && lane.reason.kind === 'waiting_for_session') return undefined;
+  const called = calledAs(state, batch);
+  const stuck =
+    lane.kind === 'stuck' ? 'foedrum stuck lists what it offers' : 'foedrum status shows it';
+  const way = called === batch.id ? stuck : `foedrum brew ${called} brews it`;
+  return `batch ${id} waits for no session, and foedrum brew takes an id only for one that does; ${way}`;
 };
 
 /** The line feed and the Unicode line and paragraph separators, which end a line. */
@@ -341,7 +360,13 @@ export const runBrew = async (
     const work = namedWork(log.state(), target, () => repository?.repo, commandOf(request));
     if ('refused' in work) return refuse(work.refused);
     order = work.order;
-    const { batch: last } = work;
+    // A batch named by its id is that batch, never the issue's latest (ADR 0286, ADR 0339).
+    const pinned = request.lauter ?? request.batch;
+    const last = pinned === undefined ? work.batch : log.state().batches.get(pinned);
+    if (request.batch !== undefined) {
+      const refused = noSessionRefusal(log.state(), last, request.batch);
+      if (refused !== undefined) return refuse(refused);
+    }
     // How a line offers it now: its number, or its target issue until the number is alive.
     const called = (state: State): string => {
       if (repository === undefined) return String(issue);
@@ -349,10 +374,13 @@ export const runBrew = async (
       return alive === undefined ? named : String(alive);
     };
     // A batch that ended cannot be taken over (ADR 0124): its lease ends, and brew tries again.
-    const wayOn = (state: State, held: Batch): string =>
-      held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
+    // An older batch's number reaches a later one, so it offers no brew by it (ADR 0339).
+    const wayOn = (state: State, held: Batch): string => {
+      if (calledAs(state, held) === held.id) return 'foedrum status shows it';
+      return held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
         ? `foedrum brew ${called(state)} tries again then`
         : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take takes it over now`;
+    };
     const orderAgainLine = (state: State, batch: Batch): string => {
       const { lane } = describeLane(batch, called(state));
       return `${named} is ${lane}; foedrum order ${called(state)} orders it again`;
@@ -564,8 +592,10 @@ export const runBrew = async (
       say(`routed ${saidAs(log.state(), batch)} to the recipe ${recipe}`);
     }
     // What opens the session a batch waits for, as this brew can or cannot (ADR 0222).
-    const sessionLine = (why: BrewRequest['noSessions'], state: State): string => {
-      const brew = `foedrum brew ${called(state)}`;
+    const sessionLine = (why: BrewRequest['noSessions'], state: State, of: Batch): string => {
+      // An older batch opens by its id, which brew takes only with --take (ADR 0339).
+      const known = calledAs(state, of);
+      const brew = known === of.id ? sessionCommand(known) : `foedrum brew ${called(state)}`;
       switch (why) {
         case undefined:
           return `run ${brew} again to reopen the session`;
@@ -678,7 +708,8 @@ export const runBrew = async (
           if (pullRequests.length > 0) {
             // Only a read of their ends closes the order's issue, and the last line stays the
             // pull requests' (ADR 0261, ADR 0336).
-            if (shownOn !== undefined) {
+            // An older batch's number reads a later batch's ends, so it says nothing of them.
+            if (shownOn !== undefined && calledAs(driver.state(), now) !== now.id) {
               const claim = now.repo === undefined ? '' : ' and releases its claim';
               say(
                 `once they merge, foedrum brew ${shownOn} or foedrum serve closes Brewery issue #${shownOn}${claim}`,
@@ -728,7 +759,7 @@ export const runBrew = async (
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
           say(`${said} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
           if (reason.kind === 'waiting_for_session') {
-            say(sessionLine(request.noSessions, driver.state()));
+            say(sessionLine(request.noSessions, driver.state(), now));
           }
           return BREW_EXIT.stuck;
         }

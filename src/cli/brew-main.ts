@@ -69,45 +69,37 @@ export const brewRequestOf = (
   owner: string,
   issued: { by: string; via: Surface },
   noSessions: BrewRequest['noSessions'],
-  /** For `foedrum lauter`: its batch and how brew takes it (`batchTarget`). */
+  /** For `foedrum lauter` and a brew of a batch id: the batch and how brew takes it (`batchTarget`). */
   found?: BatchTarget,
 ): BrewRequest => {
-  if (input.command !== 'lauter') return brewOrMash(input, owner, issued, noSessions);
-  if (found === undefined) throw new Error('foedrum lauter needs its batch');
-  // A lauter takes the batch over from the driver that holds it, as brew --take (ADR 0286).
+  const { issue } = input;
+  const sessions = noSessions === undefined ? {} : { noSessions };
+  if (input.command === 'lauter' || typeof issue === 'string') {
+    if (found === undefined) throw new Error(`foedrum ${input.command} needs its batch`);
+    // Taking the batch over from the driver that holds it, as brew --take (ADR 0286, ADR 0339).
+    const named = input.command === 'lauter' ? { lauter: found.batchId } : { batch: found.batchId };
+    return { target: found.target, owner, ...issued, take: true, ...named, ...sessions };
+  }
   return {
-    target: found.target,
+    target: issue,
     owner,
     ...issued,
-    take: true,
-    lauter: found.batchId,
-    ...(noSessions === undefined ? {} : { noSessions }),
+    ...(input.take === true ? { take: true } : {}),
+    ...(input.command === 'mash' ? { mash: true } : {}),
+    ...sessions,
   };
 };
 
-const brewOrMash = (
-  input: BrewCommand | MashCommand,
-  owner: string,
-  issued: { by: string; via: Surface },
-  noSessions: BrewRequest['noSessions'],
-): BrewRequest => ({
-  target: input.issue,
-  owner,
-  ...issued,
-  ...(input.take === true ? { take: true } : {}),
-  ...(input.command === 'mash' ? { mash: true } : {}),
-  ...(noSessions === undefined ? {} : { noSessions }),
-});
-
-/** The batch `foedrum lauter` names, and its issue as brew takes it. */
+/** The batch `foedrum lauter` or a brew of a batch id names, and its issue as brew takes it. */
 export interface BatchTarget {
   batchId: string;
   target: OrderTarget;
 }
 
 /**
- * The batch `foedrum lauter` names, or why it has none (ADR 0286): a batch id names that batch, and
- * an issue its latest (ADR 0329). Brew takes it by its number once it has one.
+ * The batch `foedrum lauter` or a brew of a batch id names, or why it has none (ADR 0286, ADR 0339):
+ * a batch id names that batch, and an issue its latest (ADR 0329). Brew takes it by its number once
+ * it has one.
  */
 export const batchTarget = (
   state: State,
@@ -191,8 +183,11 @@ export const brewInNewWindow = async (
   owner: string,
   deps: NewWindowDeps,
 ): Promise<CliResult> => {
-  const { alias, issue } = input.issue;
-  const target = `${alias === undefined ? '' : `${alias}#`}${issue}`;
+  const { issue } = input;
+  const target =
+    typeof issue === 'string'
+      ? issue
+      : `${issue.alias === undefined ? '' : `${issue.alias}#`}${issue.issue}`;
   // As this brew's owner: a window may start with none of this session's variables (macOS).
   const words = ['brew', target, '--take', '--as', owner];
   const shown = `foedrum ${words.join(' ')}`;
@@ -288,13 +283,13 @@ export const brewFromCheckout = async (
         }),
     );
     let found: BatchTarget | undefined;
-    if (input.command === 'lauter') {
+    if (input.command === 'lauter' || typeof input.issue === 'string') {
       const named = batchTargetIn(setup.store, input.issue, setup.intake.repositories);
       if ('refused' in named) {
         return {
           exitCode: 5,
           stdout: '',
-          stderr: `foedrum lauter: ${named.refused}\n`,
+          stderr: `foedrum ${input.command}: ${named.refused}\n`,
         };
       }
       found = named;
