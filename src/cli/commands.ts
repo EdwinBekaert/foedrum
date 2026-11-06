@@ -41,7 +41,7 @@ import { batchOf } from '../engine/state-branch.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
-import { messageOf } from '../platform/errors.ts';
+import { firstLineOf, messageOf } from '../platform/errors.ts';
 import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
@@ -226,7 +226,7 @@ const changeBrewery = async (
     } catch (error) {
       if (error instanceof InvalidLogError) throw error;
       // Its recipe could not be read (ADR 0335): what still works does not read it.
-      const why = `batch ${human.batchId} could not be read: ${messageOf(error)}`;
+      const why = `batch ${human.batchId} could not be read: ${firstLineOf(messageOf(error))}`;
       return failed(command, `${why}; cancel it, or choose another recipe`);
     }
     if (decision.kind === 'refused') return failed(command, decision.reason);

@@ -64,7 +64,7 @@ export const formatStuck = (state: State): string => {
           orderName(state, batch),
           [describeLane(batch).detail, ...failingParts(batch)].join('; '),
         ],
-        (error) => [batch.id, issueOf(batch), unreadable(error)],
+        (error) => [batch.id, issueOf(batch), `stuck: ${unreadable(batch, error)}`],
       ),
     ),
     '',

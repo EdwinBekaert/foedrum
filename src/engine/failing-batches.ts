@@ -8,7 +8,10 @@ import type { FailingPass } from '../schemas/events.ts';
 /** How long a batch fails before it is marked, and brewing with a reading that fails Stuck. */
 const failingLimitMs = 3_600_000;
 
-/** A batch past the limit: what failed last, and whether its readings have for as long. */
+/**
+ * A batch past the limit, and whether its readings have failed for as long: what its last reading
+ * said when they have, since that is what its Stuck is for, else what failed last.
+ */
 export interface OverLimit {
   batchId: string;
   pass: FailingPass;
@@ -22,6 +25,7 @@ interface Entry {
   readingSince?: number;
   pass: FailingPass;
   summary: string;
+  lastReading?: { pass: FailingPass; summary: string };
   again: boolean;
   readingAgain: boolean;
   marked: boolean;
@@ -59,6 +63,7 @@ export const createFailingBatches = (): FailingBatches => {
       entry.summary = summary;
       entry.again = true;
       if (reading) {
+        entry.lastReading = { pass, summary };
         entry.readingSince ??= at;
         entry.readingAgain = true;
       }
@@ -81,13 +86,13 @@ export const createFailingBatches = (): FailingBatches => {
         }
         entry.marked = marked;
         if (at - entry.since < failingLimitMs) continue;
-        const { since, readingSince, pass, summary } = entry;
+        const { since, readingSince, pass, summary, lastReading } = entry;
+        const reading = readingSince !== undefined && at - readingSince >= failingLimitMs;
         over.push({
           batchId,
-          pass,
-          summary,
+          ...(reading && lastReading !== undefined ? lastReading : { pass, summary }),
           since: new Date(since).toISOString(),
-          reading: readingSince !== undefined && at - readingSince >= failingLimitMs,
+          reading,
         });
       }
       return over;

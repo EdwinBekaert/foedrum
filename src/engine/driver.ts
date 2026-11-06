@@ -6,7 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
-import { messageOf } from '../platform/errors.ts';
+import { firstLineOf, messageOf } from '../platform/errors.ts';
 import {
   type CheckoutRef,
   ClaudeReport,
@@ -42,6 +42,7 @@ import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from '.
 import { createFailingBatches } from './failing-batches.ts';
 import { createFailureLines } from './failure-lines.ts';
 import { type Batch, runningAttempt, type State, stuckOnFailing } from './fold.ts';
+import { withoutSecrets } from './out-doc-text.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
 import { afterOverrun, type Resumption, resumeOf } from './session-resume.ts';
@@ -290,14 +291,21 @@ const rejectionText = (error: unknown): string => {
  * at most `summaryLength` characters, or a fixed text when that has nothing to show or cannot be
  * read, since the event store refuses an empty summary.
  */
-const rejectionSummary = (
-  error: unknown,
-  without = 'the brewer runner failed without a message',
-): string => {
-  const line = (rejectionText(error).split(/\r?\n|[\p{Zl}\p{Zp}]/u, 1)[0] ?? '')
-    .trim()
-    .slice(0, summaryLength);
-  return line === '' ? without : line;
+const rejectionSummary = (error: unknown): string => {
+  const line = firstLineOf(rejectionText(error)).trim().slice(0, summaryLength);
+  return line === '' ? 'the brewer runner failed without a message' : line;
+};
+
+/**
+ * The summary of a batch's failure (ADR 0335), which its status comment shows: the first line, read
+ * for a secret before it is cut, so a secret the cut would break in two is not recorded in part.
+ */
+const failingSummary = (error: unknown): string => {
+  const line = firstLineOf(rejectionText(error)).trim();
+  if (line === '') return 'the batch failed without a message';
+  return withoutSecrets(line, '', () => false) === line
+    ? line.slice(0, summaryLength)
+    : 'the failure reads like a secret, so its text is left out';
 };
 
 /**
@@ -453,14 +461,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     pass: FailingPass,
     error: unknown,
     reading: boolean,
-  ): void =>
-    failing.failed(
-      batchId,
-      pass,
-      rejectionSummary(error, 'the batch failed without a message'),
-      reading,
-      clock(),
-    );
+  ): void => failing.failed(batchId, pass, failingSummary(error), reading, clock());
   /** Says a batch's failure, unless it said that one last in that pass. */
   const sayFailure = (
     notice: Extract<DriverNotice, { kind: 'batch_failed' | 'batch_effects_failed' }>,
@@ -1380,7 +1381,9 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       held.add(batchId);
       return true;
     } catch (error) {
-      report({ kind: 'command_failed', command, error });
+      if (failureLines.failed('mark', batchId, rejectionText(error))) {
+        report({ kind: 'command_failed', command, error });
+      }
       return false;
     }
   };
@@ -1404,9 +1407,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
     for (const { id: batchId, lane, failing: mark } of state.batches.values()) {
       if (mark === undefined || failing.has(batchId)) continue;
-      if (stuckOnFailing(lane)) continue;
+      // A takeover's wait tried none of its effects, so it says nothing of them (ADR 0124).
+      if (stuckOnFailing(lane) || awaitsTakeover(batchId)) continue;
       writeMark(batchId, { kind: 'record', event: { type: 'batch.recovered', batchId } });
     }
+    failureLines.passed('mark');
   };
 
   const tick = async (): Promise<void> => {

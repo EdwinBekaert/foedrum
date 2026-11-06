@@ -5,6 +5,7 @@ import { claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts
 import {
   attemptRecipeOf,
   type Batch,
+  type Failing,
   type Pause,
   runningAttempt,
   type State,
@@ -16,7 +17,7 @@ import { sessionCommand } from '../engine/status-comment.ts';
 import { plainReason } from '../engine/supervisor.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import { usageWindowsText } from '../engine/usage-window.ts';
-import { messageOf } from '../platform/errors.ts';
+import { firstLineOf, messageOf } from '../platform/errors.ts';
 import type { OrderRef, StuckReason, Usage, WaitCondition } from '../schemas/events.ts';
 import { PLANNING_RECIPES } from '../schemas/plan.ts';
 import { addUsage, number } from './brewer-report.ts';
@@ -130,14 +131,23 @@ export const pauseLine = ({ by, via, why, stopAt }: Pause, withVia = false): str
 /** The issue a batch brews: `#<n>` in the Brewery, `<owner>/<name>#<n>` in a target repository. */
 export const issueOf = (batch: Batch): string => `${batch.repo ?? ''}#${batch.issue}`;
 
-/** What a batch's line says when its rendering throws (ADR 0335). */
-export const unreadable = (error: unknown): string => `cannot be read: ${messageOf(error)}`;
+/** A batch's mark as it reads (ADR 0335). */
+const failingText = ({ pass, since, summary }: Failing): string =>
+  `failing in ${pass} since ${since}: ${summary}`;
 
-/** A batch's mark (ADR 0335), but on a batch whose Stuck reason says it already. */
+/** A batch's mark, but on a batch whose Stuck reason says it already. */
 export const failingParts = ({ failing, lane }: Batch): string[] =>
-  failing === undefined || stuckOnFailing(lane)
-    ? []
-    : [`failing in ${failing.pass} since ${failing.since}: ${failing.summary}`];
+  failing === undefined || stuckOnFailing(lane) ? [] : [failingText(failing)];
+
+/**
+ * What a batch's line says when its rendering throws (ADR 0335): the message on its one line, and
+ * the mark whatever the lane, since its reason cannot say it now.
+ */
+export const unreadable = ({ failing }: Batch, error: unknown): string =>
+  [
+    `cannot be read: ${firstLineOf(messageOf(error))}`,
+    ...(failing === undefined ? [] : [failingText(failing)]),
+  ].join('; ');
 
 /**
  * A batch's cells in `foedrum status`: its id, order, lane, and what it does, with the owner of an
@@ -166,7 +176,7 @@ export const statusRow = (
       [detail, ...failing, ...paused, ...by, total].filter((part) => part !== '').join('; '),
     ];
   } catch (error) {
-    return [batch.id, issueOf(batch), batch.lane.kind, [unreadable(error), ...failing].join('; ')];
+    return [batch.id, issueOf(batch), batch.lane.kind, unreadable(batch, error)];
   }
 };
 
