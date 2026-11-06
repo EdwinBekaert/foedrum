@@ -428,6 +428,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     });
 
     let given: HouseYeastSelection | undefined;
+    let heard: readonly HeardComments[] | undefined;
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
       let args: string[];
@@ -436,6 +437,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         if (prepared === undefined) return cancelled();
         plan = prepared;
         given = plan.houseYeast;
+        heard = plan.commentsHeard;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
@@ -574,9 +576,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       return withReadings({ ending, ...reported, ...outDoc });
     };
 
-    // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169).
+    // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169),
+    // and the comments its prompt held (ADR 0338).
     const ended = run()
       .then((end) => (given === undefined ? end : { ...end, houseYeast: given }))
+      .then((end) => (heard === undefined ? end : { ...end, commentsHeard: heard }))
       .finally(() => running.delete(key));
     return { ended, stop: () => stopping.abort() };
   };

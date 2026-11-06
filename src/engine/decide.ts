@@ -687,6 +687,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     claude,
     receipt,
     houseYeast,
+    commentsHeard,
     paused,
     reopensAt,
   } = command;
@@ -724,6 +725,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
+    ...(commentsHeard === undefined ? {} : { commentsHeard: [...commentsHeard] }),
     ...(stopped ? { paused: true } : {}),
     ...(byStop ? { stopped: true } : {}),
     ...(limited === undefined ? {} : { usageLimited: true }),
