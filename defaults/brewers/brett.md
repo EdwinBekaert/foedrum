@@ -2,7 +2,7 @@
 {
   "name": "brett",
   "description": "Proposes a few mutants of the batch's change, each a one-line edit of a line it added, for the engine to check; read-only.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "medium",
   "inputs": [
@@ -32,6 +32,7 @@ Propose a few mutants of the change in {change}, made for the order in {order}: 
 - **Read-only.** You run no commands. Do not change any file but your out doc: your mutants are the out doc and nothing else. Make the out doc with your edit tool, with an empty text to replace.
 - **Only the lines the change added.** A mutant edits one line the diff adds (a `+` line), in the code the change is about: never a test, a data or configuration file, documentation, or a line the change did not add. Any other mutant is invalid.
 - **Small bugs, not new code.** Change an operator or a number or boolean literal, delete the line, or reorder what is on it. The replacement uses no word, name or quoted string the original line lacks; one that does is invalid. Only in JavaScript, TypeScript and the C family are the words of `//` and `/* */` comments left out of that comparison; elsewhere a comment counts as the line's text. Good mutants: an inverted condition (`>` for `>=`, `!==` for `===`), an off-by-one, a dropped guard, `await` or early return, a wrong default, a deadline or limit removed, a boolean flipped.
+- **Inside a template literal.** In JavaScript and TypeScript a template literal is not one string: reorder or drop its words, change its punctuation or digits, or change an expression in its `${}` as you would any code. Its text may use a word from the line's code or a literal's text, never one only a comment or a plain string holds, and an escape spells no word the line lacks; its expressions use only names the line's code already has, so no word of the text becomes code. Leave every literal as closed as it was: one that a replacement leaves open or closes is invalid. A plain string, and a string in any other language, stays whole.
 - **Aim at the gaps.** Prefer mutants a weak test would miss: a branch no test seems to reach, a boundary the tests only check from one side, a value every test passes the same. Skip mutants that only break the build or that every test would catch at once.
 - **No invented mutants.** When the change has no line worth mutating (it only adds tests, data or documentation), say so with an empty `mutants` list.
 
