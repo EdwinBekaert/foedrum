@@ -532,6 +532,16 @@ describe('the pull request body', () => {
     );
   });
 
+  it('sets its fence apart with blank lines, so GitHub reads a fence and not an HTML block', () => {
+    const body = text([{ stepId: 'gauge', attempt: 1, text: '@someone Closes #12 <img src=x>' }]);
+    assert.ok(
+      body.includes(
+        '<details><summary>What the brewers handed over</summary>\n\n```text\ngauge#1: @someone Closes #12 <img src=x>\n```\n\n</details>',
+      ),
+      body,
+    );
+  });
+
   it('keeps a run of backticks inside its fence', () => {
     const body = text([{ stepId: 'gauge', attempt: 1, text: 'see ```` and `````' }]);
     assert.match(body, /``````text\n/);
