@@ -19,14 +19,16 @@ A report holds every test that ran by name, passing or not, while its places are
 - A name counts as reported when, on one line, a report's name holds it as whole words (`math > adds`, `Acme.Math.Adds(a: 1)`, `test_adds[1]`), or it ends with a report's name as whole words (`math > adds`, `tests/test_math.py::test_adds`), case kept, whatever the test's result.
 - The names are read only when every module's reports were read.
   A module that wrote none, a TRX report (#727) and a report that cannot be read say nothing of a name, so nothing is recorded.
+  So does a comparison past its limit of work, 2^28 characters, about a second: a name that repeats inside a report's name is tried at each place, and a brewer writes both, so the driver is never held for minutes with no deadline to stop it.
   A repository with no report therefore starts failing nothing: no map is Stuck before the first step (ADR 0297), a base module with no report is already a load error at red, and at green the run is only read for what it holds.
-- A failing check step is not read, since it may have stopped before a test ([ADR 0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md)).
+- A check step whose test check failed is not read, since it may have stopped before a test; one whose tests passed and that failed on something else is ([ADR 0280](0280-a-new-module-is-judged-unreached-only-on-a-passing-test-run.md)).
   A red run fails by nature, and a runner told to stop at its first failure can stop before a named test, so what a red proof records is provisional: the green check's run replaces it.
 
 ### What is recorded
 - `step.finished` gains `unreported: { tests, more }`, on a proof that passed and a check step: the first 10 names, kept as a failing test's name is ([ADR 0304](0304-a-failed-test-reading-names-its-failing-tests-from-the-test-map-s-reports.md): one line, cut to 200 characters, left out when it looks like a secret), and a count of the rest.
 - An empty list says the reports were read and hold every name; no field says they were not read, or that no test was named.
 - Of a batch's path, the latest attempt with the field decides, so a later run that holds the names takes the line off, one that does not brings it, and a run not read leaves it.
+  The merge brief reads only the steps of the batch's current recipe, as each of its lines does ([ADR 0327](0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md)).
   A later batch of the order has a path of its own, and starts clean.
 
 ### What is said
