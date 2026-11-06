@@ -403,6 +403,23 @@ describe('one number per piece of work (ADR 0329)', () => {
     });
   });
 
+  it("foedrum order of a number claims by the repository's alias now, after the alias was renamed", async () => {
+    const { host } = fakeGitHub();
+    issue({ kind: 'cancel', batchId: 'web-7', by: 'ada', via: 'terminal' });
+    for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+      record('web-7', effect, 'done');
+    }
+    const renamed = BreweryConfig.parse({
+      brewery: 'acme/brewery',
+      repositories: {
+        [WEB]: { checks, alias: 'site', intake: { labels: ['foedrum'] } },
+      },
+    });
+    const result = await run(['order', '40'], { config: () => renamed, claims: () => host });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.ok(log().state().batches.has('site-7'));
+  });
+
   it('a batch id still works: regression test', async () => {
     await accepted(['retry', 'web-7']);
     assert.equal(laneOf('web-7'), 'brewing');
