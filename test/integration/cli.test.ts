@@ -206,7 +206,19 @@ describe('foedrum status and replay on store files', () => {
       join(brewery.path, '.foedrum', 'local.jsonc'),
       JSON.stringify({ clones: { 'acme/web': clone } }),
     );
-    assert.deepStrictEqual(await foedrum('brew', '99-9', '--take'), {
+    // claude as gh is: found at a made-up path and answered without starting, whatever this machine has.
+    const madeUpClaude = '/made-up/bin/claude';
+    const canned = cannedGhLogin();
+    const answer = '2.1.301 (Claude Code)\n';
+    const refused = await cliFromCheckout(['brew', '99-9', '--take'], brewery.path, {
+      exec: (file, execArgs, options) =>
+        file === madeUpClaude
+          ? Promise.resolve({ exitCode: 0, stdout: answer, stderr: '', output: answer })
+          : canned(file, execArgs, options),
+      resolve: (name) => (name === 'claude' ? madeUpClaude : resolveWithMadeUpGh(name)),
+      denylist: noDenylist,
+    });
+    assert.deepStrictEqual(refused, {
       exitCode: 5,
       stdout: '',
       stderr: 'foedrum brew: there is no batch 99-9\n',
