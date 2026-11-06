@@ -57,7 +57,7 @@ Every out doc may also list `dispositions`, which a brewer a findings route brou
 A plan step's dispositions, which the default Brewmaster writes for a plan lens's findings, read a finding without a `file` as about the plan as a whole, and a dismissal's evidence is a line of the order, a file and line in a repository, or a field of the plan ([ADR 0318](../../adr/0318-a-plan-lens-s-findings-go-back-to-the-plan-step-and-the-plan-comment-lists-the-review-notes-left.md)).
 The field is optional, so every older out doc still reads; an older Foedrum cannot read an out doc, or the event that records it, that has it.
 Every out doc may also end with `handover`, at most 3 lines of at most 300 characters each, which the default brewers' own files ask for and the contract does not ([ADR 0340](../../adr/0340-a-brewer-s-handover-is-kept-as-a-proposal-and-reaches-no-later-prompt.md)).
-It never fails an attempt: `readOutDoc` takes it out before any schema reads it, so no `output` holds it, and a later prompt reads the out doc without it.
+It never fails an attempt, a line past its limit being cut with a mark: `readOutDoc` takes it out before any schema reads it, so no `output` holds it, and a later prompt reads the out doc without it.
 `step.finished` records its lines, each read for a secret, whatever the ending; a person reads them in the pull request's body and through `foedrum handover`, and an older Foedrum cannot read an event that has them.
 
 ## How the engine routes an out doc

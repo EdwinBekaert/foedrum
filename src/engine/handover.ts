@@ -3,7 +3,7 @@
 // of the out doc as a later prompt reads it. Pure.
 
 import { parseFrontmatter } from '../formats/frontmatter.ts';
-import { MOST_HANDOVER_LINES } from '../schemas/out-doc.ts';
+import { MAX_HANDOVER_LINE, MOST_HANDOVER_LINES, withinLimit } from '../schemas/out-doc.ts';
 import type { Batch } from './fold.ts';
 import { withoutSecrets } from './out-doc-text.ts';
 
@@ -24,9 +24,9 @@ const frontmatterOf = (text: string) => {
 };
 
 /**
- * The lines of an out doc's handover, as `step.finished` records them: each one line and read for a
- * secret, the first three that say anything. An out doc that is not worth failing over it never
- * fails: anything else in the field reads as none, and so does a frontmatter that does not parse.
+ * The lines of an out doc's handover, as `step.finished` records them: the first three that say
+ * anything, each one line, cut past its limit (ADR 0337) and read for a secret. Anything else in the
+ * field reads as none, and so does a frontmatter that does not parse.
  */
 export const handoverOf = (outDoc: string, stepId: string): string[] => {
   const handover = frontmatterOf(outDoc)?.data.handover;
@@ -35,7 +35,9 @@ export const handoverOf = (outDoc: string, stepId: string): string[] => {
     .flatMap((line) => (typeof line === 'string' ? [line.replace(/\s+/g, ' ').trim()] : []))
     .filter((line) => line !== '')
     .slice(0, MOST_HANDOVER_LINES)
-    .map((line) => withoutSecrets(line, stepId, () => false));
+    .map((line) =>
+      withoutSecrets(withinLimit(line, MAX_HANDOVER_LINE, 'handover'), stepId, () => false),
+    );
 };
 
 /** Why an out doc that opens a frontmatter cannot be given to a later prompt. */

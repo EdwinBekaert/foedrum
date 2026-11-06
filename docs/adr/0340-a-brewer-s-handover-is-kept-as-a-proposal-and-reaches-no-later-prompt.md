@@ -27,7 +27,7 @@ An out doc goes into a later prompt whole, frontmatter included, by three paths:
 ### What is kept
 - **`step.finished.handover`, beside `houseYeast`, and never in `output`.**
   About 25 files read `output`, so none of them can pass it on, and a blocked or failed attempt's handover is kept too, where `output` exists only for a success.
-- **`handoverOf` reads the out doc's text whatever its ending:** anything but a list of strings reads as none, each line becomes one line, the first three that say anything are kept, and every line is read for a secret with `withoutSecrets`, however short, so whatever reads the event reads clean text.
+- **`handoverOf` reads the out doc's text whatever its ending:** anything but a list of strings reads as none, each line becomes one line, the first three that say anything are kept, a line past its limit is cut with a mark as a long `riskLeft` line is ([ADR 0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md), whose helper they share), and every line is read for a secret with `withoutSecrets`, however short, so whatever reads the event reads clean text.
   No commit is known there, so a line holding a full commit hash is left out too.
 - **The whole out doc stays on the state branch**, as every out doc does ([ADR 0103](0103-out-docs-reach-the-state-branch-through-the-store.md)).
 - **`handoversOf` lists a batch's lines**, by step and attempt.
