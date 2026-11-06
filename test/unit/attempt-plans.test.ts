@@ -2425,7 +2425,7 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
     );
     assert.ok(
       instructions.includes(
-        "the repository's instructions and design documents when the lens asks you to check against them",
+        "on a plan, read the repository's instructions and design documents when the lens asks you to check against them",
       ),
       instructions,
     );
