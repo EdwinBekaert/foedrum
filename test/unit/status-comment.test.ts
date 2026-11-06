@@ -1971,6 +1971,26 @@ describe('statusEffects', () => {
     assert.deepEqual(notices, []);
   });
 
+  it("offers an older batch's question by its id, which the number would not reach (ADR 0334)", async () => {
+    order();
+    brew();
+    const which = { q: 'Which?', options: ['a', 'b'], recommended: 'a', whyBlocking: 'x' };
+    const asks = { kind: 'needs_input' as const, questions: [which] };
+    issue({ kind: 'finish', batchId: '7-1', stepId: 'plan', attempt: 1, ending: asks });
+    // A batch on tap counts as ended, so a later batch can be ordered, and a failed pull request
+    // can then bring the earlier one back to a question (ADR 0334).
+    store.withTransaction((tx) =>
+      tx.append({ type: 'batch.ordered', batchId: '7-2', order: { issue: 7 }, routeBy: at }),
+    );
+    const driver = await open();
+    await driver.tick();
+    const bodies = comments.comments.map(({ body }) => body);
+    assert.ok(
+      bodies.some((body) => body.includes('`foedrum answer 7-1 <answer 1>`')),
+      bodies.join('\n---\n'),
+    );
+  });
+
   it('records each revision: the comment, and the digest of the text it shows', async () => {
     order();
     const driver = await open();
