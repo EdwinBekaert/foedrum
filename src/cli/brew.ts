@@ -10,6 +10,7 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
+import { closeStillDue } from '../engine/brewery-closes.ts';
 import {
   breweryIssueOf,
   calledAs,
@@ -131,11 +132,11 @@ export const oneLine = (text: string): string =>
     .join('');
 
 /**
- * Who drives a batch another driver holds, until when, and the way on: `takes`, the command that
- * takes it over now. It never says that driver stopped, which Foedrum cannot tell (ADR 0336).
+ * Who drives a batch another driver holds, until when, and `wayOn`, what a person can do about it.
+ * It never says that driver stopped, which Foedrum cannot tell (ADR 0336).
  */
-export const drivenBy = (lease: BatchLease, takes: string): string =>
-  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${takes} takes it over now`;
+export const drivenBy = (lease: BatchLease, wayOn: string): string =>
+  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${wayOn}`;
 
 /** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
 const unended = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
@@ -149,11 +150,13 @@ const endedLine = (batch: Batch, urls: readonly string[], order: number | undefi
   const ended = merged
     ? `batch ${batch.id} merged: ${urls.join(' ')}`
     : `batch ${batch.id} ended: ${urls.join(' ')} not all merged`;
-  if (batch.repo === undefined) return ended;
-  const target = `${batch.repo}#${batch.issue}`;
   const issue =
-    order === undefined ? '' : `Brewery issue #${order} ${merged ? 'closed' : 'stays open'}, `;
-  return `${ended}; ${issue}claim on ${target} released${merged ? '' : ', unassign it to make it available'}`;
+    order === undefined ? [] : [`Brewery issue #${order} ${merged ? 'closed' : 'stays open'}`];
+  const unassign = merged ? '' : ', unassign it to make it available';
+  const claim =
+    batch.repo === undefined ? [] : [`claim on ${batch.repo}#${batch.issue} released${unassign}`];
+  const what = [...issue, ...claim].join(', ');
+  return what === '' ? ended : `${ended}; ${what}`;
 };
 
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
@@ -338,8 +341,11 @@ export const runBrew = async (
       const alive = liveOrderOf(state, { issue, repo: repository.repo });
       return alive === undefined ? asGiven : String(alive);
     };
-    const takesIt = (state: State): string =>
-      `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take`;
+    // A batch that ended cannot be taken over (ADR 0124): its lease ends, and brew tries again.
+    const wayOn = (state: State, held: Batch): string =>
+      held.lane.kind === 'on_tap' || held.lane.kind === 'cancelled'
+        ? `foedrum brew ${called(state)} tries again then`
+        : `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take takes it over now`;
     const orderAgainLine = (state: State, batch: Batch): string => {
       const { lane } = describeLane(batch, called(state));
       return `batch ${batch.id} of ${named} is ${lane}; foedrum order ${called(state)} orders it again`;
@@ -360,7 +366,7 @@ export const runBrew = async (
     const ending =
       commandOf(request) === 'brew' &&
       latest?.lane.kind === 'on_tap' &&
-      (unended(latest).length > 0 || standing === 'releasing')
+      (unended(latest).length > 0 || standing === 'releasing' || closeStillDue(log.state(), latest))
         ? latest
         : undefined;
     // A lauter names a batch, whose lane its refusal names (ADR 0286).
@@ -398,8 +404,8 @@ export const runBrew = async (
       return refuse(pausedLine(log.state(), latest));
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined && request.take !== true) {
-      return refuse(drivenBy(leased, takesIt(log.state())));
+    if (latest !== undefined && leased !== undefined && request.take !== true) {
+      return refuse(drivenBy(leased, wayOn(log.state(), latest)));
     }
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
@@ -624,7 +630,8 @@ export const runBrew = async (
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
         await endStoppedRuns(batchId, other);
-        return refuse(drivenBy(other, takesIt(driver.state())));
+        const held = foldedBatch(driver.state(), batchId);
+        return refuse(drivenBy(other, wayOn(driver.state(), held)));
       }
       const now = foldedBatch(driver.state(), batchId);
       const { lane, detail } = describeLane(now, calledAs(driver.state(), now));

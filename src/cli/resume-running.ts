@@ -172,7 +172,12 @@ export const runResumeRunning = async (
         }
         const other = heldElsewhere();
         if (other !== undefined) {
-          say(drivenBy(other, `foedrum resume ${calledAs(driver.state(), batch)} ${stepId}`));
+          say(
+            drivenBy(
+              other,
+              `foedrum resume ${calledAs(driver.state(), batch)} ${stepId} takes it over now`,
+            ),
+          );
           return 1;
         }
         if (signal.aborted) break;
