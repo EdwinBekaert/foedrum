@@ -113,6 +113,15 @@ describe('unreportedNames (ADR 0342)', () => {
     assert.equal(unreported('math > ', ' '), true);
   });
 
+  it('says nothing past its limit of work: a name that repeats inside a report it shaped', () => {
+    const name = 'a'.repeat(1_000);
+    const tests = Array.from({ length: 30 }, () => name);
+    assert.equal(
+      unreportedNames({ tests, regressionTests: [] }, [reportOf(reported('a'.repeat(20_000)))]),
+      undefined,
+    );
+  });
+
   it('a blank name is not read', () => {
     assert.deepEqual(unreportedNames({ tests: [' \t'], regressionTests: [] }, []), []);
   });

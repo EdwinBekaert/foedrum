@@ -315,6 +315,24 @@ describe('createCheckRunner: what it does not say of the tests a Gauger named (A
   });
 });
 
+describe('createCheckRunner: past its limit of work on the names (ADR 0342)', () => {
+  // Each name repeats in a report's name and never as whole words: costly, and a run's own text.
+  const long = 'a'.repeat(20_000);
+  const named = { tests: [UNIT, ...Array.from({ length: 30 }, () => 'a'.repeat(1_000))] };
+
+  it('a red proof records nothing', async () => {
+    const end = await run({ named, report: tap(fails(UNIT), `ok 2 - ${long}`) });
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.unreported, undefined);
+  });
+
+  it('a check step records nothing', async () => {
+    const end = await run({ stepId: 'green', named, report: tap(`ok 1 - ${long}`) });
+    assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
+    assert.equal(end.unreported, undefined);
+  });
+});
+
 describe('createCheckRunner: the tests a Gauger named (ADR 0342)', () => {
   describe('at a red proof', () => {
     it('records a named test the reports do not hold, and the proof passes', async () => {

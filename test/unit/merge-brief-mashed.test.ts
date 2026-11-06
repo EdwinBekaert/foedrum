@@ -20,7 +20,7 @@ import { mergedCheckStep } from '../../src/engine/merged-checks.ts';
 import { pullRequestKey, pushKey } from '../../src/engine/pull-request.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
-import type { GravityReading, HeadCheck } from '../../src/schemas/events.ts';
+import type { GravityReading, HeadCheck, UnreportedTests } from '../../src/schemas/events.ts';
 import type { Question } from '../../src/schemas/step-outcome.ts';
 import type { PushResult } from '../../src/schemas/store.ts';
 import { recipeText } from '../helpers/brewery-files.ts';
@@ -130,7 +130,11 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
   const run = (
     stepId: string,
     ending: Ending,
-    { readings, commit }: { readings?: GravityReading[]; commit?: string } = {},
+    {
+      readings,
+      commit,
+      unreported,
+    }: { readings?: GravityReading[]; commit?: string; unreported?: UnreportedTests } = {},
   ): void => {
     const attempts = log.state().batches.get(batchId)?.steps.get(stepId)?.attempts;
     const attempt = Math.max(...(attempts?.keys() ?? []));
@@ -141,7 +145,13 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
         ? {}
         : { worktree: { repo: 'acme/web', path: `/w/${stepId}`, branch: stepId, commit } };
     accept({ kind: 'record', event: { type: 'step.started', ...ref, ...worktree } });
-    accept({ kind: 'finish', ...ref, ending, ...(readings === undefined ? {} : { readings }) });
+    accept({
+      kind: 'finish',
+      ...ref,
+      ending,
+      ...(readings === undefined ? {} : { readings }),
+      ...(unreported === undefined ? {} : { unreported }),
+    });
   };
   /** The batch routed to mash-in, the Innkeeper's question answered with `recipe`. */
   const mashed = (recipe = 'porter'): void => {
@@ -321,6 +331,14 @@ describe('the merge brief of a batch mashed to a building recipe (#867)', () => 
     );
     assert.match(body, /\*\*Evidence on /);
     assert.doesNotMatch(body, /The test map of/);
+  });
+
+  it("leaves out the named tests an earlier recipe's run reported under no name (ADR 0342)", async () => {
+    const body = await briefAfterMove(() =>
+      run('old-taster', done, { unreported: { tests: ['adds'], more: 0 } }),
+    );
+    assert.match(body, /\*\*Risk left\*\*\n- `new-taster`: the cut was not run$/m);
+    assert.doesNotMatch(body, /Not proven/);
   });
 
   it("shows the risk the current recipe's Taster left, never an earlier recipe's", async () => {
