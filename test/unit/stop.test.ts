@@ -183,7 +183,10 @@ describe('stop (ADR 0205)', () => {
       kind: 'record',
       event: { type: 'effect.applied', key: `["${batchId}","order.issue"]`, result: 40 },
     });
-    refuse({ kind: 'stop', order: { issue: 40 }, ...who }, /^there is no brewing batch of #40 to stop$/);
+    refuse(
+      { kind: 'stop', order: { issue: 40 }, ...who },
+      /^there is no brewing batch of #40 to stop$/,
+    );
   });
 
   it("stops a claimed target issue's batches by their repository, in any case", () => {
