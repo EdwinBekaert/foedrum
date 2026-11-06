@@ -137,6 +137,14 @@ describe('unreportedNames (ADR 0342)', () => {
     );
   });
 
+  it('says nothing past its limit of work: a name that occurs nowhere in long reports', () => {
+    const tests = Array.from({ length: 300 }, (_, index) => `missing ${index}`);
+    assert.equal(
+      unreportedNames({ tests, regressionTests: [] }, [reportOf(reported('b'.repeat(1_000_000)))]),
+      undefined,
+    );
+  });
+
   it('a blank name is not read', () => {
     assert.deepEqual(unreportedNames({ tests: [' \t'], regressionTests: [] }, []), []);
   });

@@ -80,6 +80,11 @@ describe('renderStatus: the tests a Gauger named (ADR 0342)', () => {
     assert.ok(render(events).includes(LINE), render(events));
   });
 
+  it('a retry whose reports were not read leaves the line of the attempt before it', () => {
+    const events = [...ordered('7-1'), ...attempt('green', 1, missing), ...attempt('green', 2)];
+    assert.ok(render(events).includes(LINE), render(events));
+  });
+
   it('a later batch of the order starts clean', () => {
     const events = [
       ...ordered('7-1'),

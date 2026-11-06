@@ -66,6 +66,7 @@ const run = async ({
   unread = false,
   silent = [] as string[],
   lintFirst = false,
+  lintFails = false,
 }: {
   stepId?: string;
   /** The Gauger's out doc's lists. */
@@ -86,6 +87,8 @@ const run = async ({
   silent?: string[];
   /** Whether a lint check that passes runs before the test check. */
   lintFirst?: boolean;
+  /** Whether a lint check that fails runs after the test check. */
+  lintFails?: boolean;
 } = {}) => {
   const ref = { batchId: '1-1', stepId, attempt: 1 };
   const events: Event[] = [
@@ -114,7 +117,7 @@ const run = async ({
     },
   ];
   const exec: ExecProcess = async (file) => ({
-    exitCode: file === 'npm run lint' ? 0 : exitCode,
+    exitCode: file === 'npm run lint' ? (lintFails ? 1 : 0) : exitCode,
     stdout: '',
     stderr: '',
     output: '',
@@ -130,7 +133,7 @@ const run = async ({
     },
   };
   const checks: StepChecks = {
-    find: () => (lintFirst ? ['lint', 'test'] : ['test']),
+    find: () => (lintFails ? ['test', 'lint'] : lintFirst ? ['lint', 'test'] : ['test']),
     any: () => true,
     proves: (_recipe, step) => (redProof && step === 'red' ? 'gauge' : undefined),
     redProof: () => (redProof ? { id: 'red', of: 'gauge' } : undefined),
@@ -142,7 +145,7 @@ const run = async ({
     repositoryChecks: () => ({
       build: null,
       typecheck: null,
-      lint: lintFirst ? 'npm run lint' : null,
+      lint: lintFirst || lintFails ? 'npm run lint' : null,
       format: null,
       test: 'npm test',
     }),
@@ -290,6 +293,22 @@ describe('createCheckRunner: what it does not say of the tests a Gauger named (A
     it('records nothing of a failing run, which may have stopped before a test', async () => {
       const end = await run({ stepId: 'green', report: passing, exitCode: 1 });
       assert.equal(end.ending.kind, 'failed');
+      assert.equal(end.unreported, undefined);
+    });
+
+    it('records what a passing test run reported when another check then fails', async () => {
+      const end = await run({ stepId: 'green', report: passing, lintFails: true });
+      assert.equal(end.ending.kind, 'failed');
+      assert.deepEqual(end.unreported, { tests: [INTEGRATION], more: 0 });
+    });
+
+    it('records nothing when the tip has no test map', async () => {
+      const end = await run({
+        stepId: 'green',
+        report: passing,
+        at: { [tip]: { kind: 'none' } },
+      });
+      assert.deepEqual(end.ending, { kind: 'succeeded', output: null });
       assert.equal(end.unreported, undefined);
     });
 
