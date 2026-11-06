@@ -458,6 +458,19 @@ describe('tasting-compare --real', () => {
       assert.equal(transcriptReads(transcript(edit('', doc), write), WORKTREE).body, 'written');
     });
 
+    it('a change of another file, or a refused one, is no body', () => {
+      const other: Call = {
+        name: 'Edit',
+        input: { file_path: 'other.md', old_string: '', new_string: 'other' },
+      };
+      const refused: Call = {
+        name: 'Edit',
+        input: { file_path: 'taste.md', old_string: '', new_string: 'refused' },
+        denied: true,
+      };
+      assert.equal(transcriptReads(transcript(other, refused), WORKTREE).body, undefined);
+    });
+
     it('a record keeps the body of a Taster', () => {
       const written: Call = {
         name: 'Write',
