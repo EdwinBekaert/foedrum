@@ -14,13 +14,11 @@ const oneLine = (name: string): string => name.replace(/\s+/g, ' ').trim();
 const inWord = (char: string | undefined): boolean =>
   char !== undefined && /[\p{L}\p{N}_]/u.test(char);
 
-/** Whether `text` holds `part` as whole words: after a suite or a class, before a case's values. */
-const holdsWhole = (text: string, part: string): boolean => {
-  for (let at = text.indexOf(part); at !== -1; at = text.indexOf(part, at + 1)) {
-    if (!inWord(text[at - 1]) && !inWord(text[at + part.length])) return true;
-  }
-  return false;
-};
+/**
+ * The most characters one reading compares, about a second's work: a name that repeats inside a
+ * report's name is tried at each place, and a brewer writes both (ADR 0342).
+ */
+const MOST_COMPARED = 2 ** 28;
 
 /** Whether `text` ends with `part` as whole words: a name a brewer wrote with its suite or path. */
 const endsWhole = (text: string, part: string): boolean =>
@@ -29,19 +27,36 @@ const endsWhole = (text: string, part: string): boolean =>
 /**
  * The names of `named` that `reports` hold under no name of theirs: each compared on one line, and
  * held in a report's name, or ending with one, as whole words. Any test counts, whatever its result,
- * since this asks whether the run reported it.
+ * since this asks whether the run reported it. Undefined past `MOST_COMPARED`: then it says nothing,
+ * as of a report it could not read.
  */
 export function unreportedNames(
   named: GaugeReport,
   reports: readonly TestReport[],
-): readonly string[] {
+): readonly string[] | undefined {
   const held = reports
     .flatMap(({ tests }) => tests.map(({ name }) => oneLine(name)))
     .filter(Boolean);
-  return [...named.tests, ...named.regressionTests].filter((name) => {
+  const exact = new Set(held);
+  let compared = 0;
+  /** Whether `text` holds `part` as whole words: after a suite or a class, before a case's values. */
+  const holdsWhole = (text: string, part: string): boolean => {
+    compared += text.length;
+    for (let at = text.indexOf(part); at !== -1; at = text.indexOf(part, at + 1)) {
+      compared += part.length;
+      if (compared > MOST_COMPARED) return false;
+      if (!inWord(text[at - 1]) && !inWord(text[at + part.length])) return true;
+    }
+    return false;
+  };
+  const missing: string[] = [];
+  for (const name of [...named.tests, ...named.regressionTests]) {
     const line = oneLine(name);
-    return line !== '' && !held.some((each) => holdsWhole(each, line) || endsWhole(line, each));
-  });
+    if (line === '' || exact.has(line)) continue;
+    if (!held.some((each) => holdsWhole(each, line) || endsWhole(line, each))) missing.push(name);
+    if (compared > MOST_COMPARED) return undefined;
+  }
+  return missing;
 }
 
 /**

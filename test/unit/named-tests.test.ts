@@ -18,7 +18,7 @@ const reportOf = (...tests: ReportedTest[]): TestReport => ({ tests, other: '' }
 const unreported = (name: string, ...held: string[]): boolean =>
   unreportedNames({ tests: [name], regressionTests: [] }, [
     reportOf(...held.map((each) => reported(each))),
-  ]).includes(name);
+  ])?.includes(name) === true;
 
 describe('unreportedNames (ADR 0342)', () => {
   it('names a test no report holds, and not one a report holds', () => {

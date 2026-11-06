@@ -1089,7 +1089,8 @@ export function createCheckRunner(options: CheckRunnerOptions): CheckRunner {
       if (!('reports' in wrote) || wrote.reports.length === 0) return end;
       read.push(...wrote.reports);
     }
-    return { ...end, unreported: unreportedRecord(unreportedNames(named, read)) };
+    const missing = unreportedNames(named, read);
+    return missing === undefined ? end : { ...end, unreported: unreportedRecord(missing) };
   };
 
   /**
