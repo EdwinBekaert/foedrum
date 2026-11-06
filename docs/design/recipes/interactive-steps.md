@@ -25,7 +25,7 @@ flowchart LR
 - Only `foedrum brew` on a terminal outside Claude Code opens the session ([foedrum brew and the plugin](../humans/brew.md)): `claude "<first message>" --session-id <the recorded id>` with resume's guards and no print-mode flag, in the foreground, while brew's lines wait and Ctrl+C is claude's.
   Every other attempt of the batch runs headless, a `retryMode: resume` retry included, and a retry of an interactive step opens a fresh session with the whole prompt.
 - A driver that opens no session (`serve`, `resume`, brew without a terminal) does not start the step's attempt: it issues `await_session`, and the batch is Stuck `waiting_for_session` with its reminder and the usual options.
-  The status lines name `foedrum brew <issue> --take`, to run in a terminal.
+  The status lines name `foedrum brew <issue> --take`, to run in a terminal; for a batch that is not its issue's latest, `foedrum brew <batch id> --take`, since a number would reach the later batch, and that command drives the batch it names ([ADR 0339](../../adr/0339-foedrum-brew-takes-a-batch-id-to-open-the-session-an-older-batch-waits-for.md)).
 - A session closed without a valid out doc, or an attempt lost when foedrum died, makes the batch wait for a session again, never a headless retry; with no attempt left the batch is Stuck `attempts_exhausted`.
   An attempt a Stuck abandoned before it started counts against no retry, for every step.
 - An open session has no deadline and no stall limit: the supervisor does not expire a started attempt of an interactive step, and its lease, renewed while foedrum runs, ends it when foedrum dies.
