@@ -173,7 +173,7 @@ describe('stop (ADR 0205)', () => {
     );
   });
 
-  it('is refused for a sub-order, or the order of a claimed issue, naming the order to stop', () => {
+  it('is refused for a sub-order, naming the order to stop, and for a number the command layer did not resolve', () => {
     order(12);
     decompose();
     refuse({ kind: 'stop', order: { issue: 30 }, ...who }, /^#30 is a sub-order of #12; stop #12$/);
@@ -183,10 +183,7 @@ describe('stop (ADR 0205)', () => {
       kind: 'record',
       event: { type: 'effect.applied', key: `["${batchId}","order.issue"]`, result: 40 },
     });
-    refuse(
-      { kind: 'stop', order: { issue: 40 }, ...who },
-      /^#40 is the order of web#7; foedrum stop 40 stops it$/,
-    );
+    refuse({ kind: 'stop', order: { issue: 40 }, ...who }, /^there is no brewing batch of #40 to stop$/);
   });
 
   it("stops a claimed target issue's batches by their repository, in any case", () => {
