@@ -1,6 +1,6 @@
 # 0335. A batch that keeps failing is marked after an hour, and Stuck when a reading hides its deadline
 
-Date: 2026-11-06 · Status: Accepted · Amends [0327](0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md) (a batch whose effects throw on every pass is marked, and its other sources' effects still apply), [0328](0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md) (what a person sees beyond the driver's line, `effect_failed` and the supervisor's `command_failed` said once, and a message compared without its numbers), [0250](0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md) (a tick ends by settling what failed), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment shows the mark) and [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) (a summary also ends at a line or paragraph separator)
+Date: 2026-11-06 · Status: Accepted · Amends [0327](0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md) (a batch whose effects throw on every pass is marked, and its other sources' effects still apply), [0328](0328-one-batch-s-error-stops-no-other-in-the-supervisor-or-the-drive.md) (what a person sees beyond the driver's line, `effect_failed` and the supervisor's `command_failed` said once, and a message compared without its numbers), [0250](0250-the-supervisor-is-one-tick-the-commands-own-the-interval.md) (a tick ends by settling what failed), [0027](0027-supervisor-lost-and-stalled-attempts.md) (the supervisor is no longer the one way a batch goes Stuck for liveness: a driver's end of a tick is another), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (the status comment shows the mark) and [0099](0099-a-rejected-run-end-is-blocked-on-the-environment-not-a-failed-tick.md) (a summary also ends at a line or paragraph separator)
 
 ## Context
 After ADR 0328, one batch's error stops no other batch, and the driver says it once.
@@ -12,7 +12,7 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
 ## Decision
 
 ### The mark
-- **A batch whose passes have failed for an hour is marked**, as `batch.failing` with the pass it failed in last, a summary of at most 120 characters and since when.
+- **A batch whose passes have failed for an hour is marked**, as `batch.failing` with the pass it failed in last, or its last reading's once its readings have failed for the hour, a summary of at most 120 characters and since when.
   The summary is the first line, as ADR 0099 has it, read for a secret before it is cut, since a cut can break a secret in two: a line that reads like one is left out for a fixed text, which a full commit hash in a message also gets, since the driver does not know the commit there.
   The mark is a field of the fold and changes no lane. A clean pass records `batch.recovered`, and the mark goes.
 - **The hour is one clock per batch, across its passes**, in the driver's memory, as the flush watch's is (ADR 0027), so a restart can make the mark later, never sooner. It counts from the first failure this driver saw.
@@ -38,7 +38,7 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
   A way out of any other Stuck leaves the mark to a clean pass.
 - **While Stuck on `failing` no recovery is recorded.** Stuck reads too little to call a tick clean, so the mark would go five seconds after it came.
 - **Nor while a takeover holds a batch's effects back** (ADR 0124): that pass tried none of them.
-- **A person's command whose reading of the recipe throws** says which batch and what failed, in one line, and that `cancel` and `recipe` still work: `retry` and `skip` read the recipe.
+- **A person's command that throws** says which batch it could not change and what failed, in one line, and that `cancel` and `recipe` still work if its recipe is what failed: `retry` and `skip` read the recipe, and what it caught cannot tell a recipe's throw from a store's.
 
 ### The sources stay apart
 - One source of effects that throws leaves the others' effects due, and the pass fails at its end, naming the first error.
@@ -61,7 +61,7 @@ A failure in the supervisor can also hide an attempt's deadline, so a brewing ba
 
 ## Consequences
 - ADR 0328's exception to "a batch must never sit silently" narrows. A batch that keeps failing has the driver's line alone for its first hour, or for as long as no driver that takes it runs: with no Cellar running, a free batch is marked by nobody. After that, what stays is a batch whose status comment's own source throws, where the comment cannot show the mark and `foedrum status` still does.
-- `CLAUDE.md` is reworded after the merge, as ADR 0328's line was. Its last exception under "Every wait has a deadline" is to read: "and a batch whose status comment's own source throws, whose mark that comment cannot show, while `foedrum status` still does; any other batch that keeps failing is marked after an hour, and a brewing one whose reading fails goes Stuck (ADR 0335)". Its exceptions to "No mutable state outside the event store" gain: "since when a driver's passes fail on each batch, which a driver keeps to mark it after an hour (ADR 0335)".
+- `CLAUDE.md` is reworded after the merge, by the session that coordinates this work, not by this change; ADR 0328's rewording of the same line is still to land with it. Its last exception under "Every wait has a deadline" is to read: "and a batch whose status comment's own source throws, whose mark that comment cannot show, while `foedrum status` still does; any other batch that keeps failing is marked after an hour, and a brewing one whose reading fails goes Stuck (ADR 0335)". Its exceptions to "No mutable state outside the event store" gain: "since when a driver's passes fail on each batch, which a driver keeps to mark it after an hour (ADR 0335)".
 - Since that clock decides a mark and a lane, a driver restarted more often than every hour never reaches it, so a brewing batch whose deadline cannot be read can run past it for that long.
 - An hour's outage of the code host marks each batch with an effect due, and clears them at the next clean pass.
 - A paused batch and one a closed usage window holds are not read by the drive, so a failure only there is recovered, as ADR 0328 said of its line; its mark comes an hour after it fails again.
