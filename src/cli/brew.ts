@@ -88,13 +88,17 @@ const questionLines = (state: State, stepId: string, batch: Batch): string[] => 
   const { lane } = batch;
   if (lane.kind !== 'stuck' || lane.reason.kind !== 'needs_input') return [];
   const { questions } = lane.reason;
+  const called = calledAs(state, batch);
+  // Answered, an older batch waits for no session, so brew takes neither its id nor, for this batch,
+  // its number; a Cellar drives it (ADR 0339).
+  const next = called === batch.id ? 'foedrum serve drives it' : 'brew again';
   return [
     `${saidAs(state, batch)} needs input at ${stepId}:`,
     ...questions.flatMap(({ q, options, recommended, whyBlocking }, n) => [
       `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
       `     why it blocks: ${whyBlocking}`,
     ]),
-    `answer them in order with foedrum answer ${calledAs(state, batch)} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then brew again`,
+    `answer them in order with foedrum answer ${called} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then ${next}`,
   ];
 };
 
