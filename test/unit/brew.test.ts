@@ -901,6 +901,29 @@ describe('runBrew', () => {
       assert.equal(runner.started.length, 2);
     });
 
+    it('still exits Stuck, and says why, when the tick after it stuck throws: regression test', async () => {
+      let thrown = false;
+      const failing = shell(behave.blocked('findings', 'The tests fail'), {
+        openStore: () => ({
+          ...f.store,
+          batchesPastDeadline: (at) => {
+            if (!thrown && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+              thrown = true;
+              throw new Error('the store could not be read');
+            }
+            return f.store.batchesPastDeadline(at);
+          },
+        }),
+      });
+      assert.equal(await runBrew(f.setup, failing, request), 3);
+      assert.equal(thrown, true);
+      assert.ok(
+        f.lines.includes('foedrum brew: a tick failed: the store could not be read'),
+        f.lines.join('\n'),
+      );
+      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch 12-1 is stuck: /);
+    });
+
     it('stops as any tick does when the state branch says stop in the tick after it stuck: exit 1', async () => {
       const stopping = shell(behave.blocked('findings', 'The tests fail'), {
         stateBranch: () => ({
