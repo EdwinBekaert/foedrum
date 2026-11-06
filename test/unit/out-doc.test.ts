@@ -322,6 +322,11 @@ describe("a Taster's riskLeft (ADR 0214)", () => {
       assert.deepEqual(cutOf('password = hunter2'), ['password = hunter2']);
     });
 
+    it('is cut as any other line when the secret lies past what is read for one: ADR 0088', () => {
+      const start = 'r '.repeat(600);
+      assert.deepEqual(cutOf(`${start}password = hunter2`), [`${start.slice(0, kept)}${CUT}`]);
+    });
+
     it('never ends in half a character', () => {
       const emoji = String.fromCodePoint(0x1f37a);
       const [cut] = cutOf(`${'r'.repeat(kept - 1)}${emoji}${'r'.repeat(MAX_RISK_LEFT)}`) ?? [];

@@ -751,6 +751,12 @@ describe('tasting-compare --real', () => {
         }
       });
 
+      it('its recipe says it tastes with more than nip does', () => {
+        const { description } = Recipe.parse(parseJsonc(lensRecipe()));
+        assert.match(description ?? '', /design conformance/);
+        assert.doesNotMatch(description ?? '', /as nip tastes it/);
+      });
+
       it('each setup brews the recipe of its own kind', () => {
         assert.deepEqual(
           SETUPS.map((setup) => realRecipeOf(setup)),
