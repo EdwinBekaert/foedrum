@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { OutDocRead } from '../../src/brewers/claude-runner.ts';
+import { formatHandovers } from '../../src/cli/commands.ts';
 import { type AttemptLimits, settleAttempt } from '../../src/engine/brewer-runner.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { fold } from '../../src/engine/fold.ts';
@@ -78,7 +79,7 @@ describe('an out doc with a handover', () => {
     });
   });
 
-  it('gives a later round of a lens none of it: it reads a parsed out doc: regression test', () => {
+  it("reads a Taster's out doc without its handover: regression test", () => {
     const tasting = { ...done, verdict: 'approve', findings: [] };
     const read = readOutDoc(docWith({ ...tasting, handover: [LESSON] }), TastingOutDoc);
     assert.ok(read.valid);
@@ -153,6 +154,13 @@ describe('handoverOf', () => {
     ]);
   });
 
+  it('leaves out a line that holds a full commit hash: no commit is known there', () => {
+    const line = `see ${'a1b2c3d4'.repeat(5)}`;
+    assert.deepEqual(handoverOf(docWith({ handover: [line] }), 'gauge'), [
+      '[left out: a text of step gauge that looks like a secret]',
+    ]);
+  });
+
   it('finds a secret that only one line makes of two', () => {
     const [line] = handoverOf(docWith({ handover: [`password\n= ${'hunter2hunter2'}`] }), 'gauge');
     assert.equal(line, '[left out: a text of step gauge that looks like a secret]');
@@ -181,6 +189,21 @@ describe('withoutHandover', () => {
 
   it('leaves a text with no frontmatter as it is: there is no field in it', () => {
     assert.equal(withoutHandover('# Just a note\n'), '# Just a note\n');
+  });
+
+  it('takes it out of a frontmatter with CRLF line ends', () => {
+    const text = `---\r\n{ "status": "done", "handover": ["${LESSON}"] }\r\n---\r\nBody\r\n`;
+    assert.doesNotMatch(withoutHandover(text), /fixture parser/);
+  });
+
+  it('leaves a text whose first line only starts with the delimiter as it is', () => {
+    for (const text of ['---x\nhandover\n', '---- a note\n', '--- \nhandover\n']) {
+      assert.equal(withoutHandover(text), text, JSON.stringify(text));
+    }
+  });
+
+  it('refuses a text that is only the opening delimiter', () => {
+    assert.throws(() => withoutHandover('---'), { message: /its frontmatter does not read/ });
   });
 
   it('refuses a frontmatter it cannot read, rather than pass the field on', () => {
@@ -507,6 +530,23 @@ describe('handoversOf', () => {
   });
 });
 
+describe('formatHandovers', () => {
+  it('numbers the lines of each attempt of each step on their own', () => {
+    const text = formatHandovers('12-1', [
+      { stepId: 'plan', attempt: 1, text: 'a' },
+      { stepId: 'plan', attempt: 1, text: 'b' },
+      { stepId: 'plan', attempt: 2, text: 'c' },
+      { stepId: 'taste', attempt: 1, text: 'd' },
+    ]);
+    assert.deepEqual(text.split('\n').slice(1, -1), [
+      'plan#1.1: a',
+      'plan#1.2: b',
+      'plan#2.1: c',
+      'taste#1.1: d',
+    ]);
+  });
+});
+
 describe('the pull request body', () => {
   const text = (handovers?: { stepId: string; attempt: number; text: string }[]) =>
     pullRequestText({
@@ -516,8 +556,10 @@ describe('the pull request body', () => {
     }).body;
 
   it('is byte for byte as before with no handover: regression test', () => {
-    assert.equal(text([]), text());
-    assert.doesNotMatch(text([]), /handover/i);
+    assert.equal(
+      text([]),
+      '## How this was brewed\n\nBrewed by Foedrum.\n\nNo How it works: the Cellarman wrote none.\n\nA person reviews this before it is marked ready: no step tasted the change.',
+    );
   });
 
   it('lists each line by its step and attempt in a folded fence', () => {
@@ -547,6 +589,37 @@ describe('the pull request body', () => {
     assert.match(body, /``````text\n/);
   });
 
+  describe('beside the reports', () => {
+    const reports = [{ stepId: 'brew', summary: 'y'.repeat(40_000), assumptions: [] }];
+    const lines = Array.from({ length: 5 }, (_, at) => ({
+      stepId: 'gauge',
+      attempt: at + 1,
+      text: 'a line',
+    }));
+    const bodyOf = (handovers: typeof lines) =>
+      pullRequestText({ title: 'Clamp', reports, handovers, closes: { repo: 'a/b', issue: 7 } })
+        .body;
+    const between = (body: string, from: string, to: string) =>
+      body.slice(body.indexOf(from), body.indexOf(to, body.indexOf(from)) + to.length);
+
+    it('comes after the reports and before the closing line', () => {
+      const body = bodyOf(lines);
+      const reported = body.indexOf('What each step reported');
+      const handed = body.indexOf('What the brewers handed over');
+      assert.ok(reported >= 0 && reported < handed);
+      assert.ok(handed < body.indexOf('Closes a/b#7'));
+    });
+
+    it("takes its room out of the reports', by its own length", () => {
+      const reportsOf = (body: string) => between(body, 'What each step reported', '</details>');
+      const blockOf = (body: string) =>
+        between(body, '<details><summary>What the brewers', '</details>');
+      const without = reportsOf(bodyOf([]));
+      const withIt = bodyOf(lines);
+      assert.equal(reportsOf(withIt).length, without.length - blockOf(withIt).length);
+    });
+  });
+
   it('cuts the newest lines past its room, says how many, and names the command', () => {
     const line = 'x'.repeat(300);
     const lines = Array.from({ length: 30 }, (_, at) => ({
@@ -561,7 +634,8 @@ describe('the pull request body', () => {
     assert.ok(left !== undefined);
     const shown = [...body.matchAll(/gauge#\d+: x/g)].length;
     assert.equal(shown + Number(left), 30);
-    const block = body.slice(body.indexOf('What the brewers handed over'));
-    assert.ok(block.length <= 4_200, `${block.length}`);
+    const start = body.indexOf('<details><summary>What the brewers handed over');
+    const block = body.slice(start, body.indexOf('</details>', start) + '</details>'.length);
+    assert.ok(block.length <= 4_000, `${block.length}`);
   });
 });
