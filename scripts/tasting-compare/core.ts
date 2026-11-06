@@ -249,12 +249,10 @@ const attemptsIn = (
     if (lenses === undefined) continue;
     let failure: string | undefined;
     let findings: TastingFinding[] = [];
-    let risks: { riskLeft?: readonly string[] } = {};
     switch (outcome.kind) {
       case 'succeeded': {
         const read = findingsOf(outcome.output);
         findings = read.findings;
-        risks = risksOf(outcome.output);
         if (read.refused > 0) {
           failure = `succeeded with ${read.refused} finding${read.refused === 1 ? '' : 's'} the schema refuses`;
         }
@@ -278,7 +276,7 @@ const attemptsIn = (
       usage,
       turns: receipt?.turns,
       durationMs: receipt?.durationMs,
-      ...risks,
+      ...(outcome.kind === 'succeeded' ? risksOf(outcome.output) : {}),
       ...(receipt?.models === undefined
         ? {}
         : { models: receipt.models.map(({ model }) => model) }),
@@ -594,6 +592,10 @@ export const escapeCell = (text: string): string =>
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
 
+/** Where a finding is, as a list line shows it. */
+export const placeShown = ({ file, line }: TastingFinding): string =>
+  file === undefined ? 'no file' : `${file}${line === undefined ? '' : `:${line}`}`;
+
 const round = (value: number, digits = 1): string =>
   Number.isNaN(value) ? '-' : String(Number(value.toFixed(digits)));
 const thousands = (value: number): string =>
@@ -643,13 +645,9 @@ export const tableOf = (summaries: readonly SetupSummary<string>[], parts: Table
       if (others.length === 0) continue;
       lines.push('', `Other findings of ${s.setup}, scored run ${index + 1}:`, '');
       for (const { stepId, finding } of others) {
-        const place =
-          finding.file === undefined
-            ? 'no file'
-            : `${finding.file}${finding.line === undefined ? '' : `:${finding.line}`}`;
         const lens = finding.lens === undefined ? '' : `${finding.lens}, `;
         lines.push(
-          `- ${stepId}: ${escapeCell(`${lens}${finding.severity} in ${place}: ${finding.why}`)}`,
+          `- ${stepId}: ${escapeCell(`${lens}${finding.severity} in ${placeShown(finding)}: ${finding.why}`)}`,
         );
       }
     }

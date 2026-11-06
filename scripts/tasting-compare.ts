@@ -262,10 +262,9 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     }
     return stdout.trim();
   };
-  const whole = new Map<string, string>();
   for (const { base, head } of REAL_ORDERS) {
-    whole.set(base, await commitIn(base));
-    whole.set(head, await commitIn(head));
+    await commitIn(base);
+    await commitIn(head);
   }
   const today = await runGit(root, [
     'show',
@@ -288,7 +287,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     target: async (setup, scratch, git) => {
       // Only the base: later history stays out of the scratch remote, whatever a Taster may run.
       await git(scratch, ['init', '-q', '--bare', '--initial-branch=main', 'web.git']);
-      const base = whole.get(orderOf(setup).base) ?? '';
+      const base = await commitIn(orderOf(setup).base);
       await git(join(scratch, 'web.git'), [
         'fetch',
         '-q',

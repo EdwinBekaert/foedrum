@@ -14,6 +14,7 @@ import {
   escapeCell,
   IMPLEMENT,
   nextRunOf,
+  placeShown,
   type RunRecord,
   recordIn,
   runFailure,
@@ -25,9 +26,9 @@ import {
 
 /** The three self-brew orders of #374, each as brewed, not as merged. */
 export const REAL_ORDERS = [
-  { order: 855, pullRequest: 859, base: '58db3d5e', head: '62d71154' },
-  { order: 864, pullRequest: 866, base: 'b6db0ca8', head: '5590e9c5' },
-  { order: 867, pullRequest: 868, base: '02eba0cd', head: 'f4fb4585' },
+  { order: 855, base: '58db3d5e', head: '62d71154' },
+  { order: 864, base: 'b6db0ca8', head: '5590e9c5' },
+  { order: 867, base: '02eba0cd', head: 'f4fb4585' },
 ] as const;
 
 /** The commit whose `taster.md` the `today` setup tastes with. */
@@ -126,7 +127,7 @@ export const changedFiles = (nameStatus: string): string[] => {
 };
 
 /** What a transcript says a Taster read. */
-export interface TranscriptReads {
+interface TranscriptReads {
   /** The files the Taster read, by path in its worktree, once each. */
   opened: readonly string[];
   /** What it reached outside its worktree. */
@@ -201,7 +202,7 @@ const reachOfCall = (
 
 const readLine = (line: string) => {
   try {
-    return TranscriptLine.safeParse(JSON.parse(line));
+    return TranscriptLine.parse(JSON.parse(line));
   } catch {
     return undefined;
   }
@@ -222,11 +223,11 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
   for (const [at, line] of transcript.split(/\r?\n/).entries()) {
     if (line === '') continue;
     const read = readLine(line);
-    if (read === undefined || !read.success) {
+    if (read === undefined) {
       problem ??= `its transcript's line ${at + 1} cannot be read`;
       continue;
     }
-    const { type, message } = read.data;
+    const { type, message } = read;
     if (type !== 'assistant' && type !== 'user') continue;
     for (const block of blocksOf(message?.content)) {
       const use = ClaudeToolUse.safeParse(block);
@@ -312,9 +313,6 @@ export const nextRealRun = (records: readonly RealRecord[], runs: number) =>
 export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
   createHmac('sha256', seed).update(`${setup}/${run}`).digest('hex').slice(0, 8);
 
-const placeShown = ({ file, line }: TasterAttempt['findings'][number]): string =>
-  file === undefined ? 'no file' : `${file}${line === undefined ? '' : `:${line}`}`;
-
 /** Each Taster of a run in the recipe's order, so the order they finished in says nothing. */
 const inRecipeOrder = (attempts: readonly TasterAttempt[]): TasterAttempt[] => {
   const place = (stepId: string): number => TASTERS.findIndex(({ id }) => id === stepId);
@@ -341,7 +339,7 @@ const tasterLines = ({ stepId, lenses, findings, riskLeft = [] }: TasterAttempt)
       ]),
 ];
 
-const codeRows = (seed: string, { setup, run, attempts }: RealRecord): string[] =>
+const codeRows = (code: string, { setup, run, attempts }: RealRecord): string[] =>
   inRecipeOrder(attempts).map((attempt) => {
     const { stepId, models = [], usage } = attempt;
     const { total } = tokensOf([attempt]);
@@ -350,7 +348,7 @@ const codeRows = (seed: string, { setup, run, attempts }: RealRecord): string[] 
         ? '- | - | - | - | -'
         : `${usage.inputTokens} | ${usage.outputTokens} | ${usage.cacheReadTokens} | ${usage.cacheWriteTokens} | ${total}`;
     const model = models.length === 0 ? '-' : models.map(escapeCell).join(', ');
-    return `| ${codeOf(seed, setup, run)} | ${setup} | ${run} | ${stepId} | ${model} | ${tokens} |`;
+    return `| ${code} | ${setup} | ${run} | ${stepId} | ${model} | ${tokens} |`;
   });
 
 /**
@@ -370,8 +368,9 @@ export const blinded = (
     for (const setup of REAL_SETUPS.filter((each) => orderOf(each).order === order)) {
       const runs = runsOfSetup(records, setup, runFailure);
       for (const record of runs.scored) {
-        scored.push({ code: codeOf(seed, setup, record.run), record });
-        rows.push(...codeRows(seed, record));
+        const code = codeOf(seed, setup, record.run);
+        scored.push({ code, record });
+        rows.push(...codeRows(code, record));
       }
       for (const { run, why } of runs.failed) {
         failures.push(`Failed: ${setup} run ${run}: ${escapeCell(why)}`);
