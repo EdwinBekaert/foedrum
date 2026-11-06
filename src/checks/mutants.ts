@@ -126,11 +126,22 @@ const readTemplates = (line: string): Reading => {
   return { kind, code, text, sure };
 };
 
-// A literal's words: an escape is not one, unless it is numeric and could spell one, and a `$`
-// there ends no word of the code.
-const textWords = (text: string): string[] => bareWords(text.replace(/\\[^xu\d]|\$/g, ' '));
+// A numeric escape of a literal's text, whole: it can spell any character.
+const numericEscapes = /\\(?:x|u\{?)[\da-f]*\}?/gi;
 
-// What a replacement adds, both lines read: its code holds nothing the original's code lacks, so
+// A literal's words, as they read when it runs: a numeric escape counts whole, an escape of a
+// letter is that letter, and any other escape, or a `$`, ends a word.
+const textWords = (text: string): string[] => [
+  ...(text.match(numericEscapes) ?? []),
+  ...bareWords(
+    text
+      .replace(numericEscapes, ' ')
+      .replace(/\\(?:[bfnrtv0]|\P{ID_Continue})|\$/gu, ' ')
+      .replaceAll('\\', ''),
+  ),
+];
+
+// What a replacement adds, its original read: its code holds nothing the original's code lacks, so
 // no word of the text turns into code, and its text no word the original line lacks.
 const addedByReading = (before: Reading, after: Reading): string[] => {
   const code = names(before.code, true);
@@ -175,7 +186,7 @@ export const replacementReason = (mutant: Mutant, stripped = true): string | und
     if (sure && (before.kind === 'open') !== (after.kind === 'open')) {
       return 'the replacement breaks a template literal';
     }
-    if (before.kind === 'read' && after.kind === 'read') {
+    if (before.kind === 'read' && after.kind !== 'open') {
       // A line it is not sure of must pass both rules, so it is never looser than ADR 0034's.
       const read = addedByReading(before, after);
       added = sure ? read : [...new Set([...added, ...read])];
