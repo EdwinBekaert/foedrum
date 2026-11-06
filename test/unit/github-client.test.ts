@@ -477,6 +477,13 @@ describe('createGitHubClient', () => {
       assert.equal(calls.length, 1);
     });
 
+    it('a read gh cut off at its limit is not tried again', async () => {
+      const cutOff = { ...killed('timed-out'), killed: 'too-much-output' } as const;
+      const { client, calls } = scripted([cutOff]);
+      await assert.rejects(client.rest('GET', '/a'), /longer than/);
+      assert.equal(calls.length, 1);
+    });
+
     it('a pause that ended while a read waited for gh does not stop its second try', async () => {
       let now = start;
       const calls: string[] = [];

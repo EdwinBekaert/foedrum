@@ -698,6 +698,78 @@ describe('runBrew', () => {
         assert.notEqual(host.issue('acme/brewery', 12)?.state, 'closed');
       });
 
+      /** Batch 12-1 on tap, its pull request's merge recorded, and `applied` in the ledger. */
+      const mergedWith = (applied: readonly string[]) => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+        });
+        const event = {
+          type: 'pull_request.ended',
+          batchId: '12-1',
+          pullRequest: url(90),
+          state: 'merged',
+        } as const;
+        issue({ kind: 'record', event });
+        for (const effect of applied) {
+          const key = effectKey.encode({ batchId: '12-1', effect });
+          issue({ kind: 'record', event: { type: 'effect.applied', key, result: 1 } });
+        }
+        return fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+        });
+      };
+
+      it("finishes a Brewery issue's close a run killed after its comment left due: exit 0", async () => {
+        const host = mergedWith(['close.comment']);
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
+        assert.equal(host.issue('acme/brewery', 12)?.state, 'closed');
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch 12-1 merged: ${url(90)}; Brewery issue #12 closed`,
+        );
+        const said = host.comments.get('acme/brewery#12') ?? [];
+        assert.ok(!said.some(({ body }) => body.includes('Foedrum closes this issue')));
+      });
+
+      it("refuses a Brewery issue's batch whose close is all applied, reading no pull request: exit 5", async () => {
+        const host = mergedWith(['close.comment', 'close.issue']);
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          'foedrum brew: batch 12-1 of #12 is on tap; foedrum order 12 orders it again',
+        );
+        assert.deepStrictEqual(
+          host.requests.filter((each) => /\/pulls\/\d+/.test(each)),
+          [],
+        );
+      });
+
+      it('a batch cancelled while another driver takes it offers no take-over: exit 5', async () => {
+        const expiresAt = new Date(t0.getTime() + 60_000);
+        let done = false;
+        const running = behave.hang({ lastProgressAt: t0, turnsWithoutProgress: 0 });
+        const taken = shell(running, {
+          wait: async () => {
+            if (done) return;
+            done = true;
+            issue({ kind: 'cancel', batchId: '12-1', by: 'ann', via: 'terminal' });
+            f.store.withTransaction((tx) =>
+              tx.putBatchLease({ batchId: '12-1', owner: 'cellar', expiresAt }),
+            );
+          },
+        });
+        assert.equal(await runBrew(f.setup, taken, request), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch 12-1 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew 12 tries again then`,
+        );
+      });
+
       it("finishes a Brewery issue's close a run killed after the end left due: exit 0", async () => {
         f.store.withTransaction((tx) => {
           const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
