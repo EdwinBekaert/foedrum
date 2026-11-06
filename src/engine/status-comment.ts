@@ -146,6 +146,13 @@ export const STEP_BACK = 'Another round is unlikely to help: plan the order agai
 export const planNextStep = (called: string, command: (text: string) => string): string =>
   `read the plan and its assumptions; sign it off with ${command(`foedrum approve ${called}`)}, correct it in a session with ${command(`foedrum lauter ${called}`)}, plan it again with ${command(`foedrum retry ${called}`)}, or end it with ${command(`foedrum cancel ${called}`)}.`;
 
+/**
+ * An option as a line offers it: its name, under a comment that says its number, or the whole command
+ * for a batch a number would not reach (ADR 0334).
+ */
+const optionOffered = (option: string, called: string, batchId: string): string =>
+  called === batchId ? `foedrum ${option} ${called}` : option;
+
 /** The options of a plan's review that `planNextStep` names. */
 const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry', 'cancel']);
 
@@ -153,12 +160,16 @@ const planCommands: ReadonlySet<string> = new Set(['approve', 'lauter', 'retry',
  * The text of the `Next:` line of a plan that waits for its review, in the status comment and the
  * plan comment alike: `planNextStep`, then the lane's `options` it does not name (#855).
  */
-export const planNextLine = (called: string, options: readonly string[]): string => {
+export const planNextLine = (
+  called: string,
+  options: readonly string[],
+  batchId: string,
+): string => {
   const others = options.filter((option) => !planCommands.has(option));
   const also =
     others.length === 0
       ? ''
-      : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map(code).join(', ')}.`;
+      : ` Its other ${others.length === 1 ? 'option' : 'options'}: ${others.map((option) => code(optionOffered(option, called, batchId))).join(', ')}.`;
   return `Next: ${planNextStep(called, code)}${also}`;
 };
 
@@ -624,11 +635,11 @@ const nextLines = (
   if (lane.kind === 'stuck') {
     const { reason, options } = lane;
     const moving = (shown: readonly string[]): string =>
-      `get it moving with ${shown.map(code).join(', ')}`;
+      `get it moving with ${shown.map((option) => code(optionOffered(option, called, batch.id))).join(', ')}`;
     switch (reason.kind) {
       // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
       case 'plan_review':
-        return [planNextLine(called, options)];
+        return [planNextLine(called, options, batch.id)];
       case 'needs_input': {
         const answers = reason.questions.map((_, n) => `<answer ${n + 1}>`).join(' ');
         const others = options.filter((option) => option !== 'answer');

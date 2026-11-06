@@ -551,7 +551,7 @@ export const orderIssue = async (
 
 /** Why a decision on a Stuck batch is the terminal's (ADR 0125). */
 const STUCK_DECISION =
-  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <issue>";
+  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <issue>, or by the id its run as: line gives";
 
 export const commands: readonly RegisteredCommand[] = [
   define({

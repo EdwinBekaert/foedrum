@@ -74,6 +74,11 @@ export const formatStuck = (state: State): string => {
   const lines = stuck.flatMap(({ batch, lane }, i) => [
     heads[i] ?? '',
     `  options: ${lane.options.join(', ')}`,
+    // A number means the latest batch: an older one's options run by its id (ADR 0334).
+    ...read(
+      () => (calledAs(state, batch) === batch.id ? [`  run as: foedrum <option> ${batch.id}`] : []),
+      () => [],
+    ),
     ...(lane.reason.kind === 'needs_input'
       ? lane.reason.questions.map(
           ({ q, options, recommended }, n) =>

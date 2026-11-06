@@ -330,7 +330,7 @@ export const renderPlan = (
   const joined = (parts: string[][]): string => parts.map((lines) => lines.join('\n')).join('\n\n');
   const head = `${top.join('\n')}\n\n`;
   // Last, and kept by a cut: what to do next, while the plan waits for its review.
-  const next = waitsForReview ? `\n\n${planNextLine(called, options)}` : '';
+  const next = waitsForReview ? `\n\n${planNextLine(called, options, batchId)}` : '';
   const text = joined([table, ...order, ...sections, ...others, ...after]);
   if (head.length + text.length + next.length <= longestComment) return `${head}${text}${next}`;
   // The graph goes first, so a cut never leaves its block open.
