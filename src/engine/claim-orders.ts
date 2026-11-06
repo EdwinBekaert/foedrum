@@ -79,6 +79,22 @@ export const latestOf = (state: State, batch: Batch, issue: number): boolean => 
   return (state.orders.get(issue) ?? state.subOrders.get(issue))?.batchIds.at(-1) === batch.id;
 };
 
+/** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
+export const latestBatch = (
+  batches: Iterable<Batch>,
+  issue: number,
+  repo: string | undefined,
+): Batch | undefined =>
+  [...batches]
+    .filter(
+      (batch) =>
+        batch.issue === issue &&
+        (repo === undefined
+          ? batch.repo === undefined
+          : batch.repo !== undefined && same(batch.repo, repo)),
+    )
+    .at(-1);
+
 /** A claimed batch's target issue as `<alias>#<n>`, or `owner/name#<n>` when its id has no alias. */
 export const claimedName = (batch: Batch): string =>
   `${aliasOf(batch.id) ?? batch.repo}#${batch.issue}`;

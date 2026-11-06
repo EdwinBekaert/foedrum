@@ -10,7 +10,7 @@
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
-import { breweryIssueOf, claimOfOrder } from '../engine/claim-orders.ts';
+import { breweryIssueOf, claimOfOrder, latestBatch } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
@@ -26,7 +26,7 @@ import { githubOrderLabels, type OrderIssue } from '../github/order-text.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { OrderTarget } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
-import { latestBatch, type OrderClaim, orderIssue } from './commands.ts';
+import { type OrderClaim, orderIssue } from './commands.ts';
 import { closeOpened, type Opened, tick, wireDriver } from './driver-wiring.ts';
 import { printable } from './run.ts';
 import { formatNotice, INTERVAL_MS, type ServeShell } from './serve.ts';

@@ -7,7 +7,7 @@
 
 import { aliasOf, nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
-import { claimOfOrder } from '../engine/claim-orders.ts';
+import { claimOfOrder, latestBatch } from '../engine/claim-orders.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
@@ -38,7 +38,6 @@ import {
 import { orderOfBatch, pauseOf, stopAtText } from '../engine/pauses.ts';
 import { onePerOrder, placeAt, rankQueue, rankRefusal } from '../engine/ranks.ts';
 import { batchOf } from '../engine/state-branch.ts';
-import { sameRepo } from '../engine/task-tree.ts';
 import { scopeOf } from '../engine/usage-window.ts';
 import { worktreeClaims } from '../engine/worktree-claims.ts';
 import { messageOf } from '../platform/errors.ts';
@@ -275,22 +274,6 @@ const claimOf = (
   if (config.brewery === undefined) return { refused: NAME_THE_BREWERY };
   return { repo, alias, brewery: config.brewery, config };
 };
-
-/** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
-export const latestBatch = (
-  batches: Iterable<Batch>,
-  issue: number,
-  repo: string | undefined,
-): Batch | undefined =>
-  [...batches]
-    .filter(
-      (batch) =>
-        batch.issue === issue &&
-        (repo === undefined
-          ? batch.repo === undefined
-          : batch.repo !== undefined && sameRepo(batch.repo, repo)),
-    )
-    .at(-1);
 
 /** What `order` and `recipe` order for an issue, how they name it, and the claim it needs. */
 interface Ordering {
