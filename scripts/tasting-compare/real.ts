@@ -95,8 +95,14 @@ export const realBreweryFiles = (
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
 });
 
-export const refuseSameTaster = (_today: string, _current: string): void => {
-  throw new Error('not implemented');
+/** Throws when `today`'s pinned Taster is the default's text: the comparison would be of nothing. */
+export const refuseSameTaster = (today: string, current: string): void => {
+  const lines = (text: string): string => text.replaceAll('\r\n', '\n');
+  if (lines(today) === lines(current)) {
+    throw new Error(
+      `the Taster at ${TODAY_COMMIT} and the default are the same Taster: the setups would compare nothing`,
+    );
+  }
 };
 
 /**

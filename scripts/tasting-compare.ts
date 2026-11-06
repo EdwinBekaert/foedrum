@@ -94,6 +94,7 @@ import {
   realBreweryFiles,
   realRecordOf,
   realTable,
+  refuseSameTaster,
   scriptedRealTastings,
   scriptedTranscript,
   TODAY_COMMIT,
@@ -273,6 +274,10 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
   if (today.code !== 0) {
     throw new Error(`the Taster of ${TODAY_COMMIT} cannot be read: ${today.stderr.trim()}`);
   }
+  refuseSameTaster(
+    today.stdout,
+    readFileSync(join(root, 'defaults', 'brewers', 'taster.md'), 'utf8'),
+  );
   const folder = join(fixture, 'real');
   return {
     folders: ['real'],
