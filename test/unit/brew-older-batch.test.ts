@@ -17,7 +17,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { foldedBatch } from '../../src/engine/fold.ts';
 import { BrewCommand } from '../../src/schemas/commands.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
-import { type Behaviour, behave } from '../helpers/fake-brewer-runner.ts';
+import { type Behaviour, behave, question } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { FAKE_COMMIT } from '../helpers/fake-worktrees.ts';
@@ -193,7 +193,7 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       assert.equal(await runBrew(f.setup, asks, brewOf('12-1')), 4, f.lines.join('\n'));
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1>, then foedrum serve drives it',
+        'foedrum brew: answer them in order with foedrum answer 12-1 <answer 1>, then foedrum brew 12-1 --take drives it',
       );
     });
 
@@ -282,6 +282,126 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
     });
   });
 
+  describe('a batch nothing drives', () => {
+    const later = new Date(t0.getTime() + 3_600_000);
+    const onceLater = (behaviour: Behaviour) =>
+      f.shell(behaviour, { lock: () => fakeLock('ann'), clock: () => later });
+
+    /** foedrum dies with the session of 12-1 open: Brewing, its attempt's lease left to lapse. */
+    const died = async (): Promise<void> => {
+      await parked();
+      const stop = new AbortController();
+      let ticks = 0;
+      const dying = f.shell(behave.lost(), {
+        lock: () => fakeLock('ann'),
+        signal: stop.signal,
+        wait: async () => {
+          ticks++;
+          if (ticks > 1) stop.abort();
+        },
+      });
+      assert.equal(await runBrew(f.setup, dying, brewOf('12-1')), 1, f.lines.join('\n'));
+      assert.equal(foldedBatch(f.log().state(), '12-1').lane.kind, 'brewing');
+      f.lines.length = 0;
+    };
+
+    it('takes a batch whose foedrum died once its lease lapsed, records the loss, and the next brew opens it', async () => {
+      await died();
+      const noted = await runBrew(f.setup, onceLater(behave.succeed()), brewOf('12-1'));
+      assert.equal(noted, 3, f.lines.join('\n'));
+      const { lane } = foldedBatch(f.log().state(), '12-1');
+      assert.equal(lane.kind === 'stuck' && lane.reason.kind, 'waiting_for_session');
+      assert.equal(
+        f.lines.at(-1),
+        'foedrum brew: run foedrum brew 12-1 --take again to reopen the session',
+      );
+      const again = await runBrew(f.setup, onceLater(behave.succeed('Refined')), brewOf('12-1'));
+      assert.equal(again, 0, f.lines.join('\n'));
+      assert.ok(startedIn('12-1').includes('refine#4'), String(startedIn('12-1')));
+      assert.deepStrictEqual(startedIn('12-2'), []);
+    });
+
+    it('refuses while an attempt lease is held, saying until when, and takes nothing over', async () => {
+      await died();
+      const [held] = f.store.currentLeases(t0);
+      assert.ok(held !== undefined, 'the dead brew left its attempt lease');
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        `foedrum brew: refine#3 of batch 12-1 is held by ${held.owner} until ${held.expiresAt.toISOString()}; foedrum brew 12-1 --take takes it once that lease ends`,
+      );
+      assert.ok(!startedIn('12-1').includes('refine#4'), String(startedIn('12-1')));
+    });
+
+    it('refuses a batch another driver holds, taking nothing over, though --take is given', async () => {
+      await died();
+      const expiresAt = new Date(later.getTime() + 60_000);
+      f.store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '12-1', owner: 'serve', expiresAt }),
+      );
+      const refused = await runBrew(f.setup, onceLater(behave.succeed()), brewOf('12-1'));
+      assert.equal(refused, 5, f.lines.join('\n'));
+      assert.equal(
+        f.lines.at(-1),
+        `foedrum brew: batch 12-1 is driven by serve until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum status shows it`,
+      );
+      const held = f.store.batchLeases(later).find(({ batchId }) => batchId === '12-1');
+      assert.equal(held?.owner, 'serve');
+      assert.ok(!f.lines.some((line) => line.includes('took batch')), f.lines.join('\n'));
+    });
+
+    it('takes a batch once the lease of the driver that held it lapsed', async () => {
+      await died();
+      f.store.withTransaction((tx) =>
+        tx.putBatchLease({ batchId: '12-1', owner: 'serve', expiresAt: later }),
+      );
+      assert.equal(await runBrew(f.setup, onceLater(behave.succeed()), brewOf('12-1')), 3);
+      const { lane } = foldedBatch(f.log().state(), '12-1');
+      assert.equal(lane.kind === 'stuck' && lane.reason.kind, 'waiting_for_session');
+    });
+
+    it('goes on with one whose session asked, once answered', async () => {
+      await parked();
+      assert.equal(await runBrew(f.setup, shell(behave.needInput()), brewOf('12-1')), 4);
+      const answers = [{ q: question.q, answer: 'sqlite' }];
+      const answer = { kind: 'answer', batchId: '12-1', ...issued, answers } as const;
+      const decision = f.log().issue(answer, t0);
+      assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+      assert.equal(foldedBatch(f.log().state(), '12-1').lane.kind, 'brewing');
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 0, f.lines.join('\n'));
+      assert.equal(foldedBatch(f.log().state(), '12-1').lane.kind, 'on_tap');
+      assert.deepStrictEqual(startedIn('12-2'), []);
+    });
+
+    it('refuses the id of a latest batch that brews, naming its number: regression test', async () => {
+      assert.equal(await runBrew(f.setup, shell(), request), 0, f.lines.join('\n'));
+      const log = f.log();
+      const onTap = foldedBatch(log.state(), '12-1');
+      const [pullRequest] = onTap.lane.kind === 'on_tap' ? onTap.lane.pullRequests : [];
+      assert.ok(pullRequest !== undefined);
+      const finished = {
+        type: 'pull_request.checks_finished' as const,
+        batchId: '12-1',
+        pullRequest,
+        head: FAKE_COMMIT,
+        checks: [failedCheck],
+      };
+      assert.equal(log.issue({ kind: 'record', event: finished }, t0).kind, 'accepted');
+      const cause = { kind: 'checks' } as const;
+      const fix = {
+        kind: 'fix_pull_request',
+        batchId: '12-1',
+        pullRequest,
+        head: FAKE_COMMIT,
+        cause,
+      };
+      assert.equal(log.issue({ ...fix, kind: 'fix_pull_request' }, t0).kind, 'accepted');
+      assert.equal(foldedBatch(log.state(), '12-1').lane.kind, 'brewing');
+      assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
+      assert.match(f.lines.at(-1) ?? '', /; foedrum brew 12 brews it$/);
+    });
+  });
+
   describe('a batch id on foedrum brew', () => {
     it('is taken only with --take or --new-window, and refused alone with the word to add', () => {
       for (const flag of [{ take: true }, { 'new-window': true }]) {
@@ -320,7 +440,7 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       assert.equal(await runBrew(f.setup, shell(), brewOf('12-2')), 5, f.lines.join('\n'));
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: batch 12-2 waits for no session, and foedrum brew takes an id only for one that does; foedrum brew 12 brews it',
+        'foedrum brew: batch 12-2 waits for no session, and foedrum brew takes an id only for one that does or one nothing drives; foedrum brew 12 brews it',
       );
     });
 
@@ -345,7 +465,7 @@ describe('an older batch waiting for a session (ADR 0339)', () => {
       assert.equal(await runBrew(f.setup, shell(), brewOf('12-1')), 5, f.lines.join('\n'));
       assert.equal(
         f.lines.at(-1),
-        'foedrum brew: batch 12-1 waits for no session, and foedrum brew takes an id only for one that does; foedrum status shows it',
+        'foedrum brew: batch 12-1 waits for no session, and foedrum brew takes an id only for one that does or one nothing drives; its pull requests end it, and foedrum serve reads them',
       );
     });
 
