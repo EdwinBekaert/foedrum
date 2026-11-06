@@ -16,6 +16,7 @@ import { planOf } from '../schemas/plan.ts';
 import { ChosenBy } from '../schemas/recipe.ts';
 import type { MergeBrief } from '../schemas/status-comment.ts';
 import type { SensitiveFiles } from '../schemas/store.ts';
+import type { MarkedComment } from './claim-effects.ts';
 import { breweryIssueOf } from './claim-orders.ts';
 import { commentRevisions, cutForComment, type DueRevision } from './comment-revisions.ts';
 import type { DriverEffects } from './driver.ts';
@@ -73,12 +74,12 @@ export interface StatusComments {
   /** The body of the comment `comment`, or undefined when it is gone or not the Brewery's own. */
   read(repo: string, comment: number, signal?: AbortSignal): Promise<string | undefined>;
   /** Comments on the issue; the new comment's id. */
-  create(repo: string, issue: number, body: string, signal?: AbortSignal): Promise<number>;
+  create(repo: string, issue: number, body: MarkedComment, signal?: AbortSignal): Promise<number>;
   /** Replaces the body of `comment`; `gone` when it was deleted. */
   edit(
     repo: string,
     comment: number,
-    body: string,
+    body: MarkedComment,
     signal?: AbortSignal,
   ): Promise<'edited' | 'gone'>;
 }

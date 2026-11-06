@@ -16,7 +16,7 @@ import {
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
 import { checkReadings } from './check-readings.ts';
-import { commentId, effectMarker } from './claim-effects.ts';
+import { commentId, effectMarker, type MarkedComment, markedComment } from './claim-effects.ts';
 import { cutForComment } from './comment-revisions.ts';
 import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
@@ -59,7 +59,7 @@ export interface MergeBriefHost {
     signal?: AbortSignal,
   ): Promise<{ id: number; body: string } | undefined>;
   /** Comments on the pull request; the new comment's id. */
-  create(repo: string, number: number, body: string, signal?: AbortSignal): Promise<number>;
+  create(repo: string, number: number, body: MarkedComment, signal?: AbortSignal): Promise<number>;
   /** The pull request's title. */
   title(repo: string, number: number, signal?: AbortSignal): Promise<string>;
   /** Whether the Brewery's own comment is hidden; `gone` when it is not there or not its own. */
@@ -567,8 +567,12 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
       }
       const { repo, number, rest, ready } = briefFor(key);
       const title = await host.title(repo, number, signal);
-      const body = `${titleLine(title, ready.head)}\n\n${rest}${endOf(key, ready)}`;
-      return resultOf(await host.create(repo, number, body, signal), ready);
+      // The record's line with its marker right after it, as `endOf` finds them.
+      const text = `${titleLine(title, ready.head)}\n\n${rest}\n\n${recordLine(ready)}`;
+      return resultOf(
+        await host.create(repo, number, markedComment(text, key, '\n'), signal),
+        ready,
+      );
     },
   };
   return {

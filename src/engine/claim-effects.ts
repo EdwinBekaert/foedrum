@@ -41,7 +41,7 @@ export interface IssueMarks {
     signal?: AbortSignal,
   ): Promise<number | undefined>;
   /** Comments on the issue; the new comment's id. */
-  comment(repo: string, issue: number, body: string, signal?: AbortSignal): Promise<number>;
+  comment(repo: string, issue: number, body: MarkedComment, signal?: AbortSignal): Promise<number>;
   /** The issue's title. */
   title(repo: string, issue: number, signal?: AbortSignal): Promise<string>;
   /**
@@ -71,6 +71,14 @@ export interface IssueMarks {
 
 /** The hidden marker that carries an effect's key in a comment, so `findComment` finds it. */
 export const effectMarker = (key: string): string => `<!-- foedrum:${key} -->`;
+
+declare const marked: unique symbol;
+/** A comment Foedrum posts, built by `markedComment`; the code host's comments take no other. */
+export type MarkedComment = string & { readonly [marked]: true };
+
+/** The comment of the effect `key`: its text, then its marker on the last line. */
+export const markedComment = (text: string, key: string, gap = '\n\n'): MarkedComment =>
+  `${text}${gap}${effectMarker(key)}` as MarkedComment;
 
 export interface ClaimEffectsOptions {
   claimant: Claimant;
@@ -141,9 +149,7 @@ export const claimEffectTarget = (
           return id === undefined ? undefined : { result: commentId(id) };
         },
         apply: async (key, signal) =>
-          commentId(
-            await marks.comment(repo, issue, `${effect.body}\n\n${effectMarker(key)}`, signal),
-          ),
+          commentId(await marks.comment(repo, issue, markedComment(effect.body, key), signal)),
       };
     case 'release_ref':
       return {
