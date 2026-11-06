@@ -294,10 +294,9 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
     case 'waiting_for_session':
     case 'stalled':
     case 'stopped':
+    case 'failing':
     case 'pull_request_failed':
       return [...withoutAnswer];
-    case 'failing':
-      throw new Error('not implemented');
     // A plan to review: sign it off (ADR 0281), correct it in a session (ADR 0286), plan it again,
     // choose another recipe, or end it (ADR 0275). A skip or a rewind would end the recipe on the
     // same plan again.
@@ -311,6 +310,23 @@ export function stuckOptions(reason: StuckReason): StuckOption[] {
       throw new Error(`Unhandled stuck reason ${JSON.stringify(unhandled)}`);
     }
   }
+}
+
+/**
+ * The step a brewing batch whose reading fails goes Stuck on (ADR 0335), read from the fold, since
+ * its recipe may be what throws: its first running attempt. None with no attempt running, which a
+ * retry could not schedule again, and none while a person works in an interactive session.
+ */
+export function failingStep(batch: Batch): string | undefined {
+  if (batch.lane.kind !== 'brewing') return undefined;
+  const running = [...batch.steps.values()].flatMap((step) => {
+    const attempt = runningAttempt(step);
+    return attempt === undefined ? [] : [{ stepId: step.id, attempt }];
+  });
+  const open = running.some(
+    ({ attempt }) => attempt.phase === 'started' && attempt.interactiveSince !== undefined,
+  );
+  return open ? undefined : running[0]?.stepId;
 }
 
 const withoutAnswer: readonly StuckOption[] = ['retry', 'skip', 'recipe', 'rewind', 'cancel'];
@@ -471,8 +487,21 @@ function run(draft: Draft, command: Command): Event[] {
     case 'await_session':
       awaitSession(draft, command);
       break;
-    case 'mark_failing':
-      throw new Error('not implemented');
+    case 'mark_failing': {
+      const { batchId, pass, summary, since, reading } = command;
+      const batch = draft.batch(batchId);
+      const stepId = reading ? failingStep(batch) : undefined;
+      if (batch.failing !== undefined && stepId === undefined) {
+        throw new Refusal(`batch ${batchId} is already marked failing`);
+      }
+      if (batch.failing === undefined) {
+        draft.push({ type: 'batch.failing', batchId, pass, summary, since });
+      }
+      if (stepId !== undefined) {
+        stick(draft, batchId, { kind: 'failing', stepId, pass, summary, since });
+      }
+      break;
+    }
     case 'fix_pull_request':
       fixPullRequest(draft, command);
       break;
