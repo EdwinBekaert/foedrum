@@ -22,6 +22,7 @@ import type { ServeShell } from '../../src/cli/serve.ts';
 import { serveSetup } from '../../src/cli/serve-config.ts';
 import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { BrewerRunner } from '../../src/engine/brewer-runner.ts';
+import type { Ending } from '../../src/engine/decide.ts';
 import { DriverRunningError } from '../../src/engine/driver-lock.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
@@ -787,6 +788,192 @@ describe('runBrew', () => {
       f.lines.at(-1) ?? '',
       /^foedrum brew: batch 12-1 is stuck: blocked at brew \(findings\): The tests fail; reminder [^;]+; options: retry, /,
     );
+  });
+
+  describe('the status comment a run that ends Stuck leaves (#863)', () => {
+    const shown = (): string => f.api.comments.get('acme/brewery#12')?.[0]?.body ?? '';
+    const stuckLines = (): string[] => f.lines.filter((line) => line.includes(' is stuck: '));
+    /**
+     * A runner whose attempt ends with `ending` at the first wait, so the first tick has made the
+     * comment, on a clock that stands still: the batch goes Stuck within a minute of that edit.
+     */
+    const endsAfterFirstTick = (ending: Ending): Partial<ServeShell> => {
+      let release = (): void => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let waits = 0;
+      return {
+        runner: () => ({
+          start: () => ({ ended: gate.then(() => ({ ending })), stop: () => {} }),
+          progress: () => undefined,
+        }),
+        wait: async () => {
+          waits++;
+          if (waits > 20) assert.fail(`brew did not stop:\n${f.lines.join('\n')}`);
+          release();
+        },
+      };
+    };
+    const blocked: Ending = { kind: 'blocked', blockerKind: 'findings', summary: 'The tests fail' };
+
+    it('a run of foedrum brew that ends Stuck has posted the comment with that lane', async () => {
+      const brew = shell(behave.succeed(), endsAfterFirstTick(blocked));
+      assert.equal(await runBrew(f.setup, brew, request), 3);
+      assert.match(shown(), /🔔 \*\*Stuck\*\*: `brew` is blocked \(findings\): The tests fail/);
+      assert.match(shown(), /Next:/);
+      assert.equal(stuckLines().length, 1, f.lines.join('\n'));
+    });
+
+    it('a run that stops for questions has posted the comment with them', async () => {
+      const asking: Ending = { kind: 'needs_input', questions: [question] };
+      const brew = shell(behave.succeed(), endsAfterFirstTick(asking));
+      const exit = await runBrew(f.setup, brew, request);
+      assert.equal(exit, 4, f.lines.join('\n'));
+      assert.match(shown(), /🔔 \*\*Stuck\*\*/);
+      assert.ok(shown().includes(question.q), shown());
+    });
+
+    it('a run whose pull request action is refused has posted the comment with the Stuck that ended it, and tries it once', async () => {
+      let scans = 0;
+      const refused = shell(behave.succeed('Brewed'), {
+        push: () => ({
+          commit: async () => 'c'.repeat(40),
+          baseTip: async () => 'b'.repeat(40),
+          isAncestor: async (commit, of) => commit === of,
+          remoteTip: async () => undefined,
+          push: async () => assert.fail('a refused push pushes nothing'),
+          secretScan: async () => {
+            scans++;
+            return [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }];
+          },
+          touchedFiles: async () => [],
+        }),
+      });
+      assert.equal(await runBrew(f.setup, refused, request), 3);
+      assert.match(shown(), /🔔 \*\*Stuck\*\*/);
+      assert.match(shown(), /Next:/);
+      assert.deepStrictEqual(f.started, ['brew#1']);
+      assert.equal(scans, 1);
+      assert.equal(stuckLines().length, 1, f.lines.join('\n'));
+    });
+
+    it('a run whose last edit fails still exits Stuck, and says the effect failed', async () => {
+      const gh = ghOver(f.api.fetch).exec;
+      const failing = shell(behave.succeed(), {
+        ...endsAfterFirstTick(blocked),
+        gh: (file, args, options) =>
+          args.includes('PATCH')
+            ? Promise.reject(new Error('GitHub is down'))
+            : gh(file, args, options),
+      });
+      assert.equal(await runBrew(f.setup, failing, request), 3);
+      assert.doesNotMatch(shown(), /Stuck/);
+      assert.ok(
+        f.lines.some((line) => line.includes('status.2') && line.includes('GitHub is down')),
+        f.lines.join('\n'),
+      );
+      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch 12-1 is stuck: /);
+    });
+
+    it('goes on brewing when a person moves the batch during the tick after it stuck, and says no Stuck', async () => {
+      const runner = fakeBrewerRunner({
+        brew: [behave.blocked('findings', 'The tests fail'), behave.succeed('Brewed')],
+      });
+      let retried = false;
+      const moved = shell(behave.succeed(), {
+        runner: () => runner,
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            if (!retried && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+              retried = true;
+              const by = { by: 'ann', via: 'terminal' } as const;
+              log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
+            }
+            return { kind: 'unchanged' };
+          },
+        }),
+      });
+      assert.equal(await runBrew(f.setup, moved, request), 0);
+      assert.equal(retried, true);
+      assert.deepStrictEqual(stuckLines(), []);
+      assert.equal(runner.started.length, 2);
+    });
+
+    it('ticks once more after a second Stuck too, when a person moved the batch after the first', async () => {
+      const runner = fakeBrewerRunner({
+        brew: [behave.blocked('findings', 'The tests fail'), behave.succeed('Brewed')],
+      });
+      let retried = false;
+      const again = shell(behave.succeed(), {
+        runner: () => runner,
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            if (!retried && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+              retried = true;
+              const by = { by: 'ann', via: 'terminal' } as const;
+              log().issue({ kind: 'retry', batchId: '12-1', ...by }, t0);
+            }
+            return { kind: 'unchanged' };
+          },
+        }),
+        push: () => ({
+          commit: async () => 'c'.repeat(40),
+          baseTip: async () => 'b'.repeat(40),
+          isAncestor: async (commit, of) => commit === of,
+          remoteTip: async () => undefined,
+          push: async () => assert.fail('a refused push pushes nothing'),
+          secretScan: async () => [{ commit: 'c'.repeat(40), place: 'src/a.ts:1', kind: 'token' }],
+          touchedFiles: async () => [],
+        }),
+      });
+      assert.equal(await runBrew(f.setup, again, request), 3);
+      assert.equal(retried, true);
+      assert.match(shown(), /🔔 \*\*Stuck\*\*: `open-pull-request`/);
+      assert.equal(stuckLines().length, 1, f.lines.join('\n'));
+    });
+
+    it('still exits Stuck, and says why, when the tick after it stuck throws: regression test', async () => {
+      let thrown = false;
+      const failing = shell(behave.blocked('findings', 'The tests fail'), {
+        openStore: () => ({
+          ...f.store,
+          batchesPastDeadline: (at) => {
+            if (!thrown && log().state().batches.get('12-1')?.lane.kind === 'stuck') {
+              thrown = true;
+              throw new Error('the store could not be read');
+            }
+            return f.store.batchesPastDeadline(at);
+          },
+        }),
+      });
+      assert.equal(await runBrew(f.setup, failing, request), 3);
+      assert.equal(thrown, true);
+      assert.ok(
+        f.lines.includes('foedrum brew: a tick failed: the store could not be read'),
+        f.lines.join('\n'),
+      );
+      assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch 12-1 is stuck: /);
+    });
+
+    it('stops as any tick does when the state branch says stop in the tick after it stuck: exit 1', async () => {
+      const stopping = shell(behave.blocked('findings', 'The tests fail'), {
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            if (log().state().batches.get('12-1')?.lane.kind !== 'stuck') {
+              return { kind: 'unchanged' };
+            }
+            throw new StateBranchStopError('the push was rejected: another engine wrote');
+          },
+        }),
+      });
+      assert.equal(await runBrew(f.setup, stopping, request), 1);
+      assert.equal(f.lines.at(-1), 'foedrum brew: the push was rejected: another engine wrote');
+      assert.equal(log().state().batches.get('12-1')?.lane.kind, 'stuck');
+    });
   });
 
   it("refuses when its owner's lock is held, opening nothing: exit 5", async () => {
