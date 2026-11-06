@@ -541,7 +541,59 @@ describe('runBrew', () => {
         });
         const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
         assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
-        assert.equal(f.lines.at(-1), `foedrum brew: batch 12-1 merged: ${url(90)}`);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch 12-1 merged: ${url(90)}; Brewery issue #12 closed`,
+        );
+        assert.equal(host.issue('acme/brewery', 12)?.state, 'closed');
+        assert.deepStrictEqual(log().state().batches.get('12-1')?.pullRequestEnds, {
+          [url(90)]: 'merged',
+        });
+      });
+
+      it('a batch of a Brewery issue whose pull request closed unmerged says its issue stays open: exit 0', async () => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+        });
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+          instead: (method, { pathname }) =>
+            method === 'GET' && pathname === '/repos/acme/web/pulls/90'
+              ? { status: 200, body: { state: 'closed', merged: false } }
+              : undefined,
+        });
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch 12-1 ended: ${url(90)} not all merged; Brewery issue #12 stays open`,
+        );
+        assert.notEqual(host.issue('acme/brewery', 12)?.state, 'closed');
+      });
+
+      it("finishes a Brewery issue's close a run killed after the end left due: exit 0", async () => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+        });
+        const event = {
+          type: 'pull_request.ended',
+          batchId: '12-1',
+          pullRequest: url(90),
+          state: 'merged',
+        } as const;
+        issue({ kind: 'record', event });
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+        });
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
+        assert.equal(host.issue('acme/brewery', 12)?.state, 'closed');
       });
 
       it('foedrum lauter of it keeps its own refusal and records no end', async () => {
@@ -598,7 +650,11 @@ describe('runBrew', () => {
         });
         const byNumber = { ...request, target: { issue: number } };
         assert.equal(await runBrew(brewing, again, byNumber), 5, f.lines.join('\n'));
-        assert.match(f.lines.at(-1) ?? '', /is driven by cellar until .*foedrum brew \d+ --take/);
+        // A take-over of a batch on tap is refused (ADR 0124), so the line never offers one.
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch web-7 is driven by cellar until ${expiresAt.toISOString()}, when its lease ends by itself; foedrum brew ${number} tries again then`,
+        );
         const read = host.requests.slice(asked).filter((each) => /\/pulls\/\d+/.test(each));
         assert.deepStrictEqual(read, []);
       });
