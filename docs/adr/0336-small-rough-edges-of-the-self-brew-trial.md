@@ -63,11 +63,11 @@ The line is now `batch 12-1 is driven by cellar until <time>, when its lease end
 A brew of an on-tap batch with a pull request that merged or closed now exits 0, and so does one whose release or close is still due.
 
 **A release or a close still due is finished.** A run killed after the end was recorded left a dead end: `brew` offered `foedrum order`, and `decide` refused that while the release was due.
-So a claimed on-tap batch whose claim is `releasing` is driven too, one with no pull request included, which until now was refused.
+So a claimed batch whose claim is `releasing` is driven too: on tap, one with no pull request included, which until now was refused, and cancelled, which still exits 6, since 6 says the batch was cancelled, with a line before it that says the claim was released.
 So is a Brewery issue's batch whose close is due and not applied (`closeStillDue`, `src/engine/brewery-closes.ts`), since ordering it again would only take that close off due.
 
 **`foedrum mash` and `foedrum lauter` of an on-tap batch are still refused** and read nothing: they are not what this is for.
-The one change is the words of a mash of a claimed batch whose claim is held: it no longer offers `foedrum order`, which `decide` refuses then, and names `foedrum brew` instead.
+The one change is the words of a mash of a claimed batch whose claim is held or whose release is still due: it no longer offers `foedrum order`, which `decide` refuses then, and names `foedrum brew` instead.
 
 A brew that ends on tap with pull requests says what comes next, on the line before its last, which stays the pull requests' ([ADR 0261](0261-the-status-path-says-why-a-failed-attempt-failed-and-what-answered-a-question.md)): `once they merge, foedrum brew 40 or foedrum serve closes Brewery issue #40 and releases its claim`, without the claim for a Brewery issue's own batch.
 `/foedrum:brew` shows a line that says the batch merged or ended as that, not as on tap.
@@ -97,7 +97,6 @@ A Brewery has nothing to do, and no file changes. No event or schema changes.
 - A brew of an on-tap batch costs one conditional GET per pull request with no recorded end.
 - `foedrum brew` of an on-tap batch can exit 0 and change GitHub, where it used to refuse. A session reads the last line to tell which.
 - `decide`'s refusal while a release is due still says `foedrum serve applies it`. It is still true, and `foedrum brew` applies it too; the words are left for #881.
-- A cancelled claimed batch whose release is due still gets brew's refusal: only `foedrum serve` finishes it. That is left as it is.
 - A brew of an on-tap batch waits on its effects as every brew does: one that fails on every pass is said on each pass, until Ctrl+C ([ADR 0327](0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md)). No bound is added, since nothing has shown one is needed.
 
 ## Alternatives considered
