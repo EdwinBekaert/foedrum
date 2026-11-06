@@ -9,6 +9,7 @@ import {
   type Event,
   type FailingPass,
   type GravityReading,
+  type HeardComments,
   MAX_OPEN_FINDING_TEXT,
   MOST_FAILED_CHECKS,
   MOST_OPEN_FINDINGS,
@@ -179,6 +180,8 @@ export type EngineCommand =
       receipt?: Receipt;
       /** The house-yeast rules the attempt's plan gave it (ADR 0169). */
       houseYeast?: HouseYeastSelection;
+      /** The highest comment id per issue the attempt's plan told it (ADR 0338). */
+      commentsHeard?: readonly HeardComments[];
       /** What its out doc handed over (ADR 0340). */
       handover?: readonly string[];
       /** The driver stopped it when its batch's pause reached its stopAt (ADR 0202). */
@@ -692,6 +695,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     claude,
     receipt,
     houseYeast,
+    commentsHeard,
     handover,
     paused,
     reopensAt,
@@ -730,6 +734,7 @@ function finish(draft: Draft, command: Extract<Command, { kind: 'finish' }>): vo
     ...(claude === undefined ? {} : { claude }),
     ...(receipt === undefined ? {} : { receipt }),
     ...(houseYeast === undefined ? {} : { houseYeast }),
+    ...(commentsHeard === undefined ? {} : { commentsHeard: [...commentsHeard] }),
     ...(handover === undefined ? {} : { handover: [...handover] }),
     ...(stopped ? { paused: true } : {}),
     ...(byStop ? { stopped: true } : {}),

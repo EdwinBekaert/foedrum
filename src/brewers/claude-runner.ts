@@ -35,7 +35,7 @@ import {
   type Timers,
 } from '../platform/processes.ts';
 import type { AttemptSettings } from '../schemas/attempt-settings.ts';
-import type { GravityReading } from '../schemas/events.ts';
+import type { GravityReading, HeardComments } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import {
   type CountCommits,
@@ -84,6 +84,8 @@ export interface ClaudeAttemptPlan {
   setup?: { run: SetupRun; deadlineAt: string; env: Env };
   /** The house-yeast rules the plan gave the brewer, which its end records (ADR 0169). */
   houseYeast?: HouseYeastSelection;
+  /** The highest comment id per issue the prompt holds, which its end records (ADR 0338). */
+  commentsHeard?: readonly HeardComments[];
   /**
    * For a brewer whose out doc is a plan: each repository of the Brewery, its clone and the commit
    * the plan's paths in it are checked at once it is done (ADR 0233).
@@ -426,6 +428,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
     });
 
     let given: HouseYeastSelection | undefined;
+    let heard: readonly HeardComments[] | undefined;
     const run = async (): Promise<AttemptEnd> => {
       let plan: ClaudeAttemptPlan;
       let args: string[];
@@ -434,6 +437,7 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
         if (prepared === undefined) return cancelled();
         plan = prepared;
         given = plan.houseYeast;
+        heard = plan.commentsHeard;
         deps.files.writeSettings(plan.settingsFile, attemptSettings(plan.permissions));
         const { systemPrompt } = plan;
         if (systemPrompt !== undefined)
@@ -572,9 +576,11 @@ export function claudeBrewerRunnerWith(deps: ClaudeRunnerDeps): BrewerRunner {
       return withReadings({ ending, ...reported, ...outDoc });
     };
 
-    // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169).
+    // However it ends once it has a plan, the rules the plan gave the brewer go with it (ADR 0169),
+    // and the comments its prompt held (ADR 0338).
     const ended = run()
       .then((end) => (given === undefined ? end : { ...end, houseYeast: given }))
+      .then((end) => (heard === undefined ? end : { ...end, commentsHeard: heard }))
       .finally(() => running.delete(key));
     return { ended, stop: () => stopping.abort() };
   };

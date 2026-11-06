@@ -20,14 +20,20 @@ import { planEntryText } from '../engine/plan-comment.ts';
 import type { PlanRepository } from '../engine/plan-touches.ts';
 import { MAX_INPUT_BYTES, type StepBrewer, type StepBrewers } from '../engine/recipe-files.ts';
 import { releaseInput } from '../engine/release-input.ts';
-import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
+import {
+  afterOverrun,
+  checkoutsOf,
+  commentsHeardBy,
+  heardKey,
+  ranIn,
+} from '../engine/session-resume.ts';
 import { entryOf, type MapModules, manifestsAt, modulesOf } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
 import type { OrderComment, OrderIssue } from '../github/order-text.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
-import type { Event, WorktreeRef } from '../schemas/events.ts';
+import type { Event, HeardComments, WorktreeRef } from '../schemas/events.ts';
 import type { HouseYeastSelection } from '../schemas/house-yeast.ts';
 import type { ModelsConfig } from '../schemas/models.ts';
 import {
@@ -132,6 +138,11 @@ export interface AttemptPlansOptions {
   /** The maintainers' comments on an order's issues, oldest first, untrusted (ADR 0333). */
   orderComments: (issues: readonly OrderIssue[]) => Promise<readonly OrderComment[]>;
   /**
+   * Whether a resumed attempt opens as a person's session, which no prompt reaches: `foedrum resume`
+   * of a running batch's (ADR 0127), which reads no comments (ADR 0338).
+   */
+  opensResumed?: boolean;
+  /**
    * Reads the change a Taster that reviews a diff is given, in its worktree (ADR 0161); a plan
    * that needs it fails without it.
    */
@@ -199,6 +210,18 @@ const worktreeOf = (
   return { worktree: { ...ran.worktree, path }, madeBy: { ...ref, attempt: ran.attempt } };
 };
 
+/** The highest comment id per issue that `inputs` hold; none without a comment (ADR 0338). */
+const heardIn = (inputs: readonly PromptInput[]): HeardComments[] | undefined => {
+  const heard = new Map<string, HeardComments>();
+  for (const { source } of inputs) {
+    if (source.kind !== 'comment') continue;
+    const { repo, issue, comment: id } = source;
+    const key = heardKey(source);
+    if (id > (heard.get(key)?.id ?? 0)) heard.set(key, { repo, issue, id });
+  }
+  return heard.size === 0 ? undefined : [...heard.values()];
+};
+
 /** What an attempt without a brewer is limited to: the plan then fails it, before it runs. */
 const noBrewer: AttemptLimits = { outDoc: { file: 'out.md', schema: OutDocFrontmatter } };
 
@@ -264,22 +287,34 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
    */
   const orderCommentsFor = async (
     name: string,
-    { issue, repo }: OrderIssue,
-    body: string,
     batch: Batch,
+    {
+      body,
+      heard,
+    }: { body: string; heard?: never } | { body?: never; heard: ReadonlyMap<string, number> },
   ): Promise<PromptInput[]> => {
+    const { issue, repo } = batch;
     const brewery = repo === undefined ? undefined : claimOrderOf(state(), batch.id).issue;
-    const comments = await options.orderComments([
+    const read = await options.orderComments([
       repo === undefined ? { issue } : { issue, repo },
       ...(brewery === undefined ? [] : [{ issue: brewery }]),
     ]);
+    // A resumed session holds what it was told: only what it was not counts, and is added.
+    const comments =
+      heard === undefined
+        ? read
+        : read.filter((comment) => comment.id > (heard.get(heardKey(comment)) ?? 0));
     const bytes = comments.reduce(
       (sum, { text }) => sum + Buffer.byteLength(text, 'utf8'),
-      Buffer.byteLength(body, 'utf8'),
+      Buffer.byteLength(body ?? '', 'utf8'),
     );
     if (bytes > MAX_INPUT_BYTES) {
+      const what =
+        body === undefined
+          ? `its ${comments.length} comments made since`
+          : `its body and ${comments.length} comments`;
       throw new Error(
-        `the input "${name}" was not read: its body and ${comments.length} comments are larger than ${MAX_INPUT_BYTES} bytes`,
+        `the input "${name}" was not read: ${what} are larger than ${MAX_INPUT_BYTES} bytes`,
       );
     }
     return comments.map(({ id, text, ...rest }) => ({
@@ -675,7 +710,7 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
       const text = await textOf(input);
       inputs.push({ name: input.name, source: input.source, text });
       if (input.read.kind === 'order') {
-        inputs.push(...(await orderCommentsFor(input.name, input.read, text, batch)));
+        inputs.push(...(await orderCommentsFor(input.name, batch, { body: text })));
       }
     }
     // After a merge of the base, the batch's own change starts at the base it merged (ADR 0164).
@@ -808,10 +843,24 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
               baseBranchOf(batch, merging.pullRequest),
               stepId,
             );
+      // A resumed session reads no inputs again, but hears the comments made since it last read
+      // them, when any prompt reaches it and it reads the order at all (ADR 0338).
+      const orderInput = found.brewer.inputs.find(({ from }) => from === 'order');
+      const hears =
+        resumes !== undefined &&
+        step !== undefined &&
+        orderInput !== undefined &&
+        options.opensResumed !== true;
+      const since = hears
+        ? await orderCommentsFor(orderInput.name, batch, {
+            heard: commentsHeardBy(step, session.id),
+          })
+        : [];
       const { inputs, houseYeast, laterRound, earlierFindings } =
         resumes === undefined
           ? await inputsFor(batch, ref, found, worktree, checkouts)
-          : { inputs: [latest, kept].filter((input) => input !== undefined) };
+          : { inputs: [latest, kept, ...since].filter((input) => input !== undefined) };
+      const commentsHeard = heardIn(inputs);
       const settingsFile = settingsFileOf(workRoot, ref);
       files.makeFolder(dirname(settingsFile));
       const planned = planAttempt({
@@ -835,7 +884,11 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         ...(options.random === undefined ? {} : { random: options.random }),
       });
       // The rules it was given go with its end onto its step.finished (ADR 0169).
-      const plan = houseYeast === undefined ? planned : { ...planned, houseYeast };
+      const plan = {
+        ...planned,
+        ...(houseYeast === undefined ? {} : { houseYeast }),
+        ...(commentsHeard === undefined ? {} : { commentsHeard }),
+      };
       // Every attempt's worktree gets its repository's dependencies before the brewer starts: a
       // resumed one too, since the driver may have added its worktree again. Not for a brewer
       // that cannot run a command, such as a read-only Taster: it could not use them (ADR 0163).
