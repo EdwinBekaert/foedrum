@@ -1,4 +1,4 @@
-// `foedrum resume <batch> [<step>[#<n>]]` (ADR 0126): opens a finished brewer attempt's own Claude
+// `foedrum resume <issue> [<step>[#<n>]]` (ADR 0126): opens a finished brewer attempt's own Claude
 // Code session in its worktree, with its settings file written again and the brewer's
 // environment, while the attempt's lease claims it. resume-main.ts gives it the real machine; unit
 // tests give fakes.
@@ -378,7 +378,8 @@ export const runResume = async (input: ResumeInput, shell: ResumeShell): Promise
     // A Claude Code session cannot hand its terminal to claude: the engineer runs it in one.
     if (shell.terminal.claudeCode) {
       // A running batch's step alone: its latest attempt changes as the batch goes on.
-      const line = 'running' in target ? `${batchId} ${ref.stepId}` : label;
+      const called = calledAs(state, foldedBatch(state, batchId));
+      const line = `${called} ${'running' in target ? ref.stepId : labelOf(ref)}`;
       const run = `run this in a terminal in ${shell.cwd}:\n  foedrum resume ${line}\n`;
       const why =
         'foedrum resume opens claude in a terminal, which a Claude Code session cannot hand over';

@@ -2,6 +2,7 @@
 // person moved an order with `foedrum rank`. Pure: the intake and `rank` both sort through it.
 
 import type { OrderRef, PlanOrigin } from '../schemas/events.ts';
+import { orderSaid } from './claim-orders.ts';
 import { orderKey, type Rank, type State } from './fold.ts';
 
 /** An order of the intake's queue, as it sorts. */
@@ -118,7 +119,7 @@ export const placeAt = (
  * is left to start (ADR 0211); the command layer reads a claimed order's number first (ADR 0329).
  */
 export const rankRefusal = (state: State, order: OrderRef): string | undefined => {
-  const name = `${order.repo ?? ''}#${order.issue}`;
+  const name = orderSaid(state, order);
   if (order.repo === undefined) {
     const subOrder = state.subOrders.get(order.issue);
     if (subOrder !== undefined) {
@@ -132,7 +133,7 @@ export const rankRefusal = (state: State, order: OrderRef): string | undefined =
     )
     .at(-1);
   if (batch !== undefined && !hasSubOrdersLeft(state, order)) {
-    return `${name} was ordered as batch ${batch.id}: a rank orders only the queue`;
+    return `${name} is already ordered: a rank orders only the queue`;
   }
   return undefined;
 };

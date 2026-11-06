@@ -5,6 +5,7 @@
 
 import type { Surface } from '../schemas/events.ts';
 import type { Decision } from './admit.ts';
+import { calledAs, saidAs } from './claim-orders.ts';
 import type { CommandLog } from './command-log.ts';
 import type { BatchLease, EventStoreTransaction } from './event-store.ts';
 
@@ -65,11 +66,16 @@ export const takeOver = (log: CommandLog, request: TakeoverRequest): Decision =>
   const { batchId, owner, by, via, now, leaseMs, resumes } = request;
   return log.issue(
     (tx) => {
+      const state = log.state();
+      const batch = state.batches.get(batchId);
+      if (batch === undefined) return { refused: `there is no batch ${batchId}` };
       const current = tx.batchLease(batchId);
+      const said = saidAs(state, batch);
       if (current === undefined || current.expiresAt <= now) {
-        return { refused: `no driver holds batch ${batchId}; foedrum brew drives it` };
+        const brew = `foedrum brew ${calledAs(state, batch)}`;
+        return { refused: `no driver holds ${said}; ${brew} drives it` };
       }
-      if (current.owner === owner) return { refused: `${owner} holds batch ${batchId} already` };
+      if (current.owner === owner) return { refused: `${owner} holds ${said} already` };
       const until = current.expiresAt.toISOString();
       const from = current.owner;
       const handover = { kind: 'take_over', batchId, by, via, from, to: owner, until } as const;

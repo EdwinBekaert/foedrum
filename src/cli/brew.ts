@@ -17,6 +17,7 @@ import {
   latestBatch,
   liveOrderOf,
   namedWork,
+  saidAs,
 } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
@@ -78,17 +79,17 @@ export const BREW_EXIT = {
 } as const;
 
 /** The lines of a batch that needs input: each question numbered as `foedrum answer` takes it. */
-const questionLines = (batchId: string, stepId: string, batch: Batch): string[] => {
+const questionLines = (state: State, stepId: string, batch: Batch): string[] => {
   const { lane } = batch;
   if (lane.kind !== 'stuck' || lane.reason.kind !== 'needs_input') return [];
   const { questions } = lane.reason;
   return [
-    `batch ${batchId} needs input at ${stepId}:`,
+    `${saidAs(state, batch)} needs input at ${stepId}:`,
     ...questions.flatMap(({ q, options, recommended, whyBlocking }, n) => [
       `  ${n + 1}. ${q} (${options.join(', ')}; recommended: ${recommended})`,
       `     why it blocks: ${whyBlocking}`,
     ]),
-    `answer them in order with foedrum answer ${batchId} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then brew again`,
+    `answer them in order with foedrum answer ${calledAs(state, batch)} ${questions.map((_, n) => `<answer ${n + 1}>`).join(' ')}, then brew again`,
   ];
 };
 
@@ -100,10 +101,11 @@ const mashRefusal = (
   setup: ServeSetup,
   latest: Batch | undefined,
   named: string,
+  called: string,
 ): string | undefined => {
   if (latest?.recipe !== undefined) {
-    const { id, recipe } = latest;
-    return `batch ${id} of ${named} already brews the recipe ${recipe.name}; foedrum recipe ${id} <recipe> <reason> brews it with another`;
+    const { recipe } = latest;
+    return `${named} already brews the recipe ${recipe.name}; foedrum recipe ${called} <recipe> <reason> brews it with another`;
   }
   const mashIn = setup.recipes.find(MASH_IN);
   if (mashIn === undefined) return `the Brewery has no recipe ${MASH_IN}`;
@@ -129,8 +131,8 @@ export const oneLine = (text: string): string =>
     .join('');
 
 /** Who drives a batch another driver holds, and until when. */
-export const drivenBy = (lease: BatchLease): string =>
-  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
+export const drivenBy = (state: State, lease: BatchLease): string =>
+  `${saidAs(state, foldedBatch(state, lease.batchId))} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
 
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
@@ -262,9 +264,8 @@ export const runBrew = async (
     return refuse(`foedrum.jsonc names no repository with the alias ${alias} and an intake`);
   }
   let order: OrderIssue = repository === undefined ? { issue } : { issue, repo: repository.repo };
-  // As `foedrum status` names it.
-  const named = `${order.repo ?? ''}#${issue}`;
-  const asGiven = `${alias ?? ''}#${issue}`;
+  // As it was given: its number, or the target issue until that is alive (ADR 0329).
+  const named = `${alias ?? ''}#${issue}`;
   // The lock first: a second brew under this owner is refused before it touches anything.
   let lock: Opened['lock'];
   try {
@@ -312,7 +313,7 @@ export const runBrew = async (
     const called = (state: State): string => {
       if (repository === undefined) return String(issue);
       const alive = liveOrderOf(state, { issue, repo: repository.repo });
-      return alive === undefined ? asGiven : String(alive);
+      return alive === undefined ? named : String(alive);
     };
     // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
     const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
@@ -331,9 +332,7 @@ export const runBrew = async (
       (latest.lane.kind === 'on_tap' || latest.lane.kind === 'cancelled')
     ) {
       const { lane } = describeLane(latest, called(log.state()));
-      return refuse(
-        `batch ${latest.id} of ${named} is ${lane}; foedrum order ${called(log.state())} orders it again`,
-      );
+      return refuse(`${named} is ${lane}; foedrum order ${called(log.state())} orders it again`);
     }
     // A paused order would wait with nothing to do: it is continued first (ADR 0202).
     // A sub-order's batch waits for its order's pause, which is the one to continue.
@@ -355,14 +354,16 @@ export const runBrew = async (
       return refuse(pausedLine(log.state(), latest));
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
+    if (leased !== undefined && request.take !== true) return refuse(drivenBy(log.state(), leased));
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
     // It names its batch, never the issue's later one, whose lane the refusal names.
     if (request.lauter !== undefined && latest !== undefined) {
       const decision = log.issue({ kind: 'lauter', batchId: request.lauter, by, via }, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
-      say(`batch ${request.lauter} goes to a session on its plan`);
+      say(
+        `${saidAs(log.state(), foldedBatch(log.state(), request.lauter))} goes to a session on its plan`,
+      );
     }
     // An issue with no batch, or an Ordered one, is routed by its one recipe label (ADR 0068); a
     // claimed batch by its Brewery issue's, and it waits for that issue until the ledger records
@@ -372,7 +373,7 @@ export const runBrew = async (
       request.mash !== true && order.repo !== undefined && labelled === undefined;
     let recipe: string | undefined;
     if (request.mash === true) {
-      const refused = mashRefusal(setup, latest, named);
+      const refused = mashRefusal(setup, latest, named, called(log.state()));
       if (refused !== undefined) return refuse(refused);
     } else if (!waitsForOrder && (latest === undefined || latest.lane.kind === 'ordered')) {
       const labels = githubOrderLabels(reads, setup.brewery);
@@ -400,7 +401,9 @@ export const runBrew = async (
       const decision = takeOver(log, handover);
       const [handed] = decision.kind === 'accepted' ? decision.events : [];
       if (handed?.type === 'batch.taken_over') {
-        say(`took batch ${leased.batchId} over from ${handed.from}`);
+        say(
+          `took ${saidAs(log.state(), foldedBatch(log.state(), leased.batchId))} over from ${handed.from}`,
+        );
       } else if (heldElsewhere(leased.batchId) !== undefined && decision.kind === 'refused') {
         return refuse(decision.reason);
       }
@@ -418,7 +421,7 @@ export const runBrew = async (
       if ('refused' in command) return refuse(command.refused);
       const decision = log.issue(command, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
-      say(`ordered ${named} as batch ${command.batchId}`);
+      say(`ordered ${named}`);
     }
     const batch =
       latest === undefined
@@ -435,7 +438,7 @@ export const runBrew = async (
       const opened = breweryIssueOf(driver.state(), batch);
       // A tick that did not open it (a failed or a put-off effect) said why first.
       if (opened === undefined) {
-        say(`${named} waits for its Brewery issue, which is not open yet; brew ${asGiven} again`);
+        say(`${named} waits for its Brewery issue, which is not open yet; brew ${named} again`);
         return BREW_EXIT.failed;
       }
       // The bare number, which every shell passes as it is (cmd.exe keeps quotes).
@@ -454,7 +457,7 @@ export const runBrew = async (
       } as const;
       const decision = log.issue(mashIn, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
-      say(`routed batch ${batchId} to the recipe ${MASH_IN}`);
+      say(`routed ${saidAs(log.state(), batch)} to the recipe ${MASH_IN}`);
     }
     if (recipe !== undefined && batch.lane.kind === 'ordered') {
       const route = {
@@ -466,7 +469,7 @@ export const runBrew = async (
       } as const;
       const decision = log.issue(route, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
-      say(`routed batch ${batchId} to the recipe ${recipe}`);
+      say(`routed ${saidAs(log.state(), batch)} to the recipe ${recipe}`);
     }
     // What opens the session a batch waits for, as this brew can or cannot (ADR 0222).
     const sessionLine = (why: BrewRequest['noSessions'], state: State): string => {
@@ -494,9 +497,11 @@ export const runBrew = async (
     ) {
       const decision = log.issue({ kind: 'retry', batchId, by, via }, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
-      say(`batch ${batchId} waits for a session at ${found.reason.stepId}; opening it`);
+      say(
+        `${saidAs(log.state(), batch)} waits for a session at ${found.reason.stepId}; opening it`,
+      );
     }
-    say(`brewing batch ${batchId} as ${owner}`);
+    say(`brewing ${saidAs(log.state(), batch)} as ${owner}`);
 
     /**
      * Until the next tick: plain, one wait; on a terminal, a redraw each second (ADR 0174),
@@ -548,10 +553,11 @@ export const runBrew = async (
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
         await endStoppedRuns(batchId, other);
-        return refuse(drivenBy(other));
+        return refuse(drivenBy(driver.state(), other));
       }
       const now = foldedBatch(driver.state(), batchId);
       const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
+      const said = saidAs(driver.state(), now);
       // The status comment, on the batch's Brewery issue, once its first revision is recorded
       // (ADR 0072, ADR 0155).
       const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
@@ -569,24 +575,24 @@ export const runBrew = async (
           if (!released) break;
           const { pullRequests } = now.lane;
           if (pullRequests.length > 0) {
-            say(`batch ${batchId} is on tap: ${pullRequests.join(' ')}`);
+            say(`${said} is on tap: ${pullRequests.join(' ')}`);
             return BREW_EXIT.onTap;
           }
           // With none, what it left instead: a plan's comment (#656).
           const plan = planCommentOf(driver.state(), batchId);
           const shown =
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
-          say(`batch ${batchId} is on tap: no pull request${shown}`);
+          say(`${said} is on tap: no pull request${shown}`);
           return BREW_EXIT.onTap;
         }
         case 'cancelled':
           if (!released) break;
-          say(`batch ${batchId} was ${lane} ${detail}`);
+          say(`${said} was ${lane} ${detail}`);
           return BREW_EXIT.cancelled;
         case 'stuck': {
           const { reason, options } = now.lane;
           if (reason.kind === 'needs_input') {
-            for (const line of questionLines(batchId, reason.stepId, now)) say(line);
+            for (const line of questionLines(driver.state(), reason.stepId, now)) say(line);
             return BREW_EXIT.needsInput;
           }
           // The tick that sticks a batch may have decided its revision before: a plan's names no
@@ -604,7 +610,7 @@ export const runBrew = async (
             reason.kind === 'plan_review' ? planCommentOf(driver.state(), batchId) : undefined;
           const shown =
             plan === undefined || shownOn === undefined ? '' : `; the plan: ${commentUrl(plan)}`;
-          say(`batch ${batchId} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
+          say(`${said} is stuck: ${detail}; options: ${options.join(', ')}${shown}`);
           if (reason.kind === 'waiting_for_session') {
             say(sessionLine(request.noSessions, driver.state()));
           }
@@ -625,7 +631,7 @@ export const runBrew = async (
           throw new Error(`Unknown lane ${JSON.stringify(unknown)}`);
         }
       }
-      const line = `batch ${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
+      const line = `${said} ${lane}${detail === '' ? '' : `: ${detail}`}`;
       const at = clock().getTime();
       if (now.orderedAt !== undefined)
         batchClock = { words: 'ordered', from: Date.parse(now.orderedAt) };
@@ -643,7 +649,7 @@ export const runBrew = async (
         const runs = running.map(
           ({ label }) => `${label} running for ${elapsed(at - (seenAt.get(label) ?? at))}`,
         );
-        say(`batch ${batchId} ${lane}: ${runs.join(', ')}`);
+        say(`${said} ${lane}: ${runs.join(', ')}`);
       }
       if (signal.aborted) break;
       await pause();

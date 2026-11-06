@@ -52,7 +52,7 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   },
   {
     id: 'approve',
-    title: `foedrum approve ${PLANNED}`,
+    title: `foedrum approve ${LADDER_ORDER.number}`,
     lookFor: 'the plan signed off by its digest: the batch goes on tap.',
   },
   {
@@ -442,7 +442,7 @@ export const runLadder = async (shell: LadderShell): Promise<number> => {
     await standing(LADDER_ORDER.number);
 
     await next();
-    await foedrum(['approve', PLANNED]);
+    await foedrum(['approve', String(LADDER_ORDER.number)]);
 
     await next();
     say('demo: the Cellar starts again, and brews until the first pull request is on tap');

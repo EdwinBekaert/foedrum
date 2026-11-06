@@ -7,7 +7,13 @@
 
 import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
-import { calledAs, latestBatch, type NamedWork, namedWork } from '../engine/claim-orders.ts';
+import {
+  calledAs,
+  latestBatch,
+  type NamedWork,
+  namedWork,
+  saidAs,
+} from '../engine/claim-orders.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
@@ -230,7 +236,7 @@ const laneLine = (state: State, batchId: string): string => {
   // Accepted, so the batch exists.
   const batch = foldedBatch(state, batchId);
   const { lane, detail } = describeLane(batch, calledAs(state, batch));
-  return `${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
+  return `${saidAs(state, batch)} ${lane}${detail === '' ? '' : `: ${detail}`}`;
 };
 
 // Runs `use` on the command log of the Brewery's store, opened for writing and closed after; one
@@ -534,7 +540,7 @@ export const orderIssue = async (
 
 /** Why a decision on a Stuck batch is the terminal's (ADR 0125). */
 const STUCK_DECISION =
-  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <batch>";
+  "A person's decision among the options /foedrum:stuck lists, run as foedrum <option> <issue>";
 
 export const commands: readonly RegisteredCommand[] = [
   define({
@@ -784,7 +790,7 @@ export const commands: readonly RegisteredCommand[] = [
         if (asked.length > 0 && answers.length !== asked.length) {
           const questions = asked.length === 1 ? '1 question' : `${asked.length} questions`;
           return {
-            refused: `batch ${batch} asked ${questions}; give one answer to each, in order`,
+            refused: `${saidAs(state(), foldedBatch(state(), batch))} asked ${questions}; give one answer to each, in order`,
           };
         }
         return {
@@ -851,7 +857,7 @@ export const commands: readonly RegisteredCommand[] = [
         if (latest?.lane.kind === 'brewing') {
           return failed(
             'recipe',
-            `batch ${latest.id} of ${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
+            `${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
           );
         }
         const lines: string[] = [];
@@ -871,7 +877,7 @@ export const commands: readonly RegisteredCommand[] = [
           const decision = log.issue(ordered, now());
           if (decision.kind === 'refused') return failed('recipe', decision.reason);
           batchId = ordered.batchId;
-          lines.push(`ordered ${name} as batch ${batchId}`);
+          lines.push(`ordered ${name}`);
         } else {
           batchId = latest.id;
         }

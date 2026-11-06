@@ -11,7 +11,7 @@ import {
   releaseBatch,
   takeOver,
 } from '../engine/batch-leases.ts';
-import { calledAs } from '../engine/claim-orders.ts';
+import { calledAs, saidAs } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import type { DriverNotice } from '../engine/driver.ts';
 import { type Batch, foldedBatch, latestAttempt } from '../engine/fold.ts';
@@ -135,7 +135,9 @@ export const runResumeRunning = async (
       const decision = takeOver(log, handover);
       const [handed] = decision.kind === 'accepted' ? decision.events : [];
       if (handed?.type === 'batch.taken_over') {
-        say(`took batch ${batchId} over from ${handed.from} to resume step ${stepId}`);
+        say(
+          `took ${saidAs(log.state(), foldedBatch(log.state(), batchId))} over from ${handed.from} to resume step ${stepId}`,
+        );
       } else if (
         decision.kind === 'refused' &&
         store.batchLeases(clock()).some((lease) => lease.batchId === batchId)
@@ -150,11 +152,12 @@ export const runResumeRunning = async (
         const batch = foldedBatch(driver.state(), batchId);
         const resumed = batch.steps.get(stepId)?.attempts.get(attempt);
         const { lane, detail } = describeLane(batch, calledAs(driver.state(), batch));
-        const where = `batch ${batchId} is ${lane}${detail === '' ? '' : `: ${detail}`}`;
+        const said = saidAs(driver.state(), batch);
+        const where = `${said} is ${lane}${detail === '' ? '' : `: ${detail}`}`;
         if (resumed?.phase === 'finished') {
           const next =
             batch.lane.kind === 'brewing'
-              ? `batch ${batchId} goes on from its next step under the driver that takes it`
+              ? `${said} goes on from its next step under the driver that takes it`
               : where;
           say(`${label} ${endedAs(resumed.outcome)}; ${next}`);
           return 0;
@@ -172,14 +175,16 @@ export const runResumeRunning = async (
         }
         const other = heldElsewhere();
         if (other !== undefined) {
-          say(drivenBy(other));
+          say(drivenBy(driver.state(), other));
           return 1;
         }
         if (signal.aborted) break;
         await wait(intervalMs, signal);
         if (signal.aborted) break;
       }
-      say(`stopped; batch ${batchId} is left for the driver that takes it`);
+      say(
+        `stopped; ${saidAs(driver.state(), foldedBatch(driver.state(), batchId))} is left for the driver that takes it`,
+      );
       return 1;
     } finally {
       // At once for the driver that takes it next, rather than when its lease expires.

@@ -154,9 +154,30 @@ export const claimedName = (batch: Batch): string =>
 /**
  * How a line that offers a command names a batch's work (ADR 0329): the bare number of its Brewery
  * issue, which every shell passes as it is, or its target issue's `<alias>#<n>` until that is open.
+ * A batch that is not its issue's latest goes by its id, since a number means the latest (ADR 0334).
  */
-export const calledAs = (state: State, batch: Batch): string =>
-  String(breweryIssueOf(state, batch) ?? claimedName(batch));
+export const calledAs = (state: State, batch: Batch): string => {
+  const latest = latestBatch(state.batches.values(), batch.issue, batch.repo);
+  if (latest !== undefined && latest.id !== batch.id) return batch.id;
+  return String(breweryIssueOf(state, batch) ?? claimedName(batch));
+};
+
+/** How a line says a batch's work (ADR 0334): `#<n>`, `<alias>#<n>`, or `batch <id>` as `calledAs` reads it. */
+export const saidAs = (state: State, batch: Batch): string => {
+  const called = calledAs(state, batch);
+  if (called === batch.id) return `batch ${called}`;
+  return /^\d+$/.test(called) ? `#${called}` : called;
+};
+
+/**
+ * How a refusal says an order a person named (ADR 0334): `#<n>`, its Brewery issue's while that is
+ * alive, or `<owner>/<name>#<n>` for a target issue with none.
+ */
+export const orderSaid = (state: State, order: OrderRef): string => {
+  if (order.repo === undefined) return `#${order.issue}`;
+  const alive = liveOrderOf(state, order);
+  return alive === undefined ? `${order.repo}#${order.issue}` : `#${alive}`;
+};
 
 /**
  * How `status` and `stuck` name a batch's issue: `#<n>` for a Brewery issue, `#<order> (<alias>#<n>)`

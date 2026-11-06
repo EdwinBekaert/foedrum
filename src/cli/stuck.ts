@@ -61,7 +61,7 @@ export const formatStuck = (state: State): string => {
     ...openLines(state, batch, lane.reason),
     // What to do with a plan that waits for its review (ADR 0275, ADR 0281).
     ...(lane.reason.kind === 'plan_review'
-      ? [`  next: ${planNextStep(batch.id, (command) => command)}`]
+      ? [`  next: ${planNextStep(calledAs(state, batch), (command) => command)}`]
       : []),
   ]);
   const count = `${stuck.length} Stuck ${stuck.length === 1 ? 'batch' : 'batches'}`;

@@ -170,12 +170,12 @@ export const CRASH_LINE = 'demo: the Gauger committed its test; the Cellar is ki
 /** The start of the line the Cellar prints once the batch is on tap. */
 export const ON_TAP_LINE = 'demo: batch 1-1 is on tap';
 /** The start of foedrum brew's last line once the second order's batch is on tap. */
-export const BREW_ON_TAP_LINE = 'foedrum brew: batch 2-1 is on tap';
+export const BREW_ON_TAP_LINE = 'foedrum brew: #2 is on tap';
 /** The line foedrum mash stops at: the Innkeeper's question of the third order's batch. */
-export const QUESTION_LINE = 'foedrum mash: batch 3-1 needs input at innkeep:';
+export const QUESTION_LINE = 'foedrum mash: #3 needs input at innkeep:';
 /** The start of foedrum brew's last line once the Brewmaster's plan waits for its review. */
 export const PLAN_REVIEW_LINE =
-  'foedrum brew: batch 3-1 is stuck: the plan of plan #1 is ready for your review';
+  'foedrum brew: #3 is stuck: the plan of plan #1 is ready for your review';
 
 /**
  * The demo's scratch folder: `.foedrum/tmp/demo` in the checkout, or `asked` resolved against
