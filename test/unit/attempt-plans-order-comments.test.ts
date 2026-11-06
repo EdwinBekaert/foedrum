@@ -20,7 +20,7 @@ const sessionId = '0f8fad5b-d9cb-469f-a165-70867728950e';
 const worktree = join('/work', 'brew-1');
 const deadlineAt = '2026-10-17T13:00:00.000Z';
 
-const loadedWith = (retryMode: 'fresh' | 'resume') => {
+const loadedWith = (retryMode: 'fresh' | 'resume', input = 'order') => {
   const loaded = loadRecipes({
     recipes: [
       {
@@ -34,7 +34,7 @@ const loadedWith = (retryMode: 'fresh' | 'resume') => {
         text: brewerText('brewmaster', {
           output: { doc: 'brew.md', schema: 'outDoc' },
           tools: { allow: ['Read', 'Write'] },
-          inputs: [{ name: 'order', from: 'order' }],
+          inputs: [{ name: input, from: 'order' }],
           retryMode,
         }),
       },
@@ -152,6 +152,19 @@ describe('the order input holds the comments', () => {
         text: 'And status.',
       },
     ]);
+  });
+
+  it("a comment carries the name of the brewer's input, as the body does", async () => {
+    const plans = plansOf(
+      () => brewery,
+      async () => [comment(501, 'Only the CLI.')],
+      { brewers: loadedWith('fresh', 'issue') },
+    );
+    const { prompt } = await plans.plan(startOf('12-1'));
+    assert.deepEqual(
+      inputsIn(prompt).map(({ name }) => name),
+      ['issue', 'issue'],
+    );
   });
 
   it('a comment of a deleted account says so in its source', async () => {

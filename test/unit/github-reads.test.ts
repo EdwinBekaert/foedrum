@@ -195,6 +195,36 @@ describe('createGitHubReads', () => {
       assert.equal(requests.at(-1)?.url, `${api}${list}&page=2`);
     });
 
+    it('asks for no page after a page that GitHub answered in full, with no next', async () => {
+      const list = '/repos/acme/web/issues/7/comments?per_page=2';
+      const { reads, requests } = readsWith([{ status: 200, body: [1, 2] }]);
+      assert.deepStrictEqual(await reads.pages(list, 'the comments'), [1, 2]);
+      assert.equal(requests.length, 1);
+    });
+
+    it('asks for no page after a page that answers 304 and is not full', async () => {
+      const list = '/repos/acme/web/issues/7/comments?per_page=2';
+      const { reads, requests } = readsWith([
+        { status: 200, body: [1], headers: { etag: '"p1"' } },
+        { status: 304 },
+      ]);
+      await reads.pages(list, 'the comments');
+      assert.deepStrictEqual(await reads.pages(list, 'the comments'), [1]);
+      assert.equal(requests.length, 2);
+    });
+
+    it('asks for no page after a page that answers 304 and names no page size', async () => {
+      for (const list of ['/repos/acme/web/issues', '/repos/acme/web/issues?state=all']) {
+        const { reads, requests } = readsWith([
+          { status: 200, body: [1, 2], headers: { etag: '"p1"' } },
+          { status: 304 },
+        ]);
+        await reads.pages(list, 'the issues');
+        assert.deepStrictEqual(await reads.pages(list, 'the issues'), [1, 2]);
+        assert.equal(requests.length, 2);
+      }
+    });
+
     it('ends the list at an empty page after a full page that answers 304', async () => {
       const list = '/repos/acme/web/issues/7/comments?per_page=2';
       const { reads, requests } = readsWith([

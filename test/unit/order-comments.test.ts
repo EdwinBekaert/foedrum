@@ -216,10 +216,12 @@ describe('the comments an order holds', () => {
         'engine/merge-brief-post.ts',
       ],
     );
-    // Only these post to an issue's comments, and each takes only a MarkedComment.
+    // Only these post to an issue's comments, and each takes only a MarkedComment: a path that ends
+    // in comments is a post, as a read names its page size after it.
     assert.deepEqual(
       sources
-        .filter(({ text }) => text.includes(')}/comments`'))
+        .filter(({ file }) => !file.startsWith('schemas/'))
+        .filter(({ text }) => text.includes('}/comments`'))
         .map(({ file }) => file)
         .sort(),
       ['github/marks.ts', 'github/status-comments.ts'],

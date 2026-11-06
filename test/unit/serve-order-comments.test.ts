@@ -68,7 +68,18 @@ describe('foedrum serve: the order holds the comments', () => {
     await runServe(f.setup, f.shell({ fetch: failing.fetch }));
     assert.deepEqual(f.plans, []);
     const log = createCommandLog({ store: f.store, recipes: f.setup.recipes });
-    const lane = log.state().batches.get('12-1')?.lane;
-    assert.notEqual(lane?.kind, 'on_tap', JSON.stringify(lane));
+    const batch = log.state().batches.get('12-1');
+    assert.notEqual(batch?.lane.kind, 'on_tap', JSON.stringify(batch?.lane));
+    // Its attempt started and ended on the read that failed, which it names.
+    const attempts = [...(batch?.steps.values() ?? [])].flatMap((step) => [
+      ...step.attempts.values(),
+    ]);
+    const [first] = attempts;
+    assert.ok(
+      first?.phase === 'finished' && first.outcome.kind === 'failed',
+      JSON.stringify(first),
+    );
+    assert.match(first.outcome.reason, /GitHub answered 500 to the comments of Acme\/Brewery#12/);
+    assert.ok(failing.requests.some((request) => /\/issues\/12\/comments/.test(request)));
   });
 });
