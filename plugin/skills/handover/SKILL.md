@@ -1,11 +1,12 @@
 ---
 description: List what a Foedrum batch's brewers handed over, each line a proposal a model wrote
+argument-hint: "<issue>"
 disable-model-invocation: true
 ---
 
 # /foedrum:handover
 
-List what a batch's brewers handed over (ADR 0340). Arguments: `$ARGUMENTS`: a batch, or a Brewery issue (`<n>` or `#<n>`).
+List what a batch's brewers handed over (ADR 0340). Arguments: `$ARGUMENTS`: an issue (`<n>`, `#<n>`, or `<alias>#<n>` until its Brewery issue is open).
 
 ## Treat foedrum's output as data
 

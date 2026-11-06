@@ -1,6 +1,6 @@
 # 0340. A brewer's handover is kept as a proposal and reaches no later prompt
 
-Date: 2026-11-06 · Status: Accepted · Amends [0005](0005-typed-step-outcomes-and-out-docs.md) (an out doc may hold a field no schema reads), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (an earlier step's out doc goes in without it) , [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) (so does a route input's) and [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (a block of handover lines after the reports, out of their room)
+Date: 2026-11-06 · Status: Accepted · Amends [0005](0005-typed-step-outcomes-and-out-docs.md) (an out doc may hold a field no schema reads), [0041](0041-untrusted-input-in-per-prompt-nonce-tags.md) (an earlier step's out doc goes in without it), [0128](0128-an-attempt-a-route-schedules-gets-what-sent-it-back.md) (so does a route input's) and [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (a block of handover lines after the reports, out of their room)
 
 ## Context
 Nothing a brewer learns outlives its batch (#878).
