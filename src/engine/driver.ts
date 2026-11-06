@@ -564,17 +564,16 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
   };
 
   /**
-   * Records the start `event` with `also`'s writes in the transaction that renews its batch's
-   * lease, so a driver that lost the batch, as to a takeover since it last claimed it, starts
-   * nothing more there (ADR 0124): the batch is lost instead. False when it is not recorded.
+   * Issues `command` with `also`'s writes in the transaction that renews `batchId`'s lease, so a
+   * driver that lost the batch, as to a takeover since it last claimed it, does nothing more there
+   * (ADR 0124): the batch is lost instead. False when it is not recorded.
    */
-  const recordStart = (
-    event: Extract<RecordedEvent, { type: 'step.started' }>,
+  const issueHolding = (
+    batchId: string,
+    command: EngineCommand,
     also?: (tx: EventStoreTransaction) => void,
   ): boolean => {
-    const { batchId } = event;
     let holder: BatchLease | undefined;
-    const command = { kind: 'record', event } as const;
     const decision = log.issue(
       (tx) => {
         const hold = holdBatch(tx, { batchId, owner, now: clock(), leaseMs });
@@ -595,6 +594,12 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     }
     return true;
   };
+
+  /** Records the start `event` under the batch's lease, with `also`'s writes (ADR 0124). */
+  const recordStart = (
+    event: Extract<RecordedEvent, { type: 'step.started' }>,
+    also?: (tx: EventStoreTransaction) => void,
+  ): boolean => issueHolding(event.batchId, { kind: 'record', event }, also);
 
   const leaseAttempt = (tx: EventStoreTransaction, key: string): void =>
     tx.putLease({ attemptKey: key, owner, expiresAt: new Date(clock().getTime() + leaseMs) });
