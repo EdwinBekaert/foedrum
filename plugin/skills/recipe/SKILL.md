@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /foedrum:recipe
 
-Choose or change the recipe of an issue, or of one batch (ADR 0240). By issue (`<n>`, `#<n>` or `<alias>#<n>`), it acts on the issue's latest batch: an ended one, or none yet, is ordered again with the recipe; an Ordered, Conditioning or Stuck one restarts from the recipe's first step, on its commits so far; a Brewing one is refused until `/foedrum:stop` stops it. The issue gets the `recipe:<name>` label once a driver runs the batch, its other recipe labels taken off. Arguments: `$ARGUMENTS`: the issue or batch, the recipe, then the reason.
+Choose or change the recipe of an issue, or of one batch (ADR 0240). By issue (`<n>`, `#<n>` or `<alias>#<n>`), it acts on the issue's latest batch: an ended one, or none yet, is ordered again with the recipe, unless it is on tap with a pull request still open, which is refused (ADR 0339); an Ordered, Conditioning or Stuck one restarts from the recipe's first step, on its commits so far; a Brewing one is refused until `/foedrum:stop` stops it. The issue gets the `recipe:<name>` label once a driver runs the batch, its other recipe labels taken off. Arguments: `$ARGUMENTS`: the issue or batch, the recipe, then the reason.
 
 Run with the Bash tool, never PowerShell, in this folder (the Brewery's root), each value as one single-quoted argument (a bare `#21` would start a comment), a `'` inside written `'\''`. Without a Bash tool in this session (Git Bash on Windows), say that the plugin needs it and stop.
 

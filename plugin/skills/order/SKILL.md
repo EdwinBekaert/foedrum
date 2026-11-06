@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /foedrum:order
 
-Order an issue (ADR 0105, ADR 0240): its first batch, or a new one once its last is on tap or cancelled. A target issue (`<alias>#<n>`) is claimed first, so no other Brewery orders it; a claimed order's Brewery issue (`#<n>`) orders the issue it was claimed for. Arguments: `$ARGUMENTS`: one issue (`<n>`, `#<n>` or `<alias>#<n>`).
+Order an issue (ADR 0105, ADR 0240): its first batch, or a new one once its last is cancelled, or on tap with no pull request still open (ADR 0339): foedrum's refusal says to read its end or close it first. A target issue (`<alias>#<n>`) is claimed first, so no other Brewery orders it; a claimed order's Brewery issue (`#<n>`) orders the issue it was claimed for. Arguments: `$ARGUMENTS`: one issue (`<n>`, `#<n>` or `<alias>#<n>`).
 
 Run with the Bash tool, never PowerShell, in this folder (the Brewery's root), the issue as one single-quoted argument (a bare `#21` would start a comment), a `'` inside written `'\''`. Without a Bash tool in this session (Git Bash on Windows), say that the plugin needs it and stop.
 
