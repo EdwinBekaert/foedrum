@@ -232,6 +232,12 @@ const findingsOf = (output: unknown): { findings: TastingFinding[]; refused: num
   return { findings, refused };
 };
 
+/** The risks a succeeded Taster's output left, none when it lists none. */
+const risksOf = (output: unknown): { riskLeft?: readonly string[] } => {
+  const read = z.looseObject({ riskLeft: z.array(z.string()).min(1) }).safeParse(output);
+  return read.success ? { riskLeft: read.data.riskLeft } : {};
+};
+
 /** The attempts of `steps`, the lenses of each Taster step by id, in the order they finished. */
 const attemptsIn = (
   finished: readonly FinishedAttempt[],
@@ -243,10 +249,12 @@ const attemptsIn = (
     if (lenses === undefined) continue;
     let failure: string | undefined;
     let findings: TastingFinding[] = [];
+    let risks: { riskLeft?: readonly string[] } = {};
     switch (outcome.kind) {
       case 'succeeded': {
         const read = findingsOf(outcome.output);
         findings = read.findings;
+        risks = risksOf(outcome.output);
         if (read.refused > 0) {
           failure = `succeeded with ${read.refused} finding${read.refused === 1 ? '' : 's'} the schema refuses`;
         }
@@ -270,6 +278,10 @@ const attemptsIn = (
       usage,
       turns: receipt?.turns,
       durationMs: receipt?.durationMs,
+      ...risks,
+      ...(receipt?.models === undefined
+        ? {}
+        : { models: receipt.models.map(({ model }) => model) }),
     });
   }
   return attempts;
@@ -311,7 +323,10 @@ export const attemptFailure = (attempts: readonly TasterAttempt[]): string | und
 };
 
 /** Why a run failed, or undefined: its batch is not on tap, or one of its Taster attempts failed. */
-export const runFailure = ({ ended, attempts }: RunRecord): string | undefined =>
+export const runFailure = ({
+  ended,
+  attempts,
+}: Pick<RunRecord, 'ended' | 'attempts'>): string | undefined =>
   ended !== 'on_tap' ? `the batch ended ${ended}` : attemptFailure(attempts);
 
 /** A finding outside the key, for a person to judge. */
@@ -400,7 +415,7 @@ export interface SetupSummary<Setup extends string = Shown> {
 const mean = (values: readonly number[]): number =>
   values.length === 0 ? Number.NaN : values.reduce((sum, value) => sum + value, 0) / values.length;
 
-const tokensOf = (attempts: readonly TasterAttempt[]): Tokens => {
+export const tokensOf = (attempts: readonly TasterAttempt[]): Tokens => {
   const sum = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   for (const { usage } of attempts) {
     if (usage === undefined) continue;
@@ -574,7 +589,7 @@ export const choiceOf = (
 /** Model text as one Markdown table cell or list line: nothing in it is read as Markdown or HTML. */
 export const escapeCell = (text: string): string =>
   text
-    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\r\n|[\r\n\p{Zl}\p{Zp}]/gu, ' ')
     .replace(/[\\`*_[\]|]/g, (character) => `\\${character}`)
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
