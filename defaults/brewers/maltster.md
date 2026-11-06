@@ -2,7 +2,7 @@
 {
   "name": "maltster",
   "description": "Proposes the repository's test map from its manifests, when it has none or a stale one; changes nothing else.",
-  "version": 2,
+  "version": 3,
   "model": "builder",
   "effort": "medium",
   "output": { "doc": "survey.md", "schema": "survey" },
@@ -40,3 +40,7 @@ Survey this repository and write its test map, `.foedrum/test-map.jsonc`. Foedru
 ## Done when
 
 The map lists every module the repository's test command runs, records its manifests, and is committed alone. Your out doc's frontmatter says why the map changed: `"map": "new"` when there was none or it could not be read, or `"map": "stale"` with `"stale"`, the paths whose manifests changed, each with `(added)` or `(removed)`: `"stale"` holds at most 10 paths, each one line of at most 1,000 characters. In its body, list each module with why you placed it so, and list the assumptions you made in its `assumptions`. If the repository's tests cannot be mapped (no test command, no report its runner can write), end blocked on the environment and say why.
+
+## Your handover
+
+Your out doc's frontmatter may add the key `handover`, at most 3 lines, each at most 300 characters: what surprised you, what cost you time, or what you would tell the next brewer who works here. Leave it out when nothing did. A person reads it; no later brewer does, so put nothing there this batch needs.

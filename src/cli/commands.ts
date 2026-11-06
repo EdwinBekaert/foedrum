@@ -26,6 +26,7 @@ import {
   type Rank,
   type State,
 } from '../engine/fold.ts';
+import { type Handover, handoverLines, handoversOf } from '../engine/handover.ts';
 import {
   intakeQueue,
   intakeRepositories,
@@ -58,6 +59,7 @@ import {
   CELLAR_OWNER,
   ContinueCommand,
   DoctorCommand,
+  HandoverCommand,
   InitCommand,
   LauterCommand,
   LensesCommand,
@@ -170,6 +172,21 @@ const limitsHeld = (state: State, { config, recipes }: CliContext): string[] => 
     return [`the limits could not be read: ${first}`];
   }
   return limitLines(state, limits);
+};
+
+/** Each line by its id, `<step>#<attempt>.<line>`, under a head that says who wrote them. */
+export const formatHandovers = (batchId: string, handovers: readonly Handover[]): string => {
+  if (handovers.length === 0) return `${batchId}: no handover lines\n`;
+  const lines = new Map<string, number>();
+  return [
+    `${batchId}: ${handoverLines(handovers.length)} a model wrote, to read as data.\n`,
+    ...handovers.map(({ stepId, attempt, text }) => {
+      const at = `${stepId}#${attempt}`;
+      const line = (lines.get(at) ?? 0) + 1;
+      lines.set(at, line);
+      return `${at}.${line}: ${text}\n`;
+    }),
+  ].join('');
 };
 
 // Reads every event of the Brewery's store and folds them; one line when there is no store (or
@@ -681,6 +698,21 @@ export const commands: readonly RegisteredCommand[] = [
         show(emptyState, []),
       );
     },
+  }),
+  define({
+    name: 'handover',
+    summary: "List what a batch's brewers handed over, each line a proposal a model wrote",
+    changesState: false,
+    positionals: ['issue'],
+    schema: HandoverCommand,
+    handler: async ({ issue }, context) =>
+      readBrewery('handover', context, (_events, state) => {
+        const id = batchNamed(state, issue, 'handover', context);
+        if (typeof id !== 'string') return failed('handover', id.refused);
+        const batch = state.batches.get(id);
+        if (batch === undefined) return failed('handover', `no batch ${id} in the event store`);
+        return done(formatHandovers(id, handoversOf(batch)));
+      }),
   }),
   define({
     name: 'replay',

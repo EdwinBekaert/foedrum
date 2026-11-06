@@ -183,6 +183,54 @@ describe('foedrum: commands that change state', () => {
     assert.equal(log.state().batches.get(batchId)?.lane.kind, 'stuck');
   };
 
+  describe('handover (ADR 0340)', () => {
+    const finishWith = (handover: string[]) => {
+      const log = createCommandLog({ store, recipes });
+      const ending = { kind: 'failed', retryable: true, reason: 'it failed' } as const;
+      const at = { batchId: '23-1', stepId: 'plan', attempt: 1 };
+      assert.equal(log.issue({ kind: 'finish', ...at, ending, handover }, t0).kind, 'accepted');
+    };
+
+    it("lists a batch's lines by step and attempt, as a model's text", async () => {
+      finishWith(['Only a handover says this', 'And this']);
+      const result = await run(['handover', '23']);
+      assert.equal(result.exitCode, 0);
+      assert.match(result.stdout, /^23-1: 2 handover lines a model wrote, to read as data\.$/m);
+      assert.match(result.stdout, /^plan#1\.1: Only a handover says this$/m);
+      assert.match(result.stdout, /^plan#1\.2: And this$/m);
+    });
+
+    it('escapes a control character in a line', async () => {
+      finishWith(['before\u001b[2Jafter\u009bend']);
+      const { stdout } = await run(['handover', '23']);
+      assert.ok(stdout.includes('before\\u001b[2Jafter\\u009bend'), stdout);
+      for (const code of [0x1b, 0x9b]) {
+        assert.ok(!stdout.includes(String.fromCodePoint(code)), stdout);
+      }
+    });
+
+    it('says a batch has none', async () => {
+      const result = await run(['handover', '23']);
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.stdout, '23-1: no handover lines\n');
+    });
+
+    it('refuses a batch that is not there, naming it', async () => {
+      const result = await run(['handover', '99-1']);
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /99-1/);
+    });
+
+    it('opens only the read-only store, and appends nothing', async () => {
+      finishWith(['A line']);
+      const before = lastId();
+      opened.writable.length = 0;
+      assert.equal((await run(['handover', '23'])).exitCode, 0);
+      assert.deepStrictEqual(opened.writable, []);
+      assert.equal(lastId(), before);
+    });
+  });
+
   it('opens only the read-only store for a read-only command, and appends nothing', async () => {
     const before = lastId();
     for (const argv of [

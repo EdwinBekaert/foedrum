@@ -350,6 +350,17 @@ describe('a later tasting round gets the earlier findings with their disposition
     assert.ok(prompt.search(NEVER_AGAIN) < prompt.indexOf('When you finish, write taste.md'));
   });
 
+  it('gives a later round the findings of an out doc that holds a handover, and not the handover (ADR 0340): regression test', async () => {
+    const lesson = 'Only a handover says this';
+    const doc = `---\n${JSON.stringify({ status: 'done', summary: 'Changes', verdict: 'changes', findings: [deadline, cap], handover: [lesson] })}\n---\n`;
+    const { prompt } = await planRound(ROUND_THREE, 3, {
+      ...OUT_DOCS,
+      [join('/work', 'tasting-1', 'taste.md')]: doc,
+    });
+    assert.match(inputText(prompt, 'earlierFindings'), /The poll has no deadline/);
+    assert.ok(!prompt.includes(lesson));
+  });
+
   it('gives the first round neither the input nor the text', async () => {
     const { prompt } = await planRound(ROUND_ONE, 1);
     assert.doesNotMatch(prompt, /name="earlierFindings"/);

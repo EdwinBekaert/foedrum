@@ -1067,6 +1067,28 @@ Plan the order in {order}.
     ]);
   });
 
+  it("records what an attempt's out doc handed over, through serve's own wiring (ADR 0340)", async () => {
+    const text = '---\n{"status":"done","summary":"Brewed","handover":["A lesson"]}\n---\nNotes.\n';
+    const runner = (): BrewerRunner => ({
+      start: () => ({
+        ended: Promise.resolve({
+          ending: { kind: 'succeeded', output: { status: 'done', summary: 'Brewed' } },
+          outDoc: text,
+        }),
+        stop: () => {},
+      }),
+      progress: () => undefined,
+    });
+    assert.equal(await runServe(f.setup, shell({ runner })), 0);
+    const finished = f.store
+      .eventsAfter(0)
+      .map(({ event }) => event)
+      .find((event) => event.type === 'step.finished' && event.stepId === 'brew');
+    assert.ok(finished?.type === 'step.finished');
+    assert.deepStrictEqual(finished.handover, ['A lesson']);
+    assert.equal(JSON.stringify(finished.outcome).includes('A lesson'), false);
+  });
+
   it('says in one line when an out doc cannot be kept, and brews on (ADR 0103)', async () => {
     const runner = (): BrewerRunner => ({
       start: () => ({

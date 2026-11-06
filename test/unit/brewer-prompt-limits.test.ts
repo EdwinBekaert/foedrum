@@ -15,6 +15,7 @@ import {
   MAX_BEFORE_AFTER,
   MAX_DISPOSITION_WHY,
   MAX_FINING_FILE,
+  MAX_HANDOVER_LINE,
   MAX_HOW_IT_WORKS,
   MAX_MUTANT_DESCRIPTION,
   MAX_MUTANT_FILE,
@@ -27,6 +28,7 @@ import {
   MOST_BEFORE_AFTER,
   MOST_DISPOSITIONS,
   MOST_FINING_CHANGES,
+  MOST_HANDOVER_LINES,
   MOST_MUTANTS,
   MOST_RISKS_LEFT,
   MOST_SURVEY_PATHS,
@@ -86,12 +88,19 @@ const noDispositions = {
   'dispositions.why': noFindingsBack,
 };
 
+// Every default brewer may end its out doc with a handover (ADR 0340).
+const handover: readonly Limit[] = [
+  ['handover', MOST_HANDOVER_LINES, 'lines'],
+  ['handover', MAX_HANDOVER_LINE, 'characters'],
+];
+
 /** Every default brewer, by its file's name. */
 const brewers: Record<string, Expected> = {
   brett: {
     name: MUTANTS,
     schema: MutantsOutDoc,
     stated: [
+      ...handover,
       ['mutants', MOST_MUTANTS, 'mutants'],
       ['file', MAX_MUTANT_FILE, 'characters'],
       ['original', MAX_MUTANT_LINE, 'characters'],
@@ -104,6 +113,7 @@ const brewers: Record<string, Expected> = {
     name: PLAN,
     schema: PlanOutDoc,
     stated: [
+      ...handover,
       ['title', MAX_TITLE, 'characters'],
       ...planLines.map((field): Limit => [field, MAX_PLAN_LINE, 'characters']),
       ['touches', MOST_TOUCHES, 'paths'],
@@ -120,6 +130,7 @@ const brewers: Record<string, Expected> = {
     name: PULL_REQUEST,
     schema: PullRequestOutDoc,
     stated: [
+      ...handover,
       ['howItWorks', MAX_HOW_IT_WORKS, 'characters'],
       ['seeIt', MAX_SEE_IT, 'characters'],
       ['beforeAfter', MOST_BEFORE_AFTER, 'rows'],
@@ -138,6 +149,7 @@ const brewers: Record<string, Expected> = {
     name: FINING,
     schema: FiningOutDoc,
     stated: [
+      ...handover,
       ['changes', MOST_FINING_CHANGES, 'changes'],
       ['file', MAX_FINING_FILE, 'characters'],
       ['unchanged', MAX_UNCHANGED, 'characters'],
@@ -148,6 +160,7 @@ const brewers: Record<string, Expected> = {
     name: GAUGE,
     schema: GaugeOutDoc,
     stated: [
+      ...handover,
       ['tests', MOST_TESTS, 'names'],
       ['regressionTests', MOST_TESTS, 'names'],
       ['tests', MAX_TEST_NAME, 'characters'],
@@ -158,13 +171,14 @@ const brewers: Record<string, Expected> = {
   innkeeper: {
     name: RECIPE_CHOICE,
     schema: recipeChoiceOutDocOf(['nip', 'mash']),
-    stated: [],
+    stated: handover,
     unstated: noDispositions,
   },
   maltster: {
     name: SURVEY,
     schema: SurveyOutDoc,
     stated: [
+      ...handover,
       ['stale', MOST_SURVEY_PATHS, 'paths'],
       ['stale', MAX_SURVEY_PATH, 'characters'],
     ],
@@ -174,6 +188,7 @@ const brewers: Record<string, Expected> = {
     name: TASTING,
     schema: TastingOutDoc,
     stated: [
+      ...handover,
       ['riskLeft', MOST_RISKS_LEFT, 'lines'],
       ['riskLeft', MAX_RISK_LEFT, 'characters'],
     ],
