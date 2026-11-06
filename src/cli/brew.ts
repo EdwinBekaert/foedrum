@@ -128,9 +128,12 @@ export const oneLine = (text: string): string =>
     })
     .join('');
 
-/** Who drives a batch another driver holds, and until when. */
-export const drivenBy = (lease: BatchLease): string =>
-  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}`;
+/**
+ * Who drives a batch another driver holds, until when, and the way on: `takes`, the command that
+ * takes it over now. It never says that driver stopped, which Foedrum cannot tell (ADR 0336).
+ */
+export const drivenBy = (lease: BatchLease, takes: string): string =>
+  `batch ${lease.batchId} is driven by ${lease.owner} until ${lease.expiresAt.toISOString()}, when its lease ends by itself; ${takes} takes it over now`;
 
 /** How often `foedrum brew` says which steps still run, when nothing else changed. */
 const PROGRESS_MS = 30_000;
@@ -314,6 +317,8 @@ export const runBrew = async (
       const alive = liveOrderOf(state, { issue, repo: repository.repo });
       return alive === undefined ? asGiven : String(alive);
     };
+    const takesIt = (state: State): string =>
+      `foedrum ${request.mash === true ? 'mash' : 'brew'} ${called(state)} --take`;
     // A target issue that ended and whose Brewery issue a person deleted is claimed anew.
     const knew = last === undefined ? {} : claimOrderOf(log.state(), last.id);
     const deleted =
@@ -355,7 +360,9 @@ export const runBrew = async (
       return refuse(pausedLine(log.state(), latest));
     }
     const leased = latest === undefined ? undefined : heldElsewhere(latest.id);
-    if (leased !== undefined && request.take !== true) return refuse(drivenBy(leased));
+    if (leased !== undefined && request.take !== true) {
+      return refuse(drivenBy(leased, takesIt(log.state())));
+    }
     // The person's lauter first, so a refused one takes nothing over; its session opens below as
     // every interactive step's does (ADR 0286, ADR 0222).
     // It names its batch, never the issue's later one, whose lane the refusal names.
@@ -548,7 +555,7 @@ export const runBrew = async (
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
         await endStoppedRuns(batchId, other);
-        return refuse(drivenBy(other));
+        return refuse(drivenBy(other, takesIt(driver.state())));
       }
       const now = foldedBatch(driver.state(), batchId);
       const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
