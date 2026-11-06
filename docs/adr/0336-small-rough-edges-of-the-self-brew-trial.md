@@ -1,6 +1,6 @@
 # 0336. Five rough edges of the self-brew trial: a read's timeout, a lease's way on, a merge without a Cellar, a claimed issue's status and its recipe label
 
-Date: 2026-11-06 · Status: Accepted · Amends [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a read that timed out is tried once more), [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `foedrum brew` of an on-tap batch does, and what a lease's refusal says), [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (`foedrum brew` records the ends of its own batch's pull requests too), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the claim comment says), [0155](0155-a-claimed-order-s-brewery-issue-gets-the-status-comment-and-the-lane-label.md) (the target issue's comment says where the status is) and [0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) (a line says that a recipe label on the target issue is not read)
+Date: 2026-11-06 · Status: Accepted · Amends [0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md) (a read that timed out is tried once more), [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `foedrum brew` of an on-tap batch does, and what a lease's refusal says), [0198](0198-an-open-pull-request-is-merge-tree-checked-when-its-base-moves.md) (`foedrum brew` records the ends of its own batch's pull requests too), [0043](0043-target-repository-issues-as-a-work-queue-claimed-by-a-ref.md) (what the claim comment says), [0155](0155-a-claimed-order-s-brewery-issue-gets-the-status-comment-and-the-lane-label.md) (the target issue's comment says where the status is) [0156](0156-a-claimed-order-is-routed-by-its-brewery-issue-s-recipe-label.md) (a line says that a recipe label on the target issue is not read) and [0296](0296-a-target-repository-s-pull-request-names-no-brewery-issue-and-the-engine-closes-it.md) (`foedrum brew` of an on-tap batch records the end that closes a Brewery issue too)
 
 ## Context
 The self-brew trial (#374) left five small things (#874):
@@ -23,6 +23,8 @@ The self-brew trial (#374) left five small things (#874):
 
 This has an observed failure, the trial's, as `CLAUDE.md`'s rule on a new safeguard asks.
 No layer below it retried: the process runner kills at the deadline and reports it.
+The layer above does under `foedrum serve`: a failed effect waits for the next pass, and an intake pass goes on ([ADR 0052](0052-github-reads-rate-limit-pauses-and-the-polling-interval.md)).
+The retry stays in the client for both, since one rule for every read is simpler than two, and under `foedrum serve` a passing timeout then costs a batch's effects no pass.
 
 **What a dead network costs.** A read with no answer takes 60 s instead of 30 s.
 - A batch stops at its first failed effect, so a pass costs about 60 s per batch with effects due, where it cost about 30 s.
@@ -34,14 +36,15 @@ No layer below it retried: the process runner kills at the deadline and reports 
 The line is now `batch 12-1 is driven by cellar until <time>, when its lease ends by itself; foedrum brew 12 --take takes it over now` (`drivenBy`, `src/cli/brew.ts`).
 - It never says that driver stopped, which Foedrum cannot tell.
 - It offers what the command can do, by the number ([ADR 0329](0329-one-number-per-piece-of-work.md)): `foedrum mash 12 --take` from a mash, and `foedrum resume 12 <step>` from a resume, which has no `--take` and takes a running batch over by itself.
+- A batch that ended cannot be taken over ([ADR 0124](0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md)), so its line ends `foedrum brew 40 tries again then` instead, and `--take` of one is refused with the engine's reason, taking nothing.
 - A lauter that loses its batch offers `foedrum brew 12 --take`, since the plan it corrected may no longer wait for a review.
 
 ### `foedrum brew` of an on-tap batch records its ends and applies what follows
 - **A brew of an on-tap batch reads each of its pull requests with no recorded end**, records `pull_request.ended` for each that merged or closed, as the intake does (`recordEndsOf`, `src/engine/intake.ts`), and ticks until the driver lets the batch go, with the effects every driver applies: the release, the Brewery issue's close, the lane label and the status comment.
 - It runs no intake. It reads only that batch's pull requests, and claims nothing else, as [ADR 0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) keeps it.
-- The checks, the base checks and the releases stay with `foedrum serve`.
+- The checks, the base checks and a repository's recorded releases stay with `foedrum serve`.
 - So do the ends of the pull request a Brewing or Stuck batch brews a fix of ([ADR 0219](0219-a-failing-check-on-an-open-pull-request-sends-its-batch-back-to-a-fix-step.md)).
-- **The refusals before it still hold:** a paused order, and a batch another driver holds unless `--take` takes it over. Nothing is read then.
+- **The refusals before it still hold:** a Brewery paused with `--all`, and a batch another driver holds. Nothing is read then. An order's own pause holds no batch that ended ([ADR 0202](0202-pause-and-continue-hold-an-order-or-the-whole-brewery-at-its-next-convenient-point.md)), so it refuses nothing here.
 - A read that fails ends the brew with its reason (exit 1), and nothing is released.
 - A Cellar that records the same end first makes the second record a refusal of the fold, which changes nothing.
 
@@ -51,15 +54,17 @@ The line is now `batch 12-1 is driven by cellar until <time>, when its lease end
 |---|---|---|
 | Every pull request has ended, all merged | 0 | `batch web-7 merged: <urls>; Brewery issue #40 closed, claim on acme/web#7 released` |
 | Every pull request has ended, one closed unmerged | 0 | `batch web-7 ended: <urls> not all merged; Brewery issue #40 stays open, claim on acme/web#7 released, unassign it to make it available` |
+| A Brewery issue's batch, every pull request ended | 0 | `batch 12-1 merged: <urls>; Brewery issue #12 closed`, or `batch 12-1 ended: <urls> not all merged; Brewery issue #12 stays open` |
 | A claimed batch with a pull request still open | 5 | `batch web-7 of #40 is on tap and holds its claim until its pull requests end: <urls>; foedrum brew 40 reads them again` |
 | A Brewery issue's batch with a pull request still open | 5 | `batch 12-1 of #12 is on tap; foedrum order 12 orders it again`, as before, since that is open to it |
-| A claimed batch whose release is still due, and no pull request left to read | 0 | as the first two rows, or `batch web-7 is on tap: no pull request` |
+| A release or a close still due, and no pull request left to read | 0 | as the rows above, or `batch web-7 is on tap: no pull request` |
 
 **Exit 0 where it was 5.** [ADR 0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) refused every issue whose latest batch ended.
-A brew of an on-tap batch with a pull request that merged or closed now exits 0, and so does one whose release is still due.
+A brew of an on-tap batch with a pull request that merged or closed now exits 0, and so does one whose release or close is still due.
 
-**A release still due is finished.** A run killed after the end was recorded left a dead end: `brew` offered `foedrum order`, and `decide` refused that while the release was due.
+**A release or a close still due is finished.** A run killed after the end was recorded left a dead end: `brew` offered `foedrum order`, and `decide` refused that while the release was due.
 So a claimed on-tap batch whose claim is `releasing` is driven too, one with no pull request included, which until now was refused.
+So is a Brewery issue's batch whose close is due and not applied (`closeStillDue`, `src/engine/brewery-closes.ts`), since ordering it again would only take that close off due.
 
 **`foedrum mash` and `foedrum lauter` of an on-tap batch keep their own refusals** and read nothing: they are not what this is for.
 A mash of a claimed batch whose claim is held no longer offers `foedrum order`, which `decide` refuses then, and names `foedrum brew` instead.
@@ -92,6 +97,7 @@ A Brewery has nothing to do, and no file changes. No event or schema changes.
 - `foedrum brew` of an on-tap batch can exit 0 and change GitHub, where it used to refuse. A session reads the last line to tell which.
 - `decide`'s refusal while a release is due still says `foedrum serve applies it`. It is still true, and `foedrum brew` applies it too; the words are left for #881.
 - A cancelled claimed batch whose release is due still gets brew's refusal: only `foedrum serve` finishes it. That is left as it is.
+- A brew of an on-tap batch waits on its effects as every brew does: one that fails on every pass is said on each pass, until Ctrl+C ([ADR 0327](0327-a-pass-over-one-batch-s-effects-that-throws-stops-no-other-batch.md)). No bound is added, since nothing has shown one is needed.
 
 ## Alternatives considered
 - **Run the intake in `foedrum brew`:** it would order and claim other issues, which [ADR 0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) refused.
