@@ -33,6 +33,7 @@ import { type DriverStart, startDriver } from './driver-start.ts';
 import { effectKey } from './effect-key.ts';
 import { applyEffect, type EffectTarget, type Ledger } from './effects.ts';
 import type { BatchLease, EffectKey, EventStore, EventStoreTransaction } from './event-store.ts';
+import { createFailureLines } from './failure-lines.ts';
 import { type Batch, runningAttempt, type State } from './fold.ts';
 import { pauseOf, stopsNow } from './pauses.ts';
 import type { RecipeAction, Recipes } from './recipes.ts';
@@ -268,17 +269,22 @@ const ownRepoOf = (state: State, batchId: string): string | undefined => {
 /** How much of a rejected run's message its summary keeps: the runner may quote what it read. */
 const summaryLength = 120;
 
+/** The message of whatever was thrown; empty when it cannot be read. */
+const rejectionText = (error: unknown): string => {
+  try {
+    return messageOf(error);
+  } catch {
+    return '';
+  }
+};
+
 /**
  * The summary of a run whose end rejected with `error` (ADR 0099): the first line of its message,
  * at most `summaryLength` characters, or a fixed text when that has nothing to show or cannot be
  * read, since the event store refuses an empty summary.
  */
 const rejectionSummary = (error: unknown): string => {
-  let text = '';
-  try {
-    text = messageOf(error);
-  } catch {}
-  const line = (text.split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
+  const line = (rejectionText(error).split(/\r?\n/, 1)[0] ?? '').trim().slice(0, summaryLength);
   return line === '' ? 'the brewer runner failed without a message' : line;
 };
 
@@ -426,6 +432,24 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     throw error;
   }
 
+  // What it said of the batches that threw, so a batch that keeps throwing is one line (ADR 0328).
+  const failureLines = createFailureLines<FailurePass | 'effects'>();
+  /** Says a batch's failure in `pass`, unless it said that one last. */
+  const sayFailure = (
+    pass: FailurePass | 'effects',
+    batchId: string,
+    error: unknown,
+    notice: DriverNotice,
+  ): void => {
+    if (failureLines.failed(pass, batchId, rejectionText(error))) report(notice);
+  };
+  /** After `pass` went over the batches to its end: says which recovered, of those `own` has. */
+  const passDone = (pass: FailurePass | 'effects', own: (batchId: string) => boolean): void => {
+    for (const batchId of failureLines.passed(pass)) {
+      if (own(batchId)) report({ kind: 'batch_recovered', batchId, pass });
+    }
+  };
+
   // The batches other drivers hold, as of the start of the current tick.
   let others = new Set<string>();
   const supervisor = createSupervisor({
@@ -436,7 +460,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     clock,
     reminderMs,
     routingMs,
-    report,
+    report: (notice) => {
+      if (notice.kind === 'batch_failed') {
+        sayFailure(notice.pass, notice.batchId, notice.error, notice);
+      } else report(notice);
+    },
     acts: (batchId) => !others.has(batchId),
   });
 
@@ -1016,9 +1044,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     // A batch that threw is left for the rest of this drive and never counts as moved, so a drive
     // ends, and says it once; the next tick's tries it again (ADR 0328).
     const setAside = new Set<string>();
-    const failed = (batchId: string, error: unknown): void => {
+    const failed = (pass: 'drive' | 'cleanup', batchId: string, error: unknown): void => {
       setAside.add(batchId);
-      if (itsOwn(batchId)) report({ kind: 'batch_failed', batchId, pass: 'drive', error });
+      if (itsOwn(batchId)) {
+        sayFailure(pass, batchId, error, { kind: 'batch_failed', batchId, pass, error });
+      }
     };
     for (;;) {
       let moved = false;
@@ -1032,7 +1062,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         try {
           if (await driveBatch(batch, leases, refused)) moved = true;
         } catch (error) {
-          failed(batch.id, error);
+          failed('drive', batch.id, error);
         }
       }
       // Let the runs that ended settle their promises.
@@ -1059,6 +1089,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
             toClean.add(ref.batchId);
           }
         } catch (error) {
+          // Said each time, unlike a pass's: each end is its own, and comes once.
           report(
             command === undefined
               ? { kind: 'batch_failed', batchId: ref.batchId, pass: 'drive', error }
@@ -1087,10 +1118,14 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           toClean.delete(batchId);
         } catch (error) {
           // It stays for the next drive: no later look at the store would clean it (ADR 0328).
-          failed(batchId, error);
+          failed('cleanup', batchId, error);
         }
       }
-      if (!moved) return;
+      if (!moved) {
+        passDone('drive', itsOwn);
+        passDone('cleanup', itsOwn);
+        return;
+      }
     }
   };
 
@@ -1225,9 +1260,13 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       try {
         await applyBatch(batch.id);
       } catch (error) {
-        if (itsOwn(batch.id)) report({ kind: 'batch_effects_failed', batchId: batch.id, error });
+        if (itsOwn(batch.id)) {
+          const notice = { kind: 'batch_effects_failed', batchId: batch.id, error } as const;
+          sayFailure('effects', batch.id, error, notice);
+        }
       }
     }
+    passDone('effects', itsOwn);
   };
   let pass: Promise<unknown> = Promise.resolve();
   const applyEffects = (): Promise<void> => {
@@ -1271,6 +1310,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
         .map((lease) => lease.batchId),
     );
     await supervisor.tick();
+    passDone('supervisor', (batchId) => !others.has(batchId));
     // Stops the processes of attempts that Stuck abandoned (ADR 0027), whose batch ended, or that
     // the log shows finished while this runner still runs them: another driver lost them. Also
     // the run of a step whose batch was taken from this driver to resume that step's session: it
@@ -1298,9 +1338,11 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           stoppedByPause.add(key);
         }
       } catch (error) {
-        report({ kind: 'batch_failed', batchId: ref.batchId, pass: 'runs', error });
+        const notice = { kind: 'batch_failed', batchId: ref.batchId, pass: 'runs', error } as const;
+        sayFailure('runs', ref.batchId, error, notice);
       }
     }
+    passDone('runs', itsOwn);
     await drive();
     await applyEffects();
     // A batch that ended, with no attempt running and no effect due, is let go.
