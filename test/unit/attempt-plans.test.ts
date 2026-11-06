@@ -2415,10 +2415,7 @@ describe('createAttemptPlans: a Taster that reviews a plan (ADR 0312)', () => {
   });
 
   it("keeps a plan Taster's prompt to the plan, reading the repository's instructions when its lens asks: regression test", async () => {
-    const { plans } = setup([...amber, inTree], planDocs, 'Export the batches.', tasting.brewers, {
-      repositories,
-    });
-    const { prompt } = await plans.plan({ ref: taste, limits: plans.limits(taste) });
+    const { prompt } = await planTaste([...amber, inTree]);
     const instructions = prompt.slice(0, prompt.indexOf('## Untrusted input'));
     assert.ok(
       instructions.includes(
