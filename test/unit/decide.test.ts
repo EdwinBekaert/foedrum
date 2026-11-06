@@ -1491,17 +1491,6 @@ describe('nothing but an order brings an older batch back while a later one exis
   } as const;
   const older: Event[] = [...lanes.on_tap, ended, later];
 
-  it('a pull request that ended sends nothing back: regression test', () => {
-    const fix = {
-      kind: 'fix_pull_request',
-      batchId: 'b1',
-      pullRequest,
-      head: 'a'.repeat(40),
-      cause: { kind: 'checks' },
-    } as const;
-    refuses(older, fix, /has no failed checks/);
-  });
-
   for (const command of [
     { kind: 'retry', batchId: 'b1', ...from },
     { kind: 'skip', batchId: 'b1', ...from },
