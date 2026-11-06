@@ -14,7 +14,7 @@ import { pullRequestText } from '../../src/engine/pull-request.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
-import { OutDocFrontmatter, TastingOutDoc } from '../../src/schemas/out-doc.ts';
+import { OutDocFrontmatter, readOutDoc, TastingOutDoc } from '../../src/schemas/out-doc.ts';
 import { brewerText, recipeText } from '../helpers/brewery-files.ts';
 
 // Built at run time, so no scanner takes this file for one that holds a token.
@@ -67,6 +67,23 @@ describe('an out doc with a handover', () => {
       const ending = settled(docWith({ ...done, handover }));
       assert.deepEqual(ending, { kind: 'succeeded', output: done }, JSON.stringify(handover));
     }
+  });
+
+  it("gives a retry's reason none of it: regression test", () => {
+    const ending = settled(docWith({ status: 'failed', summary: 'Gave up', handover: [LESSON] }));
+    assert.deepEqual(ending, {
+      kind: 'failed',
+      retryable: true,
+      reason: 'the brewer failed: Gave up',
+    });
+  });
+
+  it('gives a later round of a lens none of it: it reads a parsed out doc: regression test', () => {
+    const tasting = { ...done, verdict: 'approve', findings: [] };
+    const read = readOutDoc(docWith({ ...tasting, handover: [LESSON] }), TastingOutDoc);
+    assert.ok(read.valid);
+    assert.equal('handover' in read.frontmatter, false);
+    assert.deepEqual(read.frontmatter.findings, []);
   });
 
   it('still refuses any other key the schema does not know: regression test', () => {
