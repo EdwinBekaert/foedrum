@@ -270,17 +270,9 @@ export function createAttemptPlans(options: AttemptPlansOptions): AttemptPlans {
         `the input "${name}" was not read: its body and ${comments.length} comments are larger than ${MAX_INPUT_BYTES} bytes`,
       );
     }
-    return comments.map(({ repo, issue, id, by, association, at, text }) => ({
+    return comments.map(({ id, text, ...rest }) => ({
       name,
-      source: {
-        kind: 'comment',
-        repo,
-        issue,
-        comment: id,
-        ...(by === undefined ? {} : { by }),
-        association,
-        at,
-      },
+      source: { kind: 'comment', comment: id, ...rest },
       text,
     }));
   };

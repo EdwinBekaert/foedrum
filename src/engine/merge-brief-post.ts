@@ -16,7 +16,7 @@ import {
 import { MergeBrief, type MergeBriefHidden } from '../schemas/status-comment.ts';
 import { PushResult } from '../schemas/store.ts';
 import { checkReadings } from './check-readings.ts';
-import { commentId, effectMarker, type MarkedComment, markedComment } from './claim-effects.ts';
+import { commentId, type MarkedComment, markedComment } from './claim-effects.ts';
 import { cutForComment } from './comment-revisions.ts';
 import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
@@ -497,9 +497,9 @@ const titleLine = (title: string, head: string): string =>
 const recordLine = ({ pullRequest, head, digest }: ReadyRecord): string =>
   `<!-- foedrum:brief ${new URL(pullRequest).href} ${head} ${digest} -->`;
 
-/** What a brief of `ready` under `key` ends with: its record's line, then its marker. */
-const endOf = (key: string, ready: ReadyRecord): string =>
-  `\n\n${recordLine(ready)}\n${effectMarker(key)}`;
+/** A brief of `ready` under `key`: `text`, its record's line, then its marker; no text gives its end. */
+const briefOf = (text: string, key: string, ready: ReadyRecord): MarkedComment =>
+  markedComment(`${text}\n\n${recordLine(ready)}`, key, '\n');
 
 /** A brief that is due: where it goes, what follows its title, and the record it is for. */
 interface DueBrief {
@@ -557,7 +557,7 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
       const { repo, number, ready } = briefFor(key);
       // By the record alone: another record's brief a killed driver posted under this key stays,
       // and a base that moved since changes the text, not the record.
-      const found = await host.find(repo, number, endOf(key, ready), signal);
+      const found = await host.find(repo, number, briefOf('', key, ready), signal);
       return found === undefined ? undefined : { result: resultOf(found.id, ready) };
     },
     apply: async (key, signal) => {
@@ -567,12 +567,8 @@ export const mergeBriefEffects = (options: MergeBriefEffectsOptions): DriverEffe
       }
       const { repo, number, rest, ready } = briefFor(key);
       const title = await host.title(repo, number, signal);
-      // The record's line with its marker right after it, as `endOf` finds them.
-      const text = `${titleLine(title, ready.head)}\n\n${rest}\n\n${recordLine(ready)}`;
-      return resultOf(
-        await host.create(repo, number, markedComment(text, key, '\n'), signal),
-        ready,
-      );
+      const text = `${titleLine(title, ready.head)}\n\n${rest}`;
+      return resultOf(await host.create(repo, number, briefOf(text, key, ready), signal), ready);
     },
   };
   return {
