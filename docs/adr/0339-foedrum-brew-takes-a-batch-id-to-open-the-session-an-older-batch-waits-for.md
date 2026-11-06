@@ -1,6 +1,6 @@
 # 0339. `foedrum brew` takes a batch id to open the session an older batch waits for
 
-Date: 2026-11-06 · Status: Accepted · Amends [0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md) (`brew` takes no batch id; what an older batch's session lines, its status comment and `takeover`'s refusal offer), [0329](0329-one-number-per-piece-of-work.md) (a number means the latest batch, so `brew` needs one exception to reach another), [0222](0222-a-recipe-s-brewer-step-may-be-interactive.md) (the command a session line names, and `--new-window`), [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `brew` takes), [0124](0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md) (what `takeover`'s refusal offers) and [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (a lauter of a batch id drives that batch)
+Date: 2026-11-06 · Status: Accepted · Amends [0334](0334-every-line-names-the-number-and-the-innkeeper-reads-it-from-its-input-s-source.md) (`brew` takes no batch id; what an older batch's session lines, its status comment and `takeover`'s refusal offer), [0329](0329-one-number-per-piece-of-work.md) (a number means the latest batch, so `brew` needs one exception to reach another), [0222](0222-a-recipe-s-brewer-step-may-be-interactive.md) (the command a session line names, and `--new-window`), [0123](0123-foedrum-brew-drives-one-batch-under-an-owner-of-its-own.md) (what `brew` takes), [0124](0124-foedrum-takeover-hands-a-batch-to-another-driver-as-a-recorded-command.md) (what `takeover`'s refusal offers) [0231](0231-foedrum-resume-refuses-an-interactive-step-whose-session-is-open.md) (what its refusal offers for an older batch) and [0286](0286-foedrum-lauter-corrects-a-plan-at-gate-1-in-an-interactive-session.md) (a lauter of a batch id drives that batch)
 
 ## Context
 A batch on tap counts as ended, so a later batch of its issue can be ordered, and a failed pull request can then send the earlier one back along a route through an interactive step.
@@ -38,12 +38,13 @@ From reading the code, not from a run, a shipped recipe gets there too through t
   In any other lane it still offers no command.
 - **A latest batch's lines keep its number**, also when a person gave its id.
 - **No line about an older batch offers its number:**
-  a brew of one that another driver takes during the run says `foedrum status shows it`, and one that goes on tap says nothing of `foedrum brew <n>` reading its pull requests, since that reads a later batch's.
+  a brew of one that another driver takes during the run says `foedrum status shows it`, one that goes on tap says nothing of `foedrum brew <n>` reading its pull requests, since that reads a later batch's, and one whose session asks a question says `foedrum answer <id> …, then foedrum serve drives it`.
 - `/foedrum:brew` and `/foedrum:lauter` read the new last line and run `foedrum brew '<batch>' --new-window`.
 
 ## Consequences
 - **Brewery: nothing to do.** No file changes, no event changes, and a batch already waiting opens by the printed command.
 - A person whose older batch waits types the line it prints; an id on any other command works as before.
+- An older batch that is answered, or otherwise brewing with no session to wait for, has no brew of its own: `foedrum serve` drives it, and with no Cellar it stays where it is until one runs, on the board with its deadline.
 - The status comment of an older batch waiting for a session gets one more revision for its new words.
 - A status comment of a batch that is its issue's latest does not change: its Stuck line reads the same number.
 
