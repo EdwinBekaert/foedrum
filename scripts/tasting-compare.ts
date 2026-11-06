@@ -23,7 +23,8 @@
 // With --real (#879, ADR 0332) it tastes three brewed heads of this repository instead, each in two
 // setups: the target is the order's base fetched from this checkout, a scripted Cellarman commits the
 // head's changed files, and nip's three Tasters run on the real claude, or scripted with --dry-run. It
-// reads each Taster's transcript for what it read, and writes one blinded list per order under
+// reads each Taster's transcript for what it read, and stops at once on a transcript that cannot
+// say. It writes one blinded list per order and one file of its bodies under
 // .foedrum/tmp/tasting-compare/real, the setups named only in codes.md. It scores nothing. Its
 // decisions are scripts/tasting-compare/real.ts.
 
@@ -85,6 +86,7 @@ import {
 import {
   blinded,
   changedFiles,
+  comparisonStop,
   nextRealRun,
   orderOf,
   REAL_ORDERS,
@@ -181,6 +183,8 @@ interface Mode<Setup extends string> {
     setup: Setup,
   ) => Pick<RunRecord, 'ended' | 'attempts'>;
   table: (records: readonly RunRecord<Setup>[]) => string;
+  /** Why a run shows the comparison itself cannot go on: the harness's fault, never a Taster's. */
+  stop?: (record: Pick<RunRecord<Setup>, 'attempts'>) => string | undefined;
   /** More files of its report, by path in its folder. */
   files?: (records: readonly RunRecord<Setup>[], folder: string) => Record<string, string>;
 }
@@ -324,15 +328,19 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
         dryRun ? scriptedTranscript(worktree) : transcriptOf(id),
       ),
     table: realTable,
+    stop: comparisonStop,
     files: (records, reportFolder) => {
       // One seed for the folder, so a code stays the same as more runs come in.
       const seedFile = join(reportFolder, 'seed.txt');
       if (!existsSync(seedFile)) writeFileSync(seedFile, randomBytes(16).toString('hex'));
-      const { lists, codes } = blinded(records, readFileSync(seedFile, 'utf8'));
+      const { lists, bodies, codes } = blinded(records, readFileSync(seedFile, 'utf8'));
       return {
         'codes.md': codes,
         ...Object.fromEntries(
           Object.entries(lists).map(([order, list]) => [join('lists', `${order}.md`), list]),
+        ),
+        ...Object.fromEntries(
+          Object.entries(bodies).map(([order, body]) => [join('bodies', `${order}.md`), body]),
         ),
       };
     },
@@ -505,6 +513,8 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
         run: next.run,
         ...(next.retry ? { retry: true as const } : {}),
       };
+      const stop = mode.stop?.(record);
+      if (stop !== undefined) throw new Error(stop);
     } catch (error) {
       // A run the harness could not brew is no measurement: stop, and say why.
       process.stderr.write(`tasting-compare: ${name} could not run: ${(error as Error).message}\n`);

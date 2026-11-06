@@ -140,6 +140,25 @@ interface TranscriptReads {
   body?: string;
 }
 
+/** The Taster's out doc (`defaults/brewers/taster.md`'s `output.doc`). */
+const OUT_DOC = 'taste.md';
+
+/** The out doc as the call leaves it: a Write's text, or an Edit's; an empty text to replace is the whole. */
+const docAfter = (doc: string, name: string, input: Record<string, unknown>): string => {
+  if (name === 'Write') return text(input.content) ?? doc;
+  const [from, to] = [text(input.old_string) ?? '', text(input.new_string) ?? ''];
+  if (from === '') return to;
+  return input.replace_all === true ? doc.replaceAll(from, () => to) : doc.replace(from, () => to);
+};
+
+/** A doc's text past its frontmatter. */
+const bodyOf = (doc: string): string => {
+  const closing = doc.startsWith('---') ? doc.indexOf('\n---', 3) : -1;
+  if (closing === -1) return doc.trim();
+  const after = doc.indexOf('\n', closing + 1);
+  return after === -1 ? '' : doc.slice(after + 1).trim();
+};
+
 const TranscriptLine = z.looseObject({
   type: z.string().optional(),
   message: z.looseObject({ content: z.unknown() }).optional(),
@@ -239,6 +258,7 @@ const readLine = (line: string) => {
 export const transcriptReads = (transcript: string, worktree: string): TranscriptReads => {
   const calls = new Map<string, { name: string; input: Record<string, unknown> }>();
   const answered = new Set<string>();
+  let doc = '';
   const opened = new Set<string>();
   const outside: string[] = [];
   const refused: string[] = [];
@@ -270,9 +290,12 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
         problem ??= `it ran ${call.name}, and what that read cannot be told`;
       } else if (!reach.inside) {
         outside.push(reach.place);
-      } else if (call.name === 'Read') {
+      } else {
         const inWorktree = pathInside(worktree, reach.place);
-        if (inWorktree !== undefined) opened.add(inWorktree);
+        if (call.name === 'Read' && inWorktree !== undefined) opened.add(inWorktree);
+        if (call.name !== 'Read' && inWorktree === OUT_DOC) {
+          doc = docAfter(doc, call.name, call.input);
+        }
       }
     }
   }
@@ -281,7 +304,14 @@ export const transcriptReads = (transcript: string, worktree: string): Transcrip
   if (unanswered !== undefined) {
     problem ??= `its transcript shows no result of the ${calls.get(unanswered)?.name} call`;
   }
-  return { opened: [...opened], outside, refused, ...(problem === undefined ? {} : { problem }) };
+  const body = bodyOf(doc);
+  return {
+    opened: [...opened],
+    outside,
+    refused,
+    ...(problem === undefined ? {} : { problem }),
+    ...(body === '' ? {} : { body }),
+  };
 };
 
 /**
@@ -319,7 +349,7 @@ export const realRecordOf = (
               problem: 'its transcript could not be found, so what it read cannot be told',
             }
           : transcriptReads(transcript, session.worktree);
-      const { opened, outside, refused, problem } = reads;
+      const { opened, outside, refused, problem, body } = reads;
       const reached =
         outside.length === 0 ? undefined : `it read outside its worktree: ${outside.join(', ')}`;
       return {
@@ -328,13 +358,20 @@ export const realRecordOf = (
         opened,
         outside,
         refused,
+        ...(attempt.failure === undefined && problem !== undefined ? { unreadable: problem } : {}),
+        ...(body === undefined ? {} : { body }),
       };
     }),
   };
 };
 
-export const comparisonStop = (_record: Pick<RealRecord, 'attempts'>): string | undefined => {
-  throw new Error('not implemented');
+/**
+ * Why the comparison must stop, or undefined: a transcript that cannot say is the harness's, not the
+ * Taster's, so running on would spend sessions on nothing (ADR 0332). A read outside fails only its run.
+ */
+export const comparisonStop = ({ attempts }: Pick<RealRecord, 'attempts'>): string | undefined => {
+  const lost = attempts.find(({ unreadable }) => unreadable !== undefined);
+  return lost === undefined ? undefined : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
 };
 
 /** The next run to brew (`nextRunOf`). */
@@ -371,6 +408,16 @@ const tasterLines = ({ stepId, lenses, findings, riskLeft = [] }: TasterAttempt)
       ]),
 ];
 
+/** A Taster's body as quoted lines, so no line of it reads as a line of the file. */
+const bodyLines = ({ stepId, lenses, body }: TasterAttempt): string[] => [
+  `### ${stepId} (${lenses.join(', ')})`,
+  '',
+  ...(body === undefined
+    ? ['No body.']
+    : body.split(/\r\n|[\r\n\p{Zl}\p{Zp}]/u).map((line) => `> ${line}`.trimEnd())),
+  '',
+];
+
 const codeRows = (code: string, { setup, run, attempts }: RealRecord): string[] =>
   inRecipeOrder(attempts).map((attempt) => {
     const { stepId, models = [], usage } = attempt;
@@ -385,14 +432,16 @@ const codeRows = (code: string, { setup, run, attempts }: RealRecord): string[] 
 
 /**
  * One list per order of the findings of its runs that did not fail, each under its code and sorted
- * by it, and the one file that names the setups: each code's setup and run, each Taster's model and
- * tokens, and the failed runs. Nothing here says which finding is right.
+ * by it, one file per order of their out doc bodies, which can say what a Taster read, so they are
+ * for after the findings are scored, and the one file that names the setups: each code's setup and
+ * run, each Taster's model and tokens, and the failed runs. Nothing here says which finding is right.
  */
 export const blinded = (
   records: readonly RealRecord[],
   seed: string,
 ): { lists: Record<string, string>; bodies: Record<string, string>; codes: string } => {
   const lists: Record<string, string> = {};
+  const bodies: Record<string, string> = {};
   const rows: string[] = [];
   const failures: string[] = [];
   for (const { order } of REAL_ORDERS) {
@@ -410,16 +459,25 @@ export const blinded = (
     }
     if (scored.length === 0) continue;
     scored.sort((a, b) => (a.code < b.code ? -1 : 1));
+    const runsWith = (lines: (attempt: TasterAttempt) => string[]): string[] =>
+      scored.flatMap(({ code, record }) => [
+        `## Run ${code}`,
+        '',
+        ...inRecipeOrder(record.attempts).flatMap(lines),
+      ]);
     lists[String(order)] = `${[
       `# Order #${order}: ${scored.length} runs to score`,
       '',
       'Each run has a code of its own. Open codes.md only once they are scored.',
       '',
-      ...scored.flatMap(({ code, record }) => [
-        `## Run ${code}`,
-        '',
-        ...inRecipeOrder(record.attempts).flatMap(tasterLines),
-      ]),
+      ...runsWith(tasterLines),
+    ]
+      .join('\n')
+      .trimEnd()}\n`;
+    bodies[String(order)] = `${[
+      `# Order #${order}: the out doc bodies, to read once the findings are scored`,
+      '',
+      ...runsWith(bodyLines),
     ]
       .join('\n')
       .trimEnd()}\n`;
@@ -433,13 +491,7 @@ export const blinded = (
     ...(failures.length === 0 ? [] : ['', ...failures]),
     '',
   ].join('\n');
-  return {
-    lists,
-    get bodies(): Record<string, string> {
-      throw new Error('not implemented');
-    },
-    codes,
-  };
+  return { lists, bodies, codes };
 };
 
 /**
@@ -457,7 +509,7 @@ export const realTable = (records: readonly RealRecord[]): string => {
     '|---|---|---|---|',
     ...rows,
     '',
-    'Score lists/<order>.md by hand, then open codes.md, which says which setup each code is.',
+    'Score lists/<order>.md by hand, then read bodies/<order>.md, then open codes.md, which says which setup each code is.',
   ].join('\n')}\n`;
 };
 
