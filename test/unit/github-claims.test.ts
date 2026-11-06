@@ -233,7 +233,7 @@ describe('githubClaimHost', () => {
   });
 
   it('gives up a request GitHub does not answer within its timeout', async () => {
-    const { host } = hostWith(['hang'], 20);
+    const { host } = hostWith(['hang', 'hang'], 20);
     await assert.rejects(host.read(repo, 7), /did not answer within 20 ms/);
   });
 

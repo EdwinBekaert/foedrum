@@ -402,6 +402,83 @@ describe('createGitHubClient', () => {
     }
   });
 
+  describe('a timeout (ADR 0336)', () => {
+    const killed = (how: 'timed-out' | 'stopped') =>
+      ({ exitCode: null, stdout: '', stderr: '', output: '', killed: how }) as const;
+    const answer = (stdout: string, exitCode: number) => ({
+      exitCode,
+      stdout,
+      stderr: '',
+      output: stdout,
+    });
+    const okOutput = answer(printed('200 OK', [], '{"login":"octocat"}'), 0);
+
+    /** gh answering each call from `script`, and the arguments of every call. */
+    const scripted = (script: Awaited<ReturnType<ExecProcess>>[]) => {
+      const calls: (readonly string[])[] = [];
+      const exec: ExecProcess = async (_file, args) => {
+        calls.push(args);
+        const next = script.shift();
+        return next ?? assert.fail(`gh ran once more than scripted: ${args.join(' ')}`);
+      };
+      return { client: createGitHubClient({ exec, now: () => start, timeoutMs: 20 }), calls };
+    };
+
+    it('a read that times out is tried once more', async () => {
+      const { client, calls } = scripted([killed('timed-out'), okOutput]);
+      const headers = { 'if-none-match': '"a"' };
+      const { body } = await client.rest('GET', '/a', undefined, undefined, headers);
+      assert.deepStrictEqual(body, { login: 'octocat' });
+      assert.equal(calls.length, 2);
+      assert.deepStrictEqual(calls[1], calls[0]);
+    });
+
+    it('a log read as text that times out is tried once more', async () => {
+      const { client, calls } = scripted([killed('timed-out'), okOutput]);
+      assert.equal((await client.text('/a', 1000)).status, 200);
+      assert.equal(calls.length, 2);
+    });
+
+    it('a read that times out twice fails, saying so, and is not tried a third time', async () => {
+      const { client, calls } = scripted([killed('timed-out'), killed('timed-out')]);
+      await assert.rejects(
+        client.rest('GET', '/a'),
+        /^Error: GitHub did not answer within 20 ms, tried twice: GET \/a$/,
+      );
+      assert.equal(calls.length, 2);
+    });
+
+    it("a read given up by its caller's signal is not tried again", async () => {
+      const controller = new AbortController();
+      const reason = new Error('past its deadline');
+      const calls: string[] = [];
+      const exec: ExecProcess = async () => {
+        calls.push('gh');
+        // The signal and gh's own timeout at once: the caller's wins.
+        controller.abort(reason);
+        return killed('timed-out');
+      };
+      const client = createGitHubClient({ exec, now: () => start });
+      await assert.rejects(client.rest('GET', '/a', undefined, controller.signal), reason);
+      assert.deepStrictEqual(calls, ['gh']);
+    });
+
+    it("a pause met while a read waited for gh is what fails it, with no second try", async () => {
+      const asked: string[] = [];
+      const exec: ExecProcess = async (_file, args) => {
+        const path = args.at(-1) ?? '';
+        asked.push(path);
+        if (path === '/limited') return answer(captured.rateLimited?.stdout ?? '', 1);
+        // Another request of this client meets the limit while this one hangs.
+        await limited(client.rest('GET', '/limited'));
+        return killed('timed-out');
+      };
+      const client = createGitHubClient({ exec, now: () => start });
+      assert.equal(await limited(client.rest('GET', '/a')), at(600_000));
+      assert.deepStrictEqual(asked, ['/a', '/limited']);
+    });
+  });
+
   describe('the rate limit', () => {
     it('pauses until the reset when the primary limit is used up, without asking GitHub', async () => {
       const { client, requests, advance } = clientWith([
