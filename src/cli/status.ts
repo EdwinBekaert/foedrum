@@ -1,7 +1,7 @@
 // `foedrum status`: every batch with its issue and lane (architecture §4.3), and what it is doing
 // or waiting for, and what its attempts took. The lane's words are shared with replay.
 
-import { claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
+import { calledAs, claimOfOrder, claimOrderOf, orderName } from '../engine/claim-orders.ts';
 import {
   attemptRecipeOf,
   type Batch,
@@ -38,7 +38,7 @@ const waitingFor = (on: WaitCondition): string => {
   }
 };
 
-const stuckOn = (reason: StuckReason, batch: Batch): string => {
+const stuckOn = (reason: StuckReason, called: string): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `needs input at ${reason.stepId}`;
@@ -49,7 +49,7 @@ const stuckOn = (reason: StuckReason, batch: Batch): string => {
     case 'deadline_passed':
       return `deadline passed at ${reason.stepId} (${reason.deadlineAt})`;
     case 'waiting_for_session':
-      return `waiting for a session at ${reason.stepId}: ${sessionCommand(batch)} opens it in a terminal`;
+      return `waiting for a session at ${reason.stepId}: ${sessionCommand(called)} opens it in a terminal`;
     case 'failing':
       return `failing at ${reason.stepId} in ${reason.pass} since ${reason.since}: ${reason.summary}`;
     case 'stalled':
@@ -88,7 +88,11 @@ const underWay = (batch: Batch): string[] =>
   });
 
 /** A batch's lane, and what it is doing or waiting for there ('' when nothing). */
-export const describeLane = (batch: Batch): { lane: string; detail: string } => {
+export const describeLane = (
+  batch: Batch,
+  /** How its lines name its work (`calledAs`, ADR 0329). */
+  called: string,
+): { lane: string; detail: string } => {
   const { lane } = batch;
   switch (lane.kind) {
     case 'ordered':
@@ -101,7 +105,10 @@ export const describeLane = (batch: Batch): { lane: string; detail: string } => 
         detail: `waiting for ${waitingFor(lane.on)}; reminder ${lane.remindAt}`,
       };
     case 'stuck':
-      return { lane: 'stuck', detail: `${stuckOn(lane.reason, batch)}; reminder ${lane.remindAt}` };
+      return {
+        lane: 'stuck',
+        detail: `${stuckOn(lane.reason, called)}; reminder ${lane.remindAt}`,
+      };
     case 'on_tap': {
       // A plan a person signed off is on tap with no pull request (ADR 0281).
       const { approval } = batch;
@@ -161,7 +168,7 @@ export const statusRow = (
   const failing = failingParts(batch);
   // A batch whose rendering throws is still shown, with its mark, and the board goes on (ADR 0335).
   try {
-    const { lane, detail } = describeLane(batch);
+    const { lane, detail } = describeLane(batch, calledAs(state, batch));
     const pause = pauseOf(state, batch);
     const paused = pause === undefined ? [] : [`paused ${pauseLine(pause)}`];
     const owner = interactive.get(batch.id);

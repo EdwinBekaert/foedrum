@@ -118,7 +118,7 @@ describe('runBrew', () => {
       );
     });
 
-    it("routes an Ordered claimed batch by its recorded Brewery issue's label, brewed by its target issue: exit 0 (ADR 0156)", async () => {
+    it("routes an Ordered claimed batch by its recorded Brewery issue's label, never its target issue's: exit 0 (ADR 0156)", async () => {
       const host = fakeGitHubApi({
         login: 'ann',
         issues: {
@@ -134,7 +134,8 @@ describe('runBrew', () => {
       const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
       log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
       const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
-      assert.equal(await runBrew(targetSetup(), claimed, target), 0, f.lines.join('\n'));
+      const byOrder = { ...request, target: { issue: 40 } };
+      assert.equal(await runBrew(targetSetup(), claimed, byOrder), 0, f.lines.join('\n'));
       assert.equal(log().state().batches.get('web-7')?.recipe?.name, 'stout');
     });
 
@@ -163,7 +164,7 @@ describe('runBrew', () => {
       assert.deepStrictEqual(f.started, []);
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash web#7`,
+        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order.number}; label it and brew ${order.number}, or foedrum mash ${order.number}`,
       );
     });
 
@@ -178,7 +179,7 @@ describe('runBrew', () => {
       const [order] = host.issues['acme/brewery'] ?? [];
       assert.equal(
         f.lines.at(-1),
-        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash web#7`,
+        `foedrum brew: acme/web#7 waits for a recipe:<name> label on its Brewery issue #${order?.number}; label it and brew ${order?.number}, or foedrum mash ${order?.number}`,
       );
     });
 
@@ -203,6 +204,104 @@ describe('runBrew', () => {
         f.lines.at(-1),
         'foedrum brew: acme/web#7 waits for its Brewery issue, which is not open yet; brew web#7 again',
       );
+    });
+
+    it('foedrum brew of a target issue whose Brewery issue is open refuses and names the number', async () => {
+      const host = github();
+      log().issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } }, t0);
+      const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+      log().issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } }, t0);
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.equal(f.lines.at(-1), 'foedrum brew: web#7 is Brewery issue #40; foedrum brew 40');
+      assert.deepStrictEqual(host.created, []);
+      assert.deepStrictEqual(f.started, []);
+    });
+
+    it('foedrum brew of a target issue whose Brewery issue was deleted claims again', async () => {
+      const host = github();
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const record = (effect: string, result: number | string) =>
+        issue({
+          kind: 'record',
+          event: {
+            type: 'effect.applied',
+            key: effectKey.encode({ batchId: 'web-7', effect }),
+            result,
+          },
+        });
+      issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } });
+      record('order.issue', 40);
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record(effect, 'done');
+      }
+      record('release.order', 'gone');
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
+      assert.ok(log().state().batches.has('web-7-2'), f.lines.join('\n'));
+    });
+
+    describe('brewed by its number (ADR 0329)', () => {
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const opened = () => {
+        issue({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: 'acme/web' } });
+        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
+      };
+      const byNumber = { ...request, target: { issue: 40 } };
+
+      it('says foedrum order of the number for an ended batch', async () => {
+        opened();
+        issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+        const brewing = shell(behave.succeed(), { gh: ghOver(github().fetch).exec });
+        assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          'foedrum brew: batch web-7 of #40 is cancelled; foedrum order 40 orders it again',
+        );
+      });
+
+      it('says foedrum continue of the number for a paused claimed order, never that it is a sub-order', async () => {
+        opened();
+        issue({ kind: 'pause', order: { issue: 7, repo: 'acme/web' }, by: 'ann', via: 'terminal' });
+        const brewing = shell(behave.succeed(), { gh: ghOver(github().fetch).exec });
+        assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          'foedrum brew: #40 is paused; foedrum continue 40 lets it brew',
+        );
+      });
+    });
+
+    it('foedrum brew claims again when a batch ordered again found its Brewery issue deleted: regression test', async () => {
+      const host = github();
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const record = (batchId: string, effect: string, result: number | string) =>
+        issue({
+          kind: 'record',
+          event: { type: 'effect.applied', key: effectKey.encode({ batchId, effect }), result },
+        });
+      const order = { issue: 7, repo: 'acme/web' };
+      issue({ kind: 'order', batchId: 'web-7', order });
+      record('web-7', 'order.issue', 40);
+      issue({ kind: 'cancel', batchId: 'web-7', by: 'ann', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record('web-7', effect, 'done');
+      }
+      issue({ kind: 'order_again', batchId: 'web-7-2', order, by: 'ann', via: 'terminal' });
+      record('web-7-2', 'order.reopen', 'gone');
+      issue({ kind: 'cancel', batchId: 'web-7-2', by: 'ann', via: 'terminal' });
+      for (const effect of ['release.label', 'release.comment', 'release.ref']) {
+        record('web-7-2', effect, 'done');
+      }
+      const claimed = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+      assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
+      assert.ok(log().state().batches.has('web-7-3'), f.lines.join('\n'));
     });
 
     /** The live lease of the claimed batch web-7. */

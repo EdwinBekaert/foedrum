@@ -514,7 +514,7 @@ describe('foedrum rank (ADR 0208)', () => {
     assert.equal(lastId(), before);
   });
 
-  it('refuses an order that has a batch, a sub-order, and the Brewery issue of a claimed issue', async () => {
+  it('refuses an order that has a batch, a sub-order, and the target issue of a live Brewery issue', async () => {
     const accept = (command: Parameters<CommandLog['issue']>[0]): void =>
       assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
     accept({ kind: 'order', batchId: 'web-7', order: { issue: 7, repo: web } });
@@ -536,7 +536,7 @@ describe('foedrum rank (ADR 0208)', () => {
     const before = lastId();
     assert.deepStrictEqual(
       await run(['rank', 'web#7', '1']),
-      refused('acme/web#7 was ordered as batch web-7: a rank orders only the queue'),
+      refused('web#7 is Brewery issue #12; foedrum rank 12'),
     );
     assert.deepStrictEqual(
       await run(['rank', '#31', 'first']),
@@ -544,7 +544,7 @@ describe('foedrum rank (ADR 0208)', () => {
     );
     assert.deepStrictEqual(
       await run(['rank', '#12', 'first']),
-      refused('#12 is the order of web#7; rank web#7'),
+      refused('acme/web#7 was ordered as batch web-7: a rank orders only the queue'),
     );
     assert.equal(lastId(), before);
   });

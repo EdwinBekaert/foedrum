@@ -43,7 +43,7 @@ import {
   stoppedEnd,
 } from './admit.ts';
 import type { UsageLimit } from './brewer-runner.ts';
-import { claimedName, claimOfOrder, claimOrderOf } from './claim-orders.ts';
+import { claimedName, claimOfOrder, claimOrderOf, liveOrderOf } from './claim-orders.ts';
 import { effectKey } from './effect-key.ts';
 import {
   type Attempt,
@@ -622,7 +622,7 @@ export function orderRefusal(state: State, order: OrderRef): string | undefined 
   // Its batches are the claimed issue's, which a new claim orders again (ADR 0144).
   const claimed = repo === undefined ? claimOfOrder(state, issue) : undefined;
   if (claimed?.repo !== undefined) {
-    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; order ${claimedName(claimed)} again`;
+    return `issue #${issue} is the order of ${claimed.repo}#${claimed.issue}; foedrum order ${issue} orders it again`;
   }
   return busy(state, order);
 }
@@ -659,7 +659,7 @@ function busy(state: State, order: OrderRef): string | undefined {
       case 'held':
         return `${of} holds its claim until its pull requests end`;
       case 'releasing':
-        return `the release of the claim of batch ${batch.id} is still due: foedrum serve applies it, then order ${ofRepo}#${issue} again`;
+        return `the release of the claim of batch ${batch.id} is still due: foedrum serve applies it, then foedrum order ${liveOrderOf(state, order) ?? claimedName(batch)} again`;
       case 'released':
         continue;
       default:
@@ -1530,8 +1530,8 @@ function pause(draft: Draft, command: Extract<Command, { kind: 'pause' }>): void
 
 /**
  * The batches of `order` that a person's pause or stop (`verb`) names: its own and its
- * sub-orders'. A sub-order, or the Brewery issue that is a claimed target issue's order, is
- * refused with the order to name instead, since its batches are that order's.
+ * sub-orders'. A sub-order is refused with the order to name instead, since its batches are that
+ * order's; the command layer reads a claimed order's number as its target issue first (ADR 0329).
  */
 function batchesOf(draft: Draft, order: OrderRef, verb: 'pause' | 'stop'): Batch[] {
   const { state } = draft;
@@ -1539,11 +1539,6 @@ function batchesOf(draft: Draft, order: OrderRef, verb: 'pause' | 'stop'): Batch
   const subOrder = order.repo === undefined ? state.subOrders.get(order.issue) : undefined;
   if (subOrder !== undefined) {
     throw new Refusal(`${name} is a sub-order of #${subOrder.order}; ${verb} #${subOrder.order}`);
-  }
-  const claimed = order.repo === undefined ? claimOfOrder(state, order.issue) : undefined;
-  if (claimed?.repo !== undefined) {
-    const target = claimedName(claimed);
-    throw new Refusal(`${name} is the order of ${target}; ${verb} ${target}`);
   }
   const key = orderKey(order);
   return [...state.batches.values()].filter(

@@ -15,7 +15,7 @@ import type {
   InitCommand,
   LauterCommand,
   MashCommand,
-  ResumeCommand,
+  ResumeInput,
 } from '../schemas/commands.ts';
 import type { Surface } from '../schemas/events.ts';
 import type { z } from '../schemas/zod.ts';
@@ -117,7 +117,7 @@ export interface CliContext {
    * and continues the session of its step (ADR 0127), recording who issued it and from where;
    * claude has the terminal.
    */
-  resume: (input: ResumeCommand, issued: { by: string; via: Surface }) => Promise<CliResult>;
+  resume: (input: ResumeInput, issued: { by: string; via: Surface }) => Promise<CliResult>;
   /**
    * Asks for and writes a Brewery's files, creating and cloning its repository outside a clone,
    * offers the intake labels, commits and pushes, then runs doctor (ADR 0199, ADR 0207); its

@@ -239,14 +239,17 @@ const waitText = (on: WaitCondition): string => {
 };
 
 /**
- * The command that opens the session a batch waits for (ADR 0222): `foedrum brew` of its issue in
- * a terminal, taking the batch from the driver that parked it. A target issue's order is named by
- * its repository's alias, which only foedrum.jsonc knows.
+ * The command that opens the session a batch waits for (ADR 0222): `foedrum brew` of its issue, as
+ * `calledAs` names it (ADR 0329), in a terminal, taking the batch from the driver that parked it.
  */
-export const sessionCommand = ({ issue, repo }: Pick<Batch, 'issue' | 'repo'>): string =>
-  `foedrum brew ${repo === undefined ? issue : `<alias of ${repo}>#${issue}`} --take`;
+export const sessionCommand = (called: string): string => `foedrum brew ${called} --take`;
 
-const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: string): string => {
+const stuckText = (
+  reason: StuckReason,
+  told: Told,
+  called: string,
+  planComment?: string,
+): string => {
   switch (reason.kind) {
     case 'needs_input':
       return `${code(reason.stepId)} needs input`;
@@ -257,7 +260,7 @@ const stuckText = (reason: StuckReason, told: Told, batch: Batch, planComment?: 
     case 'deadline_passed':
       return `${code(reason.stepId)} passed its deadline of ${reason.deadlineAt}`;
     case 'waiting_for_session':
-      return `${code(reason.stepId)} waits for its session: run ${code(sessionCommand(batch))} in a terminal (ADR 0222)`;
+      return `${code(reason.stepId)} waits for its session: run ${code(sessionCommand(called))} in a terminal (ADR 0222)`;
     // What failed and since when, never blaming the batch: an outage fails it too (ADR 0335).
     case 'failing':
       return `${code(reason.stepId)} could not go on: the ${reason.pass} pass has failed since ${reason.since}: ${told(reason.summary, reason.stepId)}`;
@@ -554,6 +557,7 @@ const failingLines = ({ failing, lane }: Batch, told: Told): string[] =>
 const laneText = (
   batch: Batch,
   told: Told,
+  called: string,
   planComment?: string,
   subIssues?: readonly number[],
 ): string[] => {
@@ -580,7 +584,7 @@ const laneText = (
         questions.push(`- and ${asked.length - questions.length} more questions`);
       }
       return [
-        `🔔 **Stuck**: ${stuckText(reason, told, batch, planComment)}`,
+        `🔔 **Stuck**: ${stuckText(reason, told, called, planComment)}`,
         ...questions,
         ...(reason.kind === 'blocked' && reason.roundsOut !== undefined
           ? openLines(reason.stepId, reason.roundsOut, told)
@@ -1223,6 +1227,8 @@ export const renderStatus = (
   subIssues?: readonly number[],
   /** Its order's sub-orders, in merge order, once it is split (ADR 0292, ADR 0293). */
   subOrderPulls: readonly SubOrderRow[] = [],
+  /** The Brewery issue the comment is on, whose number its session line names (ADR 0329). */
+  order: number = batch.issue,
 ): string => {
   // Only what can be shown is read, on one line: an out doc of 1 MiB would cost a second a pass.
   const told: Told = (text, stepId, most = longest, cut = (kept) => kept) => {
@@ -1235,7 +1241,7 @@ export const renderStatus = (
   const sections = [
     [`### Foedrum · batch ${code(batch.id)}`],
     [
-      ...laneText(batch, told, planComment, subIssues),
+      ...laneText(batch, told, String(order), planComment, subIssues),
       ...failingLines(batch, told),
       ...orderEndLines(subOrderPulls),
       ...subOrderPulls.map(subOrderPullLine),
@@ -1358,6 +1364,7 @@ const statusDue = (
     planComment,
     allSubIssues(state, batchId),
     batch.decomposed === true ? subOrderRows(state, batch.issue) : [],
+    issue,
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;

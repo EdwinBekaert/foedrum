@@ -232,10 +232,7 @@ describe('foedrum resume (ADR 0126)', () => {
     ...overrides,
   });
   const resumeOf = (batch: string, step?: string, overrides: Partial<ResumeShell> = {}) =>
-    runResume(
-      { command: 'resume', batch, ...(step === undefined ? {} : { step }) },
-      shell(overrides),
-    );
+    runResume({ batch, ...(step === undefined ? {} : { step }) }, shell(overrides));
   const resume = (step?: string, overrides: Partial<ResumeShell> = {}) =>
     resumeOf('21-1', step, overrides);
   const refused = (line: string) => ({
@@ -584,6 +581,47 @@ describe('foedrum resume (ADR 0126)', () => {
       });
       const takenOver = () =>
         store.eventsAfter(0).filter(({ event }) => event.type === 'batch.taken_over');
+
+      it("names a claimed order's session by its Brewery issue's number (ADR 0329)", async () => {
+        const log = createCommandLog({ store, recipes });
+        const issue = (command: Parameters<typeof log.issue>[0]) =>
+          assert.equal(log.issue(command, t0).kind, 'accepted', JSON.stringify(command));
+        const batchId = 'web-31';
+        issue({ kind: 'order', batchId, order: { issue: 31, repo: 'acme/web' } });
+        const key = '["web-31","order.issue"]';
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: 77 } });
+        issue({ kind: 'route', batchId, recipe: 'sip', reason: 'label', source: 'label' });
+        for (const [stepId, id] of [
+          ['plan', S3],
+          ['talk', S4],
+        ] as const) {
+          const path = pathOf({ batchId, stepId, attempt: 1 });
+          issue({
+            kind: 'record',
+            event: {
+              type: 'step.started',
+              batchId,
+              stepId,
+              attempt: 1,
+              session: { id, worktree: path },
+              worktree: {
+                repo: 'acme/web',
+                path,
+                branch: `foedrum/${batchId}/${stepId}/1`,
+                commit: commit('a'),
+              },
+              ...(stepId === 'talk' ? { interactiveSince: since } : {}),
+            },
+          });
+          if (stepId === 'plan') {
+            const ending = { kind: 'succeeded', output: {} } as const;
+            issue({ kind: 'finish', batchId, stepId, attempt: 1, ending });
+          }
+        }
+        const { stderr } = await resumeOf(batchId, 'talk');
+        assert.match(stderr, /foedrum brew 77 --take opens a fresh one\n$/);
+      });
+
       // Decided by the maintainer (2026-10-27): close the session so it reports, then brew again.
       const held = refused(
         `talk#1 of batch 30-1 is an interactive session still open in brew-7 (since ${since}, lease until ${expiresAt.toISOString()}): close it there so it reports; if it closes without its out doc, foedrum brew 30 --take opens it again`,

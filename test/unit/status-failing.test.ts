@@ -93,7 +93,7 @@ describe('foedrum status', () => {
   });
 
   it('describes the lane of a batch Stuck on failing', () => {
-    assert.deepStrictEqual(describeLane(stuckFailing('1-1', 1)), {
+    assert.deepStrictEqual(describeLane(stuckFailing('1-1', 1), '1'), {
       lane: 'stuck',
       detail: `failing at plan in effects since 2026-11-06T11:00:00.000Z: the plan could not be read; reminder ${remindAt}`,
     });

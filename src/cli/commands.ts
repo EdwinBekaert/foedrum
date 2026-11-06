@@ -5,14 +5,13 @@
 // append its events through the command log, recorded with who issued it and from where
 // (ADR 0025).
 
-import { aliasOf, nextBatchId, targetBatchId } from '../engine/batch-id.ts';
+import { nextBatchId, targetBatchId } from '../engine/batch-id.ts';
 import { defaultLeaseMs, takeOver } from '../engine/batch-leases.ts';
-import { claimOfOrder } from '../engine/claim-orders.ts';
+import { calledAs, latestBatch, type NamedWork, namedWork } from '../engine/claim-orders.ts';
 import { type CommandLog, createCommandLog } from '../engine/command-log.ts';
 import { type HumanCommand, orderRefusal } from '../engine/decide.ts';
 import type { EventStore, StoredEvent } from '../engine/event-store.ts';
 import {
-  type Batch,
   emptyState,
   fold,
   foldedBatch,
@@ -46,6 +45,7 @@ import type { BreweryConfig } from '../schemas/brewery-config.ts';
 import {
   AnswerCommand,
   ApproveCommand,
+  type BatchOrIssue,
   BrewCommand,
   BrewersCommand,
   CancelCommand,
@@ -239,7 +239,8 @@ const changeBrewery = async (
 /** Where the batch `batchId` is now, as a command that changed it says. */
 const laneLine = (state: State, batchId: string): string => {
   // Accepted, so the batch exists.
-  const { lane, detail } = describeLane(foldedBatch(state, batchId));
+  const batch = foldedBatch(state, batchId);
+  const { lane, detail } = describeLane(batch, calledAs(state, batch));
   return `${batchId} ${lane}${detail === '' ? '' : `: ${detail}`}`;
 };
 
@@ -287,22 +288,6 @@ const claimOf = (
   return { repo, alias, brewery: config.brewery, config };
 };
 
-/** The issue's latest batch: in `repo`, or a Brewery issue's when `repo` is undefined. */
-export const latestBatch = (
-  batches: Iterable<Batch>,
-  issue: number,
-  repo: string | undefined,
-): Batch | undefined =>
-  [...batches]
-    .filter(
-      (batch) =>
-        batch.issue === issue &&
-        (repo === undefined
-          ? batch.repo === undefined
-          : batch.repo !== undefined && sameRepo(batch.repo, repo)),
-    )
-    .at(-1);
-
 /** What `order` and `recipe` order for an issue, how they name it, and the claim it needs. */
 interface Ordering {
   order: OrderRef;
@@ -328,15 +313,77 @@ const aliasedOrdering = (
  */
 const breweryOrdering = (
   issue: number,
-  state: State,
+  { order }: NamedWork,
   config: () => BreweryConfig,
 ): Ordering | { refused: string } => {
-  const own = latestBatch(state.batches.values(), issue, undefined);
-  const claimed = own === undefined ? claimOfOrder(state, issue) : undefined;
-  const alias = claimed === undefined ? undefined : aliasOf(claimed.id);
-  if (claimed === undefined || alias === undefined) return { order: { issue }, name: `#${issue}` };
-  return aliasedOrdering(alias, claimed.issue, config());
+  const name = `#${issue}`;
+  const { repo } = order;
+  if (repo === undefined) return { order: { issue }, name };
+  // The alias foedrum.jsonc gives the repository now: one in the batch's id may have been renamed.
+  const alias = Object.entries(config().repositories).find(([each]) => sameRepo(each, repo))?.[1]
+    .alias;
+  if (alias === undefined) {
+    return {
+      refused: `foedrum.jsonc gives ${repo} no alias; give it one to order its issue again`,
+    };
+  }
+  const claimed = aliasedOrdering(alias, order.issue, config());
+  return 'refused' in claimed ? claimed : { ...claimed, name };
 };
+
+/** The repository foedrum.jsonc gives the alias, read only for a target issue's name. */
+const repoOfAlias =
+  ({ config }: CliContext) =>
+  (alias: string): string | undefined =>
+    Object.entries(config().repositories).find(([, repository]) => repository.alias === alias)?.[0];
+
+/**
+ * The ordering of `target` from the folded state: `<alias>#<n>` refused once its Brewery issue is
+ * alive, and a number read as `breweryOrdering` does (ADR 0329).
+ */
+const orderingOf = (
+  state: State,
+  target: OrderTarget,
+  aliased: Ordering | undefined,
+  command: string,
+  context: CliContext,
+): Ordering | { refused: string } => {
+  const work = namedWork(state, target, repoOfAlias(context), command);
+  if ('refused' in work) return work;
+  return aliased ?? breweryOrdering(target.issue, work, context.config);
+};
+
+/**
+ * The batch a command names by `target` (ADR 0329): a batch id as it is, which decide refuses when
+ * it is none, and an issue's latest batch.
+ */
+const batchNamed = (
+  state: State,
+  target: BatchOrIssue,
+  command: string,
+  context: CliContext,
+): string | { refused: string } => {
+  if (typeof target === 'string') return target;
+  const work = namedWork(state, target, repoOfAlias(context), command);
+  if ('refused' in work) return work;
+  return work.batch?.id ?? { refused: `${work.name} has no batch` };
+};
+
+/** `changeBrewery` for a command on one batch, named as `batchNamed` reads it. */
+const changeBatch = (
+  command: string,
+  target: BatchOrIssue,
+  context: CliContext,
+  build: (
+    batchId: string,
+    issued: Issued,
+    state: () => State,
+  ) => HumanCommand | { refused: string },
+): Promise<CliResult> =>
+  changeBrewery(command, context, (state, issued) => {
+    const batchId = batchNamed(state(), target, command, context);
+    return typeof batchId === 'string' ? build(batchId, issued, state) : batchId;
+  });
 
 /**
  * The ordering of `target` that needs no store: a target issue's, read from foedrum.jsonc before
@@ -352,19 +399,18 @@ const aliasedTarget = (
 const givenName = ({ alias, issue }: OrderTarget): string => `${alias ?? ''}#${issue}`;
 
 /**
- * The order `target` names: a Brewery issue, or a target repository's by its alias in
- * foedrum.jsonc (ADR 0202).
+ * The order `target` names for `command`, as the pauses and ranks key it (ADR 0202): a Brewery
+ * issue, a target repository's by its alias in foedrum.jsonc, and the claimed issue a Brewery issue
+ * is the order of (ADR 0329).
  */
-const orderRefOf = (target: OrderTarget, context: CliContext): OrderRef | { refused: string } => {
-  const { alias, issue } = target;
-  if (alias === undefined) return { issue };
-  const found = Object.entries(context.config().repositories).find(
-    ([, repository]) => repository.alias === alias,
-  );
-  if (found === undefined) {
-    return { refused: `foedrum.jsonc names no repository with the alias ${alias}` };
-  }
-  return { issue, repo: found[0] };
+const orderNamed = (
+  state: State,
+  target: OrderTarget,
+  command: string,
+  context: CliContext,
+): OrderRef | { refused: string } => {
+  const work = namedWork(state, target, repoOfAlias(context), command);
+  return 'refused' in work ? work : work.order;
 };
 
 /** The batches an interactive driver holds now, by its owner (ADR 0123). */
@@ -381,14 +427,18 @@ const interactiveOwners = (store: EventStore, { now }: CliContext): Map<string, 
  * planning and its brewing took (ADR 0295).
  */
 const orderStatus = async (target: OrderTarget, context: CliContext): Promise<CliResult> => {
-  const order = orderRefOf(target, context);
-  if ('refused' in order) return failed('status', order.refused);
   const none = failed('status', `no batch brews ${givenName(target)}`);
   return readBrewery(
     'status',
     context,
     (_events, state, store) => {
-      const batches = orderBatches(state, order);
+      const order = orderNamed(state, target, 'status', context);
+      if ('refused' in order) return failed('status', order.refused);
+      // By its number: only the batches whose order that number is (`orderBatches`).
+      const batches = orderBatches(
+        state,
+        target.alias === undefined ? { issue: target.issue } : order,
+      );
       if (batches.length === 0) return none;
       return done(formatOrderStatus(state, batches, interactiveOwners(store, context)));
     },
@@ -630,11 +680,13 @@ export const commands: readonly RegisteredCommand[] = [
     name: 'replay',
     summary: "Show a batch's events and its folded state",
     changesState: false,
-    positionals: ['batch'],
+    positionals: ['issue'],
     terminalOnly: "A batch's whole log, for debugging; /foedrum:status shows where each batch is",
     schema: ReplayCommand,
-    handler: async ({ batch: id }, context) =>
+    handler: async ({ issue }, context) =>
       readBrewery('replay', context, (events, state) => {
+        const id = batchNamed(state, issue, 'replay', context);
+        if (typeof id !== 'string') return failed('replay', id.refused);
         const batch = state.batches.get(id);
         if (batch === undefined) return failed('replay', `no batch ${id} in the event store`);
         // Beside its own events, the pauses and continues of its order or of all, which name no
@@ -681,6 +733,7 @@ export const commands: readonly RegisteredCommand[] = [
                 (at > opened && windowed(event)),
             ),
             pauseOf(state, batch),
+            calledAs(state, batch),
           ),
         );
       }),
@@ -691,41 +744,52 @@ export const commands: readonly RegisteredCommand[] = [
       "Open a brewer attempt's Claude Code session in its worktree; take a running batch over",
     // On a running batch it drives the batch, through serve's wiring as brew (ADR 0127).
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     optional: ['step'],
     schema: ResumeCommand,
-    handler: async (input, context) =>
-      context.resume(input, { by: context.user(), via: context.surface }),
+    handler: async ({ issue, step }, context) => {
+      const issued = { by: context.user(), via: context.surface };
+      if (typeof issue === 'string') return context.resume({ batch: issue, step }, issued);
+      // The store is read and closed first: the session may run for hours.
+      const read = await readBrewery('resume', context, (_events, state) => {
+        const batch = batchNamed(state, issue, 'resume', context);
+        return typeof batch === 'string' ? done(batch) : failed('resume', batch.refused);
+      });
+      return read.exitCode === 0 ? context.resume({ batch: read.stdout, step }, issued) : read;
+    },
   }),
   define({
     name: 'retry',
     summary: 'Give the step a Stuck batch stopped at another attempt',
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     terminalOnly: STUCK_DECISION,
     schema: RetryCommand,
-    handler: async ({ batch }, context) =>
-      changeBrewery('retry', context, (_state, issued) => ({ kind: 'retry', ...issued(batch) })),
+    handler: async ({ issue }, context) =>
+      changeBatch('retry', issue, context, (batch, issued) => ({
+        kind: 'retry',
+        ...issued(batch),
+      })),
   }),
   define({
     name: 'skip',
     summary: 'Go on after the step a Stuck batch stopped at',
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     terminalOnly: STUCK_DECISION,
     schema: SkipCommand,
-    handler: async ({ batch }, context) =>
-      changeBrewery('skip', context, (_state, issued) => ({ kind: 'skip', ...issued(batch) })),
+    handler: async ({ issue }, context) =>
+      changeBatch('skip', issue, context, (batch, issued) => ({ kind: 'skip', ...issued(batch) })),
   }),
   define({
     name: 'answer',
     summary: "Answer a Stuck batch's questions, one answer each, in order",
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     rest: 'answers',
     schema: AnswerCommand,
-    handler: async ({ batch, answers }, context) =>
-      changeBrewery('answer', context, (state, issued) => {
+    handler: async ({ issue, answers }, context) =>
+      changeBatch('answer', issue, context, (batch, issued, state) => {
         const asked = questionsOf(state(), batch);
         // A batch that asks nothing is decide's to refuse, with its reason.
         if (asked.length > 0 && answers.length !== asked.length) {
@@ -745,10 +809,10 @@ export const commands: readonly RegisteredCommand[] = [
     name: 'approve',
     summary: 'Sign off the plan a Stuck batch waits with a review of; the batch goes on tap',
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     schema: ApproveCommand,
-    handler: async ({ batch }, context) =>
-      changeBrewery('approve', context, (_state, issued) => ({
+    handler: async ({ issue }, context) =>
+      changeBatch('approve', issue, context, (batch, issued) => ({
         kind: 'approve',
         ...issued(batch),
       })),
@@ -758,7 +822,7 @@ export const commands: readonly RegisteredCommand[] = [
     summary:
       'Correct the plan a Stuck batch waits with a review of, with the Brewmaster in a session',
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     options: { as: 'name' },
     schema: LauterCommand,
     // brew's driver, the lauter recorded at its start, until the session's plan waits (ADR 0286).
@@ -790,7 +854,7 @@ export const commands: readonly RegisteredCommand[] = [
         if (context.recipes().find(recipe) === undefined) {
           return failed('recipe', `the Brewery has no recipe ${recipe}`);
         }
-        const ordering = aliased ?? breweryOrdering(target.issue, log.state(), context.config);
+        const ordering = orderingOf(log.state(), target, aliased, 'recipe', context);
         if ('refused' in ordering) return failed('recipe', ordering.refused);
         const { order, name, claim } = ordering;
         const latest = latestBatch(log.state().batches.values(), order.issue, order.repo);
@@ -798,7 +862,7 @@ export const commands: readonly RegisteredCommand[] = [
         if (latest?.lane.kind === 'brewing') {
           return failed(
             'recipe',
-            `batch ${latest.id} of ${name} is brewing; foedrum stop ${name} first, then change its recipe`,
+            `batch ${latest.id} of ${name} is brewing; foedrum stop ${name.replace(/^#/, '')} first, then change its recipe`,
           );
         }
         const lines: string[] = [];
@@ -837,12 +901,12 @@ export const commands: readonly RegisteredCommand[] = [
     name: 'rewind',
     summary: 'Take a Stuck batch back to a step, each repository at its commit',
     changesState: true,
-    positionals: ['batch', 'step'],
+    positionals: ['issue', 'step'],
     rest: 'commits',
     terminalOnly: STUCK_DECISION,
     schema: RewindCommand,
-    handler: async ({ batch, step, commits }, context) =>
-      changeBrewery('rewind', context, (_state, issued) => ({
+    handler: async ({ issue, step, commits }, context) =>
+      changeBatch('rewind', issue, context, (batch, issued) => ({
         kind: 'rewind',
         ...issued(batch),
         toStepId: step,
@@ -853,11 +917,14 @@ export const commands: readonly RegisteredCommand[] = [
     name: 'cancel',
     summary: 'Cancel a batch',
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     terminalOnly: STUCK_DECISION,
     schema: CancelCommand,
-    handler: async ({ batch }, context) =>
-      changeBrewery('cancel', context, (_state, issued) => ({ kind: 'cancel', ...issued(batch) })),
+    handler: async ({ issue }, context) =>
+      changeBatch('cancel', issue, context, (batch, issued) => ({
+        kind: 'cancel',
+        ...issued(batch),
+      })),
   }),
   define({
     name: 'pause',
@@ -869,8 +936,6 @@ export const commands: readonly RegisteredCommand[] = [
     flags: ['all'],
     schema: PauseCommand,
     handler: async ({ order: target, by: time, why }, context) => {
-      const order = target === undefined ? undefined : orderRefOf(target, context);
-      if (order !== undefined && 'refused' in order) return failed('pause', order.refused);
       let stopAt: { at: Date; zone: string } | undefined;
       if (time !== undefined) {
         const zone = context.zone();
@@ -879,6 +944,9 @@ export const commands: readonly RegisteredCommand[] = [
         stopAt = { at: instant.at, zone };
       }
       return writeBrewery('pause', context, async (log) => {
+        const order =
+          target === undefined ? undefined : orderNamed(log.state(), target, 'pause', context);
+        if (order !== undefined && 'refused' in order) return failed('pause', order.refused);
         const decision = log.issue(
           {
             kind: 'pause',
@@ -912,9 +980,10 @@ export const commands: readonly RegisteredCommand[] = [
     flags: ['all'],
     schema: ContinueCommand,
     handler: async ({ order: target }, context) => {
-      const order = target === undefined ? undefined : orderRefOf(target, context);
-      if (order !== undefined && 'refused' in order) return failed('continue', order.refused);
       return writeBrewery('continue', context, async (log) => {
+        const order =
+          target === undefined ? undefined : orderNamed(log.state(), target, 'continue', context);
+        if (order !== undefined && 'refused' in order) return failed('continue', order.refused);
         const decision = log.issue(
           {
             kind: 'continue',
@@ -939,9 +1008,9 @@ export const commands: readonly RegisteredCommand[] = [
     options: { why: 'reason' },
     schema: StopCommand,
     handler: async ({ order: target, why }, context) => {
-      const order = orderRefOf(target, context);
-      if ('refused' in order) return failed('stop', order.refused);
       return writeBrewery('stop', context, async (log) => {
+        const order = orderNamed(log.state(), target, 'stop', context);
+        if ('refused' in order) return failed('stop', order.refused);
         const decision = log.issue(
           {
             kind: 'stop',
@@ -977,7 +1046,7 @@ export const commands: readonly RegisteredCommand[] = [
       if (aliased !== undefined && 'refused' in aliased) return failed('order', aliased.refused);
       return changeBrewery('order', context, (state, issued) => {
         // A Brewery issue's own batches need neither foedrum.jsonc nor GitHub.
-        const ordering = aliased ?? breweryOrdering(target.issue, state(), context.config);
+        const ordering = orderingOf(state(), target, aliased, 'order', context);
         if ('refused' in ordering) return ordering;
         const { order, claim } = ordering;
         return orderIssue(state, order, claim, {
@@ -1023,13 +1092,13 @@ export const commands: readonly RegisteredCommand[] = [
     schema: RankCommand,
     // Reads the queue as a pass would, through gh's login, and records the place it finds.
     handler: async ({ order: target, place, why }, context) => {
-      const order = orderRefOf(target, context);
-      if ('refused' in order) return failed('rank', order.refused);
       const config = context.config();
       const { brewery } = config;
       if (brewery === undefined) return failed('rank', NAME_THE_BREWERY);
       const name = givenName(target);
       return writeBrewery('rank', context, async (log) => {
+        const order = orderNamed(log.state(), target, 'rank', context);
+        if ('refused' in order) return failed('rank', order.refused);
         const refusal = rankRefusal(log.state(), order);
         if (refusal !== undefined) return failed('rank', refusal);
         const queue = await readQueue(config, brewery, log.state(), context, order);
@@ -1076,18 +1145,20 @@ export const commands: readonly RegisteredCommand[] = [
     summary:
       'Hand a batch from the driver that holds it to another: --as, else this session, else terminal',
     changesState: true,
-    positionals: ['batch'],
+    positionals: ['issue'],
     options: { as: 'name' },
     terminalOnly:
       "/foedrum:brew --take takes a batch for the session; handing one to another is the terminal's",
     schema: TakeoverCommand,
     // The lease goes to the new owner at once; its driver renews it from its next tick (ADR 0124).
-    handler: async ({ batch, as }, context) => {
+    handler: async ({ issue, as }, context) => {
       const owner = brewOwner(as, context.env);
       if ('refused' in owner) {
         return { exitCode: 2, stdout: '', stderr: `foedrum takeover: ${owner.refused}\n` };
       }
       return writeBrewery('takeover', context, async (log) => {
+        const batch = batchNamed(log.state(), issue, 'takeover', context);
+        if (typeof batch !== 'string') return failed('takeover', batch.refused);
         const request = {
           batchId: batch,
           owner: owner.owner,

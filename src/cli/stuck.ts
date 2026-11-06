@@ -1,7 +1,7 @@
 // `foedrum stuck`: every Stuck batch with why, what it offers, and the questions it asks, numbered
 // in the order `foedrum answer` takes their answers.
 
-import { orderName } from '../engine/claim-orders.ts';
+import { calledAs, orderName } from '../engine/claim-orders.ts';
 import type { Batch, State } from '../engine/fold.ts';
 import { withoutSecrets } from '../engine/out-doc-text.ts';
 import { findingText, knownCommits } from '../engine/pull-request.ts';
@@ -62,7 +62,7 @@ export const formatStuck = (state: State): string => {
         () => [
           batch.id,
           orderName(state, batch),
-          [describeLane(batch).detail, ...failingParts(batch)].join('; '),
+          [describeLane(batch, calledAs(state, batch)).detail, ...failingParts(batch)].join('; '),
         ],
         (error) => [batch.id, issueOf(batch), `stuck: ${unreadable(batch, error)}`],
       ),

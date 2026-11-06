@@ -535,7 +535,7 @@ describe('foedrum: commands that change state', () => {
     it('is a command of the registry that changes state', () => {
       const approve = commands.find(({ name }) => name === 'approve');
       assert.equal(approve?.changesState, true);
-      assert.deepStrictEqual(approve?.positionals, ['batch']);
+      assert.deepStrictEqual(approve?.positionals, ['issue']);
     });
   });
 
@@ -543,7 +543,7 @@ describe('foedrum: commands that change state', () => {
     it('is a command of the registry that changes state, on a batch', () => {
       const lauter = commands.find(({ name }) => name === 'lauter');
       assert.equal(lauter?.changesState, true);
-      assert.deepStrictEqual(lauter?.positionals, ['batch']);
+      assert.deepStrictEqual(lauter?.positionals, ['issue']);
     });
 
     it("hands the batch to brew's driver, as the person who issued it, from where", async () => {
@@ -555,7 +555,7 @@ describe('foedrum: commands that change state', () => {
       const result = await run(['lauter', '27-1', '--as', 'night', '--via', 'plugin'], { brew });
       assert.equal(result.exitCode, 0, result.stderr);
       assert.deepStrictEqual(issued, [
-        { command: 'lauter', batch: '27-1', as: 'night' },
+        { command: 'lauter', issue: '27-1', as: 'night' },
         { by: 'ada', via: 'plugin' },
       ]);
     });
@@ -1136,7 +1136,7 @@ describe('foedrum: commands that change state', () => {
         await run(['recipe', '#23', 'stout', 'the plan needs an analysis']),
         refused(
           'recipe',
-          'batch 23-1 of #23 is brewing; foedrum stop #23 first, then change its recipe',
+          'batch 23-1 of #23 is brewing; foedrum stop 23 first, then change its recipe',
         ),
       );
       assert.equal(lastId(), before);
@@ -1935,7 +1935,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       assert.deepStrictEqual(
         await run(['order', 'web#8']),
         refused(
-          'the release of the claim of batch web-8 is still due: foedrum serve applies it, then order acme/web#8 again',
+          'the release of the claim of batch web-8 is still due: foedrum serve applies it, then foedrum order web#8 again',
         ),
       );
       assert.equal(reached(), 0);
@@ -2154,7 +2154,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
       orderedAs40();
       assert.deepStrictEqual(
         await run(['recipe', '#40', 'pint', 'the plan has one sub-order']),
-        ok('ordered web#7 as batch web-7-2\nweb-7-2 brewing: plan #1 scheduled\n'),
+        ok('ordered #40 as batch web-7-2\nweb-7-2 brewing: plan #1 scheduled\n'),
       );
     });
 
@@ -2177,7 +2177,7 @@ describe('foedrum order: order an issue again (ADR 0105)', () => {
         exitCode: 1,
         stdout: '',
         stderr:
-          'foedrum recipe: the release of the claim of batch web-8 is still due: foedrum serve applies it, then order acme/web#8 again\n',
+          'foedrum recipe: the release of the claim of batch web-8 is still due: foedrum serve applies it, then foedrum order web#8 again\n',
       });
       assert.equal(lastId(), before);
       assert.equal(reached(), 0);
