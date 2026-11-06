@@ -284,6 +284,7 @@ const planRound = async (
     env: { base: { PATH: '/usr/bin' }, forced: {} },
     platform: 'linux',
     orderText: async () => 'Wait for a bottle to be merged.',
+    orderComments: async () => [],
     git: async (_cwd, args) => ({
       code: 0,
       stdout: args[0] === 'log' ? 'f00dfee Wait\n' : 'diff --git a/x b/x\n',

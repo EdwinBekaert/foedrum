@@ -80,6 +80,11 @@ export type MarkedComment = string & { readonly [marked]: true };
 export const markedComment = (text: string, key: string, gap = '\n\n'): MarkedComment =>
   `${text}${gap}${effectMarker(key)}` as MarkedComment;
 
+/** Whether `body` ends as `markedComment` ends a comment, whoever wrote it. */
+export const isMarkedComment = (_body: string): boolean => {
+  throw new Error('not implemented');
+};
+
 export interface ClaimEffectsOptions {
   claimant: Claimant;
   marks: IssueMarks;

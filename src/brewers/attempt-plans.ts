@@ -21,6 +21,7 @@ import { releaseInput } from '../engine/release-input.ts';
 import { afterOverrun, checkoutsOf, ranIn } from '../engine/session-resume.ts';
 import { entryOf, type MapModules, manifestsAt, modulesOf } from '../engine/system-map.ts';
 import { sameRepo } from '../engine/task-tree.ts';
+import type { OrderComment, OrderIssue } from '../github/order-text.ts';
 import { readOutDocFile } from '../platform/bounded-read.ts';
 import { messageOf } from '../platform/errors.ts';
 import type { RepositorySetup } from '../schemas/brewery-config.ts';
@@ -126,6 +127,8 @@ export interface AttemptPlansOptions {
   platform?: NodeJS.Platform;
   /** The text of an order's issue, untrusted. */
   orderText: (order: Extract<InputRead, { kind: 'order' }>) => Promise<string>;
+  /** The maintainers' comments on an order's issues, oldest first, untrusted (ADR 0333). */
+  orderComments?: (issues: readonly OrderIssue[]) => Promise<readonly OrderComment[]>;
   /**
    * Reads the change a Taster that reviews a diff is given, in its worktree (ADR 0161); a plan
    * that needs it fails without it.

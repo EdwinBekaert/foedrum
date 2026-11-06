@@ -28,6 +28,30 @@ const readIssue = async (
   return found;
 };
 
+/** A comment of a maintainer of its repository on an order's issue (ADR 0333), untrusted. */
+export interface OrderComment {
+  repo: string;
+  issue: number;
+  id: number;
+  /** Its author's login; absent for an account that was deleted since. */
+  by?: string;
+  /** How its author stands to `repo`, as GitHub says. */
+  association: string;
+  /** When it was made. */
+  at: string;
+  text: string;
+}
+
+/**
+ * Reads the maintainers' comments on an order's issues, each in its repository, or in `brewery` for
+ * a Brewery issue, oldest first across them; Foedrum's own, as `login`, stay out (ADR 0333).
+ */
+export const githubOrderComments =
+  (_reads: GitHubReads, _brewery: string, _login: string) =>
+  async (_issues: readonly OrderIssue[], _signal?: AbortSignal): Promise<OrderComment[]> => {
+    throw new Error('not implemented');
+  };
+
 /** Reads the title of an order's issue in its repository, or in `brewery` for a Brewery issue. */
 export const githubOrderTitle =
   (reads: GitHubReads, brewery: string) =>

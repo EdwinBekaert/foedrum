@@ -157,6 +157,13 @@ export const GitHubComment = z.object({
   node_id: z.string().min(1).optional(),
 });
 
+/** A comment as an order reads it: GitHub gives all of these, and none may go missing (ADR 0333). */
+export const GitHubOrderComment = GitHubComment.extend({
+  body: z.string(),
+  created_at: z.iso.datetime({ offset: true }),
+  author_association: z.string(),
+});
+
 /** GraphQL's answer to whether a comment is hidden (ADR 0229). */
 export const CommentMinimized = z.object({ node: z.object({ isMinimized: z.boolean() }) });
 

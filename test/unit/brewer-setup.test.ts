@@ -118,6 +118,7 @@ describe('createAttemptPlans: the setup of a brewer attempt (ADR 0163)', () => {
       },
       platform,
       orderText: async () => 'Add a --json flag.',
+      orderComments: async () => [],
       files: {
         read: () => ({ kind: 'text', text: '# Guide' }),
         makeFolder: () => {},

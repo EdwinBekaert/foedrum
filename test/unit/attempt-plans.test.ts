@@ -103,6 +103,7 @@ const setup = (
       orders.push(order);
       return orderBody;
     },
+    orderComments: async () => [],
     files: {
       read: (file, maxBytes, root) => {
         reads.push({ file, root });
@@ -1818,6 +1819,7 @@ describe('createAttemptPlans: limits', () => {
       workRoot,
       env: { base: {}, forced: {} },
       orderText: async () => '',
+      orderComments: async () => [],
     });
     const turns = (batchId: string) =>
       plans.limits({ batchId, stepId: 'brew', attempt: 1 }).maxTurns;
@@ -1862,6 +1864,7 @@ describe('createAttemptPlans: limits', () => {
         workRoot,
         env: { base: {}, forced: {} },
         orderText: async () => '',
+        orderComments: async () => [],
         files: { read: () => ({ kind: 'missing' }), makeFolder: () => {} },
       });
     // The attempt's branch in the clone its worktree was added to: what the push takes, which
