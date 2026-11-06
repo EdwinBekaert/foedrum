@@ -10,7 +10,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { brewFixture, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave } from '../helpers/fake-brewer-runner.ts';
 import { ghOver } from '../helpers/fake-gh.ts';
-import { type FakeGitHubApi, fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { type FakeGitHubApi, fakeGitHubApi, type Instead } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
 import { config, local, serveInputs } from '../helpers/serve-brewery.ts';
 
@@ -295,6 +295,243 @@ describe('runBrew', () => {
       assert.equal(await runBrew(targetSetup(), claimed, target), 5, f.lines.join('\n'));
       assert.deepStrictEqual(host.created, ['acme/web refs/foedrum/claims/issues/7']);
       assert.ok(log().state().batches.has('web-7-2'), f.lines.join('\n'));
+    });
+
+    describe('on tap, brewed again by its number (ADR 0336)', () => {
+      const issue = (command: Parameters<ReturnType<typeof log>['issue']>[0]) =>
+        assert.equal(log().issue(command, t0).kind, 'accepted', JSON.stringify(command));
+      const merge = { sha: 'a'.repeat(40), at: '2026-10-22T13:00:00.000Z' };
+      /** web#7 and another candidate, which no brew of web#7 may claim. */
+      const two = (instead?: (method: string, url: URL) => Instead | undefined) =>
+        fakeGitHubApi({
+          login: 'ann',
+          ...(instead === undefined ? {} : { instead }),
+          issues: {
+            'acme/web': [
+              ...(github().issues['acme/web'] ?? []),
+              { number: 8, labels: ['foedrum'], author: 'ann', title: 'Other', body: 'Other.' },
+            ],
+          },
+        });
+      /** Brews web#7 on tap on `host`, and runs brew by its number: the exit code and the number. */
+      const brewAgain = async (host: FakeGitHubApi, between: (pull: number) => void) => {
+        const brewing = targetSetup();
+        assert.equal(await brewLabelled(host, brewing), 0, f.lines.join('\n'));
+        const [pull] = host.pulls;
+        const number = host.issues['acme/brewery']?.[0]?.number;
+        assert.ok(pull !== undefined && number !== undefined);
+        between(pull.number);
+        const again = shell(behave.succeed(), {
+          gh: ghOver(host.fetch).exec,
+          lock: () => fakeLock('ann'),
+        });
+        const target = { ...request, target: { issue: number } };
+        return { code: await runBrew(brewing, again, target), number, pull: pull.number };
+      };
+      const url = (pull: number) => `https://github.com/acme/web/pull/${pull}`;
+      const claimRef = 'acme/web refs/foedrum/claims/issues/7';
+      /** The lane labels on the Brewery issue `number`. */
+      const laneLabelsOn = (host: FakeGitHubApi, number: number) =>
+        (host.issue('acme/brewery', number)?.labels ?? []).filter((label) =>
+          label.startsWith('foedrum:'),
+        );
+      const onlyWeb7 = () => {
+        assert.deepStrictEqual(
+          [...log().state().batches.keys()],
+          ['web-7'],
+          'no other order is claimed',
+        );
+      };
+
+      it('a brew that ends on tap says what closes its Brewery issue', async () => {
+        const host = github();
+        assert.equal(await brewLabelled(host, targetSetup()), 0, f.lines.join('\n'));
+        const number = host.issues['acme/brewery']?.[0]?.number;
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: once they merge, foedrum brew ${number} or foedrum serve closes Brewery issue #${number} and releases its claim`,
+        );
+        assert.match(f.lines.at(-2) ?? '', /^foedrum brew: batch web-7 is on tap: /);
+      });
+
+      it('records a merge, closes the Brewery issue and releases the claim: exit 0', async () => {
+        const host = two();
+        const { code, number, pull } = await brewAgain(host, (made) =>
+          host.merge('acme/web', made, merge),
+        );
+        assert.equal(code, 0, f.lines.join('\n'));
+        assert.equal(host.issue('acme/brewery', number)?.state, 'closed');
+        assert.ok(!host.refs.has(claimRef), 'the claim ref is gone');
+        assert.ok(!host.issue('acme/web', 7)?.labels.includes('foedrum:claimed'));
+        assert.deepStrictEqual(laneLabelsOn(host, number), []);
+        const comments = host.comments.get('acme/web#7') ?? [];
+        assert.match(comments.at(-1)?.body ?? '', /released its claim.*its pull requests were merged/);
+        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds, {
+          [url(pull)]: 'merged',
+        });
+        onlyWeb7();
+        assert.deepStrictEqual(host.created, [claimRef]);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch web-7 merged: ${url(pull)}; Brewery issue #${number} closed, claim on acme/web#7 released`,
+        );
+      });
+
+      it('records a pull request closed unmerged, releases the claim and leaves the Brewery issue open: exit 0', async () => {
+        let closed: number | undefined;
+        const host = two((method, { pathname }) =>
+          method === 'GET' && pathname === `/repos/acme/web/pulls/${closed}`
+            ? { status: 200, body: { state: 'closed', merged: false, merged_at: null } }
+            : undefined,
+        );
+        const { code, number, pull } = await brewAgain(host, (made) => {
+          closed = made;
+        });
+        assert.equal(code, 0, f.lines.join('\n'));
+        assert.notEqual(host.issue('acme/brewery', number)?.state, 'closed');
+        assert.ok(!host.refs.has(claimRef), 'the claim ref is gone');
+        const comments = host.comments.get('acme/web#7') ?? [];
+        assert.match(comments.at(-1)?.body ?? '', /closed without being merged/);
+        onlyWeb7();
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch web-7 ended: ${url(pull)} not all merged; Brewery issue #${number} stays open, claim on acme/web#7 released, unassign it to make it available`,
+        );
+      });
+
+      it('with one of two pull requests open records the other, releases nothing and names the open one: exit 5', async () => {
+        const merged = url(101);
+        const open = url(102);
+        const answers = (method: string, { pathname }: URL): Instead | undefined => {
+          if (method !== 'GET') return undefined;
+          if (pathname === '/repos/acme/web/pulls/101') {
+            return { status: 200, body: { state: 'closed', merged: true } };
+          }
+          return pathname === '/repos/acme/web/pulls/102'
+            ? { status: 200, body: { state: 'open', merged: false } }
+            : undefined;
+        };
+        const host = two(answers);
+        const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+        const key = effectKey.encode({ batchId: 'web-7', effect: 'order.issue' });
+        const order = { issue: 7, repo: 'acme/web' };
+        f.store.withTransaction((tx) => {
+          tx.append({ type: 'batch.ordered', batchId: 'web-7', order, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: 'web-7', pullRequests: [merged, open] });
+        });
+        issue({ kind: 'record', event: { type: 'effect.applied', key, result: 40 } });
+        const brewing = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        const byNumber = { ...request, target: { issue: 40 } };
+        assert.equal(await runBrew(targetSetup(), brewing, byNumber), 5, f.lines.join('\n'));
+        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds, {
+          [merged]: 'merged',
+        });
+        const applied = [...log().state().effects.keys()];
+        assert.ok(!applied.some((each) => each.includes('release.')), applied.join('\n'));
+        assert.deepStrictEqual(host.comments.get('acme/web#7') ?? [], []);
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum brew: batch web-7 of #40 is on tap and holds its claim until its pull requests end: ${open}; foedrum brew 40 reads them again`,
+        );
+      });
+
+      it('foedrum mash of a batch whose pull request is still open reads nothing and says its claim is held', async () => {
+        const host = github();
+        const brewing = targetSetup();
+        assert.equal(await brewLabelled(host, brewing), 0, f.lines.join('\n'));
+        const number = host.issues['acme/brewery']?.[0]?.number;
+        const [pull] = host.pulls;
+        host.merge('acme/web', pull?.number ?? 0, merge);
+        const mashing = shell(behave.succeed(), {
+          gh: ghOver(host.fetch).exec,
+          lock: () => fakeLock('ann'),
+        });
+        const mash = { ...request, mash: true as const, target: { issue: number ?? 0 } };
+        assert.equal(await runBrew(brewing, mashing, mash), 5, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-1),
+          `foedrum mash: batch web-7 of #${number} is on tap and holds its claim until its pull requests end: ${url(pull?.number ?? 0)}; foedrum brew ${number} reads them again`,
+        );
+        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
+      });
+
+      it('finishes a release a run killed after the end left due: exit 0', async () => {
+        const host = two();
+        const brewing = targetSetup();
+        assert.equal(await brewLabelled(host, brewing), 0, f.lines.join('\n'));
+        const number = host.issues['acme/brewery']?.[0]?.number ?? 0;
+        const [pull] = host.pulls;
+        const event = {
+          type: 'pull_request.ended',
+          batchId: 'web-7',
+          pullRequest: url(pull?.number ?? 0),
+          state: 'merged',
+        } as const;
+        issue({ kind: 'record', event });
+        const again = shell(behave.succeed(), {
+          gh: ghOver(host.fetch).exec,
+          lock: () => fakeLock('ann'),
+        });
+        const byNumber = { ...request, target: { issue: number } };
+        assert.equal(await runBrew(brewing, again, byNumber), 0, f.lines.join('\n'));
+        assert.equal(host.issue('acme/brewery', number)?.state, 'closed');
+        assert.ok(!host.refs.has(claimRef), 'the claim ref is gone');
+      });
+
+      it('fails, recording nothing, when its pull request cannot be read: exit 1', async () => {
+        const reading = { fails: false };
+        const host = two((method, { pathname }) =>
+          reading.fails && method === 'GET' && /\/pulls\/\d+$/.test(pathname)
+            ? { status: 500, body: { message: 'Server Error' } }
+            : undefined,
+        );
+        const { code } = await brewAgain(host, () => {
+          reading.fails = true;
+        });
+        assert.equal(code, 1, f.lines.join('\n'));
+        assert.match(f.lines.at(-1) ?? '', /500/);
+        assert.deepStrictEqual(log().state().batches.get('web-7')?.pullRequestEnds ?? {}, {});
+      });
+
+      it('a batch of a Brewery issue records its merge and says so: exit 0', async () => {
+        f.store.withTransaction((tx) => {
+          const routeBy = new Date(t0.getTime() + 3_600_000).toISOString();
+          tx.append({ type: 'batch.ordered', batchId: '12-1', order: { issue: 12 }, routeBy });
+          tx.append({ type: 'batch.on_tap', batchId: '12-1', pullRequests: [url(90)] });
+        });
+        const host = fakeGitHubApi({
+          login: 'ann',
+          issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+          instead: (method, { pathname }) =>
+            method === 'GET' && pathname === '/repos/acme/web/pulls/90'
+              ? { status: 200, body: { state: 'closed', merged: true } }
+              : undefined,
+        });
+        const own = shell(behave.succeed(), { gh: ghOver(host.fetch).exec });
+        assert.equal(await runBrew(f.setup, own, request), 0, f.lines.join('\n'));
+        assert.equal(f.lines.at(-1), `foedrum brew: batch 12-1 merged: ${url(90)}`);
+      });
+
+      it('a batch another driver holds is refused before anything is read: exit 5', async () => {
+        const host = github();
+        const brewing = targetSetup();
+        assert.equal(await brewLabelled(host, brewing), 0, f.lines.join('\n'));
+        const number = host.issues['acme/brewery']?.[0]?.number ?? 0;
+        const expiresAt = new Date(t0.getTime() + 60_000);
+        f.store.withTransaction((tx) =>
+          tx.putBatchLease({ batchId: 'web-7', owner: 'cellar', expiresAt }),
+        );
+        const asked = host.requests.length;
+        const again = shell(behave.succeed(), {
+          gh: ghOver(host.fetch).exec,
+          lock: () => fakeLock('ann'),
+        });
+        const byNumber = { ...request, target: { issue: number } };
+        assert.equal(await runBrew(brewing, again, byNumber), 5, f.lines.join('\n'));
+        assert.match(f.lines.at(-1) ?? '', /is driven by cellar until .*foedrum brew \d+ --take/);
+        const read = host.requests.slice(asked).filter((each) => /\/pulls\/\d+/.test(each));
+        assert.deepStrictEqual(read, []);
+      });
     });
 
     describe('brewed by its number (ADR 0329)', () => {
