@@ -55,6 +55,26 @@ export function checkoutsOf(
   return undefined;
 }
 
+/** A repository and issue as one key: GitHub reads a repository's name in any case. */
+export const heardKey = ({ repo, issue }: { repo: string; issue: number }): string =>
+  `${repo.toLowerCase()}#${issue}`;
+
+/**
+ * The highest comment id per issue that the attempts of session `id` were told (ADR 0338): a resumed
+ * attempt records only what it was told itself, so the mark is over them all.
+ */
+export function commentsHeardBy(step: Step, id: string): ReadonlyMap<string, number> {
+  const heard = new Map<string, number>();
+  for (const attempt of step.attempts.values()) {
+    if (attempt.phase !== 'finished' || attempt.session?.id !== id) continue;
+    for (const mark of attempt.commentsHeard ?? []) {
+      const key = heardKey(mark);
+      heard.set(key, Math.max(heard.get(key) ?? 0, mark.id));
+    }
+  }
+  return heard;
+}
+
 /**
  * The worktree `attempt` of `step` runs or ran in, and the attempt that made it: its own, or for a
  * resumed attempt the one whose session it continues (ADR 0117); none before it started.
