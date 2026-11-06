@@ -14,6 +14,9 @@ export interface Handover {
   text: string;
 }
 
+/** A count of handover lines, as a person reads it. */
+export const handoverLines = (n: number): string => `${n} handover line${n === 1 ? '' : 's'}`;
+
 const frontmatterOf = (text: string) => {
   try {
     return parseFrontmatter(text);

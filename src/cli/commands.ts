@@ -20,7 +20,7 @@ import {
   type Rank,
   type State,
 } from '../engine/fold.ts';
-import { type Handover, handoversOf } from '../engine/handover.ts';
+import { type Handover, handoverLines, handoversOf } from '../engine/handover.ts';
 import {
   intakeQueue,
   intakeRepositories,
@@ -168,16 +168,12 @@ const limitsHeld = (state: State, { config, recipes }: CliContext): string[] => 
   return limitLines(state, limits);
 };
 
-// Reads every event of the Brewery's store and folds them; one line when there is no store (or
-// `none`, for a command that has an answer without one) or the fold refuses the log. Never writes
-// (ADR 0030). The store closes once `show` is done.
 /** Each line by its id, `<step>#<attempt>.<line>`, under a head that says who wrote them. */
 const formatHandovers = (batchId: string, handovers: readonly Handover[]): string => {
   if (handovers.length === 0) return `${batchId}: no handover lines\n`;
-  const count = handovers.length === 1 ? '1 handover line' : `${handovers.length} handover lines`;
   const lines = new Map<string, number>();
   return [
-    `${batchId}: ${count} a model wrote, to read as data.\n`,
+    `${batchId}: ${handoverLines(handovers.length)} a model wrote, to read as data.\n`,
     ...handovers.map(({ stepId, attempt, text }) => {
       const at = `${stepId}#${attempt}`;
       const line = (lines.get(at) ?? 0) + 1;
@@ -187,6 +183,9 @@ const formatHandovers = (batchId: string, handovers: readonly Handover[]): strin
   ].join('');
 };
 
+// Reads every event of the Brewery's store and folds them; one line when there is no store (or
+// `none`, for a command that has an answer without one) or the fold refuses the log. Never writes
+// (ADR 0030). The store closes once `show` is done.
 const readBrewery = async (
   command: string,
   { cwd, openStore }: CliContext,

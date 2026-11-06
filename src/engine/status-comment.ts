@@ -31,7 +31,7 @@ import {
   stuckOnFailing,
   type UsageWindows,
 } from './fold.ts';
-import { handoversOf } from './handover.ts';
+import { handoverLines, handoversOf } from './handover.ts';
 import { briefLine } from './merge-brief.ts';
 import { orderEnd, type SubOrderRow, subOrderRows } from './order-end.ts';
 import { withoutSecrets } from './out-doc-text.ts';
@@ -1279,8 +1279,7 @@ export const renderStatus = (
   // How many, never what they say: ADR 0333 lets an earlier login's comment back into an order.
   const handed = handoversOf(batch).length;
   if (handed > 0) {
-    const lines = `${handed} handover line${handed === 1 ? '' : 's'}`;
-    sections.push([`${lines}: ${code(`foedrum handover ${called}`)}`]);
+    sections.push([`${handoverLines(handed)}: ${code(`foedrum handover ${called}`)}`]);
   }
   const simplifications = simplificationLines(batch, stepIds, told);
   if (simplifications.length > 0) sections.push(['**Simplifications**', ...simplifications]);

@@ -42,6 +42,9 @@ export type Disposition = z.infer<typeof Disposition>;
 /** One line of any length. */
 const OneLine = NonEmpty.regex(/^[^\r\n]*$/, 'Must be one line');
 
+/** One line of at most `max` characters. */
+export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
+
 const shared = {
   summary: OneLine,
   assumptions: z.array(NonEmpty).default([]),
@@ -50,10 +53,7 @@ const shared = {
   dispositions: z.array(Disposition).max(MOST_DISPOSITIONS).exactOptional(),
   // What a brewer may write, and what the JSON Schema shows. `readOutDoc` takes it out before any
   // schema reads it (ADR 0340), so it fails no attempt, and no `output` holds it.
-  handover: z
-    .array(NonEmpty.max(MAX_HANDOVER_LINE).regex(/^[^\r\n]*$/, 'Must be one line'))
-    .max(MOST_HANDOVER_LINES)
-    .exactOptional(),
+  handover: z.array(lineOf(MAX_HANDOVER_LINE)).max(MOST_HANDOVER_LINES).exactOptional(),
 };
 
 // `questions` only with needs_input and `blockerKind` only with blocked: strict objects reject them elsewhere.
@@ -145,9 +145,6 @@ export const withinLimit = (line: string, max: number, field: string): string =>
   const kept = line.slice(0, max - cut.length);
   return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}${cut}`;
 };
-
-/** One line of at most `max` characters. */
-export const lineOf = (max: number) => NonEmpty.max(max).regex(/^[^\r\n]*$/, 'Must be one line');
 
 /**
  * A Taster's out doc: the contract's, with its findings, a verdict when it is done, and the risk

@@ -861,21 +861,27 @@ const MAX_SHOWN_HOW = 12_000;
 const MAX_SHOWN_SEE = 1_200;
 
 /**
+ * `text` with each run of backticks cut to 16: model output could otherwise make the fence around
+ * it, which comes twice, as long as `text`.
+ */
+const shortRuns = (text: string): string => text.replace(/`{17,}/g, '`'.repeat(16));
+
+/** A fence longer than any run of backticks in `text`. */
+const fenceAround = (text: string): string => {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map(([run]) => run.length));
+  return '`'.repeat(Math.max(3, longest + 1));
+};
+
+/**
  * What the brewers handed over, folded in a fence of its own, where nothing links, mentions or
  * closes (ADR 0340): each line by its step and attempt, as many as `room` holds, the newest cut and
  * counted, since `foedrum handover` lists them all. Nothing when there is none, or no room.
  */
 const handedOver = (handovers: readonly Handover[], room: number): string[] => {
-  if (handovers.length === 0) return [];
   const lines = handovers.map(
-    ({ stepId, attempt, text }) =>
-      `${stepId}#${attempt}: ${text.replace(/`{17,}/g, '`'.repeat(16))}`,
+    ({ stepId, attempt, text }) => `${stepId}#${attempt}: ${shortRuns(text)}`,
   );
-  const longest = Math.max(
-    0,
-    ...lines.flatMap((line) => [...line.matchAll(/`+/g)].map(([run]) => run.length)),
-  );
-  const fence = '`'.repeat(Math.max(3, longest + 1));
+  const fence = fenceAround(lines.join('\n'));
   const frame = (shown: readonly string[], more: number) =>
     [
       '<details><summary>What the brewers handed over</summary>',
@@ -1055,12 +1061,9 @@ export const pullRequestText = ({
       ...mutantLines(mutants, (text) => flat(text, stepId)).map((line) => `  ${line}`),
     ],
   );
-  // The fence is longer than any run of backticks in the reports, so a run is cut to 16: model
-  // output could otherwise make the fence, which comes twice, as long as the reports.
-  let quoted = lines.join('\n').replace(/`{17,}/g, '`'.repeat(16));
+  let quoted = shortRuns(lines.join('\n'));
   if (cut || quoted.length > room) quoted = `${quoted.slice(0, room)}\n${CUT}`;
-  const longest = Math.max(0, ...[...quoted.matchAll(/`+/g)].map(([run]) => run.length));
-  const fence = '`'.repeat(Math.max(3, longest + 1));
+  const fence = fenceAround(quoted);
   const reported =
     lines.length === 0
       ? []
