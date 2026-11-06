@@ -111,6 +111,23 @@ describe('handoverOf', () => {
     assert.deepEqual(handoverOf(docWith({ handover }), 'gauge'), ['a b c d e', 'f']);
   });
 
+  it('cuts a line past its limit, with a mark, on any line of the three', () => {
+    const CUT = ' [cut: the rest is past the limit of 300 characters]';
+    const handover = ['short', 'x'.repeat(5_000), 'y'.repeat(300)];
+    const [short, long, whole] = handoverOf(docWith({ handover }), 'gauge');
+    assert.equal(short, 'short');
+    assert.equal(long, `${'x'.repeat(300 - CUT.length)}${CUT}`);
+    assert.equal(whole, 'y'.repeat(300));
+  });
+
+  it('leaves out a line past its limit whose secret the cut would break in two', () => {
+    const line = `${'x '.repeat(135)}${token}`;
+    assert.ok(line.length > 300);
+    assert.deepEqual(handoverOf(docWith({ handover: [line] }), 'gauge'), [
+      '[left out: a handover line past its limit that looks like a secret]',
+    ]);
+  });
+
   it('reads every line for a secret, however short, and names its step in its place', () => {
     const handover = [`the key is ${token}`, LESSON];
     assert.deepEqual(handoverOf(docWith({ handover }), 'gauge'), [
