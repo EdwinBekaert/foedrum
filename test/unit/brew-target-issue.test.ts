@@ -348,10 +348,20 @@ describe('runBrew', () => {
         assert.equal(await brewLabelled(host, targetSetup()), 0, f.lines.join('\n'));
         const number = host.issues['acme/brewery']?.[0]?.number;
         assert.equal(
-          f.lines.at(-1),
+          f.lines.at(-2),
           `foedrum brew: once they merge, foedrum brew ${number} or foedrum serve closes Brewery issue #${number} and releases its claim`,
         );
-        assert.match(f.lines.at(-2) ?? '', /^foedrum brew: batch web-7 is on tap: /);
+        assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch web-7 is on tap: /);
+      });
+
+      it("a brew of a Brewery issue that ends on tap says what closes that issue, and names no claim", async () => {
+        const brewing = shell(behave.succeed('Brewed'));
+        assert.equal(await runBrew(f.setup, brewing, request), 0, f.lines.join('\n'));
+        assert.equal(
+          f.lines.at(-2),
+          'foedrum brew: once they merge, foedrum brew 12 or foedrum serve closes Brewery issue #12',
+        );
+        assert.match(f.lines.at(-1) ?? '', /^foedrum brew: batch 12-1 is on tap: /);
       });
 
       it('records a merge, closes the Brewery issue and releases the claim: exit 0', async () => {
