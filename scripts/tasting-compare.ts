@@ -328,7 +328,7 @@ const realMode = async (): Promise<Mode<RealSetup>> => {
     next: nextRealRun,
     recordOf: (events) =>
       realRecordOf(events, (id, worktree) =>
-        dryRun ? scriptedTranscript(worktree) : transcriptOf(id),
+        dryRun ? scriptedTranscript(worktree, '') : transcriptOf(id),
       ),
     table: realTable,
     stop: comparisonStop,

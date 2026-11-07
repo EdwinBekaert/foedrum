@@ -36,7 +36,7 @@ export const REAL_ORDERS = [
 export const TODAY_COMMIT = '765cc856';
 
 type OrderNumber = (typeof REAL_ORDERS)[number]['order'];
-type Profile = 'today' | 'reads' | 'lens';
+type Profile = 'today' | 'reads' | 'lens' | 'opus' | 'high';
 const PROFILES: readonly Profile[] = ['today', 'reads', 'lens'];
 /**
  * One order tasted one way: the order first, so the record reads on its own. `867-comments` is
@@ -50,6 +50,11 @@ export const REAL_SETUPS: readonly RealSetup[] = [
   ...REAL_ORDERS.flatMap(({ order }) => PROFILES.map((profile) => `${order}-${profile}` as const)),
   '867-comments',
 ];
+
+/** The setups `--setups` names, by the part of a setup's name after its order. */
+export const selectRealSetups = (_names: string): readonly RealSetup[] => {
+  throw new Error('not implemented');
+};
 
 /** The order `setup` tastes. */
 export const orderOf = (setup: RealSetup): (typeof REAL_ORDERS)[number] => {
@@ -113,11 +118,13 @@ export interface Tasters {
   current: string;
 }
 
+/** The `high` setup's Taster: the default's text at another effort. */
+export const highTaster = (_current: string): string => {
+  throw new Error('not implemented');
+};
+
 /** The Brewery's files of a run of `setup` beyond Nip's: the recipe, and `today`'s Taster. */
-export const realBreweryFiles = (
-  setup: RealSetup,
-  tasters: Tasters,
-): Record<string, string> => ({
+export const realBreweryFiles = (setup: RealSetup, tasters: Tasters): Record<string, string> => ({
   [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
   ...(setup.endsWith('-today') ? { 'brewers/taster.md': tasters.today } : {}),
 });
@@ -185,6 +192,8 @@ interface TranscriptReads {
   problem?: string;
   /** Its out doc's text past the frontmatter. */
   body?: string;
+  /** The models the session ran on, by what the model's own lines name. */
+  models?: readonly string[];
 }
 
 /** The Taster's out doc (`defaults/brewers/taster.md`'s `output.doc`). */
@@ -421,9 +430,17 @@ export const comparisonStop = ({ attempts }: Pick<RealRecord, 'attempts'>): stri
   return lost === undefined ? undefined : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
 };
 
+/** Why a run on a model its setup did not ask for must stop the comparison, or undefined. */
+export const modelStop = (_record: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
+  throw new Error('not implemented');
+};
+
 /** The next run to brew (`nextRunOf`). */
-export const nextRealRun = (records: readonly RealRecord[], runs: number) =>
-  nextRunOf(REAL_SETUPS, records, runs, runFailure);
+export const nextRealRun = (
+  records: readonly RealRecord[],
+  runs: number,
+  _setups: readonly RealSetup[] = REAL_SETUPS,
+) => nextRunOf(REAL_SETUPS, records, runs, runFailure);
 
 /** A run's code under `seed`: it says nothing of the run without the seed. */
 export const codeOf = (seed: string, setup: RealSetup, run: number): string =>
@@ -589,7 +606,7 @@ export const scriptedRealTastings = (file: string): Record<string, readonly Scri
   );
 
 /** The transcript of a dry run's Taster: it reads a file of its worktree and writes its out doc. */
-export const scriptedTranscript = (worktree: string): string =>
+export const scriptedTranscript = (worktree: string, _model: string): string =>
   [
     ['Read', { file_path: join(worktree, 'CLAUDE.md') }],
     ['Edit', { file_path: join(worktree, 'taste.md'), old_string: '', new_string: 'scripted' }],
