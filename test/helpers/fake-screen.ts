@@ -6,6 +6,13 @@ import type { LiveTerminal } from '../../src/cli/serve.ts';
 
 export const SPINNER = ['|', '/', '-', '\\'];
 
+/** Settles once `signal` aborts: how a fake `wait` holds a wait the brew runs beside a call. */
+export const aborted = (signal: AbortSignal): Promise<void> =>
+  new Promise((done) => {
+    if (signal.aborted) done();
+    else signal.addEventListener('abort', () => done(), { once: true });
+  });
+
 /**
  * A terminal over a fake screen (ADR 0174): it keeps what the live line shows now, every call and
  * every lasting line in order, and the lasting lines printed while the live line was on screen.

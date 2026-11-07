@@ -14,7 +14,7 @@ import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { fakeScreen, SPINNER, withoutTime } from '../helpers/fake-screen.ts';
+import { aborted, fakeScreen, SPINNER, withoutTime } from '../helpers/fake-screen.ts';
 import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
 
 describe('runBrew', () => {
@@ -58,10 +58,7 @@ describe('runBrew', () => {
         wait: async (ms, waiting) => {
           // The live line's wait beside a call lasts until the call ends: the clock moves only
           // with the brew's own waits, as before the line ran through its calls (#873).
-          if (waiting !== controller.signal) {
-            await new Promise<void>((done) => waiting.addEventListener('abort', () => done()));
-            return;
-          }
+          if (waiting !== controller.signal) return aborted(waiting);
           waits.push(ms);
           now = new Date(now.getTime() + ms);
           onWait?.(waits.length, screen);

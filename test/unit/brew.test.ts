@@ -41,7 +41,7 @@ import {
 import { ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
-import { fakeScreen } from '../helpers/fake-screen.ts';
+import { aborted, fakeScreen } from '../helpers/fake-screen.ts';
 import { brewer, local, serveInputs } from '../helpers/serve-brewery.ts';
 import { makeTempDir } from '../helpers/temp-dir.ts';
 
@@ -1507,7 +1507,10 @@ describe('runBrew', () => {
       terminal: screen.terminal,
       signal: controller.signal,
       clock: () => now,
-      wait: async (ms) => {
+      wait: async (ms, waiting) => {
+        // The live line's wait beside a call lasts until the call ends: counted here, it would
+        // spend the redraws on however many turns of the event loop a call takes (#873).
+        if (waiting !== controller.signal) return aborted(waiting);
         waits++;
         // The machine's clock is set back ten minutes in the second redraw.
         now = new Date(now.getTime() + ms - (waits === 2 ? 600_000 : 0));
@@ -1517,6 +1520,10 @@ describe('runBrew', () => {
         start: async () => ({ decision: 'ready' }),
         flush: async () => {
           flushes += 1;
+          // A call that takes many turns of the event loop, as file I/O can on another platform.
+          for (let turn = 0; turn < 40; turn++) {
+            await new Promise((resolve) => setImmediate(resolve));
+          }
           return { kind: 'unchanged' };
         },
       }),
