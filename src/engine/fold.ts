@@ -31,6 +31,7 @@ import type {
   WaitCondition,
   WorktreeRef,
 } from '../schemas/events.ts';
+import type { BlockerKind } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
 import type { SystemMapEntry } from '../schemas/system-map.ts';
 import type { AttemptRef } from './attempt-key.ts';
@@ -176,6 +177,15 @@ export interface Step {
   attempts: ReadonlyMap<number, Attempt>;
   inputs: readonly Input[];
 }
+
+/** How a blocked out doc's failure reason starts, by its blocker kind. */
+export const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
+
+/** Whether `outcome` is a blocked out doc's on findings: a blocking Taster's `changes` (ADR 0161). */
+export const onFindings = (outcome: StepOutcome): boolean =>
+  outcome.kind === 'failed' &&
+  !outcome.retryable &&
+  outcome.reason.startsWith(blockedBy('findings'));
 
 /** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
 export const unendedPullRequests = ({ lane, pullRequestEnds }: Batch): readonly string[] =>

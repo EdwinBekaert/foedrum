@@ -9,8 +9,7 @@ import {
   tastingOf,
 } from '../schemas/out-doc.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
-import { onFindings } from './decide.ts';
-import type { Attempt, Batch } from './fold.ts';
+import { type Attempt, type Batch, onFindings } from './fold.ts';
 
 /**
  * An outcome of a review (ADR 0196): a success with a Taster's verdict, or blocked by findings

@@ -18,11 +18,17 @@ import { PushResult } from '../schemas/store.ts';
 import { checkReadings } from './check-readings.ts';
 import { commentId, type MarkedComment, markedComment } from './claim-effects.ts';
 import { cutForComment } from './comment-revisions.ts';
-import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import { type Attempt, type Batch, baseChecksOn, latestAttempt, type State } from './fold.ts';
+import {
+  type Attempt,
+  type Batch,
+  baseChecksOn,
+  latestAttempt,
+  onFindings,
+  type State,
+} from './fold.ts';
 import { lensRounds, roundFindings } from './lens-rounds.ts';
 import {
   briefKey,

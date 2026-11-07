@@ -21,8 +21,7 @@ import {
 } from '../schemas/recipe.ts';
 import { RECIPE_CHOICE } from '../schemas/recipe-choice.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
-import { onFindings } from './decide.ts';
-import type { Attempt, Batch } from './fold.ts';
+import { type Attempt, type Batch, onFindings } from './fold.ts';
 import type { Recipe, RecipeAction, Recipes, RouteWhy, Stall } from './recipes.ts';
 import { resolveRecipe } from './resolve-recipe.ts';
 
