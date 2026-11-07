@@ -15,8 +15,15 @@ import { type Command, decide } from '../../src/engine/decide.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { freeCapacity } from '../../src/engine/intake.ts';
+import {
+  brewLog,
+  opensAsDraft,
+  pullRequestText,
+  stepReports,
+} from '../../src/engine/pull-request.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
+import { renderStatus } from '../../src/engine/status-comment.ts';
 import type { Event, GravityReading } from '../../src/schemas/events.ts';
 import { Disposition, OutDocFrontmatter } from '../../src/schemas/out-doc.ts';
 import { z } from '../../src/schemas/zod.ts';
@@ -555,6 +562,7 @@ describe('the default Nip', () => {
           log = [...log, event];
         },
         lane: () => fold(log).batches.get('b1')?.lane,
+        batch: () => fold(log).batches.get('b1'),
       };
     };
     const finish = (stepId: string): Command => ({
@@ -562,7 +570,16 @@ describe('the default Nip', () => {
       batchId: 'b1',
       stepId,
       attempt: 1,
-      ending: { kind: 'succeeded', output: { verdict: 'approve' } },
+      ending: {
+        kind: 'succeeded',
+        output: {
+          status: 'done',
+          summary: 'Nothing found',
+          assumptions: [],
+          verdict: 'approve',
+          findings: [],
+        },
+      },
     });
     const person = { batchId: 'b1', by: 'ada', via: 'terminal' } as const;
     const scheduled = (events: readonly Event[]): string[] =>
@@ -621,6 +638,30 @@ describe('the default Nip', () => {
     it('a skip after correctness asked for changes goes on to the pull request past them: regression test', async () => {
       const log = await stuck(asksChanges);
       assert.deepEqual(scheduled(log.accept({ kind: 'skip', ...person })), ['open-pull-request#1']);
+      const batch = log.batch();
+      assert.ok(batch !== undefined);
+      // What a person is told of correctness's changes after this skip: a line, and no findings
+      // (ADR 0343). Its blocked attempt has no report, and the verdicts left all approve.
+      const reports = stepReports(batch);
+      assert.deepEqual(
+        reports.flatMap(({ stepId, tasting }) => (tasting === undefined ? [] : [stepId])),
+        ['acceptance', 'security'],
+      );
+      assert.equal(opensAsDraft(reports), false);
+      const comment = renderStatus(batch);
+      assert.match(comment, /`correctness #1` ❌ blocked \(findings\)/);
+      assert.match(
+        comment,
+        /- ❌ `correctness`: attempt 1 failed: blocked \(findings\): An Ordered sub-order holds nothing/,
+      );
+      assert.doesNotMatch(comment, /\*\*Findings\*\*/);
+      const { body } = pullRequestText({
+        title: 'A title',
+        reports,
+        attempts: brewLog(batch),
+      });
+      assert.match(body, /every Taster approved/);
+      assert.match(body, /`correctness #1` \| [^\n]*An Ordered sub-order holds nothing/);
     });
   });
 
