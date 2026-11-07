@@ -27,7 +27,9 @@ export const virtualTimeline = (start: Date, runForMs: number): VirtualTimeline 
   let now = start.getTime();
   let lagging = 0;
   let queued = false;
-  const timers = new Set<{ at: number; done: () => void }>();
+  // `own` marks a wait on the brew's own signal: the wait between its ticks.
+  const timers = new Set<{ at: number; done: () => void; own: boolean }>();
+  const brewWaits = (): boolean => [...timers].some((timer) => timer.own);
   const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
   const fire = (): void => {
     if (now - start.getTime() > runForMs) controller.abort();
@@ -38,15 +40,17 @@ export const virtualTimeline = (start: Date, runForMs: number): VirtualTimeline 
       }
     }
   };
-  // With no call under way, the counter jumps to the next timer two turns of the loop on: a loop
-  // that takes a turn before its next wait has set that wait by then.
+  // While the brew itself waits between its ticks, and no call lags, the counter jumps to the next
+  // timer two turns of the loop on: a loop that takes a turn before its next wait has set that
+  // wait by then. While a tick runs it never moves, however many turns the tick takes, so the
+  // waits beside a call (the live line's, the mark's) cannot run time ahead of it.
   const jump = (): void => {
-    if (queued || lagging > 0) return;
+    if (queued || lagging > 0 || !brewWaits()) return;
     queued = true;
     setImmediate(() => {
       setImmediate(() => {
         queued = false;
-        if (lagging > 0 || timers.size === 0) return;
+        if (lagging > 0 || !brewWaits()) return;
         now = Math.max(now, Math.min(...[...timers].map((timer) => timer.at)));
         fire();
         jump();
@@ -58,7 +62,7 @@ export const virtualTimeline = (start: Date, runForMs: number): VirtualTimeline 
     clock: () => new Date(now),
     later: (ms) =>
       new Promise<void>((resolve) => {
-        timers.add({ at: now + ms, done: resolve });
+        timers.add({ at: now + ms, done: resolve, own: false });
       }),
     wait: (ms, signal) =>
       new Promise<void>((resolve) => {
@@ -72,6 +76,7 @@ export const virtualTimeline = (start: Date, runForMs: number): VirtualTimeline 
         };
         const timer = {
           at: now + ms,
+          own: signal === controller.signal,
           done: () => {
             signal.removeEventListener('abort', onAbort);
             resolve();

@@ -48,6 +48,11 @@ describe('runBrew', () => {
         start: async () => ({ decision: 'ready' }),
         flush: async () => {
           flushes += 1;
+          // A tick that takes many turns of the event loop, as file I/O can on another platform:
+          // the virtual clock must not run ahead of it.
+          for (let turn = 0; turn < 400; turn++) {
+            await new Promise((resolve) => setImmediate(resolve));
+          }
           return { kind: 'unchanged' };
         },
       }),
@@ -117,7 +122,8 @@ describe('runBrew', () => {
       const { reads, screen } = await brewMarked({ seconds: 30 });
       const drawn = screen.rewrites().length;
       assert.ok(drawn >= 150, `${drawn} lines drawn in 30 s`);
-      assert.ok(reads() >= 25 && reads() <= 45, `${reads()} reads in 30 s`);
+      // A redraw each second, and the driver's own reads at each tick: far fewer than the frames.
+      assert.ok(reads() >= 25 && reads() <= 60, `${reads()} reads in 30 s`);
     });
 
     it('draws nothing more once the brew has ended, and leaves no line on screen', async () => {
