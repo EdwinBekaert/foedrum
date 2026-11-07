@@ -446,12 +446,14 @@ describe('runBrew', () => {
 
     it('cuts the line of a group from the end when even the steps and attempts alone do not fit (#873)', async () => {
       sideBySide();
-      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 30 });
+      // Too narrow for both names, and wide enough to tell them from a cut of the whole attempts.
+      const { screen } = await brewLive({ ...idle, turn: 3 }, { seconds: 30, columns: 40 });
       const group = screen.rewrites().filter((drawn) => drawn.includes('security'));
       assert.ok(group.length > 0, screen.rewrites().join('\n'));
       for (const drawn of group) {
-        assert.equal(drawn.length, 29, drawn);
-        assert.match(drawn, /^. ordered \d+s ago \/ secur/);
+        assert.equal(drawn.length, 39, drawn);
+        assert.match(drawn, /^. ordered \d+s ago \/ security #1 ; corr/);
+        assert.doesNotMatch(drawn, /correctness #1/);
       }
     });
 
