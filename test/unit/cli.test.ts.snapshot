@@ -115,7 +115,7 @@ exports[`foedrum status > lists every batch with its issue, lane and what it wai
   13-1  #13  conditioning  waiting for @acme/lib 2.4.0 or later in acme/lib; reminder 2026-10-17T09:00:00.000Z
   14-1  #14  brewing       between steps
   15-1  #15  stuck         needs input at plan; reminder 2026-10-17T09:00:00.000Z
-  16-1  #16  on tap        https://github.com/acme/app/pull/7
+  16-1  #16  on tap        https://github.com/acme/app/pull/7 open
   17-1  #17  cancelled     by bob via comment
   18-1  #18  conditioning  waiting for the merge of https://github.com/acme/app/pull/8; reminder 2026-10-17T09:00:00.000Z
   19-1  #19  conditioning  waiting for batch 13-1; reminder 2026-10-17T09:00:00.000Z
