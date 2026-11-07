@@ -128,6 +128,28 @@ describe('runBrew', () => {
       assert.equal(screen.events.length, events);
     });
 
+    it('leaves no timer running when it is refused before it takes its lock: regression test', async () => {
+      const screen = fakeScreen(120, BRAILLE_MARKS);
+      const waits: number[] = [];
+      const live: ServeShell = {
+        ...f.shell(behave.succeed()),
+        terminal: screen.terminal,
+        wait: async (ms) => {
+          waits.push(ms);
+        },
+      };
+      const unknown = { ...request, target: { alias: 'nobody', issue: 7 } };
+      assert.equal(await runBrew(f.setup, live, unknown), 5);
+      assert.ok(
+        f.lines.some((line) => line.includes('nobody')),
+        f.lines.join('\n'),
+      );
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      assert.deepEqual(waits, []);
+    });
+
     it('goes on brewing when a redraw beside a call fails', async () => {
       const screen = fakeScreen(120);
       const { rewrite } = screen.terminal;
