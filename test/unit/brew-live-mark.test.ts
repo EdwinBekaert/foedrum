@@ -148,6 +148,7 @@ describe('runBrew', () => {
       assert.equal(await runBrew(f.setup, live, request), 0, f.lines.join('\n'));
       assert.equal(timeline.controller.signal.aborted, false);
       const asked = waits;
+      assert.ok(asked > 0, 'the mark and the line waited');
       for (let turn = 0; turn < 5; turn++) {
         await new Promise((resolve) => setImmediate(resolve));
       }
@@ -174,6 +175,39 @@ describe('runBrew', () => {
         await new Promise((resolve) => setImmediate(resolve));
       }
       assert.deepEqual(waits, []);
+    });
+
+    it('keeps its exit code when a redraw fails before it writes: regression test', async () => {
+      const screen = fakeScreen(120);
+      const timeline = virtualTimeline(t0, 600_000);
+      const live: ServeShell = {
+        ...f.shell(behave.succeed()),
+        terminal: {
+          ...screen.terminal,
+          columns: () => {
+            throw new Error('the width cannot be read');
+          },
+        },
+        signal: timeline.controller.signal,
+        clock: timeline.clock,
+        wait: timeline.wait,
+      };
+      assert.equal(await runBrew(f.setup, live, request), 0, f.lines.join('\n'));
+    });
+
+    it("holds the mark's column with a bar on a terminal that names no frames: regression test", async () => {
+      const screen = fakeScreen(120, []);
+      const timeline = virtualTimeline(t0, 3_000);
+      const live: ServeShell = {
+        ...f.shell(behave.hang(idle)),
+        terminal: screen.terminal,
+        signal: timeline.controller.signal,
+        clock: timeline.clock,
+        wait: timeline.wait,
+      };
+      await runBrew(f.setup, live, request);
+      assert.ok(screen.rewrites().length > 0, 'a live line was drawn');
+      for (const drawn of screen.rewrites()) assert.ok(drawn.startsWith('| '), drawn);
     });
 
     it('keeps its exit code when every redraw fails', async () => {

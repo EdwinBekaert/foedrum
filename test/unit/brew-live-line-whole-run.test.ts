@@ -80,6 +80,7 @@ const names = (seen: Seen, words: RegExp): void => {
   assert.ok(seen.entry !== undefined, 'a live line is on screen when the call begins');
   assert.match(seen.entry, /^[|/\\-] (?:ordered|brew started) (?:\d+m )?\d+s ago \/ /);
   assert.match(seen.entry, words);
+  for (const drawn of seen.during) assert.match(drawn, words);
 };
 
 /** A call of `ms` milliseconds moved the line: one redraw about each second, not the same text. */
@@ -208,7 +209,7 @@ describe('runBrew', () => {
 
     it('says only the words the design names while no attempt runs: regression test', async () => {
       const { screen } = await brewTimed({ seconds: 20 });
-      // Every word the command says of itself is one the design names.
+      // Every word one plain brew says of itself is one the design names.
       const known =
         /\/ (?:starting|routing|opening the Brewery issue|writing the status comment|opening the pull request|cleaning up the worktrees of the batch|between steps|applying \S+|claiming \S+)$/;
       const words = screen.rewrites().filter((drawn) => !/ #\d+ \/ /.test(drawn));
@@ -228,6 +229,8 @@ describe('runBrew', () => {
       const written =
         seen.get('POST /repos/Acme/Brewery/issues/12/comments') ?? assert.fail('none');
       names(written, /status comment/i);
+      // The batch is known by then, so its time says when it was ordered.
+      assert.match(written.entry ?? '', /^. ordered /);
       moved(written, 25_000);
     });
 
