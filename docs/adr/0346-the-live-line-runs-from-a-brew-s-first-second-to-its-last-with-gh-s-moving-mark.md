@@ -19,7 +19,7 @@ The maintainer asked for the moving mark `gh` shows while it waits, on every wai
 - A redraw beside a call that throws ends that loop, never the call or the process. The next redraw of the brew's own loop reports the failure as before.
 
 ### What the driver tells it
-- `DriverOptions.doing` and `WiringOptions.doing`, optional, take a `Doing`: `{ kind: 'effect', key }` or `{ kind: 'clean', batchId }`. The driver calls it before it applies an effect or cleans a batch.
+- `DriverOptions.doing` and `WiringOptions.doing`, optional, take a `Doing`: `{ kind: 'effect', key }` or `{ kind: 'clean' }`. The driver calls it before it applies an effect or cleans a batch.
 - It is a report for display: it changes no state, appends no event and decides nothing. A driver without it behaves the same, so `foedrum serve` passes none.
 
 ### A parallel group on one line

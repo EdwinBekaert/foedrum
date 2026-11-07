@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import type { LiveTerminal } from '../../src/cli/serve.ts';
 
-export const SPINNER = ['|', '/', '-', '\\'];
+const SPINNER = ['|', '/', '-', '\\'];
 
 /** Settles once `signal` aborts: how a fake `wait` holds a wait the brew runs beside a call. */
 export const aborted = (signal: AbortSignal): Promise<void> =>
@@ -69,9 +69,6 @@ export const fakeScreen = (width: number | 'unknown', marks: readonly string[] =
         assert.ok(batchTime, `the batch's time leads ${JSON.stringify(text)}`);
         return text.slice(2 + batchTime[0].length);
       }),
-    /** The batch's time, without its words, on each live line drawn. */
-    batchTimes: (): string[] =>
-      rewrites().map((text) => BATCH_TIME.exec(text.slice(2))?.[1] ?? `none in ${text}`),
   };
 };
 

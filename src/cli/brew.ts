@@ -343,20 +343,27 @@ export const runBrew = async (
     fitted = liveLine(batchTime, attempts, terminal.columns());
     show();
   };
-  // The mark turns on a timer of its own, writing the fitted line again: no state is read and no
-  // tick is moved for it (ADR 0346). A throw here is the line's alone, as beside a call below.
-  const marksEnd = new AbortController();
-  const turning = AbortSignal.any([signal, marksEnd.signal]);
-  const turnMarks = async (): Promise<void> => {
-    while (terminal !== undefined && !turning.aborted) {
-      await turn();
-      if (turning.aborted) break;
-      await wait(MARK_MS, turning);
-      if (turning.aborted) break;
-      frame++;
-      show();
+  /**
+   * Calls `step` every `ms` on the shell's wait until `until` aborts, with a turn of the event loop
+   * before each wait. A throw ends this loop alone, never a call beside it or the process: the next
+   * redraw of the brew's own says what failed, if it still does.
+   */
+  const beat = async (ms: number, until: AbortSignal, step: () => void): Promise<void> => {
+    try {
+      while (!until.aborted) {
+        await turn();
+        if (until.aborted) break;
+        await wait(ms, until);
+        if (!until.aborted) step();
+      }
+    } catch {
+      // The line's alone.
     }
   };
+  // The mark turns on a timer of its own, writing the fitted line again: no state is read and no
+  // tick is moved for it (ADR 0346).
+  const marksEnd = new AbortController();
+  const turning = AbortSignal.any([signal, marksEnd.signal]);
   /**
    * Awaits `call` with the live line moving beside it: `words` say what it does (the driver's own
    * `doing` may say more), redrawn each second on the shell's wait, which a call that takes no
@@ -368,16 +375,7 @@ export const runBrew = async (
     const stop = new AbortController();
     const redraws = AbortSignal.any([signal, stop.signal]);
     if (words !== undefined || !onScreen) draw();
-    // A redraw that throws ends this loop, never the call beside it or the process: the next
-    // redraw of the brew's own says what failed, if it still does.
-    const moving = (async () => {
-      while (!redraws.aborted) {
-        await turn();
-        if (redraws.aborted) break;
-        await wait(REDRAW_MS, redraws);
-        if (!redraws.aborted) draw();
-      }
-    })().catch(() => {});
+    const moving = beat(REDRAW_MS, redraws, draw);
     try {
       return await call();
     } finally {
@@ -435,7 +433,12 @@ export const runBrew = async (
   };
   try {
     stopResize = terminal?.onResize(draw);
-    marks = turnMarks().catch(() => {});
+    if (terminal !== undefined) {
+      marks = beat(MARK_MS, turning, () => {
+        frame++;
+        show();
+      });
+    }
     const { store, driver, reads, claims } = await lively('starting', () =>
       wireDriver(setup, shell, opened, {
         // This batch alone, once it is known (ADR 0044).

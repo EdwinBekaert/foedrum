@@ -132,7 +132,7 @@ export type DriverNotice =
   | { kind: 'cleaned'; batchId: string; report: CleanReport };
 
 /** What the driver spends time on that a person waits for: an effect it applies, a batch's cleanup. */
-export type Doing = { kind: 'effect'; key: EffectKey } | { kind: 'clean'; batchId: string };
+export type Doing = { kind: 'effect'; key: EffectKey } | { kind: 'clean' };
 
 export interface DriverOptions {
   store: EventStore;
@@ -1164,7 +1164,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           // Asked before the cleanup reads its claims: a lease it keeps a worktree for may expire
           // while its git steps run. An ended batch gets no new lease, so asking early misses none.
           if (leasedBatches().has(batchId)) cleanedLeased.add(batchId);
-          doing({ kind: 'clean', batchId });
+          doing({ kind: 'clean' });
           report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
           toClean.delete(batchId);
         } catch (error) {
