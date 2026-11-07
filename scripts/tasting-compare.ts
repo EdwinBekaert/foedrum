@@ -185,7 +185,7 @@ interface Mode<Setup extends string> {
   order: (setup: Setup) => string;
   /** The recipe a run's order is labelled for. */
   recipeOf: (setup: Setup) => string;
-  /** The Brewery's files of a run beyond Nip's, by path: its recipes, and any brewer it replaces. */
+  /** The Brewery's files of a run beyond Nip's, by path: its recipes, any brewer it replaces, and any models.jsonc. */
   breweryFiles: (setup: Setup) => Record<string, string>;
   /** Makes the bare remote `web.git` with the target's base on main, and its clone `web`. */
   target: (setup: Setup, scratch: string, git: RunGit) => Promise<void>;
@@ -413,8 +413,8 @@ const compare = async <Setup extends string>(mode: Mode<Setup>): Promise<void> =
     const [title = '', ...bodyLines] = readFileSync(mode.order(setup), 'utf8').split(/\r?\n/);
     const script = await mode.script(setup, scratch, git);
 
-    // The Brewery: Nip's fixture files with the default models (no models.jsonc), and the mode's own
-    // files: its recipes, and any brewer it replaces.
+    // The Brewery: Nip's fixture files with the default models (no models.jsonc of theirs), and the
+    // mode's own files: its recipes, any brewer it replaces, and any models.jsonc.
     const { 'models.jsonc': _, ...nipFiles } = nipBreweryFiles({
       brewery: BREWERY,
       target: TARGET,
