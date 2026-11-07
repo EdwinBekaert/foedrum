@@ -105,13 +105,21 @@ export const realRecipeText = (setup: RealSetup): string => {
   return `// node scripts/tasting-compare.ts --real's recipe (ADR 0332).\n${JSON.stringify(recipe, null, 2)}\n`;
 };
 
+/** The two Taster texts the setups start from. */
+export interface Tasters {
+  /** `today`'s pinned text, the one at `TODAY_COMMIT`. */
+  today: string;
+  /** The default's text, `defaults/brewers/taster.md`. */
+  current: string;
+}
+
 /** The Brewery's files of a run of `setup` beyond Nip's: the recipe, and `today`'s Taster. */
 export const realBreweryFiles = (
   setup: RealSetup,
-  todayTaster: string,
+  tasters: Tasters,
 ): Record<string, string> => ({
   [`recipes/${realRecipeOf(setup)}.jsonc`]: realRecipeText(setup),
-  ...(setup.endsWith('-today') ? { 'brewers/taster.md': todayTaster } : {}),
+  ...(setup.endsWith('-today') ? { 'brewers/taster.md': tasters.today } : {}),
 });
 
 /**

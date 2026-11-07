@@ -148,6 +148,8 @@ const attempt = (
   ...more,
 });
 
+const TASTERS = { today: 'the old text', current: 'the default text' };
+
 const SETUPS: readonly RealSetup[] = [
   '855-today',
   '855-reads',
@@ -700,7 +702,7 @@ describe('tasting-compare --real', () => {
       assert.ok(recipe.steps.some((step) => 'action' in step && step.action === 'openPullRequest'));
       const brewery = makeTempDir('tasting-compare-real');
       try {
-        const files = realBreweryFiles('855-reads', 'unused');
+        const files = realBreweryFiles('855-reads', TASTERS);
         for (const [path, text] of Object.entries(files)) {
           mkdirSync(dirname(join(brewery.path, path)), { recursive: true });
           writeFileSync(join(brewery.path, path), text);
@@ -724,15 +726,15 @@ describe('tasting-compare --real', () => {
 
     it('the today setup replaces the Taster, and the reads setup keeps the default', () => {
       assert.equal(
-        realBreweryFiles('864-today', 'the old text')['brewers/taster.md'],
+        realBreweryFiles('864-today', TASTERS)['brewers/taster.md'],
         'the old text',
       );
-      assert.equal(realBreweryFiles('864-reads', 'the old text')['brewers/taster.md'], undefined);
+      assert.equal(realBreweryFiles('864-reads', TASTERS)['brewers/taster.md'], undefined);
     });
 
     describe('the lens setup (#889, ADR 0337)', () => {
       const lensRecipe = () => {
-        const text = realBreweryFiles('855-lens', 'unused')['recipes/real-nip-lens.jsonc'];
+        const text = realBreweryFiles('855-lens', TASTERS)['recipes/real-nip-lens.jsonc'];
         assert.ok(text !== undefined, 'the lens setup has no recipe of its own');
         return text;
       };
@@ -768,7 +770,7 @@ describe('tasting-compare --real', () => {
       });
 
       it("its recipe is named as an order's label and loads as a Brewery file, on the default Taster", () => {
-        const files = realBreweryFiles('855-lens', 'the old text');
+        const files = realBreweryFiles('855-lens', TASTERS);
         assert.equal(files['brewers/taster.md'], undefined);
         assert.equal(Recipe.parse(parseJsonc(lensRecipe())).name, 'real-nip-lens');
         const brewery = makeTempDir('tasting-compare-real');
@@ -1120,15 +1122,15 @@ describe('tasting-compare --real: 867-comments (ADR 0333)', () => {
 
   it('brews nip without the lens setup Taster: regression test', () => {
     assert.equal(realRecipeOf('867-comments'), REAL_RECIPE);
-    assert.deepEqual(Object.keys(realBreweryFiles('867-comments', 'unused')), [
+    assert.deepEqual(Object.keys(realBreweryFiles('867-comments', TASTERS)), [
       `recipes/${REAL_RECIPE}.jsonc`,
     ]);
   });
 
   it('differs from 867-reads only by the comment: the default Taster, the same order and the same files', () => {
     assert.deepEqual(
-      realBreweryFiles('867-comments', 'the old text'),
-      realBreweryFiles('867-reads', 'the old text'),
+      realBreweryFiles('867-comments', TASTERS),
+      realBreweryFiles('867-reads', TASTERS),
     );
     assert.equal(orderOf('867-comments'), orderOf('867-reads'));
   });
