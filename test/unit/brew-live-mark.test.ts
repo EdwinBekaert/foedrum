@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { runBrew } from '../../src/cli/brew.ts';
 import { BRAILLE_MARKS } from '../../src/cli/live-terminal.ts';
 import type { ServeShell } from '../../src/cli/serve.ts';
+import { takeOver } from '../../src/engine/batch-leases.ts';
 import type { AttemptProgress } from '../../src/engine/supervisor.ts';
 import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import { behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
@@ -173,6 +174,118 @@ describe('runBrew', () => {
         await new Promise((resolve) => setImmediate(resolve));
       }
       assert.deepEqual(waits, []);
+    });
+
+    it('keeps its exit code when every redraw fails', async () => {
+      const screen = fakeScreen(120);
+      const timeline = virtualTimeline(t0, 600_000);
+      const live: ServeShell = {
+        ...f.shell(behave.succeed()),
+        terminal: {
+          ...screen.terminal,
+          rewrite: () => {
+            throw new Error('the store could not be read');
+          },
+        },
+        signal: timeline.controller.signal,
+        clock: timeline.clock,
+        wait: timeline.wait,
+      };
+      assert.equal(await runBrew(f.setup, live, request), 0, f.lines.join('\n'));
+      assert.ok(f.lines.at(-1)?.includes('is on tap'), f.lines.join('\n'));
+    });
+
+    it('keeps a resize from throwing when its redraw fails', async () => {
+      const screen = fakeScreen(120);
+      const timeline = virtualTimeline(t0, 5_000);
+      let resized = false;
+      let failing = false;
+      let thrown: unknown;
+      const { rewrite } = screen.terminal;
+      const live: ServeShell = {
+        ...f.shell(behave.hang(idle)),
+        terminal: {
+          ...screen.terminal,
+          rewrite: (text) => {
+            if (failing) throw new Error('the store could not be read');
+            rewrite(text);
+          },
+        },
+        signal: timeline.controller.signal,
+        clock: timeline.clock,
+        wait: timeline.wait,
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            if (!resized) {
+              resized = true;
+              failing = true;
+              try {
+                screen.resize(60);
+              } catch (error) {
+                thrown = error;
+              }
+              failing = false;
+            }
+            return { kind: 'unchanged' };
+          },
+        }),
+      };
+      assert.equal(await runBrew(f.setup, live, request), 1, f.lines.join('\n'));
+      assert.equal(resized, true);
+      assert.equal(thrown, undefined);
+    });
+
+    it('moves the words while a tick takes time in the wait for the runs it stopped (ADR 0127)', async () => {
+      const screen = fakeScreen(120);
+      const timeline = virtualTimeline(t0, 400_000);
+      const endless = behave.hang(idle);
+      const runner = fakeBrewerRunner(() => endless);
+      let flushes = 0;
+      let during: string[] = [];
+      const live: ServeShell = {
+        ...f.shell(behave.succeed()),
+        terminal: screen.terminal,
+        signal: timeline.controller.signal,
+        clock: timeline.clock,
+        wait: timeline.wait,
+        runner: () => ({
+          ...runner,
+          start: (attempt) => ({ ...runner.start(attempt), stop: () => {} }),
+        }),
+        stateBranch: () => ({
+          start: async () => ({ decision: 'ready' }),
+          flush: async () => {
+            flushes += 1;
+            if (flushes === 2) {
+              const handover = {
+                batchId: '12-1',
+                owner: 'bob',
+                by: 'bob',
+                via: 'terminal',
+              } as const;
+              takeOver(f.log(), {
+                ...handover,
+                now: timeline.clock(),
+                leaseMs: 300_000,
+                resumes: 'brew',
+              });
+            }
+            if (flushes === 4) {
+              const from = screen.events.length;
+              await timeline.lag(10_000);
+              during = screen.events
+                .slice(from)
+                .filter((event) => event.startsWith('rewrite: '))
+                .map((event) => event.slice(10));
+            }
+            return { kind: 'unchanged' };
+          },
+        }),
+      };
+      assert.equal(await runBrew(f.setup, live, request), 5, f.lines.join('\n'));
+      const words = new Set(during);
+      assert.ok(words.size >= 7, `${words.size} lines in 10 s:\n${during.join('\n')}`);
     });
 
     it('goes on brewing when a redraw beside a call fails', async () => {

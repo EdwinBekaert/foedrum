@@ -174,6 +174,14 @@ describe('marksOf: which mark a terminal shows properly (ADR 0346)', () => {
     assert.equal(marksOf({ LC_CTYPE: 'C', LANG: 'en_US.UTF-8' }, 'linux'), ASCII_MARKS);
   });
 
+  it('reads an empty LC_ALL as unset, as the C library does', () => {
+    assert.equal(marksOf({ LC_ALL: '', LANG: 'en_US.UTF-8' }, 'linux'), BRAILLE_MARKS);
+  });
+
+  it('reads an empty LC_CTYPE as unset, as the C library does', () => {
+    assert.equal(marksOf({ LC_CTYPE: '', LANG: 'en_US.UTF-8' }, 'darwin'), BRAILLE_MARKS);
+  });
+
   it('gives braille for a UTF-8 LC_ALL over any LANG', () => {
     assert.equal(marksOf({ LC_ALL: 'en_US.UTF-8', LANG: 'C' }, 'linux'), BRAILLE_MARKS);
   });

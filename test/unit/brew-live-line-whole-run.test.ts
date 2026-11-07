@@ -16,6 +16,7 @@ import { brewFixture, idle, request, t0 } from '../helpers/brew-fixture.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { flagValue, ghOver } from '../helpers/fake-gh.ts';
 import { fakeGitHubApi } from '../helpers/fake-github-api.ts';
+import { fakeLock } from '../helpers/fake-lock.ts';
 import { fakeScreen } from '../helpers/fake-screen.ts';
 import { FAKE_COMMIT, fakeWorktrees } from '../helpers/fake-worktrees.ts';
 import { brewer, config, local, serveInputs } from '../helpers/serve-brewery.ts';
@@ -230,6 +231,25 @@ describe('runBrew', () => {
       moved(written, 25_000);
     });
 
+    it('names the pull requests, and keeps moving, while a brew of an on-tap batch reads their ends', async () => {
+      const first = await brewTimed({ script: () => behave.succeed('Brewed') });
+      assert.equal(first.code, 0, f.lines.join('\n'));
+      const merged = fakeGitHubApi({
+        login: 'ann',
+        issues: { 'acme/brewery': [{ number: 12, labels: [], author: 'ann', title: 'T' }] },
+        instead: (method, { pathname }) =>
+          method === 'GET' && /\/pulls\/\d+$/.test(pathname)
+            ? { status: 200, body: { state: 'closed', merged: true } }
+            : undefined,
+      });
+      f.api = merged;
+      f.lock = fakeLock('ann');
+      const { seen } = await brewTimed({ gh: call('GET', /\/pulls\/\d+$/, 25) });
+      const read = [...seen.values()][0] ?? assert.fail('no pull request was read');
+      names(read, /reading its pull requests$/);
+      moved(read, 25_000);
+    });
+
     it('keeps a live line on screen while the worktree of the first attempt is made', async () => {
       const { seen } = await brewTimed({ worktree: (step) => (step === 'brew' ? 25 : undefined) });
       const made = seen.get('worktree brew') ?? assert.fail('no worktree was made');
@@ -277,6 +297,19 @@ describe('runBrew', () => {
         const made = [...seen.values()][0] ?? assert.fail('no claim was made');
         names(made, /\bclaim/i);
         moved(made, 25_000);
+      });
+
+      it('names the labels, and keeps moving, while it reads them on the way to a refusal', async () => {
+        claimed();
+        // The target issue is read more than once: `seen` keeps the last, the refusal's.
+        const { seen } = await brewTimed({
+          request: target,
+          gh: ({ method, path }) =>
+            method === 'GET' && /^\/repos\/acme\/web\/issues\/7$/.test(path) ? 25 : undefined,
+        });
+        const read = [...seen.values()][0] ?? assert.fail('the labels were not read');
+        names(read, /reading its labels$/);
+        moved(read, 25_000);
       });
 
       it('names the Brewery issue, and keeps moving, while it is opened', async () => {

@@ -3122,6 +3122,20 @@ describe('openDriver', () => {
         });
       }
 
+      it('applies an effect though what it tells a live line throws, as a report that throws', async () => {
+        twoSucceeded();
+        const host = fakeHost();
+        const driver = await open({
+          effects: { due: dueExcept('b1'), target: host.target },
+          report: () => {},
+          doing: () => {
+            throw new Error('the live line could not be drawn');
+          },
+        });
+        await driver.applyEffects();
+        assert.deepStrictEqual(host.applied, ['["b2","plan",1,"comment"]']);
+      });
+
       it('ticks through it: the tick ends, and the other batch has its effects applied', async () => {
         twoSucceeded();
         const host = fakeHost();
