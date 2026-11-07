@@ -12,7 +12,7 @@ The maintainer asked for the moving mark `gh` shows while it waits, on every wai
 ## Decision
 
 ### What the line says when no attempt runs
-- The live line is drawn from the command's first call to its last, and says what the command does in place of the attempts: `starting`, `routing`, `claiming <issue>`, `opening the Brewery issue`, `writing the status comment`, `opening the pull request`, `cleaning up the worktrees of the batch`, or, for any other effect, `applying <effect>`.
+- The live line is drawn from the command's first call to its last, and says what the command does in place of the attempts: `starting`, `routing`, `claiming <issue>`, `opening the Brewery issue`, `writing the status comment`, `opening the pull request`, `cleaning up the worktrees of the batch`, `reading its pull requests`, `reading its labels`, or, for any other effect, `applying <effect>`.
 - With nothing to name and no attempt running it says `between steps`.
 - Before the batch is known the batch's time says `brew started` (ADR 0326).
 - While a call takes time, the line is redrawn each second beside it (`lively` in `src/cli/brew.ts`); a call that takes no time reaches no wait.
