@@ -20,6 +20,7 @@ import { claimEffects } from '../engine/claim-effects.ts';
 import { breweryIssueOf } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import {
+  type Doing,
   type Driver,
   type DriverNotice,
   openDriver,
@@ -140,6 +141,8 @@ export interface WiringOptions {
   say: (line: string) => void;
   /** Reports a driver's notice. */
   report: (notice: DriverNotice) => void;
+  /** Told what the driver is about to spend time on, for a live line to name (ADR 0346). */
+  doing?: (what: Doing) => void;
 }
 
 /**
@@ -150,7 +153,7 @@ export const wireDriver = async (
   setup: ServeSetup,
   shell: ServeShell,
   opened: Opened,
-  { takes, drivesOn, resumes, opensResumed, holds, sessions, say, report }: WiringOptions,
+  { takes, drivesOn, resumes, opensResumed, holds, sessions, say, report, doing }: WiringOptions,
 ): Promise<Wired> => {
   const { signal, clock } = shell;
   const { lock } = opened;
@@ -511,6 +514,7 @@ export const wireDriver = async (
     effects,
     actions,
     report,
+    ...(doing === undefined ? {} : { doing }),
   });
   driver = {
     ...inner,

@@ -37,6 +37,8 @@ import type { ServeRepository, ServeSetup } from './serve-config.ts';
 
 /** The terminal `foedrum brew` keeps a live line on (ADR 0174). */
 export interface LiveTerminal {
+  /** The frames of the moving mark this terminal shows properly, each one column wide (ADR 0346). */
+  marks: readonly string[];
   /** The terminal's width in characters, when it is known. */
   columns: () => number | undefined;
   /** Calls `handler` when the terminal is resized; the returned function stops it. */
@@ -109,7 +111,7 @@ export interface ServeShell {
   git: Git;
   /** How long an intake pass may take; default half the batch lease (ADR 0050). */
   intakeDeadlineMs?: number;
-  /** How long between ticks; default 5 s, the supervisor's interval (ADR 0027). */
+  /** How long between ticks; default 5 s, `INTERVAL_MS` (ADR 0250). */
   intervalMs?: number;
   /** Holds the machine awake while an attempt runs (ADR 0195); absent, nothing does. */
   awake?: AwakeHold;
@@ -117,8 +119,11 @@ export interface ServeShell {
   terminal?: LiveTerminal;
 }
 
-/** The supervisor's interval (ADR 0027). */
+/** The interval between the ticks of the commands that run the driver, serve's own (ADR 0250). */
 export const INTERVAL_MS = 5000;
+
+/** How long `foedrum serve` is quiet before it says it still runs (ADR 0346). */
+const ALIVE_MS = 60_000;
 
 /** A command as a notice names it: its kind, and its batch when it has one. */
 const commandName = (command: EngineCommand): string => {
@@ -265,7 +270,11 @@ const baseChecks = (
 export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
   // Notices may carry text a model wrote: never a control character on the terminal.
-  const say = (line: string): void => out(printable(`foedrum serve: ${line}`));
+  let saidAt = clock().getTime();
+  const say = (line: string): void => {
+    saidAt = clock().getTime();
+    out(printable(`foedrum serve: ${line}`));
+  };
   const report = (notice: DriverNotice): void => say(formatNotice(notice));
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
@@ -388,6 +397,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         settle(waited);
       }
       if (signal.aborted) break;
+      // A quiet Cellar says it is alive now and then, never at each tick (ADR 0346).
+      if (clock().getTime() - saidAt >= ALIVE_MS) say(`still running for ${setup.brewery}`);
       await wait(intervalMs, signal);
     }
     // Its deadline bounds the wait; a pass that waits for a tick gets none.

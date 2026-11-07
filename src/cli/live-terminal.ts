@@ -76,6 +76,30 @@ export const boardTerminal = (
   };
 };
 
+/** The frames of `gh`'s moving mark (ADR 0346). */
+export const BRAILLE_MARKS: readonly string[] = [...'⣾⣽⣻⢿⡿⣟⣯⣷'];
+
+/** The frames of the moving mark on a terminal not known to show `gh`'s (ADR 0174). */
+export const ASCII_MARKS: readonly string[] = ['|', '/', '-', '\\'];
+
+/** The frames this terminal shows properly (ADR 0346). */
+export const marksOf = (
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+): readonly string[] => {
+  // A Windows console's font decides, and only these two terminals say they can fall back to one.
+  if (platform === 'win32') {
+    return env.WT_SESSION !== undefined || env.TERM_PROGRAM === 'vscode'
+      ? BRAILLE_MARKS
+      : ASCII_MARKS;
+  }
+  // The first of them that is set and not empty names the locale, as the C library reads them; in
+  // any other than UTF-8 a frame would show as three characters and wrap a full line. The Linux
+  // console's font has no braille.
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || '';
+  return env.TERM !== 'linux' && /utf-?8/i.test(locale) ? BRAILLE_MARKS : ASCII_MARKS;
+};
+
 /** The live terminal, and the way every lasting line reaches it. */
 export interface StdoutTerminal extends LiveTerminal {
   /** Prints a lasting line: clears the live line, writes `line`, and draws the live line again. */
@@ -86,6 +110,7 @@ export interface StdoutTerminal extends LiveTerminal {
 export const liveTerminal = (
   stream: TerminalStream,
   env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
 ): StdoutTerminal | undefined => {
   if (stream.isTTY !== true || env.TERM === 'dumb' || env.CI !== undefined) return undefined;
   // The live line on screen now, so a lasting line from anywhere can go over it.
@@ -104,6 +129,7 @@ export const liveTerminal = (
     shown = text;
   };
   return {
+    marks: marksOf(env, platform),
     columns: () => stream.columns,
     onResize: (handler) => {
       stream.on('resize', handler);

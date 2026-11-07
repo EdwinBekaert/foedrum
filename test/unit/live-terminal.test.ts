@@ -5,7 +5,14 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { boardTerminal, liveTerminal, type TerminalStream } from '../../src/cli/live-terminal.ts';
+import {
+  ASCII_MARKS,
+  BRAILLE_MARKS,
+  boardTerminal,
+  liveTerminal,
+  marksOf,
+  type TerminalStream,
+} from '../../src/cli/live-terminal.ts';
 
 /** A stream that records each call, in order, and the resize handlers it holds. */
 const fakeStream = (more: Partial<TerminalStream> = {}) => {
@@ -110,6 +117,83 @@ describe('liveTerminal: when brew keeps a live line', () => {
 
   it('is given whatever NO_COLOR says: the line uses no colour', () => {
     assert.notEqual(liveTerminal(fakeStream().stream, { TERM: 'xterm', NO_COLOR: '1' }), undefined);
+  });
+});
+
+describe('marksOf: which mark a terminal shows properly (ADR 0346)', () => {
+  it("gives gh's frames, in gh's order, in Windows Terminal", () => {
+    assert.deepEqual(marksOf({ WT_SESSION: 'x' }, 'win32'), [
+      '⣾',
+      '⣽',
+      '⣻',
+      '⢿',
+      '⡿',
+      '⣟',
+      '⣯',
+      '⣷',
+    ]);
+  });
+
+  it("gives braille in VS Code's terminal on Windows", () => {
+    assert.equal(marksOf({ TERM_PROGRAM: 'vscode' }, 'win32'), BRAILLE_MARKS);
+  });
+
+  it('gives ASCII in a Windows console that says nothing of itself', () => {
+    assert.equal(marksOf({}, 'win32'), ASCII_MARKS);
+  });
+
+  it('gives ASCII on Windows for another program named in TERM_PROGRAM', () => {
+    assert.equal(marksOf({ TERM_PROGRAM: 'other' }, 'win32'), ASCII_MARKS);
+  });
+
+  it('gives Windows no braille for a UTF-8 locale alone', () => {
+    assert.equal(marksOf({ LANG: 'en_US.UTF-8' }, 'win32'), ASCII_MARKS);
+  });
+
+  it('gives braille on macOS in a UTF-8 locale', () => {
+    assert.equal(marksOf({ LANG: 'en_US.UTF-8' }, 'darwin'), BRAILLE_MARKS);
+  });
+
+  it('gives braille on Linux in a UTF-8 locale, however it is spelled', () => {
+    assert.equal(marksOf({ LANG: 'C.utf8' }, 'linux'), BRAILLE_MARKS);
+  });
+
+  it('gives ASCII on Linux with no locale set', () => {
+    assert.equal(marksOf({}, 'linux'), ASCII_MARKS);
+  });
+
+  it('gives ASCII in a locale that is not UTF-8', () => {
+    assert.equal(marksOf({ LANG: 'C' }, 'linux'), ASCII_MARKS);
+  });
+
+  it('reads LC_ALL before LC_CTYPE', () => {
+    assert.equal(marksOf({ LC_ALL: 'C', LC_CTYPE: 'en_US.UTF-8' }, 'linux'), ASCII_MARKS);
+  });
+
+  it('reads LC_CTYPE before LANG', () => {
+    assert.equal(marksOf({ LC_CTYPE: 'C', LANG: 'en_US.UTF-8' }, 'linux'), ASCII_MARKS);
+  });
+
+  it('reads an empty LC_ALL as unset, as the C library does', () => {
+    assert.equal(marksOf({ LC_ALL: '', LANG: 'en_US.UTF-8' }, 'linux'), BRAILLE_MARKS);
+  });
+
+  it('reads an empty LC_CTYPE as unset, as the C library does', () => {
+    assert.equal(marksOf({ LC_CTYPE: '', LANG: 'en_US.UTF-8' }, 'darwin'), BRAILLE_MARKS);
+  });
+
+  it('gives braille for a UTF-8 LC_ALL over any LANG', () => {
+    assert.equal(marksOf({ LC_ALL: 'en_US.UTF-8', LANG: 'C' }, 'linux'), BRAILLE_MARKS);
+  });
+
+  it('gives ASCII on the Linux console, whose font has no braille', () => {
+    assert.equal(marksOf({ TERM: 'linux', LANG: 'en_US.UTF-8' }, 'linux'), ASCII_MARKS);
+  });
+
+  it('gives the live terminal the marks of its environment', () => {
+    const { stream } = fakeStream();
+    assert.equal(liveTerminal(stream, { WT_SESSION: 'x' }, 'win32')?.marks, BRAILLE_MARKS);
+    assert.equal(liveTerminal(stream, {}, 'win32')?.marks, ASCII_MARKS);
   });
 });
 

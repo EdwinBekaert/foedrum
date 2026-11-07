@@ -244,6 +244,7 @@ export const brewFromCheckout = async (
     const gate = foregroundGate(print, listening.listen);
     let foreground = false;
     const live: LiveTerminal | undefined = terminal && {
+      marks: terminal.marks,
       columns: terminal.columns,
       onResize: terminal.onResize,
       clear: () => {

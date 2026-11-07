@@ -6,7 +6,8 @@
 // which, so the plugin's session can ask the engineer and brew again.
 // `foedrum mash` routes the batch to mash-in first (ADR 0232), and `foedrum lauter` records a
 // person's lauter of the plan its batch waits with first, so its session opens (ADR 0286).
-// On a terminal (the shell gives one) it keeps a live line of what the running attempts do (ADR 0174).
+// On a terminal (the shell gives one) it keeps a live line, from the command's first second to its
+// last, of what the command does and of what the running attempts do (ADR 0174, ADR 0346).
 
 import { type AttemptRef, attemptKey } from '../engine/attempt-key.ts';
 import { defaultLeaseMs as leaseMs, releaseBatch, takeOver } from '../engine/batch-leases.ts';
@@ -23,11 +24,12 @@ import {
 } from '../engine/claim-orders.ts';
 import { createCommandLog } from '../engine/command-log.ts';
 import { orderRefusal } from '../engine/decide.ts';
-import type { DriverNotice } from '../engine/driver.ts';
+import type { Doing, DriverNotice } from '../engine/driver.ts';
 import { DriverRunningError } from '../engine/driver-lock.ts';
 import type { BatchLease } from '../engine/event-store.ts';
 import { type Batch, foldedBatch, type State, unendedPullRequests } from '../engine/fold.ts';
 import { type PullRequestEnded, recipeLabels, recordEndsOf } from '../engine/intake.ts';
+import { orderEffects } from '../engine/issue-claims.ts';
 import { orderOfBatch, pauseOf } from '../engine/pauses.ts';
 import { planCommentOf } from '../engine/plan-comment.ts';
 import { MASH_IN } from '../engine/recipe-label.ts';
@@ -180,23 +182,37 @@ export const runningAttempts = (batch: Batch): Running[] =>
       })),
   );
 
+/** The attempts of `batch` that started, named `<step> #<n>`, whether they run now or ended. */
+const startedLabels = (batch: Batch): string[] =>
+  [...batch.steps.values()].flatMap(({ id, attempts }) =>
+    [...attempts.values()]
+      .filter(({ phase }) => phase !== 'scheduled')
+      .map(({ attempt }) => `${id} #${attempt}`),
+  );
+
 /** `ms` as whole seconds, and minutes from one: `30s`, `1m 0s`. */
 export const elapsed = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
-/** The frames of the live line's spinner, one at each redraw (ADR 0174). */
-const SPINNER = '|/-\\';
-/** How often the live line is redrawn, apart from the tick. */
+/** How often the moving mark turns, as `gh`'s does (ADR 0346). */
+const MARK_MS = 120;
+/** How often the live line's words are read again and redrawn, apart from the tick. */
 const REDRAW_MS = 1000;
+/** What holds the mark's column while a line is fitted to the terminal. */
+const MARK_ROOM = '|';
 /** The longest a tool's name is shown, before it is escaped. */
 const TOOL_NAME_MAX = 64;
 /** The width of a terminal that does not say. */
 const UNKNOWN_COLUMNS = 80;
 
-/** What the live line shows of one running attempt, in the order of ADR 0174. */
-const attemptText = (label: string, ms: number, progress: AttemptProgress | undefined): string => {
+/** What the live line shows of one running attempt, in the order of ADR 0174, one part each. */
+const attemptParts = (
+  label: string,
+  ms: number,
+  progress: AttemptProgress | undefined,
+): string[] => {
   const parts = [label, elapsed(ms)];
   if (progress?.settingUp === true) {
     parts.push('setup');
@@ -209,25 +225,55 @@ const attemptText = (label: string, ms: number, progress: AttemptProgress | unde
     }
     if (progress?.denied === true) parts.push('denied');
   }
-  return parts.join(' / ');
+  return parts;
 };
 
+/** `line` in ASCII only: every UTF-16 unit outside U+0020 to U+007E as a `\uXXXX` escape. */
+const ascii = (line: string): string =>
+  line.replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 /**
- * `line` in ASCII only (every UTF-16 unit outside U+0020 to U+007E as a `\uXXXX` escape), cut from
- * the end to one character less than the terminal's width (ADR 0174, ADR 0179, ADR 0188).
+ * `line` in ASCII only, cut from the end to one character less than the terminal's width
+ * (ADR 0174, ADR 0179, ADR 0188).
  */
 export const fit = (line: string, columns: number | undefined): string =>
-  line
-    .replace(/[^ -~]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`)
-    .slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
+  ascii(line).slice(0, Math.max(0, (columns ?? UNKNOWN_COLUMNS) - 1));
 
-/** The live line: `frame`, the batch's time with its words (ADR 0326), then the attempts, fitted to the terminal. */
+/**
+ * The live line: a column for the mark, the batch's time with its words (ADR 0326), then the
+ * attempts, each in its parts, fitted to the terminal. Side by side, attempts give up their last
+ * parts together before any of them is cut off (ADR 0346).
+ */
 const liveLine = (
-  frame: string,
   batchTime: string,
-  attempts: readonly string[],
+  attempts: readonly (readonly string[])[],
   columns: number | undefined,
-) => fit(`${frame} ${batchTime} / ${attempts.join(' ; ')}`, columns);
+) => {
+  const joined = (keep: number): string =>
+    `${MARK_ROOM} ${batchTime} / ${attempts.map((parts) => parts.slice(0, keep).join(' / ')).join(' ; ')}`;
+  let keep = Math.max(...attempts.map((parts) => parts.length));
+  while (
+    attempts.length > 1 &&
+    keep > 1 &&
+    ascii(joined(keep)).length > (columns ?? UNKNOWN_COLUMNS) - 1
+  ) {
+    keep--;
+  }
+  return fit(joined(keep), columns);
+};
+
+/** What the live line says while the driver spends time on `what`. */
+const doingWords = (what: Doing): string => {
+  if (what.kind === 'clean') return 'cleaning up the worktrees of the batch';
+  const { effect } = what.key;
+  if (effect.startsWith('status.')) return 'writing the status comment';
+  if (effect === orderEffects.open) return 'opening the Brewery issue';
+  if (/^(?:push|pull_request|body)(?:\.|$)/.test(effect)) return 'opening the pull request';
+  return `applying ${effect}`;
+};
+
+/** A turn of the event loop, so a call that needs no time ends before the live line waits beside it. */
+const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 /** Brews the batch of `request.target` until it stops; the exit code of ADR 0123. */
 export const runBrew = async (
@@ -237,35 +283,108 @@ export const runBrew = async (
 ): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS, terminal } = shell;
   const { target, owner, by, via } = request;
-  // The live line (ADR 0174), drawn only with a terminal: what the batch's time counts from and
-  // says (this run's start until the batch says when it was ordered, ADR 0179, ADR 0326), the
-  // attempts that run, when this driver first saw each run, what the driver reports of one, and
-  // whether the line is on screen.
+  // The live line (ADR 0174), drawn only with a terminal, from this command's first second (ADR 0346):
+  // what the batch's time counts from and says (this run's start until the batch says when it was
+  // ordered, ADR 0179, ADR 0326), the attempts that run, when this driver first saw each run, what
+  // the driver reports of one, what the command does while a call takes time, and whether the
+  // line is on screen.
   let batchClock = { words: 'brew started', from: clock().getTime() };
-  let brewing: Running[] = [];
+  /** The batch's time counts from when `batch` was ordered, once it says when. */
+  const countFromOrder = (batch: Batch): void => {
+    if (batch.orderedAt !== undefined) {
+      batchClock = { words: 'ordered', from: Date.parse(batch.orderedAt) };
+    }
+  };
+  let brewingNow: () => Running[] = () => [];
   const seenAt = new Map<string, number>();
   let progressOf: (ref: AttemptRef) => AttemptProgress | undefined = () => undefined;
+  let doing: string | undefined;
   let frame = 0;
+  // The line last fitted to the terminal, with the column its mark goes in, and whether it shows.
+  let fitted: string | undefined;
   let onScreen = false;
   const clearLive = (): void => {
     if (!onScreen) return;
     terminal?.clear();
     onScreen = false;
   };
-  const draw = (): void => {
-    if (terminal === undefined) return;
-    if (brewing.length === 0) {
-      clearLive();
-      return;
-    }
-    const at = clock().getTime();
-    const attempts = brewing.map(({ label, ref }) =>
-      attemptText(label, at - (seenAt.get(label) ?? at), progressOf(ref)),
-    );
-    const spinner = SPINNER.charAt(frame++ % SPINNER.length);
-    const batchTime = `${batchClock.words} ${elapsed(Math.max(0, at - batchClock.from))} ago`;
-    terminal.rewrite(liveLine(spinner, batchTime, attempts, terminal.columns()));
+  /** When this driver first saw the attempt `label` run: `at` when it sees it now for the first time. */
+  const firstSeen = (label: string, at: number): number => {
+    const first = seenAt.get(label);
+    if (first !== undefined) return first;
+    seenAt.set(label, at);
+    return at;
+  };
+  const noticed = (attempts: readonly Running[], at: number): void => {
+    for (const { label } of attempts) firstSeen(label, at);
+  };
+  /** The line last fitted, with the mark's frame now in its first column, if it has one. */
+  const show = (): void => {
+    if (terminal === undefined || fitted === undefined) return;
+    const mark = terminal.marks[frame % terminal.marks.length] ?? MARK_ROOM;
+    terminal.rewrite(fitted.replace(/^./, () => mark));
     onScreen = true;
+  };
+  /**
+   * The live line reads the store and writes to a terminal, and is for display: one that cannot be
+   * drawn changes no call, no exit code and no effect (ADR 0346). What read the store for the
+   * brew's own work fails there and says so.
+   */
+  const drawn = (): void => {
+    if (terminal === undefined) return;
+    const at = clock().getTime();
+    const brewing = brewingNow();
+    noticed(brewing, at);
+    // What it does now, else the attempts that run now, else that nothing runs between two steps.
+    const attempts =
+      doing !== undefined
+        ? [[doing]]
+        : brewing.length === 0
+          ? [['between steps']]
+          : brewing.map(({ label, ref }) =>
+              attemptParts(label, at - firstSeen(label, at), progressOf(ref)),
+            );
+    const batchTime = `${batchClock.words} ${elapsed(Math.max(0, at - batchClock.from))} ago`;
+    fitted = liveLine(batchTime, attempts, terminal.columns());
+    show();
+  };
+  const draw = (): void => {
+    try {
+      drawn();
+    } catch {}
+  };
+  /** Calls `step` every `ms` on the shell's wait until `until` aborts, a turn of the loop before each. */
+  const beat = async (ms: number, until: AbortSignal, step: () => void): Promise<void> => {
+    while (!until.aborted) {
+      await turn();
+      if (until.aborted) break;
+      await wait(ms, until);
+      if (!until.aborted) step();
+    }
+  };
+  // The mark turns on a timer of its own, writing the fitted line again: no state is read and no
+  // tick is moved for it (ADR 0346).
+  const marksEnd = new AbortController();
+  const turning = AbortSignal.any([signal, marksEnd.signal]);
+  /**
+   * Awaits `call` with the live line moving beside it: `words` say what it does (the driver's own
+   * `doing` may say more), redrawn each second on the shell's wait, which a call that takes no
+   * time never reaches. Plain, it only awaits.
+   */
+  const lively = async <T>(words: string | undefined, call: () => Promise<T>): Promise<T> => {
+    if (terminal === undefined) return call();
+    doing = words;
+    const stop = new AbortController();
+    const redraws = AbortSignal.any([signal, stop.signal]);
+    if (words !== undefined || !onScreen) draw();
+    const moving = beat(REDRAW_MS, redraws, draw);
+    try {
+      return await call();
+    } finally {
+      stop.abort();
+      await moving;
+      doing = undefined;
+    }
   };
   // Notices and questions may carry text a model wrote: never a control character on the
   // terminal, and never a line break, which would forge a line the session acts on (ADR 0123).
@@ -309,21 +428,37 @@ export const runBrew = async (
   // Another driver's lease of the batch, once this driver lost it or never got it.
   let holder: BatchLease | undefined;
   let stopResize: (() => void) | undefined;
+  let marks: Promise<void> | undefined;
   const report = (notice: DriverNotice): void => {
     if (notice.kind === 'batch_lost' && notice.batchId === batchId) holder = notice.holder;
     say(formatNotice(notice));
   };
   try {
-    const { store, driver, reads, claims } = await wireDriver(setup, shell, opened, {
-      // This batch alone, once it is known (ADR 0044).
-      takes: (id) => id === batchId,
-      // None of the batches this owner left earlier: they lapse within a lease (ADR 0123).
-      drivesOn: () => false,
-      // An interactive step's session opens on a terminal outside Claude Code (ADR 0222).
-      sessions: request.noSessions === undefined,
-      say,
-      report,
-    });
+    stopResize = terminal?.onResize(draw);
+    if (terminal !== undefined) {
+      marks = beat(MARK_MS, turning, () => {
+        frame++;
+        try {
+          show();
+        } catch {}
+      });
+    }
+    const { store, driver, reads, claims } = await lively('starting', () =>
+      wireDriver(setup, shell, opened, {
+        // This batch alone, once it is known (ADR 0044).
+        takes: (id) => id === batchId,
+        // None of the batches this owner left earlier: they lapse within a lease (ADR 0123).
+        drivesOn: () => false,
+        // An interactive step's session opens on a terminal outside Claude Code (ADR 0222).
+        sessions: request.noSessions === undefined,
+        say,
+        report,
+        doing: (what) => {
+          doing = doingWords(what);
+          draw();
+        },
+      }),
+    );
     progressOf = (ref) => driver.progress(ref);
     const log = createCommandLog({ store, recipes: setup.recipes });
     const heldElsewhere = (id: string): BatchLease | undefined =>
@@ -447,7 +582,9 @@ export const runBrew = async (
       if (refused !== undefined) return refuse(refused);
     } else if (!waitsForOrder && (latest === undefined || latest.lane.kind === 'ordered')) {
       const labels = githubOrderLabels(reads, setup.brewery);
-      const on = await labels(labelled === undefined ? order : { issue: labelled }, signal);
+      const on = await lively('routing', () =>
+        labels(labelled === undefined ? order : { issue: labelled }, signal),
+      );
       const names = recipeLabels(on);
       if (names.length === 0) {
         return refuse(
@@ -483,11 +620,13 @@ export const runBrew = async (
         repository === undefined
           ? undefined
           : { repo: repository.repo, alias: repository.alias, brewery: setup.brewery };
-      const command = await orderIssue(log.state, order, claim, {
-        claims: () => claims,
-        now: clock(),
-        issued: (id) => ({ batchId: id, by, via }),
-      });
+      const command = await lively(`claiming ${named}`, () =>
+        orderIssue(log.state, order, claim, {
+          claims: () => claims,
+          now: clock(),
+          issued: (id) => ({ batchId: id, by, via }),
+        }),
+      );
       if ('refused' in command) return refuse(command.refused);
       const decision = log.issue(command, clock());
       if (decision.kind === 'refused') return refuse(decision.reason);
@@ -499,6 +638,8 @@ export const runBrew = async (
         : log.state().batches.get(latest.id);
     if (batch === undefined) throw new Error(`${named} has no batch after its order`);
     batchId = batch.id;
+    brewingNow = () => runningAttempts(foldedBatch(driver.state(), batch.id));
+    countFromOrder(batch);
     if (ending !== undefined) {
       const ends = {
         tracker: githubTargetTracker(reads),
@@ -508,7 +649,9 @@ export const runBrew = async (
           throw error;
         },
       };
-      await recordEndsOf(ending, unendedPullRequests(ending), ends, signal);
+      await lively('reading its pull requests', () =>
+        recordEndsOf(ending, unendedPullRequests(ending), ends, signal),
+      );
       const read = foldedBatch(log.state(), batch.id);
       if (unendedPullRequests(read).length > 0) {
         if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
@@ -518,7 +661,7 @@ export const runBrew = async (
     if (waitsForOrder && batch.lane.kind === 'ordered') {
       // One tick applies the claim's effects, the Brewery issue among them (ADR 0144); a fresh
       // Brewery issue has no label yet, so the batch waits for a person to give it one.
-      await tick(driver, report);
+      await lively(undefined, () => tick(driver, report));
       // A batch that waits for a person is not Stuck: it keeps no lease (ADR 0123).
       store.withTransaction((tx) => releaseBatch(tx, batch.id, owner));
       const opened = breweryIssueOf(driver.state(), batch);
@@ -530,9 +673,8 @@ export const runBrew = async (
       // A recipe label on the target issue chooses nothing (ADR 0156), and a person who put one
       // there would wait for it: the line says so, one conditional read on this refusal alone, and
       // is left out when that read fails (ADR 0336).
-      const carried = await githubOrderLabels(reads, setup.brewery)(order, signal).then(
-        recipeLabels,
-        () => [],
+      const carried = await lively('reading its labels', () =>
+        githubOrderLabels(reads, setup.brewery)(order, signal).then(recipeLabels, () => []),
       );
       if (carried.length > 0) {
         const all = carried.map((name) => `recipe:${name}`).join(' and ');
@@ -637,20 +779,21 @@ export const runBrew = async (
           );
       while (running() && clock().getTime() < until && !signal.aborted) {
         await pause();
-        await tick(driver, report);
+        await lively(undefined, () => tick(driver, report));
       }
     };
 
     let shown = '';
-    // When the last line was said, and when this driver first saw each attempt run.
+    // When the last line was said, and the attempts a line need not name as started: those that
+    // started before this run began, which it saw none of (ADR 0346).
     let saidAt = clock().getTime();
+    const lined = new Set(startedLabels(foldedBatch(log.state(), batchId)));
     let linked = false;
     // The Stuck lane brew last ticked once more after: a person may move the batch on in that tick,
     // and it may stick again before brew reads another lane (ADR 0275, ADR 0330).
     let settled: string | undefined;
-    stopResize = terminal?.onResize(draw);
     for (;;) {
-      await tick(driver, report);
+      await lively(undefined, () => tick(driver, report));
       const other = holder ?? heldElsewhere(batchId);
       if (other !== undefined) {
         await endStoppedRuns(batchId, other);
@@ -660,6 +803,17 @@ export const runBrew = async (
       const now = foldedBatch(driver.state(), batchId);
       const { lane, detail } = describeLane(now, calledAs(driver.state(), now));
       const said = saidAs(driver.state(), now);
+      // An attempt that started and ended since the last pass is named, though the lane no longer
+      // says it ran: a group's Tasters all started, on a terminal or not (ADR 0346).
+      const running = runningAttempts(now);
+      const started = startedLabels(now);
+      const lapsed = started.filter(
+        (label) => !lined.has(label) && !running.some((each) => each.label === label),
+      );
+      for (const label of started) lined.add(label);
+      if (lapsed.length > 0) {
+        say(`${said} brewing: ${lapsed.map((label) => `${label} started`).join(', ')}`);
+      }
       // The status comment, on the batch's Brewery issue, once its first revision is recorded
       // (ADR 0072, ADR 0155).
       const comment = linked ? undefined : statusCommentOf(driver.state(), batchId);
@@ -754,11 +908,8 @@ export const runBrew = async (
       }
       const line = `${said} ${lane}${detail === '' ? '' : `: ${detail}`}`;
       const at = clock().getTime();
-      if (now.orderedAt !== undefined)
-        batchClock = { words: 'ordered', from: Date.parse(now.orderedAt) };
-      const running = runningAttempts(now);
-      for (const { label } of running) if (!seenAt.has(label)) seenAt.set(label, at);
-      brewing = running;
+      countFromOrder(now);
+      noticed(running, at);
       if (line !== shown) {
         shown = line;
         saidAt = at;
@@ -768,7 +919,7 @@ export const runBrew = async (
         // A step can run for many minutes in silence: say it still runs (#406).
         saidAt = at;
         const runs = running.map(
-          ({ label }) => `${label} running for ${elapsed(at - (seenAt.get(label) ?? at))}`,
+          ({ label }) => `${label} running for ${elapsed(at - firstSeen(label, at))}`,
         );
         say(`${said} ${lane}: ${runs.join(', ')}`);
       }
@@ -789,6 +940,8 @@ export const runBrew = async (
   } finally {
     // The live line goes before any exit, so the last lines on screen are the lasting ones.
     stopResize?.();
+    marksEnd.abort();
+    await marks;
     clearLive();
     // Closing the driver stops its runs and lets the lock go; a Stuck batch keeps its lease.
     try {

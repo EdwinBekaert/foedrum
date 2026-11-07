@@ -4,19 +4,27 @@
 import assert from 'node:assert/strict';
 import type { LiveTerminal } from '../../src/cli/serve.ts';
 
-export const SPINNER = ['|', '/', '-', '\\'];
+const SPINNER = ['|', '/', '-', '\\'];
+
+/** Settles once `signal` aborts: how a fake `wait` holds a wait the brew runs beside a call. */
+export const aborted = (signal: AbortSignal): Promise<void> =>
+  new Promise((done) => {
+    if (signal.aborted) done();
+    else signal.addEventListener('abort', () => done(), { once: true });
+  });
 
 /**
  * A terminal over a fake screen (ADR 0174): it keeps what the live line shows now, every call and
  * every lasting line in order, and the lasting lines printed while the live line was on screen.
  */
-export const fakeScreen = (width: number | 'unknown') => {
+export const fakeScreen = (width: number | 'unknown', marks: readonly string[] = SPINNER) => {
   let columns = width === 'unknown' ? undefined : width;
   let drawn: string | undefined;
   const events: string[] = [];
   const resizers = new Set<() => void>();
   const printedOver: string[] = [];
   const terminal: LiveTerminal = {
+    marks,
     columns: () => columns,
     onResize: (handler) => {
       resizers.add(handler);
@@ -61,9 +69,6 @@ export const fakeScreen = (width: number | 'unknown') => {
         assert.ok(batchTime, `the batch's time leads ${JSON.stringify(text)}`);
         return text.slice(2 + batchTime[0].length);
       }),
-    /** The batch's time, without its words, on each live line drawn. */
-    batchTimes: (): string[] =>
-      rewrites().map((text) => BATCH_TIME.exec(text.slice(2))?.[1] ?? `none in ${text}`),
   };
 };
 
