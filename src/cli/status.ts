@@ -122,13 +122,7 @@ export const describeLane = (
       const ends = lane.pullRequests.map(
         (url) => `${url} ${batch.pullRequestEnds?.[url] ?? 'open'}`,
       );
-      const done =
-        lane.pullRequests.length > 0 &&
-        lane.pullRequests.every((url) => batch.pullRequestEnds?.[url] === 'merged');
-      return {
-        lane: 'on tap',
-        detail: [...(done ? ['done:'] : []), ...ends, ...approved].join(' '),
-      };
+      return { lane: 'on tap', detail: [...ends, ...approved].join(' ') };
     }
     case 'cancelled':
       return { lane: 'cancelled', detail: `by ${lane.by} via ${lane.via}` };

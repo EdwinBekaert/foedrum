@@ -114,8 +114,7 @@ export const LADDER_STEPS: readonly (Omit<Step, 'id'> & { id: string })[] = [
   {
     id: 'status',
     title: `foedrum status ${LADDER_ORDER.number}`,
-    lookFor:
-      'each pull request merged and its batch done, then planning tokens apart from brewing.',
+    lookFor: 'each pull request merged, then planning tokens apart from brewing.',
   },
 ];
 
