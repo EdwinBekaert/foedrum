@@ -31,9 +31,16 @@ import { type BatchEffectKey, BodyResult, PushResult } from '../schemas/store.ts
 import { z } from '../schemas/zod.ts';
 import { repoFolder } from '../workspace/attempt-worktrees.ts';
 import { effectKey, numberedEffects } from './effect-key.ts';
-import type { Batch, State, Step } from './fold.ts';
+import type { Attempt, Batch, State, Step } from './fold.ts';
 import type { Handover } from './handover.ts';
 import { withoutSecrets } from './out-doc-text.ts';
+import {
+  blockedByFindings,
+  endedText,
+  type PastBySkip,
+  pastBySkip,
+  pastLine,
+} from './skip-past.ts';
 import { mutantLines } from './survivors.ts';
 
 /**
@@ -241,6 +248,8 @@ export interface StepReport {
   toFile?: readonly PreExisting[];
   /** A Brett step's mutants with the engine's verdicts (ADR 0313), its survivors listed (ADR 0319). */
   mutants?: readonly MutantRecord[];
+  /** What a person's skip went past of this step, and its findings when they blocked it (ADR 0345). */
+  past?: { line: string; findings: readonly TastingFinding[]; more: number; open: boolean };
 }
 
 /** One finished attempt of a batch, as the pull request's brew table shows it (ADR 0167). */
@@ -380,23 +389,55 @@ export const unlinked = (text: string): string => {
 };
 
 /**
- * Whether the pull request opens as a draft (ADR 0167): unless a Taster tasted the change and
- * every Taster approved.
+ * Whether the pull request opens as a draft (ADR 0167): unless a Taster tasted the change, every
+ * Taster approved, and no person's skip went past a step that did not pass (ADR 0345).
  */
 export const opensAsDraft = (reports: readonly StepReport[]): boolean => {
+  if (reports.some(({ past }) => past !== undefined)) return true;
   const verdicts = reports.flatMap(({ tasting }) =>
     tasting === undefined ? [] : [tasting.verdict],
   );
   return verdicts.length === 0 || verdicts.some((verdict) => verdict !== 'approve');
 };
 
-/** The reports of `batch`'s steps, in the order they were first scheduled. */
-export const stepReports = (batch: Batch): StepReport[] =>
-  [...batch.steps.values()].flatMap((step) => {
+/** What a report says of `one`, a step a person's skip went past (ADR 0345). */
+const pastOf = (one: PastBySkip): NonNullable<StepReport['past']> => {
+  const open = blockedByFindings(one.attempt);
+  const { kept = [], more = 0 } =
+    (open && one.attempt?.phase === 'finished' && one.attempt.findings) || {};
+  return { line: pastLine(one), findings: kept, more, open };
+};
+
+/** Why `attempt`, the latest of a step a skip went past, did not pass: its reason may quote a model. */
+const notPassed = (attempt: Attempt | undefined): string => {
+  if (attempt === undefined) return 'did not run';
+  return attempt.phase === 'finished' && attempt.outcome.kind === 'failed'
+    ? attempt.outcome.reason
+    : endedText(attempt);
+};
+
+/**
+ * The reports of `batch`'s steps, in the order they were first scheduled, then the steps a skip went
+ * past that never ran. A step left open by its findings has no earlier round's report in their place:
+ * they were not current. One the rounds stopped keeps the report it had, beside what happened since.
+ */
+export const stepReports = (batch: Batch): StepReport[] => {
+  const skipped = new Map(pastBySkip(batch).map((one) => [one.stepId, one]));
+  const instead = (one: PastBySkip): StepReport => ({
+    stepId: one.stepId,
+    summary: notPassed(one.attempt),
+    assumptions: [],
+    past: pastOf(one),
+  });
+  const reports = [...batch.steps.values()].flatMap((step) => {
+    const one = skipped.get(step.id);
+    if (one !== undefined && blockedByFindings(one.attempt)) return [instead(one)];
     const latest = [...step.attempts.values()]
       .filter((attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded')
       .at(-1);
-    if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return [];
+    if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') {
+      return one === undefined ? [] : [instead(one)];
+    }
     // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
     // a pullRequest brewer's the pull request's sections (ADR 0167), a Finer's its changes
     // (ADR 0166), a Gauger's its tests (ADR 0170), and Brett's its mutants (ADR 0319).
@@ -408,7 +449,7 @@ export const stepReports = (batch: Batch): StepReport[] =>
       .or(GaugeOutDoc)
       .or(MutantsOutDoc)
       .safeParse(output);
-    if (!doc.success) return [];
+    if (!doc.success) return one === undefined ? [] : [instead(one)];
     const { summary, assumptions } = doc.data;
     const tasting = tastingOf(output);
     const sections = pullRequestSectionsOf(output);
@@ -426,9 +467,13 @@ export const stepReports = (batch: Batch): StepReport[] =>
         ...(gauge === undefined ? {} : { gauge }),
         ...(toFile.length === 0 ? {} : { toFile }),
         ...(mutants.length === 0 ? {} : { mutants }),
+        ...(one === undefined ? {} : { past: pastOf(one) }),
       },
     ];
   });
+  const never = [...skipped.values()].filter(({ stepId }) => !batch.steps.has(stepId));
+  return [...reports, ...never.map(instead)];
+};
 
 /**
  * The findings the succeeded attempts of `step` marked pre-existing (ADR 0191), in order, each
@@ -456,6 +501,29 @@ export const findingText = (finding: TastingFinding): string => {
   const where = file === undefined ? '' : ` in ${file}${line === undefined ? '' : `:${line}`}`;
   // The lens it was found through, on a step of several lenses together (ADR 0220).
   return `${lensFirst(finding)}${severity}${where}${introduced ? '' : ', there before the change'}`;
+};
+
+/**
+ * The findings the round of `attempt`, of a step a person's skip went past, recorded (ADR 0221), at
+ * most `most`, and how many more: for the merge brief and the status comment alike, each text through
+ * `told`, their filter.
+ */
+export const leftOpenLines = (
+  stepId: string,
+  attempt: Attempt,
+  told: (text: string, stepId: string) => string,
+  most: number,
+): string[] => {
+  const left = `- \`${stepId}\`: left open by a skip`;
+  const { kept = [], more = 0 } = (attempt.phase === 'finished' && attempt.findings) || {};
+  const shown = kept.slice(0, most);
+  const rest = kept.length + more - shown.length;
+  return [
+    ...shown.map(
+      (finding) => `${left}: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
+    ),
+    ...(rest > 0 ? [`${left}: and ${rest} more`] : []),
+  ];
 };
 
 /** Where a Finer's change is: its file, and its line when it has one. */
@@ -946,8 +1014,15 @@ const howItWorks = (stepId: string, sections: PullRequestSections, isCommit: IsC
 /** The line of a body without how it works, which then opens as a draft. */
 const NO_HOW = 'No How it works: the Cellarman wrote none.';
 
-/** Why the pull request is a draft or ready, in one line. */
+/** Why the pull request is a draft or ready, in one line, or what a skip went past, a line each. */
 const draftLine = (reports: readonly StepReport[], written: boolean): string => {
+  const past = reports.flatMap(({ past }) => (past === undefined ? [] : [past]));
+  if (past.length > 0) {
+    // Never that it waits to be marked ready: a later round renders this on a ready one (ADR 0345).
+    return past
+      .map(({ line, open }) => `- ${line}${open ? '; its findings are in the reports below' : ''}.`)
+      .join('\n');
+  }
   if (!opensAsDraft(reports)) {
     return written
       ? 'Ready for review: every Taster approved.'
@@ -1028,7 +1103,7 @@ export const pullRequestText = ({
   };
   const flat = (text: string, stepId: string) => shown(text, stepId).replace(/\s+/g, ' ');
   const lines = reports.flatMap(
-    ({ stepId, summary, assumptions, tasting, fining, gauge, toFile, mutants = [] }) => [
+    ({ stepId, summary, assumptions, tasting, fining, gauge, toFile, mutants = [], past }) => [
       `${stepId}: ${shown(summary, stepId)}`,
       ...assumptions.map((assumption) => `  assumed: ${flat(assumption, stepId)}`),
       ...(gauge?.tests ?? []).map((name) => `  test: ${flat(name, stepId)}`),
@@ -1057,6 +1132,14 @@ export const pullRequestText = ({
             // What its review leaves, in its words (ADR 0214).
             ...(tasting.riskLeft ?? []).map((risk) => `  risk left: ${flat(risk, stepId)}`),
           ]),
+      // What a skip left open, by the words the merge brief lists it in (ADR 0345).
+      ...(past?.findings ?? []).map(
+        (finding) =>
+          `  left open by a skip: ${flat(findingText(finding), stepId)}: ${flat(finding.why, stepId)}`,
+      ),
+      ...(past === undefined || past.more === 0
+        ? []
+        : [`  left open by a skip: and ${past.more} more`]),
       // Brett's survivors, each with its edit, and what became of the rest (ADR 0319).
       ...mutantLines(mutants, (text) => flat(text, stepId)).map((line) => `  ${line}`),
     ],

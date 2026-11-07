@@ -38,6 +38,8 @@ export interface DueRevision {
   digest: string;
   /** The revision the comment shows now; absent before its first. */
   previous?: StatusRevision;
+  /** A status comment's: whether it was rendered while its batch had not ended (ADR 0345). */
+  open?: boolean;
 }
 
 /** The revisions of the comment whose effects are `<prefix>.<n>`, the `what` errors name. */
@@ -78,7 +80,13 @@ export const commentRevisions = (prefix: string, what: string) => {
     };
     const applied = (due: DueRevision, comment: number, digest: string): StatusRevision => {
       // Checked: the id comes from the code host, and the ledger keeps it.
-      const result = StatusRevision.parse({ comment: commentId(comment), digest });
+      // A text found under the key that is not the one due was rendered before this pass.
+      const open = due.open === true || (due.open === false && digest !== due.digest);
+      const result = StatusRevision.parse({
+        comment: commentId(comment),
+        digest,
+        ...(open ? { open } : {}),
+      });
       done(due);
       return result;
     };
