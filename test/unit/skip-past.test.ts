@@ -16,6 +16,7 @@ import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { statusEffects } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
 import { PullRequestOutDoc, TastingOutDoc } from '../../src/schemas/out-doc.ts';
+import { StatusRevision } from '../../src/schemas/status-comment.ts';
 import { defaultLimits } from '../helpers/brewing.ts';
 import { type Behaviour, behave, fakeBrewerRunner } from '../helpers/fake-brewer-runner.ts';
 import { fakeLock } from '../helpers/fake-lock.ts';
@@ -508,12 +509,12 @@ describe('which batches have ended, for their status comment', () => {
     const encoded = effectKey.encode(key);
     const signal = AbortSignal.timeout(5_000);
     const applied = await effects.target.apply(encoded, signal);
-    assert.equal((applied as { open?: true }).open, undefined);
+    assert.equal(StatusRevision.parse(applied).open, undefined);
     const same = await effects.target.find(encoded, signal);
-    assert.equal((same?.result as { open?: true }).open, undefined);
+    assert.equal(StatusRevision.parse(same?.result).open, undefined);
     body = `Before the merge\n\n${effectMarker(encoded)}`;
     const older = await effects.target.find(encoded, signal);
-    assert.equal((older?.result as { open?: true }).open, true);
+    assert.equal(StatusRevision.parse(older?.result).open, true);
   });
 
   it('keeps the name a handover line gave a batch once an order of it came after it ended', async () => {
