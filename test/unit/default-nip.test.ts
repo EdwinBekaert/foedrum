@@ -635,19 +635,19 @@ describe('the default Nip', () => {
       assert.deepEqual(scheduled(log.accept(finish('design-conformance'))), ['implement#2']);
     });
 
-    it('a skip after correctness asked for changes goes on to the pull request past them: regression test', async () => {
+    it('a skip after correctness asked for changes goes on to the pull request past them', async () => {
       const log = await stuck(asksChanges);
       assert.deepEqual(scheduled(log.accept({ kind: 'skip', ...person })), ['open-pull-request#1']);
       const batch = log.batch();
       assert.ok(batch !== undefined);
-      // What a person is told of correctness's changes after this skip: a line, and no findings
-      // (ADR 0343). Its blocked attempt has no report, and the verdicts left all approve.
+      // What a person is told of correctness's changes after this skip: its attempt has no verdict,
+      // and the pull request opens as a draft all the same (ADR 0345).
       const reports = stepReports(batch);
       assert.deepEqual(
         reports.flatMap(({ stepId, tasting }) => (tasting === undefined ? [] : [stepId])),
         ['acceptance', 'security'],
       );
-      assert.equal(opensAsDraft(reports), false);
+      assert.equal(opensAsDraft(reports), true);
       const comment = renderStatus(batch);
       assert.match(comment, /`correctness #1` ❌ blocked \(findings\)/);
       assert.match(
@@ -660,8 +660,44 @@ describe('the default Nip', () => {
         reports,
         attempts: brewLog(batch),
       });
-      assert.match(body, /every Taster approved/);
+      assert.doesNotMatch(body, /every Taster approved/);
       assert.match(body, /`correctness #1` \| [^\n]*An Ordered sub-order holds nothing/);
+    });
+
+    it('a pull request past a skipped blocking Taster does not say every Taster approved', async () => {
+      const log = await stuck(asksChanges);
+      log.accept({ kind: 'skip', ...person });
+      const batch = log.batch();
+      assert.ok(batch !== undefined);
+      const { body, draft } = pullRequestText({
+        title: 'A title',
+        reports: stepReports(batch),
+        attempts: brewLog(batch),
+      });
+      assert.equal(draft, true);
+      assert.doesNotMatch(body, /every Taster approved/);
+      const left =
+        /`correctness` is left open by a skip: its attempt 1 was blocked by its findings/;
+      assert.match(body, left);
+      assert.match(renderStatus(batch), left);
+      // The summary its out doc gave, in the reports, since its round recorded no finding.
+      assert.match(body, /correctness: blocked \(findings\): An Ordered sub-order holds nothing/);
+      // The Taster the fourth lens's arrival held back never ran.
+      const never = /`design-conformance` did not run, and a person's skip went past it/;
+      assert.match(body, never);
+      assert.match(renderStatus(batch), never);
+    });
+
+    it('a skip past only a Taster that never ran opens a draft too', async () => {
+      const log = await stuck();
+      log.accept({ kind: 'skip', ...person });
+      const batch = log.batch();
+      assert.ok(batch !== undefined);
+      assert.equal(opensAsDraft(stepReports(batch)), true);
+      const { body } = pullRequestText({ title: 'A title', reports: stepReports(batch) });
+      assert.doesNotMatch(body, /every Taster approved/);
+      assert.match(body, /`design-conformance` did not run, and a person's skip went past it/);
+      assert.doesNotMatch(body, /`correctness`/);
     });
   });
 

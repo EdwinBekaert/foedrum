@@ -2035,7 +2035,7 @@ describe('statusEffects', () => {
     const driver = await open();
     await driver.tick();
     const text = only().body.slice(0, -marker(1).length).trimEnd();
-    assert.deepEqual(revision(1), { result: { comment: 1, digest: digest(text) } });
+    assert.deepEqual(revision(1), { result: { comment: 1, digest: digest(text), open: true } });
   });
 
   it('edits the same comment as the batch moves, at most once a minute', async () => {
@@ -2140,6 +2140,7 @@ describe('statusEffects', () => {
     assert.deepEqual(revision(2)?.result, {
       comment: 2,
       digest: digest(comment.body.slice(0, -marker(2).length).trimEnd()),
+      open: true,
     });
     finish();
     await driver.tick();
@@ -2157,7 +2158,9 @@ describe('statusEffects', () => {
     later(minute);
     await driver.tick();
     assert.equal(comments.calls.filter((call) => call === 'create').length, 1);
-    assert.deepEqual(revision(2), { result: { comment: id, digest: digest('Earlier') } });
+    assert.deepEqual(revision(2), {
+      result: { comment: id, digest: digest('Earlier'), open: true },
+    });
   });
 
   it('finds a first comment a run before made and was killed before it recorded', async () => {
@@ -2166,7 +2169,9 @@ describe('statusEffects', () => {
     const driver = await open();
     await driver.tick();
     assert.equal(comments.calls.includes('create'), false);
-    assert.deepEqual(revision(1), { result: { comment: 1, digest: digest('Earlier') } });
+    assert.deepEqual(revision(1), {
+      result: { comment: 1, digest: digest('Earlier'), open: true },
+    });
     later(minute);
     await driver.tick();
     assert.match(only().body, /Ordered/, 'its stale text is replaced');
@@ -2182,7 +2187,9 @@ describe('statusEffects', () => {
     comment.body = `Earlier\n\n${marker(2)}`;
     later(minute);
     await driver.tick();
-    assert.deepEqual(revision(2), { result: { comment: 1, digest: digest('Earlier') } });
+    assert.deepEqual(revision(2), {
+      result: { comment: 1, digest: digest('Earlier'), open: true },
+    });
     later(minute);
     await driver.tick();
     assert.match(only().body, /Brewing/);
@@ -2199,6 +2206,7 @@ describe('statusEffects', () => {
     assert.deepEqual(revision(1)?.result, {
       comment: 2,
       digest: digest(comments.comments[1]?.body.slice(0, -marker(1).length).trimEnd() ?? ''),
+      open: true,
     });
   });
 
