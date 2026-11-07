@@ -10,7 +10,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
-import { pullRequestText } from '../../src/engine/pull-request.ts';
+import { pullRequestText, stepReports } from '../../src/engine/pull-request.ts';
 import { pullRequestActions } from '../../src/engine/pull-request-actions.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { pastBySkip } from '../../src/engine/skip-past.ts';
@@ -151,6 +151,11 @@ const brewed = async (scripts: Record<string, Behaviour[]>) => {
     during,
     head: () => String(pushes).repeat(40),
     lane: () => driver.state().batches.get('b1')?.lane,
+    state: () => {
+      const batch = driver.state().batches.get('b1');
+      assert.ok(batch !== undefined);
+      return batch;
+    },
     comment: () => [...comments.values()].at(-1) ?? '',
     skip: async () => {
       log.issue({ kind: 'skip', batchId: 'b1', by: 'ada', via: 'terminal' }, clock());
@@ -310,7 +315,19 @@ describe('what a pull request says of a step a skip went past', () => {
   it('drops the verdict of an earlier round of a Taster left open by a skip: regression test', async () => {
     const batch = await brewed({
       implement: [cellar, cellar, cellar, cellar],
-      correctness: [approve, changes('Round two'), changes('Round three'), changes('Round four')],
+      correctness: [
+        behave.succeedWith(
+          {
+            verdict: 'approve',
+            findings: [{ ...finding('A stale finding'), severity: 'minor' }],
+            riskLeft: ['A stale risk'],
+          },
+          'Nothing found',
+        ),
+        changes('Round two'),
+        changes('Round three'),
+        changes('Round four'),
+      ],
       ...others(4),
     });
     assert.equal(batch.opened[0]?.draft, false);
@@ -344,6 +361,13 @@ describe('what a pull request says of a step a skip went past', () => {
     const text = JSON.stringify(batch.updates.at(-1));
     assert.match(text, /`correctness` is left open by a skip/);
     assert.doesNotMatch(text, /correctness: Nothing found/);
+    assert.doesNotMatch(text, /A stale finding/);
+    assert.doesNotMatch(text, /A stale risk/);
+    const batchState = batch.state();
+    const reports = stepReports(batchState);
+    const correctness = reports.find(({ stepId }) => stepId === 'correctness');
+    assert.ok(correctness !== undefined);
+    assert.equal(correctness.tasting, undefined);
   });
 
   it('still names an advisory Taster that asks for changes beside what a skip went past', async () => {
@@ -737,6 +761,70 @@ describe('what a skip records in the fold', () => {
     assert.deepEqual(pastIn(chosen('a'), ...stuckOn('x'), chosen('b'), ...stuckOn('y'), skip), [
       'y',
     ]);
+  });
+
+  const done = { status: 'done', summary: 'An earlier summary', assumptions: [] };
+  /** A step that succeeded, then was blocked by its findings, past which a skip went. */
+  const leftOpen = (more = 0) => {
+    const step = { batchId: 'b1', stepId: 'x' };
+    const batch = fold([
+      ordered,
+      chosen('a'),
+      { type: 'step.scheduled', ...step, attempt: 1, deadlineAt: routeBy },
+      { type: 'step.started', ...step, attempt: 1 },
+      {
+        type: 'step.finished',
+        ...step,
+        attempt: 1,
+        outcome: { kind: 'succeeded', output: done },
+        mutants: [
+          {
+            file: 'src/a.ts',
+            line: 1,
+            original: 'a',
+            replacement: 'b',
+            description: 'A stale mutant',
+            verdict: { kind: 'survived' },
+          },
+        ],
+      },
+      { type: 'step.scheduled', ...step, attempt: 2, deadlineAt: routeBy },
+      { type: 'step.started', ...step, attempt: 2 },
+      {
+        type: 'step.finished',
+        ...step,
+        attempt: 2,
+        outcome: { kind: 'failed', retryable: false, reason: 'blocked (findings): It asks' },
+        findings: { kept: [], more },
+      },
+      {
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason: { kind: 'blocked', stepId: 'x', blockerKind: 'findings', summary: 'It asks' },
+        options: ['skip'],
+        remindAt: routeBy,
+      },
+      skip,
+    ]).batches.get('b1');
+    assert.ok(batch !== undefined);
+    return stepReports(batch);
+  };
+
+  it("drops the mutants of a left-open step's earlier round: regression test", () => {
+    const [report] = leftOpen();
+    assert.equal(report?.summary, 'blocked (findings): It asks');
+    assert.equal(report?.mutants, undefined);
+  });
+
+  it('counts the findings a round recorded past those it kept: regression test', () => {
+    const reports = leftOpen(2);
+    assert.equal(reports[0]?.past?.more, 2);
+    const { body } = pullRequestText({ title: 'A title', reports });
+    assert.match(body, /left open by a skip: and 2 more/);
+  });
+
+  it('counts a step whose attempt recorded no recipe: regression test', () => {
+    assert.deepEqual(pastIn(...stuckOn('x'), chosen('b'), skip), ['x']);
   });
 
   it('records nothing for a skip of a batch Stuck on its pull request: regression test', () => {

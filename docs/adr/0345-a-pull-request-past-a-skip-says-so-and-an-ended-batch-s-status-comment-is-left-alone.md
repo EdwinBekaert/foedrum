@@ -19,6 +19,7 @@ Checking what an upgrade does to this text showed a second thing. `statusDue` co
 ### What a skip went past
 - **The fold records it**, from `batch.resumed` with `action: 'skip'`, with no new event, so a log from before this record reads the same way: each step of the batch whose latest attempt did not succeed, with that attempt's number, and the Stuck step with none when it never ran. A skip of a child skips its group (ADR 0168), and this reads the group's other children without the recipe.
 - **A step that ran since is not counted.** `pastBySkip` (`src/engine/skip-past.ts`) keeps a step only while the attempt the skip saw is still its latest, so a correctness that was waiting for its fix round and approved after a skip of the Cellarman's fix is not listed. A recipe a person chose drops them, as it drops `skipped`, and a later skip does not count a step of a recipe the batch left, whose attempts it keeps.
+- **A child a recipe gained and that is not the Stuck step is not named.** The fold has no recipe, so it reads the steps the batch has and the one Stuck on. A recipe file that gains a Taster while a batch is inside its group, with another child the reason the batch is Stuck, opens a draft and names that other child only. The merge brief's own line says the new one did not run.
 - **A skip of a batch Stuck on its pull request's checks records none.** It leaves that head as it is (ADR 0219), and the status comment says so already.
 
 ### What each text says
