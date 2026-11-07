@@ -6,7 +6,7 @@ Date: 2026-11-07 · Status: Accepted · Amends [0344](0344-tasting-compare-real-
 In every setup of #916's run on Opus and at high effort, the default Taster first reads the repository's instruction file ([ADR 0337](0337-a-taster-s-first-call-on-a-diff-reads-the-instruction-file-and-a-long-risk-line-is-cut.md)), and every `reads` Taster of #879 opened `CLAUDE.md`.
 So nothing says whether that read helps a stronger Taster find more, or only costs tokens, and `nip`'s Tasters keep it until this is measured.
 [ADR 0224](0224-the-default-recipes-taste-apart-or-together-as-a-seeded-comparison-measured.md) measured lenses together against apart only on a small seeded change, with Sonnet at medium effort.
-#915's full recipe runs seven diff lenses, so it needs that answer on a stronger model and on real changes.
+#915's full recipe is to run seven diff lenses, so it needs that answer on a stronger model and on real changes.
 The comparison's folder already holds the first test's records, and the scorer must not score them again.
 
 ## Decision
