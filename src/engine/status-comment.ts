@@ -56,7 +56,7 @@ import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
-import { blockedByFindings, pastBySkip, pastLine } from './skip-past.ts';
+import { pastBySkip, pastLine } from './skip-past.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { mutantLines } from './survivors.ts';
@@ -1042,9 +1042,7 @@ const mostFindings = 10;
 const pastSkipLines = (batch: Batch, told: Told): string[] =>
   pastBySkip(batch).flatMap((past) => [
     `- ${pastLine(past)}`,
-    ...(past.attempt === undefined || !blockedByFindings(past.attempt)
-      ? []
-      : leftOpenLines(past.stepId, past.attempt, told, mostFindings)),
+    ...leftOpenLines(past.stepId, past.attempt, told, mostFindings),
   ]);
 
 /**

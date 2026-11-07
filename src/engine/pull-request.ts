@@ -431,13 +431,12 @@ export const stepReports = (batch: Batch): StepReport[] => {
   });
   const reports = [...batch.steps.values()].flatMap((step) => {
     const one = skipped.get(step.id);
-    if (one !== undefined && blockedByFindings(one.attempt)) return [instead(one)];
+    const none = one === undefined ? [] : [instead(one)];
+    if (one !== undefined && blockedByFindings(one.attempt)) return none;
     const latest = [...step.attempts.values()]
       .filter((attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded')
       .at(-1);
-    if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') {
-      return one === undefined ? [] : [instead(one)];
-    }
+    if (latest?.phase !== 'finished' || latest.outcome.kind !== 'succeeded') return none;
     // A check's success has no out doc; a Taster's has its verdict and findings too (ADR 0161),
     // a pullRequest brewer's the pull request's sections (ADR 0167), a Finer's its changes
     // (ADR 0166), a Gauger's its tests (ADR 0170), and Brett's its mutants (ADR 0319).
@@ -449,7 +448,7 @@ export const stepReports = (batch: Batch): StepReport[] => {
       .or(GaugeOutDoc)
       .or(MutantsOutDoc)
       .safeParse(output);
-    if (!doc.success) return one === undefined ? [] : [instead(one)];
+    if (!doc.success) return none;
     const { summary, assumptions } = doc.data;
     const tasting = tastingOf(output);
     const sections = pullRequestSectionsOf(output);
@@ -506,16 +505,17 @@ export const findingText = (finding: TastingFinding): string => {
 /**
  * The findings the round of `attempt`, of a step a person's skip went past, recorded (ADR 0221), at
  * most `most`, and how many more: for the merge brief and the status comment alike, each text through
- * `told`, their filter.
+ * `told`, their filter; none unless they blocked it.
  */
 export const leftOpenLines = (
   stepId: string,
-  attempt: Attempt,
+  attempt: Attempt | undefined,
   told: (text: string, stepId: string) => string,
   most: number,
 ): string[] => {
   const left = `- \`${stepId}\`: left open by a skip`;
-  const { kept = [], more = 0 } = (attempt.phase === 'finished' && attempt.findings) || {};
+  const { kept = [], more = 0 } =
+    (blockedByFindings(attempt) && attempt?.phase === 'finished' && attempt.findings) || {};
   const shown = kept.slice(0, most);
   const rest = kept.length + more - shown.length;
   return [
