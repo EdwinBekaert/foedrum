@@ -1,6 +1,6 @@
 # 0345. A pull request past a skip says so, and an ended batch's status comment is left alone
 
-Date: 2026-11-07 · Status: Accepted · Amends [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (when a pull request opens as a draft), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (when a revision is due), [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (what else says what the brief's skip lines say; its decision stands), [0343](0343-nip-tastes-through-design-conformance-as-a-fourth-advisory-lens.md) (corrects what it says of a skip past correctness), [0227](0227-a-later-round-renders-the-pull-request-s-body-again-unless-someone-edited-it.md) (what a later round's body says)
+Date: 2026-11-07 · Status: Accepted · Amends [0167](0167-a-brewed-pull-request-follows-one-layout-and-opens-as-a-draft-unless-every-taster-approves.md) (when a pull request opens as a draft), [0072](0072-the-status-comment-edits-as-revisions-in-the-ledger.md) (when a revision is due), [0225](0225-a-ready-pull-request-gets-a-merge-brief.md) (what else says what the brief's skip lines say; its decision stands), [0343](0343-nip-tastes-through-design-conformance-as-a-fourth-advisory-lens.md) (corrects what it says of a skip past correctness), [0227](0227-a-later-round-renders-the-pull-request-s-body-again-unless-someone-edited-it.md) (what a later round's body says), [0161](0161-lens-steps-run-a-taster-whose-findings-are-advisory-unless-the-step-blocks.md) (a step left open by a skip shows its latest round's findings on the status comment)
 
 ## Context
 A batch's correctness Taster asks for changes in all three rounds, the batch goes Stuck, and a person runs `foedrum skip`.
@@ -18,7 +18,7 @@ Checking what an upgrade does to this text showed a second thing. `statusDue` co
 ## Decision
 ### What a skip went past
 - **The fold records it**, from `batch.resumed` with `action: 'skip'`, with no new event, so a log from before this record reads the same way: each step of the batch whose latest attempt did not succeed, with that attempt's number, and the Stuck step with none when it never ran. A skip of a child skips its group (ADR 0168), and this reads the group's other children without the recipe.
-- **A step that ran since is not counted.** `pastBySkip` (`src/engine/skip-past.ts`) keeps a step only while the attempt the skip saw is still its latest, so a correctness that was waiting for its fix round and approved after a skip of the Cellarman's fix is not listed. A recipe a person chose drops them, as it drops `skipped`.
+- **A step that ran since is not counted.** `pastBySkip` (`src/engine/skip-past.ts`) keeps a step only while the attempt the skip saw is still its latest, so a correctness that was waiting for its fix round and approved after a skip of the Cellarman's fix is not listed. A recipe a person chose drops them, as it drops `skipped`, and a later skip does not count a step of a recipe the batch left, whose attempts it keeps.
 - **A skip of a batch Stuck on its pull request's checks records none.** It leaves that head as it is (ADR 0219), and the status comment says so already.
 
 ### What each text says
@@ -26,7 +26,8 @@ Checking what an upgrade does to this text showed a second thing. `statusDue` co
   - `` `correctness` is left open by a skip: its attempt 3 was blocked by its findings; its findings are in the reports below. ``
   - `` `green` did not pass: its attempt 2 failed, and a person's skip went past it. ``
   - `` `design-conformance` did not run, and a person's skip went past it. ``
-- **The reports list a left-open step's findings**, those its latest round recorded (ADR 0221), by `findingText` and in the reports' fence and filters, as `  left open by a skip: …`, and how many more. Its reason takes the place of an earlier round's report, which was not current: the stale `verdict: approve` is gone.
+- **These lines take the place of the one that says why it is a draft or ready.** A Taster that asks for changes keeps its line beside them, in words that hold of a ready pull request.
+- **The reports list a left-open step's findings**, those its latest round recorded (ADR 0221), by `findingText` and in the reports' fence and filters, as `  left open by a skip: …`, and how many more. Its reason takes the place of an earlier round's summary, and its verdict and mutants go, which were not current: the stale `verdict: approve` is gone. What else that round wrote stays, a Cellarman's How it works too.
 - **A Taster the rounds stopped says so beside what it had.** When correctness's third block makes the batch Stuck, its siblings' third attempts are abandoned. Each is listed as `` `acceptance` did not pass: its attempt 3 was stopped ``, and its second attempt's report stays. `endedText`, which the brief shares, now calls an abandoned attempt stopped.
 - **The status comment says the same**, in a section of its own, `**Past a skip**`, before the sections that grow, with at most ten findings of a step and how many more, through its own filter (`leftOpenLines`, which the brief uses too). A cut keeps it.
 - **One way of reading findings.** The brief, the reports and the comment all read `latest.findings`. The brief keeps its own selection of steps: what it lists is unchanged but for the abandoned attempt's word.

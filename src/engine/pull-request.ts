@@ -418,8 +418,9 @@ const notPassed = (attempt: Attempt | undefined): string => {
 
 /**
  * The reports of `batch`'s steps, in the order they were first scheduled, then the steps a skip went
- * past that never ran. A step left open by its findings has no earlier round's report in their place:
- * they were not current. One the rounds stopped keeps the report it had, beside what happened since.
+ * past that never ran. A step left open by its findings keeps what an earlier round wrote, a
+ * Cellarman's How it works too, but not its summary, verdict or mutants: they were not current. One
+ * the rounds stopped keeps the report it had, beside what happened since.
  */
 export const stepReports = (batch: Batch): StepReport[] => {
   const skipped = new Map(pastBySkip(batch).map((one) => [one.stepId, one]));
@@ -432,7 +433,6 @@ export const stepReports = (batch: Batch): StepReport[] => {
   const reports = [...batch.steps.values()].flatMap((step) => {
     const one = skipped.get(step.id);
     const none = one === undefined ? [] : [instead(one)];
-    if (one !== undefined && blockedByFindings(one.attempt)) return none;
     const latest = [...step.attempts.values()]
       .filter((attempt) => attempt.phase === 'finished' && attempt.outcome.kind === 'succeeded')
       .at(-1);
@@ -450,7 +450,8 @@ export const stepReports = (batch: Batch): StepReport[] => {
       .safeParse(output);
     if (!doc.success) return none;
     const { summary, assumptions } = doc.data;
-    const tasting = tastingOf(output);
+    const leftOpen = blockedByFindings(one?.attempt);
+    const tasting = leftOpen ? undefined : tastingOf(output);
     const sections = pullRequestSectionsOf(output);
     const fining = finingOf(output);
     const gauge = gaugeOf(output);
@@ -458,14 +459,14 @@ export const stepReports = (batch: Batch): StepReport[] => {
     return [
       {
         stepId: step.id,
-        summary,
+        summary: leftOpen ? notPassed(one?.attempt) : summary,
         assumptions,
         ...(tasting === undefined ? {} : { tasting }),
         ...(sections === undefined ? {} : { sections }),
         ...(fining === undefined ? {} : { fining }),
         ...(gauge === undefined ? {} : { gauge }),
         ...(toFile.length === 0 ? {} : { toFile }),
-        ...(mutants.length === 0 ? {} : { mutants }),
+        ...(mutants.length === 0 || leftOpen ? {} : { mutants }),
         ...(one === undefined ? {} : { past: pastOf(one) }),
       },
     ];
@@ -1016,22 +1017,24 @@ const NO_HOW = 'No How it works: the Cellarman wrote none.';
 
 /** Why the pull request is a draft or ready, in one line, or what a skip went past, a line each. */
 const draftLine = (reports: readonly StepReport[], written: boolean): string => {
+  const asking = reports.filter(({ tasting }) => tasting?.verdict === 'changes');
+  const asks = `asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`;
   const past = reports.flatMap(({ past }) => (past === undefined ? [] : [past]));
   if (past.length > 0) {
     // Never that it waits to be marked ready: a later round renders this on a ready one (ADR 0345).
-    return past
+    const lines = past
       .map(({ line, open }) => `- ${line}${open ? '; its findings are in the reports below' : ''}.`)
       .join('\n');
+    return asking.length === 0 ? lines : `${lines}\n\nA Taster ${asks}`;
   }
   if (!opensAsDraft(reports)) {
     return written
       ? 'Ready for review: every Taster approved.'
       : 'A person reviews this before it is marked ready: every Taster approved, but it has no How it works.';
   }
-  const asking = reports.filter(({ tasting }) => tasting?.verdict === 'changes');
   return asking.length === 0
     ? 'A person reviews this before it is marked ready: no step tasted the change.'
-    : `A person reviews this before it is marked ready: a Taster asks for changes (${asking.map(({ stepId }) => stepId).join(', ')}); its findings are in the reports below.`;
+    : `A person reviews this before it is marked ready: a Taster ${asks}`;
 };
 
 /**

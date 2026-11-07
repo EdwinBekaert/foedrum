@@ -1204,13 +1204,17 @@ const showsEnd = (batch: Batch, key: EffectKey, result: unknown): boolean => {
   return revision.success && revision.data.open !== true;
 };
 
-/** `batch` with what a skip from Stuck on `reason` went past: no step of it that passed (ADR 0345). */
+/**
+ * `batch` with what a skip from Stuck on `reason` went past: no step that passed, and none of a recipe
+ * it left, whose attempts it keeps (ADR 0345).
+ */
 const withSkipsPast = (batch: Batch, reason: StuckReason): Batch => {
   const skips = new Map(batch.skips);
   for (const step of batch.steps.values()) {
     const latest = latestAttempt(step);
     const passed = latest?.phase === 'finished' && latest.outcome.kind === 'succeeded';
-    if (latest !== undefined && !passed) skips.set(step.id, latest.attempt);
+    const left = latest?.recipe !== undefined && latest.recipe !== batch.recipe?.name;
+    if (latest !== undefined && !passed && !left) skips.set(step.id, latest.attempt);
   }
   if ('stepId' in reason && !batch.steps.has(reason.stepId)) skips.set(reason.stepId, undefined);
   return skips.size === 0 ? batch : { ...batch, skips };
