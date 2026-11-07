@@ -131,6 +131,9 @@ export type DriverNotice =
   /** What a cleanup of an ended batch's worktrees did. */
   | { kind: 'cleaned'; batchId: string; report: CleanReport };
 
+/** What the driver spends time on that a person waits for: an effect it applies, a batch's cleanup. */
+export type Doing = { kind: 'effect'; key: EffectKey } | { kind: 'clean'; batchId: string };
+
 export interface DriverOptions {
   store: EventStore;
   runner: BrewerRunner;
@@ -214,6 +217,8 @@ export interface DriverOptions {
   /** Default 1 hour. */
   routingMs?: number;
   report?: (notice: DriverNotice) => void;
+  /** Told what the driver is about to spend time on, before it starts, for a live line to name (#873). */
+  doing?: (what: Doing) => void;
 }
 
 export interface Driver {
@@ -412,6 +417,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     reminderMs = defaultReminderMs,
     routingMs = defaultRoutingMs,
     report: reportTo = () => {},
+    doing = () => {},
   } = options;
   // A report that throws must not stop the driver.
   const report = (notice: DriverNotice): void => {
@@ -1158,6 +1164,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
           // Asked before the cleanup reads its claims: a lease it keeps a worktree for may expire
           // while its git steps run. An ended batch gets no new lease, so asking early misses none.
           if (leasedBatches().has(batchId)) cleanedLeased.add(batchId);
+          doing({ kind: 'clean', batchId });
           report({ kind: 'cleaned', batchId, report: await cleanup.batchEnded(batchId) });
           toClean.delete(batchId);
         } catch (error) {
@@ -1311,6 +1318,7 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
       tried.add(effectKey.encode(key));
       heartbeat();
       if (!claim(batchId) || awaitsTakeover(batchId)) return;
+      doing({ kind: 'effect', key });
       try {
         await withinDeadline(key, (signal) => applyEffect(ledger, key, target, signal));
       } catch (error) {

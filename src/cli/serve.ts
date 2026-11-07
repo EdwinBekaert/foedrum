@@ -120,6 +120,9 @@ export interface ServeShell {
 /** The supervisor's interval (ADR 0027). */
 export const INTERVAL_MS = 5000;
 
+/** How long `foedrum serve` is quiet before it says it is still brewing. */
+const ALIVE_MS = 60_000;
+
 /** A command as a notice names it: its kind, and its batch when it has one. */
 const commandName = (command: EngineCommand): string => {
   const batchId =
@@ -265,7 +268,11 @@ const baseChecks = (
 export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<number> => {
   const { out, signal, clock, wait, intervalMs = INTERVAL_MS } = shell;
   // Notices may carry text a model wrote: never a control character on the terminal.
-  const say = (line: string): void => out(printable(`foedrum serve: ${line}`));
+  let saidAt = clock().getTime();
+  const say = (line: string): void => {
+    saidAt = clock().getTime();
+    out(printable(`foedrum serve: ${line}`));
+  };
   const report = (notice: DriverNotice): void => say(formatNotice(notice));
   // The lock first: a second Cellar is refused before it touches the store or the state branch.
   let lock: DriverLock;
@@ -388,6 +395,8 @@ export const runServe = async (setup: ServeSetup, shell: ServeShell): Promise<nu
         settle(waited);
       }
       if (signal.aborted) break;
+      // A quiet Cellar says it is alive now and then, never at each tick (#873).
+      if (clock().getTime() - saidAt >= ALIVE_MS) say(`still brewing for ${setup.brewery}`);
       await wait(intervalMs, signal);
     }
     // Its deadline bounds the wait; a pass that waits for a tick gets none.
