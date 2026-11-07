@@ -306,8 +306,14 @@ export const runBrew = async (
     onScreen = false;
   };
   /** When this driver first saw each of `attempts` run. */
+  const firstSeen = (label: string, at: number): number => {
+    const first = seenAt.get(label);
+    if (first !== undefined) return first;
+    seenAt.set(label, at);
+    return at;
+  };
   const noticed = (attempts: readonly Running[], at: number): void => {
-    for (const { label } of attempts) if (!seenAt.has(label)) seenAt.set(label, at);
+    for (const { label } of attempts) firstSeen(label, at);
   };
   const draw = (): void => {
     if (terminal === undefined) return;
@@ -321,7 +327,7 @@ export const runBrew = async (
         : brewing.length === 0
           ? [['between steps']]
           : brewing.map(({ label, ref }) =>
-              attemptParts(label, at - (seenAt.get(label) ?? at), progressOf(ref)),
+              attemptParts(label, at - firstSeen(label, at), progressOf(ref)),
             );
     const spinner = SPINNER.charAt(frame++ % SPINNER.length);
     const batchTime = `${batchClock.words} ${elapsed(Math.max(0, at - batchClock.from))} ago`;
