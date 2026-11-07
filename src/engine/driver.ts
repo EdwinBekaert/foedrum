@@ -417,12 +417,18 @@ export const openDriver = async (options: DriverOptions): Promise<Driver> => {
     reminderMs = defaultReminderMs,
     routingMs = defaultRoutingMs,
     report: reportTo = () => {},
-    doing = () => {},
+    doing: doingTo = () => {},
   } = options;
   // A report that throws must not stop the driver.
   const report = (notice: DriverNotice): void => {
     try {
       reportTo(notice);
+    } catch {}
+  };
+  // Nor does what it tells a live line: it is for display (ADR 0346).
+  const doing = (what: Doing): void => {
+    try {
+      doingTo(what);
     } catch {}
   };
   const deadlineMs = effects?.deadlineMs ?? Math.floor(leaseMs / 2);

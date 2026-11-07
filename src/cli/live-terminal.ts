@@ -93,9 +93,10 @@ export const marksOf = (
       ? BRAILLE_MARKS
       : ASCII_MARKS;
   }
-  // The first of them that is set names the locale; in any other than UTF-8 a frame would show as
-  // three characters and wrap a full line. The Linux console's font has no braille.
-  const locale = env.LC_ALL ?? env.LC_CTYPE ?? env.LANG ?? '';
+  // The first of them that is set and not empty names the locale, as the C library reads them; in
+  // any other than UTF-8 a frame would show as three characters and wrap a full line. The Linux
+  // console's font has no braille.
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || '';
   return env.TERM !== 'linux' && /utf-?8/i.test(locale) ? BRAILLE_MARKS : ASCII_MARKS;
 };
 

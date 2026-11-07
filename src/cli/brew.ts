@@ -325,7 +325,12 @@ export const runBrew = async (
     terminal.rewrite(fitted.replace(/^./, () => mark));
     onScreen = true;
   };
-  const draw = (): void => {
+  /**
+   * The live line reads the store and writes to a terminal, and is for display: one that cannot be
+   * drawn changes no call, no exit code and no effect (ADR 0346). What read the store for the
+   * brew's own work fails there and says so.
+   */
+  const drawn = (): void => {
     if (terminal === undefined) return;
     const at = clock().getTime();
     const brewing = brewingNow();
@@ -343,21 +348,18 @@ export const runBrew = async (
     fitted = liveLine(batchTime, attempts, terminal.columns());
     show();
   };
-  /**
-   * Calls `step` every `ms` on the shell's wait until `until` aborts, with a turn of the event loop
-   * before each wait. A throw ends this loop alone, never a call beside it or the process: the next
-   * redraw of the brew's own says what failed, if it still does.
-   */
-  const beat = async (ms: number, until: AbortSignal, step: () => void): Promise<void> => {
+  const draw = (): void => {
     try {
-      while (!until.aborted) {
-        await turn();
-        if (until.aborted) break;
-        await wait(ms, until);
-        if (!until.aborted) step();
-      }
-    } catch {
-      // The line's alone.
+      drawn();
+    } catch {}
+  };
+  /** Calls `step` every `ms` on the shell's wait until `until` aborts, a turn of the loop before each. */
+  const beat = async (ms: number, until: AbortSignal, step: () => void): Promise<void> => {
+    while (!until.aborted) {
+      await turn();
+      if (until.aborted) break;
+      await wait(ms, until);
+      if (!until.aborted) step();
     }
   };
   // The mark turns on a timer of its own, writing the fitted line again: no state is read and no
@@ -436,7 +438,9 @@ export const runBrew = async (
     if (terminal !== undefined) {
       marks = beat(MARK_MS, turning, () => {
         frame++;
-        show();
+        try {
+          show();
+        } catch {}
       });
     }
     const { store, driver, reads, claims } = await lively('starting', () =>
@@ -645,7 +649,9 @@ export const runBrew = async (
           throw error;
         },
       };
-      await recordEndsOf(ending, unendedPullRequests(ending), ends, signal);
+      await lively('reading its pull requests', () =>
+        recordEndsOf(ending, unendedPullRequests(ending), ends, signal),
+      );
       const read = foldedBatch(log.state(), batch.id);
       if (unendedPullRequests(read).length > 0) {
         if (read.repo !== undefined) return refuse(heldLine(log.state(), read));
@@ -667,9 +673,8 @@ export const runBrew = async (
       // A recipe label on the target issue chooses nothing (ADR 0156), and a person who put one
       // there would wait for it: the line says so, one conditional read on this refusal alone, and
       // is left out when that read fails (ADR 0336).
-      const carried = await githubOrderLabels(reads, setup.brewery)(order, signal).then(
-        recipeLabels,
-        () => [],
+      const carried = await lively('reading its labels', () =>
+        githubOrderLabels(reads, setup.brewery)(order, signal).then(recipeLabels, () => []),
       );
       if (carried.length > 0) {
         const all = carried.map((name) => `recipe:${name}`).join(' and ');
@@ -774,7 +779,7 @@ export const runBrew = async (
           );
       while (running() && clock().getTime() < until && !signal.aborted) {
         await pause();
-        await tick(driver, report);
+        await lively(undefined, () => tick(driver, report));
       }
     };
 
