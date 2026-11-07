@@ -570,9 +570,10 @@ describe('the default Nip', () => {
         event.type === 'step.scheduled' ? [`${event.stepId}#${event.attempt}`] : [],
       );
     /** The batch once its three Tasters ended: Stuck, as the parallel group's own test pins. */
-    const stuck = async () => {
+    const stuck = async (correctness: Command = finish('correctness')) => {
       const log = logOf(await inTheGroupOfThree());
-      for (const taster of ['correctness', 'acceptance', 'security']) log.accept(finish(taster));
+      log.accept(correctness);
+      for (const taster of ['acceptance', 'security']) log.accept(finish(taster));
       const lane = log.lane();
       assert.ok(lane?.kind === 'stuck' && lane.reason.kind === 'blocked', JSON.stringify(lane));
       assert.equal(lane.reason.stepId, 'design-conformance');
@@ -594,6 +595,32 @@ describe('the default Nip', () => {
       const log = await stuck();
       assert.deepEqual(scheduled(log.accept({ kind: 'skip', ...person })), ['open-pull-request#1']);
       assert.equal(log.lane()?.kind, 'brewing');
+    });
+
+    const asksChanges: Command = {
+      kind: 'finish',
+      batchId: 'b1',
+      stepId: 'correctness',
+      attempt: 1,
+      ending: {
+        kind: 'blocked',
+        blockerKind: 'findings',
+        summary: 'An Ordered sub-order holds nothing',
+      },
+    };
+
+    it('a retry after correctness asked for changes goes back to Cellarman: regression test', async () => {
+      const log = await stuck(asksChanges);
+      assert.deepEqual(scheduled(log.accept({ kind: 'retry', ...person })), [
+        'design-conformance#1',
+      ]);
+      log.add({ type: 'step.started', batchId: 'b1', stepId: 'design-conformance', attempt: 1 });
+      assert.deepEqual(scheduled(log.accept(finish('design-conformance'))), ['implement#2']);
+    });
+
+    it('a skip after correctness asked for changes goes on to the pull request past them: regression test', async () => {
+      const log = await stuck(asksChanges);
+      assert.deepEqual(scheduled(log.accept({ kind: 'skip', ...person })), ['open-pull-request#1']);
     });
   });
 

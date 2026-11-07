@@ -691,6 +691,8 @@ describe('tasting-compare --real', () => {
     it('real-nip says it tastes with less than nip does now (ADR 0343)', () => {
       const { description } = Recipe.parse(parseJsonc(realRecipeText('855-reads')));
       assert.doesNotMatch(description ?? '', /as nip tastes it/);
+      assert.match(description ?? '', /correctness, acceptance and security/);
+      assert.doesNotMatch(description ?? '', /design conformance/);
     });
 
     it('blocks nowhere, so every run ends', () => {
@@ -769,7 +771,7 @@ describe('tasting-compare --real', () => {
 
       it('its recipe names design conformance', () => {
         const { description } = Recipe.parse(parseJsonc(lensRecipe()));
-        assert.match(description ?? '', /design conformance/);
+        assert.match(description ?? '', /correctness, acceptance, security and design conformance/);
         assert.doesNotMatch(description ?? '', /as nip tastes it/);
       });
 

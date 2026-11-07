@@ -155,6 +155,10 @@ describe('npm run demo', () => {
       report,
       /diff\/correctness +defaults\/lenses\/diff\/correctness\.md\n +2 rounds, 1 finding: 1 major\n +ended: 1 fixed\n/,
     );
+    assert.match(
+      report,
+      /diff\/design-conformance .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 open\n/,
+    );
     assert.match(report, /diff\/security .*\n +2 rounds, 1 finding: 1 minor\n +ended: 1 open\n/);
     // foedrum brew orders the second issue, routes it by its label, and drives it to on tap.
     const brew = part('brew');
