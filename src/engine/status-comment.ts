@@ -24,6 +24,7 @@ import {
   type Attempt,
   type Batch,
   baseChecksOn,
+  batchEnded,
   type Input,
   type Lane,
   type Pause,
@@ -46,6 +47,7 @@ import {
   knownCommits,
   latestBody,
   latestPush,
+  leftOpenLines,
   openedPullRequest,
   openOf,
 } from './pull-request.ts';
@@ -54,6 +56,7 @@ import { receiptParts, receiptsOf } from './receipt.ts';
 import type { Recipe, Recipes } from './recipes.ts';
 import { resumedAfterOverrun } from './session-resume.ts';
 import { stateText } from './sibling-pull-requests.ts';
+import { pastBySkip, pastLine } from './skip-past.ts';
 import { outDocLink, outDocPlace } from './state-branch.ts';
 import { plainReason } from './supervisor.ts';
 import { mutantLines } from './survivors.ts';
@@ -1033,6 +1036,16 @@ const testLines = (batch: Batch, stepIds: readonly string[], told: Told): string
 const mostFindings = 10;
 
 /**
+ * What a person's skip went past (ADR 0345): each step that did not pass, and the findings the latest
+ * round of one blocked by them recorded, as the merge brief lists them.
+ */
+const pastSkipLines = (batch: Batch, told: Told): string[] =>
+  pastBySkip(batch).flatMap((past) => [
+    `- ${pastLine(past)}`,
+    ...leftOpenLines(past.stepId, past.attempt, told, mostFindings),
+  ]);
+
+/**
  * The findings of each Taster's step whose latest finished attempt succeeded (ADR 0161): a blocking
  * verdict ends its attempt blocked, and an earlier round's findings are no longer current. A step of
  * several lenses together shows `mostFindings` of each lens, as its lenses apart would (ADR 0220):
@@ -1279,6 +1292,9 @@ export const renderStatus = (
   if (sensitive !== undefined) {
     sections.push([sensitiveLine(sensitive), ...unmeasuredLines(sensitive)]);
   }
+  // Before the sections that grow too, as a person accepted what these say (ADR 0345).
+  const past = pastSkipLines(batch, told);
+  if (past.length > 0) sections.push(['**Past a skip**', ...past]);
   const stale = staleMapLines(batch);
   if (stale.length > 0) sections.push(stale);
   const named = unreportedOf(batch);
@@ -1368,7 +1384,8 @@ const statusDue = (
   planComment?: string,
 ): DueRevision | undefined => {
   const batch = state.batches.get(batchId);
-  if (batch === undefined) return undefined;
+  // A batch that ended is done: its comment showed that, and nothing reads a text it no longer has.
+  if (batch === undefined || batch.endShown === true) return undefined;
   const issue = breweryIssueOf(state, batch);
   if (issue === undefined) return undefined;
   const { next: revision, latest: previous } = revisions.latest(state, batchId);
@@ -1395,7 +1412,8 @@ const statusDue = (
   );
   const digest = digestOf(text);
   if (previous?.digest === digest) return undefined;
-  const due = { key: revisions.keyOf(batchId, revision), issue, text, digest };
+  const open = !batchEnded(batch);
+  const due = { key: revisions.keyOf(batchId, revision), issue, text, digest, open };
   return previous === undefined ? due : { ...due, previous };
 };
 

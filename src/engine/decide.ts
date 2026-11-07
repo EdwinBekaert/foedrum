@@ -56,8 +56,10 @@ import {
 import {
   type Attempt,
   type Batch,
+  blockedBy,
   type Lane,
   latestAttempt,
+  onFindings,
   orderKey,
   runningAttempt,
   type State,
@@ -1388,15 +1390,6 @@ const roundsOut = (rounds: number, findings: readonly TastingFinding[]): RoundsO
   const { kept, more } = cutFindings(findings, MOST_OPEN_FINDINGS);
   return { rounds, open: kept, more };
 };
-
-/** How a blocked out doc's failure reason starts, by its blocker kind. */
-const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
-
-/** Whether `outcome` is a blocked out doc's on findings: a blocking Taster's `changes` (ADR 0161). */
-export const onFindings = (outcome: StepOutcome): boolean =>
-  outcome.kind === 'failed' &&
-  !outcome.retryable &&
-  outcome.reason.startsWith(blockedBy('findings'));
 
 /**
  * The step the child `stepId` of a parallel group goes back to once its group ended: its latest

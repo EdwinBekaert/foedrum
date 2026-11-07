@@ -18,11 +18,17 @@ import { PushResult } from '../schemas/store.ts';
 import { checkReadings } from './check-readings.ts';
 import { commentId, type MarkedComment, markedComment } from './claim-effects.ts';
 import { cutForComment } from './comment-revisions.ts';
-import { onFindings } from './decide.ts';
 import type { DriverEffects } from './driver.ts';
 import { effectKey } from './effect-key.ts';
 import type { EffectTarget } from './effects.ts';
-import { type Attempt, type Batch, baseChecksOn, latestAttempt, type State } from './fold.ts';
+import {
+  type Attempt,
+  type Batch,
+  baseChecksOn,
+  latestAttempt,
+  onFindings,
+  type State,
+} from './fold.ts';
 import { lensRounds, roundFindings } from './lens-rounds.ts';
 import {
   briefKey,
@@ -35,9 +41,17 @@ import {
 } from './merge-brief.ts';
 import { unreportedLine, unreportedOf } from './named-tests.ts';
 import { withoutSecrets } from './out-doc-text.ts';
-import { findingText, knownCommits, latestPush, recordedPushes, unlinked } from './pull-request.ts';
+import {
+  findingText,
+  knownCommits,
+  latestPush,
+  leftOpenLines,
+  recordedPushes,
+  unlinked,
+} from './pull-request.ts';
 import { pairsOf } from './pull-request-pairs.ts';
 import type { Recipe, Recipes } from './recipes.ts';
+import { endedText } from './skip-past.ts';
 import {
   capped,
   checkOf,
@@ -245,23 +259,6 @@ const checkStepLines = (steps: Steps, proof: string | undefined): string[] =>
     ];
   });
 
-/** How an attempt that did not succeed ended, in words. */
-const endedText = (attempt: Attempt): string => {
-  if (attempt.phase !== 'finished') return 'did not finish';
-  switch (attempt.outcome.kind) {
-    case 'succeeded':
-      return 'succeeded';
-    case 'failed':
-      return 'failed';
-    case 'needs_input':
-      return 'asked for input';
-    case 'cancelled':
-      return 'was stopped';
-    default:
-      return attempt.outcome satisfies never;
-  }
-};
-
 /**
  * Each step that did not run, with the `when` that was false, and each whose latest attempt did not
  * succeed that a person's skip went past; a step blocked by findings is the Findings section's.
@@ -361,16 +358,9 @@ const skippedOpenLines = (steps: Steps, told: Told): string[] =>
     const step = steps.batch.steps.get(stepId);
     const latest = step && latestAttempt(step);
     if (latest?.phase !== 'finished' || !onFindings(latest.outcome)) return [];
-    const left = `- ${code(stepId)}: left open by a skip`;
-    const { kept = [], more = 0 } = latest.findings ?? {};
-    const shown = kept.slice(0, mostFindings);
-    const rest = kept.length + more - shown.length;
     return [
-      `${left}: its attempt ${latest.attempt} was blocked by its findings`,
-      ...shown.map(
-        (finding) => `${left}: ${told(findingText(finding), stepId)}: ${told(finding.why, stepId)}`,
-      ),
-      ...(rest > 0 ? [`${left}: and ${rest} more`] : []),
+      `- ${code(stepId)}: left open by a skip: its attempt ${latest.attempt} was blocked by its findings`,
+      ...leftOpenLines(stepId, latest, told, mostFindings),
     ];
   });
 

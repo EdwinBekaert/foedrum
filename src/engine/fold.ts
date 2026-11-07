@@ -31,7 +31,10 @@ import type {
   WaitCondition,
   WorktreeRef,
 } from '../schemas/events.ts';
+import type { BlockerKind } from '../schemas/out-doc.ts';
+import { StatusRevision } from '../schemas/status-comment.ts';
 import type { StepOutcome } from '../schemas/step-outcome.ts';
+import type { EffectKey } from '../schemas/store.ts';
 import type { SystemMapEntry } from '../schemas/system-map.ts';
 import type { AttemptRef } from './attempt-key.ts';
 import { effectKey } from './effect-key.ts';
@@ -177,6 +180,26 @@ export interface Step {
   inputs: readonly Input[];
 }
 
+/** How a blocked out doc's failure reason starts, by its blocker kind. */
+export const blockedBy = (kind: BlockerKind): string => `blocked (${kind}): `;
+
+/** Whether `outcome` is a blocked out doc's on findings: a blocking Taster's `changes` (ADR 0161). */
+export const onFindings = (outcome: StepOutcome): boolean =>
+  outcome.kind === 'failed' &&
+  !outcome.retryable &&
+  outcome.reason.startsWith(blockedBy('findings'));
+
+/**
+ * Whether `batch` is done (ADR 0345): cancelled, or on tap with pull requests that all ended. A split
+ * order on tap has none, and its rows change as its sub-orders merge. Nothing moves a batch out of
+ * this: `admit` refuses a check, a send back or a stop of an ended pull request.
+ */
+export const batchEnded = (batch: Batch): boolean =>
+  batch.lane.kind === 'cancelled' ||
+  (batch.lane.kind === 'on_tap' &&
+    batch.lane.pullRequests.length > 0 &&
+    unendedPullRequests(batch).length === 0);
+
 /** The pull requests of an on-tap batch with no recorded end: those a merge may have ended. */
 export const unendedPullRequests = ({ lane, pullRequestEnds }: Batch): readonly string[] =>
   lane.kind === 'on_tap'
@@ -293,6 +316,13 @@ export interface Batch {
   steps: ReadonlyMap<string, Step>;
   /** The steps whose latest record is a skip (ADR 0064); absent while none is. */
   skipped?: ReadonlySet<string>;
+  /**
+   * The steps a person's skip went past that had not passed, with the latest attempt each had then,
+   * none when it never ran (ADR 0345); absent while there were none.
+   */
+  skips?: ReadonlyMap<string, number | undefined>;
+  /** Its status comment showed it ended, and a text that differs later is no reason to edit it (ADR 0345). */
+  endShown?: true;
   rewinds: readonly Rewind[];
   /** Its latest handover from one driver to another (ADR 0124); absent while it had none. */
   takeover?: Takeover;
@@ -655,7 +685,7 @@ function apply(state: State, event: Event): State {
     case 'batch.recipe_chosen': {
       const { recipe: name, reason } = event;
       // The skips belonged to the run of the recipe before (ADR 0064).
-      return updateBatch(state, event.batchId, ({ skipped: _, ...batch }) => ({
+      return updateBatch(state, event.batchId, ({ skipped: _, skips: _past, ...batch }) => ({
         ...batch,
         recipe:
           event.source === 'human'
@@ -818,12 +848,10 @@ function apply(state: State, event: Event): State {
       }
       // A skip of a batch Stuck on its pull request's checks leaves that head as it is (ADR 0219).
       const lane = state.batches.get(event.batchId)?.lane;
-      if (
-        event.action !== 'skip' ||
-        lane?.kind !== 'stuck' ||
-        lane.reason.kind !== 'pull_request_failed'
-      ) {
-        return resumed;
+      if (event.action !== 'skip' || lane?.kind !== 'stuck') return resumed;
+      if (lane.reason.kind !== 'pull_request_failed') {
+        const { reason } = lane;
+        return updateBatch(resumed, event.batchId, (batch) => withSkipsPast(batch, reason));
       }
       const { pullRequest, head } = lane.reason;
       return updateBatch(resumed, event.batchId, (batch) => ({
@@ -942,13 +970,18 @@ function apply(state: State, event: Event): State {
       return setLane(state, event.batchId, { kind: 'on_tap', pullRequests: event.pullRequests });
     case 'batch.failing': {
       const { batchId, pass, summary, since } = event;
-      return updateBatch(state, batchId, (batch) => ({
+      // The mark and its recovery reach an ended batch's comment too (ADR 0335, ADR 0345).
+      return updateBatch(state, batchId, ({ endShown: _, ...batch }) => ({
         ...batch,
         failing: { pass, summary, since },
       }));
     }
     case 'batch.recovered':
-      return updateBatch(state, event.batchId, ({ failing: _, ...batch }) => batch);
+      return updateBatch(
+        state,
+        event.batchId,
+        ({ failing: _, endShown: _shown, ...batch }) => batch,
+      );
     case 'batch.taken_over': {
       const { by, via, from, to, until, resumes } = event;
       return updateBatch(state, event.batchId, (batch) => ({
@@ -1110,7 +1143,10 @@ function apply(state: State, event: Event): State {
       if (state.effects.has(event.key)) {
         throw reject(`effect ${event.key} was already applied`);
       }
-      return { ...state, effects: put(state.effects, event.key, event.result) };
+      const applied = { ...state, effects: put(state.effects, event.key, event.result) };
+      return showsEnd(batch, key, event.result)
+        ? updateBatch(applied, key.batchId, (ended) => ({ ...ended, endShown: true }))
+        : applied;
     }
     default:
       return unreachable(event);
@@ -1155,6 +1191,34 @@ function stepOf(batch: Batch, stepId: string): Step {
   }
   return step;
 }
+
+/**
+ * Whether the effect `key` with its `result` is a status comment's revision that shows `batch` ended
+ * (ADR 0345): one rendered before the end says so, as the intake may record the end while it is on
+ * its way. A revision recorded before this field counts by when it was applied, so an older batch's
+ * comment stays as it is.
+ */
+const showsEnd = (batch: Batch, key: EffectKey, result: unknown): boolean => {
+  if (!('effect' in key) || !key.effect.startsWith('status.') || !batchEnded(batch)) return false;
+  const revision = StatusRevision.safeParse(result);
+  return revision.success && revision.data.open !== true;
+};
+
+/**
+ * `batch` with what a skip from Stuck on `reason` went past: no step that passed, and none of a recipe
+ * it left, whose attempts it keeps (ADR 0345).
+ */
+const withSkipsPast = (batch: Batch, reason: StuckReason): Batch => {
+  const skips = new Map(batch.skips);
+  for (const step of batch.steps.values()) {
+    const latest = latestAttempt(step);
+    const passed = latest?.phase === 'finished' && latest.outcome.kind === 'succeeded';
+    const left = latest?.recipe !== undefined && latest.recipe !== batch.recipe?.name;
+    if (latest !== undefined && !passed && !left) skips.set(step.id, latest.attempt);
+  }
+  if ('stepId' in reason && !batch.steps.has(reason.stepId)) skips.set(reason.stepId, undefined);
+  return skips.size === 0 ? batch : { ...batch, skips };
+};
 
 /** `batch` with `stepId` added to or taken out of its skipped steps; none is kept as absent. */
 function skipping(batch: Batch, stepId: string, skipped: boolean): Batch {

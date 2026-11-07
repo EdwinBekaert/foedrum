@@ -13,6 +13,8 @@ export const StatusRevision = z.strictObject({
   comment: z.int().positive(),
   /** The first 16 hex digits of the SHA-256 of the text. */
   digest: Digest,
+  /** Rendered while its batch had not ended (ADR 0345); absent on a revision before this field. */
+  open: z.literal(true).optional(),
 });
 export type StatusRevision = z.infer<typeof StatusRevision>;
 
