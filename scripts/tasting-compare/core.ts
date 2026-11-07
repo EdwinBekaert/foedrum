@@ -1,8 +1,11 @@
 // The decisions of node scripts/tasting-compare.ts (#567, ADR 0224): the three setups and their
 // recipes, the seeded change's key, how a run's Taster attempts are scored against it, the sums
-// over runs, which run is next, the rule that picks a recipe's choice, and the one table.
+// over runs, which run is next, the rule that picks a recipe's choice, the one table, and the
+// records a comparison's folder holds.
 // scripts/tasting-compare.ts brews the runs with the real claude; nothing here starts a process.
 
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Event, Usage } from '../../src/schemas/events.ts';
 import { lensOfFinding, TastingFinding } from '../../src/schemas/out-doc.ts';
 import type { StepOutcome } from '../../src/schemas/step-outcome.ts';
@@ -219,6 +222,17 @@ export interface RunRecord<Setup extends string = SetupName> {
   wallMs: number;
   attempts: readonly TasterAttempt[];
 }
+
+/** The records of a comparison's folder, from its results.jsonl; none when it has no file. */
+export const readRecordsIn = <Setup extends string>(folder: string): RunRecord<Setup>[] => {
+  const file = join(folder, 'results.jsonl');
+  return existsSync(file)
+    ? readFileSync(file, 'utf8')
+        .split(/\r?\n/)
+        .filter((line) => line !== '')
+        .map((line) => JSON.parse(line) as RunRecord<Setup>)
+    : [];
+};
 
 /** The findings of a succeeded Taster's output, and how many the schema refused. */
 const findingsOf = (output: unknown): { findings: TastingFinding[]; refused: number } => {
