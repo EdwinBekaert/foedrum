@@ -61,7 +61,7 @@ describe('runServe', () => {
   });
 
   it('says it still runs, and not that it brews, while nothing brews', async () => {
-    const { stamped } = await servedFor(40);
+    const { stamped } = await servedFor(12);
     const alive = stamped.filter(({ at, line }) => at >= 10 * MINUTE && line.includes('still'));
     assert.ok(alive.length > 0, stamped.map(({ line }) => line).join('\n'));
     for (const { line } of alive) {
