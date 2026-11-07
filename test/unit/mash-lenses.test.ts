@@ -165,6 +165,7 @@ describe('the default recipes that plan (ADR 0321)', () => {
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
     ]);
     const security = loaded.brewers.find('nip', 'security');
     assert.equal(security?.lens, 'diff/security');

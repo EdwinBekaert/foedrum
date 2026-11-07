@@ -605,7 +605,7 @@ describe('the diff mode beside plan mode', () => {
         '| logic | diff/correctness | 1/1 | - | 1/1 | - |',
         '| unasked | diff/acceptance | 0/1 | - | 0/1 | - |',
         '',
-        '- Nip: not measured (apart-nip against together-nip)',
+        "- Nip's three lenses as measured, which nip has a fourth beside since ADR 0343: not measured (apart-nip against together-nip)",
         '- Seven lenses: not measured (apart-7 against together-7)',
         '',
         'Other findings of apart-7, scored run 1:',

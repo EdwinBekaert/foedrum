@@ -688,11 +688,9 @@ describe('tasting-compare --real', () => {
       ]);
     });
 
-    it("the real mode's Tasters are the lenses of the default nip recipe", () => {
-      const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
-      const named = (steps: ReturnType<typeof tasteOf>) =>
-        steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
-      assert.deepEqual(named(tasteOf(realRecipeText('855-reads'))), named(tasteOf(nip)));
+    it('real-nip says it tastes with less than nip does now (ADR 0343)', () => {
+      const { description } = Recipe.parse(parseJsonc(realRecipeText('855-reads')));
+      assert.doesNotMatch(description ?? '', /as nip tastes it/);
     });
 
     it('blocks nowhere, so every run ends', () => {
@@ -745,6 +743,13 @@ describe('tasting-compare --real', () => {
         assert.ok(text !== undefined, 'the lens setup has no recipe of its own');
         return text;
       };
+
+      it("the lens setup's Tasters are the lenses of the default nip recipe (ADR 0343)", () => {
+        const nip = readFileSync(join(root, 'defaults', 'recipes', 'nip.jsonc'), 'utf8');
+        const named = (steps: ReturnType<typeof tasteOf>) =>
+          steps.map((step) => ({ id: step.id, brewer: step.brewer, lens: step.lens }));
+        assert.deepEqual(named(tasteOf(lensRecipe())), named(tasteOf(nip)));
+      });
 
       it("the lens setup's Tasters are real-nip's and design conformance", () => {
         const named = (steps: ReturnType<typeof tasteOf>) =>

@@ -11,8 +11,10 @@ import { createAttemptPlans } from '../../src/brewers/attempt-plans.ts';
 import type { PromptInput } from '../../src/brewers/prompt.ts';
 import { FOEDRUM_DEFAULTS, readBreweryFiles } from '../../src/engine/brewery-files.ts';
 import { createCommandLog } from '../../src/engine/command-log.ts';
+import { type Command, decide } from '../../src/engine/decide.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { fold } from '../../src/engine/fold.ts';
+import { freeCapacity } from '../../src/engine/intake.ts';
 import { type LoadedRecipes, loadRecipes } from '../../src/engine/recipe-files.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import type { Event, GravityReading } from '../../src/schemas/events.ts';
@@ -83,6 +85,7 @@ describe('the default Nip', () => {
       correctness: [done],
       acceptance: [done],
       security: [done],
+      'design-conformance': [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started.slice(0, 3), ['survey', 'survey-check', 'gauge']);
@@ -109,6 +112,7 @@ describe('the default Nip', () => {
           correctness: [done],
           acceptance: [done],
           security: [done],
+          'design-conformance': [done],
           'open-pull-request': [done],
         }),
         recipes: valid(loadRecipes(files)).recipes,
@@ -132,6 +136,7 @@ describe('the default Nip', () => {
           'correctness',
           'acceptance',
           'security',
+          'design-conformance',
           'open-pull-request',
         ],
       );
@@ -153,6 +158,7 @@ describe('the default Nip', () => {
       correctness: [done],
       acceptance: [done],
       security: [done],
+      'design-conformance': [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -169,6 +175,7 @@ describe('the default Nip', () => {
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
       'open-pull-request',
     ]);
   });
@@ -186,6 +193,7 @@ describe('the default Nip', () => {
       correctness: [done],
       acceptance: [done],
       security: [done],
+      'design-conformance': [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -202,6 +210,7 @@ describe('the default Nip', () => {
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
       'open-pull-request',
     ]);
   });
@@ -228,6 +237,7 @@ describe('the default Nip', () => {
         correctness: [done],
         acceptance: [done],
         security: [done],
+        'design-conformance': [done],
         'open-pull-request': [done],
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));
@@ -301,6 +311,7 @@ describe('the default Nip', () => {
       correctness: [done],
       acceptance: [done],
       security: [done],
+      'design-conformance': [done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -316,6 +327,7 @@ describe('the default Nip', () => {
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
       'open-pull-request',
     ]);
   });
@@ -370,17 +382,19 @@ describe('the default Nip', () => {
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
       'open-pull-request',
     ]);
     assert.equal(loaded.brewers.find('nip', 'gauge')?.brewer.name, 'gauger');
     assert.equal(loaded.brewers.find('nip', 'implement')?.brewer.name, 'cellarman');
-    // After green, three Tasters review side by side, through the correctness, acceptance and
-    // security lenses (ADR 0168, ADR 0197, ADR 0306); correctness blocks (ADR 0264), acceptance and
-    // security advise (ADR 0306).
+    // After green, four Tasters review side by side, through the correctness, acceptance, security
+    // and design conformance lenses (ADR 0168, ADR 0197, ADR 0306, ADR 0343); correctness blocks
+    // (ADR 0264), the others advise.
     assert.deepEqual(loaded.recipes.find('nip')?.children('taste'), [
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
     ]);
     for (const lens of ['correctness', 'acceptance']) {
       const taste = loaded.brewers.find('nip', lens);
@@ -420,6 +434,169 @@ describe('the default Nip', () => {
     assert.equal(recipes.find('nip')?.routesTo('security', 'findings'), undefined);
   });
 
+  it('nip tastes through design conformance', () => {
+    const { brewers, defaults, recipes } = valid(loadRecipes(noFiles));
+    const nip = recipes.find('nip');
+    assert.equal(nip?.children('taste')?.at(-1), 'design-conformance');
+    const conformance = brewers.find('nip', 'design-conformance');
+    assert.equal(conformance?.brewer.name, 'taster');
+    assert.deepEqual([...(conformance.lenses?.keys() ?? [])], ['diff/design-conformance']);
+    assert.ok(defaults.includes('defaults/lenses/diff/design-conformance.md'), defaults.join(', '));
+    // Advisory, as acceptance and security are: nothing it finds sends the batch back.
+    assert.equal(conformance.blocking, false);
+    assert.equal(nip.routesTo('design-conformance', 'findings'), undefined);
+  });
+
+  it("nip's four Tasters start side by side and take one place of the Brewery's concurrency (ADR 0343)", async () => {
+    const done = behave.succeed();
+    const events = await brewNipEvents({
+      survey: [done],
+      'survey-check': [done],
+      gauge: [done],
+      red: [done],
+      implement: [done],
+      fine: [done],
+      green: [done],
+      correctness: [done],
+      acceptance: [done],
+      security: [done],
+      'design-conformance': [done],
+      'open-pull-request': [done],
+    });
+    const tasters = new Set(['correctness', 'acceptance', 'security', 'design-conformance']);
+    const inGroup = events.flatMap((event, at) =>
+      (event.type === 'step.started' || event.type === 'step.finished') && tasters.has(event.stepId)
+        ? [{ type: event.type, at }]
+        : [],
+    );
+    assert.deepEqual(
+      inGroup.slice(0, 4).map(({ type }) => type),
+      ['step.started', 'step.started', 'step.started', 'step.started'],
+    );
+    // All four running: a concurrency of 1 is full with this one batch, and 2 leaves one more place.
+    const running = fold(events.slice(0, (inGroup[3]?.at ?? 0) + 1));
+    assert.equal(freeCapacity(running, 1), 0);
+    assert.equal(freeCapacity(running, 2), 1);
+  });
+
+  describe('a batch inside the taste group when the fourth Taster arrives (ADR 0168, ADR 0343)', () => {
+    const now = new Date('2026-10-21T12:00:00.000Z');
+    const context = () => ({
+      now,
+      reminderMs: 3_600_000,
+      routingMs: 3_600_000,
+      recipes: valid(loadRecipes(noFiles)).recipes,
+    });
+    /** The events of a batch brewed with Nip's three Tasters, up to their first end. */
+    const inTheGroupOfThree = async (): Promise<Event[]> => {
+      const nipText = readFileSync(join(FOEDRUM_DEFAULTS, 'recipes', 'nip.jsonc'), 'utf8');
+      const threeTasters = nipText.replace(
+        /,(\s*\/\/[^\n]*)*\s*\{ "id": "design-conformance"[^}]*\}/,
+        '',
+      );
+      const recipes = valid(
+        loadRecipes({ ...noFiles, recipes: [{ path: 'recipes/nip.jsonc', text: threeTasters }] }),
+      ).recipes;
+      assert.deepEqual(recipes.find('nip')?.children('taste'), [
+        'correctness',
+        'acceptance',
+        'security',
+      ]);
+      const done = behave.succeed();
+      const store = openSqliteEventStore(':memory:');
+      try {
+        const brewing = createBrewing({
+          store,
+          runner: fakeBrewerRunner(
+            Object.fromEntries(
+              [
+                'survey',
+                'survey-check',
+                'gauge',
+                'red',
+                'implement',
+                'fine',
+                'green',
+                'correctness',
+                'acceptance',
+                'security',
+                'open-pull-request',
+              ].map((id) => [id, [done]]),
+            ),
+          ),
+          recipes,
+          clock: () => now,
+        });
+        assert.ok(brewing.command({ kind: 'order', batchId: 'b1', order: { issue: 1 } }));
+        const route = { kind: 'route', batchId: 'b1', recipe: 'nip', reason: 'label' } as const;
+        assert.ok(brewing.command({ ...route, source: 'label' }));
+        await brewing.drive();
+        const events = [...brewing.events()];
+        const firstEnd = events.findIndex(
+          (event) => event.type === 'step.finished' && event.stepId === 'correctness',
+        );
+        return events.slice(0, firstEnd);
+      } finally {
+        store.close();
+      }
+    };
+    /** The batch's log, on which a command is decided with the four Tasters of the new install. */
+    const logOf = (events: readonly Event[]) => {
+      let log = [...events];
+      return {
+        accept: (command: Command): Event[] => {
+          const decision = decide(fold(log), command, context());
+          assert.equal(decision.kind, 'accepted', JSON.stringify(decision));
+          const made = decision.kind === 'accepted' ? [...decision.events] : [];
+          log = [...log, ...made];
+          return made;
+        },
+        add: (event: Event) => {
+          log = [...log, event];
+        },
+        lane: () => fold(log).batches.get('b1')?.lane,
+      };
+    };
+    const finish = (stepId: string): Command => ({
+      kind: 'finish',
+      batchId: 'b1',
+      stepId,
+      attempt: 1,
+      ending: { kind: 'succeeded', output: { verdict: 'approve' } },
+    });
+    const person = { batchId: 'b1', by: 'ada', via: 'terminal' } as const;
+    const scheduled = (events: readonly Event[]): string[] =>
+      events.flatMap((event) =>
+        event.type === 'step.scheduled' ? [`${event.stepId}#${event.attempt}`] : [],
+      );
+    /** The batch once its three Tasters ended: Stuck, as the parallel group's own test pins. */
+    const stuck = async () => {
+      const log = logOf(await inTheGroupOfThree());
+      for (const taster of ['correctness', 'acceptance', 'security']) log.accept(finish(taster));
+      const lane = log.lane();
+      assert.ok(lane?.kind === 'stuck' && lane.reason.kind === 'blocked', JSON.stringify(lane));
+      assert.equal(lane.reason.stepId, 'design-conformance');
+      return log;
+    };
+
+    it('a retry runs only the Taster it never had, and the group ends on to the pull request', async () => {
+      const log = await stuck();
+      assert.deepEqual(scheduled(log.accept({ kind: 'retry', ...person })), [
+        'design-conformance#1',
+      ]);
+      log.add({ type: 'step.started', batchId: 'b1', stepId: 'design-conformance', attempt: 1 });
+      assert.deepEqual(scheduled(log.accept(finish('design-conformance'))), [
+        'open-pull-request#1',
+      ]);
+    });
+
+    it('a skip goes on to the pull request without it', async () => {
+      const log = await stuck();
+      assert.deepEqual(scheduled(log.accept({ kind: 'skip', ...person })), ['open-pull-request#1']);
+      assert.equal(log.lane()?.kind, 'brewing');
+    });
+  });
+
   it('sends a batch whose correctness Taster asks for changes back to Cellarman, then through fine and green again (ADR 0264)', async () => {
     const done = behave.succeed();
     const started = await brewNip({
@@ -433,6 +610,7 @@ describe('the default Nip', () => {
       correctness: [behave.blocked('findings', 'An Ordered sub-order holds nothing'), done],
       acceptance: [done, done],
       security: [done, done],
+      'design-conformance': [done, done],
       'open-pull-request': [done],
     });
     assert.deepEqual(started, [
@@ -446,12 +624,14 @@ describe('the default Nip', () => {
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
       'implement',
       'fine',
       'green',
       'correctness',
       'acceptance',
       'security',
+      'design-conformance',
       'open-pull-request',
     ]);
   });
@@ -470,6 +650,7 @@ describe('the default Nip', () => {
       correctness: [changes, changes, changes, done],
       acceptance: [done, done, done, done],
       security: [done, done, done, done],
+      'design-conformance': [done, done, done, done],
       'open-pull-request': [done],
     });
     const started = events.flatMap((event) =>
@@ -514,6 +695,7 @@ describe('the default Nip', () => {
               'correctness',
               'acceptance',
               'security',
+              'design-conformance',
               'open-pull-request',
             ].map((id) => [id, [done]]),
           ),
@@ -546,6 +728,7 @@ describe('the default Nip', () => {
         'correctness',
         'acceptance',
         'security',
+        'design-conformance',
         'open-pull-request',
       ]);
     } finally {
@@ -623,6 +806,7 @@ describe('the default Cellarman', () => {
         correctness: [done],
         acceptance: [done],
         security: [done],
+        'design-conformance': [done],
         'open-pull-request': [done],
       };
       const { brewers, recipes } = valid(loadRecipes(noFiles));

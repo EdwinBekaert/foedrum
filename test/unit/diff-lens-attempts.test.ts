@@ -99,6 +99,7 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
         correctness: [asksChanges, fails, approves],
         acceptance: [approves, approves],
         security: [approves, approves],
+        'design-conformance': [approves, approves],
       }),
     );
     assert.equal(times(steps, 'correctness'), 3, steps.join(', '));
@@ -111,6 +112,7 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
       correctness: [asksChanges, approves],
       acceptance: [approves, fails, approves],
       security: [approves, approves],
+      'design-conformance': [approves, approves],
     });
     const steps = started(events);
     assert.equal(times(steps, 'acceptance'), 3, steps.join(', '));
@@ -124,6 +126,7 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
       correctness: [asksChanges, approves],
       acceptance: [approves, fails, fails, approves],
       security: [approves, approves],
+      'design-conformance': [approves, approves],
     });
     assert.equal(times(started(events), 'acceptance'), 3, started(events).join(', '));
     assertExhausted(events, 'acceptance', 2);
@@ -136,6 +139,7 @@ describe('a lens step counts its attempts since its latest review (ADR 0324)', (
       correctness: [approves],
       acceptance: [fails, fails, approves],
       security: [approves],
+      'design-conformance': [approves],
     });
     assert.equal(times(started(events), 'acceptance'), 2, started(events).join(', '));
     assertExhausted(events, 'acceptance', 2);

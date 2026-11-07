@@ -207,8 +207,8 @@ describe('npm run demo', () => {
         ? [`${event.stepId}#${event.attempt} ${event.outcome.kind}`]
         : [],
     );
-    // The three lens attempts of a round run side by side, so they may end in any order.
-    const lensOutcome = /^(?:correctness|security|test-design)#/;
+    // The four lens attempts of a round run side by side, so they may end in any order.
+    const lensOutcome = /^(?:correctness|security|test-design|design-conformance)#/;
     const inOrder: string[] = [];
     let round: string[] = [];
     for (const outcome of [...outcomes, '']) {
@@ -241,14 +241,16 @@ describe('npm run demo', () => {
       'fine#3 succeeded',
       'green#3 succeeded',
       // Round 2 approves.
-      ...['correctness', 'security', 'test-design'].map((lens) => `${lens}#2 succeeded`),
+      ...['correctness', 'security', 'test-design', 'design-conformance'].map(
+        (lens) => `${lens}#2 succeeded`,
+      ),
       // Brett's mutants run after the group, advisory (ADR 0319).
       'mutants#1 succeeded',
       'open-pull-request#1 succeeded',
     ]);
-    // In each round, the parallel group's three lens attempts all started before any of them
+    // In each round, the parallel group's four lens attempts all started before any of them
     // ended (ADR 0168).
-    const lenses = new Set(['correctness', 'security', 'test-design']);
+    const lenses = new Set(['correctness', 'security', 'test-design', 'design-conformance']);
     const group = events.flatMap((event) =>
       (event.type === 'step.started' || event.type === 'step.finished') &&
       event.batchId === '1-1' &&
@@ -256,13 +258,13 @@ describe('npm run demo', () => {
         ? [event.type]
         : [],
     );
-    const started = ['step.started', 'step.started', 'step.started'];
-    assert.deepStrictEqual([group.slice(0, 3), group.slice(6, 9)], [started, started]);
-    assert.equal(group.length, 12, JSON.stringify(group));
-    // While they brewed, foedrum status showed the three of them at once.
+    const started = ['step.started', 'step.started', 'step.started', 'step.started'];
+    assert.deepStrictEqual([group.slice(0, 4), group.slice(8, 12)], [started, started]);
+    assert.equal(group.length, 16, JSON.stringify(group));
+    // While they brewed, foedrum status showed the four of them at once.
     assert.match(
       part('checks'),
-      /brewing +correctness #1 started, security #1 started, test-design #1 started/,
+      /brewing +correctness #1 started, security #1 started, test-design #1 started, design-conformance #1 started/,
     );
     // Correctness's finding sends the batch back to implement, with its out doc as the route
     // input (ADR 0128), and round 2 is told the change since round 1 and that finding marked
@@ -286,18 +288,18 @@ describe('npm run demo', () => {
     );
     assert.match(
       part('checks'),
-      /brewing +correctness #2 started, security #2 started, test-design #2 started/,
+      /brewing +correctness #2 started, security #2 started, test-design #2 started, design-conformance #2 started/,
     );
-    // The status comment's path has both rounds, the three lenses side by side in each and a line
+    // The status comment's path has both rounds, the four lenses side by side in each and a line
     // where the batch went back to implement (#662), each failed attempt with why (#656), and each
     // one's findings show under its own step.
     const comment = host.comments(BREWERY, ORDER.number)[0]?.body ?? '';
     assert.match(comment, /Recipe \*\*nip-parallel\*\*/);
     assert.match(
       comment,
-      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `mutants #1` ✅ → `open-pull-request #1` ✅/,
+      /`gauge #1` ❌ the attempt was lost → .*`green #1` ❌ the check "test" failed, 1 test failing\n→ .*`green #2` ✅ → `correctness #1` ❌ blocked \(findings\) → `security #1` ✅ → `test-design #1` ✅ → `design-conformance #1` ✅\n→ `implement #3` ✅ → `fine #3` ✅ → `green #3` ✅ → `correctness #2` ✅ → `security #2` ✅ → `test-design #2` ✅ → `design-conformance #2` ✅ → `mutants #1` ✅ → `open-pull-request #1` ✅/,
     );
-    for (const lens of ['security', 'test-design']) {
+    for (const lens of ['security', 'test-design', 'design-conformance']) {
       assert.match(comment, new RegExp(`^- \`${lens}\`: minor in `, 'm'));
     }
     // Brett's mutants ran in scratch trees: the one no test reaches survived, listed with its edit

@@ -208,21 +208,23 @@ describe('the demo brewers', () => {
     assert.equal(ending.kind, 'succeeded', JSON.stringify(ending));
   });
 
-  it("play the three Tasters of the parallel group's first round: correctness asks for changes, the others approve, each with a finding of its own, and no commit", async () => {
+  it("play the four Tasters of the parallel group's first round: correctness asks for changes, the others approve, each with a finding of its own, and no commit", async () => {
     const { runner, log } = brewers('finish');
     const findings: string[] = [];
     for (const [stepId, verdict] of [
       ['correctness', 'changes'],
       ['security', 'approve'],
       ['test-design', 'approve'],
+      ['design-conformance', 'approve'],
     ] as const) {
       const doc = await tasted(runner, stepId, 1);
       assert.equal(doc.verdict, verdict, stepId);
       assert.equal(doc.findings?.length, 1, `${stepId}: ${JSON.stringify(doc.findings)}`);
       findings.push(doc.findings?.[0]?.why ?? '');
     }
-    assert.equal(new Set(findings).size, 3, findings.join('\n'));
+    assert.equal(new Set(findings).size, 4, findings.join('\n'));
     assert.deepStrictEqual(log, [
+      `write ${join(cwd, 'taste.md')}`,
       `write ${join(cwd, 'taste.md')}`,
       `write ${join(cwd, 'taste.md')}`,
       `write ${join(cwd, 'taste.md')}`,
@@ -259,7 +261,7 @@ describe('the demo brewers', () => {
     assert.deepStrictEqual(round2.findings, []);
     // The advisory lenses run again in the second round, approve again, and raise their open
     // findings again, which no disposition settled (ADR 0191).
-    for (const stepId of ['security', 'test-design']) {
+    for (const stepId of ['security', 'test-design', 'design-conformance']) {
       const round1 = await tasted(runner, stepId, 1);
       const again = await tasted(runner, stepId, 2);
       assert.equal(again.verdict, 'approve', stepId);
