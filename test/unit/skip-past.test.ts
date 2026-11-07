@@ -10,6 +10,7 @@ import { createCommandLog } from '../../src/engine/command-log.ts';
 import { openDriver } from '../../src/engine/driver.ts';
 import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
+import { pullRequestText } from '../../src/engine/pull-request.ts';
 import { pullRequestActions } from '../../src/engine/pull-request-actions.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
 import { pastBySkip } from '../../src/engine/skip-past.ts';
@@ -281,7 +282,9 @@ describe('what a pull request says of a step a skip went past', () => {
       body,
       /`implement` did not pass: its attempt 2 failed, and a person's skip went past it/,
     );
-    assert.doesNotMatch(body, /`correctness` is left open by a skip/);
+    const line = /`correctness` (is left open|did not pass)/;
+    assert.doesNotMatch(body, line);
+    assert.doesNotMatch(batch.comment(), line);
   });
 
   it('keeps the How it works of a Cellarman left open by a skip', async () => {
@@ -304,6 +307,45 @@ describe('what a pull request says of a step a skip went past', () => {
     assert.doesNotMatch(body, /the Cellarman wrote none/);
   });
 
+  it('drops the verdict of an earlier round of a Taster left open by a skip: regression test', async () => {
+    const batch = await brewed({
+      implement: [cellar, cellar, cellar, cellar],
+      correctness: [approve, changes('Round two'), changes('Round three'), changes('Round four')],
+      ...others(4),
+    });
+    assert.equal(batch.opened[0]?.draft, false);
+    const head = batch.head();
+    batch.log.issue(
+      {
+        kind: 'record',
+        event: {
+          type: 'pull_request.checks_finished',
+          batchId: 'b1',
+          pullRequest: url,
+          head,
+          checks: [{ name: 'ci', kind: 'check_run', conclusion: 'failure' }],
+        },
+      },
+      clock(),
+    );
+    batch.log.issue(
+      {
+        kind: 'fix_pull_request',
+        batchId: 'b1',
+        pullRequest: url,
+        head,
+        cause: { kind: 'checks' },
+      },
+      clock(),
+    );
+    await batch.settle();
+    assert.equal(batch.lane()?.kind, 'stuck');
+    await batch.skip();
+    const text = JSON.stringify(batch.updates.at(-1));
+    assert.match(text, /`correctness` is left open by a skip/);
+    assert.doesNotMatch(text, /correctness: Nothing found/);
+  });
+
   it('still names an advisory Taster that asks for changes beside what a skip went past', async () => {
     const failing = behave.read([
       { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '1 failing' },
@@ -323,6 +365,31 @@ describe('what a pull request says of a step a skip went past', () => {
       /A Taster asks for changes \(security\); its findings are in the reports below/,
     );
     assert.doesNotMatch(body, /before it is marked ready/);
+  });
+
+  it('lists how many more findings the round recorded than it kept: regression test', () => {
+    const past = { line: '`correctness` is left', findings: [], more: 2, open: true };
+    const reports = [{ stepId: 'correctness', summary: 'Blocked', assumptions: [], past }];
+    const { body } = pullRequestText({ title: 'A title', reports });
+    assert.match(body, /left open by a skip: and 2 more/);
+  });
+
+  it('puts what a skip went past before the sections that grow: regression test', async () => {
+    const assuming = behave.succeedWith({
+      howItWorks: 'It works.',
+      seeIt: 'Run it.',
+      assumptions: ['An assumption'],
+    });
+    const batch = await brewed({
+      implement: [assuming, assuming, assuming],
+      correctness: [changes('One'), changes('Two'), changes('Three')],
+      ...others(3),
+    });
+    await batch.skip();
+    const comment = batch.comment();
+    const place = comment.indexOf('**Past a skip**');
+    assert.ok(place >= 0);
+    assert.ok(place < comment.indexOf('**Assumptions**'));
   });
 
   it('leaves a pull request that is ready as it is, and tells it in its body and comment', async () => {
@@ -444,6 +511,8 @@ describe('a status comment once its batch ended', () => {
     await batch.settle();
     const before = batch.writes.length;
     assert.ok(before > 0);
+    // A text that differs, so a revision would be due and would make it again.
+    batch.asIfOlderText();
     batch.comments.clear();
     await batch.settle();
     assert.equal(batch.writes.length, before);
@@ -571,24 +640,43 @@ describe('which batches have ended, for their status comment', () => {
 
   it('keeps the name a handover line gave a batch once an order of it came after it ended', async () => {
     const step = { batchId: 'b1', stepId: 'gauge', attempt: 1 };
-    const log = logged(
-      { type: 'step.scheduled', ...step, deadlineAt: routeBy },
-      { type: 'step.started', ...step },
-      {
-        type: 'step.finished',
-        ...step,
-        outcome: {
-          kind: 'succeeded',
-          output: { status: 'done', summary: 'Done', assumptions: [] },
+    const handedOver = (...more: Event[]) =>
+      logged(
+        { type: 'step.scheduled', ...step, deadlineAt: routeBy },
+        { type: 'step.started', ...step },
+        {
+          type: 'step.finished',
+          ...step,
+          outcome: {
+            kind: 'succeeded',
+            output: { status: 'done', summary: 'Done', assumptions: [] },
+          },
+          handover: ['A lesson'],
         },
-        handover: ['A lesson'],
-      },
-      onTap(a),
-      ended(a),
-    );
-    await log.written();
-    log.add({ type: 'batch.ordered', batchId: 'b2', order: { issue: 1 }, routeBy });
-    assert.deepEqual(log.due(), []);
+        onTap(a),
+        ...more,
+      );
+    const later: Event = { type: 'batch.ordered', batchId: 'b2', order: { issue: 1 }, routeBy };
+    // While it is open, the later order changes that line, and so its text.
+    const open = handedOver();
+    await open.shown();
+    assert.deepEqual(open.due(), []);
+    open.add(later);
+    assert.equal(open.due().length, 1);
+    const done = handedOver(ended(a));
+    await done.shown();
+    done.add(later);
+    assert.deepEqual(done.due(), []);
+  });
+
+  it('does not count a plan comment revision as showing the end: regression test', () => {
+    const log = logged(onTap(a), ended(a));
+    log.add({
+      type: 'effect.applied',
+      key: effectKey.encode({ batchId: 'b1', effect: 'plan.1' }),
+      result: { comment: 5, digest: '0123456789abcdef' },
+    });
+    assert.equal(log.due().length, 1);
   });
 });
 
@@ -635,9 +723,40 @@ describe('what a skip records in the fold', () => {
     return pastBySkip(batch).map(({ stepId }) => stepId);
   };
 
+  it('keeps what an earlier skip went past: regression test', () => {
+    assert.deepEqual(pastIn(chosen('a'), ...stuckOn('x'), skip, ...stuckOn('y'), skip), ['x', 'y']);
+  });
+
+  it('drops what a skip went past when a recipe is chosen: regression test', () => {
+    const skipped = [chosen('a'), ...stuckOn('x'), skip];
+    assert.deepEqual(pastIn(...skipped), ['x']);
+    assert.deepEqual(pastIn(...skipped, chosen('b')), []);
+  });
+
   it('does not count a step of a recipe the batch left', () => {
     assert.deepEqual(pastIn(chosen('a'), ...stuckOn('x'), chosen('b'), ...stuckOn('y'), skip), [
       'y',
     ]);
+  });
+
+  it('records nothing for a skip of a batch Stuck on its pull request: regression test', () => {
+    const [scheduled, started, finished] = stuckOn('x');
+    assert.ok(scheduled && started && finished);
+    const stuck: Event = {
+      type: 'batch.stuck',
+      batchId: 'b1',
+      reason: {
+        kind: 'pull_request_failed',
+        stepId: 'x',
+        pullRequest: 'https://github.com/acme/api/pull/9',
+        head: 'c'.repeat(40),
+        rounds: 2,
+        failed: [],
+        more: 0,
+      },
+      options: ['skip'],
+      remindAt: routeBy,
+    };
+    assert.deepEqual(pastIn(chosen('a'), scheduled, started, finished, stuck, skip), []);
   });
 });
