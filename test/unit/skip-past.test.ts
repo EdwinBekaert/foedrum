@@ -12,6 +12,7 @@ import { effectKey } from '../../src/engine/effect-key.ts';
 import { fold } from '../../src/engine/fold.ts';
 import { pullRequestActions } from '../../src/engine/pull-request-actions.ts';
 import { loadRecipes } from '../../src/engine/recipe-files.ts';
+import { pastBySkip } from '../../src/engine/skip-past.ts';
 import { openSqliteEventStore } from '../../src/engine/sqlite-event-store.ts';
 import { statusEffects } from '../../src/engine/status-comment.ts';
 import type { Event } from '../../src/schemas/events.ts';
@@ -283,6 +284,47 @@ describe('what a pull request says of a step a skip went past', () => {
     assert.doesNotMatch(body, /`correctness` is left open by a skip/);
   });
 
+  it('keeps the How it works of a Cellarman left open by a skip', async () => {
+    const batch = await brewed({
+      implement: [
+        cellar,
+        behave.blocked('findings', 'The test is wrong'),
+        behave.blocked('findings', 'Still wrong'),
+      ],
+      gauge: [done, done, done],
+      red: [done, done, done],
+      correctness: [changes('Round one: an Ordered sub-order holds nothing'), approve],
+      ...others(2),
+    });
+    assert.equal(batch.lane()?.kind, 'stuck');
+    await batch.skip();
+    const body = batch.opened[0]?.body ?? '';
+    assert.match(body, /`implement` is left open by a skip/);
+    assert.match(body, /It works\./);
+    assert.doesNotMatch(body, /the Cellarman wrote none/);
+  });
+
+  it('still names an advisory Taster that asks for changes beside what a skip went past', async () => {
+    const failing = behave.read([
+      { result: 'exited', check: 'test', command: 'npm test', exitCode: 1, tail: '1 failing' },
+    ]);
+    const batch = await brewed({
+      implement: [cellar],
+      green: [failing, failing],
+      correctness: [approve],
+      ...others(1),
+      security: [changes('An advisory finding')],
+    });
+    await batch.skip();
+    const body = batch.opened[0]?.body ?? '';
+    assert.match(body, /`green` did not pass/);
+    assert.match(
+      body,
+      /A Taster asks for changes \(security\); its findings are in the reports below/,
+    );
+    assert.doesNotMatch(body, /before it is marked ready/);
+  });
+
   it('leaves a pull request that is ready as it is, and tells it in its body and comment', async () => {
     const batch = await brewed({
       implement: [cellar, behave.blocked('environment', 'No disk left')],
@@ -437,6 +479,16 @@ describe('which batches have ended, for their status comment', () => {
     return {
       add: (...more: Event[]) => log.push(...more),
       due,
+      /** Applies the revision due, as it is. */
+      shown: async () => {
+        const [key] = due();
+        assert.ok(key !== undefined);
+        const applied = await effects.target.apply(
+          effectKey.encode(key),
+          AbortSignal.timeout(5_000),
+        );
+        record(Number(key.effect.split('.')[1]), applied);
+      },
       /** Applies the revision due, then records another that showed an older version's text. */
       written: async () => {
         const [key] = due();
@@ -537,5 +589,55 @@ describe('which batches have ended, for their status comment', () => {
     await log.written();
     log.add({ type: 'batch.ordered', batchId: 'b2', order: { issue: 1 }, routeBy });
     assert.deepEqual(log.due(), []);
+  });
+});
+
+describe('what a skip records in the fold', () => {
+  const routeBy = '2026-11-07T13:00:00.000Z';
+  const ordered: Event = { type: 'batch.ordered', batchId: 'b1', order: { issue: 1 }, routeBy };
+  const chosen = (recipe: string): Event => ({
+    type: 'batch.recipe_chosen',
+    batchId: 'b1',
+    recipe,
+    reason: 'label',
+    source: 'label',
+  });
+  /** `stepId`'s attempt that failed, and the batch Stuck on it. */
+  const stuckOn = (stepId: string): Event[] => {
+    const step = { batchId: 'b1', stepId, attempt: 1 };
+    return [
+      { type: 'step.scheduled', ...step, deadlineAt: routeBy },
+      { type: 'step.started', ...step },
+      {
+        type: 'step.finished',
+        ...step,
+        outcome: { kind: 'failed', retryable: false, reason: 'It failed' },
+      },
+      {
+        type: 'batch.stuck',
+        batchId: 'b1',
+        reason: { kind: 'blocked', stepId, blockerKind: 'environment', summary: 'It failed' },
+        options: ['skip'],
+        remindAt: routeBy,
+      },
+    ];
+  };
+  const skip: Event = {
+    type: 'batch.resumed',
+    batchId: 'b1',
+    by: 'ada',
+    via: 'terminal',
+    action: 'skip',
+  };
+  const pastIn = (...events: Event[]) => {
+    const batch = fold([ordered, ...events]).batches.get('b1');
+    assert.ok(batch !== undefined);
+    return pastBySkip(batch).map(({ stepId }) => stepId);
+  };
+
+  it('does not count a step of a recipe the batch left', () => {
+    assert.deepEqual(pastIn(chosen('a'), ...stuckOn('x'), chosen('b'), ...stuckOn('y'), skip), [
+      'y',
+    ]);
   });
 });
