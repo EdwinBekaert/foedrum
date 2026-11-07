@@ -413,10 +413,13 @@ describe('tasting-compare --real', () => {
     it('a transcript that cannot be read stops the comparison, and a read outside fails only its run', () => {
       const brewed = tasted('correctness', { findings: [] });
       const lost = realRecordOf(brewed, () => undefined);
-      assert.match(comparisonStop(lost) ?? '', /correctness: .*transcript could not be found/);
+      assert.match(
+        comparisonStop({ setup: '855-reads', ...lost }) ?? '',
+        /correctness: .*transcript could not be found/,
+      );
 
       const outside = realRecordOf(brewed, () => transcript(read(OUTSIDE), outDoc));
-      assert.equal(comparisonStop(outside), undefined);
+      assert.equal(comparisonStop({ setup: '855-reads', ...outside }), undefined);
       const run: RealRecord = { ...record('855-today', 1, 'x'), attempts: outside.attempts };
       assert.deepEqual(nextRealRun([run], 1), { setup: '855-today', run: 1, retry: true });
     });
@@ -430,7 +433,7 @@ describe('tasting-compare --real', () => {
         transcript({ name: 'Bash', input: { command: 'cat x' } }, outDoc),
       ]) {
         const reading = realRecordOf(tasted('security', { findings: [] }), () => text);
-        assert.match(comparisonStop(reading) ?? '', /^security: /, text);
+        assert.match(comparisonStop({ setup: '855-reads', ...reading }) ?? '', /^security: /, text);
       }
     });
 
@@ -442,7 +445,10 @@ describe('tasting-compare --real', () => {
         attempt: 1,
         outcome: { kind: 'failed', retryable: false, reason: 'it stalled' },
       });
-      assert.equal(comparisonStop(realRecordOf([failed], () => undefined)), undefined);
+      assert.equal(
+        comparisonStop({ setup: '855-reads', ...realRecordOf([failed], () => undefined) }),
+        undefined,
+      );
     });
 
     it('a stop keeps a tool name from forging a line of the output', () => {
@@ -450,8 +456,8 @@ describe('tasting-compare --real', () => {
       const reading = realRecordOf(tasted('security', { findings: [] }), () =>
         transcript(forged, outDoc),
       );
-      assert.doesNotMatch(comparisonStop(reading) ?? 'none', /\n/);
-      assert.match(comparisonStop(reading) ?? '', /forged line/);
+      assert.doesNotMatch(comparisonStop({ setup: '855-reads', ...reading }) ?? 'none', /\n/);
+      assert.match(comparisonStop({ setup: '855-reads', ...reading }) ?? '', /forged line/);
     });
 
     it('takes the out doc body from the transcript, past its frontmatter', () => {
@@ -1294,6 +1300,13 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     const ranOn = (setup: RealSetup, ...models: (readonly string[])[]) => ({
       setup,
       attempts: models.map((each, at) => attempt(`taster-${at}`, [], { models: each })),
+    });
+
+    it('the stop of a run reads the model its transcript names', () => {
+      const brewed = tasted('correctness', { findings: [] });
+      const opus = realRecordOf(brewed, () => on(transcript(outDoc), 'claude-opus-5-5'));
+      assert.match(comparisonStop({ setup: '855-reads', ...opus }) ?? '', /claude-opus-5-5/);
+      assert.equal(comparisonStop({ setup: '855-opus', ...opus }), undefined);
     });
 
     it('a run on the model its setup asked for stops nothing', () => {

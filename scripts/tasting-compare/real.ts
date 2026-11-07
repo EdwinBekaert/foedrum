@@ -457,7 +457,9 @@ export const realRecordOf = (
  * Why the comparison must stop, or undefined: a transcript that cannot say is the harness's, not the
  * Taster's, so running on would spend sessions on nothing (ADR 0332). A read outside fails only its run.
  */
-export const comparisonStop = ({ attempts }: Pick<RealRecord, 'attempts'>): string | undefined => {
+export const comparisonStop = ({
+  attempts,
+}: Pick<RealRecord, 'setup' | 'attempts'>): string | undefined => {
   const lost = attempts.find(({ unreadable }) => unreadable !== undefined);
   return lost === undefined ? undefined : escapeCell(`${lost.stepId}: ${lost.unreadable}`);
 };
