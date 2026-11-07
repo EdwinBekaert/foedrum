@@ -175,10 +175,11 @@ describe('foedrum status of a batch on tap, by how its pull requests ended', () 
     assert.doesNotMatch(detail, /\bdone\b/i);
   });
 
-  it('reads as done, the status comment’s word, when every pull request merged', () => {
+  it('foedrum status of a batch whose pull requests all merged says merged and not done', () => {
     const detail = detailOf(onTap([first, second], { [first]: 'merged', [second]: 'merged' }));
-    assert.match(detail, /\bdone\b/i);
-    assert.ok(detail.includes(first) && detail.includes(second), detail);
+    assert.match(saidOf(detail, first, second), /merged/);
+    assert.match(saidOf(detail, second), /merged/);
+    assert.doesNotMatch(detail, /done/i);
   });
 
   it('says it in the board of an order too', () => {
