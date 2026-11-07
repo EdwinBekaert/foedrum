@@ -1223,11 +1223,14 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
     }
   });
 
-  it('the other setups name no model and no other effort: regression test', () => {
+  it('the other setups write no models.jsonc, and only today replaces the Taster: regression test', () => {
     for (const setup of ['855-today', '855-reads', '855-lens', '867-comments'] as const) {
       assert.equal(realBreweryFiles(setup, REAL_TASTERS)['models.jsonc'], undefined, setup);
     }
     assert.equal(realBreweryFiles('855-today', REAL_TASTERS)['brewers/taster.md'], 'the old text');
+    for (const setup of ['855-reads', '855-lens', '867-comments'] as const) {
+      assert.equal(realBreweryFiles(setup, REAL_TASTERS)['brewers/taster.md'], undefined, setup);
+    }
   });
 
   describe('the high Taster', () => {
@@ -1368,7 +1371,7 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.equal((stop ?? '').includes(separator ?? 'none'), false);
     });
 
-    it('a dry run of each setup passes its own check, and no other', () => {
+    it("a dry run's transcript on opus passes an opus setup's check and stops a reads setup's: regression test", () => {
       const dry = (model: string) => transcriptReads(scriptedTranscript(WORKTREE, model), WORKTREE);
       const attempts = [attempt('security', [], { models: dry('opus').models ?? [] })];
       assert.equal(modelStop({ setup: '855-opus', attempts }), undefined);
