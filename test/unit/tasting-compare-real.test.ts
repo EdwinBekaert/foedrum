@@ -1740,6 +1740,18 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
       assert.match(table, /\| 855-opus \| 0 \| 0 \| 0 \| 0 of 0 \|/);
     });
 
+    it('the table counts an instruction file opened in another case, as Windows and macOS open it', () => {
+      const run: RealRecord = {
+        ...record('855-opus-bare', 1, 'x'),
+        attempts: [
+          attempt('correctness', [], { opened: ['claude.md'] }),
+          attempt('acceptance', [], { opened: ['Agents.MD'] }),
+          attempt('security', [], { opened: ['docs/claude.md', 'claude.md.bak'] }),
+        ],
+      };
+      assert.match(realTable([run]), /\| 855-opus-bare \| 1 \| 0 \| 0 \| 2 of 3 \|/);
+    });
+
     it('the dry run plays the together Taster with a finding of each lens, each naming it', () => {
       const [turn] = scriptedRealTastings('src/a.ts').together ?? [];
       assert.deepEqual(
@@ -1752,13 +1764,52 @@ describe('tasting-compare --real: the opus and high setups (ADR 0344)', () => {
   describe('--comparison (ADR 0347)', () => {
     it('a comparison has a folder of its own under the real folder', () => {
       assert.deepEqual(realFolders(undefined), ['real']);
-      assert.deepEqual(realFolders('933'), ['real', '933']);
-      assert.deepEqual(realFolders('bare-and-together'), ['real', 'bare-and-together']);
+      assert.deepEqual(realFolders('933'), ['real', 'comparisons', '933']);
+      assert.deepEqual(realFolders('bare-and-together'), [
+        'real',
+        'comparisons',
+        'bare-and-together',
+      ]);
+    });
+
+    it("a comparison's folder is never one the plain real run keeps: its dry run, lists, bodies or a run's scratch", () => {
+      for (const name of ['dry-run', 'lists', 'bodies', '855-reads-1', '867-opus-bare-2-retry']) {
+        const folders = realFolders(name);
+        assert.deepEqual(folders.slice(0, -1), ['real', 'comparisons'], name);
+        assert.equal(folders.at(-1), name);
+      }
     });
 
     it('refuses a name with a path part, or none', () => {
       for (const name of ['', '..', '../933', '933/x', '933\\x', 'C:', '.', '~', 'a b', '-933']) {
         assert.throws(() => realFolders(name), /--comparison/, name);
+      }
+    });
+
+    it('refuses a name in capitals, as Windows and macOS would read Bare as bare', () => {
+      for (const name of ['Bare', 'BARE', 'bare-A', 'A933']) {
+        assert.throws(() => realFolders(name), /--comparison/, name);
+      }
+      assert.deepEqual(realFolders('bare').at(-1), 'bare');
+    });
+
+    it('refuses a Windows device name, and takes a name that only starts like one', () => {
+      for (const name of [
+        'con',
+        'prn',
+        'aux',
+        'nul',
+        'com0',
+        'com1',
+        'com9',
+        'lpt0',
+        'lpt1',
+        'lpt9',
+      ]) {
+        assert.throws(() => realFolders(name), /--comparison/, name);
+      }
+      for (const name of ['console', 'com10', 'lpt10', 'nul-933', 'auxiliary', 'com']) {
+        assert.equal(realFolders(name).at(-1), name, name);
       }
     });
 
